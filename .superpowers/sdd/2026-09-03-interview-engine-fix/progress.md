@@ -243,7 +243,120 @@ review as a product question.
 Not run (per Global Constraints): full backend suite, unfiltered Playwright.
 No live-browser check — same tooling gap as Phases A+B.
 
-## Phase D — L2.5: Reduce the widget to a picker (Tasks 15-17) — NOT STARTED
+## Phase D — L2.5: Reduce the widget to a picker (Tasks 15-17) — COMPLETE
+
+Executed 2026-09-11 by a `senior-developer` dispatch (single execution, no
+per-task reviewer subagent — same caveat as Phases A-C). Independent review
+of this phase is still owed.
+
+**Carry-forward F6 (from the Phase C re-review, routed here): FIXED.**
+Commit `47946765`, one guard plus one test. `_compress_transcript_if_needed`
+sliced `len(overflow)` off the transcript unconditionally after F4's
+`refresh_from_db()`. `transcript` only grows by appending — *except* when a
+second compression run replaces it with a shorter tail. In that case the
+slice deleted live turns and overwrote the newer digest with one built from
+a stale `previous_summary`. A shorter row after the provider call now means
+"someone else compressed" and this run's digest is discarded.
+- New test `TestCompressionConcurrency::
+  test_a_concurrent_compression_is_not_overwritten` drives a second request
+  that completes the whole compression from inside `provider.complete`'s
+  side effect. **Verified non-vacuous:** with the guard temporarily
+  neutralised (`if False and ...`) it fails with
+  `assert 'Digest written by this request.' == 'Digest written by the other
+  request.'`; restored, 25/25 in the module pass.
+
+**Task 15 (`/interviews?start=multi`): complete.** Commit `bd1f0eab`.
+11/11 in `InterviewEditors.test.tsx` (2 new, both red first).
+- `MULTI_START_PARAM` is exported from `InterviewEditors.tsx` at module
+  scope exactly as the plan prescribes; the plan's separate "replace
+  handleStart and the effect" snippet declares it *inside* the component too
+  — only the module-scope one exists (an internal inconsistency in the
+  plan's own snippet).
+- **Deviation (test data):** the plan's test bodies assume `activeWorkspace.
+  id === "ws-1"`; this file's existing `useWorkspace` mock is `"ws-001"`,
+  and the plan itself says to reuse the existing mock verbatim — so the
+  assertions use `"ws-001"` and the file's own `renderPage()` helper
+  (QueryClientProvider + the two `/interviews` routes) instead of a bare
+  MemoryRouter.
+- The plan's second test ("ignores an unknown `?start=` value") already
+  existed verbatim (`?start=NotARealType`, line 216) — not duplicated.
+- Second new test covers the picker-dialog button the plan adds in Step 3,
+  which its own step list never asserted.
+
+**Task 16 (widget reduced to a quick entry point): complete.** Commit
+`bd59fca8`. 12/12 in `InterviewWidget.test.tsx`, 45/45 across
+`InterviewWidget/` + `InterviewEditors/` + `i18n-parity`.
+- Widget rewritten per the plan's full replacement: no `session`/
+  `sessionKind`/`starting` state, no `InterviewChatPane`/
+  `InterviewArtifactPane` hosting, `goToInterview()` closes the panel
+  (persisting `false`) and navigates. Test ids unchanged.
+- **Deviation (test harness, unavoidable):** the plan says to keep the
+  existing toggle/localStorage tests "unchanged". Impossible — `useNavigate`
+  throws outside a router, so every bare `render(<InterviewWidget />)` had to
+  become a `renderWidget()` helper that wraps it in `MemoryRouter`. The
+  assertions themselves are untouched.
+- **Deviation (CSS token):** `--color-text-secondary` does not exist in
+  `tokens.css` (same finding as Task 10) — used `--color-text-muted`. The
+  `.hint` padding sits on the rule itself rather than a bottom margin,
+  because `.panel` has no padding of its own (the old body was the
+  self-padding `.startRow`).
+- `interview.widget.hint` added to both locales; `i18n-parity` green.
+- Step 6 verified: `tsc --noEmit` shows **no** error from this change (the
+  only interview-related entry is the pre-existing `toggle-style.test.ts`
+  `Cannot find module 'fs'`, same class as the ledger's earlier
+  `node:fs`/`__dirname` note); the pane grep shows
+  `InterviewEditors/InterviewDetail.tsx:139/143` as the remaining consumer of
+  both, i.e. nothing over-deleted. `eslint` on the four touched files: 0
+  errors (7 pre-existing-style `no-explicit-any` warnings in the test file).
+- Confirmed the plan's V9 ruling still holds: the per-page "create it in a
+  guided dialog" CTA is `shared/useInterviewStartCta.ts`, which already
+  navigates to `/interviews?start=<Type>` with the page's own type. The
+  widget deliberately does **not** reuse that hook — the hook's parameter is
+  typed `InterviewArtifactType`, which by design cannot express `multi`.
+
+**Task 17 (frontend regression sweep + targeted E2E): complete except the
+E2E step.** No source change was needed; no commit of its own beyond this
+ledger entry.
+- Step 1, full `vitest run`: **1599 tests passed, 200/201 files**. The one
+  failed *suite* is `src/test/theme-contrast.test.ts`, which fails at import
+  time on `ENOENT /backend/admin_ops/fixtures/themePalettes.light.json` — the
+  pre-existing container-mount gap already recorded under Task 10, unrelated
+  to this change. **0 new failures.** (The plan's "~14 pre-existing failures"
+  is stale; the real local baseline is this single suite.)
+- Step 2, E2E grep: the only hit in `e2e/tests/` is
+  `visual-regression.spec.ts:24` `['interviews', '/interviews']`, exactly as
+  the plan predicted. A second grep for `interview-widget` /
+  `interview-chat` / `interview-artifact` / `interview-start` across all of
+  `e2e/` returns **nothing** — no spec asserts a widget-hosted chat, so no
+  spec needed updating.
+- **Step 3 (targeted Playwright run): NOT RUN — reported, not skipped
+  silently.** Two independent blockers in this worktree: `e2e/node_modules`
+  does not exist (no local `@playwright/test` binary, and the plan explicitly
+  forbids falling back to a root-level one at another version), and no app
+  stack is up here (`docker ps` shows only `postgres` + `redis` — no
+  `backend`, no `frontend`), so there is nothing for a spec to navigate to.
+  This dispatch also has no browser tool, so the plan's **Step 7 manual
+  walkthrough of Task 16 is equally unverified**: the panel-closes-on-
+  navigate, URL-becomes-`/interviews/{id}` and 1366/1920 px layout checks are
+  covered only by jsdom component tests (real render + real DOM assertions
+  for the first two, nothing at all for the viewport check). Same gap as
+  Task 10 Step 7 and both fix rounds.
+- Step 4, backend interview surface (`application/tests/ persistence/tests/
+  test_interview_session_model.py rest_api/tests/ mcp_server/tests/ -k
+  interview`): **283 passed**, 4144 deselected in 71.60s.
+
+### Verification (Phase D, real output)
+
+| Scope | Result |
+|---|---|
+| `application/tests/test_interview_transcript_cap.py` (F6) | **25 passed** in 37.11s |
+| same module with the F6 guard neutralised | **1 failed, 1 passed** (red-first proof) |
+| vitest `src/components/InterviewEditors/` | **11 passed** |
+| vitest `InterviewWidget/` + `InterviewEditors/` + `i18n-parity` | **7 files / 45 tests passed** |
+| vitest full suite (`npx vitest run`) | **1599 passed**, 200/201 files (1 pre-existing env failure) |
+| `tsc --noEmit` / `eslint` on the touched frontend files | no new errors |
+| backend interview surface (`-k interview`, 4 test roots) | **283 passed**, 4144 deselected |
+| Playwright (targeted, `visual-regression.spec.ts --grep interviews`) | **not run** — no `e2e/node_modules`, no running app stack |
 
 ## Task 18 — GlossaryTerm registry entry — ALREADY RESOLVED, no task needed
 
@@ -486,29 +599,71 @@ in a browser needs a real provider configured.
 Not run (unchanged from the Global Constraints): the full backend suite and
 any unfiltered Playwright run — CI's job.
 
+## Final self-check across all 18 tasks (2026-09-11, after Phase D)
+
+Checked against the plan's own "Self-Review → 1. Spec coverage" matrix
+(`docs/superpowers/plans/2026-09-03-interview-engine-fix.md`, near the end —
+the plan has no separate Definition-of-Done section, and its `- [ ]` step
+checkboxes were never ticked by any phase; this ledger is the tracking
+record).
+
+| Spec row | Task(s) | State |
+|---|---|---|
+| §3 L2.1 single-kind path via `ARTIFACT_CREATION_ADAPTERS` | 1-5 | done, `cb9b4632` (+ fix round 1 `d5b3f7f1`) |
+| §3 L2.1 per-type regression round trip | 6 | done, 8 types × 2 protocol tiers |
+| §3 L2.1 `GlossaryTerm` | 18 | resolved: precondition met via PR #880, registry entry already creates; **deliberately NOT added to `IN_SCOPE_ARTIFACT_TYPES`** (product decision, see the Task 18 section above) |
+| §4 L2.3 provenance row + badge | 8, 9, 10 | done |
+| §4 L2.3 badge links to `/interviews/{id}` | 10 | done (expanded inspector only — M-5 open as a UX question) |
+| §5 L2.4 `transcript_summary` field | 11 | done, migration `0083` |
+| §5 L2.4 sliding window + LLM compression | 12, 13 | done (+ F1/F2/F3/F4 fix round, + F6 this phase) |
+| §5 L2.4 prompt context = summary + window | 14 | done |
+| §6 L2.5 `/interviews` is the full surface | 15, 16 | done |
+| §6 L2.5 widget reduced, chat code removed | 16 | done |
+| §6 L2.5 picker closes on navigation + `aria-label` | 16 | done (`role="group"` + `aria-label`, panel closes and persists `false`) |
+| §6 L2.5 "Per Interview erstellen" preselects the type | none (V9) | confirmed still true (`shared/useInterviewStartCta.ts`) |
+| §7 LLM failure never blocks the interview | 13, 14 | done, best-effort contract now covers the whole compressor body |
+
+**Verdict: the plan is functionally complete.** All 18 tasks are either
+implemented or explicitly resolved (18), with every automated gate green.
+
+**What is NOT covered by any verification on this branch, in full:**
+1. **No live-browser verification, anywhere.** Task 10 Step 7, Task 16 Step 7
+   and the two fix rounds' UI checks were all skipped for the same reason (no
+   browser tooling in any dispatch; no app stack running in this worktree).
+   Every UI claim rests on jsdom component tests.
+2. **No Playwright run of any kind** — targeted or full (`e2e/node_modules`
+   absent here; a full run needs explicit user approval anyway). No E2E spec
+   references a moved surface, so the exposure is low, but it is untested.
+3. **No full backend suite run** — per Global Constraints that is CI's job;
+   local runs were scoped to touched modules + dependents throughout.
+4. **No independent per-task review of Phase D** (Phases A-C each had one
+   review + fix round; this phase has had none yet).
+
 ## What's left for whoever resumes this
 
 1. ~~**Phase C (Tasks 11-14, transcript cap)**~~ — DONE 2026-09-11, see the
    Phase C section above; reviewed and fixed in fix round 2 (`aa51608f`).
    The open product question is resolved: `transcript_summary` is now exposed
    through `get_state()` and rendered as a collapsed block in the chat pane.
-2. **Phase D (Tasks 15-17, widget reduction)** — frontend-only, needs the
-   same `docker compose restart frontend` + manual browser check this
-   execution could not do for Task 10 either.
-3. **A real task/final review pass** — this execution self-tested every
-   task but had no independent reviewer subagent (see execution-mode note
-   at the top). Before merge, run at minimum the plan's own final
-   whole-branch review step, and ideally the live-browser checks this
-   execution skipped (Task 10 Step 7, and whatever Phase D's manual UI
-   verification calls for).
-4. **Full backend + frontend suite**, not just the targeted modules this
-   execution ran (Global Constraints scope local runs to touched
+2. ~~**Phase D (Tasks 15-17, widget reduction)**~~ — DONE 2026-09-11, see the
+   Phase D section above. Still owed from it: the live-browser walkthrough
+   (Task 16 Step 7, incl. the 1366/1920 px layout check) and the targeted
+   Playwright spec (Task 17 Step 3) — neither was reachable here.
+3. **A real task/final review pass** — no phase was reviewed by its own
+   implementer's dispatch. Phases A-C have had one independent review + fix
+   round each; **Phase D has had none yet**. Before merge, run the plan's
+   final whole-branch review step plus the live-browser checks every dispatch
+   so far had to skip.
+4. **Full backend + frontend suite**, not just the targeted modules these
+   executions ran (Global Constraints scope local runs to touched
    modules+dependents — CI's job to run the full suite, per the plan's own
-   Global Constraints).
+   Global Constraints). The full *frontend* suite has since been run once, in
+   Phase D Task 17 (1599 passed).
 
 Commits on `feat/interview-engine-fix`, in order: `28440fa8` → `38420a0` →
 `cb9b4632` → `68a53bf` → `709bf08` → `9430183` → `d6fbb1e4` → (fix round 1)
 `d5b3f7f1` → `0014359d` → `bc44b64f` → (Phase C) `804c047b` → `e173fc1f` →
-`b457c67a` → `9b7b3d24` → `a1526b53` → (fix round 2) `aa51608f`.
+`b457c67a` → `9b7b3d24` → `a1526b53` → (fix round 2) `aa51608f` →
+`1b6c6393` → (Phase D) `47946765` → `bd1f0eab` → `bd59fca8`.
 Not pushed, no PR opened — per
 directive, that decision belongs to the parent/user.
