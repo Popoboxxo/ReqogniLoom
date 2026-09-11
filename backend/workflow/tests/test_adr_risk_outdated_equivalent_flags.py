@@ -53,9 +53,12 @@ def test_adr_default_flags_both_dead_end_states() -> None:
 def test_risk_default_flags_closed_but_not_mitigated() -> None:
     """"Closed" is the terminal disposition; "Mitigated" is a genuine steady
     state and must stay reachable by the auto-approve walk."""
+    # KI-Vorschlag-als-Zustand spec §4.1: risk_default is not in
+    # _PROPOSED_REJECT_STATE, so it gets a new "rejected" terminal (same flag).
     assert PRESET_SCHEMAS["risk_default"]["state_meta"] == {
         "Mitigated": {"auto_approve_target": True},
         "Closed": {"is_outdated_equivalent": True},
+        "rejected": {"is_outdated_equivalent": True},
     }
 
 

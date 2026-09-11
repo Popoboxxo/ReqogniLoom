@@ -92,6 +92,7 @@ class StateLifecycleManager:
         item_ids: list[UUID],
         item_type: str,
         workspace_id: UUID,
+        initial_state: str | None = None,
     ) -> list[WorkflowItemState]:
         """Create initial WorkflowItemState records for all item_ids.
 
@@ -104,6 +105,10 @@ class StateLifecycleManager:
             item_ids:     List of item UUIDs to initialise.
             item_type:    Entity type string.
             workspace_id: Workspace UUID.
+            initial_state: Overrides the definition's own initial state. Used
+                by the agent-proposal path (spec §4.2), which seeds "proposed"
+                instead. None keeps the historical behaviour for every other
+                caller.
 
         Returns:
             List of created WorkflowItemState instances.
@@ -116,7 +121,8 @@ class StateLifecycleManager:
 
         # IF-WE-INT-003 — query COMP-WE-001 for initial_state
         dto = self._store.get_definition(workspace_id, item_type)
-        initial_state = dto.initial_state
+        if initial_state is None:
+            initial_state = dto.initial_state
 
         # Resolve the definition ORM record for the FK
         definition_record = WorkflowEngineDefinition.objects.filter(

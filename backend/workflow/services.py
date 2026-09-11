@@ -506,6 +506,47 @@ def reactivate(
     )
 
 
+def initial_state_for(
+    ctx: AuthContext, item_type: str, workspace_id: UUID | str
+) -> str:
+    """Return the workflow state a newly created item must start in (spec §4.2).
+
+    An artifact created by an ``actor_type="agent"`` principal starts in
+    ``"proposed"`` — but only when the workspace's resolved graph for this item
+    type actually knows that state. A ``minimal``-preset workspace, or one whose
+    admin removed the state from its customized definition, keeps the normal
+    initial state; graph membership is the ONLY switch (no preset lookup here).
+
+    This is the single seam the spec's risk section demands: every ``create_X()``
+    service reaches the workflow engine through
+    :func:`initialize_workflow_states`, which calls this. There is no per-service
+    copy to forget.
+
+    Never raises: the ``create_X()`` callers swallow workflow-init exceptions, so
+    a raise here would silently produce artifacts with no workflow state at all.
+    An unresolvable definition degrades to ``"draft"``, which is what the caller
+    would have got before this feature existed.
+
+    Args:
+        ctx: The resolved request identity.
+        item_type: Entity type (e.g. "Requirement").
+        workspace_id: Workspace the item belongs to.
+
+    Returns:
+        The state name to seed ``WorkflowItemState.current_state`` with.
+    """
+    from .definition_store import PROPOSED_STATE
+
+    try:
+        dto = _get_store().get_definition(UUID(str(workspace_id)), item_type)
+    except Exception:  # noqa: BLE001 — see the docstring: never raise
+        return "draft"
+
+    if ctx.actor_type == "agent" and PROPOSED_STATE in dto.states:
+        return PROPOSED_STATE
+    return dto.initial_state
+
+
 def initialize_workflow_states(
     item_ids: list[UUID | str],
     item_type: str,
@@ -535,6 +576,7 @@ def initialize_workflow_states(
         item_ids=uuid_ids,
         item_type=item_type,
         workspace_id=workspace_uuid,
+        initial_state=initial_state_for(ctx, item_type, workspace_uuid),
     )
 
 
@@ -1169,6 +1211,7 @@ __all__ = [
     "outdate",
     "reactivate",
     "initialize_workflow_states",
+    "initial_state_for",
     "get_definition",
     "get_workflow_json",
     "get_available_transitions",
