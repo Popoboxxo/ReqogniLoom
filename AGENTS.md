@@ -575,6 +575,8 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 
 | `agent-meta-scout` | Claude-Ökosystem scouten: neue Skills, Rollen, Rules |
 
+| `ai-security-guardian` | KI-spezifische Sicherheitsrisiken: halluzinierte Deps, fabrizierte IAM, unsichere Defaults |
+
 | `api-specialist` | OpenAPI/Contract-First API Design, Schnittstellen-Spezifikationen |
 
 | `bug-feature-analyzer` | Issue-Triage: Eingehende Bug-Meldungen, Feature-Requests analysieren, k |
@@ -583,11 +585,15 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 
 | `concept-reviewer` | Konzept-Critic: reviewt Design-Docs, Konzepte auf Vollständigkeit, Logik |
 
+| `concept-specifier` | Technische Spezifikationen aus Anforderungen, Codebase-Kontext — implementiert nicht |
+
 | `data-engineer` | ETL/ELT-Pipelines, Schema-Migration (Datenebene), Data-Quality-Checks |
 
 | `database-engineer` | Relationales Schema-Design, Datenbank-Migrationen, Query-Optimierung |
 
 | `dependency-auditor` | Supply-Chain-Hygiene: SBOM-Analyse, Lizenz-Kompatibilität, Version-Drift und |
+
+| `design-system-architect` | Design-System-Schema → echte Token-Artefakte, Farbharmonie, Variant-Contracts |
 
 | `developer` | Feature-Implementierung, Bugfixes |
 
@@ -606,6 +612,8 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 | `export-manager` | Target-agnostischer Output-Router: Markdown, Confluence, Jira-Xray |
 
 | `feedback` | Projekt-Feedback standardisieren: Bugs, Features, Verbesserungen als GitHub I |
+
+| `frontend-component-engineer` | Screen-Spec + Token-Contract → produktionsreife UI-Komponenten |
 
 | `git` | Commits, Branches, Tags |
 
@@ -641,6 +649,10 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 
 | `principal-developer` | Last-Resort-Eskalationsstufe |
 
+| `prompt-engineer` | Der ultimative Experte für Prompt-Engineering |
+
+| `prompt-governor` | Prompt-Governance: PromptBOM, Audit-Trail, Provenance |
+
 | `refactoring-specialist` | Systematische großflächige Code-Transformation mit Sicherheitsnetz: Strangler |
 
 | `release` | Versioning, Changelog, Build-Artifact |
@@ -673,11 +685,15 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 
 | `se-verifier` | Multi-Level Verification (L1-Ln): Prüft integrierte Systeme gegen Architektur |
 
+| `security-auditor` | Sicherheits-Audit: OWASP, Secrets, Dependencies |
+
 | `senior-developer` | Komplexe Features, Architektur-Entscheidungen, schwierige Bugs |
 
 | `sre-engineer` | Proaktive Reliability-Disziplin: SLI/SLO-Definition, Error-Budgets, Capacity |
 
 | `technical-writer` | Externe entwickler, nutzergerichtete Doku: API-Referenzen, Getting-Starte |
+
+| `test-executor` | Bestehende Test-Suiten ausführen — kein Test-Design, kein Code-Schreiben |
 
 | `tester` | TDD, Test-Suite ausführen, Testabdeckung sichern |
 
@@ -726,13 +742,16 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `accessibility-specialist.md` → registriere als `accessibility-specialist`
    - `agent-meta-manager.md` → registriere als `agent-meta-manager`
    - `agent-meta-scout.md` → registriere als `agent-meta-scout`
+   - `ai-security-guardian.md` → registriere als `ai-security-guardian`
    - `api-specialist.md` → registriere als `api-specialist`
    - `bug-feature-analyzer.md` → registriere als `bug-feature-analyzer`
    - `code-reviewer.md` → registriere als `code-reviewer`
    - `concept-reviewer.md` → registriere als `concept-reviewer`
+   - `concept-specifier.md` → registriere als `concept-specifier`
    - `data-engineer.md` → registriere als `data-engineer`
    - `database-engineer.md` → registriere als `database-engineer`
    - `dependency-auditor.md` → registriere als `dependency-auditor`
+   - `design-system-architect.md` → registriere als `design-system-architect`
    - `developer.md` → registriere als `developer`
    - `devops-engineer.md` → registriere als `devops-engineer`
    - `docker.md` → registriere als `docker`
@@ -742,6 +761,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `explorer.md` → registriere als `explorer`
    - `export-manager.md` → registriere als `export-manager`
    - `feedback.md` → registriere als `feedback`
+   - `frontend-component-engineer.md` → registriere als `frontend-component-engineer`
    - `git.md` → registriere als `git`
    - `ideation.md` → registriere als `ideation`
    - `incident-responder.md` → registriere als `incident-responder`
@@ -759,6 +779,8 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `orchestrator.md` → registriere als `orchestrator`
    - `performance-optimizer.md` → registriere als `performance-optimizer`
    - `principal-developer.md` → registriere als `principal-developer`
+   - `prompt-engineer.md` → registriere als `prompt-engineer`
+   - `prompt-governor.md` → registriere als `prompt-governor`
    - `refactoring-specialist.md` → registriere als `refactoring-specialist`
    - `release.md` → registriere als `release`
    - `requirements.md` → registriere als `requirements`
@@ -775,9 +797,11 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `se-testreviewer.md` → registriere als `se-testreviewer`
    - `se-validator.md` → registriere als `se-validator`
    - `se-verifier.md` → registriere als `se-verifier`
+   - `security-auditor.md` → registriere als `security-auditor`
    - `senior-developer.md` → registriere als `senior-developer`
    - `sre-engineer.md` → registriere als `sre-engineer`
    - `technical-writer.md` → registriere als `technical-writer`
+   - `test-executor.md` → registriere als `test-executor`
    - `tester.md` → registriere als `tester`
    - `ui-ux-designer.md` → registriere als `ui-ux-designer`
    - `validator.md` → registriere als `validator`
@@ -787,13 +811,16 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="accessibility-specialist", ...)
    define_subagent(name="agent-meta-manager", ...)
    define_subagent(name="agent-meta-scout", ...)
+   define_subagent(name="ai-security-guardian", ...)
    define_subagent(name="api-specialist", ...)
    define_subagent(name="bug-feature-analyzer", ...)
    define_subagent(name="code-reviewer", ...)
    define_subagent(name="concept-reviewer", ...)
+   define_subagent(name="concept-specifier", ...)
    define_subagent(name="data-engineer", ...)
    define_subagent(name="database-engineer", ...)
    define_subagent(name="dependency-auditor", ...)
+   define_subagent(name="design-system-architect", ...)
    define_subagent(name="developer", ...)
    define_subagent(name="devops-engineer", ...)
    define_subagent(name="docker", ...)
@@ -803,6 +830,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="explorer", ...)
    define_subagent(name="export-manager", ...)
    define_subagent(name="feedback", ...)
+   define_subagent(name="frontend-component-engineer", ...)
    define_subagent(name="git", ...)
    define_subagent(name="ideation", ...)
    define_subagent(name="incident-responder", ...)
@@ -820,6 +848,8 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="orchestrator", ...)
    define_subagent(name="performance-optimizer", ...)
    define_subagent(name="principal-developer", ...)
+   define_subagent(name="prompt-engineer", ...)
+   define_subagent(name="prompt-governor", ...)
    define_subagent(name="refactoring-specialist", ...)
    define_subagent(name="release", ...)
    define_subagent(name="requirements", ...)
@@ -836,9 +866,11 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="se-testreviewer", ...)
    define_subagent(name="se-validator", ...)
    define_subagent(name="se-verifier", ...)
+   define_subagent(name="security-auditor", ...)
    define_subagent(name="senior-developer", ...)
    define_subagent(name="sre-engineer", ...)
    define_subagent(name="technical-writer", ...)
+   define_subagent(name="test-executor", ...)
    define_subagent(name="tester", ...)
    define_subagent(name="ui-ux-designer", ...)
    define_subagent(name="validator", ...)
