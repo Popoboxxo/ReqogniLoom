@@ -373,12 +373,125 @@ automated coverage is green.
 Not run (unchanged from the Global Constraints): the full backend suite and
 any unfiltered Playwright run — CI's job.
 
+## Fix round 2 — review of Phase C (Tasks 11-14, CHANGES_REQUESTED), 2026-09-11
+
+Independent code review of Phase C (`bc44b64f..84be8bf3`) returned 1 blocker,
+1 major, 3 minor. All five fixed in commit `aa51608f`.
+
+**F1 (blocker) — the mock provider destroyed transcript history. FIXED.**
+`_compress_transcript_if_needed` only skipped when `_resolve_provider()`
+returned `None`. With `LLM_PROVIDER=mock` — the documented default of the
+whole dev stack, and what `settings_test`/`docker-compose.test.yml` set — it
+resolved a *live* `MockLlmProvider` instead. That provider has no branch for
+`purpose="interview.transcript_summary"` and falls through to its generic
+`json.dumps([])`, returning the literal `"[]"`. `"[]".strip()` is truthy, so
+the empty-summary guard did not catch it: `transcript_summary` was set to
+`"[]"` and every entry beyond the newest 20 was permanently deleted — real
+user messages included — violating the plan's own "no data loss, only
+deferred compression" constraint on the project's default configuration.
+- Fix: the identical guard this file already applies at
+  `_rank_candidates_with_ai` (issue #442 — "a configured mock provider is a
+  placeholder, not a real signal"), same constant (`MOCK_PROVIDER_NAME` from
+  `bundle_compression_service`), same variable (`provider_name`):
+  `if provider is None or provider_name == MOCK_PROVIDER_NAME:`.
+- **Why it was never caught:** all 13 existing tests patched
+  `_resolve_provider` with `(MagicMock(), "mock", None)` — a mock provider
+  *name* paired with a stub that answers anything. New test class
+  `TestRealMockProviderNeverCompresses` drives the real path instead
+  (`monkeypatch.setenv("LLM_PROVIDER", "mock")`, `_resolve_provider`
+  unpatched), asserts the resolution really does yield a usable mock provider
+  (so the test cannot pass for the wrong reason), and asserts the transcript
+  survives — both on the direct call and on a full `generate_chat_turn` with
+  *nothing* patched. A third test pins the hazard itself: `MockLlmProvider()
+  .complete(..., purpose="interview.transcript_summary") == "[]"`.
+- Existing tests now patch with `"anthropic"`; a module docstring note says
+  why, so the next person does not "fix" them back to `"mock"`.
+- **Consequence worth knowing:** on any mock deployment the transcript now
+  grows unbounded instead of being compressed. That is the correct trade
+  (the alternative was deleting it), and it means `transcript_summary` stays
+  `""` on the dev/E2E stack — the F5 affordance below is unreachable there
+  without a real provider configured.
+
+**F2 (major) — no budget/audit accounting on the compressor's call. FIXED.**
+It was the only `provider.complete()` in the file without an
+`is_over_daily_limit()` gate, `audit_logger.log_llm_call(...)` and
+`record_token_usage(...)`, while the file's own comments explain why it
+matters (this free-form flow bypasses `CapabilityRouter`, so nothing else
+enforces spend). Added in the shape of the neighbouring call sites, with one
+deliberate difference: the budget check **skips** (debug log + return, same
+as the provider-unavailable path) rather than raising, because compression is
+best-effort by contract and must never block a turn. `_set_tenant_context`
+moved up above the first audit write — `AuditLogWriter` drops the entry with
+a `RuntimeWarning` without an armed tenant context on the direct-call path.
+
+**F3 (minor) — "never raises" was not true. FIXED.** `_get_template_content`
+(a DB-backed override lookup), `_render` and `json.dumps(overflow)` sat
+outside the try, as did the `save()`. All of them run *after* the chat turn
+committed, so any exception turned a successful turn into a 500. The whole
+body is inside the try now (the `save()` too, beyond the reviewer's three
+lines — same failure class, same cost). Two tests: the compressor swallows a
+template-lookup failure, and `generate_chat_turn` still returns its reply
+when the summary template lookup raises.
+
+**F4 (minor) — concurrency window. FIXED.** `session.refresh_from_db(
+fields=["transcript"])` after the (up to ~25s) provider call. The final
+window is then `transcript[len(overflow):]` — everything the summary does not
+cover — rather than a fixed-size tail slice: `transcript` is append-only on
+every write path, so a raced-in turn is kept even though it pushes the result
+one entry past the window (the next turn folds it away). Test drives the race
+by appending a turn from inside `provider.complete`'s side effect.
+
+**F5 (scope) — `transcript_summary` was never surfaced. FIXED as
+recommended.** The reviewer's finding stands: this is not Phase-D-scoped
+(Phase D is widget/route work only) and not merely a resume-time issue —
+`InterviewChatPane.tsx` renders `state.transcript` from every turn's
+response, so a live conversation visibly loses its earlier messages the
+moment compression fires.
+- Backend: `transcript_summary` added as an additive key inside
+  `get_state()`'s single-mode dict — same precedent as `transcript` itself
+  ("Additive and harmless"). Task 14's "unchanged return shape" constraint is
+  about the top-level `{"reply", "state"}`, not about `state`'s own keys.
+  Verified that REST `_state_dict`, MCP `_handle_get_state` and
+  `generate_chat_turn`'s own return **all** read this one dict, so this is
+  the only place it needed adding. Multi-mode state dicts deliberately keep
+  their inline shape: compression only runs on the single-mode chat path.
+- Frontend: `transcript_summary?: string` on `InterviewState` (optional —
+  multi-mode payloads omit the key), and a collapsed `<details>` block
+  (`data-testid="interview-earlier-summary"`) above the live window, with a
+  new `interview.multi.earlierConversation` label in both locales.
+- Tests: backend round-trip through `get_state()` (populated, empty, and via
+  `generate_chat_turn`'s returned state); vitest for renders-when-present,
+  absent-when-empty-string, absent-when-key-missing, and
+  collapsed-by-default.
+
+**Browser verification: NOT DONE — no browser tooling in this dispatch
+either.** Same gap as fix round 1 and the Task 10 execution. The F5 pane
+change is covered by jsdom component tests (real render, real DOM queries)
+plus a clean `tsc`/`eslint` pass, not by a live browser. Note that a live
+check is not even reachable on the default stack after F1: with
+`LLM_PROVIDER=mock` the summary never populates, so exercising the affordance
+in a browser needs a real provider configured.
+
+### Verification (fix round 2, real output)
+
+| Scope | Result |
+|---|---|
+| `application/tests/test_interview_transcript_cap.py` | **24 passed** in 36.96s (0 warnings) |
+| `application/tests/ -k "interview or prompt_slot or prompt_variable or prompt_resolver or prompt_render"` + `persistence/tests/test_interview_session_{model,multi_mode}.py` | **282 passed**, 1567 deselected in 51.57s |
+| `rest_api/ mcp_server/ -k "prompt_template or prompt_slot or interview"` | **119 passed**, 2462 deselected in 57.36s |
+| vitest: `InterviewWidget` (4 suites), `WorkspaceSettings`, `i18n-parity` | **14 files / 90 tests passed** |
+| vitest: `ui-ratchet` | **10 passed** |
+| `tsc --noEmit` / `eslint` on the touched frontend files | clean (the only remaining errors are pre-existing `node:fs`/`__dirname` ones in untouched `src/test/*`) |
+
+Not run (unchanged from the Global Constraints): the full backend suite and
+any unfiltered Playwright run — CI's job.
+
 ## What's left for whoever resumes this
 
 1. ~~**Phase C (Tasks 11-14, transcript cap)**~~ — DONE 2026-09-11, see the
-   Phase C section above. One open product question left there
-   (`transcript_summary` is not exposed through `get_state`/REST/MCP, so a
-   resumed session's visible history is now capped too).
+   Phase C section above; reviewed and fixed in fix round 2 (`aa51608f`).
+   The open product question is resolved: `transcript_summary` is now exposed
+   through `get_state()` and rendered as a collapsed block in the chat pane.
 2. **Phase D (Tasks 15-17, widget reduction)** — frontend-only, needs the
    same `docker compose restart frontend` + manual browser check this
    execution could not do for Task 10 either.
@@ -396,5 +509,6 @@ any unfiltered Playwright run — CI's job.
 Commits on `feat/interview-engine-fix`, in order: `28440fa8` → `38420a0` →
 `cb9b4632` → `68a53bf` → `709bf08` → `9430183` → `d6fbb1e4` → (fix round 1)
 `d5b3f7f1` → `0014359d` → `bc44b64f` → (Phase C) `804c047b` → `e173fc1f` →
-`b457c67a` → `9b7b3d24` → `a1526b53`. Not pushed, no PR opened — per
+`b457c67a` → `9b7b3d24` → `a1526b53` → (fix round 2) `aa51608f`.
+Not pushed, no PR opened — per
 directive, that decision belongs to the parent/user.
