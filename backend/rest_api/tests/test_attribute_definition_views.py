@@ -83,6 +83,60 @@ def test_put_global_without_an_attributes_key_is_400(admin_client, seeded) -> No
 
 
 @pytest.mark.django_db
+def test_post_global_creates_an_extended_attribute(admin_client, seeded) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert "risk_comment" in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
+def test_post_global_rejects_a_colliding_name_with_400(admin_client, seeded) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"name": "title", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+def test_post_global_requires_admin(editor_client, seeded) -> None:
+    response = editor_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_delete_global_removes_an_extended_attribute(admin_client, tenant_fixture) -> None:
+    GlobalAttributeDefinitionStore().initialize(
+        tenant_fixture.id, "Risk", "standard",
+        [TITLE, {"name": "note", "kind": "extended", "type": "text"}],
+    )
+    response = admin_client.delete(
+        "/api/v1/attribute-defaults/Risk/standard/?name=note"
+    )
+    assert response.status_code == 200
+    assert "note" not in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
+def test_delete_global_rejects_a_core_attribute_with_400(admin_client, seeded) -> None:
+    response = admin_client.delete(
+        "/api/v1/attribute-defaults/Risk/standard/?name=title"
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
 def test_get_workspace_definition_is_open_to_a_non_admin(
     editor_client, workspace_fixture, seeded
 ) -> None:

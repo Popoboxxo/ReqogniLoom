@@ -39,6 +39,7 @@ from attribute_definitions.schema import (
     AttributeDefinitionConflictError,
     AttributeSchemaError,
     stored_attributes,
+    validate_new_attribute_name,
 )
 from attribute_definitions.workspace_definition_store import (
     WorkspaceAttributeDefinitionStore,
@@ -295,6 +296,83 @@ class AttributeDefinitionService(ServiceBase):
             )
         invalidate_workspace_caches(str(workspace_id))
         return self._workspace_payload(row)
+
+    @staticmethod
+    def _model_field_names(item_type: str) -> frozenset[str]:
+        """Field names already on *item_type*'s Django model.
+
+        Reuses the bootstrap command's own model resolution (``MODEL_LOCATIONS``
+        / ``_resolve_model``) instead of re-deriving it, so "which model backs
+        this item type" has exactly one source. Imported inline — this module
+        must not load ``django.core.management`` machinery at import time.
+        """
+        from attribute_definitions.management.commands.bootstrap_attribute_definitions import (
+            _resolve_model,
+        )
+
+        model = _resolve_model(item_type)
+        return frozenset(f.name for f in model._meta.get_fields())
+
+    def create_global(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        preset: str,
+        attribute: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Add one new ``kind="extended"`` attribute to the global default.
+
+        Reuses :meth:`update_global`'s full validation (core-lock, locked-lock,
+        propagation, audit log) by reading the current row, appending the new
+        entry, and delegating.
+
+        Raises:
+            AttributeDefinitionNotFound: no global row for that key yet — use
+                the bootstrap command / ``initialize`` first.
+            AttributeSchemaError: the name collides or is malformed
+                (:func:`validate_new_attribute_name`), or ``attribute["kind"]
+                == "core"`` (rejected downstream by
+                :func:`validate_meta_only_change`).
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        row = self._global.get(ctx.tenant_id, item_type, preset)
+        if row is None:
+            raise AttributeDefinitionNotFound(
+                f"No global attribute definition for '{item_type}/{preset}'"
+            )
+        current = stored_attributes(row.definition_json)
+        validate_new_attribute_name(
+            attribute.get("name", ""),
+            current,
+            reserved_field_names=self._model_field_names(item_type),
+        )
+        return self.update_global(ctx, item_type, preset, current + [attribute])
+
+    def delete_global(
+        self, ctx: AuthContext, item_type: str, preset: str, name: str
+    ) -> dict[str, Any]:
+        """Remove one ``kind="extended"`` attribute from the global default.
+
+        Refuses (``AttributeSchemaError``) if *name* names a ``kind="core"``
+        attribute — :func:`validate_meta_only_change` rejects it once the
+        entry is missing from the new list. Does not check for existing
+        ``CustomFieldValue`` data; this is the hard-delete primitive the
+        soft-/force-delete UI flows call after their own confirmation.
+
+        Raises:
+            AttributeDefinitionNotFound: no global row for that key.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        row = self._global.get(ctx.tenant_id, item_type, preset)
+        if row is None:
+            raise AttributeDefinitionNotFound(
+                f"No global attribute definition for '{item_type}/{preset}'"
+            )
+        current = stored_attributes(row.definition_json)
+        remaining = [a for a in current if a["name"] != name]
+        return self.update_global(ctx, item_type, preset, remaining)
 
     def reset_workspace(
         self, ctx: AuthContext, item_type: str, workspace_id: UUID

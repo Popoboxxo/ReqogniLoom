@@ -13,7 +13,7 @@ import { apiClient } from "./client";
 import type { UUID, WorkspacePreset } from "../types";
 
 /**
- * The 10 bootstrapped item types (verified against
+ * The 11 bootstrapped item types (verified against
  * `backend/attribute_definitions/schema.py::ITEM_TYPES`) — kept as its own
  * union instead of a bare `string` because the frontend already has two other,
  * incompatible item-type vocabularies (`WorkflowEntityType`,
@@ -31,7 +31,8 @@ export type AttributeItemType =
   | "Issue"
   | "Goal"
   | "Icd"
-  | "GlossaryTerm";
+  | "GlossaryTerm"
+  | "ChangeRequest";
 
 export type AttributeKind = "core" | "extended";
 

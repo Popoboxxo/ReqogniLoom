@@ -282,6 +282,80 @@ def test_downgrade_warnings_reports_an_unbootstrapped_target_instead_of_crashing
 # --- A malformed workspace id is "no such workspace", not a 500 -------------
 
 
+# --- Task 1: create_global / delete_global --------------------------------
+
+
+@pytest.mark.django_db
+def test_create_global_adds_an_extended_attribute(service, admin_ctx, seeded) -> None:
+    out = service.create_global(
+        admin_ctx, "Risk", "standard",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+    )
+    assert [a["name"] for a in out["attributes"]] == ["risk_comment", "title"]
+
+
+@pytest.mark.django_db
+def test_create_global_rejects_kind_core(service, admin_ctx, seeded) -> None:
+    with pytest.raises(AttributeSchemaError):
+        service.create_global(
+            admin_ctx, "Risk", "standard",
+            {"name": "risk_comment", "kind": "core", "type": "text"},
+        )
+
+
+@pytest.mark.django_db
+def test_create_global_rejects_a_colliding_name(service, admin_ctx, seeded) -> None:
+    with pytest.raises(AttributeSchemaError):
+        service.create_global(
+            admin_ctx, "Risk", "standard",
+            {"name": "title", "kind": "extended", "type": "text"},
+        )
+
+
+@pytest.mark.django_db
+def test_create_global_rejects_a_name_matching_a_model_field(
+    service, admin_ctx, seeded
+) -> None:
+    """``description`` is a real column on the ``Risk`` model."""
+    with pytest.raises(AttributeSchemaError):
+        service.create_global(
+            admin_ctx, "Risk", "standard",
+            {"name": "description", "kind": "extended", "type": "text"},
+        )
+
+
+@pytest.mark.django_db
+def test_create_global_of_an_uninitialized_row_is_not_found(service, admin_ctx) -> None:
+    from application.attribute_definition_service import AttributeDefinitionNotFound
+
+    with pytest.raises(AttributeDefinitionNotFound):
+        service.create_global(
+            admin_ctx, "Icd", "minimal",
+            {"name": "severity", "kind": "extended", "type": "text"},
+        )
+
+
+@pytest.mark.django_db
+def test_delete_global_removes_an_extended_attribute(service, admin_ctx, tenant) -> None:
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "standard", [TITLE, NOTE],
+    )
+    out = service.delete_global(admin_ctx, "Risk", "standard", "note")
+    assert [a["name"] for a in out["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_delete_global_rejects_a_core_attribute(service, admin_ctx, seeded) -> None:
+    with pytest.raises(AttributeSchemaError):
+        service.delete_global(admin_ctx, "Risk", "standard", "title")
+
+
+@pytest.mark.django_db
+def test_delete_global_requires_admin(service, editor_ctx, seeded) -> None:
+    with pytest.raises(PermissionDeniedError):
+        service.delete_global(editor_ctx, "Risk", "standard", "title")
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize("bad", ["not-a-uuid", "", "42"])
 def test_resolve_maps_a_malformed_workspace_id_to_not_found(admin_ctx, bad) -> None:

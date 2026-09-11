@@ -119,6 +119,42 @@ class AttributeDefaultsDetailView(APIView):
             return _validation(lang, "; ".join(exc.errors))
         return Response(payload, status=status.HTTP_200_OK)
 
+    def post(self, request: Request, item_type: str, preset: str) -> Response:
+        """Create one new ``kind="extended"`` attribute on the global default."""
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        attribute = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = AttributeDefinitionService().create_global(
+                ctx, item_type, preset, attribute
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+    def delete(self, request: Request, item_type: str, preset: str) -> Response:
+        """Delete one attribute (``?name=``) from the global default."""
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        name = request.query_params.get("name")
+        if not name:
+            return _validation(lang, "Query parameter 'name' is required.")
+        try:
+            payload = AttributeDefinitionService().delete_global(
+                ctx, item_type, preset, name
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_200_OK)
+
 
 class WorkspaceAttributeDefinitionView(APIView):
     """GET/PUT /workspaces/{id}/attribute-definitions/{item_type}/.

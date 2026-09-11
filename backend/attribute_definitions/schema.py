@@ -95,6 +95,8 @@ ALLOWED_KEYS: frozenset[str] = frozenset(_REQUIRED_KEYS) | frozenset(_DEFAULTS)
 
 _VALIDATION_KEYS = frozenset({"regex", "min", "max", "length"})
 
+_NEW_ATTRIBUTE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
 
 class AttributeSchemaError(ValueError):
     """Raised when an attribute entry or a definition payload is malformed."""
@@ -486,6 +488,39 @@ def validate_meta_only_change(
         raise AttributeSchemaError(errors)
 
 
+def validate_new_attribute_name(
+    name: str,
+    existing_attributes: Iterable[dict[str, Any]],
+    *,
+    reserved_field_names: Iterable[str] = (),
+) -> None:
+    """Reject a name a newly created attribute may not use (Task 1, V-none extra).
+
+    Called before the new entry is normalized/merged into the definition, so
+    the admin sees one focused error instead of ``normalize_attribute``'s
+    generic structural complaints or a downstream ``IntegrityError``.
+
+    Raises:
+        AttributeSchemaError: *name* is not snake_case, already names an
+            existing attribute (core or extended), or collides with a field
+            already defined on the item type's Django model (only meaningful
+            for a ``kind="extended"`` create — a colliding ``kind="core"``
+            create is already rejected by :func:`validate_meta_only_change`).
+    """
+    errors: list[str] = []
+    if not isinstance(name, str) or not _NEW_ATTRIBUTE_NAME_RE.fullmatch(name):
+        errors.append(
+            f"'{name}' must be snake_case (lowercase letters, digits, "
+            "underscores, starting with a letter)"
+        )
+    elif name in {a["name"] for a in existing_attributes}:
+        errors.append(f"'{name}' already exists")
+    elif name in set(reserved_field_names):
+        errors.append(f"'{name}' collides with an existing model field")
+    if errors:
+        raise AttributeSchemaError(errors)
+
+
 __all__ = [
     "ALLOWED_KEYS",
     "ATTRIBUTE_KINDS",
@@ -504,4 +539,5 @@ __all__ = [
     "validate_definition_json",
     "validate_definition_key",
     "validate_meta_only_change",
+    "validate_new_attribute_name",
 ]
