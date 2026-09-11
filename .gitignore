@@ -23,17 +23,8 @@ graphify-out/
 
 # --- agent-meta managed (do not edit) ---
 .agents/hooks/
-.claude/agent-memory-local/
-.claude/agents/
-.claude/pending-tasks.md
-.claude/progress/
-.claude/settings.json
-.claude/settings.local.json
-.gemini/agents/
-.gemini/commands/
-.gemini/pending-tasks.md
-.gemini/rules/
-.gemini/settings.json
+.claude/
+.gemini/
 .gemini/settings.local.json
 .mcp.json
 .meta-config/env.ps1
@@ -41,11 +32,8 @@ graphify-out/
 .meta-config/env.unset.ps1
 .meta-config/env.unset.sh
 .meta-config/secrets.local.yaml
-.opencode/agents/
-.opencode/commands/
+.opencode/
 .opencode/mcp.local.json
-.opencode/pending-tasks.md
-.opencode/settings.local.json
 AGENTS.personal.md
 CLAUDE.personal.md
 opencode.json
