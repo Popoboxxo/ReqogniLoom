@@ -154,3 +154,107 @@ against the plan/spec is this pass's independent-review layer; the coordinator
 dispatching a real `code-reviewer`/`senior-developer` round afterward remains
 the recommended follow-up per this repo's SDD convention, same pattern used
 for `interview-engine-fix` and `ki-vorschlag-als-zustand` this session).
+
+## Post-review fixes (independent code-reviewer round) — DONE
+
+Independent review of the full branch diff found 6 Majors (no Blockers) plus
+Minors. All 6 Majors fixed with tests; one Minor (m7) fixed because it sat in
+code the Majors already touched. Remaining Minors deliberately deferred, see
+below.
+
+- **M1 — import silently discarded `sections[]`.** `export_definition` emits
+  `{schema_version, item_type, attributes, sections}` but `import_definition`
+  only read `attributes`, so imported section visibility/layout was dropped and
+  the target's own sections survived — a deliberately hidden section came back
+  visible after a round trip. Sections are now merged by the SAME
+  `_merge_import` rules (by `name`, honouring `on_collision`) and passed as the
+  `sections=` argument. A document with no `sections` key keeps meaning "leave
+  the target's sections alone", matching `_read_sections`' existing PUT
+  contract. Tests: round-trip with a hidden/half section, skip-vs-add
+  behaviour, absent-key no-op, non-list rejection.
+- **M2 — import bypassed `validate_new_attribute_name`.** An imported document
+  could introduce `"Created At"` or `"owner"` (shadowing a real Django model
+  field) with zero validation; the rename path fabricated `name_2` names
+  unvalidated too. `_merge_import` gained a `reserved_field_names` argument
+  (`None` = off, which is what the sections merge passes) and runs the same
+  gate `create_global`/`create_workspace` use on every entry it ADDS, including
+  the rename candidate — deliberately NOT on `skip`/`overwrite` collisions,
+  whose names are already stored and already validated. Spec section 6's
+  "validated against the same logic as creating (3.2)" is now literally true.
+  Tests: model-field shadowing rejected, non-snake_case rejected.
+- **M3 — missing `CrossTenantWorkspaceError` guard on 2 endpoints.** The
+  workspace-scoped `POST`/`DELETE` route into `create_workspace`/
+  `delete_workspace`, which resolve the preset through the gate.
+  `CrossTenantWorkspaceError` is a `PresetError`, NOT a `ValueError`, so
+  neither view's except-list caught it → uncaught 500 instead of 403 for a
+  foreign-tenant workspace id. Copied the guard the export/import views already
+  carry. Both new tests were verified to FAIL without the fix (temporary
+  guard-disable run) before being committed.
+- **M4 — `count_usages(option_value=…)` was always 0 for `multi-enum`.** A
+  multi-enum value is stored as a JSON list, so `KeyTextTransform` yielded the
+  serialized array text and never equalled a bare option string — the spec
+  section 4.3 usage-count safety check was dead for exactly the type that needs
+  it. **Deviation from the review's suggested fix:** instead of branching on the
+  attribute's declared `type`, the option filter ORs the scalar equality with a
+  JSONB containment test (`(custom_fields -> name) @> '["value"]'`, served by
+  `pl_artifact_custom_fields_gin`). Reading the type would mean resolving the
+  whole definition, which raises `AttributeDefinitionNotFound` for an item type
+  with no global default yet — a probe that legitimately answers 0 today would
+  start raising. The two predicates are mutually exclusive on real data.
+- **M5 — a `required` attribute in a hidden section blocked every create.**
+  Spec section 4.4's AND-condition was implemented only in the React renderer;
+  `field_validation.validate_values` checked `required and visible` with no
+  knowledge of `sections[].visible`. Hiding such a section made every
+  server-side create fail for a field the form no longer drew, unfixable from
+  the UI. Root-cause fix at the shared seam: `validate_values` gained an
+  optional `sections` argument (omitted = previous behaviour) and treats
+  "member of an invisible section" exactly like `visible == False`;
+  `validate_artifact_fields` passes the resolved sections. That one function is
+  what REST, MCP and the CSV/bundle importer all route through, so the gap
+  closes everywhere at once rather than per caller.
+- **M6 — renaming/deleting a section orphaned its `SectionSpec`.**
+  `renameSection` rewrote `attribute.section` on every member but never touched
+  the `sections` state array, so a renamed section lost its spec and fell back
+  to default visible/full (a hidden section silently became visible) while the
+  old-name entry survived forever as an orphan a later same-named section would
+  inherit. New pure helpers `renameSectionSpec`/`deleteSectionSpec` in
+  `attribute-edits.ts`, wired into both page handlers. Renaming ONTO an
+  existing section is treated as a merge (target's spec wins), because
+  duplicate section names are rejected by `validate_sections_json`.
+- **m7 (Minor, fixed) — `delete_global`/`delete_workspace` no-op'd silently.**
+  Deleting a name that does not exist answered 200 with a version bump and an
+  audit entry claiming a change that never happened. Both now raise
+  `AttributeDefinitionNotFound`, which the REST views and MCP handlers already
+  map to 404 / `NOT_FOUND`.
+- **m6 (Minor, fixed in passing)** — the export/import scope guards raised a
+  bare `ValueError`, which no view/MCP except-clause catches (500 for a
+  malformed request). Now `AttributeSchemaError`, the module's own taxonomy.
+
+### Deliberately deferred (budget, not disagreement)
+
+- **m1** — option removal keyed by `value` instead of index
+  (`AttributeInspector.tsx` / `AttributeEditorPage.tsx`): breaks the
+  confirm-dialog guard for a freshly-added row (`value: ""` is falsy) and for
+  duplicate transient values. Real bug, cosmetic blast radius (a newly added,
+  not-yet-saved option row), needs a coordinated 3-file change plus test
+  updates. Follow-up.
+- **m2** — `AttributeCreateDialog.tsx` / `AttributeImportDialog.tsx` use raw
+  `exc.message` instead of the `extractErrorMessage(exc)` the rest of the page
+  uses, so server-side validation messages surface as a generic axios status
+  string. Two-line fix, follow-up.
+- m3/m4/m5/m8/m9 and all Nits: out of scope for this pass per the review's own
+  priority call.
+
+### Verification
+
+- Backend, scoped: `attribute_definitions/`, `test_attribute_definition_service`,
+  `test_import_service`, `test_attribute_definition_views`,
+  `test_attribute_field_validation`, `test_bootstrapped_definition_allows_creates`,
+  `test_attribute_definition_tools`, `test_attribute_definition_enforcement`
+  → **363 passed**.
+- Frontend, scoped: `AttributeEditor.test.tsx`, `attributeDefinitionsApi.test.ts`,
+  all `src/components/AttributeEditor/*`, `ArtifactForm*.test.tsx`
+  → **136 passed (10 files)**.
+- No whole-repo run in this pass (already run before the review; CI covers the
+  full matrix) and **no manual browser verification** — every fix is covered by
+  an automated test instead.
