@@ -6,11 +6,12 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 3 (`AttributeCreateDialog` + wiring), committed `d40d1e99`.**
+**Last completed task: Task 4 (`AttributeTable` + view-mode toggle), committed `da2ac13d`.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 4** (`AttributeTable.tsx` + view-mode toggle, Phase C).
-**No independent review has run on Tasks 1-3 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
+**Next: Task 5** (delete-collision-check helper `count_usages`, Phase D).
+**No independent review has run on Tasks 1-4 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
 **Not manually verified in a live browser** (Task 3's plan Step 5 asked for this) — only component/API/typecheck-level coverage. Flag for the coordinator or a later manual pass.
+**A full, untargeted backend `pytest -q` run was kicked off in the background right before this ledger update to catch anything the scoped regression sweeps might have missed across the whole app — check its result before trusting Task 4 is fully clean if resuming shortly after this point.**
 
 ## Migration numbers (re-verified, plan text is stale)
 
@@ -48,8 +49,19 @@ separately after each phase/whole-branch).
 - Commit: `d40d1e99` "feat(attributes): add AttributeCreateDialog + wiring (Task 3)".
 - **Gap, flag for review/manual pass:** Step 5 of the plan ("run the frontend dev stack, actually create an attribute through the UI") was not done — no live-browser verification, only component/API/typecheck coverage.
 
-## Tasks 4-12 — NOT STARTED
+## Task 4: `AttributeTable.tsx` + view-mode toggle — DONE
 
-See plan file for full task list (Phases C-G: table view, options editor,
+- **Backend prerequisite the plan flagged as needing verification, and it was in fact missing:** added a per-attribute `origins` map (`{name: "global"|"global_customized"|"workspace_only"}`) to `_workspace_payload` in `attribute_definition_service.py`. Computed by diffing the resolved attribute names against `row.source_global`'s stored attribute names.
+- **Real bug caught by broad regression, not assumed safe:** the first implementation merged an `origin` key directly INTO each attribute dict (mutating the same list `resolve()["attributes"]` returns). This broke `requirement_bundle_service`'s schema export, which re-validates that exact list through `validate_definition_json` — its key allow-list rejected the unknown `origin` key (`AttributeSchemaError: ... unknown key(s): origin`), 6 test failures across `test_bundle_export_fields_from_definition.py`, `test_requirement_bundle_tool_group.py`, `test_goal_views.py`, `test_requirement_bundle_export.py`. Fixed by moving `origins` to a SEPARATE sibling key on the payload instead of mutating the shared attribute list — re-ran the full regression sweep (429 passed) after the fix. **Lesson for future tasks touching `_workspace_payload`/`resolve()`: that return value is shared verbatim by several unrelated consumers (bundle export, interview protocol, field validation) — a scoped test run is not enough, run the broader consumer list too (see the file list in this entry) before trusting a change to it.**
+- `is_customized` being per-DEFINITION not per-attribute (Task 2's finding) means every inherited attribute reads `global_customized` once ANY workspace edit has landed, not just the touched one — documented as expected, not a bug, with a dedicated regression test.
+- New `AttributeTable.tsx`: Name/Typ/Sektion/Pflicht/Sichtbar/Audience/Herkunft columns, `<table>` (tokens.css only, no inline styles — verified against the `ui-ratchet` tests), client-side sort with direction toggle on repeat header click, no persisted order (only the list view's section order persists).
+- `AttributeEditorPage.tsx`: List/Tabelle toggle persisted to `localStorage` (`attributeEditor.viewMode`, wrapped in try/catch — a private-browsing/storage-disabled failure silently defaults to "list", never breaks the page). Both views read the same `attributes`/`origins` state, no second fetch.
+- Tests: 3 new backend origin tests + 6 new `AttributeTable.test.tsx` cases. Scoped backend suite (429), frontend suite (39 across the 5 touched/new files), `tsc -p tsconfig.build.json --noEmit` all green.
+- Commit: `da2ac13d` "feat(attributes): add AttributeTable + view-mode toggle (Task 4)".
+- **A full untargeted `pytest -q` (whole backend suite, no path filter) was launched in the background as an extra confidence pass right after this commit** — its result should be checked before assuming Task 4 introduced zero side effects elsewhere in the app that the targeted consumer sweep didn't think to check.
+
+## Tasks 5-12 — NOT STARTED
+
+See plan file for full task list (Phases D-G: options editor,
 section CRUD + grid layout, export/import REST+MCP, export/import UI,
 section card polish).
