@@ -69,7 +69,7 @@ describe("AttributeTable", () => {
     render(
       <AttributeTable attributes={ATTRIBUTES} selected={null} onSelect={vi.fn()} />
     );
-    const rows = screen.getAllByTestId(/^attribute-table-row-/);
+    const rows = screen.getAllByTestId(/^attribute-table-row-[a-z]+$/);
     expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
       "attribute-table-row-alpha",
       "attribute-table-row-beta",
@@ -81,14 +81,14 @@ describe("AttributeTable", () => {
       <AttributeTable attributes={ATTRIBUTES} selected={null} onSelect={vi.fn()} />
     );
     fireEvent.click(screen.getByTestId("attribute-table-sort-name"));
-    let rows = screen.getAllByTestId(/^attribute-table-row-/);
+    let rows = screen.getAllByTestId(/^attribute-table-row-[a-z]+$/);
     expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
       "attribute-table-row-beta",
       "attribute-table-row-alpha",
     ]);
 
     fireEvent.click(screen.getByTestId("attribute-table-sort-name"));
-    rows = screen.getAllByTestId(/^attribute-table-row-/);
+    rows = screen.getAllByTestId(/^attribute-table-row-[a-z]+$/);
     expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
       "attribute-table-row-alpha",
       "attribute-table-row-beta",
@@ -119,5 +119,13 @@ describe("AttributeTable", () => {
     expect(screen.getByTestId("attribute-table-row-alpha").textContent).toContain(
       "global"
     );
+  });
+
+  it("renders a type icon for every row (Task 12)", () => {
+    render(
+      <AttributeTable attributes={ATTRIBUTES} selected={null} onSelect={vi.fn()} />
+    );
+    expect(screen.getByTestId("attribute-table-row-alpha-type-icon")).toBeTruthy();
+    expect(screen.getByTestId("attribute-table-row-beta-type-icon")).toBeTruthy();
   });
 });

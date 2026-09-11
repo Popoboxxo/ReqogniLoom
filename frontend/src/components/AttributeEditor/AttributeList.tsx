@@ -11,15 +11,31 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, Lock, Pencil, Trash2 } from "lucide-react";
 
-import type { AttributeSpec, SectionLayout, SectionSpec } from "../../api/attribute-definitions";
+import type {
+  AttributeOrigin,
+  AttributeSpec,
+  SectionLayout,
+  SectionSpec,
+} from "../../api/attribute-definitions";
 import styles from "./AttributeEditor.module.css";
 import { sectionNames } from "./attribute-edits";
+import { ATTRIBUTE_TYPE_ICONS } from "./attribute-type-icons";
+
+const ORIGIN_BADGE_CLASS: Record<AttributeOrigin, string | undefined> = {
+  global: undefined,
+  global_customized: "originBadgeCustomized",
+  workspace_only: "originBadgeWorkspaceOnly",
+};
 
 export interface AttributeListProps {
   attributes: AttributeSpec[];
   /** Task 8: visibility/layout per section. A name absent here defaults to
    * visible/full, same "additive" convention the backend uses. */
   sections: SectionSpec[];
+  /** Task 4/12: `attribute.name` -> origin, for the badge next to each row.
+   * Omitted in global scope, where every row is simply "global" (same
+   * optionality as AttributeTable's identical prop). */
+  origins?: Record<string, AttributeOrigin>;
   /** Sections with no attributes — they exist only in editor state until a
    *  field is dragged/moved into them, so the list must be told about them. */
   emptySections: string[];
@@ -42,6 +58,7 @@ export interface AttributeListProps {
 export function AttributeList({
   attributes,
   sections,
+  origins,
   emptySections,
   selected,
   onSelect,
@@ -201,7 +218,32 @@ export function AttributeList({
                   }
                 }}
               >
-                <span>{attribute.label.en || attribute.name}</span>
+                <span className={styles.badges}>
+                  {(() => {
+                    const TypeIcon = ATTRIBUTE_TYPE_ICONS[attribute.type];
+                    return (
+                      <TypeIcon
+                        aria-hidden="true"
+                        size={14}
+                        className={styles.typeIcon}
+                        data-testid={`attribute-row-${attribute.name}-type-icon`}
+                      />
+                    );
+                  })()}
+                  <span>{attribute.label.en || attribute.name}</span>
+                  {(() => {
+                    const origin = origins?.[attribute.name] ?? "global";
+                    const modifier = ORIGIN_BADGE_CLASS[origin];
+                    return (
+                      <span
+                        className={`${styles.originBadge} ${modifier ? styles[modifier] : ""}`}
+                        data-testid={`attribute-row-${attribute.name}-origin`}
+                      >
+                        {t(`attributes.table.origin.${origin}`)}
+                      </span>
+                    );
+                  })()}
+                </span>
                 <span className={styles.badges}>
                   {attribute.locked ? (
                     <Lock

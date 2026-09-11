@@ -10,6 +10,13 @@ import { useTranslation } from "react-i18next";
 
 import type { AttributeOrigin, AttributeSpec } from "../../api/attribute-definitions";
 import styles from "./AttributeEditor.module.css";
+import { ATTRIBUTE_TYPE_ICONS } from "./attribute-type-icons";
+
+const ORIGIN_BADGE_CLASS: Record<AttributeOrigin, string | undefined> = {
+  global: undefined,
+  global_customized: "originBadgeCustomized",
+  workspace_only: "originBadgeWorkspaceOnly",
+};
 
 export interface AttributeTableProps {
   attributes: AttributeSpec[];
@@ -92,26 +99,46 @@ export function AttributeTable({
         </tr>
       </thead>
       <tbody>
-        {sorted.map(({ attribute, origin }) => (
-          <tr
-            key={attribute.name}
-            data-testid={`attribute-table-row-${attribute.name}`}
-            className={selected === attribute.name ? styles.rowSelected : ""}
-            onClick={() => onSelect(attribute.name)}
-          >
-            <td>{attribute.name}</td>
-            <td>{t(`attributes.types.${attribute.type}`, { defaultValue: attribute.type })}</td>
-            <td>{attribute.section}</td>
-            <td>
-              <input type="checkbox" checked={attribute.required} readOnly />
-            </td>
-            <td>
-              <input type="checkbox" checked={attribute.visible} readOnly />
-            </td>
-            <td>{attribute.audience}</td>
-            <td>{t(`attributes.table.origin.${origin}`)}</td>
-          </tr>
-        ))}
+        {sorted.map(({ attribute, origin }) => {
+          const TypeIcon = ATTRIBUTE_TYPE_ICONS[attribute.type];
+          const originModifier = ORIGIN_BADGE_CLASS[origin];
+          return (
+            <tr
+              key={attribute.name}
+              data-testid={`attribute-table-row-${attribute.name}`}
+              className={selected === attribute.name ? styles.rowSelected : ""}
+              onClick={() => onSelect(attribute.name)}
+            >
+              <td>{attribute.name}</td>
+              <td>
+                <TypeIcon
+                  aria-hidden="true"
+                  size={14}
+                  className={styles.typeIcon}
+                  data-testid={`attribute-table-row-${attribute.name}-type-icon`}
+                />
+                {t(`attributes.types.${attribute.type}`, { defaultValue: attribute.type })}
+              </td>
+              <td>{attribute.section}</td>
+              <td>
+                <input type="checkbox" checked={attribute.required} readOnly />
+              </td>
+              <td>
+                <input type="checkbox" checked={attribute.visible} readOnly />
+              </td>
+              <td>{attribute.audience}</td>
+              <td>
+                <span
+                  className={`${styles.originBadge} ${
+                    originModifier ? styles[originModifier] : ""
+                  }`}
+                >
+                  {t(`attributes.table.origin.${origin}`)}
+                </span>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

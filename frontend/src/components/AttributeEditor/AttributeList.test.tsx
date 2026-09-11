@@ -122,3 +122,42 @@ describe("AttributeList section visibility + layout", () => {
     expect(screen.getByTestId("attribute-section-general-layout")).toBeDisabled();
   });
 });
+
+describe("AttributeList type icon + origin badge (Task 12)", () => {
+  it("renders a type icon for every row", () => {
+    render(
+      <AttributeList
+        {...defaultProps}
+        attributes={[attr({ name: "title", type: "enum" })]}
+        onToggleSectionVisible={vi.fn()}
+        onSetSectionLayout={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("attribute-row-title-type-icon")).toBeTruthy();
+  });
+
+  it("defaults the origin badge to 'global' when no origins map is given", () => {
+    render(
+      <AttributeList
+        {...defaultProps}
+        onToggleSectionVisible={vi.fn()}
+        onSetSectionLayout={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("attribute-row-title-origin").textContent).toContain("global");
+  });
+
+  it("reflects the origins map for a workspace-only attribute", () => {
+    render(
+      <AttributeList
+        {...defaultProps}
+        origins={{ title: "workspace_only" }}
+        onToggleSectionVisible={vi.fn()}
+        onSetSectionLayout={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("attribute-row-title-origin").textContent).toContain(
+      "workspace_only"
+    );
+  });
+});

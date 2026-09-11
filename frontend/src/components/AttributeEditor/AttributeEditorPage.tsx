@@ -660,6 +660,7 @@ export function AttributeEditorPage({
           <AttributeList
             attributes={attributes}
             sections={sections}
+            origins={isGlobal ? undefined : origins}
             emptySections={emptySections}
             selected={selected}
             readOnly={!isAdmin}
