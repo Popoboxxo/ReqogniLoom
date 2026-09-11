@@ -20,6 +20,7 @@ import type {
   AttributeAudience,
   AttributeItemType,
   AttributeSpec,
+  SectionLayout,
 } from "../../../api/attribute-definitions";
 import { extractErrorMessage } from "../../../api/client";
 import type { WorkflowArtifactType } from "../../../api/workflow-transitions";
@@ -254,9 +255,27 @@ export function ArtifactForm({
     return owned;
   }, [visible]);
 
+  // Task 8 (spec section 4.4's AND-condition): a section with visible=false
+  // in the definition hides itself AND every attribute in it, regardless of
+  // each attribute's own `visible` flag. A section name not yet represented
+  // in `definition.sections` (pre-Task-7 data, or a name introduced by an
+  // attribute edit that hasn't round-tripped through ensure_sections yet)
+  // defaults to visible — same "additive, no data migration" default the
+  // backend's own materialize_sections uses.
+  const sectionMeta = useMemo(() => {
+    const map = new Map<string, { visible: boolean; layout: SectionLayout }>();
+    for (const section of definition?.sections ?? []) {
+      map.set(section.name, { visible: section.visible, layout: section.layout });
+    }
+    return map;
+  }, [definition]);
+
   const sections = useMemo(
-    () => groupIntoSections(visible.filter((a) => !widgetOwned.has(a.name))),
-    [visible, widgetOwned]
+    () =>
+      groupIntoSections(visible.filter((a) => !widgetOwned.has(a.name))).filter(
+        (section) => sectionMeta.get(section.name)?.visible !== false
+      ),
+    [visible, widgetOwned, sectionMeta]
   );
 
   const isSectionOpen = useCallback(
@@ -356,10 +375,19 @@ export function ArtifactForm({
         </div>
       ) : null}
 
+      <div className={styles.sectionsGrid}>
       {sections.map((section) => {
         const open = isSectionOpen(section);
+        const layout = sectionMeta.get(section.name)?.layout ?? "full";
         return (
-          <section key={section.name} className={styles.section}>
+          <section
+            key={section.name}
+            data-testid={`artifact-section-${section.name}`}
+            data-layout={layout}
+            className={`${styles.section} ${
+              layout === "half" ? styles.sectionHalf : styles.sectionFull
+            }`}
+          >
             <button
               type="button"
               className={styles.sectionHeader}
@@ -403,6 +431,7 @@ export function ArtifactForm({
           </section>
         );
       })}
+      </div>
 
       {changeReasonNeeded ? (
         <label className={styles.field}>

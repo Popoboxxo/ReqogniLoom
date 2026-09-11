@@ -242,3 +242,46 @@ def test_a_defined_workflow_owned_extended_attribute_skips_all_value_checks() ->
         _attrs(WORKFLOW_EXTENDED), {"custom_fields": {"sync_state": "garbage"}}, None
     )
     validate_values(_attrs(WORKFLOW_EXTENDED), {}, None)
+
+
+# --- Post-review M5: a hidden SECTION suppresses its members' required ------
+
+
+HIDDEN_SECTION_DEF = _attrs(
+    {"name": "title", "kind": "core", "type": "text", "required": True},
+    {"name": "legacy_code", "kind": "extended", "type": "text", "required": True,
+     "section": "legacy"},
+)
+SECTIONS = [
+    {"name": "general", "order": 0, "visible": True, "layout": "full"},
+    {"name": "legacy", "order": 1, "visible": False, "layout": "full"},
+]
+
+
+def test_create_does_not_demand_a_required_field_in_a_hidden_section() -> None:
+    validate_values(HIDDEN_SECTION_DEF, {"title": "T"}, None, SECTIONS)
+
+
+def test_create_still_demands_it_when_its_section_is_visible() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(
+            HIDDEN_SECTION_DEF, {"title": "T"}, None,
+            [dict(s, visible=True) for s in SECTIONS],
+        )
+    assert set(exc.value.errors) == {"legacy_code"}
+
+
+def test_omitting_sections_keeps_the_pre_existing_behaviour() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(HIDDEN_SECTION_DEF, {"title": "T"}, None)
+    assert set(exc.value.errors) == {"legacy_code"}
+
+
+def test_clearing_a_field_in_a_hidden_section_is_not_rejected() -> None:
+    """The empty-value arm of the required check honours the section too."""
+    validate_values(
+        HIDDEN_SECTION_DEF,
+        {"custom_fields": {"legacy_code": ""}},
+        {"__exists__": True},
+        SECTIONS,
+    )

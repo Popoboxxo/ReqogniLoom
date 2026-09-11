@@ -88,6 +88,36 @@
   gap: var(--space-2);
 }
 
+/* Task 12 (spec section 7): per-attribute type icon + origin badge. */
+.typeIcon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.originBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.originBadgeCustomized {
+  background: var(--color-warning);
+  color: var(--color-surface);
+}
+
+.originBadgeWorkspaceOnly {
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  background: transparent;
+}
+
 .inspector {
   flex: 0 0 320px;
   display: flex;
@@ -136,4 +166,42 @@
   background: var(--color-surface-muted);
   color: var(--color-danger);
   font-size: var(--font-size-sm);
+}
+
+/* AttributeTable (Task 4, spec section 4.2). */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.table tbody tr:hover {
+  background: var(--color-surface-muted);
+}
+
+/* AttributeInspector options editor (Task 6, spec section 4.3). */
+.optionRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto auto auto;
+  gap: var(--space-1);
+  align-items: center;
 }

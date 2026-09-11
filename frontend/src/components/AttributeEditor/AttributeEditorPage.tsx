@@ -20,14 +20,21 @@
  * type-INcompatible piece gets its own minimal, correctly-typed equivalent.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMatch, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   attributeDefinitionsApi,
+  downloadAttributeDefinitionDocument,
+  type AttributeDefinitionDocument,
   type AttributeItemType,
+  type AttributeOrigin,
   type AttributeSpec,
+  type NewAttributeInput,
+  type OnCollision,
+  type SectionLayout,
+  type SectionSpec,
 } from "../../api/attribute-definitions";
 import { extractErrorMessage } from "../../api/client";
 import type { WorkspacePreset } from "../../types";
@@ -38,14 +45,21 @@ import { useToast } from "../shared/Toast/useToast";
 import { PresetSegmentedControl } from "../WorkflowEditor/PresetSegmentedControl";
 import { WORKFLOW_PRESETS } from "../WorkflowEditor/constants";
 import styles from "./AttributeEditor.module.css";
+import { AttributeCreateDialog } from "./AttributeCreateDialog";
+import { AttributeImportDialog } from "./AttributeImportDialog";
 import { AttributeInspector } from "./AttributeInspector";
 import { AttributeList } from "./AttributeList";
+import { AttributeTable } from "./AttributeTable";
 import {
   deleteSection,
+  deleteSectionSpec,
   moveAttribute,
   moveSection,
   patchAttribute,
   renameSection,
+  renameSectionSpec,
+  setSectionLayout,
+  toggleSectionVisible,
 } from "./attribute-edits";
 
 /** The 10 bootstrapped item types (`AttributeItemType`, see
@@ -62,9 +76,23 @@ const ATTRIBUTE_ITEM_TYPES: readonly AttributeItemType[] = [
   "Goal",
   "Icd",
   "GlossaryTerm",
+  "ChangeRequest",
 ];
 
 const DEFAULT_ITEM_TYPE: AttributeItemType = "Requirement";
+
+type ViewMode = "list" | "table";
+const VIEW_MODE_STORAGE_KEY = "attributeEditor.viewMode";
+
+function loadViewMode(): ViewMode {
+  try {
+    return localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "table" ? "table" : "list";
+  } catch {
+    // Private browsing / storage disabled — default silently, this is a
+    // per-viewer convenience, never load-bearing.
+    return "list";
+  }
+}
 
 function itemTypeFromSlug(slug: string | undefined): AttributeItemType | null {
   if (!slug) return null;
@@ -107,6 +135,8 @@ export function AttributeEditorPage({
 
   const [attributes, setAttributes] = useState<AttributeSpec[]>([]);
   const [loaded, setLoaded] = useState<AttributeSpec[]>([]);
+  const [sections, setSections] = useState<SectionSpec[]>([]);
+  const [loadedSections, setLoadedSections] = useState<SectionSpec[]>([]);
   const [isCustomized, setIsCustomized] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [emptySections, setEmptySections] = useState<string[]>([]);
@@ -115,6 +145,28 @@ export function AttributeEditorPage({
   const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [createSection, setCreateSection] = useState<string | null>(null);
+  const [origins, setOrigins] = useState<Record<string, AttributeOrigin>>({});
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteUsageCount, setDeleteUsageCount] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [removeOptionTarget, setRemoveOptionTarget] = useState<string | null>(null);
+  const [removeOptionUsageCount, setRemoveOptionUsageCount] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
+  const [pendingImport, setPendingImport] = useState<{
+    document: AttributeDefinitionDocument;
+    fileName: string;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSetViewMode = useCallback((mode: ViewMode): void => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+    } catch {
+      // Same non-load-bearing fallback as loadViewMode above.
+    }
+  }, []);
 
   const load = useCallback(async (): Promise<void> => {
     setError(null);
@@ -123,7 +175,10 @@ export function AttributeEditorPage({
         const definition = await attributeDefinitionsApi.getGlobal(itemType, preset);
         setAttributes(definition.attributes);
         setLoaded(definition.attributes);
+        setSections(definition.sections);
+        setLoadedSections(definition.sections);
         setIsCustomized(false);
+        setOrigins({});
       } else {
         if (!activeWorkspace?.id) return;
         const definition = await attributeDefinitionsApi.getWorkspace(
@@ -132,7 +187,10 @@ export function AttributeEditorPage({
         );
         setAttributes(definition.attributes);
         setLoaded(definition.attributes);
+        setSections(definition.sections);
+        setLoadedSections(definition.sections);
         setIsCustomized(definition.is_customized);
+        setOrigins(definition.origins);
       }
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
@@ -142,6 +200,65 @@ export function AttributeEditorPage({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Task 11 (spec section 6): download the current definition as a
+  // re-importable JSON document -- reuses apiClient (not a raw fetch, unlike
+  // api/export.ts's CSV/ReqIF downloads: those need a raw Blob response,
+  // export_definition's REST endpoint returns plain JSON apiClient already
+  // parses for us).
+  const handleExport = useCallback(async (): Promise<void> => {
+    setError(null);
+    try {
+      const document = isGlobal
+        ? await attributeDefinitionsApi.exportGlobal(itemType, preset)
+        : activeWorkspace?.id
+          ? await attributeDefinitionsApi.exportWorkspace(activeWorkspace.id, itemType)
+          : null;
+      if (!document) return;
+      const scope = isGlobal ? preset : "workspace";
+      downloadAttributeDefinitionDocument(document, `${itemType}-${scope}-attributes.json`);
+    } catch (exc: unknown) {
+      setError(extractErrorMessage(exc));
+    }
+  }, [activeWorkspace?.id, isGlobal, itemType, preset]);
+
+  const handleFileSelected = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      const file = event.target.files?.[0];
+      event.target.value = ""; // allow re-selecting the same file next time
+      if (!file) return;
+      setError(null);
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const document = JSON.parse(String(reader.result)) as AttributeDefinitionDocument;
+          setPendingImport({ document, fileName: file.name });
+        } catch {
+          setError(t("attributes.import.invalidFile"));
+        }
+      };
+      reader.onerror = () => setError(t("attributes.import.invalidFile"));
+      reader.readAsText(file);
+    },
+    [t]
+  );
+
+  const handleConfirmImport = useCallback(
+    async (onCollision: OnCollision): Promise<void> => {
+      if (!pendingImport) return;
+      if (isGlobal) {
+        await attributeDefinitionsApi.importGlobal(
+          itemType, preset, pendingImport.document, onCollision
+        );
+      } else if (activeWorkspace?.id) {
+        await attributeDefinitionsApi.importWorkspace(
+          activeWorkspace.id, itemType, pendingImport.document, onCollision
+        );
+      }
+      await load();
+    },
+    [activeWorkspace?.id, isGlobal, itemType, load, pendingImport, preset]
+  );
 
   // Selection/scratch state is scoped to one (itemType, preset) view — carrying
   // it across a switch risks matching an unrelated attribute of the same name
@@ -153,8 +270,10 @@ export function AttributeEditorPage({
   }, [itemType, preset, isGlobal]);
 
   const isDirty = useMemo(
-    () => JSON.stringify(attributes) !== JSON.stringify(loaded),
-    [attributes, loaded]
+    () =>
+      JSON.stringify(attributes) !== JSON.stringify(loaded) ||
+      JSON.stringify(sections) !== JSON.stringify(loadedSections),
+    [attributes, loaded, sections, loadedSections]
   );
 
   const selectedAttribute = attributes.find((a) => a.name === selected) ?? null;
@@ -168,10 +287,13 @@ export function AttributeEditorPage({
         const result = await attributeDefinitionsApi.putGlobal(
           itemType,
           preset,
-          attributes
+          attributes,
+          sections
         );
         setAttributes(result.attributes);
         setLoaded(result.attributes);
+        setSections(result.sections);
+        setLoadedSections(result.sections);
         if (typeof result.propagated_workspace_count === "number") {
           toast.show(
             t("attributes.propagated", { count: result.propagated_workspace_count })
@@ -181,18 +303,22 @@ export function AttributeEditorPage({
         const result = await attributeDefinitionsApi.putWorkspace(
           activeWorkspace.id,
           itemType,
-          attributes
+          attributes,
+          sections
         );
         setAttributes(result.attributes);
         setLoaded(result.attributes);
+        setSections(result.sections);
+        setLoadedSections(result.sections);
         setIsCustomized(result.is_customized);
+        setOrigins(result.origins);
       }
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
     } finally {
       setSaving(false);
     }
-  }, [activeWorkspace?.id, attributes, isGlobal, itemType, preset, t]);
+  }, [activeWorkspace?.id, attributes, isGlobal, itemType, preset, sections, t]);
 
   const handleReset = useCallback(async (): Promise<void> => {
     if (!activeWorkspace?.id) return;
@@ -204,7 +330,10 @@ export function AttributeEditorPage({
       );
       setAttributes(result.attributes);
       setLoaded(result.attributes);
+      setSections(result.sections);
+      setLoadedSections(result.sections);
       setIsCustomized(result.is_customized);
+      setOrigins(result.origins);
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
     }
@@ -226,6 +355,7 @@ export function AttributeEditorPage({
       try {
         const next = renameSection(attributes, from, to);
         setAttributes(next);
+        setSections((current) => renameSectionSpec(current, from, to));
         setEmptySections((current) =>
           current.map((s) => (s === from ? to.trim() : s)).filter(Boolean)
         );
@@ -244,6 +374,7 @@ export function AttributeEditorPage({
         // allows deleting an EMPTY section only.
         const next = deleteSection(attributes, name);
         setAttributes(next);
+        setSections((current) => deleteSectionSpec(current, name));
         setEmptySections((current) => current.filter((s) => s !== name));
       } catch (exc: unknown) {
         setError(exc instanceof Error ? exc.message : String(exc));
@@ -254,6 +385,14 @@ export function AttributeEditorPage({
 
   const handleMoveSection = useCallback((name: string, toIndex: number): void => {
     setAttributes((current) => moveSection(current, name, toIndex));
+  }, []);
+
+  const handleToggleSectionVisible = useCallback((name: string): void => {
+    setSections((current) => toggleSectionVisible(current, name));
+  }, []);
+
+  const handleSetSectionLayout = useCallback((name: string, layout: SectionLayout): void => {
+    setSections((current) => setSectionLayout(current, name, layout));
   }, []);
 
   // The inspector's free-text section field moves a single attribute into a
@@ -276,6 +415,103 @@ export function AttributeEditorPage({
     },
     []
   );
+
+  // Creation is always an immediate API call (Task 1/2's create endpoints),
+  // never a locally-buffered edit like moveAttribute/patchAttribute below —
+  // the new attribute needs a real row (workspace-only rows have no
+  // source_global counterpart to stage against). Refetches on success so the
+  // rest of the page reflects the server's normalized entry.
+  const handleCreateAttribute = useCallback(
+    async (input: NewAttributeInput): Promise<void> => {
+      if (isGlobal) {
+        await attributeDefinitionsApi.createGlobalAttribute(itemType, preset, input);
+      } else {
+        if (!activeWorkspace?.id) return;
+        await attributeDefinitionsApi.createWorkspaceAttribute(
+          activeWorkspace.id,
+          itemType,
+          input
+        );
+      }
+      await load();
+    },
+    [activeWorkspace?.id, isGlobal, itemType, preset, load]
+  );
+
+  // Delete confirmation (Task 5): fetches the usage count before showing the
+  // confirmation so the admin sees "N artifacts use this" instead of
+  // deleting blind. Global scope has no single workspace to probe (the
+  // backend's count_usages is workspace-scoped only, there is no
+  // cross-workspace aggregate) -- the confirmation there shows a plain
+  // message with no count, which Task 6's option-removal flow can follow
+  // the same way.
+  const handleRequestDeleteAttribute = useCallback(
+    (name: string): void => {
+      setDeleteTarget(name);
+      setDeleteUsageCount(null);
+      if (!isGlobal && activeWorkspace?.id) {
+        void attributeDefinitionsApi
+          .getUsageCount(activeWorkspace.id, itemType, name)
+          .then(setDeleteUsageCount)
+          .catch(() => setDeleteUsageCount(0));
+      } else {
+        setDeleteUsageCount(0);
+      }
+    },
+    [activeWorkspace?.id, isGlobal, itemType]
+  );
+
+  const handleConfirmDeleteAttribute = useCallback(async (): Promise<void> => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      if (isGlobal) {
+        await attributeDefinitionsApi.deleteGlobalAttribute(itemType, preset, deleteTarget);
+      } else if (activeWorkspace?.id) {
+        await attributeDefinitionsApi.deleteWorkspaceAttribute(
+          activeWorkspace.id,
+          itemType,
+          deleteTarget
+        );
+      }
+      setDeleteTarget(null);
+      await load();
+    } catch (exc: unknown) {
+      setError(extractErrorMessage(exc));
+    } finally {
+      setDeleting(false);
+    }
+  }, [activeWorkspace?.id, deleteTarget, isGlobal, itemType, load, preset]);
+
+  // Task 6: same shape as handleRequestDeleteAttribute above, but the actual
+  // removal is a LOCAL patch (options are just another attribute property,
+  // saved through the page's normal Save button), not an immediate API
+  // call -- only the confirmation's usage-count probe hits the server.
+  const handleRequestRemoveOption = useCallback(
+    (optionValue: string): void => {
+      setRemoveOptionTarget(optionValue);
+      setRemoveOptionUsageCount(null);
+      if (!isGlobal && activeWorkspace?.id && selectedAttribute) {
+        void attributeDefinitionsApi
+          .getUsageCount(activeWorkspace.id, itemType, selectedAttribute.name, optionValue)
+          .then(setRemoveOptionUsageCount)
+          .catch(() => setRemoveOptionUsageCount(0));
+      } else {
+        setRemoveOptionUsageCount(0);
+      }
+    },
+    [activeWorkspace?.id, isGlobal, itemType, selectedAttribute]
+  );
+
+  const handleConfirmRemoveOption = useCallback((): void => {
+    if (!removeOptionTarget || !selectedAttribute) return;
+    setAttributes((current) =>
+      patchAttribute(current, selectedAttribute.name, {
+        options: selectedAttribute.options.filter((o) => o.value !== removeOptionTarget),
+      })
+    );
+    setRemoveOptionTarget(null);
+  }, [removeOptionTarget, selectedAttribute]);
 
   const handleSelectItemType = useCallback(
     (next: AttributeItemType): void => {
@@ -323,6 +559,50 @@ export function AttributeEditorPage({
           />
         ) : null}
         <span className={styles.spacer} />
+        <span className={styles.toolbarField} role="group" aria-label={t("attributes.viewMode.list")}>
+          <button
+            type="button"
+            data-testid="attribute-editor-view-list"
+            aria-pressed={viewMode === "list"}
+            disabled={viewMode === "list"}
+            onClick={() => handleSetViewMode("list")}
+          >
+            {t("attributes.viewMode.list")}
+          </button>
+          <button
+            type="button"
+            data-testid="attribute-editor-view-table"
+            aria-pressed={viewMode === "table"}
+            disabled={viewMode === "table"}
+            onClick={() => handleSetViewMode("table")}
+          >
+            {t("attributes.viewMode.table")}
+          </button>
+        </span>
+        <button
+          type="button"
+          data-testid="attribute-editor-export"
+          disabled={!isAdmin}
+          onClick={() => void handleExport()}
+        >
+          {t("actions.export")}
+        </button>
+        <button
+          type="button"
+          data-testid="attribute-editor-import"
+          disabled={!isAdmin}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {t("actions.import")}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json"
+          data-testid="attribute-editor-import-file"
+          hidden
+          onChange={handleFileSelected}
+        />
         {newSection === null ? (
           <button
             type="button"
@@ -380,19 +660,34 @@ export function AttributeEditorPage({
       ) : null}
 
       <div className={styles.body}>
-        <AttributeList
-          attributes={attributes}
-          emptySections={emptySections}
-          selected={selected}
-          readOnly={!isAdmin}
-          onSelect={setSelected}
-          onMove={(name, toSection, toIndex) =>
-            setAttributes((current) => moveAttribute(current, name, toSection, toIndex))
-          }
-          onRenameSection={handleRenameSection}
-          onDeleteSection={handleDeleteSection}
-          onMoveSection={handleMoveSection}
-        />
+        {viewMode === "list" ? (
+          <AttributeList
+            attributes={attributes}
+            sections={sections}
+            origins={isGlobal ? undefined : origins}
+            emptySections={emptySections}
+            selected={selected}
+            readOnly={!isAdmin}
+            onSelect={setSelected}
+            onMove={(name, toSection, toIndex) =>
+              setAttributes((current) => moveAttribute(current, name, toSection, toIndex))
+            }
+            onRenameSection={handleRenameSection}
+            onDeleteSection={handleDeleteSection}
+            onMoveSection={handleMoveSection}
+            onAddAttribute={setCreateSection}
+            onDeleteAttribute={handleRequestDeleteAttribute}
+            onToggleSectionVisible={handleToggleSectionVisible}
+            onSetSectionLayout={handleSetSectionLayout}
+          />
+        ) : (
+          <AttributeTable
+            attributes={attributes}
+            origins={isGlobal ? undefined : origins}
+            selected={selected}
+            onSelect={setSelected}
+          />
+        )}
         {selectedAttribute ? (
           <AttributeInspector
             attribute={selectedAttribute}
@@ -406,6 +701,7 @@ export function AttributeEditorPage({
             onSectionChange={(nextSection) =>
               handleInspectorSectionChange(selectedAttribute.name, nextSection)
             }
+            onRequestRemoveOption={handleRequestRemoveOption}
           />
         ) : null}
       </div>
@@ -420,6 +716,66 @@ export function AttributeEditorPage({
           cancelTestId="attribute-editor-reset-cancel"
           onConfirm={() => void handleReset()}
           onCancel={() => setConfirmReset(false)}
+        />
+      ) : null}
+
+      {createSection !== null ? (
+        <AttributeCreateDialog
+          scope={isGlobal ? "global" : "workspace"}
+          section={createSection}
+          existingNames={attributes.map((a) => a.name)}
+          onCreate={handleCreateAttribute}
+          onClose={() => setCreateSection(null)}
+        />
+      ) : null}
+
+      {deleteTarget !== null ? (
+        <ConfirmDialog
+          title={t("attributes.deleteAttribute.title")}
+          message={
+            deleteUsageCount === null
+              ? t("attributes.deleteAttribute.loading")
+              : deleteUsageCount > 0
+                ? t("attributes.deleteAttribute.confirmWithUsage", {
+                    name: deleteTarget,
+                    count: deleteUsageCount,
+                  })
+                : t("attributes.deleteAttribute.confirmPlain", { name: deleteTarget })
+          }
+          confirmLabel={t("actions.delete")}
+          testId="attribute-delete-confirm"
+          isSubmitting={deleting || deleteUsageCount === null}
+          onConfirm={() => void handleConfirmDeleteAttribute()}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      ) : null}
+
+      {removeOptionTarget !== null ? (
+        <ConfirmDialog
+          title={t("attributes.options.deleteConfirmTitle")}
+          message={
+            removeOptionUsageCount === null
+              ? t("attributes.options.deleteConfirmLoading")
+              : removeOptionUsageCount > 0
+                ? t("attributes.options.deleteConfirmWithUsage", {
+                    value: removeOptionTarget,
+                    count: removeOptionUsageCount,
+                  })
+                : t("attributes.options.deleteConfirmPlain", { value: removeOptionTarget })
+          }
+          confirmLabel={t("actions.delete")}
+          testId="attribute-option-delete-confirm"
+          isSubmitting={removeOptionUsageCount === null}
+          onConfirm={handleConfirmRemoveOption}
+          onCancel={() => setRemoveOptionTarget(null)}
+        />
+      ) : null}
+
+      {pendingImport !== null ? (
+        <AttributeImportDialog
+          fileName={pendingImport.fileName}
+          onConfirm={handleConfirmImport}
+          onClose={() => setPendingImport(null)}
         />
       ) : null}
     </div>

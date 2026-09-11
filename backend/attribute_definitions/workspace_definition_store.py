@@ -26,6 +26,7 @@ from .global_definition_store import (
 )
 from .models import WorkspaceAttributeDefinition
 from .schema import (
+    materialize_sections,
     stored_attributes,
     validate_definition_json,
     validate_meta_only_change,
@@ -43,10 +44,33 @@ class WorkspaceAttributeDefinitionStore:
     def get(
         self, tenant_id: UUID | str, workspace_id: UUID | str, item_type: str
     ) -> WorkspaceAttributeDefinition | None:
-        """Return the workspace row or None (no materialization)."""
+        """Return the workspace row or None (no materialization).
+
+        Deliberately NOT sections-materializing here — same reasoning as
+        ``GlobalAttributeDefinitionStore.get()``: ``update()`` calls this
+        internally as a plain lookup, and a hidden version bump inside it
+        would land an untracked extra increment on every write. ``resolve()``
+        below calls :meth:`ensure_sections` explicitly on the row it returns.
+        """
         return WorkspaceAttributeDefinition.unscoped.filter(
             tenant_id=tenant_id, workspace_id=workspace_id, item_type=item_type
         ).first()
+
+    @staticmethod
+    def ensure_sections(obj: WorkspaceAttributeDefinition) -> None:
+        """Backfill ``definition_json['sections']`` in place if missing (Task 7).
+
+        Same reasoning as ``GlobalAttributeDefinitionStore.ensure_sections``
+        (see its docstring).
+        """
+        if isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
+            return
+        attributes = stored_attributes(obj.definition_json)
+        base = obj.definition_json if isinstance(obj.definition_json, dict) else {"attributes": []}
+        obj.definition_json = {**base, "sections": materialize_sections(attributes)}
+        obj.version = F("version") + 1
+        obj.save(update_fields=["definition_json", "version", "modified_at"])
+        obj.refresh_from_db(fields=["version"])
 
     def resolve(
         self,
@@ -63,6 +87,7 @@ class WorkspaceAttributeDefinitionStore:
         """
         existing = self.get(tenant_id, workspace_id, item_type)
         if existing is not None:
+            self.ensure_sections(existing)
             return existing
 
         source = self._global_store.get(tenant_id, item_type, preset)
@@ -71,6 +96,7 @@ class WorkspaceAttributeDefinitionStore:
                 f"No global attribute definition for '{item_type}/{preset}' — "
                 f"run 'manage.py bootstrap_attribute_definitions' first"
             )
+        self._global_store.ensure_sections(source)
         obj, _created = WorkspaceAttributeDefinition.unscoped.get_or_create(
             tenant_id=tenant_id,
             workspace_id=workspace_id,
@@ -92,8 +118,12 @@ class WorkspaceAttributeDefinitionStore:
         workspace_id: UUID | str,
         item_type: str,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> WorkspaceAttributeDefinition:
         """Persist a workspace override and flip ``is_customized`` to True.
+
+        *sections* is optional — see
+        ``GlobalAttributeDefinitionStore.update()``'s identical parameter.
 
         Raises:
             AttributeDefinitionNotFound: the workspace has never been resolved.
@@ -106,12 +136,21 @@ class WorkspaceAttributeDefinitionStore:
                 f"No attribute definition resolved for '{item_type}' in "
                 f"workspace {workspace_id}"
             )
-        payload = validate_definition_json({"attributes": attributes})
+        raw_payload: dict[str, Any] = {"attributes": attributes}
+        if sections is not None:
+            raw_payload["sections"] = sections
+        payload = validate_definition_json(raw_payload)
         # Ledger item (e): normalize the stored row before it is indexed as a
         # dict of required keys — see global_definition_store.update() for the
         # KeyError→500 this replaces with a 400.
         old = stored_attributes(obj.definition_json)
         validate_meta_only_change(old, payload["attributes"])
+
+        # Task 7/8: carry the existing 'sections' list over when the caller
+        # didn't send one — see GlobalAttributeDefinitionStore.update()'s
+        # identical comment for why (definition_json is replaced wholesale).
+        if "sections" not in payload and isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
+            payload["sections"] = obj.definition_json["sections"]
 
         obj.definition_json = payload
         obj.is_customized = True
@@ -149,6 +188,7 @@ class WorkspaceAttributeDefinitionStore:
                 f"Attribute definition for '{item_type}' in workspace "
                 f"{workspace_id} has no global source to reset to"
             )
+        self._global_store.ensure_sections(source)
         obj.definition_json = copy.deepcopy(source.definition_json)
         obj.is_customized = False
         # Ledger binding (j): see update() above for why this is F(), not

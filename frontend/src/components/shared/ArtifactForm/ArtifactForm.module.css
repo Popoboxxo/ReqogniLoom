@@ -7,6 +7,30 @@
   gap: var(--space-4);
 }
 
+/* Task 8 (spec section 4.5): sections lay out on a 2-column grid. A "half"
+   section spans one column (two consecutive "half" sections sit side by
+   side; a lone one leaves the second column empty -- default grid-auto-flow
+   does this with no extra rule). "full" (the default) always spans both. */
+.sectionsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 768px) {
+  .sectionsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sectionFull {
+  grid-column: span 2;
+}
+
+.sectionHalf {
+  grid-column: span 1;
+}
+
 .section {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);

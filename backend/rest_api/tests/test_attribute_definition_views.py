@@ -54,6 +54,29 @@ def test_put_global_updates_and_reports_the_propagated_count(admin_client, seede
 
 
 @pytest.mark.django_db
+def test_put_global_persists_a_given_sections_list(admin_client, seeded) -> None:
+    response = admin_client.put(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"attributes": [TITLE], "sections": [{"name": "general", "visible": False}]},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.json()["sections"] == [
+        {"name": "general", "order": 0, "visible": False, "layout": "full"}
+    ]
+
+
+@pytest.mark.django_db
+def test_put_global_rejects_a_non_list_sections_with_400(admin_client, seeded) -> None:
+    response = admin_client.put(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"attributes": [TITLE], "sections": "nope"},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
 def test_put_global_rejects_a_core_rename_with_400(admin_client, seeded) -> None:
     response = admin_client.put(
         "/api/v1/attribute-defaults/Risk/standard/",
@@ -80,6 +103,60 @@ def test_put_global_without_an_attributes_key_is_400(admin_client, seeded) -> No
         "/api/v1/attribute-defaults/Risk/standard/", {}, format="json"
     )
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_post_global_creates_an_extended_attribute(admin_client, seeded) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert "risk_comment" in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
+def test_post_global_rejects_a_colliding_name_with_400(admin_client, seeded) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"name": "title", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+def test_post_global_requires_admin(editor_client, seeded) -> None:
+    response = editor_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_delete_global_removes_an_extended_attribute(admin_client, tenant_fixture) -> None:
+    GlobalAttributeDefinitionStore().initialize(
+        tenant_fixture.id, "Risk", "standard",
+        [TITLE, {"name": "note", "kind": "extended", "type": "text"}],
+    )
+    response = admin_client.delete(
+        "/api/v1/attribute-defaults/Risk/standard/?name=note"
+    )
+    assert response.status_code == 200
+    assert "note" not in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
+def test_delete_global_rejects_a_core_attribute_with_400(admin_client, seeded) -> None:
+    response = admin_client.delete(
+        "/api/v1/attribute-defaults/Risk/standard/?name=title"
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 @pytest.mark.django_db
@@ -123,6 +200,166 @@ def test_put_then_reset_workspace_definition(
     assert reset.status_code == 200
     assert reset.json()["is_customized"] is False
     assert [a["name"] for a in reset.json()["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_post_workspace_creates_a_workspace_only_attribute(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    response = admin_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["is_customized"] is True
+    assert "risk_comment" in [a["name"] for a in body["attributes"]]
+
+
+@pytest.mark.django_db
+def test_post_workspace_requires_admin(editor_client, workspace_fixture, seeded) -> None:
+    response = editor_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_delete_workspace_rejects_a_core_attribute_with_400(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    response = admin_client.delete(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/?name=title"
+    )
+    assert response.status_code == 400  # 'title' is kind="core"
+
+
+@pytest.mark.django_db
+def test_delete_workspace_removes_an_extended_attribute(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    admin_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    response = admin_client.delete(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/"
+        f"?name=risk_comment"
+    )
+    assert response.status_code == 200
+    assert "risk_comment" not in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
+def test_get_usage_count_of_an_unreferenced_attribute_is_zero(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    response = admin_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/usage/"
+        f"?name=note"
+    )
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+
+
+@pytest.mark.django_db
+def test_get_usage_count_requires_admin(editor_client, workspace_fixture, seeded) -> None:
+    response = editor_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/usage/"
+        f"?name=note"
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_get_usage_count_without_a_name_is_400(
+    admin_client, workspace_fixture, seeded
+) -> None:
+    response = admin_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/usage/"
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_export_global_returns_a_re_importable_document(admin_client, seeded) -> None:
+    response = admin_client.get("/api/v1/attribute-defaults/Risk/standard/export/")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema_version"] == 1
+    assert body["item_type"] == "Risk"
+    assert [a["name"] for a in body["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_export_global_requires_admin(editor_client, seeded) -> None:
+    response = editor_client.get("/api/v1/attribute-defaults/Risk/standard/export/")
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_import_global_adds_a_new_attribute(admin_client, seeded) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/import/",
+        {
+            "schema_version": 1,
+            "attributes": [{"name": "note", "kind": "extended", "type": "text"}],
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    assert "note" in [a["name"] for a in response.json()["attributes"]]
+
+
+@pytest.mark.django_db
+def test_import_global_rejects_an_unrecognized_schema_version_with_400(
+    admin_client, seeded
+) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/import/",
+        {"schema_version": 99, "attributes": []},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_import_global_honors_the_on_collision_query_param(admin_client, seeded) -> None:
+    response = admin_client.post(
+        "/api/v1/attribute-defaults/Risk/standard/import/?on_collision=overwrite",
+        {"schema_version": 1, "attributes": [dict(TITLE, section="header")]},
+        format="json",
+    )
+    assert response.status_code == 200
+    by_name = {a["name"]: a for a in response.json()["attributes"]}
+    assert by_name["title"]["section"] == "header"
+
+
+@pytest.mark.django_db
+def test_export_workspace_returns_a_document(admin_client, workspace_fixture, seeded) -> None:
+    response = admin_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/export/"
+    )
+    assert response.status_code == 200
+    assert response.json()["item_type"] == "Risk"
+
+
+@pytest.mark.django_db
+def test_import_workspace_adds_a_new_attribute(admin_client, workspace_fixture, seeded) -> None:
+    response = admin_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/import/",
+        {
+            "schema_version": 1,
+            "attributes": [{"name": "note", "kind": "extended", "type": "text"}],
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    assert "note" in [a["name"] for a in response.json()["attributes"]]
 
 
 @pytest.mark.django_db
@@ -183,3 +420,32 @@ def test_a_warm_cache_entry_is_not_served_across_tenants(
         "cross-tenant read served from the shared cache: "
         f"{response.content[:200]!r}"
     )
+
+
+@pytest.mark.django_db
+def test_foreign_tenant_workspace_create_is_403_not_500(
+    authed_client, workspace_fixture, seeded
+) -> None:
+    """Post-review M3: ``create_workspace`` resolves the workspace preset
+    through the gate, which raises ``CrossTenantWorkspaceError`` — a
+    ``PresetError``, NOT a ``ValueError``, so the view's existing
+    ``AttributeSchemaError`` clause never caught it and it 500'd."""
+    response = authed_client.post(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/",
+        {"name": "risk_comment", "kind": "extended", "type": "text"},
+        format="json",
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+
+
+@pytest.mark.django_db
+def test_foreign_tenant_workspace_delete_is_403_not_500(
+    authed_client, workspace_fixture, seeded
+) -> None:
+    response = authed_client.delete(
+        f"/api/v1/workspaces/{workspace_fixture.id}"
+        f"/attribute-definitions/Risk/?name=note"
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"

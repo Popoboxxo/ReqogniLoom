@@ -95,6 +95,16 @@ ALLOWED_KEYS: frozenset[str] = frozenset(_REQUIRED_KEYS) | frozenset(_DEFAULTS)
 
 _VALIDATION_KEYS = frozenset({"regex", "min", "max", "length"})
 
+_NEW_ATTRIBUTE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+#: A section's layout in the (future) CSS-Grid renderer (spec section 4.5):
+#: ``"full"`` spans both columns, ``"half"`` shares a row with another
+#: ``"half"`` section (or leaves the second column empty if it is alone).
+SECTION_LAYOUTS: frozenset[str] = frozenset({"full", "half"})
+
+_SECTION_DEFAULTS: dict[str, Any] = {"order": 0, "visible": True, "layout": "full"}
+_SECTION_ALLOWED_KEYS: frozenset[str] = frozenset({"name"}) | frozenset(_SECTION_DEFAULTS)
+
 
 class AttributeSchemaError(ValueError):
     """Raised when an attribute entry or a definition payload is malformed."""
@@ -348,8 +358,108 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def normalize_section(raw: dict[str, Any]) -> dict[str, Any]:
+    """Return *raw* with every documented key present, or raise.
+
+    Mirrors :func:`normalize_attribute`'s shape/behaviour for the
+    ``{name, order, visible, layout}`` dict describing one section (spec
+    section 4.4/4.5).
+
+    Raises:
+        AttributeSchemaError: any structural violation; ``.errors`` lists all
+            of them at once.
+    """
+    if not isinstance(raw, dict):
+        raise AttributeSchemaError(["section entry must be an object"])
+
+    errors: list[str] = []
+    unknown = sorted(set(raw) - _SECTION_ALLOWED_KEYS)
+    if unknown:
+        errors.append(f"unknown key(s): {', '.join(unknown)}")
+    if not raw.get("name"):
+        errors.append("'name' is required")
+    if errors:
+        raise AttributeSchemaError(errors)
+
+    out: dict[str, Any] = dict(_SECTION_DEFAULTS)
+    out["name"] = str(raw["name"])
+
+    if "order" in raw:
+        if not isinstance(raw["order"], int) or isinstance(raw["order"], bool):
+            errors.append("'order' must be an integer")
+        else:
+            out["order"] = raw["order"]
+
+    if "visible" in raw:
+        if not isinstance(raw["visible"], bool):
+            errors.append("'visible' must be a boolean")
+        else:
+            out["visible"] = raw["visible"]
+
+    if "layout" in raw:
+        if raw["layout"] not in SECTION_LAYOUTS:
+            errors.append(f"'layout' must be one of {sorted(SECTION_LAYOUTS)}")
+        else:
+            out["layout"] = raw["layout"]
+
+    if errors:
+        raise AttributeSchemaError(errors)
+    return out
+
+
+def validate_sections_json(sections: Any) -> list[dict[str, Any]]:
+    """Validate a whole ``sections`` list and return it normalized.
+
+    Sections come back sorted by ``(order, name)``, the same stable-order
+    convention :func:`validate_definition_json` uses for attributes.
+    """
+    if not isinstance(sections, list):
+        raise AttributeSchemaError(["'sections' must be a list"])
+
+    errors: list[str] = []
+    normalized: list[dict[str, Any]] = []
+    for entry in sections:
+        try:
+            normalized.append(normalize_section(entry))
+        except AttributeSchemaError as exc:
+            name = entry.get("name", "<unnamed>") if isinstance(entry, dict) else "<invalid>"
+            errors.extend(f"{name}: {e}" for e in exc.errors)
+
+    seen: set[str] = set()
+    for section in normalized:
+        if section["name"] in seen:
+            errors.append(f"duplicate section name: {section['name']}")
+        seen.add(section["name"])
+
+    if errors:
+        raise AttributeSchemaError(errors)
+
+    normalized.sort(key=lambda s: (s["order"], s["name"]))
+    return normalized
+
+
+def materialize_sections(attributes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Derive a default ``sections`` list from an attribute list's section names.
+
+    First-appearance order (same convention the frontend's ``sectionNames``
+    helper uses) — spec section 4.4's "additive, no data migration" default
+    for a row written before this feature existed.
+    """
+    seen: list[str] = []
+    for attribute in attributes:
+        if attribute["section"] not in seen:
+            seen.append(attribute["section"])
+    return [
+        {"name": name, "order": index, "visible": True, "layout": "full"}
+        for index, name in enumerate(seen)
+    ]
+
+
 def validate_definition_json(payload: dict[str, Any]) -> dict[str, Any]:
-    """Validate a whole ``{"attributes": [...]}`` payload and return it normalized.
+    """Validate a whole ``{"attributes": [...], "sections": [...]}`` payload.
+
+    ``sections`` is optional on the way in — omitting it (every call site
+    before Task 7) normalizes only ``attributes``, unchanged behaviour.
 
     Attributes come back sorted by ``(section, order, name)`` so every consumer
     (form renderer, interview protocol, export) sees the same stable order
@@ -378,11 +488,21 @@ def validate_definition_json(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"duplicate attribute name: {attribute['name']}")
         seen.add(attribute["name"])
 
+    sections: list[dict[str, Any]] | None = None
+    if "sections" in payload:
+        try:
+            sections = validate_sections_json(payload["sections"])
+        except AttributeSchemaError as exc:
+            errors.extend(exc.errors)
+
     if errors:
         raise AttributeSchemaError(errors)
 
     normalized.sort(key=lambda a: (a["section"], a["order"], a["name"]))
-    return {"attributes": normalized}
+    result: dict[str, Any] = {"attributes": normalized}
+    if sections is not None:
+        result["sections"] = sections
+    return result
 
 
 def stored_attributes(definition_json: Any) -> list[dict[str, Any]]:
@@ -409,6 +529,20 @@ def stored_attributes(definition_json: Any) -> list[dict[str, Any]]:
         else []
     )
     return validate_definition_json({"attributes": raw})["attributes"]
+
+
+def stored_sections(definition_json: Any) -> list[dict[str, Any]]:
+    """Normalize a stored ``definition_json['sections']`` list, or ``[]``.
+
+    Mirrors :func:`stored_attributes` for the sections side of the same
+    JSONField. An absent ``'sections'`` key returns ``[]`` — distinguishing
+    "no sections key at all" (needs materialization) from "materialized but
+    happens to be empty" is the STORE's job (it checks
+    ``"sections" in definition_json`` directly), not this function's.
+    """
+    if not isinstance(definition_json, dict) or "sections" not in definition_json:
+        return []
+    return validate_sections_json(definition_json["sections"])
 
 
 def _by_name(attributes: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -486,6 +620,39 @@ def validate_meta_only_change(
         raise AttributeSchemaError(errors)
 
 
+def validate_new_attribute_name(
+    name: str,
+    existing_attributes: Iterable[dict[str, Any]],
+    *,
+    reserved_field_names: Iterable[str] = (),
+) -> None:
+    """Reject a name a newly created attribute may not use (Task 1, V-none extra).
+
+    Called before the new entry is normalized/merged into the definition, so
+    the admin sees one focused error instead of ``normalize_attribute``'s
+    generic structural complaints or a downstream ``IntegrityError``.
+
+    Raises:
+        AttributeSchemaError: *name* is not snake_case, already names an
+            existing attribute (core or extended), or collides with a field
+            already defined on the item type's Django model (only meaningful
+            for a ``kind="extended"`` create — a colliding ``kind="core"``
+            create is already rejected by :func:`validate_meta_only_change`).
+    """
+    errors: list[str] = []
+    if not isinstance(name, str) or not _NEW_ATTRIBUTE_NAME_RE.fullmatch(name):
+        errors.append(
+            f"'{name}' must be snake_case (lowercase letters, digits, "
+            "underscores, starting with a letter)"
+        )
+    elif name in {a["name"] for a in existing_attributes}:
+        errors.append(f"'{name}' already exists")
+    elif name in set(reserved_field_names):
+        errors.append(f"'{name}' collides with an existing model field")
+    if errors:
+        raise AttributeSchemaError(errors)
+
+
 __all__ = [
     "ALLOWED_KEYS",
     "ATTRIBUTE_KINDS",
@@ -498,10 +665,16 @@ __all__ = [
     "ITEM_TYPES",
     "LOCKED_IMMUTABLE_PROPERTIES",
     "PRESETS",
+    "SECTION_LAYOUTS",
     "WIDGET_KEYS",
+    "materialize_sections",
     "normalize_attribute",
+    "normalize_section",
     "stored_attributes",
+    "stored_sections",
     "validate_definition_json",
     "validate_definition_key",
     "validate_meta_only_change",
+    "validate_new_attribute_name",
+    "validate_sections_json",
 ]

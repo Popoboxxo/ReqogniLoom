@@ -1,0 +1,14 @@
+/* AttributeCreateDialog (Task 3, spec section 4.1). Layout only — field/
+   control/error styling is shared with AttributeEditor.module.css. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

@@ -215,6 +215,8 @@
     "cancel": "Cancel",
     "create": "Create",
     "creating": "Creating...",
+    "import": "Import",
+    "export": "Export",
     "copy": "Copy",
     "dismiss": "Dismiss",
     "clear": "Clear",
@@ -2106,7 +2108,80 @@
       "Issue": "Issue",
       "Goal": "Goal",
       "Icd": "ICD",
-      "GlossaryTerm": "Glossary Term"
+      "GlossaryTerm": "Glossary Term",
+      "ChangeRequest": "Change Request"
+    },
+    "types": {
+      "text": "Text",
+      "textarea": "Multi-line text",
+      "number": "Number",
+      "boolean": "Boolean",
+      "enum": "Single select",
+      "multi-enum": "Multi select",
+      "date": "Date",
+      "reference": "Reference",
+      "user": "User",
+      "widget": "Widget"
+    },
+    "addAttribute": "+ Add attribute",
+    "options": {
+      "title": "Options",
+      "value": "Value",
+      "labelDe": "Label (DE)",
+      "labelEn": "Label (EN)",
+      "add": "+ Add option",
+      "remove": "Remove option",
+      "deleteConfirmTitle": "Remove option",
+      "deleteConfirmLoading": "Checking usage…",
+      "deleteConfirmPlain": "Remove option \"{{value}}\"?",
+      "deleteConfirmWithUsage": "{{count}} artifact(s) currently have this attribute set to \"{{value}}\". Remove it anyway? Their stored values are not changed."
+    },
+    "import": {
+      "title": "Import attributes",
+      "invalidFile": "This file is not valid JSON.",
+      "fileLabel": "File: {{name}}",
+      "onCollisionLabel": "On name collision",
+      "onCollision": {
+        "skip": "Skip (keep the existing attribute)",
+        "overwrite": "Overwrite (replace the existing attribute)",
+        "rename": "Rename (import as a new attribute, suffixed)"
+      }
+    },
+    "deleteAttribute": {
+      "action": "Delete attribute",
+      "title": "Delete attribute",
+      "loading": "Checking usage…",
+      "confirmPlain": "Delete attribute \"{{name}}\"?",
+      "confirmWithUsage": "{{count}} artifact(s) use attribute \"{{name}}\". Delete it anyway? Their stored values are not removed, only the attribute definition."
+    },
+    "viewMode": {
+      "list": "List",
+      "table": "Table"
+    },
+    "table": {
+      "name": "Name",
+      "type": "Type",
+      "section": "Section",
+      "required": "Required",
+      "visible": "Visible",
+      "audience": "Audience",
+      "originHeader": "Origin",
+      "origin": {
+        "global": "Global",
+        "global_customized": "Global (customized)",
+        "workspace_only": "Workspace-only"
+      }
+    },
+    "create": {
+      "title": "New attribute",
+      "name": "Name",
+      "type": "Type",
+      "options": "Options (comma-separated)",
+      "optionsPlaceholder": "low, medium, high",
+      "workspaceOnlyHint": "Exists only in this workspace.",
+      "errorInvalidName": "Name must be snake_case (lowercase letters, digits, underscores, starting with a letter).",
+      "errorNameExists": "An attribute with this name already exists.",
+      "errorOptionsRequired": "This type requires at least one option."
     },
     "visible": "Visible",
     "required": "Required",
@@ -2120,6 +2195,10 @@
     "moveUp": "Move up",
     "moveDown": "Move down",
     "addSection": "Add section",
+    "sectionVisible": "Section visible",
+    "sectionLayout": "Section layout",
+    "sectionLayoutFull": "Full width",
+    "sectionLayoutHalf": "Half width",
     "renameSection": "Rename section",
     "deleteSection": "Delete section",
     "moveSectionUp": "Move section up",

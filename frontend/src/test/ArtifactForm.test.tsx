@@ -52,7 +52,7 @@ import {
   groupIntoSections,
   parseFieldErrors,
 } from "../components/shared/ArtifactForm";
-import type { AttributeSpec } from "../api/attribute-definitions";
+import type { AttributeSpec, SectionSpec } from "../api/attribute-definitions";
 
 function spec(over: Partial<AttributeSpec>): AttributeSpec {
   return {
@@ -79,13 +79,19 @@ function spec(over: Partial<AttributeSpec>): AttributeSpec {
   };
 }
 
-function mockDefinition(attributes: AttributeSpec[]): void {
+function section(over: Partial<SectionSpec>): SectionSpec {
+  return { name: "general", order: 0, visible: true, layout: "full", ...over };
+}
+
+function mockDefinition(attributes: AttributeSpec[], sections: SectionSpec[] = []): void {
   vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
     item_type: "Risk",
     preset: "standard",
     is_customized: false,
     version: 1,
     attributes,
+    origins: {},
+    sections,
   });
 }
 
@@ -213,6 +219,72 @@ describe("ArtifactForm", () => {
     );
     await screen.findByTestId("artifact-field-title");
     expect(screen.queryByTestId("artifact-field-hidden")).not.toBeInTheDocument();
+  });
+
+  it("hides a whole section (and its attributes) when the section is invisible, regardless of each attribute's own visible flag", async () => {
+    mockDefinition(
+      [
+        spec({ name: "title", section: "general" }),
+        // Individually visible=true -- the section-level flag must still win
+        // (spec section 4.4's AND-condition).
+        spec({ name: "note", section: "hidden_section", visible: true }),
+      ],
+      [
+        section({ name: "general", order: 0 }),
+        section({ name: "hidden_section", order: 1, visible: false }),
+      ]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-title");
+    expect(screen.queryByTestId("artifact-field-note")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("artifact-section-hidden_section")).not.toBeInTheDocument();
+  });
+
+  it("defaults a section not listed in definition.sections to visible", async () => {
+    mockDefinition([spec({ name: "title", section: "general" })], []);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    expect(await screen.findByTestId("artifact-field-title")).toBeInTheDocument();
+  });
+
+  it("applies the half layout to two consecutive half sections and full to a plain one", async () => {
+    mockDefinition(
+      [
+        spec({ name: "a", section: "left", order: 0 }),
+        spec({ name: "b", section: "right", order: 0 }),
+        spec({ name: "c", section: "wide", order: 0 }),
+      ],
+      [
+        section({ name: "left", order: 0, layout: "half" }),
+        section({ name: "right", order: 1, layout: "half" }),
+        section({ name: "wide", order: 2, layout: "full" }),
+      ]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{}}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-a");
+    expect(screen.getByTestId("artifact-section-left")).toHaveAttribute("data-layout", "half");
+    expect(screen.getByTestId("artifact-section-right")).toHaveAttribute("data-layout", "half");
+    expect(screen.getByTestId("artifact-section-wide")).toHaveAttribute("data-layout", "full");
   });
 
   it("renders the workflow status editor instead of a control for editable=workflow", async () => {

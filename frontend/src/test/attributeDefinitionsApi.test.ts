@@ -8,6 +8,7 @@ vi.mock("../api/client", () => ({
     get: vi.fn(),
     put: vi.fn(),
     post: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -24,6 +25,7 @@ describe("attributeDefinitionsApi", () => {
     vi.mocked(apiClient.get).mockReset();
     vi.mocked(apiClient.put).mockReset();
     vi.mocked(apiClient.post).mockReset();
+    vi.mocked(apiClient.delete).mockReset();
   });
 
   it("reads a global default per item type and preset", async () => {
@@ -59,6 +61,20 @@ describe("attributeDefinitionsApi", () => {
     );
   });
 
+  it("includes sections in the PUT body when given", async () => {
+    vi.mocked(apiClient.put).mockResolvedValue({ ...DEFINITION, initialized: true });
+    await attributeDefinitionsApi.putGlobal("Risk", "standard", [], [
+      { name: "general", order: 0, visible: true, layout: "full" },
+    ]);
+    expect(apiClient.put).toHaveBeenCalledWith(
+      "/attribute-defaults/Risk/standard/",
+      {
+        attributes: [],
+        sections: [{ name: "general", order: 0, visible: true, layout: "full" }],
+      }
+    );
+  });
+
   it("reads a workspace definition", async () => {
     vi.mocked(apiClient.get).mockResolvedValue(DEFINITION);
     await attributeDefinitionsApi.getWorkspace("ws-1", "Risk");
@@ -73,6 +89,120 @@ describe("attributeDefinitionsApi", () => {
     expect(apiClient.post).toHaveBeenCalledWith(
       "/workspaces/ws-1/attribute-definitions/Risk/reset/",
       {}
+    );
+  });
+
+  it("posts a new extended attribute to the global default", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...DEFINITION, initialized: true });
+    await attributeDefinitionsApi.createGlobalAttribute("Risk", "standard", {
+      name: "risk_comment",
+      type: "text",
+      required: false,
+      section: "general",
+    });
+    expect(apiClient.post).toHaveBeenCalledWith("/attribute-defaults/Risk/standard/", {
+      name: "risk_comment",
+      kind: "extended",
+      type: "text",
+      required: false,
+      section: "general",
+    });
+  });
+
+  it("includes options when creating an enum global attribute", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...DEFINITION, initialized: true });
+    await attributeDefinitionsApi.createGlobalAttribute("Risk", "standard", {
+      name: "risk_category",
+      type: "enum",
+      required: false,
+      section: "general",
+      options: [{ value: "low", label_de: "low", label_en: "low" }],
+    });
+    expect(apiClient.post).toHaveBeenCalledWith("/attribute-defaults/Risk/standard/", {
+      name: "risk_category",
+      kind: "extended",
+      type: "enum",
+      required: false,
+      section: "general",
+      options: [{ value: "low", label_de: "low", label_en: "low" }],
+    });
+  });
+
+  it("deletes a global attribute by name via a query parameter", async () => {
+    vi.mocked(apiClient.delete).mockResolvedValue(DEFINITION);
+    await attributeDefinitionsApi.deleteGlobalAttribute("Risk", "standard", "note");
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      "/attribute-defaults/Risk/standard/?name=note"
+    );
+  });
+
+  it("posts a new workspace-only attribute", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(DEFINITION);
+    await attributeDefinitionsApi.createWorkspaceAttribute("ws-1", "Risk", {
+      name: "risk_comment",
+      type: "text",
+      required: false,
+      section: "general",
+    });
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/workspaces/ws-1/attribute-definitions/Risk/",
+      { name: "risk_comment", kind: "extended", type: "text", required: false, section: "general" }
+    );
+  });
+
+  it("deletes a workspace attribute by name via a query parameter", async () => {
+    vi.mocked(apiClient.delete).mockResolvedValue(DEFINITION);
+    await attributeDefinitionsApi.deleteWorkspaceAttribute("ws-1", "Risk", "note");
+    expect(apiClient.delete).toHaveBeenCalledWith(
+      "/workspaces/ws-1/attribute-definitions/Risk/?name=note"
+    );
+  });
+
+  it("exports a global definition", async () => {
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    vi.mocked(apiClient.get).mockResolvedValue(document);
+    const result = await attributeDefinitionsApi.exportGlobal("Risk", "standard");
+    expect(apiClient.get).toHaveBeenCalledWith("/attribute-defaults/Risk/standard/export/");
+    expect(result).toEqual(document);
+  });
+
+  it("imports into a global definition with the default on_collision", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...DEFINITION, initialized: true });
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    await attributeDefinitionsApi.importGlobal("Risk", "standard", document);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/attribute-defaults/Risk/standard/import/?on_collision=skip",
+      document
+    );
+  });
+
+  it("imports into a global definition with a given on_collision", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ ...DEFINITION, initialized: true });
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    await attributeDefinitionsApi.importGlobal("Risk", "standard", document, "overwrite");
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/attribute-defaults/Risk/standard/import/?on_collision=overwrite",
+      document
+    );
+  });
+
+  it("exports a workspace definition", async () => {
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    vi.mocked(apiClient.get).mockResolvedValue(document);
+    const result = await attributeDefinitionsApi.exportWorkspace("ws-1", "Risk");
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "/workspaces/ws-1/attribute-definitions/Risk/export/"
+    );
+    expect(result).toEqual(document);
+  });
+
+  it("imports into a workspace definition", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(DEFINITION);
+    const document = { schema_version: 1, item_type: "Risk", attributes: [], sections: [] };
+    await attributeDefinitionsApi.importWorkspace("ws-1", "Risk", document, "rename");
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/workspaces/ws-1/attribute-definitions/Risk/import/?on_collision=rename",
+      document
     );
   });
 });

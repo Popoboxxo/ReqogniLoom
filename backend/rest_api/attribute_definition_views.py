@@ -72,6 +72,24 @@ def _read_attributes(request: Request, lang: str) -> tuple[list[dict[str, Any]] 
     return attributes, None
 
 
+def _read_sections(
+    request: Request, lang: str
+) -> tuple[list[dict[str, Any]] | None, Response | None]:
+    """Extract the optional ``sections`` list of a PUT body (Task 8).
+
+    ``None`` (key absent) is a valid, common result — it means "leave the
+    row's current sections unchanged", not an error. Only a present-but-
+    wrong-shaped value is rejected.
+    """
+    payload = request.data if isinstance(request.data, dict) else {}
+    if "sections" not in payload:
+        return None, None
+    sections = payload["sections"]
+    if not isinstance(sections, list):
+        return None, _validation(lang, "'sections', if present, must be a list.")
+    return sections, None
+
+
 class AttributeDefaultsListView(APIView):
     """GET /attribute-defaults/ — list the tenant's global attribute defaults."""
 
@@ -109,9 +127,48 @@ class AttributeDefaultsDetailView(APIView):
         attributes, error = _read_attributes(request, lang)
         if error is not None:
             return error
+        sections, sections_error = _read_sections(request, lang)
+        if sections_error is not None:
+            return sections_error
         try:
             payload = AttributeDefinitionService().update_global(
-                ctx, item_type, preset, attributes
+                ctx, item_type, preset, attributes, sections
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_200_OK)
+
+    def post(self, request: Request, item_type: str, preset: str) -> Response:
+        """Create one new ``kind="extended"`` attribute on the global default."""
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        attribute = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = AttributeDefinitionService().create_global(
+                ctx, item_type, preset, attribute
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+    def delete(self, request: Request, item_type: str, preset: str) -> Response:
+        """Delete one attribute (``?name=``) from the global default."""
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        name = request.query_params.get("name")
+        if not name:
+            return _validation(lang, "Query parameter 'name' is required.")
+        try:
+            payload = AttributeDefinitionService().delete_global(
+                ctx, item_type, preset, name
             )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))
@@ -151,15 +208,86 @@ class WorkspaceAttributeDefinitionView(APIView):
         attributes, error = _read_attributes(request, lang)
         if error is not None:
             return error
+        sections, sections_error = _read_sections(request, lang)
+        if sections_error is not None:
+            return sections_error
         try:
             payload = AttributeDefinitionService().update_workspace(
-                ctx, item_type, workspace_id, attributes
+                ctx, item_type, workspace_id, attributes, sections
             )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))
         except AttributeSchemaError as exc:
             return _validation(lang, "; ".join(exc.errors))
         return Response(payload, status=status.HTTP_200_OK)
+
+    def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        """Create one workspace-only attribute (no global counterpart)."""
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        attribute = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = AttributeDefinitionService().create_workspace(
+                ctx, item_type, workspace_id, attribute
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            # create_workspace resolves the workspace's preset through the
+            # gate, which raises for a foreign-tenant id. Same guard (and same
+            # reason) as WorkspaceAttributeDefinitionView.get — without it a
+            # PresetError (NOT a ValueError) falls through to an uncaught 500.
+            return _forbidden(lang, str(exc))
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+    def delete(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        """Delete one attribute (``?name=``) from the workspace's definition."""
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        name = request.query_params.get("name")
+        if not name:
+            return _validation(lang, "Query parameter 'name' is required.")
+        try:
+            payload = AttributeDefinitionService().delete_workspace(
+                ctx, item_type, workspace_id, name
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            # Same guard as post() above — delete_workspace resolves the
+            # preset through the gate too.
+            return _forbidden(lang, str(exc))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class AttributeUsageView(APIView):
+    """GET /workspaces/{id}/attribute-definitions/{item_type}/usage/?name=&option=.
+
+    Read-only probe the delete/option-removal confirmation flows call before
+    showing their warning (Task 5). Admin-only, same gate as every other
+    mutation-adjacent endpoint on this resource.
+    """
+
+    def get(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        name = request.query_params.get("name")
+        if not name:
+            return _validation(lang, "Query parameter 'name' is required.")
+        count = AttributeDefinitionService().count_usages(
+            ctx, item_type, workspace_id, name, request.query_params.get("option")
+        )
+        return Response({"count": count}, status=status.HTTP_200_OK)
 
 
 class WorkspaceAttributeDefinitionResetView(APIView):
@@ -179,9 +307,104 @@ class WorkspaceAttributeDefinitionResetView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+def _read_on_collision(request: Request, payload: dict[str, Any]) -> str:
+    """``on_collision`` (Task 10): a query param wins over a same-named key in
+    the body, defaulting to ``"skip"`` — the plan's own spec explicitly wants
+    both accepted (``?on_collision=`` OR the body carrying it alongside the
+    exported document)."""
+    return request.query_params.get("on_collision") or payload.get("on_collision") or "skip"
+
+
+class AttributeDefaultsExportView(APIView):
+    """GET /attribute-defaults/{item_type}/{preset}/export/ (Task 10)."""
+
+    def get(self, request: Request, item_type: str, preset: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        try:
+            payload = AttributeDefinitionService().export_definition(
+                ctx, item_type, preset=preset
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class AttributeDefaultsImportView(APIView):
+    """POST /attribute-defaults/{item_type}/{preset}/import/ (Task 10)."""
+
+    def post(self, request: Request, item_type: str, preset: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = AttributeDefinitionService().import_definition(
+                ctx, item_type, body, preset=preset,
+                on_collision=_read_on_collision(request, body),
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class WorkspaceAttributeDefinitionExportView(APIView):
+    """GET /workspaces/{id}/attribute-definitions/{item_type}/export/ (Task 10)."""
+
+    def get(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        try:
+            payload = AttributeDefinitionService().export_definition(
+                ctx, item_type, workspace_id=workspace_id
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except CrossTenantWorkspaceError as exc:
+            # Same guard as WorkspaceAttributeDefinitionView.get — see its
+            # comment for why this must not fall through to a 500.
+            return _forbidden(lang, str(exc))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class WorkspaceAttributeDefinitionImportView(APIView):
+    """POST /workspaces/{id}/attribute-definitions/{item_type}/import/ (Task 10)."""
+
+    def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
+        gate = _require_admin(request)
+        if isinstance(gate, Response):
+            return gate
+        ctx, lang = gate
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = AttributeDefinitionService().import_definition(
+                ctx, item_type, body, workspace_id=workspace_id,
+                on_collision=_read_on_collision(request, body),
+            )
+        except AttributeDefinitionNotFound as exc:
+            return _not_found(lang, str(exc))
+        except AttributeSchemaError as exc:
+            return _validation(lang, "; ".join(exc.errors))
+        except CrossTenantWorkspaceError as exc:
+            return _forbidden(lang, str(exc))
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 __all__ = [
     "AttributeDefaultsDetailView",
+    "AttributeDefaultsExportView",
+    "AttributeDefaultsImportView",
     "AttributeDefaultsListView",
+    "AttributeUsageView",
+    "WorkspaceAttributeDefinitionExportView",
+    "WorkspaceAttributeDefinitionImportView",
     "WorkspaceAttributeDefinitionResetView",
     "WorkspaceAttributeDefinitionView",
 ]

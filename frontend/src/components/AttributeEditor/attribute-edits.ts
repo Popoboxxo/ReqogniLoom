@@ -6,7 +6,11 @@
  * comparison against the loaded definition would always read clean.
  */
 
-import type { AttributeSpec } from "../../api/attribute-definitions";
+import type {
+  AttributeSpec,
+  SectionLayout,
+  SectionSpec,
+} from "../../api/attribute-definitions";
 
 const CORE_IMMUTABLE: ReadonlySet<keyof AttributeSpec> = new Set([
   "name",
@@ -83,6 +87,42 @@ export function renameSection(
   return attributes.map((a) => (a.section === from ? { ...a, section: clean } : a));
 }
 
+/**
+ * Post-review M6: `renameSection` only rewrites `attribute.section`, so the
+ * matching `SectionSpec` has to be renamed alongside it. Without this the
+ * renamed section has no spec at all and falls back to the default
+ * visible/full — a deliberately hidden section silently becomes visible
+ * again — while the entry under the old name survives forever as an orphan
+ * that a later section of that name would silently inherit.
+ *
+ * Renaming ONTO an existing section name is a merge (that is what
+ * `renameSection` does to the attributes): the target's own spec wins and the
+ * source entry is dropped, because two entries of the same name are a
+ * duplicate the backend rejects.
+ */
+export function renameSectionSpec(
+  sections: SectionSpec[],
+  from: string,
+  to: string
+): SectionSpec[] {
+  const clean = to.trim();
+  if (!clean || clean === from) return sections;
+  if (!sections.some((s) => s.name === from)) return sections;
+  if (sections.some((s) => s.name === clean)) {
+    return sections.filter((s) => s.name !== from);
+  }
+  return sections.map((s) => (s.name === from ? { ...s, name: clean } : s));
+}
+
+/** Drop the `SectionSpec` of a deleted section — see {@link renameSectionSpec}
+ * for why a leftover entry is not harmless. */
+export function deleteSectionSpec(
+  sections: SectionSpec[],
+  name: string
+): SectionSpec[] {
+  return sections.filter((s) => s.name !== name);
+}
+
 /** Delete an EMPTY section. Throws when it still holds attributes. */
 export function deleteSection(
   attributes: AttributeSpec[],
@@ -130,6 +170,29 @@ export function patchAttribute(
  * property anyway, so this function's coverage of them is inert today, not a
  * live gap this task introduces or depends on.
  */
+/** Task 8: toggle one section's `visible` flag, upserting a new default
+ * entry if this section has no `SectionSpec` yet (e.g. a workspace/global
+ * row whose `sections` came back genuinely empty). */
+export function toggleSectionVisible(sections: SectionSpec[], name: string): SectionSpec[] {
+  if (sections.some((s) => s.name === name)) {
+    return sections.map((s) => (s.name === name ? { ...s, visible: !s.visible } : s));
+  }
+  return [...sections, { name, order: sections.length, visible: false, layout: "full" }];
+}
+
+/** Task 8: set one section's `layout`, same upsert fallback as
+ * {@link toggleSectionVisible}. */
+export function setSectionLayout(
+  sections: SectionSpec[],
+  name: string,
+  layout: SectionLayout
+): SectionSpec[] {
+  if (sections.some((s) => s.name === name)) {
+    return sections.map((s) => (s.name === name ? { ...s, layout } : s));
+  }
+  return [...sections, { name, order: sections.length, visible: true, layout }];
+}
+
 export function isMetaPropertyLocked(
   attribute: AttributeSpec,
   property: keyof AttributeSpec
