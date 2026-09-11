@@ -61,6 +61,20 @@ describe("attributeDefinitionsApi", () => {
     );
   });
 
+  it("includes sections in the PUT body when given", async () => {
+    vi.mocked(apiClient.put).mockResolvedValue({ ...DEFINITION, initialized: true });
+    await attributeDefinitionsApi.putGlobal("Risk", "standard", [], [
+      { name: "general", order: 0, visible: true, layout: "full" },
+    ]);
+    expect(apiClient.put).toHaveBeenCalledWith(
+      "/attribute-defaults/Risk/standard/",
+      {
+        attributes: [],
+        sections: [{ name: "general", order: 0, visible: true, layout: "full" }],
+      }
+    );
+  });
+
   it("reads a workspace definition", async () => {
     vi.mocked(apiClient.get).mockResolvedValue(DEFINITION);
     await attributeDefinitionsApi.getWorkspace("ws-1", "Risk");

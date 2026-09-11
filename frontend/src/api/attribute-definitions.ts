@@ -108,6 +108,18 @@ export interface AttributeSpec {
  * `AttributeDefinitionService._workspace_payload` docstring). */
 export type AttributeOrigin = "global" | "global_customized" | "workspace_only";
 
+/** Section-level layout in `ArtifactForm`'s CSS Grid (Task 7/8, spec section
+ * 4.4/4.5): `"full"` spans both columns, `"half"` shares a row with another
+ * `"half"` section (or leaves the second column empty if it is alone). */
+export type SectionLayout = "full" | "half";
+
+export interface SectionSpec {
+  name: string;
+  order: number;
+  visible: boolean;
+  layout: SectionLayout;
+}
+
 export interface ResolvedAttributeDefinition {
   item_type: AttributeItemType;
   preset: WorkspacePreset;
@@ -118,6 +130,7 @@ export interface ResolvedAttributeDefinition {
    * scoped) definition; absent on the global-scope payload, which has no
    * origin concept. */
   origins: Record<string, AttributeOrigin>;
+  sections: SectionSpec[];
 }
 
 /** What `AttributeCreateDialog` collects — always creates a `kind: "extended"`
@@ -136,6 +149,7 @@ export interface GlobalAttributeDefinition {
   initialized: boolean;
   version: number;
   attributes: AttributeSpec[];
+  sections: SectionSpec[];
   /** Present on a PUT response: how many on-default workspaces were updated. */
   propagated_workspace_count?: number;
 }
@@ -186,13 +200,17 @@ export const attributeDefinitionsApi = {
     return apiClient.get<GlobalAttributeDefinition>(globalPath(itemType, preset));
   },
 
+  /** `sections` (Task 8) is optional — omitted, the backend preserves the
+   * row's current sections list unchanged; passed, it replaces it. */
   putGlobal(
     itemType: AttributeItemType,
     preset: WorkspacePreset,
-    attributes: AttributeSpec[]
+    attributes: AttributeSpec[],
+    sections?: SectionSpec[]
   ): Promise<GlobalAttributeDefinition> {
     return apiClient.put<GlobalAttributeDefinition>(globalPath(itemType, preset), {
       attributes,
+      ...(sections ? { sections } : {}),
     });
   },
 
@@ -205,14 +223,16 @@ export const attributeDefinitionsApi = {
     );
   },
 
+  /** `sections` is optional — see {@link putGlobal}. */
   putWorkspace(
     workspaceId: UUID,
     itemType: AttributeItemType,
-    attributes: AttributeSpec[]
+    attributes: AttributeSpec[],
+    sections?: SectionSpec[]
   ): Promise<ResolvedAttributeDefinition> {
     return apiClient.put<ResolvedAttributeDefinition>(
       workspacePath(workspaceId, itemType),
-      { attributes }
+      { attributes, ...(sections ? { sections } : {}) }
     );
   },
 

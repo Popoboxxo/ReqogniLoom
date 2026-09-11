@@ -54,6 +54,29 @@ def test_put_global_updates_and_reports_the_propagated_count(admin_client, seede
 
 
 @pytest.mark.django_db
+def test_put_global_persists_a_given_sections_list(admin_client, seeded) -> None:
+    response = admin_client.put(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"attributes": [TITLE], "sections": [{"name": "general", "visible": False}]},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.json()["sections"] == [
+        {"name": "general", "order": 0, "visible": False, "layout": "full"}
+    ]
+
+
+@pytest.mark.django_db
+def test_put_global_rejects_a_non_list_sections_with_400(admin_client, seeded) -> None:
+    response = admin_client.put(
+        "/api/v1/attribute-defaults/Risk/standard/",
+        {"attributes": [TITLE], "sections": "nope"},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
 def test_put_global_rejects_a_core_rename_with_400(admin_client, seeded) -> None:
     response = admin_client.put(
         "/api/v1/attribute-defaults/Risk/standard/",

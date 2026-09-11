@@ -6,7 +6,11 @@
  * comparison against the loaded definition would always read clean.
  */
 
-import type { AttributeSpec } from "../../api/attribute-definitions";
+import type {
+  AttributeSpec,
+  SectionLayout,
+  SectionSpec,
+} from "../../api/attribute-definitions";
 
 const CORE_IMMUTABLE: ReadonlySet<keyof AttributeSpec> = new Set([
   "name",
@@ -130,6 +134,29 @@ export function patchAttribute(
  * property anyway, so this function's coverage of them is inert today, not a
  * live gap this task introduces or depends on.
  */
+/** Task 8: toggle one section's `visible` flag, upserting a new default
+ * entry if this section has no `SectionSpec` yet (e.g. a workspace/global
+ * row whose `sections` came back genuinely empty). */
+export function toggleSectionVisible(sections: SectionSpec[], name: string): SectionSpec[] {
+  if (sections.some((s) => s.name === name)) {
+    return sections.map((s) => (s.name === name ? { ...s, visible: !s.visible } : s));
+  }
+  return [...sections, { name, order: sections.length, visible: false, layout: "full" }];
+}
+
+/** Task 8: set one section's `layout`, same upsert fallback as
+ * {@link toggleSectionVisible}. */
+export function setSectionLayout(
+  sections: SectionSpec[],
+  name: string,
+  layout: SectionLayout
+): SectionSpec[] {
+  if (sections.some((s) => s.name === name)) {
+    return sections.map((s) => (s.name === name ? { ...s, layout } : s));
+  }
+  return [...sections, { name, order: sections.length, visible: true, layout }];
+}
+
 export function isMetaPropertyLocked(
   attribute: AttributeSpec,
   property: keyof AttributeSpec

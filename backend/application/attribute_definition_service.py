@@ -302,8 +302,13 @@ class AttributeDefinitionService(ServiceBase):
         item_type: str,
         preset: str,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Replace the tenant-wide default and propagate to on-default workspaces.
+
+        *sections* (Task 8) is optional — omitted, the row's existing
+        ``sections`` list is preserved unchanged; passed, it replaces it
+        (validated the same way ``attributes`` is).
 
         Raises:
             PermissionDeniedError: caller is not an admin.
@@ -315,7 +320,7 @@ class AttributeDefinitionService(ServiceBase):
         self._set_tenant_context(ctx)
         with transaction.atomic():
             row, propagated = self._global.update(
-                ctx.tenant_id, item_type, preset, attributes
+                ctx.tenant_id, item_type, preset, attributes, sections
             )
             self._audit(
                 ctx,
@@ -338,13 +343,18 @@ class AttributeDefinitionService(ServiceBase):
         item_type: str,
         workspace_id: UUID,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Persist a workspace override (sets ``is_customized=True``)."""
+        """Persist a workspace override (sets ``is_customized=True``).
+
+        *sections* is optional — see :meth:`update_global`'s identical
+        parameter.
+        """
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         with transaction.atomic():
             row = self._workspace.update(
-                ctx.tenant_id, workspace_id, item_type, attributes
+                ctx.tenant_id, workspace_id, item_type, attributes, sections
             )
             self._audit(
                 ctx,

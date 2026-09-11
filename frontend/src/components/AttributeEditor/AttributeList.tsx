@@ -11,12 +11,15 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, Lock, Pencil, Trash2 } from "lucide-react";
 
-import type { AttributeSpec } from "../../api/attribute-definitions";
+import type { AttributeSpec, SectionLayout, SectionSpec } from "../../api/attribute-definitions";
 import styles from "./AttributeEditor.module.css";
 import { sectionNames } from "./attribute-edits";
 
 export interface AttributeListProps {
   attributes: AttributeSpec[];
+  /** Task 8: visibility/layout per section. A name absent here defaults to
+   * visible/full, same "additive" convention the backend uses. */
+  sections: SectionSpec[];
   /** Sections with no attributes — they exist only in editor state until a
    *  field is dragged/moved into them, so the list must be told about them. */
   emptySections: string[];
@@ -31,11 +34,14 @@ export interface AttributeListProps {
    * is always rejected server-side, so the row never renders the button for
    * one (Task 5). */
   onDeleteAttribute: (name: string) => void;
+  onToggleSectionVisible: (name: string) => void;
+  onSetSectionLayout: (name: string, layout: SectionLayout) => void;
   readOnly: boolean;
 }
 
 export function AttributeList({
   attributes,
+  sections,
   emptySections,
   selected,
   onSelect,
@@ -45,6 +51,8 @@ export function AttributeList({
   onMoveSection,
   onAddAttribute,
   onDeleteAttribute,
+  onToggleSectionVisible,
+  onSetSectionLayout,
   readOnly,
 }: AttributeListProps): JSX.Element {
   const { t } = useTranslation();
@@ -55,6 +63,12 @@ export function AttributeList({
     const populated = sectionNames(attributes);
     return [...populated, ...emptySections.filter((s) => !populated.includes(s))];
   }, [attributes, emptySections]);
+
+  const sectionMeta = useMemo(() => {
+    const map = new Map<string, SectionSpec>();
+    for (const s of sections) map.set(s.name, s);
+    return map;
+  }, [sections]);
 
   return (
     <div className={styles.list}>
@@ -103,6 +117,28 @@ export function AttributeList({
                 >
                   <Pencil aria-hidden="true" size={14} />
                 </button>
+                <label>
+                  <input
+                    type="checkbox"
+                    data-testid={`attribute-section-${section}-visible`}
+                    checked={sectionMeta.get(section)?.visible ?? true}
+                    disabled={readOnly}
+                    aria-label={t("attributes.sectionVisible")}
+                    onChange={() => onToggleSectionVisible(section)}
+                  />
+                </label>
+                <select
+                  data-testid={`attribute-section-${section}-layout`}
+                  value={sectionMeta.get(section)?.layout ?? "full"}
+                  disabled={readOnly}
+                  aria-label={t("attributes.sectionLayout")}
+                  onChange={(event) =>
+                    onSetSectionLayout(section, event.target.value as "full" | "half")
+                  }
+                >
+                  <option value="full">{t("attributes.sectionLayoutFull")}</option>
+                  <option value="half">{t("attributes.sectionLayoutHalf")}</option>
+                </select>
                 <button
                   type="button"
                   disabled={readOnly || sectionIndex === 0}

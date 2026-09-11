@@ -72,6 +72,24 @@ def _read_attributes(request: Request, lang: str) -> tuple[list[dict[str, Any]] 
     return attributes, None
 
 
+def _read_sections(
+    request: Request, lang: str
+) -> tuple[list[dict[str, Any]] | None, Response | None]:
+    """Extract the optional ``sections`` list of a PUT body (Task 8).
+
+    ``None`` (key absent) is a valid, common result — it means "leave the
+    row's current sections unchanged", not an error. Only a present-but-
+    wrong-shaped value is rejected.
+    """
+    payload = request.data if isinstance(request.data, dict) else {}
+    if "sections" not in payload:
+        return None, None
+    sections = payload["sections"]
+    if not isinstance(sections, list):
+        return None, _validation(lang, "'sections', if present, must be a list.")
+    return sections, None
+
+
 class AttributeDefaultsListView(APIView):
     """GET /attribute-defaults/ — list the tenant's global attribute defaults."""
 
@@ -109,9 +127,12 @@ class AttributeDefaultsDetailView(APIView):
         attributes, error = _read_attributes(request, lang)
         if error is not None:
             return error
+        sections, sections_error = _read_sections(request, lang)
+        if sections_error is not None:
+            return sections_error
         try:
             payload = AttributeDefinitionService().update_global(
-                ctx, item_type, preset, attributes
+                ctx, item_type, preset, attributes, sections
             )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))
@@ -187,9 +208,12 @@ class WorkspaceAttributeDefinitionView(APIView):
         attributes, error = _read_attributes(request, lang)
         if error is not None:
             return error
+        sections, sections_error = _read_sections(request, lang)
+        if sections_error is not None:
+            return sections_error
         try:
             payload = AttributeDefinitionService().update_workspace(
-                ctx, item_type, workspace_id, attributes
+                ctx, item_type, workspace_id, attributes, sections
             )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))

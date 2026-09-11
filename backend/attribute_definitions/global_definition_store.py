@@ -204,8 +204,14 @@ class GlobalAttributeDefinitionStore:
         item_type: str,
         preset: str,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> tuple[GlobalAttributeDefinition, int]:
-        """Replace the attribute list, bump ``version``, propagate.
+        """Replace the attribute list (and, if given, the sections list), bump
+        ``version``, propagate.
+
+        *sections* is optional (Task 8: the admin UI now sends its current
+        list on every PUT, same as *attributes* — earlier/other callers that
+        omit it keep the row's existing ``sections`` unchanged, never wiped).
 
         Returns:
             ``(row, propagated_workspace_count)``.
@@ -220,7 +226,10 @@ class GlobalAttributeDefinitionStore:
             raise AttributeDefinitionNotFound(
                 f"No global attribute definition for '{item_type}/{preset}'"
             )
-        payload = validate_definition_json({"attributes": attributes})
+        raw_payload: dict[str, Any] = {"attributes": attributes}
+        if sections is not None:
+            raw_payload["sections"] = sections
+        payload = validate_definition_json(raw_payload)
         # Ledger item (e): the STORED row is normalized before it is used as a
         # dict of required keys. ``validate_meta_only_change`` indexes
         # ``old["kind"]``/``old["locked"]``/``old[prop]``, so a row predating a
@@ -229,15 +238,12 @@ class GlobalAttributeDefinitionStore:
         old = stored_attributes(obj.definition_json)
         validate_meta_only_change(old, payload["attributes"])
 
-        # Task 7: this call's payload only ever carries 'attributes' — without
-        # explicitly carrying the existing 'sections' list over, this write
-        # would silently WIPE whatever ensure_sections() previously
-        # materialized (or an admin set via Task 8/9's not-yet-existing
-        # sections-aware write path), since obj.definition_json is replaced
-        # wholesale below. Not re-synced against the new attribute list's
-        # section names here — that reconciliation is Task 8's job, once it
-        # actually wires section CRUD into a write path.
-        if isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
+        # Task 7/8: a caller that did NOT send 'sections' (sections=None) must
+        # not lose the row's existing list — definition_json is replaced
+        # wholesale below, so without this carry-over every attribute-only PUT
+        # would silently erase whatever ensure_sections()/an earlier
+        # sections-aware PUT had stored.
+        if "sections" not in payload and isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
             payload["sections"] = obj.definition_json["sections"]
 
         with transaction.atomic():

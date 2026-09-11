@@ -118,8 +118,12 @@ class WorkspaceAttributeDefinitionStore:
         workspace_id: UUID | str,
         item_type: str,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> WorkspaceAttributeDefinition:
         """Persist a workspace override and flip ``is_customized`` to True.
+
+        *sections* is optional — see
+        ``GlobalAttributeDefinitionStore.update()``'s identical parameter.
 
         Raises:
             AttributeDefinitionNotFound: the workspace has never been resolved.
@@ -132,18 +136,20 @@ class WorkspaceAttributeDefinitionStore:
                 f"No attribute definition resolved for '{item_type}' in "
                 f"workspace {workspace_id}"
             )
-        payload = validate_definition_json({"attributes": attributes})
+        raw_payload: dict[str, Any] = {"attributes": attributes}
+        if sections is not None:
+            raw_payload["sections"] = sections
+        payload = validate_definition_json(raw_payload)
         # Ledger item (e): normalize the stored row before it is indexed as a
         # dict of required keys — see global_definition_store.update() for the
         # KeyError→500 this replaces with a 400.
         old = stored_attributes(obj.definition_json)
         validate_meta_only_change(old, payload["attributes"])
 
-        # Task 7: carry the existing 'sections' list over — see
-        # GlobalAttributeDefinitionStore.update()'s identical comment for why
-        # (this payload only ever carries 'attributes', and definition_json is
-        # replaced wholesale below).
-        if isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
+        # Task 7/8: carry the existing 'sections' list over when the caller
+        # didn't send one — see GlobalAttributeDefinitionStore.update()'s
+        # identical comment for why (definition_json is replaced wholesale).
+        if "sections" not in payload and isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
             payload["sections"] = obj.definition_json["sections"]
 
         obj.definition_json = payload

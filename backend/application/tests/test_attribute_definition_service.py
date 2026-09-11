@@ -149,6 +149,47 @@ def test_update_global_requires_admin(service, editor_ctx, seeded) -> None:
 
 
 @pytest.mark.django_db
+def test_update_global_persists_a_given_sections_list(service, admin_ctx, seeded) -> None:
+    out = service.update_global(
+        admin_ctx, "Risk", "standard", [TITLE],
+        sections=[{"name": "general", "visible": False, "layout": "half"}],
+    )
+    assert out["sections"] == [
+        {"name": "general", "order": 0, "visible": False, "layout": "half"}
+    ]
+
+
+@pytest.mark.django_db
+def test_update_global_preserves_existing_sections_when_omitted(
+    service, admin_ctx, seeded
+) -> None:
+    service.update_global(
+        admin_ctx, "Risk", "standard", [TITLE],
+        sections=[{"name": "general", "visible": False}],
+    )
+    out = service.update_global(admin_ctx, "Risk", "standard", [dict(TITLE, order=9)])
+    assert out["sections"] == [
+        {"name": "general", "order": 0, "visible": False, "layout": "full"}
+    ]
+
+
+@pytest.mark.django_db
+def test_update_workspace_persists_a_given_sections_list(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        service.resolve(admin_ctx, "Risk", workspace.id)
+        out = service.update_workspace(
+            admin_ctx, "Risk", workspace.id, [TITLE],
+            sections=[{"name": "general", "layout": "half"}],
+        )
+    assert out["sections"] == [
+        {"name": "general", "order": 0, "visible": True, "layout": "half"}
+    ]
+
+
+@pytest.mark.django_db
 def test_update_global_returns_the_propagated_count(
     service, admin_ctx, editor_ctx, workspace, seeded
 ) -> None:

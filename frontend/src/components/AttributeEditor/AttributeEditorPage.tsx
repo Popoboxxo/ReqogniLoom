@@ -30,6 +30,8 @@ import {
   type AttributeOrigin,
   type AttributeSpec,
   type NewAttributeInput,
+  type SectionLayout,
+  type SectionSpec,
 } from "../../api/attribute-definitions";
 import { extractErrorMessage } from "../../api/client";
 import type { WorkspacePreset } from "../../types";
@@ -50,6 +52,8 @@ import {
   moveSection,
   patchAttribute,
   renameSection,
+  setSectionLayout,
+  toggleSectionVisible,
 } from "./attribute-edits";
 
 /** The 10 bootstrapped item types (`AttributeItemType`, see
@@ -125,6 +129,8 @@ export function AttributeEditorPage({
 
   const [attributes, setAttributes] = useState<AttributeSpec[]>([]);
   const [loaded, setLoaded] = useState<AttributeSpec[]>([]);
+  const [sections, setSections] = useState<SectionSpec[]>([]);
+  const [loadedSections, setLoadedSections] = useState<SectionSpec[]>([]);
   const [isCustomized, setIsCustomized] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [emptySections, setEmptySections] = useState<string[]>([]);
@@ -158,6 +164,8 @@ export function AttributeEditorPage({
         const definition = await attributeDefinitionsApi.getGlobal(itemType, preset);
         setAttributes(definition.attributes);
         setLoaded(definition.attributes);
+        setSections(definition.sections);
+        setLoadedSections(definition.sections);
         setIsCustomized(false);
         setOrigins({});
       } else {
@@ -168,6 +176,8 @@ export function AttributeEditorPage({
         );
         setAttributes(definition.attributes);
         setLoaded(definition.attributes);
+        setSections(definition.sections);
+        setLoadedSections(definition.sections);
         setIsCustomized(definition.is_customized);
         setOrigins(definition.origins);
       }
@@ -190,8 +200,10 @@ export function AttributeEditorPage({
   }, [itemType, preset, isGlobal]);
 
   const isDirty = useMemo(
-    () => JSON.stringify(attributes) !== JSON.stringify(loaded),
-    [attributes, loaded]
+    () =>
+      JSON.stringify(attributes) !== JSON.stringify(loaded) ||
+      JSON.stringify(sections) !== JSON.stringify(loadedSections),
+    [attributes, loaded, sections, loadedSections]
   );
 
   const selectedAttribute = attributes.find((a) => a.name === selected) ?? null;
@@ -205,10 +217,13 @@ export function AttributeEditorPage({
         const result = await attributeDefinitionsApi.putGlobal(
           itemType,
           preset,
-          attributes
+          attributes,
+          sections
         );
         setAttributes(result.attributes);
         setLoaded(result.attributes);
+        setSections(result.sections);
+        setLoadedSections(result.sections);
         if (typeof result.propagated_workspace_count === "number") {
           toast.show(
             t("attributes.propagated", { count: result.propagated_workspace_count })
@@ -218,10 +233,13 @@ export function AttributeEditorPage({
         const result = await attributeDefinitionsApi.putWorkspace(
           activeWorkspace.id,
           itemType,
-          attributes
+          attributes,
+          sections
         );
         setAttributes(result.attributes);
         setLoaded(result.attributes);
+        setSections(result.sections);
+        setLoadedSections(result.sections);
         setIsCustomized(result.is_customized);
         setOrigins(result.origins);
       }
@@ -230,7 +248,7 @@ export function AttributeEditorPage({
     } finally {
       setSaving(false);
     }
-  }, [activeWorkspace?.id, attributes, isGlobal, itemType, preset, t]);
+  }, [activeWorkspace?.id, attributes, isGlobal, itemType, preset, sections, t]);
 
   const handleReset = useCallback(async (): Promise<void> => {
     if (!activeWorkspace?.id) return;
@@ -242,6 +260,8 @@ export function AttributeEditorPage({
       );
       setAttributes(result.attributes);
       setLoaded(result.attributes);
+      setSections(result.sections);
+      setLoadedSections(result.sections);
       setIsCustomized(result.is_customized);
       setOrigins(result.origins);
     } catch (exc: unknown) {
@@ -293,6 +313,14 @@ export function AttributeEditorPage({
 
   const handleMoveSection = useCallback((name: string, toIndex: number): void => {
     setAttributes((current) => moveSection(current, name, toIndex));
+  }, []);
+
+  const handleToggleSectionVisible = useCallback((name: string): void => {
+    setSections((current) => toggleSectionVisible(current, name));
+  }, []);
+
+  const handleSetSectionLayout = useCallback((name: string, layout: SectionLayout): void => {
+    setSections((current) => setSectionLayout(current, name, layout));
   }, []);
 
   // The inspector's free-text section field moves a single attribute into a
@@ -539,6 +567,7 @@ export function AttributeEditorPage({
         {viewMode === "list" ? (
           <AttributeList
             attributes={attributes}
+            sections={sections}
             emptySections={emptySections}
             selected={selected}
             readOnly={!isAdmin}
@@ -551,6 +580,8 @@ export function AttributeEditorPage({
             onMoveSection={handleMoveSection}
             onAddAttribute={setCreateSection}
             onDeleteAttribute={handleRequestDeleteAttribute}
+            onToggleSectionVisible={handleToggleSectionVisible}
+            onSetSectionLayout={handleSetSectionLayout}
           />
         ) : (
           <AttributeTable
