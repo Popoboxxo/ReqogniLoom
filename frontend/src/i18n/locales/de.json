@@ -1697,6 +1697,15 @@
       "clipboardError": "Zugriff auf die Zwischenablage nicht möglich",
       "propagated_one": "Änderung auf {{count}} Workspace übertragen, der aktuell den Standard verwendet.",
       "propagated_other": "Änderung auf {{count}} Workspaces übertragen, die aktuell den Standard verwenden."
+    },
+    "proposal": {
+      "hint": "Vorschlag von {{agent}}",
+      "hintUnknown": "KI-Vorschlag",
+      "bulkConfirm": "Ausgewählte bestätigen",
+      "bulkConfirmDone": "{{count}} Vorschläge bestätigt",
+      "bulkConfirmFailed": "{{count}} Vorschläge konnten nicht bestätigt werden",
+      "queueMode": "Nur KI-Vorschläge",
+      "selectAll": "Alle auswählen"
     }
   },
   "artifactId": {

@@ -32,7 +32,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, AlertCircle, Loader2 } from "lucide-react";
 import {
@@ -43,6 +43,18 @@ import {
 } from "../../api/workflow-transitions";
 import { extractErrorMessage } from "../../api/client";
 import { getStatusBadgeStyle } from "../../utils/statusBadge";
+
+const proposalHintStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "var(--space-1)",
+  marginRight: "var(--space-2)",
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-badge-info-text)",
+  background: "var(--color-badge-info-bg)",
+  borderRadius: "var(--radius-sm)",
+  padding: "var(--space-1) var(--space-2)",
+};
 
 export interface WorkflowStatusEditorProps {
   /** Artifact type — selects the backend transitions endpoint. */
@@ -99,6 +111,11 @@ export function WorkflowStatusEditor({
     data.current_state === null &&
     data.states.length === 0;
   const interactive = !disabled && allowed.length > 0;
+  // Spec §4.4: a proposal replaces the plain status badge with an explicit
+  // "proposed by X" hint. The transition buttons stay exactly as they are —
+  // confirm/discard are ordinary transitions of the same state machine.
+  const isProposal = (data?.current_state ?? null) === "proposed";
+  const proposedBy = data?.proposed_by ?? null;
 
   const loadTransitions = useCallback(async () => {
     setLoading(true);
@@ -258,6 +275,18 @@ export function WorkflowStatusEditor({
       <div
         style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", position: "relative" }}
       >
+        {isProposal && (
+          <span
+            data-testid="workflow-proposal-hint"
+            role="note"
+            style={proposalHintStyle}
+          >
+            {proposedBy
+              ? t("workflow.proposal.hint", { agent: proposedBy })
+              : t("workflow.proposal.hintUnknown")}
+          </span>
+        )}
+
         {/* Current state badge */}
         <span
           role="status"
