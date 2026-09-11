@@ -23,6 +23,8 @@ roles:
 - ideation
 - agent-meta-manager
 - agent-meta-scout
+- prompt-engineer
+- prompt-governor
 - se-requirements
 - se-architect
 - se-interface-mgr
@@ -33,9 +35,12 @@ roles:
 - se-termination
 - bug-feature-analyzer
 - concept-reviewer
+- concept-specifier
 - se-test-engineer
 - se-testreviewer
 - ui-ux-designer
+- design-system-architect
+- frontend-component-engineer
 - log-analyzer
 - feedback
 - docker
@@ -46,10 +51,13 @@ roles:
 - devops-engineer
 - junior-developer
 - tester
+- test-executor
 - se-developer
 - se-junior-developer
 - se-senior-developer
 - dependency-auditor
+- security-auditor
+- ai-security-guardian
 - e2e-tester
 - intern-developer
 - refactoring-specialist
@@ -567,7 +575,7 @@ orchestrator:
   delegation:
     max_depth: 10
   direct-dispatch-enabled: true
-  checkpointing: false
+  checkpointing: true
   unknown-fallback:
     main-chat: true
     ask-user: true
@@ -581,8 +589,8 @@ release-gates:
   action-pin-validation: true
 auto_commit:
   mode: auto
-  triggers: [task-boundary, context-pressure, file-count-threshold]
-  file_count_threshold: 5
+  triggers: [per-edit, task-boundary, context-pressure, file-count-threshold]
+  file_count_threshold: 1
   secret_scan: true
 viz:
   enabled: false
