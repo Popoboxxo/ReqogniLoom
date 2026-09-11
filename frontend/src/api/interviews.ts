@@ -28,7 +28,11 @@ export interface InterviewField {
 /** One turn in an interview session's conversation history. */
 export interface InterviewTranscriptEntry {
   role: string;
-  text: string;
+  /** Single-mode entries carry `text`; multi-mode entries carry `content`
+   * (backend `_generate_multi_chat_turn`, `interview_service.py:1827-1828`).
+   * Both optional here so a consumer must handle either shape explicitly. */
+  text?: string;
+  content?: string;
   timestamp: string;
 }
 
@@ -45,15 +49,36 @@ export interface InterviewTranscriptEntry {
 export interface InterviewState {
   id: string;
   status: "in_progress" | "completed" | "abandoned";
-  phase: string;
+  /**
+   * Which mode the session runs in. Multi-kind ("discovery") sessions are
+   * bound to no protocol and drive the proposal/confirm flow instead of the
+   * per-field one. Optional because an older backend omits the key; absent
+   * reads as `"single"`, matching the backend's own normalisation.
+   */
+  session_kind?: "single" | "multi";
+  /**
+   * Single-mode only. `InterviewService.get_state()` omits `phase` and
+   * `missing_fields` for a multi session by design (it has no protocol and
+   * therefore no phase/field concept) -- declaring them required is exactly
+   * how the crash in `InterviewDetail` (`undefined.length`) slipped past
+   * TypeScript. Optional here so every consumer has to guard.
+   */
+  phase?: string;
   collected_fields: Record<string, unknown>;
-  missing_fields: InterviewField[];
+  missing_fields?: InterviewField[];
   grounding_snapshot: {
     /** Absent until `/grounding/` is explicitly called (lazy AI-ranked
      * computation) -- `start()` returns `{}`, not `{ candidates: [] }`. */
     candidates?: { artifact_id: string; title: string; score: number | null }[];
   };
   transcript: InterviewTranscriptEntry[];
+  /**
+   * LLM-written digest of the turns already folded out of `transcript`
+   * (backend `_compress_transcript_if_needed`). Empty until the conversation
+   * grows past the sliding window; optional because multi-mode state payloads
+   * omit the key entirely (compression is a single-mode path).
+   */
+  transcript_summary?: string;
 }
 
 /** Summary shape returned by list()/get() (`_session_to_dict()`). */

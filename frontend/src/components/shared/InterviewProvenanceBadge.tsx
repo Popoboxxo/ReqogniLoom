@@ -1,18 +1,24 @@
 /**
- * InterviewProvenanceBadge — multi-artifact-interview plan, Task 14
- * (frontend half).
+ * InterviewProvenanceBadge — "this artifact came out of an interview".
  *
- * Renders nothing until the backend confirms an interview provenance row
- * for `artifactId` (`GET /interviews/by-artifact/{artifact_id}/` returns
- * `{ session_id: null }` for plain artifacts), then renders a link to the
- * interview area labeled via the shared `interview.multi.createdBadge`
- * i18n key. Kept in `components/shared/` per plan — wiring it into each of
- * the 9 artifact detail views is explicitly scoped-out follow-up work.
+ * Renders nothing until the backend confirms an interview provenance row for
+ * `artifactId` (`GET /interviews/by-artifact/{artifact_id}/` answers
+ * `{ session_id: null }` for plain artifacts), then links to that session.
+ *
+ * `artifactId` may be either the Artifact PK or the artifact's own subtype id
+ * — the backend resolves both (InterviewService.provenance_session_id) — so
+ * callers can pass whichever id they already hold.
+ *
+ * Mounted once, in the shared ArtifactInspector RightSidebar, rather than in
+ * each artifact editor: RightSidebar is the single detail-panel shell every
+ * artifact route already renders, so one mount covers all of them and no new
+ * artifact type can forget it.
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { interviewsApi } from "../../api/interviews";
+import styles from "./InterviewProvenanceBadge.module.css";
 
 interface InterviewProvenanceBadgeProps {
   artifactId: string;
@@ -26,6 +32,7 @@ export function InterviewProvenanceBadge({
 
   useEffect(() => {
     let cancelled = false;
+    setSessionId(null);
     interviewsApi
       .getProvenance(artifactId)
       .then((r) => {
@@ -44,7 +51,12 @@ export function InterviewProvenanceBadge({
   if (!sessionId) return null;
 
   return (
-    <Link to="/interviews" data-testid="interview-provenance-badge">
+    <Link
+      to={`/interviews/${sessionId}`}
+      className={styles.badge}
+      data-testid="interview-provenance-badge"
+      title={t("interviews.provenanceHint", "Open the interview that created this")}
+    >
       {t("interview.multi.createdBadge")}
     </Link>
   );

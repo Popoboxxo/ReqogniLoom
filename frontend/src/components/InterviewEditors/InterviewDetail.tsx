@@ -123,11 +123,15 @@ export function InterviewDetail({ interview, artifactType, onChanged }: Intervie
         </p>
       )}
 
-      {current.missing_fields.length > 0 && (
+      {/* A multi-kind session has no protocol and therefore no phase/missing
+          fields -- `get_state()` omits both keys, so this must not assume an
+          array (final review, B1: `undefined.length` took the whole route
+          down via the ErrorBoundary). */}
+      {(current.missing_fields?.length ?? 0) > 0 && (
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}>{t("interviews.missingFields", "Still missing")}</h3>
           <ul className={styles.missingFieldList} data-testid="interview-missing-fields">
-            {current.missing_fields.map((f) => (
+            {(current.missing_fields ?? []).map((f) => (
               <li key={f.name}>{f.name}</li>
             ))}
           </ul>
@@ -136,20 +140,33 @@ export function InterviewDetail({ interview, artifactType, onChanged }: Intervie
 
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>{t("interviews.chat", "Conversation")}</h3>
-        <InterviewChatPane interview={current} onStateChange={setSession} />
-      </div>
-
-      <div className={styles.section}>
-        <InterviewArtifactPane
+        {/* onFormalized: a confirmed multi proposal completes the session, so
+            the list row / status badge upstream is stale without a refetch --
+            the single-mode pane below does the same via its own handler. */}
+        <InterviewChatPane
           interview={current}
-          onFormalized={() => {
-            void interviewsApi.getState(current.id).then((s) => {
-              setSession(s);
-              onChanged();
-            });
-          }}
+          onStateChange={setSession}
+          onFormalized={() => onChanged()}
         />
       </div>
+
+      {/* Single-mode only: the pane's Formalize button posts without a
+          confirmed proposal, which `_formalize_multi` rejects with a 400
+          ("confirmed_proposal is required"). A multi session formalises
+          through the chat pane's proposal card instead. */}
+      {current.session_kind !== "multi" && (
+        <div className={styles.section}>
+          <InterviewArtifactPane
+            interview={current}
+            onFormalized={() => {
+              void interviewsApi.getState(current.id).then((s) => {
+                setSession(s);
+                onChanged();
+              });
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

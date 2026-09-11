@@ -2403,6 +2403,17 @@ class InterviewSession(TenantScopedModel):
         blank=True,
         help_text="List of {role, text, timestamp}. Only chat-driving clients (Spec 3) write to this; form clients (Spec 2) leave it empty.",
     )
+    transcript_summary = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "L2.4: LLM-compressed digest of the turns that fell out of the "
+            "sliding transcript window (InterviewService."
+            "TRANSCRIPT_WINDOW_TURNS). Prepended to the chat prompt instead "
+            "of the full history, so prompt size stops growing with session "
+            "length. Empty, never NULL: every read path concatenates it."
+        ),
+    )
 
     class Meta:
         db_table = "pl_interview_session"

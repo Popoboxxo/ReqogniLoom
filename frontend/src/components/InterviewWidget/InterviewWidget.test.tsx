@@ -1,10 +1,13 @@
 /**
- * Interview-management web widget — widget shell (plan Task 5).
+ * Interview-management web widget — quick entry point (plan Task 5 / 16).
+ *
+ * Since Task 16 the widget navigates instead of hosting a session, so every
+ * render needs a router around it (`useNavigate`).
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { InterviewWidget } from "./InterviewWidget";
-import type { InterviewState } from "../../api/interviews";
 import enLocale from "../../i18n/locales/en.json";
 
 vi.mock("../../context/WorkspaceContext", () => ({
@@ -32,9 +35,8 @@ vi.mock("react-i18next", () => ({
 }));
 
 // Factory vi.mock, same convention as InterviewChatPane.test.tsx (plan Task 8).
-// `propose`/`formalize` are needed because a started multi-mode session mounts
-// InterviewChatPane (whose effect fetches the pending proposal) and
-// InterviewArtifactPane below it.
+// Since Task 16 the widget must not call any of these at all -- they are
+// mocked so "was never called" is an assertion, not an accident.
 vi.mock("../../api/interviews", () => ({
   interviewsApi: {
     start: vi.fn(),
@@ -45,19 +47,28 @@ vi.mock("../../api/interviews", () => ({
 }));
 import { interviewsApi } from "../../api/interviews";
 
+/** The widget uses `useNavigate`, so it only mounts inside a router. */
+function renderWidget(): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter>
+      <InterviewWidget />
+    </MemoryRouter>
+  );
+}
+
 describe("InterviewWidget", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
   it("renders collapsed by default", () => {
-    render(<InterviewWidget />);
+    renderWidget();
     expect(screen.getByTestId("interview-widget-toggle")).toBeInTheDocument();
     expect(screen.queryByTestId("interview-widget-panel")).not.toBeInTheDocument();
   });
 
   it("expands on toggle click and persists the open state", () => {
-    render(<InterviewWidget />);
+    renderWidget();
     fireEvent.click(screen.getByTestId("interview-widget-toggle"));
 
     expect(screen.getByTestId("interview-widget-panel")).toBeInTheDocument();
@@ -66,12 +77,12 @@ describe("InterviewWidget", () => {
 
   it("renders expanded on mount when localStorage says open", () => {
     localStorage.setItem("reqflow-interview-widget-open", "true");
-    render(<InterviewWidget />);
+    renderWidget();
     expect(screen.getByTestId("interview-widget-panel")).toBeInTheDocument();
   });
 
   it("collapses on a second toggle click", () => {
-    render(<InterviewWidget />);
+    renderWidget();
     const toggle = screen.getByTestId("interview-widget-toggle");
     fireEvent.click(toggle);
     fireEvent.click(toggle);
@@ -108,13 +119,13 @@ describe("InterviewWidget", () => {
     });
 
     it("mounts and renders the collapsed toggle without crashing", () => {
-      expect(() => render(<InterviewWidget />)).not.toThrow();
+      expect(() => renderWidget()).not.toThrow();
       expect(screen.getByTestId("interview-widget-toggle")).toBeInTheDocument();
       expect(screen.queryByTestId("interview-widget-panel")).not.toBeInTheDocument();
     });
 
     it("still expands on toggle click even though persisting the state fails", () => {
-      render(<InterviewWidget />);
+      renderWidget();
       const toggle = screen.getByTestId("interview-widget-toggle");
       expect(() => fireEvent.click(toggle)).not.toThrow();
       expect(screen.getByTestId("interview-widget-panel")).toBeInTheDocument();
@@ -122,52 +133,92 @@ describe("InterviewWidget", () => {
   });
 });
 
-function makeStartedSession(overrides: Partial<InterviewState> = {}): InterviewState {
-  return {
-    id: "s1",
-    status: "in_progress",
-    phase: "elicitation",
-    collected_fields: {},
-    missing_fields: [],
-    // start() returns `{}`, not `{ candidates: [] }` (see api/interviews.ts).
-    grounding_snapshot: {},
-    transcript: [],
-    ...overrides,
-  };
-}
-
 describe("InterviewWidget multi entry", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
-    // A started multi-mode session mounts InterviewChatPane, whose effect
-    // fetches the pending proposal. A bare vi.fn() returns undefined and
-    // breaks the pane's .then chain synchronously (outside its own .catch),
-    // so default to "no proposal" like InterviewChatPane.test.tsx does.
-    vi.mocked(interviewsApi.propose).mockResolvedValue({ proposal: null });
   });
 
   it("renders a 9th button for multi-mode discovery", () => {
     localStorage.setItem("reqflow-interview-widget-open", "true");
-    render(<InterviewWidget />);
+    renderWidget();
     expect(screen.getByTestId("interview-widget-start-multi")).toBeInTheDocument();
   });
 
   it("existing type buttons show translated labels, not raw type strings", () => {
     localStorage.setItem("reqflow-interview-widget-open", "true");
-    render(<InterviewWidget />);
+    renderWidget();
     expect(screen.getByText("Requirement")).toBeInTheDocument(); // en.json value happens to match the raw string for this one type
     expect(screen.queryByText("ArchitectureElement")).not.toBeInTheDocument(); // raw string must NOT appear
     expect(screen.getByText("Architecture Element")).toBeInTheDocument(); // translated value
   });
+});
 
-  it("clicking the multi button starts a session with session_kind=multi and null artifact_type", async () => {
-    vi.mocked(interviewsApi.start).mockResolvedValue(makeStartedSession());
-    localStorage.setItem("reqflow-interview-widget-open", "true");
-    render(<InterviewWidget />);
-    fireEvent.click(screen.getByTestId("interview-widget-start-multi"));
-    await waitFor(() =>
-      expect(interviewsApi.start).toHaveBeenCalledWith(expect.any(String), null, "multi")
+// Task 16 (spec L2.5): the widget is a quick entry point, not a session host.
+describe("InterviewWidget hand-off to /interviews", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  function renderRouted(): ReturnType<typeof render> {
+    return render(
+      <MemoryRouter initialEntries={["/requirements"]}>
+        <Routes>
+          <Route path="/requirements" element={<InterviewWidget />} />
+          <Route path="/interviews" element={<div data-testid="interviews-route" />} />
+        </Routes>
+      </MemoryRouter>
     );
+  }
+
+  it("navigates to the interviews route instead of hosting a session", async () => {
+    renderRouted();
+
+    fireEvent.click(screen.getByTestId("interview-widget-toggle"));
+    fireEvent.click(screen.getByTestId("interview-widget-start-Risk"));
+
+    expect(await screen.findByTestId("interviews-route")).toBeInTheDocument();
+    // The widget must not start the session itself -- /interviews owns that,
+    // so there is exactly one start path and one chat surface.
+    expect(interviewsApi.start).not.toHaveBeenCalled();
+  });
+
+  it("routes the discovery entry point to ?start=multi", async () => {
+    renderRouted();
+
+    fireEvent.click(screen.getByTestId("interview-widget-toggle"));
+    fireEvent.click(screen.getByTestId("interview-widget-start-multi"));
+
+    expect(await screen.findByTestId("interviews-route")).toBeInTheDocument();
+    expect(interviewsApi.start).not.toHaveBeenCalled();
+  });
+
+  it("closes the panel after navigating away", async () => {
+    render(
+      <MemoryRouter initialEntries={["/requirements"]}>
+        <Routes>
+          <Route path="/requirements" element={<InterviewWidget />} />
+          <Route path="/interviews" element={<InterviewWidget />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByTestId("interview-widget-toggle"));
+    fireEvent.click(screen.getByTestId("interview-widget-start-Adr"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("interview-widget-panel")).not.toBeInTheDocument();
+    });
+    expect(localStorage.getItem("reqflow-interview-widget-open")).toBe("false");
+  });
+
+  it("renders no chat pane at all", () => {
+    renderWidget();
+
+    fireEvent.click(screen.getByTestId("interview-widget-toggle"));
+
+    expect(screen.queryByTestId("interview-chat-input")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("interview-artifact-formalize")).not.toBeInTheDocument();
   });
 });

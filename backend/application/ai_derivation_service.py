@@ -235,7 +235,10 @@ value, leave it out of extracted_fields and ask a clarifying question in \
 your reply instead -- an incorrectly recorded answer is worse than asking \
 again.
 
-Conversation so far (JSON list of {"role": ..., "text": ..., "timestamp": ...}):
+Summary of earlier parts of this conversation (may be empty):
+{transcript_summary}
+
+Most recent turns (JSON list of {"role": ..., "text": ..., "timestamp": ...}):
 {transcript_json}
 
 Current phase instructions:
@@ -257,6 +260,34 @@ Respond with a single JSON object (no prose, no markdown fences) with \
 this exact shape: {"extracted_fields": {"<field_name>": "<value>", ...}, \
 "reply": "<what to say back to the user>"}. extracted_fields may be \
 empty. Only include fields from the "Fields still needed" list.
+"""
+
+# L2.4: compresses the turns that fall out of InterviewService's sliding
+# transcript window into ONE replacement digest. Registered here for the same
+# reason INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE is (single canonical registry).
+# Best-effort by contract: InterviewService._compress_transcript_if_needed
+# swallows any provider failure and retries on the next turn, so a bad render
+# or a dead provider never blocks a chat turn.
+INTERVIEW_TRANSCRIPT_SUMMARY_PROMPT_TEMPLATE = """\
+You are condensing the older part of a requirements-elicitation interview so \
+the conversation can continue without resending the whole history.
+
+Summary of everything before this batch (may be empty):
+{previous_summary}
+
+Turns to fold into that summary (JSON list of \
+{"role": ..., "text": ..., "timestamp": ...}):
+{overflow_json}
+
+Write ONE replacement summary that supersedes both inputs. Preserve every \
+concrete fact the user stated -- names, numbers, thresholds, constraints, \
+decisions, and anything they explicitly rejected -- because the rest of the \
+interview and the final artifact are built from this text alone. Drop \
+pleasantries, restatements and the assistant's own questions. Do not \
+speculate and do not add anything the transcript does not contain.
+
+Respond with the summary text only: no preamble, no headings, no markdown \
+fences.
 """
 
 # Canonical slot registry covering all 7 names this module's derive flows use
@@ -283,6 +314,7 @@ PROMPT_TEMPLATE_DEFAULTS: Dict[str, str] = {
     "bundle_compression": BUNDLE_COMPRESSION_PROMPT_TEMPLATE,
     "interview.grounding_rank": INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE,
     "interview.chat_turn": INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE,
+    "interview.transcript_summary": INTERVIEW_TRANSCRIPT_SUMMARY_PROMPT_TEMPLATE,
 }
 
 # ---------------------------------------------------------------------------
@@ -2265,5 +2297,6 @@ __all__ = [
     "BUNDLE_COMPRESSION_PROMPT_TEMPLATE",
     "INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE",
     "INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE",
+    "INTERVIEW_TRANSCRIPT_SUMMARY_PROMPT_TEMPLATE",
     "invalidate_derivation_cache",
 ]

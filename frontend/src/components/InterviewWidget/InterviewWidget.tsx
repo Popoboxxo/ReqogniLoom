@@ -1,30 +1,27 @@
 /**
- * Interview-management web widget — floating toggle shell (plan Task 5-7).
+ * Interview-management web widget — quick entry point (spec L2.5).
  *
  * A `position: fixed` overlay, always mounted (via NavigationShell) on every
- * authenticated route. Toggle state persists in localStorage, same pattern
- * as ThemeContext's preference storage. Owns the single active-session slot
- * (spec §9 explicitly keeps this out of a separate multi-session browser
- * UI): with no session active, shows "start" buttons for the in-scope
- * artifact types; with one active, renders the chat pane (Task 6) and
- * artifact panel pane (Task 7). Plan Task 13 adds a 9th "multi" discovery
- * entry point (session_kind=multi, no fixed artifact type) and retrofits the
- * eight single-type buttons with translated labels (interview.start.* keys).
+ * authenticated route. Its ONLY job is picking what to interview about and
+ * handing off to `/interviews?start=<Type>`, which starts the session and
+ * routes to `/interviews/{id}`.
  *
- * WRITE-gate note (plan Task 13): WorkspaceContext exposes no
- * currentUserRole-like field yet, so all nine start buttons stay visible for
- * every authenticated user — this matches the pre-existing behavior of the
- * eight single-type buttons and is a deliberate scope-out until a role field
- * exists on the workspace payload (no useCanWrite() refactor here).
+ * It deliberately hosts no chat: interviews are multi-turn conversations that
+ * need more room than an overlay comfortably gives, and an overlay that stays
+ * open across navigation while covering forms is a UX problem for long
+ * sessions (audit finding S19). `/interviews` is the single full interview
+ * surface — `InterviewChatPane`/`InterviewArtifactPane` (still in this folder)
+ * are rendered there, by `InterviewEditors/InterviewDetail`.
+ *
+ * WRITE-gate note: WorkspaceContext exposes no currentUserRole-like field, so
+ * all nine buttons stay visible for every authenticated user — pre-existing
+ * behaviour, deliberately unchanged here.
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { interviewsApi, type InterviewState } from "../../api/interviews";
-import { INTERVIEW_ARTIFACT_TYPES } from "../../constants/interviewArtifactTypes";
-import { Spinner } from "../shared/Spinner/Spinner";
-import { InterviewChatPane } from "./InterviewChatPane";
-import { InterviewArtifactPane } from "./InterviewArtifactPane";
+import { INTERVIEW_ARTIFACT_TYPES, MULTI_START_PARAM } from "../../constants/interviewArtifactTypes";
 import styles from "./InterviewWidget.module.css";
 
 const STORAGE_KEY = "reqflow-interview-widget-open";
@@ -57,50 +54,26 @@ export const safeLocalStorage = {
 export function InterviewWidget(): JSX.Element {
   const { activeWorkspace } = useWorkspace();
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [session, setSession] = useState<InterviewState | null>(null);
-  const [starting, setStarting] = useState(false);
-  /**
-   * How the current `session` was started. Tracked locally because backend
-   * `get_state()` payloads don't carry `session_kind` (see
-   * InterviewChatPane's `MultiModeInterview` docstring) — the pane needs the
-   * discriminator to enable multi-mode proposal/result UI.
-   */
-  const [sessionKind, setSessionKind] = useState<"single" | "multi">("single");
 
   useEffect(() => {
     setOpen(safeLocalStorage.getItem(STORAGE_KEY) === "true");
   }, []);
 
-  const toggle = () => {
-    const next = !open;
+  const setOpenPersisted = (next: boolean): void => {
     setOpen(next);
     safeLocalStorage.setItem(STORAGE_KEY, String(next));
   };
 
-  const startInterview = async (artifactType: string) => {
-    if (!activeWorkspace) return;
-    setStarting(true);
-    try {
-      const state = await interviewsApi.start(activeWorkspace.id, artifactType);
-      setSession(state);
-      setSessionKind("single");
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  /** Plan Task 13: multi-mode discovery session without a fixed artifact type. */
-  const startMultiInterview = async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    setStarting(true);
-    try {
-      const state = await interviewsApi.start(activeWorkspace.id, null, "multi");
-      setSession(state);
-      setSessionKind("multi");
-    } finally {
-      setStarting(false);
-    }
+  /**
+   * Hand off to the interviews route, which owns session creation. Closing
+   * the panel first is what satisfies the S19 "must not stay open across
+   * navigation, covering the page underneath" finding.
+   */
+  const goToInterview = (startParam: string): void => {
+    setOpenPersisted(false);
+    navigate(`/interviews?start=${startParam}`);
   };
 
   if (!activeWorkspace) return <></>;
@@ -111,7 +84,7 @@ export function InterviewWidget(): JSX.Element {
         type="button"
         data-testid="interview-widget-toggle"
         className={styles.toggle}
-        onClick={toggle}
+        onClick={() => setOpenPersisted(!open)}
         // #741: the FAB renders nothing but the 💬 glyph, so the label IS the
         // whole accessible name. It used to be a hardcoded English string —
         // now translated and state-aware (open vs. close), matching the
@@ -128,59 +101,38 @@ export function InterviewWidget(): JSX.Element {
         <span aria-hidden="true">{"\u{1F4AC}"}</span>
       </button>
       {open && (
-        <div id="interview-widget-panel" data-testid="interview-widget-panel" className={styles.panel}>
-          {session ? (
-            <>
-              {/* session_kind is stamped from local start-time state (see
-                  sessionKind above); absent for single sessions matches the
-                  pane's "undefined behaves as single" contract. onFormalized
-                  refreshes the session so the panel reflects created
-                  artifacts/completion (same pattern as InterviewArtifactPane). */}
-              <InterviewChatPane
-                interview={sessionKind === "multi" ? { ...session, session_kind: "multi" } : session}
-                onStateChange={setSession}
-                onFormalized={() => {
-                  void interviewsApi.getState(session.id).then(setSession);
-                }}
-              />
-              <InterviewArtifactPane
-                interview={session}
-                onFormalized={() => {
-                  // Refresh session state so a formalized/completed session
-                  // is reflected everywhere in the panel (e.g. Formalize
-                  // disables further edits once status !== "in_progress").
-                  void interviewsApi.getState(session.id).then(setSession);
-                }}
-              />
-            </>
-          ) : (
-            <div className={styles.startRow}>
-              {INTERVIEW_ARTIFACT_TYPES.map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  data-testid={`interview-widget-start-${type}`}
-                  className={styles.startButton}
-                  disabled={starting}
-                  onClick={() => void startInterview(type)}
-                >
-                  {starting ? <Spinner /> : t(`interview.start.${type}`)}
-                </button>
-              ))}
-              {/* Plan Task 13: discovery entry point for users who don't know
-                  yet which artifact type they need (WRITE-gate: see module
-                  docstring — visible for all users by deliberate default). */}
+        <div
+          id="interview-widget-panel"
+          data-testid="interview-widget-panel"
+          className={styles.panel}
+          role="group"
+          aria-label={t("interview.widget.title", "Interview-Assistent")}
+        >
+          <p className={styles.hint}>{t("interview.widget.hint")}</p>
+          <div className={styles.startRow}>
+            {INTERVIEW_ARTIFACT_TYPES.map((type) => (
               <button
+                key={type}
                 type="button"
-                data-testid="interview-widget-start-multi"
+                data-testid={`interview-widget-start-${type}`}
                 className={styles.startButton}
-                disabled={starting}
-                onClick={() => void startMultiInterview()}
+                onClick={() => goToInterview(type)}
               >
-                {starting ? <Spinner /> : t("interview.multiEntry")}
+                {t(`interview.start.${type}`)}
               </button>
-            </div>
-          )}
+            ))}
+            {/* Discovery entry point for users who don't know yet which
+                artifact type they need (WRITE-gate: see module docstring —
+                visible for all users by deliberate default). */}
+            <button
+              type="button"
+              data-testid={`interview-widget-start-${MULTI_START_PARAM}`}
+              className={styles.startButton}
+              onClick={() => goToInterview(MULTI_START_PARAM)}
+            >
+              {t("interview.multiEntry")}
+            </button>
+          </div>
         </div>
       )}
     </>

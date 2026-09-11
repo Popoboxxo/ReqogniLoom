@@ -1976,6 +1976,7 @@
     }
   },
   "interviews": {
+    "provenanceHint": "Interview öffnen, aus dem dieses Artefakt entstanden ist",
     "summary_one": "{{count}} Interview",
     "summary_other": "{{count}} Interviews",
     "newInterview": "Neues Interview",
@@ -2016,7 +2017,8 @@
     "widget": {
       "title": "Interview-Assistent",
       "open": "Interview-Assistent öffnen",
-      "close": "Interview-Assistent schließen"
+      "close": "Interview-Assistent schließen",
+      "hint": "Wähle einen Typ — das Interview öffnet sich unter /interviews."
     },
     "multi": {
       "chatPlaceholder": "Beschreibe dein Problem...",
@@ -2025,7 +2027,8 @@
       "proposalHeading": "Vorgeschlagene Artefakte",
       "confirm": "Diese Artefakte anlegen",
       "resultHeading": "Angelegte Artefakte",
-      "createdBadge": "Angelegt via Interview"
+      "createdBadge": "Angelegt via Interview",
+      "earlierConversation": "Früherer Verlauf (zusammengefasst)"
     }
   },
   "workspaceSettings": {

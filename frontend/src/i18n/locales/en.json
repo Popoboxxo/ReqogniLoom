@@ -1976,6 +1976,7 @@
     }
   },
   "interviews": {
+    "provenanceHint": "Open the interview this artifact came from",
     "summary_one": "{{count}} interview",
     "summary_other": "{{count}} interviews",
     "newInterview": "New Interview",
@@ -2016,7 +2017,8 @@
     "widget": {
       "title": "Interview assistant",
       "open": "Open interview assistant",
-      "close": "Close interview assistant"
+      "close": "Close interview assistant",
+      "hint": "Pick a type — the interview opens under /interviews."
     },
     "multi": {
       "chatPlaceholder": "Describe your problem...",
@@ -2025,7 +2027,8 @@
       "proposalHeading": "Proposed artifacts",
       "confirm": "Create these artifacts",
       "resultHeading": "Created artifacts",
-      "createdBadge": "Created via interview"
+      "createdBadge": "Created via interview",
+      "earlierConversation": "Earlier conversation (summarised)"
     }
   },
   "workspaceSettings": {

@@ -39,7 +39,10 @@ export function InterviewArtifactPane({
       <button
         type="button"
         data-testid="interview-artifact-formalize"
-        disabled={interview.missing_fields.length > 0}
+        // `missing_fields` is a single-mode concept and absent from multi-mode
+        // state payloads (see InterviewState) -- optional-safe so this pane
+        // can never repeat B1's `undefined.length` crash either.
+        disabled={(interview.missing_fields?.length ?? 0) > 0}
         onClick={() => void formalize()}
       >
         Formalize

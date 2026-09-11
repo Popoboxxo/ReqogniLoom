@@ -4,9 +4,11 @@ MCP Tool Group for cross-host structured Interviews (Interview-Management-Engine
 Wraps InterviewService (Task 3) for interview.start / interview.get_state /
 interview.answer / interview.list / interview.get /
 interview.grounding_context (Task 5, structural + Task 6 AI-assisted
-ranking) / interview.formalize (Task 7, Requirement only) /
+ranking) / interview.formalize (all 8 in-scope artifact types via
+ARTIFACT_CREATION_ADAPTERS) /
 interview.set_target (issue #540, confirms a grounding_context()
-candidate as formalize()'s update target, Requirement only) /
+candidate as formalize()'s update target -- Requirement only: formalize()'s
+grounded-update branch) /
 interview.propose (multi-artifact plan Task 6, read-only pending-proposal
 readout).
 """
@@ -178,12 +180,18 @@ class InterviewToolGroup(BaseToolGroup):
         {
             "name": "interview.formalize",
             "description": (
-                "Turn the session's collected answers into a real artifact (write). "
-                "Creates a new Requirement, or -- if grounding set a target -- "
-                "updates the existing one instead, re-checking at write time that "
-                "the target still exists. Marks the session completed and returns "
-                "resulting_artifact_ids. Only artifact_type='Requirement' sessions "
-                "are supported so far."
+                "Turn the session's collected answers into real artifact(s) (write). "
+                "Single-kind sessions create one artifact of the session's "
+                "artifact_type -- Requirement, ArchitectureElement, "
+                "StakeholderNeed, Risk, TestCase, Adr, Issue or Goal -- "
+                "through that type's production create service, so workflow "
+                "state is initialized; or, if grounding set a target (the target "
+                "must be a Requirement), updates the existing Requirement instead, "
+                "re-checking at write time that the target still exists. Multi-kind sessions take "
+                "a caller-confirmed proposal and create every item atomically; "
+                "the proposal covers the same eight types (glossary terms are "
+                "managed on the glossary surface, not proposed by an interview). "
+                "Marks the session completed and returns resulting_artifact_ids."
             ),
             "inputSchema": {
                 "type": "object",
@@ -196,14 +204,14 @@ class InterviewToolGroup(BaseToolGroup):
         {
             "name": "interview.set_target",
             "description": (
-                "Confirm a grounding_context() candidate (or any already-known "
-                "artifact_id) as this session's formalize() target (write). "
-                "Once set, formalize() updates that existing Requirement "
-                "instead of creating a new one. Requirement sessions only -- "
-                "formalize()'s update branch does not support the other 7 "
-                "in-scope artifact types yet. Re-validates that artifact_id "
-                "resolves to a real Requirement right now. Returns the "
-                "session's refreshed state."
+                "Pin an existing artifact (by artifact_id) as this session's "
+                "formalize() target (write). Once set, formalize() updates "
+                "that existing Requirement instead of creating a new one. "
+                "Requirement only: formalize()'s grounded-UPDATE branch is "
+                "Requirement-only (its CREATE branch supports all 8 in-scope "
+                "types). Start a session without a target for the others. "
+                "Re-validates that artifact_id resolves to a real Requirement "
+                "right now. Returns the session's refreshed state."
             ),
             "inputSchema": {
                 "type": "object",
@@ -316,6 +324,9 @@ class InterviewToolGroup(BaseToolGroup):
             return {
                 "session_id": str(session.id),
                 "status": resolve_engine_status("Interview", session.id),
+                # Mirrors get_state()'s payload (final-review finding B2) so
+                # the start response and every later state response agree.
+                "session_kind": session.session_kind,
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,

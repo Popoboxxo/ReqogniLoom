@@ -29,6 +29,14 @@
   overflow: hidden;
 }
 
+.hint {
+  margin: 0;
+  padding: var(--space-2) var(--space-2) 0;
+  font-size: var(--font-size-xs);
+  line-height: var(--leading-normal);
+  color: var(--color-text-muted);
+}
+
 .startRow {
   display: flex;
   flex-wrap: wrap;

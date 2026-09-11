@@ -66,6 +66,12 @@ _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
     "interview.chat_turn": (
         "artifact_type",
         "transcript_json",
+        # L2.4: the compressed digest of turns that fell out of the sliding
+        # window. A workspace-custom chat_turn template that omits this
+        # placeholder still renders (render_template substitutes placeholders
+        # individually and ignores unused values) -- it just loses the older
+        # context, which is the pre-L2.4 behaviour, not a crash.
+        "transcript_summary",
         "current_phase_fragment",
         "missing_fields_json",
         "grounding_snapshot_json",
@@ -74,6 +80,7 @@ _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
         # InterviewService.generate_chat_turn's build_memory_context() call.
         "memory_context",
     ),
+    "interview.transcript_summary": ("previous_summary", "overflow_json"),
     "architecture_decompose_tree": ("element_title",),
     "memory.extract": ("interaction_text",),
 }
