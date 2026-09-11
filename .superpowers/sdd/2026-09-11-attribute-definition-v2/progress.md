@@ -6,12 +6,12 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 6 (options editor in `AttributeInspector`), committed `e167be13`.**
+**Last completed task: Task 7 (`sections[]` schema + lazy materialization), committed `5e94d133`.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 7** (`sections[]` schema + lazy materialization, Phase E).
-**No independent review has run on Tasks 1-6 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
-**Not manually verified in a live browser** (Task 3's plan Step 5 asked for this) — only component/API/typecheck-level coverage across all tasks so far. Flag for the coordinator or a later manual pass.
-**A full, untargeted background `pytest -q` (whole backend suite, no path filter) launched right after Task 4's commit was STILL running with zero output as of Task 6's completion (checked repeatedly, ~25+ min elapsed) — check its final result (background task id `bbz34th2h`) before trusting the whole app has zero cross-cutting side effects from Tasks 4-6's shared-payload/query changes. The narrower `attribute_definitions`-consumer sweeps run after each task were all green.**
+**Next: Task 8** (section visibility + grid layout in the UI, Phase E continued).
+**No independent review has run on Tasks 1-7 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
+**Not manually verified in a live browser** across any task so far — only component/API/typecheck-level coverage. Flag for the coordinator or a later manual pass.
+**The full, untargeted whole-backend `pytest -q` background run (task id `bbz34th2h`, launched after Task 4) never produced any output in ~2 hours and was confirmed hung (still `status: running`, 0-byte output file) — killed via TaskStop rather than trusted further.** Per this repo's own background-agent-watchdog convention (memory: `feedback_background_agent_watchdog`), a `status: running` with no progress for this long is not proof of anything; the ~7 separately-run, targeted `attribute_definitions`-consumer sweeps after each task (334+ tests passing as of Task 7) are the real evidence base, not that stuck run. If the coordinator wants a genuine full-suite pass, re-run it fresh rather than resuming/trusting the old one.
 
 ## Migration numbers (re-verified, plan text is stale)
 
@@ -77,7 +77,19 @@ separately after each phase/whole-branch).
 - Tests: 8 new `AttributeInspector.test.tsx` cases (hidden/shown by type, add/edit/reorder via `onPatch`, remove routes through the new callback instead of patching directly, `readOnly` disables every control). `tsc -p tsconfig.build.json --noEmit` clean. Scoped frontend suite: 47 passed across the 6 touched/new AttributeEditor + api-client + ratchet files.
 - Commit: `e167be13` "feat(attributes): add options editor to AttributeInspector (Task 6)".
 
-## Tasks 7-12 — NOT STARTED
+## Task 7: `sections[]` schema + lazy materialization — DONE
 
-See plan file for full task list (Phase E-G: sections[] schema + grid layout,
-export/import REST+MCP, export/import UI, section card polish).
+- `schema.py`: `SECTION_LAYOUTS`, `normalize_section`, `validate_sections_json`, `materialize_sections`, `stored_sections` — same normalize/validate shape as the attribute-side equivalents. `validate_definition_json` optionally normalizes a `sections` key when present (every pre-Task-7 caller omits it, unaffected).
+- **No Django migration** — confirmed correctly per the plan's own instruction not to create an empty one: `sections` lives inside the existing `definition_json` JSONField, no model/column change.
+- Stores gain `ensure_sections(obj)`: backfills + persists `sections` the first time a row lacks it, derived from the STORED (sorted `(section, order, name)`) attribute list's first-appearance section order.
+- **Real bug caught by the full `attribute_definitions/tests/` suite, not assumed safe:** the first version called `ensure_sections` from inside `get()` itself — but `update()`/`initialize()`/`reinitialize()` all call `get()` internally as a plain existence lookup, so every write touching a pre-Task-7 row picked up a silent extra version increment. Broke `test_concurrent_updates_do_not_lose_a_version_increment` + 3 siblings (off-by-one version assertions). **Fixed by keeping `get()` a pure read** (no mutation, ever) and confining `ensure_sections` calls to the actual external read paths only: `AttributeDefinitionService.get_global`/`list_global`, and `WorkspaceAttributeDefinitionStore.resolve()`'s two branches + `.reset()`. `update()` in both stores now also explicitly carries the existing `sections` list over into the new `definition_json` (its payload only ever carries `attributes`, and the whole dict is replaced on write — without this the very first PUT after a backfill would have silently erased it).
+- `_global_payload`/`_workspace_payload` now include a `sections` key — sourced via `stored_sections`, a SEPARATE sibling key again (same lesson as Task 4's `origins`, not merged into attribute entries).
+- Two pre-existing service tests needed their hardcoded version-number/exact-dict expectations updated to reflect the new (correct) behavior: `resolve()` on an unbackfilled global row now bumps that row's version once (via the workspace-store's `ensure_sections(source)` call), and `get_global` of an uninitialized row now includes `"sections": []`.
+- Tests: 56 pure schema tests (0 DB), 5 new store-level materialization tests (both stores), 2 fixed pre-existing tests. Full `attribute_definitions/tests/` + service/REST/MCP/architecture scoped run: 334 passed. Broader consumer sweep (bundle export, interview protocol, reqif import/export, goal views): 121 passed, no regression from the new `sections` payload key.
+- Commit: `5e94d133` "feat(attributes): add sections[] schema + lazy materialization (Task 7)".
+
+## Tasks 8-12 — NOT STARTED
+
+See plan file for full task list (Phase E continued-G: section visibility +
+grid layout UI, export/import REST+MCP, export/import UI, section card
+polish).
