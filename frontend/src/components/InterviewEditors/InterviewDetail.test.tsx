@@ -77,8 +77,8 @@ const MULTI_CHAT_RESPONSE = {
     collected_fields: {},
     grounding_snapshot: {},
     transcript: [
-      { role: "user", text: "I need faster onboarding", timestamp: "t1" },
-      { role: "assistant", text: "Sounds like a need and a requirement.", timestamp: "t2" },
+      { role: "user", content: "I need faster onboarding", timestamp: "t1" },
+      { role: "assistant", content: "Sounds like a need and a requirement.", timestamp: "t2" },
     ],
   },
 };

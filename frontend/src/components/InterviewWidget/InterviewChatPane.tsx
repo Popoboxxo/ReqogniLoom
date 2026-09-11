@@ -145,7 +145,7 @@ export function InterviewChatPane({
             key={i}
             className={msg.role === "user" ? styles.userMessage : styles.assistantMessage}
           >
-            {msg.text}
+            {msg.text ?? msg.content}
           </p>
         ))}
       </div>

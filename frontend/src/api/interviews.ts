@@ -28,7 +28,11 @@ export interface InterviewField {
 /** One turn in an interview session's conversation history. */
 export interface InterviewTranscriptEntry {
   role: string;
-  text: string;
+  /** Single-mode entries carry `text`; multi-mode entries carry `content`
+   * (backend `_generate_multi_chat_turn`, `interview_service.py:1827-1828`).
+   * Both optional here so a consumer must handle either shape explicitly. */
+  text?: string;
+  content?: string;
   timestamp: string;
 }
 
