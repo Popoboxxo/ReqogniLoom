@@ -6,12 +6,13 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 8 (section visibility + grid layout UI), committed `6acfcb4f`.**
+**Last completed task: Task 10 (REST + MCP surface for export/import), committed `ed888945`.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 9** (`export_definition`/`import_definition` service methods, Phase F).
-**No independent review has run on Tasks 1-8 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
+**Next: Task 11** (Export/Import UI, frontend, Phase F continued).
+**No independent review has run on Tasks 1-10 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
 **Not manually verified in a live browser** across any task so far — only component/API/typecheck-level coverage. Flag for the coordinator or a later manual pass.
-**The full, untargeted whole-backend `pytest -q` background run (task id `bbz34th2h`, launched after Task 4) never produced any output in ~2 hours and was confirmed hung (still `status: running`, 0-byte output file) — killed via TaskStop rather than trusted further.** Per this repo's own background-agent-watchdog convention (memory: `feedback_background_agent_watchdog`), a `status: running` with no progress for this long is not proof of anything; the targeted `attribute_definitions`-consumer sweeps after each task (460 backend + 88 frontend tests passing as of Task 8) are the real evidence base, not that stuck run. If the coordinator wants a genuine full-suite pass, re-run it fresh rather than resuming/trusting the old one.
+**The full, untargeted whole-backend `pytest -q` background run (task id `bbz34th2h`, launched after Task 4) never produced any output in ~2 hours and was confirmed hung (still `status: running`, 0-byte output file) — killed via TaskStop rather than trusted further.** Per this repo's own background-agent-watchdog convention (memory: `feedback_background_agent_watchdog`), a `status: running` with no progress for this long is not proof of anything; the targeted `attribute_definitions`-consumer sweeps after each task (360+121=481 backend tests, 88 frontend tests, all passing as of Task 10) are the real evidence base, not that stuck run. If the coordinator wants a genuine full-suite pass, re-run it fresh rather than resuming/trusting the old one.
+**Deviation from the plan's literal Task 9 interface, worth flagging to a reviewer:** the plan's snippet for `export_definition`/`import_definition` only showed `workspace_id` as the scope discriminator; the real global scope needs a `preset` too (same as every other global-scope method in this service), so both methods take keyword-only `preset=None`/`workspace_id=None` with exactly one expected to be given. REST/MCP surfaces (Task 10) reflect this real signature, not the plan's literal one.
 
 ## Migration numbers (re-verified, plan text is stale)
 
@@ -97,8 +98,21 @@ separately after each phase/whole-branch).
 - Tests: 3 new `ArtifactForm.test.tsx` cases (whole-section hide with AND-condition, default-visible fallback, half/full layout attributes on rendered `<section>` elements via `data-testid`+`data-layout`), 5 new `AttributeList.test.tsx` cases (new file — none existed for this component before), 3 new backend service tests, 2 new REST tests. `tsc -p tsconfig.build.json --noEmit` clean. Scoped backend run: 460 passed (attribute_definitions + service/REST/MCP/architecture + the full bundle-export/interview-protocol/reqif/goal-views consumer sweep). Scoped frontend run: 88 passed.
 - Commit: `6acfcb4f` "feat(attributes): add section visibility + grid layout UI (Task 8)".
 
-## Tasks 9-12 — NOT STARTED
+## Task 9: `export_definition`/`import_definition` service methods — DONE
 
-See plan file for full task list (Phase F-G: export_definition/
-import_definition service methods, REST+MCP surface, export/import UI,
-section card polish).
+- `export_definition(ctx, item_type, *, preset=None, workspace_id=None)` returns `{schema_version: 1, item_type, attributes, sections}`. `import_definition(ctx, item_type, payload, *, preset=None, workspace_id=None, on_collision="skip")` merges via a new `_merge_import` static helper (skip/overwrite/rename, rename suffixing `name_2`, `name_3`, ... — first free suffix) then hands the merged list straight to `update_global`/`update_workspace` UNCHANGED — all structural validation, the core-lock and the final duplicate-name check happen there, reusing the exact single validation path `create_global`/`create_workspace` already established rather than reimplementing it.
+- Global-scope import is "like an edit" (spec section 6): goes through `update_global`, so propagation to non-customized workspaces applies exactly as any other global PUT.
+- Tests: 9 new service tests (re-importable round-trip, both scopes, admin gate, bad schema_version, bad on_collision, incoming-core rejection via the SAME downstream mechanism as create, skip/overwrite/rename each verified). Scoped run: 322 passed.
+- Commit: `33976d91` "feat(attributes): add export_definition/import_definition (Task 9)".
+
+## Task 10: REST + MCP surface for export/import — DONE
+
+- REST: `GET/POST .../export/` and `.../import/` for both scopes (global: `attribute-defaults/{item_type}/{preset}/`, workspace: `workspaces/{id}/attribute-definitions/{item_type}/`), same admin gate/error mapping as the rest of the resource. `on_collision` accepted as a query param OR a same-named body key (query param wins) — matches the plan's explicit "query/body param" wording.
+- MCP: `attribute_definition.export`/`.export_workspace`/`.import`/`.import_workspace` — followed the `create_workspace`/`delete_workspace` scope-suffix precedent per the plan's own instruction to check and match it, not a scope parameter. Same `CrossTenantWorkspaceError` guard as every other workspace-scoped handler in this group. Tool group docstring header also fixed from a stale "Eight tools" (never updated when Task 5 added `count_usages`) to the accurate current count (13).
+- Tests: 6 new REST tests, 5 new MCP tests, tool-count assertion updated 9→13. Scoped run: 360 passed. Consumer sweep (bundle export, interview protocol, reqif, goal views): 121 passed.
+- Commit: `ed888945` "feat(attributes): add REST + MCP surface for export/import (Task 10)".
+
+## Tasks 11-12 — NOT STARTED
+
+See plan file for full task list (Phase F continued-G: export/import UI,
+section card polish/origin badges/type icons).
