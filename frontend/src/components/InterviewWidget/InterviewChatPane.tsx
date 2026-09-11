@@ -26,18 +26,6 @@ import { Spinner } from "../shared/Spinner/Spinner";
 import { ProposalPreviewGraph } from "./ProposalPreviewGraph";
 import styles from "./InterviewChatPane.module.css";
 
-/**
- * {@link InterviewState} plus the multi-mode discriminator. Kept local to
- * this pane on purpose: backend `get_state()` payloads don't carry
- * `session_kind` yet (see `InterviewService.get_state()`), so widening the
- * shared client type would promise a field not every endpoint honours.
- * Absent/undefined behaves as `"single"` -- matching the backend's
- * normalisation -- which keeps every existing caller compatible.
- */
-export type MultiModeInterview = InterviewState & {
-  session_kind?: "single" | "multi";
-};
-
 /** One entry of a multi-mode result summary (`MultiFormalizeResult.created`). */
 export interface CreatedArtifactRef {
   artifact_id: string;
@@ -49,7 +37,10 @@ export function InterviewChatPane({
   onStateChange,
   onFormalized,
 }: {
-  interview: MultiModeInterview;
+  // `session_kind` now lives on the shared `InterviewState` itself: the
+  // backend emits it from get_state()/chat()/start() in both modes, so the
+  // pane no longer needs a locally widened type (final review, B2/M1).
+  interview: InterviewState;
   onStateChange: (s: InterviewState) => void;
   /**
    * Optional by orchestrator decision (documented plan deviation): the plan

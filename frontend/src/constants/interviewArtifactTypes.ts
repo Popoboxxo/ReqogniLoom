@@ -18,3 +18,11 @@ export const INTERVIEW_ARTIFACT_TYPES = [
 ] as const;
 
 export type InterviewArtifactType = (typeof INTERVIEW_ARTIFACT_TYPES)[number];
+
+/**
+ * Sentinel `?start=` value for a multi-kind discovery session (spec L2.5) --
+ * the one "type" the picker offers that is not an artifact type. Lives here
+ * for the same reason the list above does: both entry points need it, and an
+ * always-mounted overlay must not import from a route page module.
+ */
+export const MULTI_START_PARAM = "multi";

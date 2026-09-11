@@ -21,8 +21,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { INTERVIEW_ARTIFACT_TYPES } from "../../constants/interviewArtifactTypes";
-import { MULTI_START_PARAM } from "../InterviewEditors/InterviewEditors";
+import { INTERVIEW_ARTIFACT_TYPES, MULTI_START_PARAM } from "../../constants/interviewArtifactTypes";
 import styles from "./InterviewWidget.module.css";
 
 const STORAGE_KEY = "reqflow-interview-widget-open";

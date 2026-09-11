@@ -45,9 +45,23 @@ export interface InterviewTranscriptEntry {
 export interface InterviewState {
   id: string;
   status: "in_progress" | "completed" | "abandoned";
-  phase: string;
+  /**
+   * Which mode the session runs in. Multi-kind ("discovery") sessions are
+   * bound to no protocol and drive the proposal/confirm flow instead of the
+   * per-field one. Optional because an older backend omits the key; absent
+   * reads as `"single"`, matching the backend's own normalisation.
+   */
+  session_kind?: "single" | "multi";
+  /**
+   * Single-mode only. `InterviewService.get_state()` omits `phase` and
+   * `missing_fields` for a multi session by design (it has no protocol and
+   * therefore no phase/field concept) -- declaring them required is exactly
+   * how the crash in `InterviewDetail` (`undefined.length`) slipped past
+   * TypeScript. Optional here so every consumer has to guard.
+   */
+  phase?: string;
   collected_fields: Record<string, unknown>;
-  missing_fields: InterviewField[];
+  missing_fields?: InterviewField[];
   grounding_snapshot: {
     /** Absent until `/grounding/` is explicitly called (lazy AI-ranked
      * computation) -- `start()` returns `{}`, not `{ candidates: [] }`. */

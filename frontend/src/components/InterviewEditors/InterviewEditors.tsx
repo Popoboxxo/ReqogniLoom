@@ -24,14 +24,8 @@ import { useInterviewData } from "./useInterviewData";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { interviewsApi } from "../../api/interviews";
 import { extractErrorMessage } from "../../api/client";
-import { INTERVIEW_ARTIFACT_TYPES } from "../../constants/interviewArtifactTypes";
+import { INTERVIEW_ARTIFACT_TYPES, MULTI_START_PARAM } from "../../constants/interviewArtifactTypes";
 import styles from "./InterviewEditors.module.css";
-
-/**
- * Sentinel `?start=` value for a multi-kind discovery session (spec L2.5).
- * Exported so InterviewWidget links here without re-typing the literal.
- */
-export const MULTI_START_PARAM = "multi";
 
 export default function InterviewEditors(): JSX.Element {
   const { t } = useTranslation();

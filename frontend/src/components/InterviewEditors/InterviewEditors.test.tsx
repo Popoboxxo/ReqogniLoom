@@ -47,6 +47,7 @@ vi.mock("../../api/interviews", () => ({
     getState: vi.fn().mockResolvedValue({
       id: SESSION_A.id,
       status: SESSION_A.status,
+      session_kind: "single",
       phase: "elicitation",
       collected_fields: {},
       missing_fields: [{ name: "title", type: "text", choices: null }],
@@ -90,6 +91,7 @@ describe("InterviewEditors", () => {
     vi.mocked(interviewsApi.getState).mockResolvedValue({
       id: SESSION_A.id,
       status: SESSION_A.status,
+      session_kind: "single",
       phase: "elicitation",
       collected_fields: {},
       missing_fields: [{ name: "title", type: "text", choices: null }],
@@ -131,6 +133,7 @@ describe("InterviewEditors", () => {
     vi.mocked(interviewsApi.start).mockResolvedValue({
       id: "s-new",
       status: "in_progress",
+      session_kind: "single",
       phase: "elicitation",
       collected_fields: {},
       missing_fields: [],
@@ -163,6 +166,7 @@ describe("InterviewEditors", () => {
     vi.mocked(interviewsApi.start).mockResolvedValue({
       id: "s-cta",
       status: "in_progress",
+      session_kind: "single",
       phase: "elicitation",
       collected_fields: {},
       missing_fields: [],
@@ -177,12 +181,14 @@ describe("InterviewEditors", () => {
   });
 
   it("auto-starts a multi-kind discovery session for `?start=multi`", async () => {
+    // Real multi-mode start payload (backend interview_views.
+    // _started_session_state): no phase / no missing_fields -- those are
+    // single-mode protocol concepts -- plus the session_kind discriminator.
     vi.mocked(interviewsApi.start).mockResolvedValue({
       id: "s-multi",
       status: "in_progress",
-      phase: "elicitation",
+      session_kind: "multi",
       collected_fields: {},
-      missing_fields: [],
       grounding_snapshot: {},
       transcript: [],
     } as any);
@@ -195,12 +201,14 @@ describe("InterviewEditors", () => {
   });
 
   it("offers the multi-kind discovery option in the picker dialog", async () => {
+    // Real multi-mode start payload (backend interview_views.
+    // _started_session_state): no phase / no missing_fields -- those are
+    // single-mode protocol concepts -- plus the session_kind discriminator.
     vi.mocked(interviewsApi.start).mockResolvedValue({
       id: "s-multi",
       status: "in_progress",
-      phase: "elicitation",
+      session_kind: "multi",
       collected_fields: {},
-      missing_fields: [],
       grounding_snapshot: {},
       transcript: [],
     } as any);
@@ -224,6 +232,7 @@ describe("InterviewEditors", () => {
     vi.mocked(interviewsApi.getState).mockResolvedValue({
       id: SESSION_A.id,
       status: "completed",
+      session_kind: "single",
       phase: "done",
       collected_fields: {},
       missing_fields: [],
