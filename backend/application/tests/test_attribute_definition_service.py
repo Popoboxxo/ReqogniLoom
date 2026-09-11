@@ -627,6 +627,134 @@ def test_count_usages_requires_admin(service, editor_ctx, workspace) -> None:
         service.count_usages(editor_ctx, "Risk", workspace.id, "note")
 
 
+# --- Task 9: export_definition / import_definition -------------------------
+
+
+@pytest.mark.django_db
+def test_export_definition_global_produces_a_re_importable_document(
+    service, admin_ctx, seeded
+) -> None:
+    exported = service.export_definition(admin_ctx, "Risk", preset="standard")
+    assert exported["schema_version"] == 1
+    assert exported["item_type"] == "Risk"
+    assert [a["name"] for a in exported["attributes"]] == ["title"]
+    assert exported["sections"] == [
+        {"name": "general", "order": 0, "visible": True, "layout": "full"}
+    ]
+
+    imported = service.import_definition(admin_ctx, "Risk", exported, preset="standard")
+    assert [a["name"] for a in imported["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_export_definition_workspace_scope(service, admin_ctx, workspace, seeded) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        exported = service.export_definition(admin_ctx, "Risk", workspace_id=workspace.id)
+    assert exported["item_type"] == "Risk"
+    assert [a["name"] for a in exported["attributes"]] == ["title"]
+
+
+@pytest.mark.django_db
+def test_import_definition_requires_admin(service, editor_ctx, seeded) -> None:
+    with pytest.raises(PermissionDeniedError):
+        service.import_definition(
+            editor_ctx, "Risk", {"schema_version": 1, "attributes": []}, preset="standard"
+        )
+
+
+@pytest.mark.django_db
+def test_import_definition_rejects_an_unrecognized_schema_version(
+    service, admin_ctx, seeded
+) -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        service.import_definition(
+            admin_ctx, "Risk", {"schema_version": 99, "attributes": []}, preset="standard"
+        )
+    assert "schema_version" in " ".join(exc.value.errors)
+
+
+@pytest.mark.django_db
+def test_import_definition_rejects_an_invalid_on_collision(service, admin_ctx, seeded) -> None:
+    with pytest.raises(AttributeSchemaError):
+        service.import_definition(
+            admin_ctx, "Risk", {"schema_version": 1, "attributes": []},
+            preset="standard", on_collision="explode",
+        )
+
+
+@pytest.mark.django_db
+def test_import_definition_rejects_an_incoming_core_attribute(
+    service, admin_ctx, seeded
+) -> None:
+    with pytest.raises(AttributeSchemaError):
+        service.import_definition(
+            admin_ctx, "Risk",
+            {
+                "schema_version": 1,
+                "attributes": [{"name": "sneaky", "kind": "core", "type": "text"}],
+            },
+            preset="standard",
+        )
+
+
+@pytest.mark.django_db
+def test_import_definition_skip_leaves_the_existing_entry_and_adds_only_new_names(
+    service, admin_ctx, tenant
+) -> None:
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "standard", [TITLE, NOTE],
+    )
+    out = service.import_definition(
+        admin_ctx, "Risk",
+        {
+            "schema_version": 1,
+            "attributes": [
+                dict(NOTE, required=True),  # collides with 'note' -- skipped
+                {"name": "extra_note", "kind": "extended", "type": "text"},
+            ],
+        },
+        preset="standard", on_collision="skip",
+    )
+    by_name = {a["name"]: a for a in out["attributes"]}
+    assert by_name["note"]["required"] is False  # unchanged
+    assert "extra_note" in by_name
+
+
+@pytest.mark.django_db
+def test_import_definition_overwrite_replaces_the_colliding_entry(
+    service, admin_ctx, tenant
+) -> None:
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "standard", [TITLE, NOTE],
+    )
+    out = service.import_definition(
+        admin_ctx, "Risk",
+        {"schema_version": 1, "attributes": [dict(NOTE, required=True)]},
+        preset="standard", on_collision="overwrite",
+    )
+    by_name = {a["name"]: a for a in out["attributes"]}
+    assert by_name["note"]["required"] is True
+
+
+@pytest.mark.django_db
+def test_import_definition_rename_suffixes_colliding_names(
+    service, admin_ctx, tenant
+) -> None:
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "standard", [TITLE, NOTE, dict(NOTE, name="note_2")],
+    )
+    out = service.import_definition(
+        admin_ctx, "Risk",
+        {"schema_version": 1, "attributes": [dict(NOTE, required=True)]},
+        preset="standard", on_collision="rename",
+    )
+    names = {a["name"] for a in out["attributes"]}
+    assert "note_3" in names
+    by_name = {a["name"]: a for a in out["attributes"]}
+    assert by_name["note"]["required"] is False  # original untouched
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize("bad", ["not-a-uuid", "", "42"])
 def test_resolve_maps_a_malformed_workspace_id_to_not_found(admin_ctx, bad) -> None:

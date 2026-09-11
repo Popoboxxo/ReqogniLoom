@@ -58,6 +58,12 @@ from application.cache_invalidation import (
 #: to matter and short enough that a missed invalidation self-heals.
 _CACHE_TTL_SECONDS = 600
 
+#: Task 9 (spec section 6). Bumped only if the export document's shape ever
+#: changes in a way ``import_definition`` cannot read compatibly.
+_EXPORT_SCHEMA_VERSION = 1
+
+_ON_COLLISION_CHOICES = frozenset({"skip", "overwrite", "rename"})
+
 
 class AttributeDefinitionService(ServiceBase):
     """Read, manage and apply attribute definitions."""
@@ -635,6 +641,161 @@ class AttributeDefinitionService(ServiceBase):
                     f"in preset '{target_preset}'"
                 )
         return warnings
+
+    # ---- Export / Import (Task 9, spec section 6) --------------------------
+
+    def export_definition(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        *,
+        preset: str | None = None,
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        """Serialize a whole definition (attributes + sections) for download.
+
+        Exactly one of *preset* (global scope) / *workspace_id* (workspace
+        scope, resolved from the workspace's own tier) must be given.
+
+        ``schema_version`` lets :meth:`import_definition` detect a future
+        format change instead of silently misreading an old export.
+
+        Raises:
+            PermissionDeniedError: caller is not an admin.
+            AttributeDefinitionNotFound: the global row does not exist yet
+                (global scope), or no global default exists for the
+                workspace's preset (workspace scope).
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        if workspace_id is not None:
+            row = self._workspace.resolve(
+                ctx.tenant_id, workspace_id, item_type, self._workspace_preset(workspace_id)
+            )
+        elif preset is not None:
+            row = self._global.get(ctx.tenant_id, item_type, preset)
+            if row is None:
+                raise AttributeDefinitionNotFound(
+                    f"No global attribute definition for '{item_type}/{preset}'"
+                )
+            self._global.ensure_sections(row)
+        else:
+            raise ValueError("export_definition requires either preset or workspace_id")
+        return {
+            "schema_version": _EXPORT_SCHEMA_VERSION,
+            "item_type": item_type,
+            "attributes": stored_attributes(row.definition_json),
+            "sections": stored_sections(row.definition_json),
+        }
+
+    def import_definition(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        payload: dict[str, Any],
+        *,
+        preset: str | None = None,
+        workspace_id: UUID | None = None,
+        on_collision: str = "skip",
+    ) -> dict[str, Any]:
+        """Import a previously-exported document into a definition.
+
+        Exactly one of *preset* / *workspace_id* must be given, same contract
+        as :meth:`export_definition`. On global scope this is "like an edit"
+        (spec section 6): it goes through :meth:`update_global`, so
+        propagation to non-customized workspaces applies exactly as any
+        other global edit would — no special-cased write path.
+
+        Structural validation, the core-lock and the final duplicate-name
+        check all happen downstream in ``update_global``/``update_workspace``
+        — :meth:`_merge_import` only decides WHICH entries survive the merge
+        per *on_collision*, reusing the same single validation path
+        ``create_global``/``create_workspace`` already rely on.
+
+        Raises:
+            PermissionDeniedError: caller is not an admin.
+            AttributeSchemaError: *on_collision* is not one of "skip"/
+                "overwrite"/"rename", the payload's ``schema_version`` is
+                missing or unrecognized, ``attributes`` is not a list, or the
+                merged result fails the normal update validation (e.g. an
+                incoming ``kind="core"`` entry — rejected the same way a
+                fresh core create is).
+            AttributeDefinitionNotFound: no definition exists yet to import into.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        if on_collision not in _ON_COLLISION_CHOICES:
+            raise AttributeSchemaError(
+                [f"on_collision must be one of {sorted(_ON_COLLISION_CHOICES)}"]
+            )
+        if not isinstance(payload, dict) or payload.get("schema_version") != _EXPORT_SCHEMA_VERSION:
+            raise AttributeSchemaError(
+                [f"unrecognized or missing schema_version (expected {_EXPORT_SCHEMA_VERSION})"]
+            )
+        incoming = payload.get("attributes")
+        if not isinstance(incoming, list):
+            raise AttributeSchemaError(["payload must have an 'attributes' list"])
+
+        if workspace_id is not None:
+            current_row = self._workspace.resolve(
+                ctx.tenant_id, workspace_id, item_type, self._workspace_preset(workspace_id)
+            )
+        elif preset is not None:
+            current_row = self._global.get(ctx.tenant_id, item_type, preset)
+            if current_row is None:
+                raise AttributeDefinitionNotFound(
+                    f"No global attribute definition for '{item_type}/{preset}'"
+                )
+        else:
+            raise ValueError("import_definition requires either preset or workspace_id")
+
+        merged = self._merge_import(
+            stored_attributes(current_row.definition_json), incoming, on_collision
+        )
+        if workspace_id is not None:
+            return self.update_workspace(ctx, item_type, workspace_id, merged)
+        return self.update_global(ctx, item_type, preset, merged)
+
+    @staticmethod
+    def _merge_import(
+        current: list[dict[str, Any]],
+        incoming: list[Any],
+        on_collision: str,
+    ) -> list[dict[str, Any]]:
+        """Merge *incoming* (raw, un-normalized entries from an import file)
+        into *current* per *on_collision*: ``"skip"`` leaves the existing
+        entry, ``"overwrite"`` replaces it, ``"rename"`` suffixes the
+        incoming entry's name (``name_2``, ``name_3``, ... — the first free
+        suffix). A malformed entry (not a dict, or no ``name``) is passed
+        through unchanged; ``update_global``/``update_workspace``'s own
+        validation rejects it with a proper error naming the problem.
+        """
+        existing_names = {a["name"] for a in current}
+        result = list(current)
+        for entry in incoming:
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if not isinstance(name, str) or name not in existing_names:
+                result.append(entry)
+                if isinstance(name, str):
+                    existing_names.add(name)
+                continue
+            if on_collision == "skip":
+                continue
+            if on_collision == "overwrite":
+                result = [
+                    entry if (isinstance(a, dict) and a.get("name") == name) else a
+                    for a in result
+                ]
+                continue
+            # "rename"
+            suffix = 2
+            candidate = f"{name}_{suffix}"
+            while candidate in existing_names:
+                suffix += 1
+                candidate = f"{name}_{suffix}"
+            result.append({**entry, "name": candidate})
+            existing_names.add(candidate)
+        return result
 
 
 __all__ = [
