@@ -2072,7 +2072,7 @@
       "name": "interview.formalize",
       "prefix": "interview",
       "is_write": true,
-      "description": "Turn the session's collected answers into a real artifact (write). Creates a new Requirement, or -- if grounding set a target -- updates the existing one instead, re-checking at write time that the target still exists. Marks the session completed and returns resulting_artifact_ids. Only artifact_type='Requirement' sessions are supported so far.",
+      "description": "Turn the session's collected answers into real artifact(s) (write). Single-kind sessions create one artifact of the session's artifact_type -- Requirement, ArchitectureElement, StakeholderNeed, Risk, TestCase, Adr, Issue or Goal -- through that type's production create service, so workflow state is initialized; or, if grounding set a target (the target must be a Requirement), updates the existing Requirement instead, re-checking at write time that the target still exists. Multi-kind sessions take a caller-confirmed proposal and create every item atomically; the proposal covers the same eight types (glossary terms are managed on the glossary surface, not proposed by an interview). Marks the session completed and returns resulting_artifact_ids.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2185,7 +2185,7 @@
       "name": "interview.set_target",
       "prefix": "interview",
       "is_write": true,
-      "description": "Confirm a grounding_context() candidate (or any already-known artifact_id) as this session's formalize() target (write). Once set, formalize() updates that existing Requirement instead of creating a new one. Requirement sessions only -- formalize()'s update branch does not support the other 7 in-scope artifact types yet. Re-validates that artifact_id resolves to a real Requirement right now. Returns the session's refreshed state.",
+      "description": "Pin an existing artifact (by artifact_id) as this session's formalize() target (write). Once set, formalize() updates that existing Requirement instead of creating a new one. Requirement only: formalize()'s grounded-UPDATE branch is Requirement-only (its CREATE branch supports all 8 in-scope types). Start a session without a target for the others. Re-validates that artifact_id resolves to a real Requirement right now. Returns the session's refreshed state.",
       "inputSchema": {
         "type": "object",
         "properties": {

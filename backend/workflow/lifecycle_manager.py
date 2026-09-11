@@ -92,6 +92,8 @@ class StateLifecycleManager:
         item_ids: list[UUID],
         item_type: str,
         workspace_id: UUID,
+        initial_state: str | None = None,
+        proposed_by: str = "",
     ) -> list[WorkflowItemState]:
         """Create initial WorkflowItemState records for all item_ids.
 
@@ -104,6 +106,10 @@ class StateLifecycleManager:
             item_ids:     List of item UUIDs to initialise.
             item_type:    Entity type string.
             workspace_id: Workspace UUID.
+            initial_state: Overrides the definition's own initial state. Used
+                by the agent-proposal path (spec §4.2), which seeds "proposed"
+                instead. None keeps the historical behaviour for every other
+                caller.
 
         Returns:
             List of created WorkflowItemState instances.
@@ -116,7 +122,8 @@ class StateLifecycleManager:
 
         # IF-WE-INT-003 — query COMP-WE-001 for initial_state
         dto = self._store.get_definition(workspace_id, item_type)
-        initial_state = dto.initial_state
+        if initial_state is None:
+            initial_state = dto.initial_state
 
         # Resolve the definition ORM record for the FK
         definition_record = WorkflowEngineDefinition.objects.filter(
@@ -129,6 +136,7 @@ class StateLifecycleManager:
             )
 
         created: list[WorkflowItemState] = []
+        seeded_off_default = initial_state != dto.initial_state
         for item_id in item_ids:
             state = WorkflowItemState.objects.create(
                 item_id=item_id,
@@ -138,6 +146,34 @@ class StateLifecycleManager:
                 current_state=initial_state,
             )
             created.append(state)
+
+            if not seeded_off_default:
+                continue
+
+            # Spec §4.2: "wer hat vorgeschlagen" lives in the history entry.
+            # Nothing wrote one at initialization before this — a plain
+            # initialization is not a transition and needs no record, but a
+            # proposal does, because it is the only provenance the artifact has.
+            # ``from_state=""`` marks "came into existence here".
+            #
+            # Plan deviation: no status/lifecycle mirror sync here (the plan's
+            # text called for one). Datenmodell-Konsolidierung Phase 1/Task 24
+            # (merged since the plan was written) removed the per-entity status
+            # mirror columns entirely -- WorkflowItemState.current_state is now
+            # the sole store, so there is nothing left to keep in sync. The
+            # history entry alone (same shape perform_transition already
+            # writes, `.unscoped.create` + explicit tenant_id) is now the full
+            # scope of this task.
+            WorkflowHistoryEntry.unscoped.create(
+                item_state=state,
+                from_state="",
+                to_state=initial_state,
+                transitioned_by=proposed_by or "agent",
+                transitioned_at=datetime.now(timezone.utc),
+                change_reason="",
+                workspace_id=workspace_id,
+                tenant_id=state.tenant_id,
+            )
 
         return created
 

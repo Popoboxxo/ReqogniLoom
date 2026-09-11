@@ -1413,6 +1413,26 @@ class TraceLink(TenantScopedModel):
             "embedding provider is configured."
         ),
     )
+    # KI-Vorschlag-als-Zustand spec §5: a trace link is not a workflow-tracked
+    # item (no WorkflowItemState per link), so an agent-proposed link is marked
+    # by these two fields instead of by a state. Confirming NULLs both;
+    # discarding deletes the row.
+    #
+    # SET_NULL, not CASCADE: revoking or deleting the proposing key must not
+    # delete trace edges. A NULL proposed_by with a non-NULL proposed_at simply
+    # reads as "proposed by a key that no longer exists".
+    proposed_by = models.ForeignKey(
+        "auth_tenancy.ApiKey",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="proposed_trace_links",
+        help_text=(
+            "API key of the AI agent that proposed this link; NULL once a human "
+            "confirmed it or when a human created it directly."
+        ),
+    )
+    proposed_at = models.DateTimeField(null=True, blank=True)
     rationale = models.TextField(
         blank=True,
         default="",
@@ -1479,6 +1499,11 @@ class TraceLink(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"{self.source_id} -[{self.link_type}]-> {self.target_id}"
+
+    @property
+    def is_proposal(self) -> bool:
+        """Return whether this link is still an unconfirmed agent proposal."""
+        return self.proposed_at is not None
 
 
 class TestCase(TenantScopedModel):

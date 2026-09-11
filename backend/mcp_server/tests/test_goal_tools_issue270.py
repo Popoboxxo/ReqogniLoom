@@ -354,12 +354,25 @@ def test_goal_transition_schema_enumerates_target_states():
 
 def test_goal_transition_enum_matches_the_preset_schema():
     """The enum must stay derived from the workflow preset (single source)."""
-    from workflow.definition_store import PRESET_SCHEMAS
+    from workflow.definition_store import PRESET_SCHEMAS, PROPOSED_STATE
 
     schema = _schema(GoalToolGroup(), "goal.transition")
-    assert schema["inputSchema"]["properties"]["target_state"]["enum"] == list(
-        PRESET_SCHEMAS["goal_default"]["states"]
-    )
+    assert schema["inputSchema"]["properties"]["target_state"]["enum"] == [
+        s for s in PRESET_SCHEMAS["goal_default"]["states"] if s != PROPOSED_STATE
+    ]
+
+
+def test_goal_transition_enum_excludes_the_proposal_state():
+    """Security review B4: ``proposed`` has no incoming transition at all.
+
+    Advertising it as a selectable ``target_state`` tells a calling agent it
+    can move a Goal *into* the proposal state, which the state machine never
+    permits.
+    """
+    from workflow.definition_store import PROPOSED_STATE
+
+    schema = _schema(GoalToolGroup(), "goal.transition")
+    assert PROPOSED_STATE not in schema["inputSchema"]["properties"]["target_state"]["enum"]
 
 
 def test_main_goal_approve_schema_documents_the_target_state():
@@ -367,3 +380,19 @@ def test_main_goal_approve_schema_documents_the_target_state():
     schema = _schema(MainGoalToolGroup(), "main_goal.approve")
     assert "target_state" not in schema["inputSchema"]["properties"]
     assert "Freigegeben" in schema["description"]
+
+
+def test_main_goal_approve_description_names_the_real_approval_target():
+    """Security review B4: the description resolved its target positionally.
+
+    ``_MAIN_GOAL_STATES[1]`` became ``"proposed"`` once the proposal state was
+    injected at index 1, so the tool told agents that approving a MainGoal
+    moves it from 'Entwurf' to 'proposed'. Pin the *rendered sentence*, not
+    just the presence of the word somewhere in the blob — the old assertion
+    stayed green on the unrelated change_reason hint below it.
+    """
+    from workflow.definition_store import PROPOSED_STATE
+
+    description = _schema(MainGoalToolGroup(), "main_goal.approve")["description"]
+    assert "it moves the row from 'Entwurf' to 'Freigegeben'" in description
+    assert PROPOSED_STATE not in description

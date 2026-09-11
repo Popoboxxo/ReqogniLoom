@@ -180,7 +180,7 @@ def test_get_template_content_falls_back_workspace_then_global_then_factory(
 
 
 def test_get_template_content_covers_all_eight_names():
-    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 11 template names.
+    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 12 template names.
 
     Extended to 9 by Requirement Bundle Export, Plan 2 Task 1
     (``bundle_compression`` — see application/bundle_compression_service.py),
@@ -188,7 +188,13 @@ def test_get_template_content_covers_all_eight_names():
     (``interview.grounding_rank`` — see application/interview_service.py),
     then to 11 by Interview-Management Web Widget Task 2
     (``interview.chat_turn`` — see application/interview_service.py's
-    ``generate_chat_turn``).
+    ``generate_chat_turn``),
+    then to 12 by the interview transcript-compression slot
+    (``interview.transcript_summary``, commit e173fc1f — see
+    application/interview_service.py's transcript compression).
+
+    Stale expectation, not a defect: the 12th slot is a real, intentional
+    addition and the assertion simply was not grown with it.
     """
     from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
 
@@ -204,6 +210,7 @@ def test_get_template_content_covers_all_eight_names():
         "bundle_compression",
         "interview.grounding_rank",
         "interview.chat_turn",
+        "interview.transcript_summary",
     }
 
 

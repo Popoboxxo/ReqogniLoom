@@ -50,6 +50,62 @@ class Operation(str, Enum):
     ASSIGN_ROLE = "assign_role"
 
 
+#: Coarse API-key scope that forbids every non-READ operation.
+READ_ONLY_SCOPE = "read"
+
+#: HTTP method -> the operation it performs. Unknown/unlisted methods are
+#: treated as writes (fail-closed), which is why the lookups below default to
+#: :attr:`Operation.WRITE` rather than READ.
+_METHOD_TO_OPERATION: dict[str, "Operation"] = {
+    "GET": Operation.READ,
+    "HEAD": Operation.READ,
+    "OPTIONS": Operation.READ,
+    "POST": Operation.WRITE,
+    "PUT": Operation.WRITE,
+    "PATCH": Operation.WRITE,
+    "DELETE": Operation.WRITE,
+}
+
+
+def operation_for_method(method: str) -> Operation:
+    """Map an HTTP method to the RBAC :class:`Operation` it performs.
+
+    Fail-closed: anything not recognised as a safe method counts as a write.
+    """
+    return _METHOD_TO_OPERATION.get((method or "").upper(), Operation.WRITE)
+
+
+def scope_denial_reason(scope: str | None, operation: Operation) -> str | None:
+    """Return why the key's coarse ``scope`` forbids *operation*, else ``None``.
+
+    The API key's scope is an independent, fail-closed gate that sits **above**
+    the RBAC matrix and above every RBAC exemption: it can only ever narrow. A
+    read-scoped key is denied every non-READ operation no matter how privileged
+    its owner is, whether the caller is bootstrapping a tenant, is a
+    tenant-admin, or holds the admin role outright.
+
+    This is the single implementation shared by all three enforcement points —
+    :class:`rest_api.auth_enforcer.RbacPermission`,
+    :class:`auth_tenancy.rest.HasOperationPermission` and
+    ``mcp_server.tool_registry.ToolRegistry`` — so the gate cannot drift
+    between the REST and MCP adapters.
+
+    Args:
+        scope: ``AuthContext.scope`` ("read", "write", or ``None`` for
+            credentials that carry no scope at all, e.g. JWT bearer tokens).
+        operation: The operation the caller is attempting.
+
+    Returns:
+        A human-readable denial reason, or ``None`` when the scope permits it.
+    """
+    if scope != READ_ONLY_SCOPE or operation is Operation.READ:
+        return None
+    return (
+        f"API key is read-only (scope='{READ_ONLY_SCOPE}'); operation "
+        f"'{operation.value}' requires scope='write'."
+    )
+
+
 class LastAdminError(Exception):
     """Raised when a mutation would leave a workspace or tenant with zero
     active admins (multi-user management invariant).
@@ -864,4 +920,7 @@ __all__ = [
     "WorkspaceMember",
     "Operation",
     "PresetPolicyValidator",
+    "READ_ONLY_SCOPE",
+    "operation_for_method",
+    "scope_denial_reason",
 ]

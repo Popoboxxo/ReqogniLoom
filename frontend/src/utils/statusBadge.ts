@@ -71,6 +71,10 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   // neutral grey, i.e. "approved" and "draft" looked identical (ch. 8.2).
   freigegeben: 'success',
 
+  // Spec §4.4: a proposal is informational, not a warning — it needs a human
+  // look, it is not a problem. `rejected` already maps to `danger`.
+  proposed: 'info',
+
   // In-progress / under review
   review: 'info',
   in_review: 'info',

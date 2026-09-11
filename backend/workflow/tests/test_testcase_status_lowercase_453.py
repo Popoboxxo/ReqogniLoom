@@ -150,9 +150,22 @@ def test_testcase_status_enum_labels_stay_human_readable() -> None:
 
 def test_testcase_default_preset_states_match_the_enum() -> None:
     """The mirror is written verbatim, so preset and enum must agree byte for
-    byte — the invariant TestCase.Status's docstring declares."""
+    byte — the invariant TestCase.Status's docstring declares.
+
+    KI-Vorschlag-als-Zustand spec §4.1 (Decision 3): every non-minimal preset,
+    testcase_default included, gains "proposed" at index 1 and a "rejected"
+    terminal — states the enum was never meant to track, because
+    `TestCase.status` is a legacy, write-once-at-creation column that is
+    already dropped (verified: no such field exists on the model anymore;
+    only the `Status` enum class remains, unread by the workflow engine per
+    its own docstring — WorkflowItemState.current_state is the sole store).
+    The byte-for-byte invariant now holds only for the enum's own states,
+    not the full injected preset.
+    """
     schema = PRESET_SCHEMAS["testcase_default"]
-    assert schema["states"] == [choice.value for choice in TestCase.Status]
+    enum_states = [choice.value for choice in TestCase.Status]
+    injected = {"proposed", "rejected"}
+    assert [s for s in schema["states"] if s not in injected] == enum_states
 
 
 def test_testcase_default_preset_transitions_reference_declared_states() -> None:
@@ -167,7 +180,12 @@ def test_testcase_default_state_meta_key_was_renamed_too() -> None:
     """A stale ``"Deprecated"`` key would silently disable the
     is_outdated_equivalent flag (get_state_meta looks up by state name)."""
     schema = PRESET_SCHEMAS["testcase_default"]
-    assert schema["state_meta"] == {"deprecated": {"is_outdated_equivalent": True}}
+    # KI-Vorschlag-als-Zustand spec §4.1: the injected "rejected" terminal
+    # carries the same flag — see test_testcase_default_preset_states_match_the_enum.
+    assert schema["state_meta"] == {
+        "deprecated": {"is_outdated_equivalent": True},
+        "rejected": {"is_outdated_equivalent": True},
+    }
 
 
 @pytest.mark.parametrize(

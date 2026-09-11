@@ -193,12 +193,71 @@ class ApiKeyViewSet(ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        principal_type = request.data.get("principal_type", "user")
+        if principal_type not in ("user", "agent"):
+            return Response(
+                build_error_response(
+                    code="VALIDATION_ERROR",
+                    message="Field 'principal_type' must be 'user' or 'agent'.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        scope = request.data.get("scope", "write")
+        if scope not in ("read", "write"):
+            return Response(
+                build_error_response(
+                    code="VALIDATION_ERROR",
+                    message="Field 'scope' must be 'read' or 'write'.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        raw_workspace_ids = request.data.get("workspace_ids", []) or []
+        if not isinstance(raw_workspace_ids, list):
+            return Response(
+                build_error_response(
+                    code="VALIDATION_ERROR",
+                    message="Field 'workspace_ids' must be a list of UUID strings.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         from uuid import UUID
+        try:
+            workspace_ids = [str(UUID(str(w))) for w in raw_workspace_ids]
+        except (ValueError, AttributeError, TypeError):
+            return Response(
+                build_error_response(
+                    code="VALIDATION_ERROR",
+                    message="Field 'workspace_ids' must be a list of UUID strings.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        raw_expires_at = request.data.get("expires_at")
+        expires_at = None
+        if raw_expires_at:
+            from django.utils.dateparse import parse_datetime
+
+            expires_at = parse_datetime(str(raw_expires_at))
+            if expires_at is None:
+                return Response(
+                    build_error_response(
+                        code="VALIDATION_ERROR",
+                        message="Field 'expires_at' must be an ISO-8601 datetime.",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        agent_label = str(request.data.get("agent_label", "") or "")[:255]
+
         try:
             result = self._authn.create_api_key(
                 user_id=UUID(user_id),
                 tenant_id=UUID(tenant_id),
                 name=name.strip(),
+                principal_type=principal_type,
+                agent_label=agent_label,
+                scope=scope,
+                workspace_ids=workspace_ids,
+                expires_at=expires_at,
             )
         except ValueError as exc:
             return Response(
@@ -212,6 +271,9 @@ class ApiKeyViewSet(ViewSet):
                 "name": result.name,
                 "plaintext": result.plaintext,
                 "warning": "Save this key now — it will not be shown again.",
+                "principal_type": principal_type,
+                "agent_label": agent_label,
+                "scope": scope,
             },
             status=status.HTTP_201_CREATED,
         )

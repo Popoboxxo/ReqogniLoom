@@ -39,7 +39,22 @@ const PENDING_STATE_OVERRIDES: Partial<Record<WorkflowArtifactType, string>> = {
   "main-goal": "Entwurf",
 };
 
-function pendingStateFor(type: WorkflowArtifactType): string {
+/** Which queue the review list shows. */
+export type ReviewQueueMode = "review" | "proposals";
+
+/**
+ * Workflow state the queue lists for a given artifact type and mode.
+ *
+ * In "proposals" mode the state is the same literal for every type — the
+ * proposal state is injected into every non-minimal graph under one name
+ * (backend/workflow/definition_store.py PROPOSED_STATE), so no per-type
+ * override table is needed here.
+ */
+export function pendingStateFor(
+  type: WorkflowArtifactType,
+  mode: ReviewQueueMode = "review",
+): string {
+  if (mode === "proposals") return "proposed";
   return PENDING_STATE_OVERRIDES[type] ?? REVIEW_STATE;
 }
 
@@ -49,8 +64,11 @@ const DEFAULT_ARTIFACT_TYPE: WorkflowArtifactType = "requirement";
 
 export const reviewKeys = {
   all: ["reviews"] as const,
-  list: (type: WorkflowArtifactType, workspaceId: string) =>
-    ["reviews", type, "list", workspaceId] as const,
+  list: (
+    type: WorkflowArtifactType,
+    workspaceId: string,
+    mode: ReviewQueueMode = "review",
+  ) => ["reviews", type, "list", workspaceId, mode] as const,
   transitions: (type: WorkflowArtifactType, id: string) =>
     ["reviews", type, "transitions", id] as const,
   history: (type: WorkflowArtifactType, id: string) =>
@@ -71,6 +89,12 @@ export interface UseReviewsDataParams {
    * "requirement" so the historical Requirement-only behavior is preserved.
    */
   artifactType?: WorkflowArtifactType;
+  /**
+   * Spec §4.4: which queue to show — the historical `in_review` queue, or
+   * the AI-proposals queue (items in the "proposed" state). Defaults to
+   * "review" so existing callers keep their historical behavior.
+   */
+  queueMode?: ReviewQueueMode;
 }
 
 export interface TransitionArgs {
@@ -106,6 +130,7 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     selectedId,
     includeHistory = false,
     artifactType = DEFAULT_ARTIFACT_TYPE,
+    queueMode = "review",
   } = params;
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
@@ -117,8 +142,9 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
   );
 
   const listQuery = useQuery({
-    queryKey: reviewKeys.list(artifactType, workspaceId ?? ""),
-    queryFn: () => resolver.list(workspaceId as string, pendingStateFor(artifactType)),
+    queryKey: reviewKeys.list(artifactType, workspaceId ?? "", queueMode),
+    queryFn: () =>
+      resolver.list(workspaceId as string, pendingStateFor(artifactType, queueMode)),
     enabled: !!workspaceId,
   });
 
@@ -139,7 +165,7 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
   const refreshList = async (): Promise<void> => {
     if (!workspaceId) return;
     await queryClient.invalidateQueries({
-      queryKey: reviewKeys.list(artifactType, workspaceId),
+      queryKey: reviewKeys.list(artifactType, workspaceId, queueMode),
     });
   };
 

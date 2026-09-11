@@ -368,6 +368,18 @@ class ArtifactService(ServiceBase):
         if artifact is None:
             raise NotFoundError(f"Artifact {artifact_id} not found")
 
+        # Rule 0 (security review M1): a hard delete bypasses the
+        # TransitionValidator exactly like outdate() does, so an AI agent
+        # could erase its own proposal here instead of leaving it for a human
+        # — worse than discarding it, because nothing is left behind. Guarded
+        # against the *backing artifact's* own state: delete_artifact is the
+        # generic path, so the concrete item_type is whatever the row says.
+        from workflow.services import assert_agent_may_not_delete_proposed_artifact
+
+        assert_agent_may_not_delete_proposed_artifact(
+            ctx, artifact_id, artifact.artifact_type, artifact.workspace_id
+        )
+
         # IF-AS-INT-001: cascade delete trace links first
         self._trace_link_service.cascade_delete_trace_links(artifact_id, ctx)
 

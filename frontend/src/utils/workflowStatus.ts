@@ -37,6 +37,9 @@
  * never meet in one list. Unknown states sort last, in alphabetical order.
  */
 const STATUS_ORDER: readonly string[] = [
+  // AI proposal — precedes every human lifecycle state because an unconfirmed
+  // proposal is upstream of "draft" (KI-Vorschlag-als-Zustand spec §4.1).
+  'proposed',
   // Pre-work / intake
   'draft',
   'entwurf',

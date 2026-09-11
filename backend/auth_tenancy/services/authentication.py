@@ -521,6 +521,12 @@ class AuthenticationService:
         if api_key.revoked_at is not None:
             raise AuthenticationFailed("api_key_revoked")
 
+        if api_key.is_expired:
+            # E2.1: a key with a hard expiry stops authenticating the moment it
+            # passes, exactly like a revoked one. Distinct error code so the
+            # caller can tell "rotate me" from "you were cut off".
+            raise AuthenticationFailed("api_key_expired")
+
         if api_key.user.tenant_id is None:
             # Key valid but user has no tenant -> resolution will fail downstream.
             raise AuthenticationFailed("invalid_api_key")
@@ -542,12 +548,27 @@ class AuthenticationService:
             roles=(),  # roles are resolved by AuthorizationService from UserRole.
             auth_method=AuthMethod.API_KEY,
             api_key_id=api_key.id,
+            actor_type=api_key.principal_type,
+            agent_label=api_key.agent_label,
+            scope=api_key.scope,
+            api_key_workspace_ids=tuple(
+                str(w) for w in (api_key.workspace_ids or [])
+            ),
         )
 
     # -- Lifecycle (REQ-L3-AT001-003) -------------------------------------
 
     def create_api_key(
-        self, *, user_id: UUID, tenant_id: UUID, name: str
+        self,
+        *,
+        user_id: UUID,
+        tenant_id: UUID,
+        name: str,
+        principal_type: str = "user",
+        agent_label: str = "",
+        scope: str = "write",
+        workspace_ids: list[str] | None = None,
+        expires_at: "datetime | None" = None,
     ) -> ApiKeyCreationResult:
         """Create an API key and return its plaintext exactly once.
 
@@ -606,6 +627,11 @@ class AuthenticationService:
                 tenant_id=tenant_id,
                 name=name,
                 key_hash=hash_api_key(plaintext),
+                principal_type=principal_type,
+                agent_label=agent_label,
+                scope=scope,
+                workspace_ids=list(workspace_ids or []),
+                expires_at=expires_at,
             )
         return ApiKeyCreationResult(
             api_key_id=api_key.id, name=name, plaintext=plaintext
@@ -621,6 +647,12 @@ class AuthenticationService:
                 "created_at": k.created_at.isoformat() if k.created_at else None,
                 "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
                 "revoked": k.revoked_at is not None,
+                "principal_type": k.principal_type,
+                "agent_label": k.agent_label,
+                "scope": k.scope,
+                "workspace_ids": list(k.workspace_ids or []),
+                "expires_at": k.expires_at.isoformat() if k.expires_at else None,
+                "expired": k.is_expired,
             }
             for k in keys
         ]

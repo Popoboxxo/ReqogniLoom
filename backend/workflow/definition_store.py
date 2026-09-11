@@ -594,6 +594,123 @@ def _testcase_transitions() -> list[dict[str, Any]]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# "proposed" — the AI-proposal state (KI-Vorschlag-als-Zustand spec §4.1)
+# ---------------------------------------------------------------------------
+
+#: The state an artifact created by an ``actor_type="agent"`` principal lands
+#: in, when the resolved graph knows it. One literal, never localized: the
+#: initialization check (workflow.services.initial_state_for) and the
+#: agent-confirmation guard (TransitionValidator rule 0) both key on it.
+PROPOSED_STATE = "proposed"
+
+#: Roles allowed to confirm or discard a proposal. Deliberately the normal
+#: editing roles — a proposal is a review chore, not an approval decision.
+PROPOSED_ROLES: tuple[str, ...] = ("editor", "approver", "admin")
+
+#: Preset keys that must NOT gain "proposed" (spec §4.1: minimal keeps its
+#: graph). Only "minimal" — see Decision 3 in the plan: the 12 fixed-preset
+#: entity types have no per-tier graph variant to exempt.
+#: Preset schemas the proposal state must NOT be injected into.
+#:
+#: * ``minimal`` — the minimal rigor preset has no review step by design.
+#: * ``interview_default`` — security review M3. An InterviewSession is
+#:   *process* state (in_progress -> completed/abandoned), not a reviewable
+#:   artifact: it mirrors ``InterviewSession.STATUS_CHOICES`` one-for-one and
+#:   is driven by the chat flow, not by a human sign-off. Injecting the
+#:   proposal state froze the single most important MCP path — an
+#:   agent-started interview is seeded into ``proposed`` by
+#:   ``workflow.services.initial_state_for``, whose only exits are
+#:   ``in_progress`` and ``rejected``, and Rule 0 forbids the agent from
+#:   taking either. The session could never reach ``completed``, and no
+#:   review surface exists to let a human unblock it. Neither ``proposed``
+#:   nor the injected ``rejected`` is a valid InterviewSession status either.
+SCHEMAS_WITHOUT_PROPOSED: frozenset[str] = frozenset({"minimal", "interview_default"})
+
+#: Per-schema override for the discard target. Every schema not listed gets a
+#: new "rejected" state. These four already own a terminal dead-end whose name
+#: a lowercase "rejected" would shadow ("Rejected" vs "rejected" on the same
+#: Adr.status column) or duplicate.
+_PROPOSED_REJECT_STATE: dict[str, str] = {
+    "adr_default": "Rejected",
+    "ccb_approval": "rejected",
+    "goal_default": "Archiviert",
+    "main_goal_default": "Archiviert",
+}
+
+_DEFAULT_REJECT_STATE = "rejected"
+
+
+def inject_proposed_state(
+    schema: dict[str, Any], reject_state: str = _DEFAULT_REJECT_STATE
+) -> dict[str, Any]:
+    """Return a copy of *schema* extended with the "proposed" state.
+
+    Adds the state at index **1** — never index 0. ``states[0]`` is the
+    definition's ``initial_state`` (:pyattr:`WorkflowDefinitionDTO.initial_state`)
+    and must keep matching the entity's ``status`` column default, because
+    ``StateLifecycleManager._sync_status_mirror`` writes ``current_state``
+    verbatim into that column.
+
+    Two outgoing transitions are added:
+
+    * confirm: ``proposed -> states[0]`` (no change_reason)
+    * discard: ``proposed -> reject_state`` (change_reason required)
+
+    A *reject_state* that is not already a member gets appended and flagged
+    ``is_outdated_equivalent`` — the existing "treat as terminal / hide from
+    active lists" signal, so no downstream consumer needs to learn a new state.
+
+    Idempotent: re-injecting an already-injected schema is a no-op. The input
+    is never mutated.
+
+    Args:
+        schema: A ``{"states": [...], "transitions": [...], "state_meta": {...}}``
+            preset schema.
+        reject_state: The discard target state name.
+
+    Returns:
+        A deep copy carrying the proposal state, transitions and metadata.
+    """
+    result = copy.deepcopy(schema)
+    states: list[str] = list(result.get("states") or [])
+    if not states:
+        return result
+    initial_state = states[0]
+
+    if PROPOSED_STATE not in states:
+        states.insert(1, PROPOSED_STATE)
+    if reject_state not in states:
+        states.append(reject_state)
+        state_meta = result.get("state_meta", {})
+        state_meta[reject_state] = {
+            **state_meta.get(reject_state, {}),
+            "is_outdated_equivalent": True,
+        }
+        result["state_meta"] = state_meta
+    result["states"] = states
+
+    transitions: list[dict[str, Any]] = list(result.get("transitions") or [])
+    existing = {(t["from_state"], t["to_state"]) for t in transitions}
+    for to_state, needs_reason in (
+        (initial_state, False),
+        (reject_state, True),
+    ):
+        if (PROPOSED_STATE, to_state) in existing:
+            continue
+        transitions.append(
+            {
+                "from_state": PROPOSED_STATE,
+                "to_state": to_state,
+                "allowed_roles": list(PROPOSED_ROLES),
+                "requires_change_reason": needs_reason,
+                "signature_gate": False,
+            }
+        )
+    result["transitions"] = transitions
+    return result
+
+
 PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "minimal": {
         "states": ["draft", "done"],
@@ -813,6 +930,20 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         "state_meta": {"Archiviert": {"is_outdated_equivalent": True}},
     },
 }
+
+# Spec §4.1: every default graph except "minimal" gains the proposal state.
+# Applied here rather than inline in each literal so the 16 schemas cannot
+# drift apart and so `SCHEMAS_WITHOUT_PROPOSED` stays the single exemption
+# list. Runs once at import; PRESET_SCHEMAS is rebound in place so existing
+# `from .definition_store import PRESET_SCHEMAS` importers see the result.
+for _preset_key in list(PRESET_SCHEMAS):
+    if _preset_key in SCHEMAS_WITHOUT_PROPOSED:
+        continue
+    PRESET_SCHEMAS[_preset_key] = inject_proposed_state(
+        PRESET_SCHEMAS[_preset_key],
+        reject_state=_PROPOSED_REJECT_STATE.get(_preset_key, _DEFAULT_REJECT_STATE),
+    )
+del _preset_key
 
 
 def get_state_meta(workflow_json: dict, state_name: str) -> dict:
@@ -1531,4 +1662,8 @@ __all__ = [
     "NoGlobalSourceError",
     "PRESET_SCHEMAS",
     "get_state_meta",
+    "PROPOSED_STATE",
+    "PROPOSED_ROLES",
+    "SCHEMAS_WITHOUT_PROPOSED",
+    "inject_proposed_state",
 ]

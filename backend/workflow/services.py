@@ -41,6 +41,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
@@ -77,6 +78,7 @@ from .state_reader import (
     outdated_ids,
 )
 from .transition_validator import (
+    EC_AGENT_SELF_CONFIRM,
     EC_CHANGE_REASON_REQUIRED,
     EC_ROLE_NOT_ALLOWED,
     EC_SIGNATURE_INVALID,
@@ -85,6 +87,8 @@ from .transition_validator import (
     TransitionValidator,
     ValidationRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +267,7 @@ def transition(
         user_id=ctx.user_id,
         user_roles=ctx.active_roles,
         tenant_id=ctx.tenant_id,
+        actor_type=ctx.actor_type,
         change_reason=change_reason,
         credential=credential,
     )
@@ -344,6 +349,92 @@ def _set_lifecycle_status(item_id: UUID, item_type: str, value: str) -> None:
     Artifact.objects.filter(pk=artifact_id).update(lifecycle_status=value)
 
 
+def assert_agent_may_not_remove_proposal(
+    ctx: AuthContext, current_state: str | None
+) -> None:
+    """Rule 0: an AI agent may not make its own proposal disappear.
+
+    Every path that *removes* an item — the ``outdate`` soft-delete escape
+    hatch and the two hard deletes (:meth:`ArtifactService.delete_artifact`,
+    :meth:`TraceLinkService.delete_trace_link`) — bypasses the
+    :class:`~workflow.transition_validator.TransitionValidator`, and therefore
+    bypasses the Rule-0 check that lives inside it. Deleting a proposal is
+    materially the same act as discarding it: the human review vanishes either
+    way, and hard-deleting is strictly worse because it leaves no trace.
+
+    Args:
+        ctx: The caller's identity. Only ``actor_type == "agent"`` is gated.
+        current_state: The item's current workflow state, or ``None`` when it
+            has none (nothing to protect).
+
+    Raises:
+        WorkflowTransitionError: The caller is an agent and the item sits in
+            :data:`~workflow.definition_store.PROPOSED_STATE`.
+    """
+    from .definition_store import PROPOSED_STATE
+
+    if getattr(ctx, "actor_type", "user") != "agent":
+        return
+    if current_state != PROPOSED_STATE:
+        return
+    raise WorkflowTransitionError(
+        EC_AGENT_SELF_CONFIRM,
+        "An AI agent may not discard a proposal. A human principal must "
+        "confirm or reject it.",
+    )
+
+
+def _item_id_for_artifact(artifact_id: UUID, item_type: str) -> UUID | None:
+    """Inverse of :func:`_artifact_id_for`: specialised row id for an Artifact.
+
+    ``WorkflowItemState.item_id`` is the *specialised* entity's primary key
+    (Requirement.id, Risk.id, ...), never the backing Artifact's, so a caller
+    holding only an artifact id has to walk the FK backwards before it can ask
+    for a workflow state.
+    """
+    try:
+        model = model_for(item_type)
+    except KeyError:
+        return None
+    return (
+        model.objects.filter(artifact_id=artifact_id).values_list("pk", flat=True).first()
+    )
+
+
+def assert_agent_may_not_delete_proposed_artifact(
+    ctx: AuthContext,
+    artifact_id: UUID | str,
+    item_type: str,
+    workspace_id: UUID | str,
+) -> None:
+    """Apply Rule 0 to the hard delete of an :class:`Artifact`-backed item.
+
+    Resolves the artifact's specialised row, looks up its workflow state and
+    delegates to :func:`assert_agent_may_not_remove_proposal`. An item with no
+    resolvable state (unbacked type, or never registered with the engine) is
+    not a proposal and passes through — the guard must not turn into a blanket
+    deny for ordinary deletes.
+    """
+    if getattr(ctx, "actor_type", "user") != "agent":
+        return  # cheap exit: the guard only ever fires for agents
+    try:
+        item_id = _item_id_for_artifact(UUID(str(artifact_id)), item_type)
+        if item_id is None:
+            return
+        state = _get_lifecycle().get_item_state(
+            item_id, item_type, UUID(str(workspace_id))
+        )
+    except Exception:  # noqa: BLE001 — see docstring: never deny on lookup failure
+        logger.debug(
+            "Rule-0 delete guard: no resolvable workflow state for %s artifact %s",
+            item_type,
+            artifact_id,
+        )
+        return
+    if state is not None:
+        assert_agent_may_not_remove_proposal(ctx, state.current_state)
+
+
 def outdate(
     item_id: UUID | str,
     item_type: str,
@@ -420,12 +511,23 @@ def outdate(
     Raises:
         WorkflowItemNotFoundError: no state exists and ``allow_lazy_init`` is
             ``False``.
+        WorkflowTransitionError: ``ctx.actor_type == "agent"`` and the item's
+            current workflow state is ``PROPOSED_STATE`` — an agent may not
+            discard its own proposal via the soft-delete escape hatch.
     """
     item_id_uuid = UUID(str(item_id))
     workspace_uuid = UUID(str(workspace_id))
 
     lifecycle = _get_lifecycle()
     state = lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid)
+
+    # Spec §4.3: outdate() deliberately bypasses the TransitionValidator
+    # (it is the system-level escape hatch), so Rule 0 never fires here — an
+    # agent could otherwise soft-delete its own proposal and make the human
+    # review disappear. Guard it explicitly.
+    if state is not None:
+        assert_agent_may_not_remove_proposal(ctx, state.current_state)
+
     if state is None:
         if not allow_lazy_init:
             raise WorkflowItemNotFoundError(
@@ -506,6 +608,47 @@ def reactivate(
     )
 
 
+def initial_state_for(
+    ctx: AuthContext, item_type: str, workspace_id: UUID | str
+) -> str:
+    """Return the workflow state a newly created item must start in (spec §4.2).
+
+    An artifact created by an ``actor_type="agent"`` principal starts in
+    ``"proposed"`` — but only when the workspace's resolved graph for this item
+    type actually knows that state. A ``minimal``-preset workspace, or one whose
+    admin removed the state from its customized definition, keeps the normal
+    initial state; graph membership is the ONLY switch (no preset lookup here).
+
+    This is the single seam the spec's risk section demands: every ``create_X()``
+    service reaches the workflow engine through
+    :func:`initialize_workflow_states`, which calls this. There is no per-service
+    copy to forget.
+
+    Never raises: the ``create_X()`` callers swallow workflow-init exceptions, so
+    a raise here would silently produce artifacts with no workflow state at all.
+    An unresolvable definition degrades to ``"draft"``, which is what the caller
+    would have got before this feature existed.
+
+    Args:
+        ctx: The resolved request identity.
+        item_type: Entity type (e.g. "Requirement").
+        workspace_id: Workspace the item belongs to.
+
+    Returns:
+        The state name to seed ``WorkflowItemState.current_state`` with.
+    """
+    from .definition_store import PROPOSED_STATE
+
+    try:
+        dto = _get_store().get_definition(UUID(str(workspace_id)), item_type)
+    except Exception:  # noqa: BLE001 — see the docstring: never raise
+        return "draft"
+
+    if ctx.actor_type == "agent" and PROPOSED_STATE in dto.states:
+        return PROPOSED_STATE
+    return dto.initial_state
+
+
 def initialize_workflow_states(
     item_ids: list[UUID | str],
     item_type: str,
@@ -531,10 +674,13 @@ def initialize_workflow_states(
     """
     uuid_ids = [UUID(str(i)) for i in item_ids]
     workspace_uuid = UUID(str(workspace_id))
+    resolved_initial = initial_state_for(ctx, item_type, workspace_uuid)
     return _get_lifecycle().initialize_workflow_states(
         item_ids=uuid_ids,
         item_type=item_type,
         workspace_id=workspace_uuid,
+        initial_state=resolved_initial,
+        proposed_by=ctx.agent_label or str(ctx.user_id),
     )
 
 
@@ -1167,8 +1313,11 @@ def check_downgrade_compatibility(
 __all__ = [
     "transition",
     "outdate",
+    "assert_agent_may_not_remove_proposal",
+    "assert_agent_may_not_delete_proposed_artifact",
     "reactivate",
     "initialize_workflow_states",
+    "initial_state_for",
     "get_definition",
     "get_workflow_json",
     "get_available_transitions",

@@ -1042,6 +1042,26 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     # Written only by TraceLinkService.propagate_suspect_status.
     suspect_flagged_at = serializers.DateTimeField(read_only=True, allow_null=True)
     suspect_source_change = serializers.UUIDField(read_only=True, allow_null=True)
+    # KI-Vorschlag-als-Zustand spec §5: agent-proposed links carry these
+    # instead of a workflow state (a TraceLink has no WorkflowItemState).
+    proposed_by = serializers.UUIDField(
+        source="proposed_by_id", read_only=True, allow_null=True
+    )
+    proposed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    proposed_by_label = serializers.SerializerMethodField()
+
+    def get_proposed_by_label(self, obj) -> str:
+        """Return the proposing agent's display label, empty for human links.
+
+        Handles both shapes this serializer is fed: the dicts built by
+        ``rest_api.views._tracelink_to_dict`` (every REST endpoint — they
+        precompute the label so this does not trigger a query per row) and a
+        raw ``TraceLink`` instance.
+        """
+        if isinstance(obj, dict):
+            return obj.get("proposed_by_label") or ""
+        key = getattr(obj, "proposed_by", None)
+        return getattr(key, "agent_label", "") or ""
     # REQ-002: human-readable labels for trace endpoints
     source_title = serializers.CharField(
         read_only=True,

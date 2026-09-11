@@ -1697,6 +1697,15 @@
       "clipboardError": "Could not access clipboard",
       "propagated_one": "Change propagated to {{count}} workspace currently on default.",
       "propagated_other": "Change propagated to {{count}} workspaces currently on default."
+    },
+    "proposal": {
+      "hint": "Proposed by {{agent}}",
+      "hintUnknown": "AI proposal",
+      "bulkConfirm": "Confirm selected",
+      "bulkConfirmDone": "{{count}} proposals confirmed",
+      "bulkConfirmFailed": "{{count}} proposals could not be confirmed",
+      "queueMode": "AI proposals only",
+      "selectAll": "Select all"
     }
   },
   "artifactId": {

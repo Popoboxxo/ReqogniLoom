@@ -24,7 +24,10 @@ from .authorization import (
     AuthorizationService,
     Operation,
     PresetPolicyValidator,
+    READ_ONLY_SCOPE,
     WorkspaceMember,
+    operation_for_method,
+    scope_denial_reason,
 )
 from .item_permission import ItemPermissionService, NO_RULE_REASON, PermissionDecision
 from .password_authentication import PasswordAuthenticationService
@@ -49,6 +52,9 @@ __all__ = [
     "WorkspaceMember",
     "Operation",
     "PresetPolicyValidator",
+    "READ_ONLY_SCOPE",
+    "operation_for_method",
+    "scope_denial_reason",
     "TenantContextService",
     "ItemPermissionService",
     "PermissionDecision",

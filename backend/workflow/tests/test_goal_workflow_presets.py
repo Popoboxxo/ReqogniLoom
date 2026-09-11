@@ -28,15 +28,17 @@ from workflow.services import _ENTITY_DEFAULT_PRESET
 
 
 def test_goal_default_preset_has_three_states():
+    # KI-Vorschlag-als-Zustand spec §4.1: gains "proposed" (Decision 5 reuses
+    # "Archiviert" as the reject target, so no separate "rejected" state).
     preset = PRESET_SCHEMAS["goal_default"]
     state_names = set(preset["states"])
-    assert state_names == {"Entwurf", "Freigegeben", "Archiviert"}
+    assert state_names == {"Entwurf", "Freigegeben", "Archiviert", "proposed"}
 
 
 def test_main_goal_default_preset_has_three_states():
     preset = PRESET_SCHEMAS["main_goal_default"]
     state_names = set(preset["states"])
-    assert state_names == {"Entwurf", "Freigegeben", "Archiviert"}
+    assert state_names == {"Entwurf", "Freigegeben", "Archiviert", "proposed"}
 
 
 def test_goal_and_main_goal_registered_in_entity_default_preset():

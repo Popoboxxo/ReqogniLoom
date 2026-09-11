@@ -1477,7 +1477,7 @@ class AiDerivationService(ServiceBase):
             The final workflow state name reached (``"draft"`` if no
             transition could be taken at all).
         """
-        from workflow.definition_store import get_state_meta
+        from workflow.definition_store import PROPOSED_STATE, get_state_meta
         from workflow.models import WorkflowEngineDefinition
         from workflow.services import (
             get_available_transitions,
@@ -1502,6 +1502,13 @@ class AiDerivationService(ServiceBase):
                     item_id=item_id, item_type=item_type, workspace_id=workspace_id
                 )
                 current_state = available.current_state or current_state
+
+                if current_state == PROPOSED_STATE:
+                    # Spec §4.3: a proposal is a human decision. Auto-approval
+                    # must stop here rather than call transition() and take a
+                    # WorkflowTransitionError for a state it should never have
+                    # entered.
+                    break
 
                 definition = WorkflowEngineDefinition.objects.filter(
                     workspace_id=workspace_id, item_type=item_type

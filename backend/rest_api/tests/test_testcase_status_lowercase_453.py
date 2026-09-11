@@ -155,7 +155,16 @@ def test_available_transitions_are_lowercase(auth_context, workspace) -> None:
     payload = response.data
     assert payload["current_state"] == "draft"
     # The advertised state machine — what a UI builds its status dropdown from.
-    assert payload["states"] == ["draft", "ready", "approved", "deprecated"]
+    # KI-Vorschlag-als-Zustand Task 8 injects "proposed"/"rejected" into every
+    # non-minimal preset's state list.
+    assert payload["states"] == [
+        "draft",
+        "proposed",
+        "ready",
+        "approved",
+        "deprecated",
+        "rejected",
+    ]
     targets = {t["target_state"] for t in payload["allowed_transitions"]}
     assert targets == {"ready"}
 

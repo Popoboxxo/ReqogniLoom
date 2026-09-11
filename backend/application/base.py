@@ -182,14 +182,30 @@ class ServiceBase:
         try:
             from audit.services import log_write
 
+            # Spec §3: the actor type is decided at the auth layer (an ApiKey
+            # with principal_type="agent"), not reconstructed here. Previously
+            # hardcoded to "user", which made every agent write look human.
+            #
+            # Defensive fallback: countless existing unit tests construct
+            # `ctx` as a bare MagicMock() without setting .actor_type, which
+            # was harmless while this method never read it. A Mock's
+            # auto-generated attribute is not "user"/"agent", and AuditEntry
+            # enforces that choice via full_clean() — normalize here rather
+            # than let an audit-log field the caller never meant to control
+            # fail an otherwise-valid business operation.
+            actor_type = ctx.actor_type if ctx.actor_type in ("user", "agent") else "user"
+            audit_details = details
+            if actor_type == "agent" and ctx.agent_label:
+                audit_details = {**(details or {}), "client_name": ctx.agent_label}
+
             log_write(
                 actor=str(ctx.user_id),
-                actor_type="user",
+                actor_type=actor_type,
                 operation=operation,
                 entity_type=entity_type,
                 entity_id=entity_id,
                 change_reason=change_reason,
-                details=details,
+                details=audit_details,
             )
         except Exception:
             logger.exception(

@@ -43,7 +43,11 @@ from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.models import ROLE_ADMIN
 from auth_tenancy.services.authentication import AuthenticationService
-from auth_tenancy.services.authorization import AuthorizationService, Operation
+from auth_tenancy.services.authorization import (
+    AuthorizationService,
+    Operation,
+    scope_denial_reason,
+)
 
 from mcp_server.protocol_handler import ToolResult
 
@@ -658,9 +662,10 @@ class ToolRegistry:
                 set_request_tenant(auth_ctx.tenant_id)
 
             roles = self._resolve_list_roles(auth_ctx, workspace_id)
-            can_write = self._authz_service.decide_access(
-                roles, Operation.WRITE
-            ).allow
+            can_write = (
+                auth_ctx.scope != "read"
+                and self._authz_service.decide_access(roles, Operation.WRITE).allow
+            )
 
             # Deduplicate by group object identity (REQ-129): several prefixes
             # intentionally share a single instance (e.g. "audit"/"events" →
@@ -776,7 +781,29 @@ class ToolRegistry:
                 tool_name, params, auth_ctx, role_workspace_id  # type: ignore[arg-type]
             )
 
+            # --- Step 3a: API-key workspace fence (security review B3) ---
+            # Runs before every other gate, including the RBAC exemptions: a
+            # key fenced to workspace A must not reach workspace B through any
+            # path. REST gets this for free because it builds its AuthContext
+            # via ``TenantContextService.build_auth_context``; MCP constructs
+            # the context itself (see ``_validate_api_key``/``_resolve_roles``)
+            # and therefore never inherited the fence.
+            fence_error = self._check_workspace_fence(gate_ctx, scope_workspace_id)
+            if fence_error:
+                return ToolResult.error("PERMISSION_DENIED", fence_error)
+
             if self._is_write_tool(tool_name):
+                # Security review B2: the key-scope gate is evaluated BEFORE
+                # the two RBAC exemptions, not inside ``_check_rbac`` which
+                # they skip. Scope and RBAC-exemption are orthogonal: being
+                # exempt from the *role* matrix (bootstrap, tenant-admin) must
+                # never exempt a caller from the coarse scope their key was
+                # issued with, or a read-scoped bootstrap/tenant-admin key
+                # could write freely.
+                scope_error = scope_denial_reason(gate_ctx.scope, Operation.WRITE)
+                if scope_error:
+                    return ToolResult.error("PERMISSION_DENIED", scope_error)
+
                 if not self._is_bootstrap_candidate(
                     tool_name, params, auth_ctx  # type: ignore[arg-type]
                 ) and not self._is_tenant_admin_exempt(
@@ -874,6 +901,10 @@ class ToolRegistry:
             active_roles=(),  # resolved in step 2
             auth_method=AuthMethod.API_KEY,
             api_key_id=claims.api_key_id,
+            actor_type=claims.actor_type,
+            agent_label=claims.agent_label,
+            scope=claims.scope,
+            api_key_workspace_ids=claims.api_key_workspace_ids,
         )
         return ctx, None
 
@@ -899,6 +930,10 @@ class ToolRegistry:
                     active_roles=roles,
                     auth_method=ctx.auth_method,
                     api_key_id=ctx.api_key_id,
+                    actor_type=ctx.actor_type,
+                    agent_label=ctx.agent_label,
+                    scope=ctx.scope,
+                    api_key_workspace_ids=ctx.api_key_workspace_ids,
                 )
             return ctx
 
@@ -917,6 +952,10 @@ class ToolRegistry:
             active_roles=roles,
             auth_method=ctx.auth_method,
             api_key_id=ctx.api_key_id,
+            actor_type=ctx.actor_type,
+            agent_label=ctx.agent_label,
+            scope=ctx.scope,
+            api_key_workspace_ids=ctx.api_key_workspace_ids,
         )
 
     def _resolve_global_roles(self, ctx: AuthContext) -> Tuple[str, ...]:
@@ -948,6 +987,13 @@ class ToolRegistry:
         that may write anywhere still sees the write tools while a pure Viewer
         does not (REQ-108).
         """
+        # Security review B3: a workspace-fenced key gets no roles outside its
+        # fence, so ``tools/list`` advertises it the read-only tool set rather
+        # than write tools it would be denied at dispatch. Same rule and same
+        # fail-closed workspace-less branch as ``_check_workspace_fence``.
+        if self._check_workspace_fence(ctx, workspace_id):
+            return ()
+
         if workspace_id:
             return self._resolve_roles(ctx, workspace_id).active_roles
 
@@ -1052,11 +1098,54 @@ class ToolRegistry:
             return ctx, None
         return self._resolve_roles(ctx, target_workspace_id), target_workspace_id
 
+    @staticmethod
+    def _check_workspace_fence(
+        ctx: AuthContext, target_workspace_id: Optional[str]
+    ) -> Optional[str]:
+        """Return why the key may not act on *target_workspace_id*, else None.
+
+        ``ApiKey.workspace_ids`` fences a key to an explicit set of workspaces.
+        An empty tuple means "no fence" (the common, unrestricted key) and is
+        always allowed.
+
+        A fenced key with **no** resolvable target workspace is denied too.
+        That mirrors ``TenantContextService.build_auth_context``, which blanks
+        the roles of a fenced key on the workspace-less path for the same
+        reason: without a target there is nothing to check the fence against,
+        and the tenant-wide fallback would hand the key exactly the workspaces
+        it was fenced out of. Fail closed.
+
+        Args:
+            ctx: The caller's resolved context.
+            target_workspace_id: Workspace the call addresses, or None when the
+                tool names no workspace and none could be derived from it.
+
+        Returns:
+            A denial reason, or ``None`` when the call is within the fence.
+        """
+        allowed = ctx.api_key_workspace_ids
+        if not allowed:
+            return None
+        if target_workspace_id is not None and str(target_workspace_id) in allowed:
+            return None
+        return (
+            "This API key is restricted to specific workspaces and may not be "
+            "used for this call. Target the workspace the key was issued for, "
+            "or use a key without a workspace restriction."
+        )
+
     def _check_rbac(self, ctx: AuthContext) -> Optional[str]:
         """Return error message if write is not permitted, else None.
 
         REQ-L2-MC-007: Viewer-only role must not write.
         """
+        # E2.1: read-only key. Independent of and above the RBAC matrix, same
+        # rule as rest_api.auth_enforcer.RbacPermission. Kept here as well as
+        # at the caller (which checks it before the RBAC exemptions, see B2)
+        # so this method stays safe to call on its own.
+        scope_error = scope_denial_reason(ctx.scope, Operation.WRITE)
+        if scope_error:
+            return scope_error
 
         decision = self._authz_service.decide_access(ctx.active_roles, Operation.WRITE)
         if not decision.allow:

@@ -2706,6 +2706,48 @@ class TraceLinkViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["post"], url_path="confirm")
+    def confirm(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/trace-links/{id}/confirm/
+
+        Accept an agent-proposed link: clears ``proposed_by``/``proposed_at``
+        so it becomes an ordinary, human-owned edge (spec §5). Idempotent.
+
+        Security review M2: ``TraceLinkService.confirm_proposed_link`` existed
+        with no caller at all — the proposal could be created but never
+        accepted through any interface.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            link = self._svc().confirm_proposed_link(UUID(pk), ctx)
+        except (ValueError, TypeError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(
+            TraceLinkSerializer(_tracelink_to_dict(link)).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="discard")
+    def discard(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/trace-links/{id}/discard/
+
+        Reject an agent-proposed link by deleting it (spec §5). Only valid on
+        a link that is still a proposal; a confirmed link goes through
+        ``DELETE`` instead. Counterpart to :meth:`confirm`, same M2 finding.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().discard_proposed_link(UUID(pk), ctx)
+        except (ValueError, TypeError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=False, methods=["get"], url_path="similar")
     def similar(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/tracelinks/similar/?tracelink_id=<uuid>&limit=10
@@ -4197,9 +4239,16 @@ def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = Non
     *this* dict — a key missing here is a field the API never returns
     (``required=False`` makes DRF skip it silently). The suspect markers stay
     ``None`` until the propagation engine writes them.
+
+    Security review M2: ``proposed_by``/``proposed_at``/``proposed_by_label``
+    were declared on TraceLinkSerializer but never added here, so the API
+    returned no proposal information at all and a client could not tell an
+    agent-proposed link from a human one. Exactly the failure mode the
+    paragraph above warns about.
     """
     source_id = str(tl.source_id)
     target_id = str(tl.target_id)
+    proposing_key = getattr(tl, "proposed_by", None)
     d: dict[str, Any] = {
         "id": str(tl.id),
         "source_id": source_id,
@@ -4210,6 +4259,11 @@ def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = Non
         "rationale": getattr(tl, "rationale", "") or "",
         "suspect_flagged_at": getattr(tl, "suspect_flagged_at", None),
         "suspect_source_change": getattr(tl, "suspect_source_change", None),
+        # ``proposed_by`` is declared with source="proposed_by_id", so the
+        # serializer looks this exact key up in the dict.
+        "proposed_by_id": getattr(tl, "proposed_by_id", None),
+        "proposed_at": getattr(tl, "proposed_at", None),
+        "proposed_by_label": getattr(proposing_key, "agent_label", "") or "",
     }
     if titles is not None:
         src = titles.get(source_id, {})
