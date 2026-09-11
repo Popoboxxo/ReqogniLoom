@@ -249,11 +249,11 @@ def test_patch_glossary_with_wrong_field_name_is_rejected(patch_env):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-def test_patch_status_on_entity_without_status_field_points_at_transitions(patch_env):
-    """Glossary is workflow-backed but exposes no ``status``.
-
-    The error must still name the transitions endpoint rather than claim the
-    field does not exist — status *is* a concept here, it is just not writable.
+def test_patch_changed_status_on_glossary_points_at_transitions(patch_env):
+    """Glossary is workflow-backed and, since #831, exposes ``status`` like
+    every other artifact — so the shared #263 status guard applies in full: a
+    *differing* value is refused with a pointer at the transitions endpoint
+    (the state only moves through the WorkflowEngine).
     """
     client = _client(patch_env)
     created = client.post(
@@ -266,6 +266,7 @@ def test_patch_status_on_entity_without_status_field_points_at_transitions(patch
         format="json",
     )
     assert created.status_code == 201, created.content
+    assert created.json()["status"] == "active"
 
     resp = client.patch(
         f"/api/v1/glossary/{created.json()['id']}/",
@@ -276,6 +277,67 @@ def test_patch_status_on_entity_without_status_field_points_at_transitions(patch
     assert resp.status_code == 400, resp.content
     assert "status" in _field_errors(resp.json())
     assert "transitions" in resp.json()["error"]["message"]
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_patch_glossary_status_echo_is_accepted_and_ignored(patch_env):
+    """#263/#831: the UI resends the whole form; echoing the current glossary
+    ``status`` back must not discard the fields the user actually edited.
+
+    This exercises GlossaryTermViewSet._current_status — without it the guard
+    cannot tell an echo from a real change and would silently accept the latter.
+    """
+    client = _client(patch_env)
+    created = client.post(
+        "/api/v1/glossary/",
+        {
+            "workspace_id": str(patch_env["workspace"].id),
+            "term": "Echo-Term",
+            "definition": "original",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    term = created.json()
+
+    resp = client.patch(
+        f"/api/v1/glossary/{term['id']}/",
+        {"definition": "edited", "status": term["status"]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["definition"] == "edited"
+    assert resp.json()["status"] == term["status"]
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_retired_lifecycle_status_name_is_rejected_on_glossary(patch_env):
+    """#831: ``lifecycle_status`` is fully retired, not aliased — a client that
+    still sends it gets a 400 naming the unknown field (it is no longer a
+    declared, protected or accepted key anywhere)."""
+    client = _client(patch_env)
+    created = client.post(
+        "/api/v1/glossary/",
+        {
+            "workspace_id": str(patch_env["workspace"].id),
+            "term": "Retired-Term",
+            "definition": "d",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+
+    resp = client.patch(
+        f"/api/v1/glossary/{created.json()['id']}/",
+        {"lifecycle_status": "outdated"},
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert "lifecycle_status" in _field_errors(resp.json())
 
 
 # ---------------------------------------------------------------------------

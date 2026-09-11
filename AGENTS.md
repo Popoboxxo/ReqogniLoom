@@ -143,7 +143,7 @@ Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
 > Kurzfassung der harten Tool-Verbote aktiver MCP-Server. Vollständige Tool-Listen und
 > Hinweise: pro Provider in `.gemini/skills bzw. .opencode/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills` — jeweils `mcp-<server>/SKILL.md` (`use-lazy-rules.md`).
 
-- (keine aktiven MCP-Server mit gesperrten Tools)
+- **playwright:** `browser_run_code_unsafe`, `browser_evaluate`, `browser_file_upload`, `browser_handle_dialog` — absolut verboten.
 
 
 
@@ -526,30 +526,73 @@ Anti-Recursion: Worker dürfen nicht an `orchestrator` zurück delegieren.
 
 
 
-# External Tool: graphify
+# MCP: playwright
 
-> graphify — lokal installiertes CLI-Tool. Baut das Repo als Wissensgraph auf (Community Detection, God Nodes, Query/Path/Explain). Wird NICHT von agent-meta bereitgestellt, muss lokal installiert sein.
-
----
-
-## graphify
-`graphify` ist ein lokal installiertes CLI-Tool für Architektur-/Datei-
-Beziehungsfragen. Bei Bedarf `graphify-out/` prüfen bzw. `/graphify`
-nutzen. Nicht auf dieser Maschine installiert? Die Hook-Wrapper unten
-laufen dann folgenlos durch (exit 0), nichts wird blockiert.
-
-## Hook-Wrapper
-
-- `hooks/0-external/graphify-search-guard.sh`
-- `hooks/0-external/graphify-read-guard.sh`
-
-## Erlaubte Injektionen
-
-- `.gemini/skills/graphify bzw. .opencode/skills/graphify bzw. .agents/skills/graphify bzw. .zcode/skills/graphify bzw. .kimi-code/skills/graphify` (skill) — Claude-Code-Skill (SKILL.md + references), vom graphify-Installer selbst verwaltet
+> Playwright MCP Server for browser automation and E2E tests
 
 ---
 
-*Generiert von agent-meta aus `config/external-tools-registry.yaml` — nicht manuell bearbeiten.*
+## Erlaubte Tools
+
+- `browser_navigate`
+- `browser_navigate_back`
+- `browser_snapshot`
+- `browser_take_screenshot`
+- `browser_click`
+- `browser_type`
+- `browser_hover`
+- `browser_select_option`
+- `browser_press_key`
+- `browser_fill_form`
+- `browser_wait_for`
+- `browser_resize`
+- `browser_tabs`
+- `browser_network_requests`
+- `browser_network_request`
+- `browser_console_messages`
+
+## Verbotene Tools (ABSOLUT — keine Ausnahmen)
+
+- `browser_run_code_unsafe`
+- `browser_evaluate`
+- `browser_file_upload`
+- `browser_handle_dialog`
+
+## Agent-Hinweise
+
+Browser-Automation für E2E-Flows, visuelle Regression und Accessibility-Audits.
+browser_navigate: zur Ziel-URL navigieren.
+browser_snapshot: Accessibility-Baum der Seite erfassen (Basis für a11y-Audit und stabile Selektoren).
+browser_click/browser_type/browser_fill_form: User-Interaktionen im Flow simulieren.
+browser_take_screenshot: visuelle Regression via Screenshot-Vergleich.
+browser_network_requests/browser_console_messages: Netzwerk und Konsole inspizieren.
+Arbiträre Code-Ausführung (browser_run_code_unsafe, browser_evaluate) ist gesperrt.
+
+## Verbindungstyp
+
+- Typ: `stdio`
+- Kommando: `npx @playwright/mcp@latest --browser chromium`
+
+---
+
+*Generiert von agent-meta aus `config/mcp-registry.yaml` — nicht manuell bearbeiten.*
+
+
+
+# MCP: project-atlas
+
+> Project Atlas — local MCP-based repo knowledge-graph tool (https://github.com/styler-ai/ProjectAtlas). Placeholder entry; exact connection.command/args verified at first real integration.
+
+---
+
+## Verbindungstyp
+
+- Typ: `stdio`
+- Kommando: `project-atlas --mcp`
+
+---
+
+*Generiert von agent-meta aus `config/mcp-registry.yaml` — nicht manuell bearbeiten.*
 
 
 
@@ -578,6 +621,8 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 | `ai-security-guardian` | KI-spezifische Sicherheitsrisiken: halluzinierte Deps, fabrizierte IAM, unsichere Defaults |
 
 | `api-specialist` | OpenAPI/Contract-First API Design, Schnittstellen-Spezifikationen |
+
+| `backend-reviewer` | Backend-Domain-Review: API-Contracts, Silent Failures, Concurrency |
 
 | `bug-feature-analyzer` | Issue-Triage: Eingehende Bug-Meldungen, Feature-Requests analysieren, k |
 
@@ -615,6 +660,8 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 
 | `frontend-component-engineer` | Screen-Spec + Token-Contract → produktionsreife UI-Komponenten |
 
+| `frontend-reviewer` | Frontend-Domain-Review: Komponenten, State, SSR/Hydration |
+
 | `git` | Commits, Branches, Tags |
 
 | `ideation` | Neue Ideen explorieren, Vision schärfen, Übergabe an requirements |
@@ -647,6 +694,8 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 
 | `performance-optimizer` | Big-O Bottleneck-Identifikation, datengetriebene Performance-Optimierung |
 
+| `planner` | Umsetzungsplanung |
+
 | `principal-developer` | Last-Resort-Eskalationsstufe |
 
 | `prompt-engineer` | Der ultimative Experte für Prompt-Engineering |
@@ -659,32 +708,6 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 
 | `requirements` | Anforderungen aufnehmen, REQ-IDs vergeben, REQUIREMENTS.md pflegen |
 
-| `se-architect` | Zerlegt Blackboxes in Whiteboxes nach strengen Architekturgesetzen (CQRS, Ort |
-
-| `se-critic` | Prüft Architekturentscheidungen iterativ auf Vollständigkeit, Konsistenz und |
-
-| `se-developer` | Standard SE-Leaf-Implementierung (2-4 Interfaces) mit strikter Interface-Disz |
-
-| `se-integration-and-test-manager` | V&V-Orchestrator: Bestimmt Integrationsstrategie, koordiniert Test-Ebenen |
-
-| `se-interface-mgr` | Verwaltet, validiert alle Schnittstellenverträge domänenübergreifend |
-
-| `se-junior-developer` | Triviale SE-Leaf-Implementierung (0-1 Interfaces, kein cross-cutting) |
-
-| `se-requirements` | Nimmt Stakeholder-Bedürfnisse auf, erstellt das formale L1-Blackbox-Requir |
-
-| `se-senior-developer` | Komplexe SE-Leaf-Implementierung (5+ Interfaces, cross-cutting, boundary-leve |
-
-| `se-termination` | Entscheidet deterministisch, ob der L3-Component-Leaf-Node erreicht wurde |
-
-| `se-test-engineer` | Entwickelt MBSE-Testmodelle, entwirft Integrationstests für den rechten V |
-
-| `se-testreviewer` | Auditiert Teststrategien auf Edge-Cases, Boundary Values, Äquivalenzklassen u |
-
-| `se-validator` | L1 System-Validierung: End-to-End User Journeys gegen Stakeholder-Bedürfnisse |
-
-| `se-verifier` | Multi-Level Verification (L1-Ln): Prüft integrierte Systeme gegen Architektur |
-
 | `security-auditor` | Sicherheits-Audit: OWASP, Secrets, Dependencies |
 
 | `senior-developer` | Komplexe Features, Architektur-Entscheidungen, schwierige Bugs |
@@ -696,6 +719,8 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 | `test-executor` | Bestehende Test-Suiten ausführen — kein Test-Design, kein Code-Schreiben |
 
 | `tester` | TDD, Test-Suite ausführen, Testabdeckung sichern |
+
+| `ui-reviewer` | UI-Review: Design-Token-Conformance, Layout-Konsistenz, Interaction-States |
 
 | `ui-ux-designer` | UI-Spezifikationen, Mockups, Design-Systeme erstellen |
 
@@ -744,6 +769,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `agent-meta-scout.md` → registriere als `agent-meta-scout`
    - `ai-security-guardian.md` → registriere als `ai-security-guardian`
    - `api-specialist.md` → registriere als `api-specialist`
+   - `backend-reviewer.md` → registriere als `backend-reviewer`
    - `bug-feature-analyzer.md` → registriere als `bug-feature-analyzer`
    - `code-reviewer.md` → registriere als `code-reviewer`
    - `concept-reviewer.md` → registriere als `concept-reviewer`
@@ -762,6 +788,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `export-manager.md` → registriere als `export-manager`
    - `feedback.md` → registriere als `feedback`
    - `frontend-component-engineer.md` → registriere als `frontend-component-engineer`
+   - `frontend-reviewer.md` → registriere als `frontend-reviewer`
    - `git.md` → registriere als `git`
    - `ideation.md` → registriere als `ideation`
    - `incident-responder.md` → registriere als `incident-responder`
@@ -778,31 +805,20 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `meta-feedback.md` → registriere als `meta-feedback`
    - `orchestrator.md` → registriere als `orchestrator`
    - `performance-optimizer.md` → registriere als `performance-optimizer`
+   - `planner.md` → registriere als `planner`
    - `principal-developer.md` → registriere als `principal-developer`
    - `prompt-engineer.md` → registriere als `prompt-engineer`
    - `prompt-governor.md` → registriere als `prompt-governor`
    - `refactoring-specialist.md` → registriere als `refactoring-specialist`
    - `release.md` → registriere als `release`
    - `requirements.md` → registriere als `requirements`
-   - `se-architect.md` → registriere als `se-architect`
-   - `se-critic.md` → registriere als `se-critic`
-   - `se-developer.md` → registriere als `se-developer`
-   - `se-integration-and-test-manager.md` → registriere als `se-integration-and-test-manager`
-   - `se-interface-mgr.md` → registriere als `se-interface-mgr`
-   - `se-junior-developer.md` → registriere als `se-junior-developer`
-   - `se-requirements.md` → registriere als `se-requirements`
-   - `se-senior-developer.md` → registriere als `se-senior-developer`
-   - `se-termination.md` → registriere als `se-termination`
-   - `se-test-engineer.md` → registriere als `se-test-engineer`
-   - `se-testreviewer.md` → registriere als `se-testreviewer`
-   - `se-validator.md` → registriere als `se-validator`
-   - `se-verifier.md` → registriere als `se-verifier`
    - `security-auditor.md` → registriere als `security-auditor`
    - `senior-developer.md` → registriere als `senior-developer`
    - `sre-engineer.md` → registriere als `sre-engineer`
    - `technical-writer.md` → registriere als `technical-writer`
    - `test-executor.md` → registriere als `test-executor`
    - `tester.md` → registriere als `tester`
+   - `ui-reviewer.md` → registriere als `ui-reviewer`
    - `ui-ux-designer.md` → registriere als `ui-ux-designer`
    - `validator.md` → registriere als `validator`
 
@@ -813,6 +829,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="agent-meta-scout", ...)
    define_subagent(name="ai-security-guardian", ...)
    define_subagent(name="api-specialist", ...)
+   define_subagent(name="backend-reviewer", ...)
    define_subagent(name="bug-feature-analyzer", ...)
    define_subagent(name="code-reviewer", ...)
    define_subagent(name="concept-reviewer", ...)
@@ -831,6 +848,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="export-manager", ...)
    define_subagent(name="feedback", ...)
    define_subagent(name="frontend-component-engineer", ...)
+   define_subagent(name="frontend-reviewer", ...)
    define_subagent(name="git", ...)
    define_subagent(name="ideation", ...)
    define_subagent(name="incident-responder", ...)
@@ -847,31 +865,20 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="meta-feedback", ...)
    define_subagent(name="orchestrator", ...)
    define_subagent(name="performance-optimizer", ...)
+   define_subagent(name="planner", ...)
    define_subagent(name="principal-developer", ...)
    define_subagent(name="prompt-engineer", ...)
    define_subagent(name="prompt-governor", ...)
    define_subagent(name="refactoring-specialist", ...)
    define_subagent(name="release", ...)
    define_subagent(name="requirements", ...)
-   define_subagent(name="se-architect", ...)
-   define_subagent(name="se-critic", ...)
-   define_subagent(name="se-developer", ...)
-   define_subagent(name="se-integration-and-test-manager", ...)
-   define_subagent(name="se-interface-mgr", ...)
-   define_subagent(name="se-junior-developer", ...)
-   define_subagent(name="se-requirements", ...)
-   define_subagent(name="se-senior-developer", ...)
-   define_subagent(name="se-termination", ...)
-   define_subagent(name="se-test-engineer", ...)
-   define_subagent(name="se-testreviewer", ...)
-   define_subagent(name="se-validator", ...)
-   define_subagent(name="se-verifier", ...)
    define_subagent(name="security-auditor", ...)
    define_subagent(name="senior-developer", ...)
    define_subagent(name="sre-engineer", ...)
    define_subagent(name="technical-writer", ...)
    define_subagent(name="test-executor", ...)
    define_subagent(name="tester", ...)
+   define_subagent(name="ui-reviewer", ...)
    define_subagent(name="ui-ux-designer", ...)
    define_subagent(name="validator", ...)
    ```

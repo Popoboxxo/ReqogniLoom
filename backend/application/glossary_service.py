@@ -33,7 +33,10 @@ class GlossaryTermDTO:
     synonyms: list
     abbreviation: str
     version: int
-    lifecycle_status: str = "active"  # REQ-006: soft-delete lifecycle
+    # #831: the wire key is ``status`` like every other workflow-backed
+    # artifact (Requirement/Adr/Risk/Issue/...) — ``lifecycle_status`` was the
+    # lone outlier. REQ-006: soft-delete lifecycle state.
+    status: str = "active"
     # Datenmodell-Konsolidierung Task 29 (Milestone M5): exposed so REST views
     # can call ArtifactDiffService.list_versions/.diff(artifact_id, ...)
     # without a direct GlossaryTerm ORM query (layering: views use
@@ -46,9 +49,9 @@ class GlossaryTermDTO:
         # `lifecycle_status` mirror column is dropped; the flag now lives
         # only on the backing Artifact (Decision D-3). Rows without one yet
         # (workspace-less legacy rows, Task 20) default to "active".
-        lifecycle_status = (
-            term.artifact.lifecycle_status if term.artifact_id else "active"
-        )
+        # #831: surfaced on the DTO as ``status`` (the artifact-consistent
+        # wire key), not ``lifecycle_status``.
+        status = term.artifact.lifecycle_status if term.artifact_id else "active"
         return cls(
             id=term.id,
             workspace_id=term.workspace_id,
@@ -57,7 +60,7 @@ class GlossaryTermDTO:
             synonyms=term.synonyms,
             abbreviation=term.abbreviation,
             version=term.version,
-            lifecycle_status=lifecycle_status,
+            status=status,
             artifact_id=term.artifact_id,
         )
 
@@ -74,7 +77,7 @@ class GlossaryService(ServiceBase):
         ``workflow.services.outdate()``) never touches the model's
         ``lifecycle_status`` field — it stays ``"active"`` forever. Without
         this check, a soft-deleted term was still returned with
-        ``lifecycle_status="active"`` via GET, even though it had already
+        ``status="active"`` via GET, even though it had already
         disappeared from the (WorkflowItemState-filtered) list. Overlay the
         real workflow state onto the DTO here so the detail view is
         consistent with the list view and with the other soft-deletable
@@ -91,7 +94,7 @@ class GlossaryService(ServiceBase):
         from workflow.services import outdated_item_ids
 
         if term.id in outdated_item_ids("GlossaryTerm"):
-            dto.lifecycle_status = "outdated"
+            dto.status = "outdated"
         return dto
 
     def list_by_workspace(
@@ -99,8 +102,8 @@ class GlossaryService(ServiceBase):
     ) -> List[GlossaryTermDTO]:
         """Return GlossaryTerms for *workspace_id*.
 
-        REQ-006: Excludes soft-deleted terms (lifecycle_status='deleted') by default.
-        Pass ``include_deleted=True`` for admin/audit access.
+        REQ-006: Excludes soft-deleted terms (``status`` == "outdated") by
+        default. Pass ``include_deleted=True`` for admin/audit access.
         """
         qs = GlossaryTerm.objects.select_related("artifact").filter(
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
@@ -259,7 +262,8 @@ class GlossaryService(ServiceBase):
 
     @atomic_transaction
     def delete(self, ctx: AuthContext, term_id: UUID) -> None:
-        """Soft-delete GlossaryTerm by setting lifecycle_status to 'deleted' (REQ-006).
+        """Soft-delete GlossaryTerm by routing it through the workflow engine
+        (``status`` becomes "outdated", REQ-006).
 
         Physical deletion is intentionally avoided for end-user operations.
         The term remains in the database for audit purposes.

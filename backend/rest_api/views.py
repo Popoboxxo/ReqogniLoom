@@ -2362,6 +2362,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ctx=ctx,
                 title=data.get("title"),
                 description=data.get("description"),
+                change_reason=data.get("change_reason"),
                 expected_version=data.get("expected_version"),
                 **extra_kwargs,
             )
@@ -7502,6 +7503,15 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         term = self._svc().get(ctx, UUID(pk))
         return term.id, term.workspace_id
 
+    def _current_status(self, pk: str, ctx: Any) -> str | None:
+        # #831: the Glossary serializer now exposes ``status`` like every other
+        # artifact, so ``_validate_patch_payload``'s ``status`` branch can run
+        # its full guard: an unchanged echo is accepted, a differing value is
+        # refused with a pointer at POST .../transitions/. Without this override
+        # ``current`` would be None (the mixin default) and a real status change
+        # via PATCH would be silently accepted-and-ignored.
+        return getattr(self._svc().get(ctx, UUID(pk)), "status", None)
+
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/glossary/ — list GlossaryTerms in a workspace.
 
@@ -7640,10 +7650,12 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         pass ``?include_deleted=true`` to see them, and
         ``POST .../reactivate/`` to restore one.
 
-        Note the field name: GlossaryTerm has no mirrored ``status`` column
-        (``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``), so the detail
-        response reports the soft-delete as ``lifecycle_status="outdated"``
-        where the other entities use ``status="outdated"`` (issue #440).
+        Note the field name (#831): the detail response reports the soft-delete
+        as ``status="outdated"``, identical to every other workflow-backed
+        artifact. GlossaryTerm has no mirrored model ``status`` column
+        (``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``), so the value is
+        resolved from the DTO/backing Artifact rather than from a local column —
+        but the wire key is ``status`` all the same.
         """
         ctx = get_auth_context(request)
         lang = detect_lang(request)

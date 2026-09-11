@@ -165,9 +165,14 @@ class TestService(ServiceBase):
         steps: Optional[list] = None,
         test_type: object = _UNSET,
         custom_fields: object = _UNSET,
+        change_reason: Optional[str] = None,
         expected_version: Optional[int] = None,
     ) -> TestCase:
         """Update a TestCase.
+
+        GH-829: ``change_reason`` is the optional, caller-supplied rationale
+        for this edit. It is recorded on the audit trail (and on the artifact
+        revision) exactly like RequirementService.update_requirement does.
 
         SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
         caller's last-seen ``version``. When supplied and stale, the update is
@@ -227,12 +232,22 @@ class TestService(ServiceBase):
             test_case.refresh_from_db(fields=["version"])
             # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
             # the same "this really changed something" gate as the version bump.
-            # update_test_case takes no change_reason.
+            # GH-829: carry the caller's change_reason onto the revision, as
+            # RequirementService does.
             ArtifactVersionService().record(
-                test_case.artifact_id, snapshot_fields(test_case, "TestCase"), ctx
+                test_case.artifact_id,
+                snapshot_fields(test_case, "TestCase"),
+                ctx,
+                change_reason=change_reason or "",
             )
 
-        self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="TestCase",
+            entity_id=test_case_id,
+            change_reason=change_reason,
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.TEST_CASE_UPDATED,

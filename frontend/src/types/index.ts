@@ -1004,9 +1004,11 @@ export interface GlossaryTerm {
   synonyms: string[];
   abbreviation?: string;
   is_global?: boolean;
-  /** Soft-delete flag. Since the Datenmodell-Konsolidierung it lives on the
-   *  backing Artifact and is orthogonal to `status` (the workflow state). */
-  lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
+  /** Lifecycle/workflow state. #831: exposed under the artifact-consistent
+   *  wire key `status` (like Requirement/Adr/Risk/Issue/...). Since the
+   *  Datenmodell-Konsolidierung the underlying soft-delete flag lives on the
+   *  backing Artifact, but the API field name is `status`. */
+  status?: "active" | "outdated" | "deprecated" | "deleted";
   /**
    * UI-59 (Systemaudit 2026-08-27 AP-5): optimistic-lock version counter —
    * mirrors GlossaryTermSerializer.version. Was missing here even though the

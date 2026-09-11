@@ -36,6 +36,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
+from rest_api.mixins.workflow_transitions import _ALWAYS_ALLOWED_PATCH_FIELDS
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
 from persistence.models import ElementType, TestCaseType
@@ -521,11 +522,57 @@ class SanitizedJSONField(FreeTextFieldMarker, serializers.JSONField):
 
 
 # ---------------------------------------------------------------------------
+# Unknown-field rejection (issue #851)
+# ---------------------------------------------------------------------------
+
+
+class UnknownFieldRejectionMixin:
+    """Reject request keys that no declared field on the serializer accepts (#851).
+
+    DRF silently ignores a key it has no field for. On a create/update that
+    means a typo or an unsupported field answers 201/200 while the value is
+    absent from both the response and the persisted row — indistinguishable
+    from success. That is the same #73/#580/QIRK-002 failure class
+    ``UserProfileSerializer`` and ``TestCaseSerializer`` fixed one serializer
+    at a time; this mixin is the shared implementation.
+
+    Placement: the check runs in ``to_internal_value``, not ``validate``, so a
+    subclass that overrides ``validate`` without calling ``super()`` cannot
+    accidentally bypass it — exactly the hole ``TestCaseSerializer`` had to
+    patch by hand before #851. It is also the one seam both create and update
+    (partial or full) pass through.
+
+    ``self.fields`` is authoritative: every declared field is accepted —
+    required, optional, write-only (``change_reason``) and read-only alike.
+    The always-allowed write keys (``change_reason``/``custom_fields``/
+    ``expected_version``, see
+    :data:`rest_api.mixins.workflow_transitions._ALWAYS_ALLOWED_PATCH_FIELDS`)
+    pass even on a serializer that does not declare them, keeping this guard
+    consistent with ``_validate_patch_payload`` and preserving the UI's
+    full-form save paths. A key that passes only via that allowlist is still
+    not written (DRF drops it), exactly as before.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        validated = super().to_internal_value(data)  # type: ignore[misc]
+        if isinstance(data, dict):
+            allowed = set(self.fields) | set(_ALWAYS_ALLOWED_PATCH_FIELDS)
+            errors = {
+                key: ["Unknown field."] for key in data if key not in allowed
+            }
+            if errors:
+                raise serializers.ValidationError(errors)
+        return validated
+
+
+# ---------------------------------------------------------------------------
 # Custom fields mixin (REQ-L2-AS-037)
 # ---------------------------------------------------------------------------
 
 
-class CustomFieldsSerializerMixin(metaclass=serializers.SerializerMetaclass):
+class CustomFieldsSerializerMixin(
+    UnknownFieldRejectionMixin, metaclass=serializers.SerializerMetaclass
+):
     """Adds a writable ``custom_fields`` field with flat-map validation.
 
     REQ-L2-AS-037: custom_fields lives on the shared Artifact node but is
@@ -575,28 +622,6 @@ class CustomFieldsSerializerMixin(metaclass=serializers.SerializerMetaclass):
             return validate_custom_fields(value)
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.messages[0] if exc.messages else str(exc))
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """Reject unrecognised top-level keys with 400 (P0 audit finding R3).
-
-        Shared by every serializer that mixes this in (Artifact, Requirement,
-        StakeholderNeed, ArchitectureElement, ...): before this check, a typo'd
-        or unsupported key (e.g. ``parent_id`` on an entity that doesn't accept
-        it) was simply absent from ``validated_data`` and the create/update
-        still returned 200/201 — indistinguishable from success. Same
-        QIRK-002/#73/#580 pattern as UserProfileSerializer/TestCaseSerializer;
-        declared once here so entities sharing this mixin don't each reimplement
-        it.
-        """
-        attrs = super().validate(attrs)  # type: ignore[misc]
-        supplied = getattr(self, "initial_data", None)
-        if isinstance(supplied, dict):
-            errors = {
-                key: ["Unknown field."] for key in supplied if key not in self.fields
-            }
-            if errors:
-                raise serializers.ValidationError(errors)
-        return attrs
 
 
 # ---------------------------------------------------------------------------
@@ -959,7 +984,7 @@ class TestCaseSerializer(
     # definitions.py: CLASSIFICATION_FIELDS + _attribute_type's
     # `choices` -> "enum" branch), so the definition-driven
     # TestCaseArtifactForm renders it as a select and PATCHes it back. This
-    # serializer never declared it, so `validate()`'s unknown-key guard 400'd
+    # serializer never declared it, so the unknown-key guard 400'd
     # every save the moment a user touched the field. Unrelated to
     # `TestService.create_test_case`'s `test_type` parameter, which is a
     # separate legacy mechanism (Title-Case values tagged onto
@@ -988,34 +1013,24 @@ class TestCaseSerializer(
     verifies_link_id = serializers.UUIDField(
         read_only=True, allow_null=True, required=False, default=None
     )
+    # GH-829: the unknown-key guard (then a TestCaseSerializer.validate() copy
+    # of #580, now the shared UnknownFieldRejectionMixin.to_internal_value,
+    # #851) rejected every PATCH carrying change_reason with HTTP 400 because
+    # the field was never declared here — and even past that guard, DRF would
+    # have silently dropped it from validated_data. Write-only + optional,
+    # mirroring StakeholderNeedSerializer.change_reason: the service records it
+    # on the audit trail, so it never belongs in the response body.
+    change_reason = SanitizedCharField(
+        write_only=True, required=False, allow_blank=True, max_length=2000
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """Reject unknown keys with 400 instead of silently dropping them (#580).
 
-        The ``TestCase`` model has no ``acceptance_criteria``/``category``
-        columns (unlike Requirement/StakeholderNeed, which do), so a client
-        sending them previously got a 201 with the fields simply absent from
-        both the response and the persisted row — indistinguishable from a
-        successful save. Same QIRK-002/#73 pattern as UserProfileSerializer:
-        an unrecognised key is a client error, not silent no-op data loss.
-        """
-        supplied = getattr(self, "initial_data", None)
-        if not isinstance(supplied, dict):
-            return attrs
-        errors = {
-            key: ["Unknown field."] for key in supplied if key not in self.fields
-        }
-        if errors:
-            raise serializers.ValidationError(errors)
-        return attrs
-
-
-class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class TraceLinkSerializer(UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for TraceLink entity (REQ-L2-RA-001, REQ-002).
 
     select_related hint: source, target (for N+1 avoidance, REQ-L2-RA-013).
@@ -1200,7 +1215,9 @@ class BaselineDeltaEntrySerializer(serializers.Serializer):
     state = serializers.JSONField(read_only=True, allow_null=True)
 
 
-class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class BaselineSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for Baseline entity (REQ-L2-RA-001).
 
     ``name`` is optional on create; the view generates a timestamp-based
@@ -1380,7 +1397,11 @@ class AdrSerializer(
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = SanitizedCharField(max_length=200)
-    description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    # #890: 10000 mirrors the Adr.description TextField(max_length=10000) and
+    # AdrService._validate_description (create + update); the previous 20000
+    # came from the blanket #4/#26 description cap and accepted payloads the
+    # service then rejected, i.e. serializer and domain limit disagreed.
+    description = SanitizedCharField(allow_blank=True, default="", max_length=10000)
     # #104: matches the Adr.context/consequences model TextField(max_length=5000)
     # cap — previously unbounded at the serializer layer, allowing oversized
     # payloads to reach the model layer (where TextField.max_length is a
@@ -1464,7 +1485,12 @@ class RiskSerializer(
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class GoalSerializer(WorkflowStateSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer):
+class GoalSerializer(
+    UnknownFieldRejectionMixin,
+    WorkflowStateSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
     """Serializer for Goal entity (REQ-L2-TE-020, Task 6)."""
 
     # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
@@ -1488,7 +1514,10 @@ class GoalSerializer(WorkflowStateSerializerMixin, PresetAwareSerializerMixin, s
 
 
 class MainGoalSerializer(
-    WorkflowStateSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    UnknownFieldRejectionMixin,
+    WorkflowStateSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for MainGoal entity (REQ-L2-TE-020, Task 6)."""
 
@@ -1639,6 +1668,7 @@ class IssueSerializer(
 
 
 class ChangeRequestSerializer(
+    UnknownFieldRejectionMixin,
     WorkflowStateSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
@@ -1772,7 +1802,11 @@ def apply_queryset_optimizations(queryset: Any, entity_type: str) -> Any:
 # together with the GlossaryTermVersion model it serialised.
 
 
-class GlossaryTermSerializer(ExpectedVersionSerializerMixin, serializers.Serializer):
+class GlossaryTermSerializer(
+    UnknownFieldRejectionMixin,
+    ExpectedVersionSerializerMixin,
+    serializers.Serializer,
+):
     """Serializer for GlossaryTerm (REQ-L2-RA-001)."""
 
     id = serializers.UUIDField(read_only=True)
@@ -1798,21 +1832,22 @@ class GlossaryTermSerializer(ExpectedVersionSerializerMixin, serializers.Seriali
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
     # Declared so the GlossaryTerm read endpoints keep reporting the
-    # soft-delete state (issue #440): GlossaryTerm has no mirrored ``status``
-    # column, so ``lifecycle_status`` is the ONLY place a soft-deleted term is
-    # visible, and both the SPA's status filter/sort (GlossaryView.tsx) and
-    # test_soft_delete_semantics_443.py read it. The ViewSet used to answer
-    # with the raw DTO ``__dict__``, which carried the field implicitly;
-    # routing those responses through this serializer would otherwise have
-    # dropped it silently.
+    # soft-delete state (issue #440): GlossaryTerm has no mirrored model
+    # ``status`` column, so the state comes from the DTO. Issue #831 settled
+    # the wire key on ``status`` — identical to every other workflow-backed
+    # artifact serializer (Requirement/Adr/Risk/Issue/... via
+    # WorkflowStateSerializerMixin) — instead of the former
+    # ``lifecycle_status`` outlier. The DTO resolves the value from the
+    # backing Artifact (``Artifact.lifecycle_status`` plus the workflow
+    # soft-delete overlay in GlossaryService.get()).
     #
-    # Read-only AND listed in ``_PROTECTED_PATCH_FIELDS`` (see
-    # rest_api/mixins/workflow_transitions.py): declaring a field here also
-    # adds it to the PATCH allow-list, so without the protected-list entry a
-    # ``PATCH {"lifecycle_status": "deleted"}`` would flip from a 400 to a
-    # silent 200 no-op — exactly the mass-assignment hole #269 finding 5
-    # closed. Lifecycle changes go through DELETE / reactivate.
-    lifecycle_status = serializers.CharField(read_only=True)
+    # Read-only: lifecycle changes go through DELETE / reactivate / the
+    # transitions endpoint. Note that ``_validate_patch_payload`` special-cases
+    # the key ``status`` globally (#263): an unchanged echo is accepted and
+    # ignored, a differing value is refused with a pointer at
+    # ``POST .../transitions/``. GlossaryTermViewSet overrides
+    # ``_current_status`` so that comparison can still read the current value.
+    status = serializers.CharField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
@@ -1943,6 +1978,7 @@ __all__ = [
     "TraceLinkPagination",
     "PresetAwareSerializerMixin",
     "CustomFieldsSerializerMixin",
+    "UnknownFieldRejectionMixin",
     "build_error_response",
     "get_error_message",
     "detect_lang",

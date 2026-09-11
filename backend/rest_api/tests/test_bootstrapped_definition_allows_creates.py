@@ -60,21 +60,23 @@ from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 
-#: ``(url, extra body fields beyond workspace_id + title)``. Only the ViewSets
-#: that declare ``attribute_item_type`` — Icd has no WorkflowTransitionsMixin
-#: ViewSet to wire. The only entries with extra fields are the ones the shipped
-#: serializer itself demands (``glossary``); everything else must accept the
-#: same minimal body the UI quick-create forms post.
+#: ``(url, body)`` where ``body`` is the minimal client payload *after* the
+#: shared ``workspace_id``. Only the ViewSets that declare
+#: ``attribute_item_type`` — Icd has no WorkflowTransitionsMixin ViewSet to
+#: wire. The glossary entity names its mandatory label ``term`` (never
+#: ``title``), so its case carries that shape directly; since #851 the shared
+#: unknown-field guard rejects a stray ``title`` on ``/glossary/`` instead of
+#: dropping it silently.
 CREATE_CASES = [
-    ("/api/v1/requirements/", {}),
-    ("/api/v1/needs/", {}),
-    ("/api/v1/architecture/", {}),
-    ("/api/v1/testcases/", {}),
-    ("/api/v1/adrs/", {}),
-    ("/api/v1/risks/", {}),
-    ("/api/v1/issues/", {}),
+    ("/api/v1/requirements/", {"title": "Title"}),
+    ("/api/v1/needs/", {"title": "Title"}),
+    ("/api/v1/architecture/", {"title": "Title"}),
+    ("/api/v1/testcases/", {"title": "Title"}),
+    ("/api/v1/adrs/", {"title": "Title"}),
+    ("/api/v1/risks/", {"title": "Title"}),
+    ("/api/v1/issues/", {"title": "Title"}),
     ("/api/v1/glossary/", {"term": "Term", "definition": "D"}),
-    ("/api/v1/goals/", {}),
+    ("/api/v1/goals/", {"title": "Title"}),
 ]
 
 PRESETS = ("minimal", "standard", "extended")
@@ -126,8 +128,7 @@ def bootstrapped(tenant_fixture):
 @pytest.mark.parametrize("url,extra", CREATE_CASES, ids=[c[0] for c in CREATE_CASES])
 def test_create_still_works_against_the_bootstrapped_definition(preset, url, extra) -> None:
     client, workspace = _bootstrapped_admin_client(preset)
-    body = {"workspace_id": str(workspace.id), "title": "Title"}
-    body.update(extra)
+    body = {"workspace_id": str(workspace.id), **extra}
     response = client.post(url, body, format="json")
     assert response.status_code == 201, (preset, url, response.status_code, response.json())
 
