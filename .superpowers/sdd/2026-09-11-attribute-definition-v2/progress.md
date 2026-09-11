@@ -6,12 +6,12 @@ separately after each phase/whole-branch).
 
 ## ⏸ RESUME POINT
 
-**Last completed task: Task 7 (`sections[]` schema + lazy materialization), committed `5e94d133`.**
+**Last completed task: Task 8 (section visibility + grid layout UI), committed `6acfcb4f`.**
 **Branch:** `feat/attribute-definition-v2`, worktree `.worktrees/attribute-definition-v2-impl`.
-**Next: Task 8** (section visibility + grid layout in the UI, Phase E continued).
-**No independent review has run on Tasks 1-7 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
+**Next: Task 9** (`export_definition`/`import_definition` service methods, Phase F).
+**No independent review has run on Tasks 1-8 yet** — this fork has no `Agent` tool; the coordinator needs to dispatch a `code-reviewer` pass before this branch is considered done, per this repo's SDD convention.
 **Not manually verified in a live browser** across any task so far — only component/API/typecheck-level coverage. Flag for the coordinator or a later manual pass.
-**The full, untargeted whole-backend `pytest -q` background run (task id `bbz34th2h`, launched after Task 4) never produced any output in ~2 hours and was confirmed hung (still `status: running`, 0-byte output file) — killed via TaskStop rather than trusted further.** Per this repo's own background-agent-watchdog convention (memory: `feedback_background_agent_watchdog`), a `status: running` with no progress for this long is not proof of anything; the ~7 separately-run, targeted `attribute_definitions`-consumer sweeps after each task (334+ tests passing as of Task 7) are the real evidence base, not that stuck run. If the coordinator wants a genuine full-suite pass, re-run it fresh rather than resuming/trusting the old one.
+**The full, untargeted whole-backend `pytest -q` background run (task id `bbz34th2h`, launched after Task 4) never produced any output in ~2 hours and was confirmed hung (still `status: running`, 0-byte output file) — killed via TaskStop rather than trusted further.** Per this repo's own background-agent-watchdog convention (memory: `feedback_background_agent_watchdog`), a `status: running` with no progress for this long is not proof of anything; the targeted `attribute_definitions`-consumer sweeps after each task (460 backend + 88 frontend tests passing as of Task 8) are the real evidence base, not that stuck run. If the coordinator wants a genuine full-suite pass, re-run it fresh rather than resuming/trusting the old one.
 
 ## Migration numbers (re-verified, plan text is stale)
 
@@ -88,8 +88,17 @@ separately after each phase/whole-branch).
 - Tests: 56 pure schema tests (0 DB), 5 new store-level materialization tests (both stores), 2 fixed pre-existing tests. Full `attribute_definitions/tests/` + service/REST/MCP/architecture scoped run: 334 passed. Broader consumer sweep (bundle export, interview protocol, reqif import/export, goal views): 121 passed, no regression from the new `sections` payload key.
 - Commit: `5e94d133` "feat(attributes): add sections[] schema + lazy materialization (Task 7)".
 
-## Tasks 8-12 — NOT STARTED
+## Task 8: Section visibility + grid layout in the UI — DONE
 
-See plan file for full task list (Phase E continued-G: section visibility +
-grid layout UI, export/import REST+MCP, export/import UI, section card
-polish).
+- TS types: `SectionLayout`, `SectionSpec` added to `attribute-definitions.ts`; both `ResolvedAttributeDefinition` and `GlobalAttributeDefinition` gain a `sections: SectionSpec[]` field.
+- `ArtifactForm.tsx`: a section with `visible: false` in `definition.sections` hides itself AND every attribute in it, regardless of each attribute's own `visible` (spec 4.4's AND-condition) — a section name absent from `definition.sections` defaults to visible (same additive default as the backend). Sections render on a 2-column CSS grid (`ArtifactForm.module.css`): `layout: "half"` spans 1 column, `"full"` (default) spans both; two consecutive halves sit side-by-side, a lone half leaves the second column empty via plain `grid-auto-flow` (no `dense` packing, no extra rule needed); collapses to 1 column under 768px (`--bp-md`).
+- `AttributeList.tsx` gained per-section visibility checkbox + layout `<select>` (`attribute-section-{name}-visible`/`-layout`), backed by new pure `toggleSectionVisible`/`setSectionLayout` helpers in `attribute-edits.ts` (upsert semantics: toggling a section with no existing `SectionSpec` entry creates one). `AttributeEditorPage.tsx` tracks `sections` as local buffered state (same pattern as `attributes`), included in the dirty-check, sent on the normal Save button's PUT.
+- **Backend plumbing needed beyond the plan's own Task 8 file list** (not listed there, but required for "toggling a section's visibility persists (PUT with the updated sections array)" to actually work): `GlobalAttributeDefinitionStore.update()`/`WorkspaceAttributeDefinitionStore.update()` and the service's `update_global`/`update_workspace` gained an optional `sections` parameter (omitted = preserve existing list unchanged, matching every pre-Task-8 caller; given = replaces it, validated same as `attributes`). REST `PUT` views read an optional `sections` key from the body. No new endpoint — same PUT the rest of the editor already uses.
+- Tests: 3 new `ArtifactForm.test.tsx` cases (whole-section hide with AND-condition, default-visible fallback, half/full layout attributes on rendered `<section>` elements via `data-testid`+`data-layout`), 5 new `AttributeList.test.tsx` cases (new file — none existed for this component before), 3 new backend service tests, 2 new REST tests. `tsc -p tsconfig.build.json --noEmit` clean. Scoped backend run: 460 passed (attribute_definitions + service/REST/MCP/architecture + the full bundle-export/interview-protocol/reqif/goal-views consumer sweep). Scoped frontend run: 88 passed.
+- Commit: `6acfcb4f` "feat(attributes): add section visibility + grid layout UI (Task 8)".
+
+## Tasks 9-12 — NOT STARTED
+
+See plan file for full task list (Phase F-G: export_definition/
+import_definition service methods, REST+MCP surface, export/import UI,
+section card polish).
