@@ -246,6 +246,14 @@ export default function ReviewsView({
   // the discard target its reject state — both come back in
   // `transitions.allowed_transitions`, so read them rather than maintaining a
   // second per-type table that would drift from the backend graph.
+  //
+  // SCOPE (security review M4): `transitions` belongs to `selectedId`, the item
+  // open in the DETAIL pane, so this pair is only ever valid for the detail
+  // Approve/Reject buttons. It must NOT be reused for bulk actions over
+  // `selectedIds` — see `confirmProposal` below, which resolves per item. The
+  // `?? "draft"`/`?? "rejected"` fallbacks below are unreachable in a request:
+  // with no `transitions`, `approveAllowed`/`rejectAllowed` resolve to
+  // undefined and both buttons are disabled.
   const { approve: APPROVE_TARGET, reject: REJECT_TARGET } = useMemo(() => {
     if (queueMode !== "proposals") return REVIEW_ACTION_CONFIG[selectedArtifactType];
     const allowed = transitions?.allowed_transitions ?? [];
@@ -284,7 +292,52 @@ export default function ReviewsView({
   useEffect(() => {
     setPage(1);
     setSelectedIds([]);
+    // Security review minor: without this the "N proposals confirmed" toast
+    // survived a switch to a different artifact type or back to review mode,
+    // where it describes a run against a queue that is no longer on screen.
+    setBulkResult(null);
   }, [search, selectedArtifactType, queueMode]);
+
+  /**
+   * Confirm one proposal, resolving its target state from the item ITSELF.
+   *
+   * Security review M4. This used to reuse `APPROVE_TARGET`, which is derived
+   * from `transitions` — the allowed transitions of the item currently open in
+   * the detail pane, not of the items being bulk-confirmed. In the normal bulk
+   * flow (tick checkboxes, click confirm) nothing is selected for detail at
+   * all, so `transitions` was `undefined` and the target fell back to the
+   * literal `"draft"`, which is not a valid target for most types
+   * (adr -> `Draft`, goal -> `Entwurf`, risk -> `Identified`, issue -> `Open`)
+   * — every bulk-confirm click failed.
+   *
+   * One GET per item is the price of correctness here: the confirm target is
+   * the item's graph's own initial state, which varies by artifact type AND by
+   * workspace customization, so there is no table to read it from. The run is
+   * already sequential (see `bulkConfirm`).
+   */
+  const confirmProposal = useCallback(
+    async (id: string): Promise<void> => {
+      const detail = await workflowTransitionsApi.getTransitions(
+        selectedArtifactType,
+        id,
+      );
+      // The proposal graph gives `proposed` exactly two moves: confirm (to the
+      // initial state, no change_reason) and discard (to the reject state,
+      // change_reason required). Confirm is the one that needs no reason.
+      const confirm = (detail?.allowed_transitions ?? []).find(
+        (candidate) => !candidate.requires_change_reason,
+      );
+      if (!confirm) {
+        throw new Error(`No confirm transition available for ${id}`);
+      }
+      await workflowTransitionsApi.transition(
+        selectedArtifactType,
+        id,
+        confirm.target_state,
+      );
+    },
+    [selectedArtifactType],
+  );
 
   const selected = useMemo(
     () => items.find((r) => r.id === selectedId) ?? null,
@@ -495,12 +548,9 @@ export default function ReviewsView({
           disabled={isActing}
           onClick={async () => {
             setIsActing(true);
-            const { confirmed, failed } = await bulkConfirm(selectedIds, (id) =>
-              workflowTransitionsApi.transition(
-                selectedArtifactType,
-                id,
-                APPROVE_TARGET,
-              ),
+            const { confirmed, failed } = await bulkConfirm(
+              selectedIds,
+              confirmProposal,
             );
             setSelectedIds([]);
             setBulkResult({ ok: confirmed.length, failed: failed.length });
