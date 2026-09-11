@@ -324,6 +324,9 @@ class InterviewToolGroup(BaseToolGroup):
             return {
                 "session_id": str(session.id),
                 "status": resolve_engine_status("Interview", session.id),
+                # Mirrors get_state()'s payload (final-review finding B2) so
+                # the start response and every later state response agree.
+                "session_kind": session.session_kind,
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,

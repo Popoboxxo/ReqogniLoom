@@ -367,6 +367,29 @@ class TestMultiChatTurn:
         session.refresh_from_db()
         assert session.grounding_snapshot["pending_proposal"][0]["type"] == "StakeholderNeed"
 
+    def test_chat_turn_state_carries_session_kind(
+        self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext, monkeypatch
+    ):
+        # Final-review finding B2, second half: the web chat pane REPLACES its
+        # whole interview object with this state after every turn. Without the
+        # discriminator the session silently demotes to "single" from turn 1
+        # onwards and the proposal/confirm card never appears again -- even
+        # with get_state() fixed.
+        session = _multi_session(tenant, workspace)
+        provider = _MultiFakeProvider(_FENCED_PROPOSAL_REPLY)
+        monkeypatch.setattr(
+            InterviewService, "_resolve_provider", lambda self: (provider, "anthropic", None)
+        )
+
+        with _active(tenant):
+            result = InterviewService().generate_chat_turn(
+                editor_ctx, session.id, "I need something for X"
+            )
+            state = InterviewService().get_state(editor_ctx, session.id)
+
+        assert result["state"]["session_kind"] == "multi"
+        assert state["session_kind"] == "multi"
+
     def test_propose_returns_none_when_nothing_pending(
         self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
     ):

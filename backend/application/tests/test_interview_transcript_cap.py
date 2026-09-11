@@ -410,6 +410,54 @@ class TestCompressionConcurrency:
         assert reloaded.transcript_summary == "Digest written by the other request."
         assert [e["text"] for e in reloaded.transcript] == [f"m{i}" for i in range(6, 26)]
 
+    def test_a_concurrent_compression_plus_new_turns_is_not_overwritten(self, ctx, workspace):
+        """Final-review finding I2 -- the interleaving a length check misses.
+
+        The other compressor finishes AND enough new turns arrive afterwards
+        that the row is *long* again (>= len(overflow) + window). The old
+        ``len(...) <`` guard passed on that, and slicing ``len(overflow)`` off
+        a row that no longer starts with ``overflow`` deleted six live turns.
+        Comparing the prefix itself catches it.
+        """
+        session = _session_with_entries(ctx, workspace, 26)
+
+        def _concurrent_compression_then_new_turns(*args, **kwargs):
+            TenantContext.set_tenant(ctx.tenant_id)
+            InterviewSession.objects.filter(id=session.id).update(
+                # m0..m5 already folded away by the other request, then six
+                # fresh turns appended: 26 entries again, different prefix.
+                transcript=[
+                    *[
+                        {"role": "user", "text": f"m{i}", "timestamp": "t"}
+                        for i in range(6, 26)
+                    ],
+                    *[
+                        {"role": "user", "text": f"new{i}", "timestamp": "t"}
+                        for i in range(6)
+                    ],
+                ],
+                transcript_summary="Digest written by the other request.",
+            )
+            return "Digest written by this request."
+
+        provider = MagicMock()
+        provider.complete.side_effect = _concurrent_compression_then_new_turns
+        with patch.object(
+            InterviewService, "_resolve_provider", return_value=(provider, "anthropic", None)
+        ):
+            InterviewService()._compress_transcript_if_needed(ctx, session)
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            reloaded = InterviewSession.objects.get(id=session.id)
+        finally:
+            TenantContext.clear_tenant()
+        assert reloaded.transcript_summary == "Digest written by the other request."
+        assert [e["text"] for e in reloaded.transcript] == [
+            *[f"m{i}" for i in range(6, 26)],
+            *[f"new{i}" for i in range(6)],
+        ]
+
 
 class TestStateSurfacesTheSummary:
     """Review finding F5 -- a compressed conversation must not *look* like it

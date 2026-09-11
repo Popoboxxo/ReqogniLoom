@@ -404,6 +404,13 @@ class InterviewService(ServiceBase):
             return {
                 "session_id": str(session.id),
                 "status": status,
+                # Final-review finding B2: the only discriminator a consumer
+                # has for "is this a multi session". Without it the web UI's
+                # chat pane gates the whole proposal/confirm flow away (it
+                # treats a missing key as "single"), leaving a multi session
+                # able to chat but never able to formalise anything. Additive,
+                # same precedent as `transcript`/`transcript_summary` below.
+                "session_kind": session.session_kind,
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,
@@ -412,6 +419,10 @@ class InterviewService(ServiceBase):
         return {
             "session_id": str(session.id),
             "status": status,
+            # Emitted in BOTH branches on purpose: a consumer that has to
+            # check `"session_kind" in state` before trusting it is exactly
+            # the ambiguity finding B2 was about.
+            "session_kind": session.session_kind,
             "phase": phase.name,
             "collected_fields": session.collected_fields,
             "missing_fields": [self._serialise_field(f) for f in missing],
@@ -1472,14 +1483,21 @@ class InterviewService(ServiceBase):
             # prefix; the result may briefly exceed the window when a turn
             # raced in, which the next turn's compression folds away.
             session.refresh_from_db(fields=["transcript"])
-            if len(session.transcript) < len(overflow) + window_entries:
+            if session.transcript[: len(overflow)] != overflow:
                 # Review finding F6: `transcript` only ever *grows* by appending
                 # -- the one exception is another compression run, which
-                # replaces it with a shorter tail. A shorter row therefore means
-                # a concurrent request already folded this same overflow away
-                # (and wrote its own digest). Slicing `len(overflow)` off that
-                # tail would delete live turns and overwrite the newer summary
-                # with one derived from a stale `previous_summary`.
+                # replaces it with a shorter tail. So if the persisted row no
+                # longer STARTS with the exact prefix this digest summarises, a
+                # concurrent request already folded that prefix away (and wrote
+                # its own digest). Slicing `len(overflow)` off that row would
+                # delete live turns and overwrite the newer summary with one
+                # derived from a stale `previous_summary`.
+                #
+                # Final-review finding I2: a pure length check missed the
+                # interleaving where the other compressor finishes AND >=
+                # len(overflow) new turns get appended afterwards -- long
+                # enough to pass, wrong prefix all the same. Comparing the
+                # prefix itself is strictly more precise at the same cost.
                 logger.debug(
                     "InterviewService: transcript for session=%s was compressed "
                     "concurrently -- discarding this digest",
@@ -1852,6 +1870,11 @@ class InterviewService(ServiceBase):
             "state": {
                 "session_id": str(session.id),
                 "status": session.status,
+                # Finding B2, second half: the chat pane replaces its whole
+                # interview object with this state after every turn. Omitting
+                # the discriminator here would silently demote the session to
+                # "single" from turn 1 onwards, even with get_state() fixed.
+                "session_kind": session.session_kind,
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,
