@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.10] — 2026-09-11
+
+### Added
+- **Attribute Definition v2 — Create/Delete, Sections, Export/Import:** Custom attribute definitions can now be created and deleted at both Global and Workspace scope through one shared validation path (snake_case, uniqueness, no collision with a real Django model field) that the existing edit flow already used. Adds a table/list-view toggle, an options editor for enum/multi-enum attributes with a `count_usages` safety check before removal, per-attribute origin badges + type icons, `sections[]` with visibility toggling and a half/full CSS-Grid layout (stored in `definition_json`, no migration, lazily materialized), and export/import of definitions at both scopes with skip/overwrite/rename collision handling plus a REST + MCP surface (PRs #901, #902, #905)
+- **AI Proposal State (Rule 0):** Agent-authored workflow items (MainGoals, Requirements, TraceLinks, …) are created in a new `proposed` state and can never be confirmed by the same agent — enforced across direct transitions, `outdate()`, bulk-confirm, and both hard-delete paths. Trace-link proposals are now exposed over REST (list/confirm/discard), including the previously unserialized `proposed_by`/`proposed_at` fields, and the frontend review queue gained an AI-proposals mode with bulk confirm (PR #904)
+- **Agent API-Key Identity & Scoping:** `ApiKey` now carries agent identity, scope and expiry fields; read-scoped keys are denied writes, workspace-restricted keys are fenced out of other workspaces, and audit entries record the caller's real `actor_type` instead of a hardcoded `user` (PR #904)
+
+### Fixed
+- **Interview Engine — Formalization, Provenance, Transcript & Surface:** `formalize()` now dispatches through the `ARTIFACT_CREATION_ADAPTERS` registry for all 8 in-scope artifact types instead of Requirement only, fixing real crashes for ArchitectureElement and Risk; interview provenance is shown on every artifact detail view for single- and multi-kind sessions; `InterviewSession.transcript_summary` plus a sliding-window compressor caps prompt growth after 10 turns (fixing transcript data loss with the default mock provider); and `/interviews?start=multi` is now a real discovery entry point while the floating widget is reduced to a launcher (PR #903)
+- **API-Key Scope Bypass:** Enforced key scope on ~25 REST views that used `RbacPermission`/`HasOperationPermission` without checking it, and closed the same bypass on the MCP tool-registry's RBAC-exempt paths; `main_goal.approve` now resolves its target state by meaning instead of list position (PR #904)
+- **Attribute Definition Round-Trip and Guards:** Export/import no longer drops `sections[]`, import runs the same name validation as create (including the core-field-collision guard), workspace-scoped create/delete return 403 (not 500) for a foreign workspace, `count_usages` correctly counts multi-enum option usages, a required attribute inside a hidden section no longer blocks artifact creation, and renaming/deleting a section keeps its visibility/layout state in sync (PR #905)
+
+### Changed
+- **Agent-Meta v1.1.0 Upgrade:** Upgraded the agent-meta framework to v1.1.0, tuned auto-commit roles and thresholds, and untracked generated provider directories (PRs #906, #908, #909)
+
+### Known Issues
+- Multi-mode interview sessions do not yet trigger transcript compression (the compressor call site is single-mode only); multi-mode assistant chat entries also display the raw fenced JSON proposal block alongside the parsed proposal card (cosmetic) — both documented as non-blocking follow-ups in PR #903
+- Cascading delete of a non-proposed artifact can still remove attached `proposed` trace links — a deliberate non-fix in PR #904
+- Two minor attribute-definition UX polish items were deferred (option removal keyed by value instead of index; raw `exc.message` instead of `extractErrorMessage` in two dialogs) — PR #905
+
 ## [1.8.0-beta.9] — 2026-09-11
 
 ### Added
