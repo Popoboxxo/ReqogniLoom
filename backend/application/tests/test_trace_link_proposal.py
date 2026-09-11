@@ -1,9 +1,13 @@
 """TraceLink proposal fields and their confirm/discard semantics (spec §5)."""
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from django.utils import timezone
 
+from application.trace_link_service import AgentSelfConfirmError, TraceLinkService
+from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import ApiKey
 from persistence.models import Artifact, TraceLink, Tenant, User, Workspace
 from persistence.tenancy import TenantContext
@@ -93,3 +97,71 @@ def test_deleting_the_key_keeps_the_link(graph):
         TenantContext.clear_tenant()
     # SET_NULL: losing the key must never cascade away a real trace edge.
     assert link.proposed_by_id is None
+
+
+def _ctx(tenant_id, actor_type: str, api_key_id=None) -> AuthContext:
+    return AuthContext(
+        user_id=uuid4(),
+        tenant_id=tenant_id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=api_key_id,
+        actor_type=actor_type,
+    )
+
+
+def _create_link(tenant, src, tgt, key):
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return TraceLink.objects.create(
+            tenant=tenant,
+            source=src,
+            target=tgt,
+            link_type="derives-from",
+            proposed_by=key,
+            proposed_at=timezone.now(),
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_confirm_clears_both_proposal_fields(graph):
+    tenant, src, tgt, key = graph
+    link = _create_link(tenant, src, tgt, key)
+    TraceLinkService().confirm_proposed_link(link.id, _ctx(tenant.id, "user"))
+    link.refresh_from_db()
+    assert link.proposed_by_id is None
+    assert link.proposed_at is None
+    assert link.is_proposal is False
+
+
+@pytest.mark.django_db
+def test_discard_deletes_the_link(graph):
+    tenant, src, tgt, key = graph
+    link = _create_link(tenant, src, tgt, key)
+    TraceLinkService().discard_proposed_link(link.id, _ctx(tenant.id, "user"))
+    assert not TraceLink.objects.filter(id=link.id).exists()
+
+
+@pytest.mark.django_db
+def test_agent_may_not_confirm(graph):
+    tenant, src, tgt, key = graph
+    link = _create_link(tenant, src, tgt, key)
+    with pytest.raises(AgentSelfConfirmError):
+        TraceLinkService().confirm_proposed_link(
+            link.id, _ctx(tenant.id, "agent", key.id)
+        )
+    link.refresh_from_db()
+    assert link.is_proposal is True
+
+
+@pytest.mark.django_db
+def test_agent_may_not_discard(graph):
+    tenant, src, tgt, key = graph
+    link = _create_link(tenant, src, tgt, key)
+    with pytest.raises(AgentSelfConfirmError):
+        TraceLinkService().discard_proposed_link(
+            link.id, _ctx(tenant.id, "agent", key.id)
+        )
+    assert TraceLink.objects.filter(id=link.id).exists()

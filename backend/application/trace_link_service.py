@@ -60,9 +60,17 @@ from traceability.types import (  # noqa: F401 — re-exported via __all__
 )
 
 if TYPE_CHECKING:  # pragma: no cover — import cycle at runtime
-    from persistence.models import Artifact
+    from persistence.models import Artifact, TraceLink
 
 logger = logging.getLogger(__name__)
+
+
+class AgentSelfConfirmError(PermissionError):
+    """An AI agent tried to confirm or discard a proposal (spec §4.3/§5).
+
+    Mirrors ``workflow.transition_validator``'s rule 0 for the one artifact
+    kind that has no workflow state: a trace link.
+    """
 
 
 @dataclass
@@ -447,6 +455,24 @@ class TraceLinkService(ServiceBase):
                 ) from exc
             raise
 
+        # Spec §5: a link an agent created is a proposal until a human
+        # confirms it. ``api_key_id`` is the proposing key; a bearer-token
+        # (human) request leaves both fields NULL. Stamped as a targeted
+        # update rather than threaded through traceability.services.create_
+        # trace_link / TraceLinkManager.create, which are shared by every
+        # other caller and have no notion of "proposal".
+        if ctx.actor_type == "agent" and ctx.api_key_id is not None:
+            from django.utils import timezone
+
+            from persistence.models import TraceLink
+
+            proposed_at = timezone.now()
+            TraceLink.objects.filter(id=result.id).update(
+                proposed_by_id=ctx.api_key_id, proposed_at=proposed_at
+            )
+            result.proposed_by_id = ctx.api_key_id
+            result.proposed_at = proposed_at
+
         # REQ-L2-VS-004: best-effort semantic embedding for similarity search.
         self._generate_and_store_embedding(result)
 
@@ -464,6 +490,83 @@ class TraceLinkService(ServiceBase):
             source_artifact=source_artifact,
         )
         return result
+
+    def confirm_proposed_link(self, link_id: UUID, ctx: AuthContext) -> "TraceLink":
+        """Accept an agent-proposed trace link (spec §5).
+
+        Clears ``proposed_by``/``proposed_at`` — the link becomes an ordinary,
+        human-owned edge. Idempotent: confirming an already-confirmed link is a
+        no-op that returns it unchanged.
+
+        Args:
+            link_id: TraceLink primary key.
+            ctx: The confirming principal.
+
+        Returns:
+            The refreshed TraceLink.
+
+        Raises:
+            AgentSelfConfirmError: ``ctx`` is an agent.
+            NotFoundError: no such link in the active tenant.
+        """
+        from persistence.models import TraceLink
+
+        self._set_tenant_context(ctx)
+        if ctx.actor_type == "agent":
+            raise AgentSelfConfirmError(
+                "An AI agent may not confirm a proposed trace link."
+            )
+        link = TraceLink.objects.filter(id=link_id).first()
+        if link is None:
+            raise NotFoundError(f"TraceLink {link_id} not found")
+        if link.proposed_at is not None or link.proposed_by_id is not None:
+            link.proposed_by = None
+            link.proposed_at = None
+            link.save(update_fields=["proposed_by", "proposed_at", "modified_at"])
+            self._audit(
+                ctx=ctx,
+                operation="update",
+                entity_type="TraceLink",
+                entity_id=link.id,
+                details={"proposal": "confirmed"},
+            )
+        return link
+
+    def discard_proposed_link(self, link_id: UUID, ctx: AuthContext) -> None:
+        """Reject an agent-proposed trace link by deleting it (spec §5).
+
+        Args:
+            link_id: TraceLink primary key.
+            ctx: The rejecting principal.
+
+        Raises:
+            AgentSelfConfirmError: ``ctx`` is an agent.
+            NotFoundError: no such link in the active tenant.
+            ValueError: the link is not a proposal — deleting a confirmed link
+                goes through the normal delete path, not this one.
+        """
+        from persistence.models import TraceLink
+
+        self._set_tenant_context(ctx)
+        if ctx.actor_type == "agent":
+            raise AgentSelfConfirmError(
+                "An AI agent may not discard a proposed trace link."
+            )
+        link = TraceLink.objects.filter(id=link_id).first()
+        if link is None:
+            raise NotFoundError(f"TraceLink {link_id} not found")
+        if not link.is_proposal:
+            raise ValueError(
+                "TraceLink is not a proposal; use the regular delete endpoint."
+            )
+        self._audit(
+            ctx=ctx,
+            operation="delete",
+            entity_type="TraceLink",
+            entity_id=link.id,
+            details={"proposal": "discarded"},
+        )
+        link.delete()
 
     def _emit_trace_link_event(
         self,
