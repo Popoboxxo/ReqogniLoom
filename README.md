@@ -74,7 +74,7 @@ Facts, not narrative:
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — native Model Context Protocol server; 31 tool-group prefixes (requirement, needs, architecture, test, traceability, artifact, context, workspace, permissions, admin, audit, events, user, adr, risk, issue, glossary, change_request, prompt_template, prompt_variable, ai_derivation, diagram, review, baseline, goal, main_goal, requirement_bundle, interview, memory, link_type, attribute_definition), 179 individual tools (`docs/agent-templates/tool-manifest.json`), for Claude Desktop, Cursor, and other MCP-capable LLM platforms
+- **MCP Server** — native Model Context Protocol server; 31 tool-group prefixes (requirement, needs, architecture, test, traceability, artifact, context, workspace, permissions, admin, audit, events, user, adr, risk, issue, glossary, change_request, prompt_template, prompt_variable, ai_derivation, diagram, review, baseline, goal, main_goal, requirement_bundle, interview, memory, link_type, attribute_definition), 188 individual tools (`docs/agent-templates/tool-manifest.json`), for Claude Desktop, Cursor, and other MCP-capable LLM platforms
 - **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama (local), Azure OpenAI, opencode_go, or mock mode (default, no external calls)
 - **AI Derivation** — Configurable prompts to intelligently decompose Stakeholder Needs into System Requirements
 - **Semantic Glossary & Linking** — Intelligent requirement matching and terminology suggestions
@@ -111,7 +111,7 @@ graph TD
 
     subgraph L3["Layer 3 — Integration (transport only)"]
         REST["REST API<br/>DRF, 20+ ViewSets/APIViews<br/>JWT Auth + OpenAPI"]
-        MCP["MCP Server<br/>JSON-RPC 2.0<br/>31 tool-group prefixes, 179 tools"]
+        MCP["MCP Server<br/>JSON-RPC 2.0<br/>31 tool-group prefixes, 188 tools"]
     end
 
     subgraph L2["Layer 2 — Application (Single Entry Point, ADR-01)"]

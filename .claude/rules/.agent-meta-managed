@@ -7,9 +7,13 @@ language.md
 lifecycle-tasks.md
 mcp-guardrails.md
 no-worktree-isolation.md
-python-conventions.md
+se-cascade-adr-standard.md
+se-cascade-artifact-taxonomy.md
+se-cascade-review-lifecycle.md
+security-paved-roads.md
 session-conclusion.md
 speech-mode.md
 submodule-protection.md
+threat-model-4-questions.md
 use-lazy-rules.md
 use-orchestrator.md
