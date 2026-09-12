@@ -147,11 +147,12 @@ def test_preset_mandatory_fields_do_not_drive_create_required_on_requirement() -
     minimal Requirement create on standard/extended with
     "acceptance_criteria: is required".
 
-    ``mandatory_fields`` keeps its one shipped consumer,
-    ``workflow.precondition_rules`` rule 5, which gates the approval
-    transition. Only the model can make a field required at create time, so
-    ``title`` (``blank=False``, no default) stays required on every preset
-    while ``description``/``acceptance_criteria`` (both ``blank=True``) do not.
+    ``workflow.precondition_rules`` rule 5 gates the approval transition and
+    reads the definition-scoped source (#912: ``required`` flags, with the
+    legacy Requirement list folded in). Only the model can make a field required
+    at create time, so ``title`` (``blank=False``, no default) stays required on
+    every preset while ``description``/``acceptance_criteria`` (both
+    ``blank=True``) do not.
     """
     by_preset = {
         preset: {a["name"]: a for a in introspect_core_attributes("Requirement", preset)}
@@ -168,6 +169,27 @@ def test_command_seeds_one_row_per_item_type_and_preset(tenant) -> None:
     call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
     rows = GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant.id)
     assert rows.count() == len(BOOTSTRAP_ITEM_TYPES) * len(PRESETS)
+
+
+@pytest.mark.django_db
+def test_command_warns_about_mandatory_fields_only_for_requirement(tenant) -> None:
+    """#912: the migrate-time warning fired for 10/11 item types (22 lines).
+
+    The legacy list is Requirement-only now, so no other item type may be
+    reported; Requirement keeps its hygiene finding.
+    """
+    from io import StringIO
+
+    out = StringIO()
+    call_command(
+        "bootstrap_attribute_definitions", "--tenant", str(tenant.id), stdout=out
+    )
+    output = out.getvalue()
+    for item_type in BOOTSTRAP_ITEM_TYPES:
+        if item_type == "Requirement":
+            continue
+        assert f"{item_type}/" not in output, output
+    assert "Requirement/standard" in output, output
 
 
 @pytest.mark.django_db

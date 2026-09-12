@@ -238,7 +238,12 @@ def check_mandatory_fields(
     target_state: str,
     change_reason: str = "",
 ) -> Optional[tuple[str, str]]:
-    """Check the tier's ``mandatory_fields`` on an approval transition.
+    """Check the tier's mandatory fields on an approval transition.
+
+    The mandatory set is definition-scoped (#912): the attribute definition's
+    ``required`` flags for ``(item_type, tier)``, with the legacy Requirement
+    ``mandatory_fields`` list folded in so that item type's behaviour is
+    unchanged (see :mod:`attribute_definitions.mandatory_fields`).
 
     Args:
         workspace_id: Workspace UUID string (drives the tier lookup).
@@ -261,20 +266,32 @@ def check_mandatory_fields(
     try:
         from presets.services import get_preset
 
-        rules = get_preset(str(workspace_id))
-        tier = rules.preset
-        mandatory = tuple(rules.mandatory_fields or ())
+        tier = get_preset(str(workspace_id)).preset
     except Exception:  # noqa: BLE001 — fail-open (see module docstring)
         logger.exception(
             "precondition_rules: preset lookup failed for ws=%s", workspace_id
         )
         return None
 
-    if not mandatory:
-        return None
-
     entity = _load_entity(item_type, item_id)
     if entity is None:
+        return None
+
+    try:
+        from attribute_definitions.mandatory_fields import scoped_mandatory_fields
+
+        mandatory = scoped_mandatory_fields(
+            getattr(entity, "tenant_id", None), item_type, tier
+        )
+    except Exception:  # noqa: BLE001 — fail-open (see module docstring)
+        logger.exception(
+            "precondition_rules: mandatory-field resolution failed for %s/%s",
+            item_type,
+            tier,
+        )
+        return None
+
+    if not mandatory:
         return None
 
     missing: list[str] = []
@@ -469,6 +486,10 @@ def check_verifies_link(
 
         rules = get_preset(str(workspace_id))
         tier = rules.preset
+        # Rule 7 uses ``mandatory_fields`` purely as an Extended-tier lever
+        # (``traceability_target``), not as a field-completeness policy — that
+        # is rule 5's job and now reads the definition-scoped source (#912).
+        # *tier* drives the user-facing message below.
         mandatory = tuple(rules.mandatory_fields or ())
     except Exception:  # noqa: BLE001 — fail-open (see module docstring)
         logger.exception(

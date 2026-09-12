@@ -4,8 +4,10 @@ DB-backed tests for the SE-conformance transition gates.
 leaf_id : COMP-WE-002 (extension)
 
 Lever 1 — mandatory-field completeness
-    ``presets.registry.mandatory_fields`` is declared per rigor tier and is now
-    enforced on approval transitions by
+    The mandatory set is derived per ``(item_type, preset)`` from the attribute
+    definition's ``required`` flags, with the legacy Requirement
+    ``presets.registry.mandatory_fields`` list folded in (#912); it is enforced
+    on approval transitions by
     ``workflow.precondition_rules.check_mandatory_fields``.
 
 Lever 3 — verification evidence
@@ -27,6 +29,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from django.core.management import call_command
 
 from persistence.models import (
     Artifact,
@@ -237,6 +240,32 @@ class TestMandatoryFieldGate:
 
         assert result.valid is True, result.error_message
 
+    def test_extended_requirement_gate_is_unchanged_by_the_scoped_source(
+        self, tenant
+    ):
+        """#912: with a real definition row present, the definition's ``required``
+        flags must not weaken the Requirement approval gate — the legacy preset
+        list stays folded in for this one item type."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        req = _requirement(tenant, ws, title="R1", description="", acceptance_criteria="")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert "description" in result.error_message
+        assert "acceptance_criteria" in result.error_message
+        assert "traceability_target" not in result.error_message
+
     def test_extended_blocks_when_change_reason_is_blank(self, tenant):
         """``change_reason`` is a request-level mandatory field on Extended.
 
@@ -350,6 +379,27 @@ class TestSharedValidatorStaysGenericAcrossArtifactTypes:
         ws = _workspace(tenant, "extended")
         _make_workflow(tenant, ws, "adr_default", "Adr")
         adr = self._adr(tenant, ws, title="ADR-1", description="a decision")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=adr.id,
+            item_type="Adr",
+            current_state="In Review",
+            target_state="Approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_adr_approval_does_not_inherit_the_requirement_description_policy(
+        self, tenant
+    ):
+        """#912: the Requirement-shaped legacy list used to make ``description``
+        (a real Adr column) mandatory at approval. The definition marks it
+        optional, so the scoped source must not demand it."""
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "adr_default", "Adr")
+        adr = self._adr(tenant, ws, title="ADR-2", description="")
 
         result = _validate(
             tenant=tenant,
