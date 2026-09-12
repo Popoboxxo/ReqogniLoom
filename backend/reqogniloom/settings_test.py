@@ -131,6 +131,37 @@ LLM_ALLOW_PRIVATE_BASE_URL = True
 # whichever .env happens to be on disk.
 LLM_SYNC_TIMEOUT_SECONDS = 25
 
+# #943: the REST/MCP throttle ceilings are environment-aware through
+# settings.py's ``_IS_NON_PROD``, which depends on the ambient DJANGO_ENV. CI's
+# backend-test job never sets DJANGO_ENV, so the suite silently ran with the
+# *production* ceilings (600/min for an authenticated REST caller). The
+# transport contract-matrix test
+# (attribute_definitions/tests/test_transport_contract_matrix.py) drives
+# thousands of authenticated REST calls per run and started returning 429 once
+# that suite was wired into the CI matrix, failing the ratchet on a throttle
+# response instead of a contract violation.
+#
+# Pinned here to the same non-prod ceilings settings.py already documents for
+# dev/test/CI (its own defaults are "20000/min" etc.), for the same reason as
+# LLM_ALLOW_PRIVATE_BASE_URL above: test behaviour must not depend on whichever
+# DJANGO_ENV the runner happens to export. The dedicated throttle suites
+# (rest_api/tests/test_security_hardening_269.py,
+# mcp_server/tests/test_mcp_transport_throttling.py) still override these rates
+# explicitly to assert the limiting behaviour itself.
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,
+    "DEFAULT_THROTTLE_RATES": {
+        **REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],
+        "user": "20000/min",
+        "anon": "20000/min",
+        "login": "1000/min",
+        "login_ip": "5000/min",
+        "refresh": "1000/min",
+        "mcp_key": "20000/min",
+        "mcp_ip": "20000/min",
+    },
+}
+
 # REQ-138 (SYSTEMAUDIT_2026-08-27 P0): pinned, independent of the ambient
 # CSRF_TRUSTED_ORIGINS env var. settings.py reads it via
 # config("CSRF_TRUSTED_ORIGINS", default=...) — a root .env listing

@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 188,
+  "tool_count": 192,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -515,6 +515,19 @@
           "parent_id": {
             "type": "string",
             "description": "Optional UUID of the parent ArchitectureElement. If omitted, a root element is created (subject to the workspace's single-root invariant I5). If provided, the new element is attached as a child of that element (invariants I1/I3 apply)."
+          },
+          "asil_level": {
+            "type": "string",
+            "description": "Functional-safety ASIL level (REQ-L3-RF004-004)."
+          },
+          "make_or_buy": {
+            "type": "string",
+            "description": "Make-or-buy decision (REQ-L3-RF004-004)."
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
           }
         },
         "required": [
@@ -693,7 +706,38 @@
           },
           "data": {
             "type": "object",
-            "description": "Fields to update (title, description, element_type, expected_version, parent_id). 'parent_id' is optional: omit it to leave the current parent unchanged, set it to a UUID to re-parent, or set it to null to detach the element to root (subject to invariants I1/I3/I5)."
+            "description": "Fields to update (title, description, element_type, asil_level, make_or_buy, custom_fields, expected_version, parent_id). 'parent_id' is optional: omit it to leave the current parent unchanged, set it to a UUID to re-parent, or set it to null to detach the element to root (subject to invariants I1/I3/I5).",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "element_type": {
+                "type": "string"
+              },
+              "asil_level": {
+                "type": "string"
+              },
+              "make_or_buy": {
+                "type": "string"
+              },
+              "custom_fields": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+              },
+              "parent_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expected_version": {
+                "type": "integer"
+              }
+            }
           }
         },
         "required": [
@@ -1136,6 +1180,13 @@
               "type": "object"
             },
             "description": "Full replacement attribute list."
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Optional full replacement section list (name, order, visible, layout). Omit to keep the row's current sections."
           }
         },
         "required": [
@@ -1350,6 +1401,10 @@
           },
           "affected_item_ids": {
             "description": "Optional. 'affected_item_ids' as accepted by the change_request service."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Optional. 'custom_fields' as accepted by the change_request service."
           }
         },
         "required": [
@@ -1495,6 +1550,9 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the change_request service."
+          },
+          "custom_fields": {
+            "description": "Optional. 'custom_fields' as accepted by the change_request service."
           }
         },
         "required": [
@@ -1908,6 +1966,10 @@
             "type": "string",
             "description": "Optional. 'abbreviation' as accepted by the glossary service.",
             "default": ""
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Optional. 'custom_fields' as accepted by the glossary service."
           }
         },
         "required": [
@@ -2047,6 +2109,9 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the glossary service."
+          },
+          "custom_fields": {
+            "description": "Optional. 'custom_fields' as accepted by the glossary service."
           }
         },
         "required": [
@@ -2071,6 +2136,11 @@
           },
           "description": {
             "type": "string"
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
           }
         },
         "required": [
@@ -2098,6 +2168,11 @@
           },
           "description": {
             "type": "string"
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
           }
         },
         "required": [
@@ -2288,10 +2363,168 @@
           },
           "description": {
             "type": "string"
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map). Omit to inherit the addressed version's map."
           }
         },
         "required": [
           "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "icd.create",
+      "prefix": "icd",
+      "is_write": true,
+      "description": "Create an Interface Control Document (ICD) at revision 1 with a 'decomposes' TraceLink between its source and target architecture elements (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "name": {
+            "type": "string",
+            "description": "ICD name."
+          },
+          "source_element_id": {
+            "type": "string",
+            "description": "UUID of the source ArchitectureElement."
+          },
+          "target_element_id": {
+            "type": "string",
+            "description": "UUID of the target ArchitectureElement."
+          },
+          "direction": {
+            "type": "string",
+            "description": "unidirectional (default) or bidirectional."
+          },
+          "interface_type": {
+            "type": "string",
+            "description": "Interface classification, e.g. 'provides'."
+          },
+          "semantic_description": {
+            "type": "string"
+          },
+          "preconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "postconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invariants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name",
+          "source_element_id",
+          "target_element_id"
+        ]
+      }
+    },
+    {
+      "name": "icd.query",
+      "prefix": "icd",
+      "is_write": false,
+      "description": "List the Interface Control Documents of a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "icd.read",
+      "prefix": "icd",
+      "is_write": false,
+      "description": "Fetch a single Interface Control Document by ID, including its contract and extended attributes (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the ICD."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "icd.update",
+      "prefix": "icd",
+      "is_write": true,
+      "description": "Update an Interface Control Document's contract (records a new revision) and/or its extended attributes (write). Omitted fields keep their current value.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the ICD."
+          },
+          "direction": {
+            "type": "string"
+          },
+          "interface_type": {
+            "type": "string"
+          },
+          "semantic_description": {
+            "type": "string"
+          },
+          "preconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "postconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invariants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },
@@ -3058,6 +3291,11 @@
           "moscow_priority": {
             "type": "string",
             "description": "MoSCoW priority (Must/Should/Could/Won't)."
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
           }
         },
         "required": [
@@ -3233,6 +3471,11 @@
           "change_reason": {
             "type": "string",
             "description": "Reason for the change."
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
           }
         },
         "required": [
@@ -3640,6 +3883,11 @@
               4
             ],
             "description": "V-model cascade level (1=System, 2=Subsystem, 3=Component, 4=Presentation). Omit to leave unassigned; a decomposed child inherits parent + 1 automatically."
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
           }
         },
         "required": [
@@ -3804,6 +4052,11 @@
               "change_reason": {
                 "type": "string",
                 "description": "Reason for the change. Required when the workspace's change_reason preset policy is 'mandatory' (e.g. extended preset)."
+              },
+              "custom_fields": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
               }
             }
           }
@@ -4332,6 +4585,23 @@
             "type": "string",
             "description": "Test type (default 'Unit')."
           },
+          "test_type": {
+            "type": "string",
+            "enum": [
+              "analysis",
+              "demonstration",
+              "inspection",
+              "integration",
+              "system",
+              "unit"
+            ],
+            "description": "Real TestCase.test_type column value (lowercase, matches the attribute definition's enum options). Distinct from the legacy TitleCase `type` tag."
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
           "linked_req_id": {
             "type": "string",
             "description": "Optional requirement UUID to create a 'verifies' TraceLink."
@@ -4608,7 +4878,46 @@
           },
           "data": {
             "type": "object",
-            "description": "Fields to update (title, description, steps, execution_status). 'status' is accepted as a legacy alias for execution_status."
+            "description": "Fields to update (title, description, steps, test_type, custom_fields, execution_status). 'status' is accepted as a legacy alias for execution_status.",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "test_type": {
+                "type": "string",
+                "enum": [
+                  "analysis",
+                  "demonstration",
+                  "inspection",
+                  "integration",
+                  "system",
+                  "unit"
+                ],
+                "description": "Real lowercase TestCase.test_type value."
+              },
+              "custom_fields": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+              },
+              "execution_status": {
+                "type": "string",
+                "enum": [
+                  "Failed",
+                  "Not Run",
+                  "Passed"
+                ]
+              }
+            }
           }
         },
         "required": [

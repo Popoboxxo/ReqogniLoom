@@ -1488,12 +1488,16 @@ class RiskSerializer(
 
 
 class GoalSerializer(
-    UnknownFieldRejectionMixin,
+    CustomFieldsSerializerMixin,
     WorkflowStateSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
 ):
-    """Serializer for Goal entity (REQ-L2-TE-020, Task 6)."""
+    """Serializer for Goal entity (REQ-L2-TE-020, Task 6).
+
+    ``CustomFieldsSerializerMixin`` also carries the ``UnknownFieldRejectionMixin``
+    behaviour (#851), so it supersedes the previous explicit base.
+    """
 
     # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
     workflow_item_type = "Goal"
@@ -1670,7 +1674,7 @@ class IssueSerializer(
 
 
 class ChangeRequestSerializer(
-    UnknownFieldRejectionMixin,
+    CustomFieldsSerializerMixin,
     WorkflowStateSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
@@ -1680,6 +1684,9 @@ class ChangeRequestSerializer(
 
     Covers the full CCB approval lifecycle:
     draft → submitted → under_review → approved|rejected → implemented
+
+    ``CustomFieldsSerializerMixin`` also carries the ``UnknownFieldRejectionMixin``
+    behaviour (#851), so it supersedes the previous explicit base.
     """
 
     # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
@@ -1805,11 +1812,15 @@ def apply_queryset_optimizations(queryset: Any, entity_type: str) -> Any:
 
 
 class GlossaryTermSerializer(
-    UnknownFieldRejectionMixin,
+    CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     serializers.Serializer,
 ):
-    """Serializer for GlossaryTerm (REQ-L2-RA-001)."""
+    """Serializer for GlossaryTerm (REQ-L2-RA-001).
+
+    ``CustomFieldsSerializerMixin`` also carries the ``UnknownFieldRejectionMixin``
+    behaviour (#851), so it supersedes the previous explicit base.
+    """
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)

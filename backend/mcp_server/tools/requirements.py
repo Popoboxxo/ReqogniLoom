@@ -46,6 +46,7 @@ from application.services import (
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    artifact_custom_fields,
     mcp_audit_handoff,
     optional_uuid,
     require_param,
@@ -78,6 +79,11 @@ def _requirement_to_dict(
     """
     result: Dict[str, Any] = {
         "id": str(req.id),
+        # Epic #934 WS1: the definition exposes ``uid`` as a visible read-only
+        # attribute and the REST serializer already returns it; the MCP read
+        # projection omitted it, so the contract matrix's read-back check saw a
+        # visible attribute missing on MCP only.
+        "uid": getattr(req, "uid", None),
         "title": req.title,
         "description": req.description,
         "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
@@ -91,6 +97,10 @@ def _requirement_to_dict(
         "level": getattr(req, "level", None),
         "suspect": getattr(req, "suspect", False),
         "version": req.version,
+        # REQ-L2-AS-037 / Epic #934 WS1: the extended attributes live on the
+        # backing Artifact; the read must surface them or an MCP write of a
+        # defined custom attribute round-trips invisibly.
+        "custom_fields": artifact_custom_fields(req),
     }
     if hasattr(req, "artifact") and req.artifact:
         result["workspace_id"] = str(req.artifact.workspace_id)
@@ -195,6 +205,19 @@ class RequirementsToolGroup(BaseToolGroup):
                             "parent + 1 automatically."
                         ),
                     },
+                    # REQ-L2-AS-037: extended (user-defined) attributes. Nested
+                    # under `custom_fields` exactly as the definition validation
+                    # expects; declared here so `additionalProperties: false`
+                    # does not reject it client-side.
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map) defined by this workspace's attribute "
+                            "definition."
+                        ),
+                    },
                 },
                 "required": ["workspace_id", "title"],
                 # Issue #409: without this, unknown fields in a create payload
@@ -241,6 +264,14 @@ class RequirementsToolGroup(BaseToolGroup):
                                     "Reason for the change. Required when the "
                                     "workspace's change_reason preset policy "
                                     "is 'mandatory' (e.g. extended preset)."
+                                ),
+                            },
+                            "custom_fields": {
+                                "type": "object",
+                                "additionalProperties": True,
+                                "description": (
+                                    "Extended user-defined attributes (flat "
+                                    "key/value map). Replaces the stored map."
                                 ),
                             },
                         },
@@ -406,6 +437,9 @@ class RequirementsToolGroup(BaseToolGroup):
         complexity_fibonacci = params.get("complexity_fibonacci")
         verification_method = params.get("verification_method")
         level = params.get("level")
+        # REQ-L2-AS-037 / Epic #934 WS1: the extended attributes were accepted
+        # by RequirementService.create_requirement() but silently dropped here.
+        custom_fields = params.get("custom_fields")
 
         # Ledger gap #1 / issue #881: same central gate as
         # RequirementViewSet.create.
@@ -432,6 +466,7 @@ class RequirementsToolGroup(BaseToolGroup):
                     complexity_fibonacci=complexity_fibonacci,
                     verification_method=verification_method,
                     level=level,
+                    custom_fields=custom_fields,
                 )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -481,9 +516,16 @@ class RequirementsToolGroup(BaseToolGroup):
         # request never touches must not be re-checked as if it were unset.
         changed_fields = {
             name: _field(name)
-            for name in ("title", "description", "category")
+            for name in ("title", "description", "category", "custom_fields")
             if name in data or name in params
         }
+
+        # Only forward custom_fields when the caller actually sent it: the
+        # service uses an `_UNSET` sentinel so an absent key must not be
+        # conflated with "clear the map".
+        custom_fields_kwargs: Dict[str, Any] = {}
+        if "custom_fields" in data or "custom_fields" in params:
+            custom_fields_kwargs["custom_fields"] = _field("custom_fields")
 
         try:
             # Ledger gap #1 / issue #881: same central gate as
@@ -512,6 +554,7 @@ class RequirementsToolGroup(BaseToolGroup):
                     description=_field("description"),
                     category=_field("category"),
                     change_reason=_field("change_reason"),
+                    **custom_fields_kwargs,
                 )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

@@ -49,7 +49,12 @@ def cf_env(db):
     set_request_tenant(tenant.id)
     try:
         workspace = Workspace.objects.create(
-            tenant=tenant, name="CF WS", preset={"name": "standard"}
+            tenant=tenant,
+            name="CF WS",
+            preset={"name": "standard"},
+            # GoalViewSet.create() 403s unless the workspace opts in; the same
+            # fixture serves every entity type of the round-trip matrix.
+            goals_enabled=True,
         )
         UserRole.objects.create(
             tenant=tenant, user=admin, workspace=workspace, role=ROLE_ADMIN
@@ -86,9 +91,16 @@ def _create(client: APIClient, path: str, payload: dict[str, Any]) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _entity_payloads(workspace_id: Any) -> dict[str, tuple[str, dict[str, Any]]]:
+def _entity_payload(
+    client: APIClient, workspace_id: Any, entity: str
+) -> tuple[str, dict[str, Any]]:
+    """Return ``(collection_path, minimal_payload)`` for one round-trip entity.
+
+    ``icd`` needs two real ArchitectureElement endpoints (source/target) and is
+    therefore built on demand rather than eagerly for every entity.
+    """
     ws = str(workspace_id)
-    return {
+    payloads: dict[str, tuple[str, dict[str, Any]]] = {
         "requirement": (
             "/api/v1/requirements/",
             {"workspace_id": ws, "title": "CF requirement"},
@@ -120,19 +132,89 @@ def _entity_payloads(workspace_id: Any) -> dict[str, tuple[str, dict[str, Any]]]
             "/api/v1/issues/",
             {"workspace_id": ws, "title": "CF issue"},
         ),
+        # Epic #934 WS1: Goal/ChangeRequest/GlossaryTerm gained the mixin and
+        # view/service forwarding in this increment.
+        "goal": (
+            "/api/v1/goals/",
+            {"workspace_id": ws, "title": "CF goal"},
+        ),
+        "change_request": (
+            "/api/v1/change-requests/",
+            {"workspace_id": ws, "title": "CF change request"},
+        ),
+        "glossary": (
+            "/api/v1/glossary/",
+            {"workspace_id": ws, "term": "CF term", "definition": "CF definition"},
+        ),
     }
+    if entity != "icd":
+        return payloads[entity]
+
+    # Icd: source/target must reference real ArchitectureElements (the manager
+    # resolves their backing artifacts for the realizes TraceLink).
+    root = _create(
+        client,
+        "/api/v1/architecture/",
+        {"workspace_id": ws, "title": "CF icd source", "element_type": "block"},
+    )
+    target = _create(
+        client,
+        "/api/v1/architecture/",
+        {
+            "workspace_id": ws,
+            "title": "CF icd target",
+            "element_type": "block",
+            "parent_id": root["id"],
+        },
+    )
+    return (
+        "/api/v1/icds/",
+        {
+            "workspace_id": ws,
+            "name": "CF icd",
+            "source_element_id": root["id"],
+            "target_element_id": target["id"],
+        },
+    )
+
+
+_CREATE_ENTITIES = [
+    "requirement",
+    "need",
+    "architecture",
+    "testcase",
+    "adr",
+    "risk",
+    "issue",
+    "goal",
+    "change_request",
+    "glossary",
+    "icd",
+]
+
+# Goal is lineage-versioned: PATCH 405s by design (create a new version via
+# POST instead), so it cannot appear in the PATCH matrix.
+_PATCH_ENTITIES = [
+    "requirement",
+    "need",
+    "architecture",
+    "testcase",
+    "adr",
+    "risk",
+    "issue",
+    "change_request",
+    "glossary",
+    "icd",
+]
 
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "entity",
-    ["requirement", "need", "architecture", "testcase", "adr", "risk", "issue"],
-)
+@pytest.mark.parametrize("entity", _CREATE_ENTITIES)
 def test_custom_fields_survive_create(cf_env, entity):
     """POST with custom_fields must persist them, not drop them silently."""
     client = _client(cf_env)
-    path, payload = _entity_payloads(cf_env["workspace"].id)[entity]
+    path, payload = _entity_payload(client, cf_env["workspace"].id, entity)
     created = _create(
         client, path, {**payload, "custom_fields": {"owner": "alice", "sprint": 7}}
     )
@@ -147,14 +229,11 @@ def test_custom_fields_survive_create(cf_env, entity):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "entity",
-    ["requirement", "need", "architecture", "testcase", "adr", "risk", "issue"],
-)
+@pytest.mark.parametrize("entity", _PATCH_ENTITIES)
 def test_custom_fields_survive_patch(cf_env, entity):
     """The reported repro: editing a custom field in the UI and saving."""
     client = _client(cf_env)
-    path, payload = _entity_payloads(cf_env["workspace"].id)[entity]
+    path, payload = _entity_payload(client, cf_env["workspace"].id, entity)
     created = _create(
         client, path, {**payload, "custom_fields": {"owner": "alice"}}
     )
@@ -214,7 +293,7 @@ def test_patch_without_custom_fields_leaves_them_untouched_adr_risk_issue(
     by re-reading via GET after an unrelated PATCH.
     """
     client = _client(cf_env)
-    path, payload = _entity_payloads(cf_env["workspace"].id)[entity]
+    path, payload = _entity_payload(client, cf_env["workspace"].id, entity)
     created = _create(
         client, path, {**payload, "custom_fields": {"owner": "alice"}}
     )
@@ -497,6 +576,11 @@ def test_change_reason_is_declared_on_the_serializer(cf_env, entity):
         "AdrSerializer",
         "RiskSerializer",
         "IssueSerializer",
+        # Epic #934 WS1: Goal/ChangeRequest/GlossaryTerm gained the mixin in
+        # this increment (previously declared the field on no serializer).
+        "GoalSerializer",
+        "ChangeRequestSerializer",
+        "GlossaryTermSerializer",
     ],
 )
 def test_custom_fields_is_a_registered_drf_field(cf_env, serializer_name):
@@ -504,3 +588,84 @@ def test_custom_fields_is_a_registered_drf_field(cf_env, serializer_name):
     from rest_api import serializers as s
 
     assert "custom_fields" in getattr(s, serializer_name)().fields
+
+
+# ---------------------------------------------------------------------------
+# Epic #934 WS1 — ChangeRequest create validates the resolved definition (V)
+#
+# Spec section 9: "ChangeRequest-Create validiert die Definition nicht" — REST
+# accepted an out-of-rule extended value while MCP rejected it, so the two
+# transports disagreed (the ``REST+MCP`` / ``V`` baseline entry).
+# ---------------------------------------------------------------------------
+
+_PROBE_NAME = "ws1_probe"
+
+
+def _bootstrap_and_inject_probe(cf_env: dict) -> None:
+    from django.core.management import call_command
+
+    from attribute_definitions.global_definition_store import (
+        GlobalAttributeDefinitionStore,
+    )
+    from attribute_definitions.schema import stored_attributes
+
+    tenant_id = cf_env["tenant"].id
+    call_command("bootstrap_attribute_definitions", tenant=str(tenant_id))
+    store = GlobalAttributeDefinitionStore()
+    row = store.get(tenant_id, "ChangeRequest", "standard")
+    assert row is not None, "bootstrap produced no ChangeRequest/standard definition"
+    attributes = stored_attributes(row.definition_json)
+    attributes.append(
+        {
+            "name": _PROBE_NAME,
+            "kind": "extended",
+            "type": "text",
+            "label": {"de": "WS1 Vertragsprobe", "en": "WS1 contract probe"},
+            "validation": {"length": 8},
+            "order": 9999,
+        }
+    )
+    store.update(tenant_id, "ChangeRequest", "standard", attributes)
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_change_request_create_rejects_out_of_rule_extended_value(cf_env):
+    """REST create must run the definition guard, matching MCP (400)."""
+    _bootstrap_and_inject_probe(cf_env)
+    client = _client(cf_env)
+
+    resp = client.post(
+        "/api/v1/change-requests/",
+        {
+            "workspace_id": str(cf_env["workspace"].id),
+            "title": "CF change request",
+            "custom_fields": {_PROBE_NAME: "x" * 50},
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    details = resp.json().get("error", {}).get("details") or []
+    assert _PROBE_NAME in {d.get("field") for d in details}
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_change_request_create_accepts_in_rule_extended_value(cf_env):
+    """Sanity: an in-rule value still round-trips through the same guard."""
+    _bootstrap_and_inject_probe(cf_env)
+    client = _client(cf_env)
+
+    resp = client.post(
+        "/api/v1/change-requests/",
+        {
+            "workspace_id": str(cf_env["workspace"].id),
+            "title": "CF change request",
+            "custom_fields": {_PROBE_NAME: "ok"},
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["custom_fields"] == {_PROBE_NAME: "ok"}

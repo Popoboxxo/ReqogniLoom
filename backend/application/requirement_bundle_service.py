@@ -20,6 +20,7 @@ from uuid import UUID
 
 from django.db import connection
 
+from attribute_definitions.schema import ITEM_TYPES
 from auth_tenancy.context import AuthContext
 from traceability.types import LinkType
 
@@ -580,37 +581,60 @@ def describe_attribute_schema(
     added an extended attribute) and never going through
     ``AttributeDefinitionService`` — the same resolver
     ``resolve_export_fields`` (above) and every attribute-definition
-    REST/MCP endpoint use. A workspace with no bootstrapped definition yet
-    falls back to ``REQUIREMENT_ALL_FIELDS`` with every name visible, exactly
-    as ``resolve_export_fields`` does for the same case.
+    REST/MCP endpoint use.
+
+    Epic #934 / WS1 #935 (spec section 9): the known-type set is the canonical
+    :data:`attribute_definitions.schema.ITEM_TYPES`, not the hardcoded
+    ``("Requirement",)`` this used to carry — every item type with a
+    bootstrapped definition is discoverable through both transports. Discovery
+    now runs through the shared ``ArtifactAttributeGateway.discover`` (WS1), so
+    this and every future transport project the resolved definition through one
+    code path; the rows stay byte-compatible
+    (``{entity_type, attribute_name, is_visible}``). The static
+    ``REQUIREMENT_ALL_FIELDS`` fallback is kept ONLY for ``"Requirement"`` (the
+    one type it actually describes); a non-Requirement type whose definition is
+    missing contributes no rows rather than silently reporting Requirement field
+    names under another entity type.
 
     Raises:
         NotFoundError: *entity_type* is not one of the known schemas.
     """
-    known_types: tuple = ("Requirement",)
+    from application.artifact_attribute_gateway import ArtifactAttributeGateway
+
+    known_types: tuple = ITEM_TYPES
     if entity_type is not None:
         if entity_type not in known_types:
             raise NotFoundError(f"Unknown entity_type {entity_type!r}")
         known_types = (entity_type,)
 
+    gateway = ArtifactAttributeGateway()
     result: List[Dict[str, Any]] = []
     for et in known_types:
         try:
-            attributes = AttributeDefinitionService().resolve(
-                ctx, et, workspace_id
-            )["attributes"]
+            descriptors = gateway.discover(ctx, et, workspace_id)
         except AttributeDefinitionNotFound:
-            attributes = [
-                {"name": name, "visible": True} for name in REQUIREMENT_ALL_FIELDS
-            ]
-        for attribute in attributes:
-            result.append(
+            if et != "Requirement":
+                # No static field list exists for any other item type; the
+                # fallback above describes Requirement columns only and must
+                # never be reported under a different ``entity_type``.
+                continue
+            result.extend(
                 {
                     "entity_type": et,
-                    "attribute_name": attribute["name"],
-                    "is_visible": attribute["visible"],
+                    "attribute_name": name,
+                    "is_visible": True,
                 }
+                for name in REQUIREMENT_ALL_FIELDS
             )
+            continue
+        result.extend(
+            {
+                "entity_type": et,
+                "attribute_name": descriptor.name,
+                "is_visible": descriptor.visible,
+            }
+            for descriptor in descriptors
+        )
     return result
 
 

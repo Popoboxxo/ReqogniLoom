@@ -184,6 +184,43 @@ class TestAttributeSchemaEndpoint:
         entity_types = {row["entity_type"] for row in resp.json()}
         assert "Requirement" in entity_types
 
+    def test_lists_visible_attributes_for_every_item_type(
+        self, authed_client, tenant, workspace
+    ):
+        """Epic #934 / WS1 #935 (spec section 9): discovery must resolve every
+        ``ITEM_TYPES`` member, not only Requirement (the hardcoded
+        ``known_types`` regression). Each type's visible attributes must be a
+        subset of what ``attribute-schema`` reports for that same type."""
+        from django.core.management import call_command
+
+        from auth_tenancy.context import AuthContext, AuthMethod
+        from application.attribute_definition_service import AttributeDefinitionService
+        from attribute_definitions.schema import ITEM_TYPES
+
+        call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
+
+        admin_ctx = AuthContext(
+            user_id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            active_roles=("admin",),
+            auth_method=AuthMethod.BEARER_TOKEN,
+        )
+        def_service = AttributeDefinitionService()
+
+        for item_type in ITEM_TYPES:
+            resp = authed_client.get(
+                f"/api/v1/attribute-schema/?entity_type={item_type}"
+                f"&workspace_id={workspace.id}"
+            )
+            assert resp.status_code == 200, (item_type, resp.content)
+            rows = resp.json()
+            assert rows, f"{item_type} discovered no attributes"
+            assert {row["entity_type"] for row in rows} == {item_type}
+            resolved = def_service.resolve(admin_ctx, item_type, workspace.id)["attributes"]
+            visible = {a["name"] for a in resolved if a["visible"]}
+            names = {row["attribute_name"] for row in rows}
+            assert visible <= names, (item_type, sorted(visible - names))
+
     def test_missing_workspace_id_returns_validation_error(self, authed_client):
         resp = authed_client.get("/api/v1/attribute-schema/?entity_type=Requirement")
         assert resp.status_code == 400

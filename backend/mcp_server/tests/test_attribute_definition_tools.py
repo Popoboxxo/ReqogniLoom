@@ -185,6 +185,138 @@ def test_reset_returns_the_restored_definition(group, ctx) -> None:
     assert result.data["definition"]["item_type"] == "Risk"
 
 
+def _risk_workspace_with_definition():
+    """A real tenant/workspace plus a bootstrapped ``Risk`` global default.
+
+    ``sections`` persistence has to be proven against the real store, not a
+    mocked service — a forwarded-but-dropped parameter would pass a mock test.
+    """
+    from attribute_definitions.global_definition_store import (
+        GlobalAttributeDefinitionStore,
+    )
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.models import Tenant, Workspace
+
+    tenant = Tenant.objects.create(
+        name="AttrDef Sections",
+        slug=f"attrdef-sections-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    set_request_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(
+            tenant=tenant, name="ws-sections", preset={"name": "standard"}
+        )
+    finally:
+        clear_request_tenant()
+
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id,
+        "Risk",
+        "standard",
+        [{"name": "title", "kind": "core", "type": "text"}],
+    )
+    return tenant, workspace
+
+
+def _admin_ctx(tenant):
+    from auth_tenancy.context import AuthContext, AuthMethod
+
+    return AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.API_KEY,
+    )
+
+
+def test_update_schema_declares_sections(group) -> None:
+    schema = {t["name"]: t["inputSchema"] for t in group.get_tool_schemas()}
+    assert "sections" in schema["attribute_definition.update"]["properties"]
+    assert "sections" not in schema["attribute_definition.update"]["required"]
+
+
+@pytest.mark.django_db
+def test_update_persists_a_given_sections_list(group) -> None:
+    """Epic #934 / WS1 #935: the MCP twin must accept ``sections`` exactly
+    like the REST PUT does, instead of silently dropping it."""
+    from application.attribute_definition_service import AttributeDefinitionService
+
+    tenant, workspace = _risk_workspace_with_definition()
+    admin_ctx = _admin_ctx(tenant)
+    definition = AttributeDefinitionService().resolve(admin_ctx, "Risk", workspace.id)
+    sections = [
+        {"name": "general", "order": 0, "visible": False, "layout": "full"},
+        {"name": "more", "order": 1, "visible": True, "layout": "half"},
+    ]
+
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(workspace.id),
+            "attributes": definition["attributes"],
+            "sections": sections,
+        },
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is True, result.message
+    from attribute_definitions.schema import stored_sections
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    row = WorkspaceAttributeDefinitionStore().get(tenant.id, workspace.id, "Risk")
+    assert row is not None
+    assert stored_sections(row.definition_json) == sections
+
+
+@pytest.mark.django_db
+def test_update_rejects_an_invalid_sections_payload(group) -> None:
+    """An invalid ``sections`` payload must surface as a VALIDATION_ERROR,
+    not be silently dropped as it was before this increment."""
+    from application.attribute_definition_service import AttributeDefinitionService
+
+    tenant, workspace = _risk_workspace_with_definition()
+    admin_ctx = _admin_ctx(tenant)
+    definition = AttributeDefinitionService().resolve(admin_ctx, "Risk", workspace.id)
+
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(workspace.id),
+            "attributes": definition["attributes"],
+            "sections": [{"name": "general", "order": 0, "layout": "no-such-layout"}],
+        },
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "layout" in result.message
+
+
+@pytest.mark.django_db
+def test_update_rejects_a_non_list_sections_param(group, ctx) -> None:
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(uuid.uuid4()),
+            "attributes": [],
+            "sections": "nope",
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
 @pytest.mark.django_db
 def test_get_maps_a_cross_tenant_workspace_id_to_permission_denied() -> None:
     """Adversarial probe (standing instruction on this SDD run): a

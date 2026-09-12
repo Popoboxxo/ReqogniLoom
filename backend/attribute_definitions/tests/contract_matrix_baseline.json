@@ -1,0 +1,238 @@
+{
+  "format": "reqogniloom.attribute-contract-matrix.baseline",
+  "version": 1,
+  "spec": "docs/se/attribut/attribut-umsetzungsspezifikation.md sections 9 and 11",
+  "test": "backend/attribute_definitions/tests/test_transport_contract_matrix.py",
+  "generated_for": "REST (APIClient + JWT) and MCP (ToolRegistry.dispatch_request + reqlo_* API key) driven against the real test DB, with a synthetic extended attribute 'ws0_probe' injected into every bootstrapped definition.",
+  "checks": {
+    "CREATE": "the bare create for the item type failed (attribute '*')",
+    "W": "a create carrying the attribute was rejected",
+    "R": "the read-back did not return the attribute key",
+    "V": "REST and MCP disagreed on accepting an out-of-rule probe value",
+    "UPDATE": "the create -> update -> read path did not round-trip the new value",
+    "ROUNDTRIP": "the read-back value differed from the written value (or was not stable across reads)",
+    "DISCOVERY": "the REST attribute-schema endpoint / MCP attribute_definition.get omitted the item type or an attribute",
+    "SEARCH": "artifact.search did not surface the backing Artifact's extended attributes",
+    "TREE": "artifact.get_tree did not surface a node's extended attributes"
+  },
+  "semantics": "Ratchet, not a wish-list: the test is green while ACTUAL violations are a SUBSET of the violations list and ACTUAL limitations are a SUBSET of the limitations list; a NEW entry of either kind fails, and (strict shrink) an entry that no longer reproduces also fails. Remove closed entries when a WS lands. violations carry ws_issue; limitations carry the concrete issue (WS0 #941 or WS1 #935) and a reason that names exactly why the cell cannot be exercised.",
+  "limitations": [
+    {
+      "item_type": "*",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "artifact.get_tree",
+      "issue": "#935",
+      "reason": "not probed by this in-process matrix: the harness does not seed the parent/child hierarchy the tree probe would walk (WS1 parity, #935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "artifact.search",
+      "issue": "#935",
+      "reason": "not probed by this in-process matrix: SearchService needs a populated full-text/vector index the harness does not build (WS1 parity, #935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "attribute_definition.update(sections)",
+      "issue": "#935",
+      "reason": "not probed: a write probe would mutate the workspace definition under test; sections round-trip is WS1 parity scope (#935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "extended",
+      "transport": "REST+MCP",
+      "attribute": "boolean",
+      "issue": "#941",
+      "reason": "no core boolean attribute exists in any bootstrapped definition, so no boolean validation rule is violable on either transport (WS0 evidence gap, #941)"
+    },
+    {
+      "item_type": "*",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "artifact.get_tree",
+      "issue": "#935",
+      "reason": "not probed by this in-process matrix: the harness does not seed the parent/child hierarchy the tree probe would walk (WS1 parity, #935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "artifact.search",
+      "issue": "#935",
+      "reason": "not probed by this in-process matrix: SearchService needs a populated full-text/vector index the harness does not build (WS1 parity, #935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "attribute_definition.update(sections)",
+      "issue": "#935",
+      "reason": "not probed: a write probe would mutate the workspace definition under test; sections round-trip is WS1 parity scope (#935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "minimal",
+      "transport": "REST+MCP",
+      "attribute": "boolean",
+      "issue": "#941",
+      "reason": "no core boolean attribute exists in any bootstrapped definition, so no boolean validation rule is violable on either transport (WS0 evidence gap, #941)"
+    },
+    {
+      "item_type": "*",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "artifact.get_tree",
+      "issue": "#935",
+      "reason": "not probed by this in-process matrix: the harness does not seed the parent/child hierarchy the tree probe would walk (WS1 parity, #935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "artifact.search",
+      "issue": "#935",
+      "reason": "not probed by this in-process matrix: SearchService needs a populated full-text/vector index the harness does not build (WS1 parity, #935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "attribute_definition.update(sections)",
+      "issue": "#935",
+      "reason": "not probed: a write probe would mutate the workspace definition under test; sections round-trip is WS1 parity scope (#935)"
+    },
+    {
+      "item_type": "*",
+      "preset": "standard",
+      "transport": "REST+MCP",
+      "attribute": "boolean",
+      "issue": "#941",
+      "reason": "no core boolean attribute exists in any bootstrapped definition, so no boolean validation rule is violable on either transport (WS0 evidence gap, #941)"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "Goal",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "issue": "#941",
+      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (WS0 contract-matrix evidence gap, #941)"
+    },
+    {
+      "item_type": "Goal",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "issue": "#941",
+      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (WS0 contract-matrix evidence gap, #941)"
+    },
+    {
+      "item_type": "Goal",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "issue": "#941",
+      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (WS0 contract-matrix evidence gap, #941)"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "status",
+      "issue": "#935",
+      "reason": "read-back omits the visible 'status' attribute (enum); the transport's read projection does not yet carry it (WS1 parity, #935)"
+    }
+  ],
+  "violations": []
+}

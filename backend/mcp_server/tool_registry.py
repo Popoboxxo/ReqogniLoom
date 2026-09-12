@@ -134,6 +134,11 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "change_request.delete",
     "change_request.outdate",
     "change_request.reactivate",
+    # Epic #934 WS1: Icd MCP tool group (Transport-Parität). create/update are
+    # the only mutating tools — icd.read/icd.query are read-only via the
+    # ".read"/".query" suffix below.
+    "icd.create",
+    "icd.update",
     "prompt_template.create",
     "prompt_template.update",
     "prompt_template.delete",
@@ -557,6 +562,7 @@ class ToolRegistry:
         from mcp_server.tools.memory import MemoryToolGroup
         from mcp_server.tools.link_type import LinkTypeToolGroup
         from mcp_server.tools.attribute_definition import AttributeDefinitionToolGroup
+        from mcp_server.tools.icd import IcdToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -625,6 +631,9 @@ class ToolRegistry:
             # (mcp_server/tools/base.py::validate_artifact_write), and the CSV
             # bulk importer (ImportService._validate_attribute_definitions).
             "attribute_definition": AttributeDefinitionToolGroup(),
+            # Epic #934 WS1: ICD CRUD parity on MCP (previously REST-only).
+            # Writes run the shared validate_artifact_write gate.
+            "icd": IcdToolGroup(),
         })
 
     def list_tools(

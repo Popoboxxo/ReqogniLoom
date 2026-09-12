@@ -74,7 +74,7 @@ def get_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> Icd:
     req_id: REQ-066, REQ-L2-ICD-001
     leaf_id: COMP-ICD-001
     """
-    return Icd.objects.get(id=icd_id, tenant_id=tenant_id)
+    return Icd.objects.select_related("artifact").get(id=icd_id, tenant_id=tenant_id)
 
 
 def list_icds(workspace_id: uuid.UUID, tenant_id: uuid.UUID) -> list[Icd]:
@@ -94,9 +94,9 @@ def list_icds(workspace_id: uuid.UUID, tenant_id: uuid.UUID) -> list[Icd]:
     leaf_id: COMP-ICD-001
     """
     return list(
-        Icd.objects.filter(workspace_id=workspace_id, tenant_id=tenant_id).order_by(
-            "-created_at"
-        )
+        Icd.objects.select_related("artifact")
+        .filter(workspace_id=workspace_id, tenant_id=tenant_id)
+        .order_by("-created_at")
     )
 
 

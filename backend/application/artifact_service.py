@@ -43,6 +43,7 @@ from auth_tenancy.context import AuthContext
 TenantContext = AuthContext
 
 from persistence.models import Artifact, Tenant, Workspace
+from persistence.custom_fields import coerce_custom_fields
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -191,11 +192,19 @@ class TreeNodeDTO:
     id: UUID
     artifact_type: str
     children: List["TreeNodeDTO"] = field(default_factory=list)
+    #: REQ-L2-AS-037 / Epic #934 WS1: extended attributes of this node's
+    #: backing Artifact, so ``artifact.get_tree`` reports attributes too.
+    custom_fields: Dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
             "id": str(self.id),
             "artifact_type": self.artifact_type,
+            "custom_fields": (
+                dict(self.custom_fields)
+                if isinstance(self.custom_fields, dict)
+                else {}
+            ),
             "children": [c.as_dict() for c in self.children],
         }
 
@@ -618,28 +627,29 @@ class ArtifactService(ServiceBase):
         # Recursive CTE: fetch all descendants in one query
         sql = """
             WITH RECURSIVE tree AS (
-                SELECT id, parent_id, artifact_type, 0 AS depth
+                SELECT id, parent_id, artifact_type, custom_fields, 0 AS depth
                 FROM pl_artifact
                 WHERE id = %s
                   AND workspace_id = %s
 
                 UNION ALL
 
-                SELECT a.id, a.parent_id, a.artifact_type, t.depth + 1
+                SELECT a.id, a.parent_id, a.artifact_type, a.custom_fields, t.depth + 1
                 FROM pl_artifact a
                 INNER JOIN tree t ON a.parent_id = t.id
                 WHERE t.depth < 20
             )
-            SELECT id, parent_id, artifact_type FROM tree ORDER BY depth;
+            SELECT id, parent_id, artifact_type, custom_fields FROM tree ORDER BY depth;
         """
 
         rows: Dict[UUID, Dict] = {}
         with connection.cursor() as cursor:
             cursor.execute(sql, [str(root_id), str(workspace_id)])
-            for row_id, parent_id, artifact_type in cursor.fetchall():
+            for row_id, parent_id, artifact_type, custom_fields in cursor.fetchall():
                 rows[row_id] = {
                     "parent_id": parent_id,
                     "artifact_type": artifact_type,
+                    "custom_fields": coerce_custom_fields(custom_fields),
                     "children": [],
                 }
 
@@ -650,7 +660,11 @@ class ArtifactService(ServiceBase):
 
         # Build nested structure
         nodes: Dict[UUID, TreeNodeDTO] = {
-            uid: TreeNodeDTO(id=uid, artifact_type=data["artifact_type"])
+            uid: TreeNodeDTO(
+                id=uid,
+                artifact_type=data["artifact_type"],
+                custom_fields=data["custom_fields"],
+            )
             for uid, data in rows.items()
         }
         root_node: Optional[TreeNodeDTO] = None

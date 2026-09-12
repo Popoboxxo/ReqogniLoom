@@ -387,6 +387,30 @@ class TestAttributeSchemaTool:
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
 
+    def test_attribute_schema_resolves_every_item_type(self, rb_ctx):
+        """Epic #934 / WS1 #935 (spec section 9): discovery must resolve every
+        ``ITEM_TYPES`` member, not only Requirement."""
+        from django.core.management import call_command
+
+        from attribute_definitions.schema import ITEM_TYPES
+
+        tenant, ctx, workspace = rb_ctx
+        call_command("bootstrap_attribute_definitions", tenant=str(tenant.id))
+
+        for item_type in ITEM_TYPES:
+            result = _exec(
+                RequirementBundleToolGroup(),
+                "requirement_bundle.attribute_schema",
+                {"entity_type": item_type, "workspace_id": str(workspace.id)},
+                ctx,
+            )
+
+            assert result.success is True, (item_type, result.message)
+            rows = result.data["attributes"]
+            assert rows, f"{item_type} discovered no attributes"
+            assert all(row["entity_type"] == item_type for row in rows)
+            assert result.data["count"] == len(rows)
+
     def test_attribute_schema_missing_workspace_id_returns_validation_error(self, rb_ctx):
         _tenant, ctx, _workspace = rb_ctx
 

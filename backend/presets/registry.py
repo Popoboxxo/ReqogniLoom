@@ -67,7 +67,11 @@ class PresetConfig:
 
     Attributes:
         tier: One of "minimal", "standard", "extended".
-        mandatory_fields: Tuple of field names required when creating a Requirement.
+        mandatory_fields: Legacy Requirement-only approval-transition policy
+            names per tier (#912). Kept for backwards compatibility; for every
+            other item type the authoritative mandatory set is the attribute
+            definition's per-attribute ``required`` flags (see
+            :mod:`attribute_definitions.mandatory_fields`).
         features: Mapping of feature_key -> bool for runtime gating.
         baseline_scopes: Ordered list of allowed baseline scope strings.
         workflow_configurability: "fixed" | "partial" | "full".

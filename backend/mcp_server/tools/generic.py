@@ -404,6 +404,18 @@ class GenericCrudToolGroup(BaseToolGroup):
                     getattr(obj, "id", None),
                     status_map=status_map,
                 )
+            # REQ-L2-AS-037 / Epic #934 WS1: ``custom_fields`` lives on the
+            # backing Artifact, not on the entity model, so building the dict
+            # from ``obj.__dict__`` made every extended attribute written via
+            # this tool group unreadable (spec section 9). Mirror
+            # ``rest_api.views._artifact_custom_fields``: prefer a DTO's own
+            # ``custom_fields`` field, else the backing Artifact's map.
+            custom_fields = getattr(obj, "custom_fields", None)
+            if not isinstance(custom_fields, dict):
+                artifact = getattr(obj, "artifact", None)
+                custom_fields = getattr(artifact, "custom_fields", None)
+            if isinstance(custom_fields, dict):
+                data["custom_fields"] = self._jsonify(custom_fields)
             return data
         return {"id": str(getattr(obj, "id", ""))}
 

@@ -195,10 +195,21 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     endpoints exists yet in presets.registry.FEATURE_KEYS, so
     preset_endpoint_key stays "" (gate always passes), matching every other
     non-Baseline BaseEntityViewSet.
+
+    Epic #934 / WS1 #935: writes validate through the shared
+    ``ArtifactAttributeGateway.validate`` (via
+    ``WorkflowTransitionsMixin._validate_attribute_definition``), the same
+    single entry point every MCP write uses. Reads and the service-managed
+    persistence stay direct — see the gateway module docstring.
     """
 
     pagination_class = StandardPagination
     workflow_item_type = "Icd"
+    # REQ-L2-AS-037 / Epic #934 WS1: Icd is one of the eleven bootstrapped
+    # artifact types, so its write paths validate the resolved
+    # AttributeDefinition like every other type. Default preset ("") is used by
+    # the workspace resolver.
+    attribute_item_type = "Icd"
     free_text_extra_fields = (
         "name",
         "semantic_description",
@@ -229,6 +240,18 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ctx = get_auth_context(request)
         return get_user(user_id=ctx.user_id)
 
+    @staticmethod
+    def _icd_custom_fields(icd: Icd) -> dict[str, Any]:
+        """Return the extended attributes stored on *icd*'s backing Artifact.
+
+        REQ-L2-AS-037 / Epic #934 WS1: the map lives on ``Artifact``; missing or
+        unbacked rows normalize to an empty dict so the read contract is stable.
+        """
+        artifact = getattr(icd, "artifact", None)
+        if artifact is None:
+            return {}
+        return getattr(artifact, "custom_fields", None) or {}
+
     def _icd_to_dict(self, icd: Icd) -> dict[str, Any]:
         return {
             "id": str(icd.id),
@@ -236,6 +259,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             "workspace_id": str(icd.workspace_id),
             "source_element_id": str(icd.source_element_id),
             "target_element_id": str(icd.target_element_id),
+            "custom_fields": self._icd_custom_fields(icd),
             # Task 28c-2: was the current IcdVersion's UUID; that row no longer
             # exists, so this is the revision number instead.
             "current_revision": icd.current_revision,
@@ -381,6 +405,23 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # REQ-L2-AS-037 / Epic #934 WS1: run the resolved definition guard
+            # whenever the payload carries extended attributes, so an
+            # out-of-rule value is rejected with 400 instead of being persisted
+            # unvalidated (Icd previously had no attribute binding at all). The
+            # gate keeps writes without attributes on the pre-existing path —
+            # this ViewSet's unit tests run without a bootstrapped definition.
+            custom_fields = request.data.get("custom_fields")
+            if "custom_fields" in request.data:
+                definition_error = self._validate_attribute_definition(
+                    ctx,
+                    UUID(str(workspace_id)),
+                    dict(request.data) if isinstance(request.data, dict) else {},
+                    None,
+                )
+                if definition_error is not None:
+                    return definition_error
+
             dto = IcdCreateDTO(
                 tenant_id=tenant.id,
                 workspace_id=UUID(str(workspace_id)),
@@ -394,6 +435,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 postconditions=request.data.get("postconditions", []),
                 invariants=request.data.get("invariants", []),
                 created_by_id=str(user.id) if user else None,
+                custom_fields=custom_fields,
             )
             result = create_icd(dto)
             return Response(
@@ -404,6 +446,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     "source_element_id": str(result.icd.source_element_id),
                     "target_element_id": str(result.icd.target_element_id),
                     "version": result.current_version.version_number if result.current_version else 1,
+                    # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
+                    "custom_fields": self._icd_custom_fields(result.icd),
                     "created_at": result.icd.created_at.isoformat() if result.icd.created_at else None,
                 },
                 status=status.HTTP_201_CREATED,
@@ -448,6 +492,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "preconditions": icd.preconditions or [],
                 "postconditions": icd.postconditions or [],
                 "invariants": icd.invariants or [],
+                # REQ-L2-AS-037 / Epic #934 WS1: extended attributes.
+                "custom_fields": self._icd_custom_fields(icd),
                 "created_at": icd.created_at.isoformat() if icd.created_at else None,
             })
         except Icd.DoesNotExist:
@@ -467,6 +513,19 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             ctx = get_auth_context(request)
             user = self._resolve_user(request)
 
+            # REQ-L2-AS-037 / Epic #934 WS1: same definition guard as create,
+            # gated on the payload actually carrying extended attributes.
+            if "custom_fields" in request.data:
+                existing_icd = get_icd(UUID(pk), ctx.tenant_id)
+                definition_error = self._validate_attribute_definition(
+                    ctx,
+                    existing_icd.workspace_id,
+                    dict(request.data) if isinstance(request.data, dict) else {},
+                    {"__exists__": True},
+                )
+                if definition_error is not None:
+                    return definition_error
+
             dto = IcdUpdateDTO(
                 direction=request.data.get("direction"),
                 interface_type=request.data.get("interface_type"),
@@ -475,6 +534,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 postconditions=request.data.get("postconditions"),
                 invariants=request.data.get("invariants"),
                 modified_by_id=str(user.id) if user else None,
+                custom_fields=request.data.get("custom_fields"),
             )
             result = update_icd(icd_id=UUID(pk), payload=dto, tenant_id=ctx.tenant_id)
             return Response({
@@ -482,6 +542,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "name": result.icd.name,
                 "version": result.current_version.version_number if result.current_version else 1,
                 "direction": result.current_version.direction if result.current_version else None,
+                # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
+                "custom_fields": self._icd_custom_fields(result.icd),
             })
         except Icd.DoesNotExist:
             return Response(

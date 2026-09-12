@@ -768,3 +768,103 @@ class TestLexicalFallback:
             TenantContext.clear_tenant()
 
         assert result.total_count == 0
+
+
+# ---------- custom_fields from the backing Artifact (#934 WS1 follow-up) ----------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSearchCustomFieldsBackingArtifact:
+    """Increment 1 required ``artifact.search`` to carry the backing Artifact's
+    ``custom_fields``. Every type joined ``pl_artifact`` except ChangeRequest
+    and GlossaryTerm, whose search rows have a nullable Artifact FK and so were
+    silently left with ``{}``. These pin the two previously-missing types,
+    including the NULL-FK row that a LEFT JOIN (not an inner join) must keep.
+    """
+
+    def test_glossary_term_hit_carries_backing_artifact_custom_fields(self):
+        from persistence.models import Artifact, GlossaryTerm
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace, ctx = _seed_workspace("search-cf-glossary")
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="GlossaryTerm",
+            custom_fields={"ws0_probe": "glossary-value"},
+        )
+        term = GlossaryTerm.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact=artifact,
+            term="QA-AI Pipeline",
+            definition="Die Prüfstrecke.",
+        )
+        try:
+            result = SearchService().search(
+                query="QA-AI",
+                ctx=ctx,
+                workspace_id=workspace.id,
+                type_filter=["GlossaryTerm"],
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert [h.id for h in result.results] == [str(term.id)]
+        assert result.results[0].custom_fields == {"ws0_probe": "glossary-value"}
+
+    def test_change_request_hit_carries_backing_artifact_custom_fields(self):
+        from persistence.models import Artifact, ChangeRequest
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace, ctx = _seed_workspace("search-cf-change-request")
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="ChangeRequest",
+            custom_fields={"ws0_probe": "cr-value"},
+        )
+        cr = ChangeRequest.objects.create(
+            tenant=tenant,
+            workspace_id=workspace.id,
+            artifact=artifact,
+            title="QA-AI Rollout",
+        )
+        try:
+            result = SearchService().search(
+                query="QA-AI",
+                ctx=ctx,
+                workspace_id=workspace.id,
+                type_filter=["ChangeRequest"],
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert [h.id for h in result.results] == [str(cr.id)]
+        assert result.results[0].custom_fields == {"ws0_probe": "cr-value"}
+
+    def test_row_without_backing_artifact_is_kept_and_empty(self):
+        """The FK is nullable, so the join must be a LEFT JOIN: a CR/term with
+        no backing Artifact still has to be found, with empty custom_fields."""
+        from persistence.models import GlossaryTerm
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace, ctx = _seed_workspace("search-cf-no-artifact")
+        term = GlossaryTerm.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            term="QA-AI Ohne Artefakt",
+            definition="Kein backing Artifact.",
+        )
+        try:
+            result = SearchService().search(
+                query="QA-AI",
+                ctx=ctx,
+                workspace_id=workspace.id,
+                type_filter=["GlossaryTerm"],
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert [h.id for h in result.results] == [str(term.id)]
+        assert result.results[0].custom_fields == {}

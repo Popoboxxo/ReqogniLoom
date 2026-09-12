@@ -143,10 +143,14 @@ def test_always_allowed_write_keys_are_accepted_even_when_undeclared(
     serializer = serializer_cls(data=payload)
 
     assert serializer.is_valid(), serializer.errors
-    # ``custom_fields`` is undeclared on all six serializers, so the allowlist
-    # lets the key through but the serializer still does not persist it — the
-    # pre-#851 behaviour for that key is preserved.
-    assert "custom_fields" not in serializer.validated_data
+    # The allowlist lets the key through on every serializer. Whether it then
+    # reaches ``validated_data`` depends on the serializer declaring it: the
+    # Epic #934 WS1 migration added ``CustomFieldsSerializerMixin`` to Goal,
+    # ChangeRequest and GlossaryTerm, so those three now persist it while the
+    # still-undeclared Baseline/MainGoal/TraceLink serializers keep the
+    # pre-#851 "accepted but not written" behaviour.
+    declares_custom_fields = "custom_fields" in serializer_cls().fields
+    assert ("custom_fields" in serializer.validated_data) is declares_custom_fields
 
 
 # ---------------------------------------------------------------------------

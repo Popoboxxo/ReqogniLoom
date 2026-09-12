@@ -97,6 +97,9 @@ ENTITY_SPECS: Dict[str, EntityWorkspaceSpec] = {
     ),
     "main_goal": EntityWorkspaceSpec("persistence.models.MainGoal"),
     "diagram": EntityWorkspaceSpec("diagram.models.Diagram"),
+    # Epic #934 WS1: the Icd MCP tool group (icd.read/icd.update) names an ICD
+    # by id; Icd stores its workspace_id directly (no artifact traversal needed).
+    "icd": EntityWorkspaceSpec("icd.models.Icd"),
     # A Global-scope BaselineSnapshot has workspace_id NULL; that resolves to
     # None and correctly falls through to the caller's unscoped path.
     "baseline": EntityWorkspaceSpec("baseline.models.BaselineSnapshot"),
