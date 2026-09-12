@@ -19,8 +19,18 @@ from application.base import ValidationError
 from application.search_service import (
     SEARCHABLE_ARTIFACT_TYPES,
     QueryParser,
+    SearchHit,
     SearchResult,
     SearchService,
+    _RRF_K,
+    _SCORE_ID_SUBSTRING,
+    _SCORE_MAX,
+    _SCORE_TITLE_EXACT,
+    _SCORE_TITLE_PREFIX,
+    _normalize_cosine_similarity,
+    _normalize_fulltext_score,
+    _normalize_lexical_score,
+    _rrf_fuse,
 )
 
 
@@ -111,6 +121,84 @@ class TestSearchServiceValidation:
         with patch("application.search_service.TenantContext"):
             with pytest.raises(ValidationError, match="limit must be"):
                 svc.search(query="foo", ctx=ctx, limit=0)
+
+
+# ---------- Relevance normalization (issue #827) ----------
+
+
+class TestRelevanceNormalization:
+    """`relevance_score` is defined on [0, 1]. Each pass's native scale is
+    mapped by a monotone transform at score-creation time, so the bounds hold
+    everywhere the value is exported (REST view + MCP tool) without any
+    clamping in those consumers, and no ranking order changes."""
+
+    def test_fulltext_ts_rank_is_clamped_to_unit_interval(self):
+        assert _normalize_fulltext_score(0.27) == pytest.approx(0.27)
+        assert _normalize_fulltext_score(2.5) == 1.0
+        assert _normalize_fulltext_score(-0.1) == 0.0
+
+    def test_fulltext_clamp_is_monotone(self):
+        raws = [-1.0, 0.0, 0.06, 0.27, 0.9, 1.0, 3.0]
+        mapped = [_normalize_fulltext_score(r) for r in raws]
+        assert mapped == sorted(mapped)
+        assert all(0.0 <= m <= 1.0 for m in mapped)
+
+    def test_lexical_tiers_are_normalized_by_scale_maximum(self):
+        assert _normalize_lexical_score(_SCORE_TITLE_EXACT) == 1.0
+        assert _normalize_lexical_score(_SCORE_ID_SUBSTRING) == pytest.approx(
+            _SCORE_ID_SUBSTRING / _SCORE_MAX
+        )
+        assert all(
+            0.0 <= _normalize_lexical_score(raw) <= 1.0
+            for raw in (_SCORE_TITLE_EXACT, 2.9, _SCORE_TITLE_PREFIX, 2.0, _SCORE_ID_SUBSTRING)
+        )
+
+    def test_lexical_normalization_preserves_tier_order(self):
+        raws = [_SCORE_ID_SUBSTRING, 2.0, _SCORE_TITLE_PREFIX, 2.9, _SCORE_TITLE_EXACT]
+        mapped = [_normalize_lexical_score(r) for r in raws]
+        assert mapped == sorted(mapped)
+        assert mapped[0] < mapped[-1]
+
+    def test_cosine_distance_maps_to_bounded_similarity(self):
+        # Identical vectors -> distance 0 -> similarity 1.
+        assert _normalize_cosine_similarity(0.0) == 1.0
+        # Orthogonal -> distance 1 -> similarity 0.
+        assert _normalize_cosine_similarity(1.0) == 0.0
+        # Opposite direction -> distance 2 -> similarity -1, clamped to 0.
+        assert _normalize_cosine_similarity(2.0) == 0.0
+
+    def test_cosine_normalization_is_monotone_decreasing_in_distance(self):
+        distances = [0.0, 0.25, 0.5, 1.0, 1.5, 2.0]
+        mapped = [_normalize_cosine_similarity(d) for d in distances]
+        assert mapped == sorted(mapped, reverse=True)
+        assert all(0.0 <= m <= 1.0 for m in mapped)
+
+    def test_rrf_fusion_scores_are_normalized_to_unit_interval(self):
+        def _hit(hit_id: str) -> SearchHit:
+            return SearchHit(
+                id=hit_id,
+                artifact_type="Requirement",
+                title=hit_id,
+                description="",
+                relevance_score=0.0,
+                workspace_id="",
+            )
+
+        # "a" ranks first in every list, "b"/"c"/"d" only in one each.
+        fused = _rrf_fuse(
+            [_hit("a"), _hit("b")],
+            [_hit("a"), _hit("c")],
+            [_hit("a"), _hit("d")],
+        )
+
+        scores = {hit.id: hit.relevance_score for hit in fused}
+        assert all(0.0 <= score <= 1.0 for score in scores.values())
+        # A rank-0 hit in all three lists hits the theoretical maximum -> 1.0.
+        assert scores["a"] == pytest.approx(1.0)
+        # A rank-1 hit in one of three lists stays below it and above zero.
+        expected_rank1 = (1.0 / (_RRF_K + 2)) / (3.0 / (_RRF_K + 1))
+        assert scores["b"] == pytest.approx(expected_rank1)
+        assert scores["a"] > scores["b"] > 0.0
 
 
 # ---------- SearchService — search execution ----------
@@ -391,8 +479,11 @@ class TestLexicalFallback:
         hit = next(h for h in result.results if h.id == str(req.id))
         assert hit.artifact_type == "Requirement"
         # A title match must outrank any ts_rank score (measured: 0.27 for
-        # this row via the full-text pass alone).
-        assert hit.relevance_score >= 2.0
+        # this row via the full-text pass alone). "QA-AI" is a prefix of the
+        # title — the _SCORE_TITLE_PREFIX tier — normalized by _SCORE_MAX
+        # (issue #827).
+        assert hit.relevance_score == pytest.approx(_SCORE_TITLE_PREFIX / _SCORE_MAX)
+        assert 0.0 <= hit.relevance_score <= 1.0
 
     def test_partial_word_in_title_is_found(self):
         """``plainto_tsquery`` matches whole lexemes, so a fragment inside a
@@ -507,6 +598,87 @@ class TestLexicalFallback:
             TenantContext.clear_tenant()
 
         assert [h.id for h in result.results].count(str(req.id)) == 1
+
+    def test_every_relevance_score_is_bounded_to_unit_interval(self):
+        """Issue #827 regression pin: the lexical pass used to emit raw CASE
+        tiers (up to 3.0) straight into the API/MCP payload. After the fix
+        every hit — from any pass — is in [0, 1]."""
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace, ctx = _seed_workspace("search-normalized-bounds")
+        exact = _seed_requirement(
+            tenant,
+            workspace,
+            title="Monitoring",
+            description="Beschreibung ohne Suchwort.",
+            uid="REQ-NORM-1",
+        )
+        substring = _seed_requirement(
+            tenant,
+            workspace,
+            title="Systemweites Monitoring Dashboard",
+            description="Beschreibung ohne Suchwort.",
+            uid="REQ-NORM-2",
+        )
+        try:
+            result = SearchService().search(
+                query="Monitoring",
+                ctx=ctx,
+                workspace_id=workspace.id,
+                type_filter=["Requirement"],
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert {h.id for h in result.results} == {str(exact.id), str(substring.id)}
+        for hit in result.results:
+            assert 0.0 <= hit.relevance_score <= 1.0
+        # Exact title match is the strongest lexical tier -> normalized 1.0.
+        exact_hit = next(h for h in result.results if h.id == str(exact.id))
+        assert exact_hit.relevance_score == pytest.approx(1.0)
+
+    def test_normalization_preserves_lexical_tier_ranking(self):
+        """Issue #827: normalization must be monotone — exact > prefix >
+        substring survives the mapping onto [0, 1], and the returned list
+        stays sorted by descending relevance."""
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace, ctx = _seed_workspace("search-normalized-order")
+        exact = _seed_requirement(
+            tenant, workspace, title="Monitoring", description="x", uid="REQ-ORD-1"
+        )
+        prefix = _seed_requirement(
+            tenant,
+            workspace,
+            title="Monitoring Dashboard",
+            description="x",
+            uid="REQ-ORD-2",
+        )
+        substring = _seed_requirement(
+            tenant,
+            workspace,
+            title="System Monitoring",
+            description="x",
+            uid="REQ-ORD-3",
+        )
+        try:
+            result = SearchService().search(
+                query="Monitoring",
+                ctx=ctx,
+                workspace_id=workspace.id,
+                type_filter=["Requirement"],
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        scores = {h.id: h.relevance_score for h in result.results}
+        assert scores[str(exact.id)] > scores[str(prefix.id)] > scores[str(substring.id)]
+        assert all(0.0 <= score <= 1.0 for score in scores.values())
+        assert [h.id for h in result.results] == [
+            str(exact.id),
+            str(prefix.id),
+            str(substring.id),
+        ]
 
     def test_other_tenant_rows_stay_invisible(self):
         """Tenant isolation must hold for the new lexical pass too."""

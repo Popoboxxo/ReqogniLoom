@@ -25,6 +25,15 @@ entity type, all three passes are combined via Reciprocal Rank Fusion
 (``_rrf_fuse``) instead of the plain max-score merge (``_merge_hits``) —
 see ``SearchService._search_entity_type``'s docstring for the fusion rule.
 
+Every ``SearchHit.relevance_score`` is normalized to the closed interval
+``[0.0, 1.0]`` at the point of score creation (issue #827). The four native
+scales — cosine similarity, ``ts_rank``, the lexical CASE tiers, and the RRF
+fused score — are each mapped by a monotone transform (see
+:func:`_normalize_cosine_similarity`, :func:`_normalize_fulltext_score`,
+:func:`_normalize_lexical_score`, and :func:`_rrf_fuse`), so the normalized
+values are bounded and comparable without changing any ranking: a higher raw
+score never maps to a lower normalized score.
+
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: search(query, ...) → SearchResult
   IF-AS-EXT-OUT-007 — outbound: raw SQL via Django connection (tsvector queries)
@@ -44,7 +53,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field, replace as dataclass_replace
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -70,14 +79,28 @@ _MAX_LIMIT = 100
 
 # #345 Finding 2: a lexical hit always outranks a full-text hit. ts_rank()
 # with default weights stays well below 1.0 in practice (the QA report saw
-# 0.06 for a semantic match), so putting every lexical tier above 1.0 makes
-# "the title literally contains what you typed" a strictly stronger signal
-# than any tsvector score — without needing to normalize ts_rank.
+# 0.06 for a semantic match), so the lexical tiers below deliberately span a
+# scale wider than ts_rank's practical range: "the title literally contains
+# what you typed" is a strictly stronger signal than any tsvector score. The
+# raw tiers are normalized to [0, 1] before they leave this module (issue
+# #827, see :func:`_normalize_lexical_score`); dividing by the scale maximum
+# preserves their strict relative ordering.
 _SCORE_TITLE_EXACT = 3.0
 _SCORE_ID_EXACT = 2.9
 _SCORE_TITLE_PREFIX = 2.5
 _SCORE_TITLE_SUBSTRING = 2.0
 _SCORE_ID_SUBSTRING = 1.5
+
+#: Maximum raw lexical tier — the divisor that maps the lexical scale onto
+#: [0, 1] (issue #827). Derived from the tier constants so it can never drift
+#: out of sync with them.
+_SCORE_MAX = max(
+    _SCORE_TITLE_EXACT,
+    _SCORE_ID_EXACT,
+    _SCORE_TITLE_PREFIX,
+    _SCORE_TITLE_SUBSTRING,
+    _SCORE_ID_SUBSTRING,
+)
 
 # A single character would substring-match nearly every row; below this the
 # lexical pass is skipped and only the full-text pass runs.
@@ -202,7 +225,18 @@ SEARCHABLE_ARTIFACT_TYPES: frozenset[str] = frozenset(_TABLE_SPECS)
 
 @dataclass
 class SearchHit:
-    """Single search result item."""
+    """Single search result item.
+
+    Attributes:
+        relevance_score: Normalized relevance in the closed interval
+            ``[0.0, 1.0]``, where 1.0 is the strongest match (issue #827).
+            Each search pass derives this from its own native scale
+            (cosine similarity, ``ts_rank``, lexical CASE tiers, or the RRF
+            fused score); normalization happens at score creation time, so
+            every exported/persisted score is bounded and comparable across
+            passes and entity types. The mapping is monotone, so the ranking
+            is unchanged.
+    """
 
     id: str
     artifact_type: str  # "Requirement" | "ArchitectureElement" | "TestCase"
@@ -306,6 +340,58 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# ---------- Relevance normalization (issue #827) ----------
+#
+# ``SearchHit.relevance_score`` is defined on the closed interval [0, 1].
+# Each pass produces its raw score in a different, native scale; the helpers
+# below map those scales at the point of score creation (not in a view). All
+# of them are monotone, so a higher raw score never yields a lower normalized
+# score and no ranking order changes.
+
+
+def _clamp_unit_interval(value: float) -> float:
+    """Clamp *value* to the closed unit interval ``[0.0, 1.0]``.
+
+    Clamping is monotone non-decreasing, so it can only collapse values that
+    were already outside the interval — it never swaps two in-range scores.
+    """
+    return max(0.0, min(1.0, value))
+
+
+def _normalize_cosine_similarity(distance: float) -> float:
+    """Map a pgvector cosine *distance* in ``[0, 2]`` onto ``[0, 1]``.
+
+    ``1 - distance`` is the cosine similarity, which lies in ``[-1, 1]``:
+    identical directions give 1, orthogonal vectors 0, opposite directions
+    -1. Relevance is defined as non-negative, so negative similarities are
+    clamped to 0. The map is monotone non-increasing in *distance*, so a pass
+    ordered by ascending distance keeps its ranking.
+    """
+    return _clamp_unit_interval(1.0 - distance)
+
+
+def _normalize_fulltext_score(raw_score: float) -> float:
+    """Map a raw ``ts_rank`` score onto ``[0, 1]`` by clamping.
+
+    ``ts_rank`` is a small, unbounded-above float; in practice it stays well
+    below 1.0 (the QA report measured 0.27 and 0.06). Clamping is monotone
+    non-decreasing, so the full-text pass's ``ORDER BY relevance_score DESC``
+    ordering is preserved.
+    """
+    return _clamp_unit_interval(raw_score)
+
+
+def _normalize_lexical_score(raw_score: float) -> float:
+    """Map a raw lexical CASE tier onto ``[0, 1]``.
+
+    The tiers span ``[_SCORE_ID_SUBSTRING=1.5, _SCORE_TITLE_EXACT=3.0]``;
+    dividing by :data:`_SCORE_MAX` (the tier maximum) yields ``[0.5, 1.0]``
+    while preserving the strict tier order. Division by a positive constant
+    is strictly monotone, so no two lexical hits swap places.
+    """
+    return _clamp_unit_interval(raw_score / _SCORE_MAX)
+
+
 def _merge_hits(*hit_lists: List[SearchHit]) -> List[SearchHit]:
     """Dedup ``hit_lists`` by ``hit.id``, keeping the highest relevance score.
 
@@ -336,15 +422,20 @@ def _rrf_fuse(*rank_lists: List[SearchHit]) -> List[SearchHit]:
     ONLY when a semantic rank list is non-empty for that entity type (see call
     site). When only fulltext+lexical are present, :func:`_merge_hits` (keep
     max score per id) is used instead, unchanged from pre-Task-9 behaviour --
-    replacing it universally would flatten the lexical tiers' large absolute
-    scores (>= 1.5, deliberately dominant, see module header) down into RRF's
-    tiny (<= 1/(_RRF_K+1) ~= 0.016) range, which would make an exact-title
-    lexical match in a semantic-eligible type rank BELOW an unrelated
-    full-text match in a type with no embedding column -- a real cross-type
-    regression this task's brief explicitly warns against introducing.
+    replacing it universally would flatten the lexical tiers' normalized
+    scores (>= 0.5, deliberately dominant, see module header) down into RRF's
+    tiny range (at most ``len(rank_lists) / (_RRF_K + 1)`` -- roughly 0.049
+    for the three lists used here), which would make an exact-title lexical
+    match in a semantic-eligible type rank BELOW an unrelated full-text match
+    in a type with no embedding column -- a real cross-type regression this
+    task's brief explicitly warns against introducing.
 
     Returns hits sorted by fused score descending, each hit's
-    ``relevance_score`` replaced with its fused RRF score.
+    ``relevance_score`` replaced with its fused RRF score normalized to
+    ``[0, 1]`` (issue #827) by dividing by its theoretical maximum: the score
+    a hit that ranks first (rank 0) in *every* ``rank_list`` would receive.
+    The divisor is independent of the hit and strictly positive, so the fused
+    ranking is preserved unchanged.
     """
     scores: Dict[str, float] = {}
     hits_by_id: Dict[str, SearchHit] = {}
@@ -352,9 +443,17 @@ def _rrf_fuse(*rank_lists: List[SearchHit]) -> List[SearchHit]:
         for rank, hit in enumerate(rank_list):
             scores[hit.id] = scores.get(hit.id, 0.0) + 1.0 / (_RRF_K + rank + 1)
             hits_by_id[hit.id] = hit
+    max_score = len(rank_lists) / (_RRF_K + 1.0)
     ordered_ids = sorted(scores, key=lambda hit_id: -scores[hit_id])
     return [
-        dataclass_replace(hits_by_id[hit_id], relevance_score=scores[hit_id])
+        dataclass_replace(
+            hits_by_id[hit_id],
+            relevance_score=(
+                _clamp_unit_interval(scores[hit_id] / max_score)
+                if max_score > 0.0
+                else 0.0
+            ),
+        )
         for hit_id in ordered_ids
     ]
 
@@ -481,7 +580,7 @@ def _run_semantic_query(
                     artifact_type=entity_type,
                     title=obj.title or "",
                     description=obj.description or "",
-                    relevance_score=1.0 - float(obj.distance),
+                    relevance_score=_normalize_cosine_similarity(float(obj.distance)),
                     workspace_id=str(obj.ws_id) if obj.ws_id else "",
                 )
                 for obj in qs
@@ -504,7 +603,7 @@ def _run_semantic_query(
                     artifact_type=entity_type,
                     title=f"{obj.link_type}: {obj.source_id} -> {obj.target_id}",
                     description="",
-                    relevance_score=1.0 - float(obj.distance),
+                    relevance_score=_normalize_cosine_similarity(float(obj.distance)),
                     workspace_id=str(obj.ws_id) if obj.ws_id else "",
                 )
                 for obj in qs
@@ -532,7 +631,7 @@ def _run_semantic_query(
                     artifact_type=entity_type,
                     title=(obj.name or obj.semantic_description or "ICD")[:200],
                     description=obj.semantic_description or "",
-                    relevance_score=1.0 - float(obj.distance),
+                    relevance_score=_normalize_cosine_similarity(float(obj.distance)),
                     workspace_id=str(obj.workspace_id) if obj.workspace_id else "",
                 )
                 for obj in qs
@@ -554,15 +653,25 @@ def _run_semantic_query(
         return []
 
 
-def _rows_to_hits(rows: Any, entity_type: str) -> List[SearchHit]:
-    """Map ``(id, workspace_id, title, description, score)`` rows to hits."""
+def _rows_to_hits(
+    rows: Any,
+    entity_type: str,
+    normalizer: Callable[[float], float],
+) -> List[SearchHit]:
+    """Map ``(id, workspace_id, title, description, score)`` rows to hits.
+
+    ``normalizer`` maps this pass's raw SQL score onto the DTO's [0, 1]
+    relevance scale (issue #827). It must be monotone, since the rows arrive
+    in the pass's own ``ORDER BY ... DESC`` order and normalization must not
+    reorder them.
+    """
     return [
         SearchHit(
             id=str(eid),
             artifact_type=entity_type,
             title=title or "",
             description=description or "",
-            relevance_score=float(score),
+            relevance_score=normalizer(float(score)),
             workspace_id=str(ws_id) if ws_id is not None else "",
         )
         for eid, ws_id, title, description, score in rows
@@ -608,7 +717,7 @@ def _run_fulltext_query(
     try:
         with connection.cursor() as cursor:
             cursor.execute(sql, final_params)
-            return _rows_to_hits(cursor.fetchall(), entity_type)
+            return _rows_to_hits(cursor.fetchall(), entity_type, _normalize_fulltext_score)
     except Exception:
         logger.exception(
             "SearchService: full-text SQL error entity_type=%s", entity_type
@@ -700,7 +809,7 @@ def _run_lexical_query(
     try:
         with connection.cursor() as cursor:
             cursor.execute(sql, final_params)
-            return _rows_to_hits(cursor.fetchall(), entity_type)
+            return _rows_to_hits(cursor.fetchall(), entity_type, _normalize_lexical_score)
     except Exception:
         logger.exception(
             "SearchService: lexical SQL error entity_type=%s", entity_type
@@ -862,9 +971,11 @@ class SearchService(ServiceBase):
                     )
                     # REQ-L3-SEARCH-009: degrade gracefully (empty results for failed type)
 
-        # Sort by relevance DESC (lexical hits score >= 1.5 and therefore
-        # always land above full-text hits), title ASC as a stable tiebreaker
-        # across entity types — the per-type SQL already orders by created_at.
+        # Sort by relevance DESC. Every score is normalized to [0, 1] at the
+        # point of creation (issue #827): lexical hits occupy [0.5, 1.0] and
+        # therefore land above full-text hits in practice. title ASC is a
+        # stable tiebreaker across entity types — the per-type SQL already
+        # orders by created_at.
         hits.sort(key=lambda h: (-h.relevance_score, h.title))
 
         total_count = len(hits)
@@ -904,11 +1015,12 @@ class SearchService(ServiceBase):
         (:func:`_rrf_fuse`). Otherwise (no embedding column for this type, no
         embedding provider configured, or a dimension mismatch -- see
         :func:`_run_semantic_query`) this falls back to the pre-Task-9
-        max-score merge (:func:`_merge_hits`), unchanged: lexical scores are
-        all >= 1.5 and full-text ts_rank scores are far below that, so an
-        exact or substring title match always wins over a weak full-text
-        match. See :func:`_rrf_fuse`'s docstring for why the two are not
-        unconditionally unified into one algorithm.
+        max-score merge (:func:`_merge_hits`), unchanged: normalized lexical
+        scores lie in [0.5, 1.0] (see :func:`_normalize_lexical_score`) while
+        full-text ts_rank scores are far below that in practice, so an exact
+        or substring title match always wins over a weak full-text match. See
+        :func:`_rrf_fuse`'s docstring for why the two are not unconditionally
+        unified into one algorithm.
 
         IF-AS-EXT-OUT-007: raw SQL via django.db.connection for expression
         index compatibility (GIN index on the tsvector expression) backs the
