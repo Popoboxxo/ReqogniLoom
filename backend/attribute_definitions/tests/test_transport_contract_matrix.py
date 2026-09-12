@@ -31,8 +31,8 @@ is GREEN while the set of ACTUAL violations is a SUBSET of the baseline:
   silently rotting there.
 
 It also records ``limitations`` — cells the test environment genuinely cannot
-exercise (today: ``Icd`` has no MCP tool group at all, so MCP cannot be driven
-for it). Those are *not* faked into passing checks; they are reported instead.
+exercise (e.g. a ``reference`` attribute that needs an environment-specific FK
+target). Those are *not* faked into passing checks; they are reported instead.
 
 What is executed per ``(item_type, preset)``
 --------------------------------------------
@@ -206,14 +206,14 @@ _SPECS: dict[str, _Spec] = {
         "goal.read",
         lambda token: {"title": f"cm-{token}"},
     ),
-    # Spec section 9: Icd has no MCP tool group; the REST create is a hand-built
-    # DTO path without attribute binding. ``source_element_id`` /
-    # ``target_element_id`` are filled in by the runner.
+    # Epic #934 WS1: Icd gained an MCP tool group (``icd.create``/``icd.read``),
+    # so the matrix now drives Icd on MCP as well. ``source_element_id`` /
+    # ``target_element_id`` are the reference attributes the runner fills in.
     "Icd": _Spec(
         "/api/v1/icds/",
-        None,
-        None,
-        None,
+        "icd",
+        "icd.create",
+        "icd.read",
         lambda token: {
             "name": f"cm-{token}",
             "source_element_id": None,
@@ -870,8 +870,7 @@ def _run_matrix(env: _Env) -> tuple[list[dict[str, Any]], list[dict[str, Any]], 
                             preset,
                             "MCP",
                             "*",
-                            "no MCP tool group exists for this item type "
-                            "(spec section 9: 'Icd ohne Tools')",
+                            "no MCP tool group exists for this item type",
                         )
                     )
                     continue

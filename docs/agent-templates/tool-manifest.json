@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 188,
+  "tool_count": 192,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1180,6 +1180,13 @@
               "type": "object"
             },
             "description": "Full replacement attribute list."
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Optional full replacement section list (name, order, visible, layout). Omit to keep the row's current sections."
           }
         },
         "required": [
@@ -2365,6 +2372,159 @@
         },
         "required": [
           "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "icd.create",
+      "prefix": "icd",
+      "is_write": true,
+      "description": "Create an Interface Control Document (ICD) at revision 1 with a 'decomposes' TraceLink between its source and target architecture elements (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "name": {
+            "type": "string",
+            "description": "ICD name."
+          },
+          "source_element_id": {
+            "type": "string",
+            "description": "UUID of the source ArchitectureElement."
+          },
+          "target_element_id": {
+            "type": "string",
+            "description": "UUID of the target ArchitectureElement."
+          },
+          "direction": {
+            "type": "string",
+            "description": "unidirectional (default) or bidirectional."
+          },
+          "interface_type": {
+            "type": "string",
+            "description": "Interface classification, e.g. 'provides'."
+          },
+          "semantic_description": {
+            "type": "string"
+          },
+          "preconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "postconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invariants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name",
+          "source_element_id",
+          "target_element_id"
+        ]
+      }
+    },
+    {
+      "name": "icd.query",
+      "prefix": "icd",
+      "is_write": false,
+      "description": "List the Interface Control Documents of a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "icd.read",
+      "prefix": "icd",
+      "is_write": false,
+      "description": "Fetch a single Interface Control Document by ID, including its contract and extended attributes (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the ICD."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "icd.update",
+      "prefix": "icd",
+      "is_write": true,
+      "description": "Update an Interface Control Document's contract (records a new revision) and/or its extended attributes (write). Omitted fields keep their current value.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the ICD."
+          },
+          "direction": {
+            "type": "string"
+          },
+          "interface_type": {
+            "type": "string"
+          },
+          "semantic_description": {
+            "type": "string"
+          },
+          "preconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "postconditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invariants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },
