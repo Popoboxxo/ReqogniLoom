@@ -79,6 +79,11 @@ def _requirement_to_dict(
     """
     result: Dict[str, Any] = {
         "id": str(req.id),
+        # Epic #934 WS1: the definition exposes ``uid`` as a visible read-only
+        # attribute and the REST serializer already returns it; the MCP read
+        # projection omitted it, so the contract matrix's read-back check saw a
+        # visible attribute missing on MCP only.
+        "uid": getattr(req, "uid", None),
         "title": req.title,
         "description": req.description,
         "acceptance_criteria": getattr(req, "acceptance_criteria", ""),

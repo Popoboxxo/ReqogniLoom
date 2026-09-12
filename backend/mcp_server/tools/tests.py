@@ -122,6 +122,10 @@ def _test_case_to_dict(
     """
     result: Dict[str, Any] = {
         "id": str(tc.id),
+        # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
+        # TestCase definition (the REST serializer returns it); the MCP
+        # projection omitted it.
+        "uid": getattr(tc, "uid", None),
         "title": tc.title,
         "description": tc.description,
         "status": resolve_engine_status("TestCase", tc.id, status_map=status_map),

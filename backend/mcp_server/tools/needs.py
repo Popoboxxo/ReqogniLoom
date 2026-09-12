@@ -27,6 +27,10 @@ from mcp_server.tools.base import (
 def _need_to_dict(n: Any) -> dict:
     return {
         "id": str(n.id),
+        # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
+        # StakeholderNeed definition (the REST serializer returns it); the MCP
+        # projection omitted it.
+        "uid": getattr(n, "uid", None),
         "workspace_id": str(n.workspace_id),
         "title": n.title,
         "description": n.description,

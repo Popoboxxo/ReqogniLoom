@@ -63,6 +63,10 @@ def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
     """Serialise an ArchitectureElement ORM object to a dict."""
     result: Dict[str, Any] = {
         "id": str(el.id),
+        # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
+        # ArchitectureElement definition (the REST serializer returns it); the
+        # MCP projection omitted it.
+        "uid": getattr(el, "uid", None),
         "title": el.title,
         "description": el.description,
         "element_type": el.element_type,
