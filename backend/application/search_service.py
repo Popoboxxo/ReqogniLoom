@@ -217,7 +217,16 @@ _TABLE_SPECS: Dict[str, _TableSpec] = {
     "Issue": _TableSpec(
         table="as_issue", artifact_id_col="e.artifact_id", join_sql=_ARTIFACT_LEFT_JOIN
     ),
-    "ChangeRequest": _TableSpec(table="as_change_request", uid_col=None),
+    # ChangeRequest/GlossaryTerm also carry a nullable backing Artifact FK
+    # (added by the data-model consolidation), so they use the same LEFT JOIN
+    # as the other ``as_*`` tables to surface its ``custom_fields`` (#934 WS1
+    # follow-up) — the LEFT JOIN cannot drop pre-existing rows with a NULL FK.
+    "ChangeRequest": _TableSpec(
+        table="as_change_request",
+        uid_col=None,
+        artifact_id_col="e.artifact_id",
+        join_sql=_ARTIFACT_LEFT_JOIN,
+    ),
     "Goal": _TableSpec(
         table="as_goal",
         uid_col=None,
@@ -229,6 +238,8 @@ _TABLE_SPECS: Dict[str, _TableSpec] = {
         title_col="e.term",
         description_col="COALESCE(e.definition, '')",
         uid_col=None,
+        artifact_id_col="e.artifact_id",
+        join_sql=_ARTIFACT_LEFT_JOIN,
     ),
 }
 
@@ -264,8 +275,10 @@ class SearchHit:
     workspace_id: str
     #: REQ-L2-AS-037 / Epic #934 WS1: extended attributes of the backing
     #: Artifact, so ``artifact.search`` result rows carry them too (spec
-    #: section 9). Empty for types whose search passes do not join
-    #: ``pl_artifact``.
+    #: section 9). Every searchable type now joins ``pl_artifact`` (LEFT JOIN
+    #: for the ``as_*`` tables whose FK is nullable) and surfaces the artifact's
+    #: ``custom_fields``; the empty default only covers rows with no backing
+    #: artifact (e.g. a pre-migration row) or a non-object/absent value.
     custom_fields: Dict[str, Any] = dataclass_field(default_factory=dict)
 
 
@@ -679,9 +692,12 @@ def _run_semantic_query(
 def _custom_fields_select(spec: _TableSpec) -> str:
     """SQL expression for a hit's Artifact.custom_fields (or ``NULL``).
 
-    Valid whenever the pass joins ``pl_artifact`` (``artifact_id_col`` set);
-    ``ChangeRequest`` and ``GlossaryTerm`` carry no Artifact FK on their search
-    row, so those hits keep the empty default.
+    Valid whenever the pass joins ``pl_artifact`` (``artifact_id_col`` set),
+    which is now every searchable type: the ``pl_*`` entity tables
+    (Requirement, ArchitectureElement, TestCase, StakeholderNeed) use an inner
+    join and the ``as_*``/glossary tables use a LEFT JOIN onto their nullable
+    FK, so a row without a backing Artifact yields ``NULL`` and falls back to
+    ``{}`` in :func:`_rows_to_hits`.
     """
     return "a.custom_fields" if spec.artifact_id_col else "NULL"
 
