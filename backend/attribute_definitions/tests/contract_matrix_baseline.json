@@ -270,24 +270,6 @@
     },
     {
       "item_type": "ChangeRequest",
-      "preset": "extended",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
-    },
-    {
-      "item_type": "ChangeRequest",
-      "preset": "extended",
-      "transport": "REST+MCP",
-      "attribute": "ws0_probe",
-      "check": "V",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: ChangeRequest create validates the definition on MCP but not on REST — an out-of-rule extended value is accepted by REST and rejected by MCP."
-    },
-    {
-      "item_type": "ChangeRequest",
       "preset": "minimal",
       "transport": "REST",
       "attribute": "*",
@@ -297,48 +279,12 @@
     },
     {
       "item_type": "ChangeRequest",
-      "preset": "minimal",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
-    },
-    {
-      "item_type": "ChangeRequest",
-      "preset": "minimal",
-      "transport": "REST+MCP",
-      "attribute": "ws0_probe",
-      "check": "V",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: ChangeRequest create validates the definition on MCP but not on REST — an out-of-rule extended value is accepted by REST and rejected by MCP."
-    },
-    {
-      "item_type": "ChangeRequest",
       "preset": "standard",
       "transport": "REST",
       "attribute": "*",
       "check": "DISCOVERY",
       "ws_issue": "#935-#942",
       "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
-    },
-    {
-      "item_type": "ChangeRequest",
-      "preset": "standard",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
-    },
-    {
-      "item_type": "ChangeRequest",
-      "preset": "standard",
-      "transport": "REST+MCP",
-      "attribute": "ws0_probe",
-      "check": "V",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: ChangeRequest create validates the definition on MCP but not on REST — an out-of-rule extended value is accepted by REST and rejected by MCP."
     },
     {
       "item_type": "GlossaryTerm",
@@ -351,15 +297,6 @@
     },
     {
       "item_type": "GlossaryTerm",
-      "preset": "extended",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
-    },
-    {
-      "item_type": "GlossaryTerm",
       "preset": "minimal",
       "transport": "REST",
       "attribute": "*",
@@ -369,30 +306,12 @@
     },
     {
       "item_type": "GlossaryTerm",
-      "preset": "minimal",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
-    },
-    {
-      "item_type": "GlossaryTerm",
       "preset": "standard",
       "transport": "REST",
       "attribute": "*",
       "check": "DISCOVERY",
       "ws_issue": "#935-#942",
       "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
-    },
-    {
-      "item_type": "GlossaryTerm",
-      "preset": "standard",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
     },
     {
       "item_type": "Goal",
@@ -405,34 +324,7 @@
     },
     {
       "item_type": "Goal",
-      "preset": "extended",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
-    },
-    {
-      "item_type": "Goal",
       "preset": "minimal",
-      "transport": "REST",
-      "attribute": "*",
-      "check": "DISCOVERY",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
-    },
-    {
-      "item_type": "Goal",
-      "preset": "minimal",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
-    },
-    {
-      "item_type": "Goal",
-      "preset": "standard",
       "transport": "REST",
       "attribute": "*",
       "check": "DISCOVERY",
@@ -443,10 +335,10 @@
       "item_type": "Goal",
       "preset": "standard",
       "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
+      "attribute": "*",
+      "check": "DISCOVERY",
       "ws_issue": "#935-#942",
-      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
     },
     {
       "item_type": "Icd",
@@ -459,34 +351,7 @@
     },
     {
       "item_type": "Icd",
-      "preset": "extended",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: Icd has no attribute binding — the REST create ignores custom_fields and the read never returns them; MCP has no Icd tools at all."
-    },
-    {
-      "item_type": "Icd",
       "preset": "minimal",
-      "transport": "REST",
-      "attribute": "*",
-      "check": "DISCOVERY",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
-    },
-    {
-      "item_type": "Icd",
-      "preset": "minimal",
-      "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
-      "ws_issue": "#935-#942",
-      "reason": "spec section 9: Icd has no attribute binding — the REST create ignores custom_fields and the read never returns them; MCP has no Icd tools at all."
-    },
-    {
-      "item_type": "Icd",
-      "preset": "standard",
       "transport": "REST",
       "attribute": "*",
       "check": "DISCOVERY",
@@ -497,10 +362,10 @@
       "item_type": "Icd",
       "preset": "standard",
       "transport": "REST",
-      "attribute": "ws0_probe",
-      "check": "R",
+      "attribute": "*",
+      "check": "DISCOVERY",
       "ws_issue": "#935-#942",
-      "reason": "spec section 9: Icd has no attribute binding — the REST create ignores custom_fields and the read never returns them; MCP has no Icd tools at all."
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
     },
     {
       "item_type": "Issue",

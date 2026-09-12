@@ -4448,6 +4448,10 @@ def _goal_to_dict(goal: Any) -> dict[str, Any]:
         "title": goal.title,
         "description": getattr(goal, "description", ""),
         "status": resolved_status,
+        # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the backing
+        # Artifact. Goal responses omitted the key entirely, so the read side of
+        # a custom-field write looked like it had been dropped.
+        "custom_fields": _artifact_custom_fields(goal),
         "version": goal.version,
         "created_at": goal.created_at,
         "updated_at": goal.updated_at,
@@ -4538,6 +4542,9 @@ def _cr_to_dict(cr: Any) -> dict[str, Any]:
         "status": getattr(cr, "status", "draft"),
         "requestor_id": str(cr.requestor_id) if cr.requestor_id else None,
         "assigned_reviewer_id": str(cr.assigned_reviewer_id) if cr.assigned_reviewer_id else None,
+        # REQ-L2-AS-037 / Epic #934 WS1: see _goal_to_dict — the extended
+        # attributes on the backing Artifact were never read back.
+        "custom_fields": _artifact_custom_fields(cr),
         "version": cr.version,
         "created_at": cr.created_at,
         "updated_at": cr.updated_at,
@@ -5784,6 +5791,10 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 title=data["title"],
                 description=data.get("description", ""),
                 lineage_id=data.get("lineage_id"),
+                # REQ-L2-AS-037 / Epic #934 WS1: forward the extended attributes
+                # the serializer now declares; absent stays None here (create
+                # semantics, so there is no stored map to preserve).
+                custom_fields=data.get("custom_fields"),
                 ctx=ctx,
             )
             item = self._svc().get(UUID(result["id"]), ctx)
@@ -6531,6 +6542,17 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            # Epic #934 WS1: unlike every sibling ViewSet, CR create never ran
+            # the resolved AttributeDefinition guard, so an out-of-rule extended
+            # value was accepted over REST while MCP rejected it (V parity).
+            definition_error = self._validate_attribute_definition(
+                ctx,
+                data.get("workspace_id"),
+                dict(request.data) if isinstance(request.data, dict) else {},
+                None,
+            )
+            if definition_error is not None:
+                return definition_error
             item = self._svc().create_change_request(
                 workspace_id=UUID(str(data["workspace_id"])),
                 title=data["title"],
@@ -6539,6 +6561,8 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 impact_assessment=data.get("impact_assessment", ""),
                 change_reason=data.get("change_reason", ""),
                 assigned_reviewer_id=data.get("assigned_reviewer_id"),
+                # REQ-L2-AS-037: extended attributes from the serializer.
+                custom_fields=data.get("custom_fields"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -6574,6 +6598,12 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            # REQ-L2-AS-037 / Epic #934 WS1: forward custom_fields only when the
+            # client sent it, so an unrelated PATCH does not wipe the stored map
+            # (same sentinel/presence pattern as RequirementViewSet).
+            extra_kwargs: dict[str, Any] = {}
+            if "custom_fields" in data:
+                extra_kwargs["custom_fields"] = data["custom_fields"]
             item = self._svc().update_change_request(
                 cr_id=UUID(pk),
                 ctx=ctx,
@@ -6585,6 +6615,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 expected_version=data.get("expected_version"),
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -7573,6 +7604,8 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 data["definition"],
                 data.get("synonyms"),
                 data.get("abbreviation", ""),
+                # REQ-L2-AS-037 / Epic #934 WS1: extended attributes.
+                custom_fields=data.get("custom_fields"),
             )
             return Response(
                 GlossaryTermSerializer(term).data, status=status.HTTP_201_CREATED
@@ -7609,6 +7642,12 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         try:
             term_id = UUID(pk)
             data = ser.validated_data
+            # REQ-L2-AS-037 / Epic #934 WS1: forward custom_fields only when the
+            # client actually sent it — update()'s ``_UNSET`` sentinel then means
+            # "leave unchanged" for an unrelated PATCH.
+            update_kwargs: dict[str, Any] = {}
+            if "custom_fields" in data:
+                update_kwargs["custom_fields"] = data["custom_fields"]
             # #82: `term` was previously dropped here — PATCH silently
             # ignored the label field that POST accepts, so a term's name
             # could never be corrected after creation.
@@ -7622,6 +7661,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 expected_version=data.get("expected_version"),
+                **update_kwargs,
             )
             return Response(GlossaryTermSerializer(term).data)
         except Exception as e:
