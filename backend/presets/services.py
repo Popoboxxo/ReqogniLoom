@@ -54,7 +54,9 @@ class PresetRules:
 
     Attributes:
         preset: Tier name string ("minimal" | "standard" | "extended").
-        mandatory_fields: Tuple of required field names for Requirement creation.
+        mandatory_fields: Legacy Requirement-only approval policy names per
+            tier (#912); other item types use their definition's ``required``
+            flags.
         features: Dict mapping feature_key -> bool.
         baseline_scopes: Tuple of allowed baseline scope strings.
         workflow_configurability: "fixed" | "partial" | "full".

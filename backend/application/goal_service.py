@@ -34,6 +34,7 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from application.artifact_service import _clean_custom_fields
 from application.artifact_version_service import (
     ArtifactVersionService,
     lineage_anchor_artifact_id,
@@ -44,6 +45,9 @@ from persistence.models import Artifact, Tenant, Workspace
 from workflow import state_reader
 
 logger = logging.getLogger(__name__)
+
+#: Sentinel distinguishing "custom_fields omitted" from "clear to {}".
+_UNSET = object()
 
 # Fallbacks for the ``goal_default`` preset's states (workflow/definition_store.py).
 # Only used when a workspace has no Goal workflow document at all — every code
@@ -70,6 +74,7 @@ class GoalService(ServiceBase):
         description: str = "",
         lineage_id: Optional[uuid.UUID] = None,
         ctx: Any,
+        custom_fields: Optional[dict] = None,
     ) -> dict:
         """Create a new Goal version, starting or continuing a lineage.
 
@@ -80,10 +85,12 @@ class GoalService(ServiceBase):
             lineage_id: When ``None``, starts a brand-new lineage (sequence
                 1). When given, appends the next version to that lineage.
             ctx: Resolved AuthContext.
+            custom_fields: REQ-L2-AS-037 extended attributes persisted on the
+                dedicated backing Artifact of this version.
 
         Returns:
             dict with the persisted Goal's id, lineage_id, sequence_number,
-            title, description and status.
+            title, description, custom_fields and status.
 
         Raises:
             PermissionDeniedError: ``Workspace.goals_enabled`` is False.
@@ -142,7 +149,10 @@ class GoalService(ServiceBase):
             sequence_number = last.sequence_number + 1
 
         artifact = Artifact.objects.create(
-            tenant=tenant, workspace=workspace, artifact_type="Goal"
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="Goal",
+            custom_fields=_clean_custom_fields(custom_fields),
         )
         # Datenmodell-Konsolidierung: `status` is no longer written explicitly —
         # WorkflowItemState.current_state (seeded below from the workflow
@@ -232,6 +242,9 @@ class GoalService(ServiceBase):
             "sequence_number": goal.sequence_number,
             "title": goal.title,
             "description": goal.description,
+            # REQ-L2-AS-037 / Epic #934 WS1: Goals carry a dedicated Artifact
+            # per version; its custom_fields map must round-trip on the wire.
+            "custom_fields": dict(artifact.custom_fields or {}),
             # Datenmodell-Konsolidierung Phase 1 (Task 12): the `status`
             # column is dropped, so a Goal with no WorkflowItemState row yet
             # (e.g. workflow-init above was a silent no-op) can no longer
@@ -399,6 +412,7 @@ class GoalService(ServiceBase):
         *,
         title: Optional[str] = None,
         description: Optional[str] = None,
+        custom_fields: object = _UNSET,
     ) -> dict:
         """Update a Goal by appending a new version to its lineage.
 
@@ -431,12 +445,19 @@ class GoalService(ServiceBase):
             PermissionDeniedError: Caller lacks write permission.
         """
         goal = self.get(goal_id, ctx)
+        if custom_fields is _UNSET:
+            resolved_custom_fields: Optional[dict] = (
+                dict(goal.artifact.custom_fields or {}) if goal.artifact_id else {}
+            )
+        else:
+            resolved_custom_fields = custom_fields
         return self.create_version(
             workspace_id=goal.workspace_id,
             title=goal.title if title is None else title,
             description=goal.description if description is None else description,
             lineage_id=goal.lineage_id,
             ctx=ctx,
+            custom_fields=resolved_custom_fields,
         )
 
     def get_available_transitions(

@@ -118,6 +118,15 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
                     "items": {"type": "object"},
                     "description": "Full replacement attribute list.",
                 },
+                "sections": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "Optional full replacement section list "
+                        "(name, order, visible, layout). Omit to keep the "
+                        "row's current sections."
+                    ),
+                },
             },
             "required": ["item_type", "workspace_id", "attributes"],
         }
@@ -352,9 +361,14 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
             return ToolResult.error(
                 "VALIDATION_ERROR", "Parameter 'attributes' must be a list."
             )
+        sections = params.get("sections")
+        if sections is not None and not isinstance(sections, list):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'sections', if present, must be a list."
+            )
         try:
             definition = self._get_service().update_workspace(
-                auth_context, item_type, workspace_id, attributes
+                auth_context, item_type, workspace_id, attributes, sections
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))

@@ -70,6 +70,34 @@ _CONTRACT_UPDATE_FIELDS = [
 ]
 
 
+def _apply_custom_fields(icd: Icd, custom_fields: dict[str, Any] | None) -> None:
+    """Persist validated extended attributes on *icd*'s backing Artifact.
+
+    REQ-L2-AS-037 / Epic #934 WS1: the Icd REST path has no DRF serializer, so
+    the flat-map rules are enforced here at the manager boundary (the single
+    write entry point, ADR-01). ``None`` leaves the stored map untouched
+    (update merge semantics); a provided map replaces it.
+
+    Raises:
+        ValueError: the map violates the flat ``custom_fields`` contract
+            (nested values, oversized strings, markup, ...). The ViewSet maps
+            ``ValueError`` to HTTP 400.
+    """
+    if custom_fields is None:
+        return
+    from django.core.exceptions import ValidationError as DjangoValidationError
+
+    from persistence.custom_fields import validate_custom_fields
+
+    try:
+        cleaned = validate_custom_fields(custom_fields)
+    except DjangoValidationError as exc:
+        raise ValueError(exc.messages[0] if exc.messages else str(exc)) from exc
+    ensure_artifact(icd, artifact_type="Icd", workspace_id=icd.workspace_id)
+    icd.artifact.custom_fields = cleaned
+    icd.artifact.save(update_fields=["custom_fields", "modified_at"])
+
+
 def _record_artifact_revision(icd: Icd) -> int:
     """Append the ``ArtifactVersion`` snapshot of *icd*'s current contract.
 
@@ -199,6 +227,9 @@ class IcdCreateDTO:
     postconditions: list[str] = field(default_factory=list)
     invariants: list[str] = field(default_factory=list)
     created_by_id: uuid.UUID | None = None
+    #: REQ-L2-AS-037: extended user-defined attributes persisted on the backing
+    #: Artifact (Epic #934 WS1 — Icd previously had no attribute binding).
+    custom_fields: dict[str, Any] | None = None
 
 
 @dataclass
@@ -216,6 +247,9 @@ class IcdUpdateDTO:
     postconditions: list[str] | None = None
     invariants: list[str] | None = None
     modified_by_id: uuid.UUID | None = None
+    #: REQ-L2-AS-037: extended user-defined attributes. ``None`` = keep the
+    #: artifact's stored map; a provided map replaces it.
+    custom_fields: dict[str, Any] | None = None
 
 
 @dataclass
@@ -362,6 +396,10 @@ class IcdManager:
             # revision is recorded.
             ensure_artifact(icd, artifact_type="Icd", workspace_id=icd.workspace_id)
 
+            # REQ-L2-AS-037 / Epic #934 WS1: Icd had no attribute binding at all
+            # — the extended map is now persisted on the backing Artifact.
+            _apply_custom_fields(icd, payload.custom_fields)
+
             # Datenmodell-Konsolidierung Phase 5 (spec §6.1): record revision 1
             # in the shared revision store and advance the header's counter.
             _record_artifact_revision(icd)
@@ -484,6 +522,11 @@ class IcdManager:
             _record_artifact_revision(icd)
             icd.save(update_fields=_CONTRACT_UPDATE_FIELDS)
             new_version = IcdRevision.from_icd(icd)
+
+            # REQ-L2-AS-037 / Epic #934 WS1: ``None`` keeps the stored map; a
+            # provided map replaces it (same sentinel-free merge semantics as
+            # the other services).
+            _apply_custom_fields(icd, payload.custom_fields)
 
             # IF-ICD-INT-003: audit breaking changes
             if validation_result.is_breaking:

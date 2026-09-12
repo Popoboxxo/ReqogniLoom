@@ -22,6 +22,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
 from rest_framework.test import APIRequestFactory
 
 from rest_api.icd_views import IcdViewSet
@@ -624,3 +625,151 @@ class TestIcdViewSetVersionsAndDiff:
                     response = view(req, pk=str(FAKE_ICD_ID))
 
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Epic #934 WS1 / REQ-L2-AS-037 -- Icd attribute binding (spec section 9:
+# "Icd ohne Attribut-Anbindung"). Drives the real ViewSet -> IcdManager ->
+# Artifact stack, no service mocking.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestIcdCustomFieldsRoundTrip:
+    """custom_fields must persist on the backing Artifact and read back."""
+
+    @staticmethod
+    def _env():
+        from persistence.models import Tenant, User, Workspace
+        from persistence.tenancy import TenantContext
+
+        suffix = uuid.uuid4().hex[:8]
+        tenant = Tenant.objects.create(
+            name=f"ICD-CF-{suffix}", slug=f"icd-cf-{suffix}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        workspace = Workspace.objects.create(
+            tenant=tenant, name="ICD WS", preset={"name": "standard"}
+        )
+        user = User.objects.create(
+            username=f"icd-cf-{suffix}",
+            email=f"icd-cf-{suffix}@t.test",
+            tenant=tenant,
+        )
+        return tenant, workspace, user
+
+    @staticmethod
+    def _element(tenant, workspace, title):
+        from persistence.models import ArchitectureElement, Artifact
+
+        artifact = Artifact.objects.create(
+            artifact_type="ArchitectureElement",
+            tenant=tenant,
+            workspace_id=workspace.id,
+        )
+        return ArchitectureElement.objects.create(
+            tenant=tenant,
+            artifact=artifact,
+            title=title,
+            element_type="block",
+        )
+
+    @staticmethod
+    def _auth_ctx(tenant, user):
+        from auth_tenancy.context import AuthContext, AuthMethod
+
+        return AuthContext(
+            user_id=user.id,
+            tenant_id=tenant.id,
+            active_roles=("admin",),
+            auth_method=AuthMethod.BEARER_TOKEN,
+        )
+
+    @classmethod
+    def _create_icd(cls, factory, workspace, ctx, source, target, custom_fields):
+        req = factory.post(
+            "/api/v1/icds/",
+            data={
+                "name": "CF ICD",
+                "workspace_id": str(workspace.id),
+                "source_element_id": str(source.id),
+                "target_element_id": str(target.id),
+                "custom_fields": custom_fields,
+            },
+            format="json",
+        )
+        req.auth_context = ctx
+        return IcdViewSet.as_view({"post": "create"})(req)
+
+    def test_create_persists_custom_fields_and_retrieve_returns_them(self):
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace, user = self._env()
+        try:
+            source = self._element(tenant, workspace, "src")
+            target = self._element(tenant, workspace, "tgt")
+            ctx = self._auth_ctx(tenant, user)
+            factory = APIRequestFactory()
+
+            created = self._create_icd(
+                factory, workspace, ctx, source, target, {"owner": "alice", "sprint": 7}
+            )
+            assert created.status_code == 201, created.data
+            assert created.data["custom_fields"] == {"owner": "alice", "sprint": 7}
+
+            get_req = factory.get(f"/api/v1/icds/{created.data['id']}/")
+            get_req.auth_context = ctx
+            fetched = IcdViewSet.as_view({"get": "retrieve"})(
+                get_req, pk=created.data["id"]
+            )
+            assert fetched.status_code == 200, fetched.data
+            assert fetched.data["custom_fields"] == {"owner": "alice", "sprint": 7}
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_patch_replaces_and_unrelated_patch_preserves_custom_fields(self):
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace, user = self._env()
+        try:
+            source = self._element(tenant, workspace, "src")
+            target = self._element(tenant, workspace, "tgt")
+            ctx = self._auth_ctx(tenant, user)
+            factory = APIRequestFactory()
+
+            created = self._create_icd(
+                factory, workspace, ctx, source, target, {"owner": "alice"}
+            )
+            assert created.status_code == 201, created.data
+            icd_id = created.data["id"]
+
+            patch_req = factory.patch(
+                f"/api/v1/icds/{icd_id}/",
+                data={"custom_fields": {"owner": "bob", "reviewed": True}},
+                format="json",
+            )
+            patch_req.auth_context = ctx
+            patched = IcdViewSet.as_view({"patch": "partial_update"})(
+                patch_req, pk=icd_id
+            )
+            assert patched.status_code == 200, patched.data
+            assert patched.data["custom_fields"] == {"owner": "bob", "reviewed": True}
+
+            # An unrelated PATCH must not wipe the stored map.
+            unrelated_req = factory.patch(
+                f"/api/v1/icds/{icd_id}/",
+                data={"semantic_description": "unrelated edit"},
+                format="json",
+            )
+            unrelated_req.auth_context = ctx
+            unrelated = IcdViewSet.as_view({"patch": "partial_update"})(
+                unrelated_req, pk=icd_id
+            )
+            assert unrelated.status_code == 200, unrelated.data
+
+            get_req = factory.get(f"/api/v1/icds/{icd_id}/")
+            get_req.auth_context = ctx
+            fetched = IcdViewSet.as_view({"get": "retrieve"})(get_req, pk=icd_id)
+            assert fetched.data["custom_fields"] == {"owner": "bob", "reviewed": True}
+        finally:
+            TenantContext.clear_tenant()

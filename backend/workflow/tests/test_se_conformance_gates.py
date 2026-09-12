@@ -4,8 +4,10 @@ DB-backed tests for the SE-conformance transition gates.
 leaf_id : COMP-WE-002 (extension)
 
 Lever 1 — mandatory-field completeness
-    ``presets.registry.mandatory_fields`` is declared per rigor tier and is now
-    enforced on approval transitions by
+    The mandatory set is derived per ``(item_type, preset)`` from the attribute
+    definition's ``required`` flags, with the legacy Requirement
+    ``presets.registry.mandatory_fields`` list folded in (#912); it is enforced
+    on approval transitions by
     ``workflow.precondition_rules.check_mandatory_fields``.
 
 Lever 3 — verification evidence
@@ -27,6 +29,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from django.core.management import call_command
 
 from persistence.models import (
     Artifact,
@@ -107,6 +110,34 @@ def _make_workflow(tenant: Tenant, ws: Workspace, preset: str, item_type: str) -
             item_type=item_type,
             tenant_id=tenant.id,
         )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _mark_workspace_required(
+    tenant: Tenant, ws: Workspace, item_type: str, preset: str, name: str
+) -> None:
+    """Materialize the workspace definition and flip *name* to ``required``.
+
+    Mirrors an admin override: the global default is materialized on first
+    resolve, then the workspace row is customized locally. Used to prove the
+    approval gate reads the workspace-resolved definition (M4), not the global
+    row and not the Requirement-shaped legacy preset list.
+    """
+    from attribute_definitions.schema import stored_attributes
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    store = WorkspaceAttributeDefinitionStore()
+    TenantContext.set_tenant(tenant.id)
+    try:
+        row = store.resolve(tenant.id, ws.id, item_type, preset)
+        attributes = stored_attributes(row.definition_json)
+        for entry in attributes:
+            if entry["name"] == name:
+                entry["required"] = True
+        store.update(tenant.id, ws.id, item_type, attributes)
     finally:
         TenantContext.clear_tenant()
 
@@ -237,6 +268,56 @@ class TestMandatoryFieldGate:
 
         assert result.valid is True, result.error_message
 
+    def test_extended_requirement_gate_is_unchanged_by_the_scoped_source(
+        self, tenant
+    ):
+        """#912: with a real definition row present, the definition's ``required``
+        flags must not weaken the Requirement approval gate — the legacy preset
+        list stays folded in for this one item type."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        req = _requirement(tenant, ws, title="R1", description="", acceptance_criteria="")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert "description" in result.error_message
+        assert "acceptance_criteria" in result.error_message
+        assert "traceability_target" not in result.error_message
+
+    def test_mandatory_message_lists_each_column_once(self, tenant):
+        """m7: a name carried by BOTH the definition and the legacy Requirement
+        list (``description``) is reported exactly once."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        _mark_workspace_required(tenant, ws, "Requirement", "extended", "description")
+        req = _requirement(
+            tenant, ws, title="R1", description="", acceptance_criteria="ac"
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert result.error_message.count("description") == 1
+
     def test_extended_blocks_when_change_reason_is_blank(self, tenant):
         """``change_reason`` is a request-level mandatory field on Extended.
 
@@ -350,6 +431,79 @@ class TestSharedValidatorStaysGenericAcrossArtifactTypes:
         ws = _workspace(tenant, "extended")
         _make_workflow(tenant, ws, "adr_default", "Adr")
         adr = self._adr(tenant, ws, title="ADR-1", description="a decision")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=adr.id,
+            item_type="Adr",
+            current_state="In Review",
+            target_state="Approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_adr_approval_does_not_inherit_the_requirement_description_policy(
+        self, tenant
+    ):
+        """#912: with a real Adr definition present, only the Adr definition's
+        own ``required`` flags apply. The Requirement-shaped legacy list (which
+        names ``description``) must not leak onto Adr, so an empty optional
+        ``description`` does not block approval."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "adr_default", "Adr")
+        adr = self._adr(tenant, ws, title="ADR-2", description="")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=adr.id,
+            item_type="Adr",
+            current_state="In Review",
+            target_state="Approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_adr_approval_blocks_a_missing_workspace_required_attribute(
+        self, tenant
+    ):
+        """M4/rule-5: a ``required`` Adr attribute set by a workspace override is
+        enforced, and an optional ``description`` still must not block."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "adr_default", "Adr")
+        _mark_workspace_required(tenant, ws, "Adr", "extended", "decision")
+        adr = self._adr(tenant, ws, title="ADR-3", description="", decision="")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=adr.id,
+            item_type="Adr",
+            current_state="In Review",
+            target_state="Approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert "decision" in result.error_message
+        # #912 regression stays meaningful: the optional description is not
+        # demanded even though the workspace has a definition row.
+        assert "description" not in result.error_message
+
+    def test_adr_approval_allows_a_present_workspace_required_attribute(
+        self, tenant
+    ):
+        """The same workspace-resolved gate passes once the attribute is filled."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "adr_default", "Adr")
+        _mark_workspace_required(tenant, ws, "Adr", "extended", "decision")
+        adr = self._adr(
+            tenant, ws, title="ADR-4", description="", decision="chosen"
+        )
 
         result = _validate(
             tenant=tenant,

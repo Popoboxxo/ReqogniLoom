@@ -42,6 +42,7 @@ from django.db import models, transaction
 
 from application.cache_invalidation import invalidate_workspace_caches
 from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
+from attribute_definitions.mandatory_fields import LEGACY_MANDATORY_FIELDS_ITEM_TYPE
 from attribute_definitions.models import GlobalAttributeDefinition
 from attribute_definitions.schema import (
     ITEM_TYPES,
@@ -553,14 +554,18 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
 
 
 def unmatched_mandatory_fields(item_type: str, preset: str) -> list[str]:
-    """Preset ``mandatory_fields`` entries that have no matching attribute.
+    """Legacy preset ``mandatory_fields`` entries with no matching attribute.
 
-    Pure preset-config hygiene, reported as a command warning. It no longer
-    describes anything the definition consumes (the overlay is gone — see
-    :func:`introspect_core_attributes`), but a policy name that matches no
-    column anywhere is still a real finding: ``workflow.precondition_rules``
-    rule 5 has to resolve the very same names to check them at approval.
+    GitHub #912: preset ``mandatory_fields`` is Requirement-only. For the other
+    ten item types the mandatory set is each definition's own ``required`` flags
+    (``attribute_definitions.mandatory_fields``), so resolving the
+    Requirement-shaped names against them only ever produced false positives
+    (the 22-line migrate warning of issue #912). This hygiene check is therefore
+    scoped to Requirement, where the legacy list is still folded into the
+    approval gate.
     """
+    if item_type != LEGACY_MANDATORY_FIELDS_ITEM_TYPE:
+        return []
     names = {a["name"] for a in introspect_core_attributes(item_type, preset)}
     return sorted(set(PresetRegistry().get_preset_config(preset).mandatory_fields) - names)
 

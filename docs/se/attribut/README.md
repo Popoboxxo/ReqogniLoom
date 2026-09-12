@@ -8,6 +8,8 @@ Einstiegspunkt für das **3-Stufen-Attributmodell** über alle 11 Artefakt-Typen
 | `attribut-modell-3-stufen.md` | **Hauptreport (v2, challenged).** Bestandsaufnahme (live gemessen), Vorarbeiten im Repo/GitHub, 9-Punkte-Challenge, korrigierter 3-Stufen-Vorschlag mit Begründung je Attribut, Umsetzungsreihenfolge mit Abhängigkeiten |
 | `attribut-detailtabellen.md` | Einzeltabellen je Artefakt-Typ aus dem ersten Entwurf (Anhang; **wo sie dem Hauptreport widersprechen, gilt der Report**) |
 | `attribut-migrationssystematik.md` | **AWMS** — wie Attribute und Inhalte zwischen Definitionen, Feldern und Scopes bewegt werden (deklarativer Plan, Transform-Registry, Rollback, Schnittstellen) |
+| `attribut-umsetzungsspezifikation.md` | **Umsetzungsspezifikation v3** — Attribute Usability Contract (REST+MCP), Systemfelder (`id`/`owner`/`reporter`/`priority` auf `Artifact`), `Actor`-Kombi-Feld, Display-/Edit-Policy, 12-Spalten-Layout, zentraler Katalog, Phasenplan |
+| `attribut-matrix-3-stufen.md` | **Vollständige Matrix** — alle 11 Artefakt-Typen × alle Attribute × 3 Stufen (S1/S2/S3) mit Träger je Attribut |
 | `attribut-verifikationsprotokoll.md` | Jede tragende Aussage einzeln nachgeprüft, inkl. des präzisierten `uid`-Befunds |
 | `docs/se/attribut/verify_all.py` | Ausführbare Re-Verifikation (13 Prüfungen gegen API + Codestand) |
 
