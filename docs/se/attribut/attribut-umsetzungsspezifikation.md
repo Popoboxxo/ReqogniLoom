@@ -229,7 +229,12 @@ Unverändert wie in `attribut-migrationssystematik.md` spezifiziert (deklarative
 
 Automatisierte Prüf-Matrix: für **jede** `(item_type, preset)` × Transport (REST, MCP) × Attribut wird **W/R/V/Round-Trip** durchgeführt. CI-blockierend.
 
-- Start: **rot** (dokumentiert alle heutigen Lücken aus Abschnitt 9), Ziel: grün.
+- **Grüner Ratchet, kein Startzustand „rot":** Der Test ist grün, solange die **tatsächlichen** Verstöße eine Teilmenge der
+  eingefrorenen Baseline (`contract_matrix_baseline.json`, `violations: []`) sind. Ein **neuer** Verstoß lässt ihn fehlschlagen;
+  ebenso schlägt er fehl, wenn ein Baseline-Eintrag nicht mehr reproduziert (**strict shrink**) — geschlossene Lücken werden
+  aus der Baseline entfernt, statt still zu verrotten.
+- Die noch offenen Lücken aus Abschnitt 9 dokumentiert die Baseline über ihre `limitations`-Liste (Zellen, die die
+  Testumgebung nicht ausüben kann), nicht dadurch, dass der Test rot ist.
 - Jedes neue Attribut und jeder neue Item-Typ muss die Matrix bestehen.
 - Verortung: `backend/attribute_definitions/tests/test_transport_contract_matrix.py` (parametrisiert über `ITEM_TYPES` × `PRESETS`).
 
@@ -247,7 +252,7 @@ Das ist das technische „JEDERZEIT alle Attribute via MCP & REST nutzbar".
 
 | WS | Inhalt | Hängt an | Aufwand |
 |---|---|---|---|
-| **WS0** Fundament | Contract-Matrix (rot), gemeinsamer Gateway, ADR, #912 | – | 1–1,5 Wo |
+| **WS0** Fundament | Contract-Matrix (grüner Ratchet), gemeinsamer Gateway, ADR, #912 | – | 1–1,5 Wo |
 | **WS1** Parität | REST+MCP `custom_fields` für alle 11, Icd, Discovery | WS0 | 2–3 Wo |
 | **WS2** Identität & Systemfelder | `Artifact.owner/reporter/priority`, `Actor` + Kombi-Feld, ID-Systemfeld, `uid`→Import-Schlüssel | WS0 | 2,5–3,5 Wo |
 | **WS3** Display-Engine | `copyable`/`reveal`/`mask`/`display_format`, `ArtifactId`-Doppelklick | WS0 | 1–1,5 Wo |

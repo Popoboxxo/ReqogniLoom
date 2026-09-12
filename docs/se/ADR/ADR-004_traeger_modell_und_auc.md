@@ -4,7 +4,7 @@ title: "Träger-Modell und Attribute Usability Contract (AUC)"
 status: proposed
 date: 2026-09-12
 deciders: [senior-developer, user]
-affected_reqs: []
+affected_reqs: [REQ-147]
 superseded_by: null
 ---
 
@@ -13,15 +13,17 @@ superseded_by: null
 **Status:** proposed
 **Datum:** 2026-09-12
 **Entscheider:** senior-developer, user
-**Betroffene REQs:** — (keine REQ-IDs für das Attribut-Thema vorhanden; siehe Bezug)
+**Betroffene REQs:** REQ-147 (ReqIF-Import: UID-Matching, unbekannte Attribute → `custom_fields`)
 **Bezug:** Epic **#934** (Attribut-System v3), WS0 **#941** (Fundament);
 `docs/se/attribut/attribut-umsetzungsspezifikation.md` §2, §9, §11, §14;
 `docs/se/attribut/attribut-matrix-3-stufen.md`
 
 > Hinweis zur Rückverfolgbarkeit: Das ADR-Standard fordert mindestens eine REQ-ID in
-> `affected_reqs`. Für das Attribut-Thema existieren im Repo noch keine passenden
-> REQ-IDs, daher ist das Feld leer und die Verfolgbarkeit läuft über die Issues
-> #934 / #941.
+> `affected_reqs`. Für das Attribut-Thema existiert keine 1:1-REQ; die einzige
+> faktisch berührte bestehende Anforderung ist **REQ-147** (ReqIF-Import), weil die
+> Träger-Entscheidung `uid` als externen Import-Schlüssel festlegt und unbekannte
+> Import-Attribute dem `custom_fields`-Träger (extended) zuordnet. Die übrige
+> Verfolgbarkeit des Epics läuft über die Issues #934 / #941.
 
 ---
 
@@ -74,8 +76,9 @@ prüft für jede `(item_type, preset)` × Transport × Attribut W/R/V/Round-Trip
 
 **Nachteile:**
 - Gateway wird zentraler Pfad → Performance-/Kopplungs-Hotspot
-- Ratchet startet **rot** (dokumentiert alle Alt-Lücken) und blockiert CI, bis die
-  Parität hergestellt ist
+- Der Ratchet startet **grün** über die eingefrorene Baseline (`violations: []`) und
+  lässt nur **neue** Verstöße durchfallen; die nicht prüfbaren Zellen stehen in der
+  `limitations`-Liste der Baseline, statt den Test rot zu halten
 - Einmaliger Refactor-Aufwand über alle 11 Item-Typen und 3 Presets
 
 **Risiko:** NIEDRIG–MITTEL — keine Paradigmen-Umstellung, aber breit
@@ -181,12 +184,17 @@ Die 11 Item-Typen sind `Requirement`, `StakeholderNeed`, `ArchitectureElement`,
 die **Contract-Matrix** als parametrisierter, CI-blockierender Test erzwungen —
 verortet unter
 `backend/attribute_definitions/tests/test_transport_contract_matrix.py`
-(parametrisiert über `ITEM_TYPES` × `PRESETS` × Transport). Die Matrix startet
-**rot** (sie dokumentiert alle heutigen Lücken aus Spec §9) und ist erst grün, wenn
-beide Transporte für alle Typen/Presets/Attribute W/R/V/Round-Trip erfüllen. Jedes
-neue Attribut und jeder neue Item-Typ muss die Matrix bestehen. Der Test ist ein
-WS0-Deliverable und in diesem Branch noch **nicht** angelegt; dieses ADR bindet
-seinen Pfad und seine Rolle.
+(parametrisiert über `ITEM_TYPES` × `PRESETS` × Transport) und **bereits angelegt**;
+die eingefrorene Baseline liegt daneben in
+`backend/attribute_definitions/tests/contract_matrix_baseline.json`. Der Test ist
+**grün**, solange die **tatsächlichen** Verstöße eine Teilmenge der Baseline sind
+(`violations: []`). Ein **neuer** Verstoß lässt ihn fehlschlagen; ebenso schlägt er
+fehl, wenn ein Baseline-Eintrag nicht mehr reproduziert (**strict shrink**) —
+geschlossene Lücken werden aus der Baseline entfernt, statt still zu verrotten. Die
+noch offenen Lücken aus Spec §9 dokumentiert die Baseline über ihre
+`limitations`-Liste (Zellen, die die Testumgebung nicht ausüben kann), nicht dadurch,
+dass der Test rot ist. Jedes neue Attribut und jeder neue Item-Typ muss die Matrix
+bestehen; dieses ADR bindet ihren Pfad und ihre Rolle.
 
 **Ein gemeinsamer Werte-Pfad:** REST-Views und MCP-Handler verwenden den zentralen
 `ArtifactAttributeGateway`, damit keine per-Typ-Verdrahtung mehr abweichen kann.
@@ -207,8 +215,9 @@ seinen Pfad und seine Rolle.
 **Negativ:**
 - Der Gateway wird zentraler Pfad: Performance- und Kopplungs-Hotspot, muss
   sorgfältig (Caching, Query-Design) umgesetzt werden
-- Die Contract-Matrix startet rot und blockiert CI, bis WS1 die Parität herstellt —
-  bewusst sichtbarer Zwischenzustand
+- Die Contract-Matrix ist ein **grüner** Ratchet: neue Verstöße (oder nicht mehr
+  reproduzierende Baseline-Einträge) blockieren die CI, während die noch offenen
+  Alt-Lücken über die `limitations`-Liste sichtbar bleiben
 - Erweiterte Attribute liegen in JSONB und sind damit für komplexe
   Cross-Attribut-Queries teurer als echte Spalten
 - Die `system`-Semantik (read-only, `editable="system"`, `locked`) erfordert

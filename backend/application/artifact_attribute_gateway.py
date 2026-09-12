@@ -67,7 +67,7 @@ Intentionally still direct (documented WS1 decision, no big-bang refactor):
   adopt it, not a retrofit of every existing persistence path.
 
 References:
-    * ADR-004 — ``docs/se/ADR/ADR-004_traeger-modell-und-auc.md``
+    * ADR-004 — ``docs/se/ADR/ADR-004_traeger_modell_und_auc.md``
     * Spec sections 9 (transport gaps) and 11 (contract matrix) —
       ``docs/se/attribut/attribut-umsetzungsspezifikation.md``
     * ADR-01 (Single Entry Point) — the application layer is the only domain
