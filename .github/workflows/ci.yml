@@ -31,7 +31,13 @@ jobs:
 
   backend-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 10 min used to be enough on a warm pip cache, but set-3-mcp installs the
+    # full heavy dependency set (torch/transformers/sentence-transformers,
+    # multi-GB) and then runs 1286 tests. When GitHub evicts the pip cache the
+    # cold install alone takes ~8.5 min and the job was killed mid-pytest by the
+    # old 10-min cap (flake on PR #943). 20 min leaves headroom for the cold
+    # path; the other test sets still finish in well under 8 min.
+    timeout-minutes: 20
     strategy:
       matrix:
         test-set:
