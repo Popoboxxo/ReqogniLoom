@@ -1,0 +1,965 @@
+{
+  "format": "reqogniloom.attribute-contract-matrix.baseline",
+  "version": 1,
+  "spec": "docs/se/attribut/attribut-umsetzungsspezifikation.md sections 9 and 11",
+  "test": "backend/attribute_definitions/tests/test_transport_contract_matrix.py",
+  "generated_for": "REST (APIClient + JWT) and MCP (ToolRegistry.dispatch_request + reqlo_* API key) driven against the real test DB, with a synthetic extended attribute 'ws0_probe' injected into every bootstrapped definition.",
+  "checks": {
+    "CREATE": "the bare create for the item type failed (attribute '*')",
+    "W": "a create carrying the attribute was rejected",
+    "R": "the read-back did not return the attribute key",
+    "ROUNDTRIP": "the read-back value differed from the written value",
+    "V": "REST and MCP disagreed on accepting an out-of-rule probe value",
+    "DISCOVERY": "the REST attribute-schema endpoint omitted the item type or an attribute"
+  },
+  "semantics": "Ratchet, not a wish-list: the test is green while ACTUAL violations are a SUBSET of this list; a NEW violation fails, and (strict shrink) an entry that no longer reproduces also fails. Remove closed entries when a WS lands. ws_issue names the work stream that closes the gap.",
+  "limitations": [
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "parent_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "parent_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "parent_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "parent_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "parent_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "parent_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "assigned_reviewer_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "assigned_reviewer_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "assigned_reviewer_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "assigned_reviewer_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "assigned_reviewer_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "assigned_reviewer_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "*",
+      "reason": "no MCP tool group exists for this item type (spec section 9: 'Icd ohne Tools')"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "source_element_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "target_element_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "*",
+      "reason": "no MCP tool group exists for this item type (spec section 9: 'Icd ohne Tools')"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "source_element_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "target_element_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "*",
+      "reason": "no MCP tool group exists for this item type (spec section 9: 'Icd ohne Tools')"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "source_element_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Icd",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "target_element_id",
+      "reason": "type 'reference' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Risk",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "owner_user_id",
+      "reason": "type 'user' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Risk",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "owner_user_id",
+      "reason": "type 'user' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Risk",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "owner_user_id",
+      "reason": "type 'user' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Risk",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "owner_user_id",
+      "reason": "type 'user' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Risk",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "owner_user_id",
+      "reason": "type 'user' needs an environment-specific FK target; no environment-independent probe value exists"
+    },
+    {
+      "item_type": "Risk",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "owner_user_id",
+      "reason": "type 'user' needs an environment-specific FK target; no environment-independent probe value exists"
+    }
+  ],
+  "violations": [
+    {
+      "item_type": "Adr",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Adr",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Adr",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Adr",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Adr",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Adr",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "asil_level",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the bespoke MCP architecture.create handler forwards only title/description/element_type/parent_id and silently drops the other defined attributes."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "make_or_buy",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the bespoke MCP architecture.create handler forwards only title/description/element_type/parent_id and silently drops the other defined attributes."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "asil_level",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the bespoke MCP architecture.create handler forwards only title/description/element_type/parent_id and silently drops the other defined attributes."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "make_or_buy",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the bespoke MCP architecture.create handler forwards only title/description/element_type/parent_id and silently drops the other defined attributes."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "asil_level",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the bespoke MCP architecture.create handler forwards only title/description/element_type/parent_id and silently drops the other defined attributes."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "make_or_buy",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the bespoke MCP architecture.create handler forwards only title/description/element_type/parent_id and silently drops the other defined attributes."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "ArchitectureElement",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the wrapped service does not know custom_fields, so the MCP create rejects the field."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "extended",
+      "transport": "REST+MCP",
+      "attribute": "ws0_probe",
+      "check": "V",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: ChangeRequest create validates the definition on MCP but not on REST — an out-of-rule extended value is accepted by REST and rejected by MCP."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the wrapped service does not know custom_fields, so the MCP create rejects the field."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "minimal",
+      "transport": "REST+MCP",
+      "attribute": "ws0_probe",
+      "check": "V",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: ChangeRequest create validates the definition on MCP but not on REST — an out-of-rule extended value is accepted by REST and rejected by MCP."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the wrapped service does not know custom_fields, so the MCP create rejects the field."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "ChangeRequest",
+      "preset": "standard",
+      "transport": "REST+MCP",
+      "attribute": "ws0_probe",
+      "check": "V",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: ChangeRequest create validates the definition on MCP but not on REST — an out-of-rule extended value is accepted by REST and rejected by MCP."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the wrapped service does not know custom_fields, so the MCP create rejects the field."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the wrapped service does not know custom_fields, so the MCP create rejects the field."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the wrapped service does not know custom_fields, so the MCP create rejects the field."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "GlossaryTerm",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Goal",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: custom_fields is not declared on the serializer and not forwarded by the view; the write may even succeed silently but the read never returns the value."
+    },
+    {
+      "item_type": "Icd",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Icd",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: Icd has no attribute binding — the REST create ignores custom_fields and the read never returns them; MCP has no Icd tools at all."
+    },
+    {
+      "item_type": "Icd",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Icd",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: Icd has no attribute binding — the REST create ignores custom_fields and the read never returns them; MCP has no Icd tools at all."
+    },
+    {
+      "item_type": "Icd",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Icd",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: Icd has no attribute binding — the REST create ignores custom_fields and the read never returns them; MCP has no Icd tools at all."
+    },
+    {
+      "item_type": "Issue",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Issue",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Issue",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Issue",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Issue",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Issue",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Requirement",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Requirement",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Requirement",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Risk",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Risk",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Risk",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Risk",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "Risk",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "Risk",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "StakeholderNeed",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "StakeholderNeed",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "StakeholderNeed",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "StakeholderNeed",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "StakeholderNeed",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "StakeholderNeed",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "extended",
+      "transport": "MCP",
+      "attribute": "test_type",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: MCP test.create validates test_type against TitleCase values while the resolved definition exposes lowercase enum options, so the definition value is rejected on MCP only."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "extended",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "minimal",
+      "transport": "MCP",
+      "attribute": "test_type",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: MCP test.create validates test_type against TitleCase values while the resolved definition exposes lowercase enum options, so the definition value is rejected on MCP only."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "minimal",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "ws0_probe",
+      "check": "R",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: the MCP read path does not surface Artifact.custom_fields (bespoke serialiser / generic _to_dict), so a written extended attribute is never returned."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "standard",
+      "transport": "MCP",
+      "attribute": "test_type",
+      "check": "W",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: MCP test.create validates test_type against TitleCase values while the resolved definition exposes lowercase enum options, so the definition value is rejected on MCP only."
+    },
+    {
+      "item_type": "TestCase",
+      "preset": "standard",
+      "transport": "REST",
+      "attribute": "*",
+      "check": "DISCOVERY",
+      "ws_issue": "#935-#942",
+      "reason": "spec section 9: attribute-schema discovery resolves only for Requirement (describe_attribute_schema hardcodes known_types); this item type is not discoverable."
+    }
+  ]
+}
