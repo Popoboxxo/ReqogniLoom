@@ -7755,9 +7755,10 @@ class AttributeSchemaView(APIView):
     """GET /api/v1/attribute-schema/?entity_type=<optional>&workspace_id=<uuid>
 
     Requirement Bundle Export, Plan 1 Task 5 / Task 4. Lists the known
-    attribute names per entity type (currently Requirement only), with each
-    attribute's real, currently-resolved visibility for *workspace_id* (GitHub
-    #882), so callers can discover valid field names before making a
+    attribute names per entity type (every type in
+    ``attribute_definitions.schema.ITEM_TYPES``, Epic #934 / WS1 #935), with
+    each attribute's real, currently-resolved visibility for *workspace_id*
+    (GitHub #882), so callers can discover valid field names before making a
     filter_mode='custom' bundle-export request.
     """
 

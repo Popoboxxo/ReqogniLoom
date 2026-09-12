@@ -20,6 +20,7 @@ from uuid import UUID
 
 from django.db import connection
 
+from attribute_definitions.schema import ITEM_TYPES
 from auth_tenancy.context import AuthContext
 from traceability.types import LinkType
 
@@ -580,14 +581,21 @@ def describe_attribute_schema(
     added an extended attribute) and never going through
     ``AttributeDefinitionService`` — the same resolver
     ``resolve_export_fields`` (above) and every attribute-definition
-    REST/MCP endpoint use. A workspace with no bootstrapped definition yet
-    falls back to ``REQUIREMENT_ALL_FIELDS`` with every name visible, exactly
-    as ``resolve_export_fields`` does for the same case.
+    REST/MCP endpoint use.
+
+    Epic #934 / WS1 #935 (spec section 9): the known-type set is the canonical
+    :data:`attribute_definitions.schema.ITEM_TYPES`, not the hardcoded
+    ``("Requirement",)`` this used to carry — every item type with a
+    bootstrapped definition is discoverable through both transports. The
+    static ``REQUIREMENT_ALL_FIELDS`` fallback is kept ONLY for
+    ``"Requirement"`` (the one type it actually describes); a non-Requirement
+    type whose definition is missing contributes no rows rather than silently
+    reporting Requirement field names under another entity type.
 
     Raises:
         NotFoundError: *entity_type* is not one of the known schemas.
     """
-    known_types: tuple = ("Requirement",)
+    known_types: tuple = ITEM_TYPES
     if entity_type is not None:
         if entity_type not in known_types:
             raise NotFoundError(f"Unknown entity_type {entity_type!r}")
@@ -600,6 +608,11 @@ def describe_attribute_schema(
                 ctx, et, workspace_id
             )["attributes"]
         except AttributeDefinitionNotFound:
+            if et != "Requirement":
+                # No static field list exists for any other item type; the
+                # fallback above describes Requirement columns only and must
+                # never be reported under a different ``entity_type``.
+                continue
             attributes = [
                 {"name": name, "visible": True} for name in REQUIREMENT_ALL_FIELDS
             ]
