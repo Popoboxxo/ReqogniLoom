@@ -195,6 +195,12 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     endpoints exists yet in presets.registry.FEATURE_KEYS, so
     preset_endpoint_key stays "" (gate always passes), matching every other
     non-Baseline BaseEntityViewSet.
+
+    Epic #934 / WS1 #935: writes validate through the shared
+    ``ArtifactAttributeGateway.validate`` (via
+    ``WorkflowTransitionsMixin._validate_attribute_definition``), the same
+    single entry point every MCP write uses. Reads and the service-managed
+    persistence stay direct — see the gateway module docstring.
     """
 
     pagination_class = StandardPagination

@@ -11,9 +11,18 @@ group closes that gap and makes Icd a first-class MCP artifact type:
 
 Every write routes through the same central gate as the REST ViewSet
 (``mcp_server.tools.base.validate_artifact_write`` ->
-``AttributeDefinitionService.validate_artifact_fields``), and every read exposes
-the extended map via ``artifact_custom_fields`` (the map lives on the backing
-``Artifact``), so W / R / V / Round-Trip hold identically on both transports.
+``ArtifactAttributeGateway.validate`` ->
+``AttributeDefinitionService.validate_artifact_fields``, Epic #934 / WS1 #935),
+and every read exposes the extended map via ``artifact_custom_fields`` (the map
+lives on the backing ``Artifact``), so W / R / V / Round-Trip hold identically
+on both transports.
+
+WS1 wiring note: this group's **validation** flows through the gateway (via
+``validate_artifact_write``). Its **read** and the service-managed
+**persistence** (revision creation, custom_fields write, audit) stay direct on
+purpose — routing reads through ``gateway.read`` would add a definition resolve
+whose ``AttributeDefinitionNotFound`` would break a read that works today before
+the bootstrap has run. See ``artifact_attribute_gateway``'s module docstring.
 
 Modelled on ``needs.py`` (write/read shape) and ``attribute_definition.py``
 (static schemas). No ORM access in this module (ADR-01): the tenant-scoped

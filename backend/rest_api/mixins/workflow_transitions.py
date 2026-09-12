@@ -167,6 +167,12 @@ class WorkflowTransitionsMixin:
         Returns a 400 ``Response`` on violation and ``None`` when clean, so
         callers stay a single ``if``.
 
+        Delegates to ``ArtifactAttributeGateway.validate`` — a thin,
+        behaviour-preserving forward to the identical
+        ``AttributeDefinitionService.validate_artifact_fields`` — so REST and
+        MCP share exactly one attribute-validation entry point (Epic #934 /
+        WS1 #935, ADR-004).
+
         Every "cannot decide" outcome degrades to ``None`` rather than to an
         error, because this guard runs *before* the ViewSet's own service call
         and must never pre-empt that call's authoritative answer:
@@ -186,9 +192,9 @@ class WorkflowTransitionsMixin:
         with the generic "An internal error occurred." message, i.e. an
         admin-fixable configuration problem rendered as a server fault.
         """
+        from application.artifact_attribute_gateway import ArtifactAttributeGateway
         from application.attribute_definition_service import (
             AttributeDefinitionNotFound,
-            AttributeDefinitionService,
             AttributeSchemaError,
             FieldValidationError,
         )
@@ -199,7 +205,7 @@ class WorkflowTransitionsMixin:
             return None
         details: list[dict[str, Any]]
         try:
-            AttributeDefinitionService().validate_artifact_fields(
+            ArtifactAttributeGateway().validate(
                 ctx, self.attribute_item_type, workspace_id, changed_fields, existing
             )
         except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
