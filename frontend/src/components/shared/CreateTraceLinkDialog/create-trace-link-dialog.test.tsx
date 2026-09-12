@@ -27,6 +27,7 @@ import * as adrsApi from '../../../api/adrs';
 import * as risksApi from '../../../api/risks';
 import * as issuesApi from '../../../api/issues';
 import * as tracelinksApi from '../../../api/tracelinks';
+import type { ArchitectureElement, Requirement } from '../../../types';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -361,6 +362,53 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
         expect(
           screen.queryByTestId(`create-trace-link-target-element-${sourceId}`)
         ).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  // ---- Deduplication (#832) ----
+
+  describe('deduplication (#832)', () => {
+    it('shows an artifact id present in two API lists only once in the picker', async () => {
+      // Same stable artifact id returned by two different listAll() endpoints
+      // (e.g. a Requirement also surfaced by the architecture listing). The
+      // picker must collapse it to a single row — before the dedup fix this
+      // rendered twice and produced a duplicate React key.
+      const sharedId = 'shared-artifact-001';
+      // Fully typed fixtures (no `any`): one requirement and one architecture
+      // element deliberately share the same stable artifact id.
+      const sharedRequirement: Requirement = {
+        id: sharedId,
+        workspace_id: WORKSPACE_ID,
+        title: 'Shared Artifact',
+        description: '',
+        category: 'functional',
+        status: 'draft',
+        version: 1,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      };
+      const sharedArchitectureElement: ArchitectureElement = {
+        id: sharedId,
+        workspace_id: WORKSPACE_ID,
+        title: 'Shared Artifact',
+        description: '',
+        element_type: 'component',
+        version: 1,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      };
+      vi.mocked(requirementsApi.requirementsApi.listAll).mockResolvedValue([sharedRequirement]);
+      vi.mocked(architectureApi.architectureApi.listAll).mockResolvedValue([
+        sharedArchitectureElement,
+      ]);
+
+      renderDialog();
+
+      await waitFor(() => {
+        expect(
+          screen.getAllByTestId(`create-trace-link-target-element-${sharedId}`)
+        ).toHaveLength(1);
       });
     });
   });
