@@ -86,7 +86,7 @@ class TestService(ServiceBase):
         steps: Optional[list] = None,
         uid: Optional[str] = None,
         custom_fields: Optional[dict] = None,
-        test_type_value: Optional[str] = None,
+        test_type_value: str | None = None,
     ) -> TestCase:
         """Create a TestCase with initial WorkflowState.
 

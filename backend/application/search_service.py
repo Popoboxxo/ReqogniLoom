@@ -52,8 +52,10 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field, replace as dataclass_replace
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from dataclasses import dataclass
+from dataclasses import replace as dataclass_replace
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from django.db import transaction
