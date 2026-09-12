@@ -64,6 +64,8 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from attribute_definitions.schema import AttributeSchemaError
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -240,7 +242,9 @@ def check_mandatory_fields(
 ) -> Optional[tuple[str, str]]:
     """Check the tier's mandatory fields on an approval transition.
 
-    The mandatory set is definition-scoped (#912): the attribute definition's
+    The mandatory set is definition-scoped (#912): the workspace's resolved
+    attribute definition (global default plus any workspace override, resolved
+    through the same store the payload-validation path uses) and its
     ``required`` flags for ``(item_type, tier)``, with the legacy Requirement
     ``mandatory_fields`` list folded in so that item type's behaviour is
     unchanged (see :mod:`attribute_definitions.mandatory_fields`).
@@ -281,8 +285,24 @@ def check_mandatory_fields(
         from attribute_definitions.mandatory_fields import scoped_mandatory_fields
 
         mandatory = scoped_mandatory_fields(
-            getattr(entity, "tenant_id", None), item_type, tier
+            getattr(entity, "tenant_id", None),
+            str(workspace_id),
+            item_type,
+            tier,
         )
+    except AttributeSchemaError:
+        # A malformed stored definition is a configuration error, not an
+        # unexpected failure: log it at ERROR with the traceback so it is
+        # visible, then fail open (post-review m6).
+        logger.error(
+            "precondition_rules: malformed attribute definition for %s/%s "
+            "(workspace=%s) — failing open",
+            item_type,
+            tier,
+            workspace_id,
+            exc_info=True,
+        )
+        return None
     except Exception:  # noqa: BLE001 — fail-open (see module docstring)
         logger.exception(
             "precondition_rules: mandatory-field resolution failed for %s/%s",
@@ -295,6 +315,7 @@ def check_mandatory_fields(
         return None
 
     missing: list[str] = []
+    seen_attributes: set[str] = set()
     for policy_field in mandatory:
         if policy_field in _GRAPH_LEVEL_FIELDS:
             # Owned by the SE-Auditor, not by field completeness.
@@ -307,6 +328,12 @@ def check_mandatory_fields(
         if attribute is None:
             # Not applicable to this entity type.
             continue
+        # Two policy names can resolve to the same concrete column (e.g. the
+        # legacy ``classification`` and a definition ``type`` both name
+        # ``Requirement.type``). Report each column once (post-review m7).
+        if attribute in seen_attributes:
+            continue
+        seen_attributes.add(attribute)
         if _is_blank(getattr(entity, attribute, None)):
             missing.append(policy_field)
 
