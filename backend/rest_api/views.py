@@ -2240,28 +2240,14 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
         data = ser.validated_data
-        # R-1 (Task 22 review round 2): `create_test_case()` has its own,
-        # unrelated legacy `test_type` parameter (Title-case values tagged
-        # onto `artifact.artifact_type`, see comment there) — it does not
-        # accept the real `TestCase.test_type` column this serializer field
-        # now exposes, and silently forwarding/dropping it would give a 201
-        # while quietly discarding what the client asked for. Reject loudly
-        # instead; the column is settable via PATCH right after create.
-        if "test_type" in data:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{
-                        "field": "test_type",
-                        "errors": [
-                            "test_type cannot be set on create; "
-                            "PATCH it after the TestCase is created."
-                        ],
-                    }],
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Issue #864: `create_test_case()` carries two independent test-type
+        # concepts — the legacy `test_type` parameter (Title-case values tagged
+        # onto `artifact.artifact_type`, also used by the MCP test.create path)
+        # and the real `TestCase.test_type` model column (lowercase
+        # `TestCaseType` values, migration 0041). The serializer field below
+        # maps to the latter; it is forwarded as `test_type_value` so the
+        # legacy parameter stays untouched (consolidation is #816). `None`
+        # (field omitted or explicitly null) leaves the column NULL.
         try:
             ctx = get_auth_context(request)
             definition_error = self._validate_attribute_definition(
@@ -2279,6 +2265,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=data.get("description", ""),
                 steps=data.get("steps") or None,
                 custom_fields=data.get("custom_fields"),
+                test_type_value=data.get("test_type"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)

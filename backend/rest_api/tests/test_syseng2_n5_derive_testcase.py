@@ -266,13 +266,14 @@ def test_testcase_partial_update_test_type_set_then_clear(auth_context, workspac
     assert refetched.data["test_type"] is None
 
 
-def test_testcase_create_rejects_test_type(auth_context, workspace):
-    """R-1 (Task 22 review round 2): `create_test_case()`'s own legacy
-    `test_type` parameter tags `artifact.artifact_type` (Title-case), not the
-    real model column this serializer field exposes — silently forwarding or
-    dropping a POST-supplied `test_type` would either collide with that
-    legacy mechanism or quietly discard what the client asked for. Reject
-    loudly instead: 400, not 201-with-null.
+def test_testcase_create_accepts_and_persists_test_type(auth_context, workspace):
+    """#864: the create payload accepts `test_type` (the real `TestCase.
+    test_type` column, lowercase `TestCaseType` values) and persists it.
+
+    It is forwarded to `create_test_case()` as the distinct `test_type_value`
+    parameter, so the legacy `test_type` mechanism (Title-case
+    `artifact.artifact_type` tag, consolidation in #816) is not touched. Before
+    #864 this exact payload was rejected with 400.
     """
     http_req = _request(
         "post",
@@ -282,6 +283,34 @@ def test_testcase_create_rejects_test_type(auth_context, workspace):
             "workspace_id": str(workspace.id),
             "title": "Login test",
             "test_type": "system",
+        },
+    )
+    view = TestCaseViewSet.as_view({"post": "create"})
+    response = view(http_req)
+
+    assert response.status_code == 201
+    assert response.data["test_type"] == "system"
+
+    # Prove persistence through the read path, not just the create response.
+    get_req = _request("get", f"/api/v1/testcases/{response.data['id']}/", auth_context)
+    get_view = TestCaseViewSet.as_view({"get": "retrieve"})
+    refetched = get_view(get_req, pk=response.data["id"])
+    assert refetched.data["test_type"] == "system"
+
+
+def test_testcase_create_rejects_invalid_test_type(auth_context, workspace):
+    """#864: the serializer still validates `test_type` against the real
+    `TestCaseType` choices, so an unknown value is a 400 instead of silently
+    landing as a NULL column.
+    """
+    http_req = _request(
+        "post",
+        "/api/v1/testcases/",
+        auth_context,
+        data={
+            "workspace_id": str(workspace.id),
+            "title": "Login test",
+            "test_type": "functional",
         },
     )
     view = TestCaseViewSet.as_view({"post": "create"})

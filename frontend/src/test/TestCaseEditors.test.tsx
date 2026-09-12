@@ -252,6 +252,36 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
     });
   });
 
+  /**
+   * #864: real `TestCase.test_type` column is now part of the create contract
+   * and the primary create dialog exposes a select for it.
+   */
+  it("sends the selected test_type on create (#864)", async () => {
+    vi.mocked(testcasesApi.create).mockResolvedValue({ ...TEST_CASE, id: "tc-new-3" });
+    renderEditor("/testcases");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-tc-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-tc-btn"));
+    await screen.findByTestId("tc-create-dialog");
+
+    await user.type(screen.getByTestId("tc-new-title-input"), "Login fails");
+    await user.selectOptions(screen.getByTestId("tc-new-test-type-select"), "system");
+    await user.click(screen.getByTestId("tc-new-save-btn"));
+
+    await waitFor(() => {
+      expect(testcasesApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Login fails",
+          test_type: "system",
+        })
+      );
+    });
+  });
+
   it("uses the unified + New Test Case trigger label instead of bare Erstellen", async () => {
     const previousLanguage = i18n.language;
     void i18n.changeLanguage("de");

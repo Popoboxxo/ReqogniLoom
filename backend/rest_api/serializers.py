@@ -986,10 +986,12 @@ class TestCaseSerializer(
     # TestCaseArtifactForm renders it as a select and PATCHes it back. This
     # serializer never declared it, so the unknown-key guard 400'd
     # every save the moment a user touched the field. Unrelated to
-    # `TestService.create_test_case`'s `test_type` parameter, which is a
-    # separate legacy mechanism (Title-Case values tagged onto
-    # `artifact.artifact_type`, never touching this column) — deliberately
-    # left alone here; this field only wires the real column through PATCH.
+    # `TestService.create_test_case`'s legacy `test_type` parameter, which is a
+    # separate mechanism (Title-Case values tagged onto
+    # `artifact.artifact_type`, never touching this column) — consolidation is
+    # #816. On create (issue #864) this field is forwarded as the distinct
+    # `test_type_value` service parameter, so it sets the real column without
+    # ever colliding with that legacy parameter.
     test_type = serializers.ChoiceField(
         choices=TestCaseType.choices, required=False, allow_null=True
     )
