@@ -30,6 +30,20 @@ export interface TestCaseStep {
   expected_result: string;
 }
 
+/**
+ * Real `TestCase.test_type` model column (#864, B6a) — mirrors
+ * `persistence/models.py::TestCaseType` (lowercase wire values). Distinct from
+ * the legacy Title-case `artifact_type` tag handled by the MCP/legacy service
+ * path.
+ */
+export type TestCaseType =
+  | "system"
+  | "integration"
+  | "unit"
+  | "inspection"
+  | "analysis"
+  | "demonstration";
+
 /** Mirror of the backend TestCaseSerializer (REQ-L2-RA-001). */
 export interface TestCase {
   id: UUID;
@@ -38,6 +52,8 @@ export interface TestCase {
   description: string;
   status: string;
   steps?: TestCaseStep[];
+  /** #864: real `TestCase.test_type` column; `null` when not set. */
+  test_type?: TestCaseType | null;
   version: number;
   uid?: string;
   custom_fields?: CustomFields;
@@ -70,6 +86,11 @@ export const testcasesApi = {
     status?: string;
     /** SysEng 2.0 N5: test steps (e.g. from an accepted AI derivation draft). */
     steps?: TestCaseStep[];
+    /**
+     * #864: real `TestCase.test_type` column (lowercase enum values) — the
+     * create contract now accepts it. Omit to leave the column NULL.
+     */
+    test_type?: TestCaseType;
     /** SysEng 2.0 N5: optional requirement to auto-link via a 'verifies' TraceLink. */
     linked_requirement_id?: UUID;
   }): Promise<TestCase> {

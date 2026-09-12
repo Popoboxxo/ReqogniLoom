@@ -218,7 +218,11 @@ def test_trace_links_survive_a_requirement_soft_delete(
             "source_id": source["id"],
             "target_id": target["id"],
             "link_type": LinkType.DERIVES_FROM.value,
-            "workspace_id": str(workspace.id),
+            # #851: ``workspace_id`` is not a TraceLink create field — the
+            # endpoint is tenant-scoped and derives the workspace from the
+            # authenticated context, so the key used to be dropped silently.
+            # The shared unknown-field guard now rejects it, and the frontend
+            # has never sent it.
         },
         format="json",
     )
@@ -273,12 +277,14 @@ def test_stakeholder_need_follows_the_same_contract(authed_client, workspace):
     assert need_id in _list_ids(authed_client, "/api/v1/needs/", workspace)
 
 
-def test_glossary_term_reports_the_soft_delete_on_lifecycle_status(
+def test_glossary_term_reports_the_soft_delete_on_status(
     authed_client, workspace
 ):
-    """GlossaryTerm has no mirrored ``status`` column, so it carries the state
-    on ``lifecycle_status`` (issue #440). Asserted explicitly because the
-    destroy docstring promises that exact field name to API consumers."""
+    """GlossaryTerm reports the soft-delete on ``status`` like every other
+    artifact (issue #831 settled the field name; #440/#443's contract was the
+    state, not the retired ``lifecycle_status`` key). Asserted explicitly
+    because the destroy docstring promises this exact field name to API
+    consumers."""
     created = authed_client.post(
         "/api/v1/glossary/",
         {
@@ -295,7 +301,9 @@ def test_glossary_term_reports_the_soft_delete_on_lifecycle_status(
 
     detail = authed_client.get(f"/api/v1/glossary/{term_id}/")
     assert detail.status_code == 200, detail.content
-    assert detail.json()["lifecycle_status"] == "outdated"
+    assert detail.json()["status"] == "outdated"
+    # #831: the retired name must not survive anywhere on the payload.
+    assert "lifecycle_status" not in detail.json()
 
     assert term_id not in _list_ids(authed_client, "/api/v1/glossary/", workspace)
     assert term_id in _list_ids(
@@ -307,7 +315,7 @@ def test_glossary_term_reports_the_soft_delete_on_lifecycle_status(
     )
     assert restored.status_code == 200, restored.content
     assert (
-        authed_client.get(f"/api/v1/glossary/{term_id}/").json()["lifecycle_status"]
+        authed_client.get(f"/api/v1/glossary/{term_id}/").json()["status"]
         != "outdated"
     )
 

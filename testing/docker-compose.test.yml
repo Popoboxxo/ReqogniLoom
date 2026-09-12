@@ -65,5 +65,10 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      # theme-contrast.test.ts reads the backend palette fixture as its single
+      # source of truth via `resolve(__dirname, "../../..")` — on the host that
+      # is the repo root, but in-container __dirname is /app/src/test, so it
+      # resolves to /backend. Mount the backend read-only at that expected path.
+      - ./backend:/backend:ro
     entrypoint: []
     command: ["sh", "-c", "npm install && npm test"]

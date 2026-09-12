@@ -121,8 +121,62 @@ docker compose -f deploy/docker-compose.yml --project-directory . --profile honc
 ```
 
 Then set `MEMORY_BACKEND=honcho` and `HONCHO_BASE_URL=http://honcho:8000` in `.env` and restart
-`backend`/`celery`. See the `honcho`/`honcho-migrate` service comments in `docker-compose.yml` for
-the embedding-dimension pitfall if you change `EMBEDDING_VECTOR_DIMENSIONS` after the first run.
+`backend`/`celery`.
+
+Honcho needs a reachable OpenAI-compatible embedding endpoint before it can write memories. The
+compose services read these four vars from `.env` (defaults shown). `honcho-migrate` and `honcho`
+both use them for the embedding config, and `backend`/`celery` read the first two for the `/health`
+`memory_backend` health probe (#911):
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `HONCHO_EMBEDDING_BASE_URL` | `http://host.docker.internal:11434/v1` | Includes the `/v1` suffix. Targets a host-run Ollama; `extra_hosts` maps `host.docker.internal` so it resolves on Linux too (built-in on Docker Desktop). Use `http://ollama:11434/v1` for an in-stack `ollama` service. |
+| `HONCHO_EMBEDDING_MODEL` | `nomic-embed-text` | Any embedding model the endpoint serves. |
+| `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` | `768` | Must match the model's output width — see the pitfall below. |
+| `HONCHO_EMBEDDING_TRANSPORT` | `openai` | OpenAI-compatible transport. |
+
+Without a reachable endpoint, Honcho cannot embed and `/health`'s `memory_backend` row reports down.
+
+**Embedding-dimension pitfall:** `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` is baked into Honcho's
+pgvector schema at the first migration. Set it correctly *before* the first `--profile honcho`
+start against a fresh `honcho_postgres_data` volume; changing it afterwards was not sufficient in
+testing (drop the volume and re-migrate, or use Honcho's `scripts/configure_embeddings.py`). See the
+`honcho`/`honcho-migrate` service comments in `docker-compose.yml`.
+
+## Optional: switch the embedding provider (and resize the schema)
+
+The bundled default (`EMBEDDING_PROVIDER=sentence-transformers`) embeds in-process at 384
+dimensions and needs no configuration. To use another provider, the pgvector column width and the
+provider's output width must change **together** — setting the provider alone silently disables
+embedding writes and semantic search. Set both in `.env`:
+
+```bash
+EMBEDDING_PROVIDER=ollama            # or openai
+EMBEDDING_VECTOR_DIMENSIONS=768      # sentence-transformers=384, ollama=768, openai=1536
+```
+
+`EMBEDDING_VECTOR_DIMENSIONS` is the width of every embedding column. Because it changes the
+database schema, switching it needs a migration + backfill, not just a restart:
+
+```bash
+# 1. Generate the migration from a source checkout (dev overlay bind-mounts ./backend,
+#    so the generated file survives the container):
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml \
+  --project-directory . run --rm backend python manage.py makemigrations
+
+# 2. Commit the migration, deploy, and let the `migrate` service apply it (or run
+#    `... run --rm migrate` / `... exec backend python manage.py migrate`).
+
+# 3. Regenerate the vectors inside the running backend container:
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec backend python manage.py backfill_embeddings
+```
+
+A mismatched provider/column pair is otherwise silent: embedding writes and semantic search are
+skipped, not errored. `manage.py check` flags it as `llm_adapter.W001`, and
+`python manage.py verify_embedding_dimensions` compares the live DB columns against the configured
+provider and exits non-zero on a mismatch — run it before deploying. pgvector cannot cast between
+widths, so resizing discards existing vectors and the backfill regenerates them.
 
 ## For AI agents
 

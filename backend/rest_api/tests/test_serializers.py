@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from persistence.models import Adr
 from rest_api.serializers import (
     QUERYSET_OPTIMIZATIONS,
     AdrSerializer,
@@ -452,6 +453,30 @@ class TestFreeTextSizeLimits:
         ser = GlossaryTermSerializer(data=data)
         assert not ser.is_valid()
         assert "definition" in ser.errors
+
+
+# ---------------------------------------------------------------------------
+# #890 — AdrSerializer.description must not drift from the model field
+# ---------------------------------------------------------------------------
+
+
+class TestAdrDescriptionMaxLengthAlignment:
+    """Regression (#890): ``AdrSerializer.description`` declared
+    ``max_length=20000`` while the ``Adr`` model field and
+    ``AdrService._validate_description`` (create and update paths) both cap the
+    value at 10000. The serializer therefore accepted payloads the service would
+    later reject, so the published REST/MCP contract disagreed with the enforced
+    domain limit.
+
+    Both bounds are read dynamically from the live objects — the serializer
+    field and the model field — so the two can never silently drift apart
+    again; a change to either one without the other fails this test.
+    """
+
+    def test_serializer_max_length_matches_model_field(self) -> None:
+        model_max_length = Adr._meta.get_field("description").max_length
+        serializer_max_length = AdrSerializer().fields["description"].max_length
+        assert serializer_max_length == model_max_length
 
 
 # ---------------------------------------------------------------------------

@@ -473,7 +473,24 @@ export function CreateTraceLinkDialog({
         ...issueList.map((i) => ({ id: i.id, title: i.title || untitled, artifactType: 'issue' as const })),
       ];
 
-      setAllElements(all);
+      // #832: the six listAll() calls may return the same artifact id more
+      // than once (e.g. an id that shows up in both the requirement and the
+      // architecture listing). Rendering every entry produced duplicate rows
+      // and duplicate React keys (`key={el.id}` in ElementPicker). Dedup
+      // centrally on the stable artifact id, right after concatenation.
+      //
+      // A `Map` keyed by id overwrites on re-insert, so the LAST duplicate
+      // candidate (in the fixed reqs -> archs -> tcs -> adrs -> risks ->
+      // issues order) wins for title/artifactType, while the id keeps the
+      // position of its FIRST occurrence. That keeps the remaining order
+      // deterministic and stable, and everything but the duplicated ids
+      // untouched.
+      const allById = new Map<string, TargetElement>();
+      for (const el of all) {
+        allById.set(el.id, el);
+      }
+
+      setAllElements(Array.from(allById.values()));
     } catch (err) {
       console.error('CreateTraceLinkDialog: failed to load elements', err);
     } finally {

@@ -22,7 +22,6 @@ export const PROTECTED_PATCH_FIELDS = new Set([
   "created_by_id",
   "id",
   "is_admin",
-  "lifecycle_status",
   "modified_by_id",
   "tenant_id",
   "updated_at",

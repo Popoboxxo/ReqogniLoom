@@ -743,7 +743,17 @@
     "summary_other": "{{count}} test cases",
     "emptyTitle": "No test cases yet",
     "emptyDescription": "Test cases verify requirements are met and record how the system was checked.",
-    "untitled": "Untitled"
+    "untitled": "Untitled",
+    "testType": {
+      "label": "Test Type",
+      "none": "Not specified",
+      "system": "System",
+      "integration": "Integration",
+      "unit": "Unit",
+      "inspection": "Inspection",
+      "analysis": "Analysis",
+      "demonstration": "Demonstration"
+    }
   },
   "settings": {
     "preset": "Preset",

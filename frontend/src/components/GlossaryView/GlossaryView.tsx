@@ -42,10 +42,10 @@ type FilterMode = "" | "workspace" | "global";
 // artifact list (Adr/Risk/Issue/...) offers a lifecycle-status filter and a
 // sort dropdown via ListToolbar — Glossary only had the workspace/global
 // filter. Mirrors ArchitectureEditors.tsx's ARCH_LIFECYCLE_STATUSES (same
-// lifecycle_status vocabulary — sourced from the backing Artifact since the
-// Datenmodell-Konsolidierung, "deleted" excluded since deleted terms are
-// already hidden from the loaded list — see the type's own comment in
-// types/index.ts).
+// status vocabulary — #831 renamed the Glossary wire key from
+// `lifecycle_status` to the artifact-consistent `status`; "deleted" is
+// excluded since deleted terms are already hidden from the loaded list — see
+// the GlossaryTerm type's own comment in types/index.ts).
 const GLOSSARY_LIFECYCLE_STATUSES = ["active", "outdated", "deprecated"] as const;
 
 type SortKey = "default" | "term" | "status" | "updated";
@@ -59,7 +59,7 @@ function sortTerms(list: GlossaryTerm[], sortKey: SortKey): GlossaryTerm[] {
     case "status":
       sorted.sort(
         (a, b) =>
-          (a.lifecycle_status ?? "active").localeCompare(b.lifecycle_status ?? "active") ||
+          (a.status ?? "active").localeCompare(b.status ?? "active") ||
           a.term.localeCompare(b.term),
       );
       break;
@@ -257,7 +257,7 @@ export default function GlossaryView(): JSX.Element {
         matchesMode = term.workspace_id === null;
       }
 
-      const matchesStatus = !statusFilter || (term.lifecycle_status ?? "active") === statusFilter;
+      const matchesStatus = !statusFilter || (term.status ?? "active") === statusFilter;
 
       return matchesSearch && matchesMode && matchesStatus;
     });
@@ -544,15 +544,17 @@ export default function GlossaryView(): JSX.Element {
       </div>
 
       {/* REQ-173: WorkflowEngine-driven status editor. Only for existing
-          entries — a term being created has no artifact ID yet. GlossaryTerm
-          has no status field, so currentStatus is undefined and the editor
-          degrades to the workflow-driven state. */}
+          entries — a term being created has no artifact ID yet. Since #831 the
+          Glossary API exposes `status` like every other artifact, so the
+          freshly loaded value is passed as the pre-transitions badge fallback;
+          the editor still resolves the authoritative state from the workflow
+          endpoint. */}
       {editingId && (
         <div className={styles.marginBottom4}>
           <WorkflowStatusEditor
             artifactType="glossary"
             artifactId={editingId}
-            currentStatus={undefined}
+            currentStatus={terms.find((term) => term.id === editingId)?.status}
             onTransitionComplete={loadTerms}
           />
         </div>

@@ -175,10 +175,10 @@ class Command(BaseCommand):
                     f"Dimension mismatch: provider produces {len(probe)}-dim "
                     f"vectors but {model.__name__}.embedding is "
                     f"vector({column_dimensions}). Nothing was written. Either "
-                    f"use a provider of matching width, or change "
-                    f"persistence.embedding_dimensions."
-                    f"EMBEDDING_VECTOR_DIMENSIONS, generate the migrations and "
-                    f"re-run this command (#794)."
+                    f"use a provider of matching width, or set the "
+                    f"EMBEDDING_VECTOR_DIMENSIONS environment variable to "
+                    f"{len(probe)}, run `manage.py makemigrations` + `manage.py "
+                    f"migrate`, then re-run this command (#794, #826)."
                 )
         return len(probe)
 

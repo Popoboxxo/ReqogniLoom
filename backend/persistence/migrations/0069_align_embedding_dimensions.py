@@ -10,9 +10,15 @@ guard and **not a single embedding was ever persisted**. Semantic
 ``artifact.search`` was correspondingly always empty. See
 ``persistence.embedding_dimensions`` for the full analysis.
 
-This migration resizes both columns to
-``EMBEDDING_VECTOR_DIMENSIONS`` (384) so the shipped default works with no
-operator action.
+This migration resizes both columns to ``vector(384)`` -- the width the shipped
+default actually emits -- so the shipped default works with no operator action.
+
+The target width is the literal :data:`_TARGET_DIMENSIONS` rather than
+``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS`` (issue #826):
+a migration records what it *did*, so it must stay frozen even after an
+operator changes the environment variable to resize the columns. Importing the
+runtime value would make this migration rewrite its own recorded state on every
+import and mask the ``AlterField`` that ``makemigrations`` must detect.
 
 DATA IMPACT — read before applying to a deployment that ran with
 ``EMBEDDING_PROVIDER=openai``:
@@ -41,8 +47,10 @@ from __future__ import annotations
 from django.db import migrations
 from pgvector.django import HnswIndex, VectorField
 
-from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
-
+#: Width this migration applies, frozen at the value it actually wrote (#794).
+#: Deliberately a literal, not the runtime environment variable -- see the
+#: module docstring (#826).
+_TARGET_DIMENSIONS = 384
 _PREVIOUS_DIMENSIONS = 1536
 
 
@@ -75,7 +83,7 @@ class Migration(migrations.Migration):
                     model_name="requirement",
                     name="embedding",
                     field=VectorField(
-                        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
+                        dimensions=_TARGET_DIMENSIONS,
                         null=True,
                         blank=True,
                         help_text=(
@@ -93,7 +101,7 @@ class Migration(migrations.Migration):
                     model_name="tracelink",
                     name="embedding",
                     field=VectorField(
-                        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
+                        dimensions=_TARGET_DIMENSIONS,
                         null=True,
                         blank=True,
                         help_text=(
@@ -108,11 +116,11 @@ class Migration(migrations.Migration):
             ],
             database_operations=[
                 migrations.RunSQL(
-                    sql=_retype_sql("pl_requirement", EMBEDDING_VECTOR_DIMENSIONS),
+                    sql=_retype_sql("pl_requirement", _TARGET_DIMENSIONS),
                     reverse_sql=_retype_sql("pl_requirement", _PREVIOUS_DIMENSIONS),
                 ),
                 migrations.RunSQL(
-                    sql=_retype_sql("pl_tracelink", EMBEDDING_VECTOR_DIMENSIONS),
+                    sql=_retype_sql("pl_tracelink", _TARGET_DIMENSIONS),
                     reverse_sql=_retype_sql("pl_tracelink", _PREVIOUS_DIMENSIONS),
                 ),
             ],

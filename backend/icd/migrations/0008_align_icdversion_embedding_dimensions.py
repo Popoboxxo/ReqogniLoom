@@ -13,14 +13,21 @@ the DB trigger added in 0006) and the embedding is assigned before the initial
 INSERT, so there is no update path that could refill an existing row — the
 ``backfill_embeddings`` management command deliberately skips this model and
 reports it as such.
+
+The target width is frozen as the literal :data:`_TARGET_DIMENSIONS`, not read
+from ``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS`` (#826):
+migration history is immutable and must not shift when an operator changes the
+environment variable.
 """
 from __future__ import annotations
 
 from django.db import migrations
 from pgvector.django import HnswIndex, VectorField
 
-from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
-
+#: Width this migration applies, frozen at the value it actually wrote (#794).
+#: Deliberately a literal, not the runtime environment variable -- see the
+#: module docstring (#826).
+_TARGET_DIMENSIONS = 384
 _PREVIOUS_DIMENSIONS = 1536
 
 
@@ -50,7 +57,7 @@ class Migration(migrations.Migration):
                     model_name="icdversion",
                     name="embedding",
                     field=VectorField(
-                        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
+                        dimensions=_TARGET_DIMENSIONS,
                         null=True,
                         blank=True,
                         help_text=(
@@ -67,7 +74,7 @@ class Migration(migrations.Migration):
             ],
             database_operations=[
                 migrations.RunSQL(
-                    sql=_retype_sql(EMBEDDING_VECTOR_DIMENSIONS),
+                    sql=_retype_sql(_TARGET_DIMENSIONS),
                     reverse_sql=_retype_sql(_PREVIOUS_DIMENSIONS),
                 ),
             ],

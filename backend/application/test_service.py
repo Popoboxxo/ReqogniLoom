@@ -30,7 +30,7 @@ from uuid import UUID
 from django.db.models import F, Q, QuerySet
 
 from auth_tenancy.context import AuthContext
-from persistence.models import Artifact, TestCase, Tenant, Workspace
+from persistence.models import Artifact, TestCase, Tenant, TestCaseType, Workspace
 from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
@@ -57,6 +57,12 @@ VALID_EXECUTION_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
 # Allowed test types (REQ-L2-AS-005)
 VALID_TEST_TYPES = frozenset({"Unit", "Integration", "System", "Acceptance"})
 
+# Values of the real ``TestCase.test_type`` model column (B6a, migration 0041,
+# ``persistence.models.TestCaseType``: lowercase). Deliberately distinct from
+# ``VALID_TEST_TYPES`` above, which guards the unrelated legacy ``test_type``
+# parameter that only tags ``artifact.artifact_type``.
+VALID_TEST_TYPE_VALUES = frozenset(value for value, _label in TestCaseType.choices)
+
 
 class TestService(ServiceBase):
     """COMP-AS-004 — TestCase CRUD and coverage calculation."""
@@ -80,10 +86,17 @@ class TestService(ServiceBase):
         steps: Optional[list] = None,
         uid: Optional[str] = None,
         custom_fields: Optional[dict] = None,
+        test_type_value: str | None = None,
     ) -> TestCase:
         """Create a TestCase with initial WorkflowState.
 
         REQ-L2-AS-005: creates TestCase with test_type and initial WorkflowState.
+
+        ``test_type`` (legacy, Title-case) only tags ``artifact.artifact_type``.
+        ``test_type_value`` is the real ``TestCase.test_type`` model column
+        (B6a, lowercase ``TestCaseType`` values, migration 0041) and is what the
+        REST create payload exposes as ``test_type``; the two live side by side
+        deliberately (issue #864 — consolidating the legacy parameter is #816).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -91,6 +104,12 @@ class TestService(ServiceBase):
         if test_type not in VALID_TEST_TYPES:
             raise ValidationError(
                 f"Invalid test_type '{test_type}'. Valid: {sorted(VALID_TEST_TYPES)}"
+            )
+
+        if test_type_value is not None and test_type_value not in VALID_TEST_TYPE_VALUES:
+            raise ValidationError(
+                f"Invalid test_type_value '{test_type_value}'. "
+                f"Valid: {sorted(VALID_TEST_TYPE_VALUES)}"
             )
 
         # Tenant and Workspace are imported at module level to allow test mocking.
@@ -116,6 +135,7 @@ class TestService(ServiceBase):
             description=description,
             steps=steps or [],
             uid=uid,
+            test_type=test_type_value,
         )
         # Store test_type in description metadata (no dedicated field in schema)
         # We tag the artifact_type with test_type for differentiation
@@ -165,9 +185,14 @@ class TestService(ServiceBase):
         steps: Optional[list] = None,
         test_type: object = _UNSET,
         custom_fields: object = _UNSET,
+        change_reason: Optional[str] = None,
         expected_version: Optional[int] = None,
     ) -> TestCase:
         """Update a TestCase.
+
+        GH-829: ``change_reason`` is the optional, caller-supplied rationale
+        for this edit. It is recorded on the audit trail (and on the artifact
+        revision) exactly like RequirementService.update_requirement does.
 
         SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
         caller's last-seen ``version``. When supplied and stale, the update is
@@ -227,12 +252,22 @@ class TestService(ServiceBase):
             test_case.refresh_from_db(fields=["version"])
             # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
             # the same "this really changed something" gate as the version bump.
-            # update_test_case takes no change_reason.
+            # GH-829: carry the caller's change_reason onto the revision, as
+            # RequirementService does.
             ArtifactVersionService().record(
-                test_case.artifact_id, snapshot_fields(test_case, "TestCase"), ctx
+                test_case.artifact_id,
+                snapshot_fields(test_case, "TestCase"),
+                ctx,
+                change_reason=change_reason or "",
             )
 
-        self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="TestCase",
+            entity_id=test_case_id,
+            change_reason=change_reason,
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.TEST_CASE_UPDATED,

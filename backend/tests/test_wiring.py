@@ -48,6 +48,47 @@ def test_outbox_task_targets_correct_module():
     )
 
 
+def test_celery_beat_heartbeat_task_in_beat_schedule():
+    """[issue #822] Beat schedule contains the celery-beat heartbeat task once.
+
+    The heartbeat is the basis for the ``celery_beat`` health row; if it is
+    missing (or duplicated) the liveness check can never report ``ok``/``down``.
+    """
+    from django.conf import settings
+
+    beat_schedule = settings.CELERY_BEAT_SCHEDULE
+    task_names = [entry["task"] for entry in beat_schedule.values()]
+    assert task_names.count("admin_ops.record_celery_beat_heartbeat") == 1, (
+        "Expected exactly one 'admin_ops.record_celery_beat_heartbeat' entry "
+        f"in CELERY_BEAT_SCHEDULE, got: {task_names}"
+    )
+
+
+def test_celery_beat_heartbeat_task_registered():
+    """[issue #822] The scheduled heartbeat is a registered Celery Task.
+
+    The schedule entry alone is not enough: if the name in
+    ``CELERY_BEAT_SCHEDULE`` did not resolve to an actual ``@shared_task`` the
+    worker would reject the message and the heartbeat would silently never be
+    recorded. Mirror the ``test_llm_capability_task_registered`` pattern and
+    pin both the Celery Task type and the exact registered name.
+    """
+    from celery import Task
+
+    from admin_ops.tasks import record_celery_beat_heartbeat
+
+    assert isinstance(record_celery_beat_heartbeat, Task), (
+        "record_celery_beat_heartbeat must be a Celery Task instance "
+        "(decorated with @shared_task)"
+    )
+    assert record_celery_beat_heartbeat.name == "admin_ops.record_celery_beat_heartbeat", (
+        f"Task name mismatch: expected "
+        f"'admin_ops.record_celery_beat_heartbeat', got "
+        f"{record_celery_beat_heartbeat.name!r}. The name must match the entry "
+        "in CELERY_BEAT_SCHEDULE so beat can deliver the message."
+    )
+
+
 def test_llm_capability_task_registered():
     """[REQ-075] LLM run_capability is importable as a Celery shared task.
 

@@ -77,6 +77,48 @@ class TestSemanticFusion:
 
         assert any(hit.id == str(req.id) for hit in result.results)
 
+    def test_semantic_scores_are_cosine_similarity_in_unit_interval(self):
+        """Issue #827: ``1 - CosineDistance`` is clamped into [0, 1] — a
+        maximally dissimilar (opposite-direction) embedding scores 0.0, not
+        the negative value the raw formula would produce, and an identical
+        embedding scores 1.0."""
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            identical = make_requirement(ws, title="Identical embedding")
+            identical.embedding = [0.3] * _DIM
+            identical.save(update_fields=["embedding"])
+            opposite = make_requirement(ws, title="Opposite embedding")
+            opposite.embedding = [-0.3] * _DIM
+            opposite.save(update_fields=["embedding"])
+
+            hits = _run_semantic_query("Requirement", [0.3] * _DIM, tenant.id, ws.id)
+
+        scores = {h.id: h.relevance_score for h in hits}
+        assert scores[str(identical.id)] == pytest.approx(1.0, abs=1e-4)
+        assert scores[str(opposite.id)] == pytest.approx(0.0, abs=1e-4)
+        assert all(0.0 <= score <= 1.0 for score in scores.values())
+
+    def test_rrf_fused_search_scores_stay_in_unit_interval(self, monkeypatch):
+        """Issue #827: the third, RRF-fused code path must also emit scores
+        within [0, 1] — never a raw ``sum(1/(_RRF_K+rank+1))``."""
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            req = make_requirement(ws, title="Fusion bounds requirement")
+            req.embedding = [0.5] * _DIM
+            req.save(update_fields=["embedding"])
+            ctx = editor_ctx(tenant, ws)
+            monkeypatch.setattr(
+                "application.search_service.generate_embedding",
+                lambda text: [0.5] * _DIM,
+            )
+            result = SearchService().search(
+                "Fusion bounds", ctx, workspace_id=ws.id
+            )
+
+        assert result.results
+        assert any(hit.id == str(req.id) for hit in result.results)
+        assert all(0.0 <= hit.relevance_score <= 1.0 for hit in result.results)
+
     def test_fusion_does_not_break_existing_keyword_search(self, monkeypatch):
         """REQ-L3-SEARCH-009 regression pin: when the semantic pass
         contributes nothing (no stored embedding here), pure-keyword search

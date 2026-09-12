@@ -743,7 +743,17 @@
     "summary_other": "{{count}} Testfälle",
     "emptyTitle": "Noch keine Testfälle",
     "emptyDescription": "Testfälle prüfen, ob Anforderungen erfüllt sind, und dokumentieren, wie das System geprüft wurde.",
-    "untitled": "Unbenannt"
+    "untitled": "Unbenannt",
+    "testType": {
+      "label": "Testtyp",
+      "none": "Nicht angegeben",
+      "system": "System",
+      "integration": "Integration",
+      "unit": "Unit",
+      "inspection": "Inspektion",
+      "analysis": "Analyse",
+      "demonstration": "Demonstration"
+    }
   },
   "settings": {
     "preset": "Preset",

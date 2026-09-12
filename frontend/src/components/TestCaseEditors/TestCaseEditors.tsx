@@ -18,12 +18,26 @@ import { useTestCaseData } from './useTestCaseData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useEntityReset } from '../../hooks/use-entity-reset';
 import { useFormDirty } from '../../hooks/use-form-dirty';
-import { testcasesApi } from '../../api/testcases';
+import { testcasesApi, type TestCaseType } from '../../api/testcases';
 // F-04 (code review, 2026-08-19): shared create-form field styles (see
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
 import fieldHints from '../shared/FieldHints.module.css';
 import styles from './TestCaseEditors.module.css';
+
+/**
+ * #864: the real `TestCase.test_type` values (mirror of backend
+ * `TestCaseType`). The create form offers them explicitly; the empty string
+ * stands for "not specified" (backend column left NULL).
+ */
+const TEST_TYPE_OPTIONS: readonly TestCaseType[] = [
+  'system',
+  'integration',
+  'unit',
+  'inspection',
+  'analysis',
+  'demonstration',
+];
 
 export default function TestCaseEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -39,6 +53,8 @@ export default function TestCaseEditors(): JSX.Element {
   // testcasesApi.create() field the backend already accepts — it had no
   // editor in this create dialog.
   const [newDescription, setNewDescription] = useState('');
+  // #864: real `TestCase.test_type` column. Empty string = not specified.
+  const [newTestType, setNewTestType] = useState<TestCaseType | ''>('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +98,7 @@ export default function TestCaseEditors(): JSX.Element {
     setCreateError(null);
     setNewTitle('');
     setNewDescription('');
+    setNewTestType('');
     setShowCreateDialog(true);
   }, []);
 
@@ -107,9 +124,12 @@ export default function TestCaseEditors(): JSX.Element {
         title: newTitle.trim(),
         // BUG-11: only send what was actually typed.
         ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
+        // #864: only send the real test_type column when a type was chosen.
+        ...(newTestType ? { test_type: newTestType } : {}),
       });
       setNewTitle('');
       setNewDescription('');
+      setNewTestType('');
       setShowCreateDialog(false);
       refresh();
       navigate(`/testcases/${resp.id}`);
@@ -377,6 +397,26 @@ export default function TestCaseEditors(): JSX.Element {
               rows={3}
               className={fieldHints.createInput}
             />
+
+            {/* #864: real `TestCase.test_type` column — the create contract
+                now accepts it. Optional; the empty option leaves it NULL. */}
+            <label htmlFor="tc-new-test-type" className={fieldHints.createLabel}>
+              {t('testcases.testType.label', 'Test Type')}
+            </label>
+            <select
+              id="tc-new-test-type"
+              data-testid="tc-new-test-type-select"
+              value={newTestType}
+              onChange={(e) => setNewTestType(e.target.value as TestCaseType | '')}
+              className={fieldHints.createInput}
+            >
+              <option value="">{t('testcases.testType.none', 'Not specified')}</option>
+              {TEST_TYPE_OPTIONS.map((type) => (
+                <option key={type} value={type}>
+                  {t(`testcases.testType.${type}`, type)}
+                </option>
+              ))}
+            </select>
 
             {createError && (
               <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-2)' }}>

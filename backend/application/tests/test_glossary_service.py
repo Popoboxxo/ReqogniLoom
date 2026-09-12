@@ -5,10 +5,10 @@ leaf_id : COMP-AS-020
 req_id  : REQ-006, REQ-L1-044
 
 Covers:
-  - delete() sets lifecycle_status='deleted' instead of hard-deleting (REQ-006)
+  - delete() routes soft-delete through the workflow engine (status -> 'outdated')
   - list_by_workspace() excludes deleted terms by default (REQ-006)
   - list_by_workspace(include_deleted=True) includes all terms (REQ-006)
-  - GlossaryTermDTO.from_orm maps lifecycle_status correctly
+  - GlossaryTermDTO.from_orm maps status correctly
 """
 from __future__ import annotations
 
@@ -68,19 +68,19 @@ def _make_term(**kwargs):
 
 
 class TestGlossaryTermDTO:
-    def test_from_orm_maps_lifecycle_status(self):
-        """from_orm copies lifecycle_status from ORM instance (REQ-006)."""
+    def test_from_orm_maps_status(self):
+        """from_orm copies the Artifact lifecycle state onto ``status`` (#831)."""
         term = _make_term(lifecycle_status="deprecated")
         dto = GlossaryTermDTO.from_orm(term)
-        assert dto.lifecycle_status == "deprecated"
+        assert dto.status == "deprecated"
 
     def test_from_orm_defaults_to_active(self):
-        """from_orm defaults lifecycle_status to 'active' for a term with no
+        """from_orm defaults ``status`` to 'active' for a term with no
         backing Artifact yet (workspace-less legacy row, Task 20)."""
         term = _make_term()
         term.artifact_id = None
         dto = GlossaryTermDTO.from_orm(term)
-        assert dto.lifecycle_status == "active"
+        assert dto.status == "active"
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ class TestGlossaryTermDTO:
 
 
 class TestGlossaryServiceSoftDelete:
-    """REQ-006: delete() must soft-delete (lifecycle_status='deleted'), not hard-delete."""
+    """REQ-006: delete() must soft-delete (workflow status -> 'outdated'), not hard-delete."""
 
     def test_delete_calls_outdate(self):
         """delete() routes the soft-delete through workflow.services.outdate()
@@ -113,7 +113,7 @@ class TestGlossaryServiceSoftDelete:
             ctx=ctx,
             reason="deleted via glossary.delete",
         )
-        # Hard-delete must NOT be called, lifecycle_status must not be written directly
+        # Hard-delete must NOT be called; outdate() is the only soft-delete seam
         mock_term.delete.assert_not_called()
         mock_term.save.assert_not_called()
 
@@ -328,9 +328,9 @@ class TestGlossaryServiceCreateDeleteWorkflowIntegration:
     def test_get_reflects_outdated_status_after_delete(
         self, glossary_real_ctx, glossary_workspace
     ):
-        """Issue #440: get() must reflect the workflow-tracked 'outdated'
+        """Issue #440/#831: get() must reflect the workflow-tracked 'outdated'
         state after delete() — previously the detail view kept reporting
-        lifecycle_status='active' forever (the model column is never written
+        status='active' forever (the model column is never written
         by outdate() for GlossaryTerm), so a soft-deleted term stayed fully
         visible (200, status 'active') via GET even though it had already
         disappeared from the list.
@@ -361,7 +361,7 @@ class TestGlossaryServiceCreateDeleteWorkflowIntegration:
 
             # Before delete: detail GET reports 'active'.
             before = svc.get(glossary_real_ctx, term.id)
-            assert before.lifecycle_status == "active"
+            assert before.status == "active"
 
             svc.delete(glossary_real_ctx, term.id)
 
@@ -369,7 +369,7 @@ class TestGlossaryServiceCreateDeleteWorkflowIntegration:
             # 'outdated' — consistent with TestCase/Issue/ADR/Risk/Need,
             # which report status='outdated' via their mirrored column.
             after = svc.get(glossary_real_ctx, term.id)
-            assert after.lifecycle_status == "outdated"
+            assert after.status == "outdated"
         finally:
             TenantContext.clear_tenant()
 

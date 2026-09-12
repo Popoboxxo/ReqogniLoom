@@ -19,15 +19,16 @@ Design constraints:
   ~1s) for network-backed dependencies; the in-process embedding check
   avoids probing an unloaded model instead of blocking (see
   ``_check_memory_embedding``).
-* ``celery_beat`` cannot verify that a beat *process* is actually
-  running from inside a web worker without side effects (e.g. writing a
-  heartbeat key), so it intentionally reports ``"unknown"`` rather than
-  a potentially-misleading ``"ok"``/``"down"`` — it only confirms that
-  the periodic-task schedule table is reachable.
+* ``celery_beat`` liveness is derived from a cache-backed heartbeat written
+  by the beat-scheduled task ``admin_ops.record_celery_beat_heartbeat`` (see
+  :mod:`admin_ops.celery_beat_heartbeat`). A fresh timestamp proves the
+  ``beat -> broker -> worker`` chain is alive; the web worker only *reads* it,
+  so the check itself stays side-effect free.
 """
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from django.conf import settings
@@ -118,26 +119,68 @@ def _check_celery_worker() -> dict[str, str]:
 
 
 def _check_celery_beat() -> dict[str, str]:
-    """Check that the periodic-task schedule is reachable.
+    """Check beat liveness via the cache-backed heartbeat.
 
-    This does NOT confirm a beat *process* is actually running — doing so
-    would require a side-effecting heartbeat mechanism outside this
-    endpoint's scope. It only confirms the schedule table is queryable,
-    hence the deliberately non-committal ``"unknown"`` status.
+    Beat runs the periodic task ``admin_ops.record_celery_beat_heartbeat``,
+    which writes the current epoch timestamp into the shared cache. This
+    function only reads that value back and classifies its age.
+
+    Because the timestamp is written by a worker executing a beat-scheduled
+    task, a fresh heartbeat proves the whole ``beat -> broker -> worker``
+    chain is alive. Combined with :func:`_check_celery_worker` an operator can
+    tell a dead worker apart from a dead beat.
+
+    Status semantics:
+
+    * ``ok``      — a heartbeat exists and its age is within
+      :data:`admin_ops.celery_beat_heartbeat.HEARTBEAT_STALE_AFTER_SECONDS`.
+    * ``down``    — a heartbeat exists but is older than that threshold.
+    * ``unknown`` — no heartbeat has ever been recorded (beat has not started
+      since deploy) or the cache could not be read.
+
+    The check is read-only and never raises past this function.
     """
     try:
-        from django_celery_beat.models import PeriodicTask  # noqa: PLC0415
+        # The import and constant reads live inside the guard too: an import
+        # failure (e.g. a broken/partial deployment) must degrade to ``unknown``
+        # like any other failure, not escape past this function's contract.
+        from admin_ops import celery_beat_heartbeat as heartbeat
 
-        enabled_count = PeriodicTask.objects.filter(enabled=True).count()
+        interval = heartbeat.HEARTBEAT_INTERVAL_SECONDS
+        timestamp = heartbeat.read_heartbeat_timestamp()
+    except Exception as exc:  # noqa: BLE001 - import/cache unreachable/misconfigured
+        logger.warning("System health: celery beat heartbeat check failed - %s", exc)
         return {
             "name": "celery_beat",
             "status": STATUS_UNKNOWN,
-            "detail": f"{enabled_count} periodic task(s) configured "
-            "(process liveness not verified)",
+            "detail": f"heartbeat unreadable: {exc}",
         }
-    except Exception as exc:  # noqa: BLE001 - table missing/unmigrated, etc.
-        logger.warning("System health: celery beat check failed - %s", exc)
-        return {"name": "celery_beat", "status": STATUS_UNKNOWN, "detail": str(exc)}
+
+    if timestamp is None:
+        return {
+            "name": "celery_beat",
+            "status": STATUS_UNKNOWN,
+            "detail": (
+                "no heartbeat recorded - beat has not started since deploy "
+                f"(expected every {interval}s)"
+            ),
+        }
+
+    age = time.time() - timestamp
+    if age <= heartbeat.HEARTBEAT_STALE_AFTER_SECONDS:
+        return {
+            "name": "celery_beat",
+            "status": STATUS_OK,
+            "detail": f"heartbeat {age:.1f}s old (interval {interval}s)",
+        }
+    return {
+        "name": "celery_beat",
+        "status": STATUS_DOWN,
+        "detail": (
+            f"heartbeat stale: last seen {age:.1f}s ago, "
+            f"threshold {heartbeat.HEARTBEAT_STALE_AFTER_SECONDS}s"
+        ),
+    }
 
 
 def _check_mcp_server() -> dict[str, str]:
@@ -268,8 +311,9 @@ def _check_memory_embedding() -> dict[str, str]:
     does NOT trigger a cold load — that can take 20-30s (dominated by the
     torch/sentence_transformers import + model construction), which would
     race this dashboard's own frontend request timeout and could blank out
-    every OTHER row on the dashboard too. Reports "unknown" instead,
-    mirroring _check_celery_beat's existing side-effect-avoidance policy.
+    every OTHER row on the dashboard too. It reports "unknown" instead, in
+    keeping with this dashboard's principle of preferring a truthful
+    "unknown" over performing expensive, unwanted work.
 
     The model cache is keyed by model name (I-2 fix): ``_model`` can be
     non-``None`` while loaded under a DIFFERENT name than what the resolved
@@ -394,7 +438,7 @@ class SystemHealthView(APIView):
             {"name": "database", "status": "ok", "detail": "..."},
             {"name": "redis", "status": "ok", "detail": "..."},
             {"name": "celery_worker", "status": "ok", "detail": "..."},
-            {"name": "celery_beat", "status": "unknown", "detail": "..."},
+            {"name": "celery_beat", "status": "ok", "detail": "..."},
             {"name": "mcp_server", "status": "ok", "detail": "..."},
             {"name": "llm_provider", "status": "ok", "detail": "..."},
             {"name": "memory_embedding", "status": "ok", "detail": "..."},

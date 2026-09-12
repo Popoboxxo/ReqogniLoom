@@ -144,7 +144,9 @@ def _create_link(
             "source_id": source_id,
             "target_id": target_id,
             "link_type": link_type,
-            "workspace_id": str(workspace.id),
+            # #851: the TraceLink create endpoint is tenant-scoped and ignores
+            # ``workspace_id``; the shared unknown-field guard now rejects it,
+            # so the helper no longer sends it (the frontend never did).
         },
         format="json",
     )

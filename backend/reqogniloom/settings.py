@@ -738,6 +738,13 @@ CELERY_RESULT_BACKEND: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}{_REDIS_HOST
 #    the 1st of each month); it is fail-safe by construction — it exports first
 #    and only drops the partition when the export reported success, and it
 #    no-ops with a warning when AUDIT_COLD_STORAGE_BACKEND is unconfigured.
+# 3. Celery-beat liveness heartbeat (issue #822). Beat runs this task, which
+#    writes an epoch timestamp into the shared cache; the system-health
+#    dashboard (backend/admin_ops/health_rest.py) reads it back and reports the
+#    ``celery_beat`` row as ok/down based on its age. The interval is the single
+#    source of truth for both the schedule below and the staleness window.
+CELERY_BEAT_HEARTBEAT_INTERVAL_SECONDS = 60
+
 CELERY_BEAT_SCHEDULE = {
     "dispatch-outbox-events": {
         "task": "application.dispatch_outbox_events",
@@ -746,6 +753,10 @@ CELERY_BEAT_SCHEDULE = {
     "audit-monthly-archive": {
         "task": "audit.archive_lifecycle_manager",
         "schedule": crontab(day_of_month="1", hour=0, minute=0),
+    },
+    "record-celery-beat-heartbeat": {
+        "task": "admin_ops.record_celery_beat_heartbeat",
+        "schedule": timedelta(seconds=CELERY_BEAT_HEARTBEAT_INTERVAL_SECONDS),
     },
 }
 

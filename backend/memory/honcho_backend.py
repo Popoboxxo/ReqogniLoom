@@ -68,6 +68,22 @@ Known capability gaps vs. PgvectorMemoryBackend (see the individual methods)
 * Entry ids are Honcho nanoids (21 chars, ``[A-Za-z0-9_-]``), not UUIDs --
   hence ``MemoryEntryId`` rather than ``UUID`` in ``memory.backends``.
 
+EMBEDDING CONFIGURATION (GH #911)
+---------------------------------
+Honcho embeds memory entries through an OpenAI-compatible endpoint configured
+**on the Honcho server**, not through this client. That endpoint is supplied
+here as two env vars so :meth:`HonchoMemoryBackend.health_check` can probe it:
+
+* ``HONCHO_EMBEDDING_BASE_URL`` -- OpenAI-compatible base URL *including* the
+  ``/v1`` suffix (e.g. ``http://host.docker.internal:11434/v1``). This is the
+  value ``deploy/docker-compose.yml`` wires into the Honcho service.
+* ``HONCHO_EMBEDDING_MODEL`` -- embedding model id (e.g. ``nomic-embed-text``).
+
+``health_check()`` reports the backend down when either is unset, rather than
+the old behaviour of reporting ``ok`` from a HEAD reachability check alone --
+which is what let a deploy with a placeholder embedding host pass ``/health``
+while being unable to embed a single memory entry.
+
 LLM PINNING IS NOT POSSIBLE FROM THIS CLIENT (researched, not assumed)
 ----------------------------------------------------------------------
 Honcho runs its own LLM calls (deriver / dialectic / summary / dream)
@@ -100,6 +116,13 @@ from memory.backends import MemoryBackend, MemoryEntryId, MemoryEntryRef, regist
 #: short result set. Requests above this are clamped and the response is
 #: truncated to what the caller asked for.
 _MAX_PAGE_SIZE = 100
+
+#: Timeout, in seconds, for each network call :meth:`HonchoMemoryBackend.health_check`
+#: makes (the reachability HEAD and the embedding probe POST). Deliberately
+#: local to this module rather than reusing ``admin_ops.health_rest._CHECK_TIMEOUT_S``:
+#: the backend must stay importable without the admin_ops package, and this is a
+#: single bounded probe, never a retry loop.
+_HEALTH_PROBE_TIMEOUT_S = 1.0
 
 #: Placeholder observer/observed pair used only to reach ``ConclusionScope.delete()``.
 #:
@@ -306,20 +329,84 @@ class HonchoMemoryBackend(MemoryBackend):
         scope.delete(str(entry_id))
 
     def health_check(self) -> tuple[bool, str]:
+        """Probe Honcho reachability *and* the embedding endpoint's liveness.
+
+        Returns ``(ok, detail)`` and never raises. The check is deterministic
+        and runs in this order:
+
+        1. ``HONCHO_BASE_URL`` must be configured.
+        2. ``HONCHO_EMBEDDING_BASE_URL`` and ``HONCHO_EMBEDDING_MODEL`` must be
+           configured -- otherwise a deploy that cannot embed must not report
+           ``ok`` (GH #911).
+        3. A bounded HEAD on ``HONCHO_BASE_URL`` (redirects disabled, so a
+           redirect chain cannot re-arm the timeout budget); HTTP >= 500 is down.
+        4. Exactly one ``POST {embedding_base_url}/embeddings`` with
+           ``{"model": ..., "input": "ping"}``; a non-2xx status, an empty
+           ``data[0]["embedding"]`` vector, or any transport/JSON error is down.
+
+        Note that step 4 issues a real, bounded single embedding inference
+        request on every admin health poll, so OpenAI-backed configs incur a
+        small token cost and self-hosted ones consume CPU/GPU.
+
+        Both network calls share :data:`_HEALTH_PROBE_TIMEOUT_S`. Like the
+        sibling ``admin_ops.health_rest`` probes, this uses plain ``requests``
+        -- never ``resilient_call`` -- so health traffic cannot trip a shared
+        circuit breaker and cause the outage it is meant to report. The
+        optional ``honcho-ai`` SDK is never imported
+        (see ``test_health_check_does_not_import_honcho_sdk``).
+        """
         if not self._base_url:
             return False, "HONCHO_BASE_URL is not configured"
+
+        embedding_base_url = os.environ.get("HONCHO_EMBEDDING_BASE_URL", "").strip()
+        embedding_model = os.environ.get("HONCHO_EMBEDDING_MODEL", "").strip()
+        if not embedding_base_url:
+            return False, (
+                "HONCHO_EMBEDDING_BASE_URL is not configured: the Honcho memory "
+                "backend cannot embed memory entries (see issue #911)"
+            )
+        if not embedding_model:
+            return False, "HONCHO_EMBEDDING_MODEL is not configured"
+
         try:
             import requests  # noqa: PLC0415 - lazy import, matches this repo's health-check convention
 
             # HEAD (not GET) with redirects disabled: a plain reachability
             # check must not buffer an unbounded response body or follow a
-            # redirect chain (each hop re-arming its own 1s timeout budget)
-            # past the intended ~1s bound.
-            response = requests.head(self._base_url, timeout=1.0, allow_redirects=False)
+            # redirect chain (each hop re-arming its own timeout budget)
+            # past the intended bound.
+            response = requests.head(
+                self._base_url,
+                timeout=_HEALTH_PROBE_TIMEOUT_S,
+                allow_redirects=False,
+            )
             if response.status_code >= 500:
                 return False, f"{self._base_url} returned HTTP {response.status_code}"
-            return True, f"{self._base_url} reachable (HTTP {response.status_code})"
-        except Exception as exc:
+
+            # A real embedding probe: the shortest possible OpenAI-compatible
+            # request. This is what turns "the host answers" into "memory can
+            # actually be written" -- the whole point of GH #911.
+            probe = requests.post(
+                f"{embedding_base_url.rstrip('/')}/embeddings",
+                json={"model": embedding_model, "input": "ping"},
+                timeout=_HEALTH_PROBE_TIMEOUT_S,
+            )
+            if probe.status_code < 200 or probe.status_code >= 300:
+                return False, (
+                    f"embedding probe for model {embedding_model!r} returned "
+                    f"HTTP {probe.status_code}"
+                )
+            embedding = probe.json()["data"][0]["embedding"]
+            if not embedding:
+                return False, (
+                    f"embedding probe for model {embedding_model!r} returned an "
+                    "empty vector"
+                )
+            return True, (
+                f"{self._base_url} reachable; embedding probe for model "
+                f"{embedding_model!r} succeeded"
+            )
+        except Exception as exc:  # noqa: BLE001 - any probe failure is a "down" detail
             return False, str(exc)
 
 
