@@ -40,7 +40,7 @@ jobs:
             paths: "application/tests persistence/tests"
           - id: set-2-api
             name: "REST API Layer (rest_api, auth_tenancy, presets, reqogniloom, test_runs)"
-            paths: "rest_api/tests auth_tenancy/tests presets/tests reqogniloom/tests test_runs/tests"
+            paths: "attribute_definitions/tests rest_api/tests auth_tenancy/tests presets/tests reqogniloom/tests test_runs/tests"
           - id: set-3-mcp
             name: "MCP Server (mcp_server)"
             paths: "mcp_server/tests"
