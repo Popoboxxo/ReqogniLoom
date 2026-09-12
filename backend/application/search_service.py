@@ -54,6 +54,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from dataclasses import replace as dataclass_replace
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -69,6 +70,7 @@ TenantContext = AuthContext
 
 from application.base import ServiceBase, ValidationError
 from llm_adapter.embedding_service import generate_embedding
+from persistence.custom_fields import coerce_custom_fields
 from persistence.models import Requirement, TraceLink
 
 logger = logging.getLogger(__name__)
@@ -165,6 +167,10 @@ class _TableSpec:
 
 
 _ARTIFACT_JOIN = "JOIN pl_artifact a ON a.id = e.artifact_id"
+#: LEFT JOIN variant for the ``as_*`` tables: their backing Artifact FK is
+#: nullable (added later, additive migration), so an inner join would silently
+#: drop pre-existing rows. Used only to surface ``custom_fields``.
+_ARTIFACT_LEFT_JOIN = "LEFT JOIN pl_artifact a ON a.id = e.artifact_id"
 
 # Every artifact type ``artifact.search`` can return (#345 Finding 2b: the
 # type_filter enum used to allow only the first three, so Needs/Goals/ADRs
@@ -199,14 +205,24 @@ _TABLE_SPECS: Dict[str, _TableSpec] = {
         artifact_id_col="e.artifact_id",
     ),
     # as_* tables carry workspace_id on the row itself and their backing
-    # Artifact FK is nullable (added later, additive migration), so joining
-    # pl_artifact would silently drop pre-existing rows.
-    "Adr": _TableSpec(table="as_adr", artifact_id_col="e.artifact_id"),
-    "Risk": _TableSpec(table="as_risk", artifact_id_col="e.artifact_id"),
-    "Issue": _TableSpec(table="as_issue", artifact_id_col="e.artifact_id"),
+    # Artifact FK is nullable (added later, additive migration), so this uses a
+    # LEFT JOIN (never the inner ``_ARTIFACT_JOIN``, which would silently drop
+    # pre-existing rows) — purely to surface the artifact's custom_fields.
+    "Adr": _TableSpec(
+        table="as_adr", artifact_id_col="e.artifact_id", join_sql=_ARTIFACT_LEFT_JOIN
+    ),
+    "Risk": _TableSpec(
+        table="as_risk", artifact_id_col="e.artifact_id", join_sql=_ARTIFACT_LEFT_JOIN
+    ),
+    "Issue": _TableSpec(
+        table="as_issue", artifact_id_col="e.artifact_id", join_sql=_ARTIFACT_LEFT_JOIN
+    ),
     "ChangeRequest": _TableSpec(table="as_change_request", uid_col=None),
     "Goal": _TableSpec(
-        table="as_goal", uid_col=None, artifact_id_col="e.artifact_id"
+        table="as_goal",
+        uid_col=None,
+        artifact_id_col="e.artifact_id",
+        join_sql=_ARTIFACT_LEFT_JOIN,
     ),
     "GlossaryTerm": _TableSpec(
         table="pl_glossary_term",
@@ -246,6 +262,11 @@ class SearchHit:
     description: str
     relevance_score: float
     workspace_id: str
+    #: REQ-L2-AS-037 / Epic #934 WS1: extended attributes of the backing
+    #: Artifact, so ``artifact.search`` result rows carry them too (spec
+    #: section 9). Empty for types whose search passes do not join
+    #: ``pl_artifact``.
+    custom_fields: Dict[str, Any] = dataclass_field(default_factory=dict)
 
 
 @dataclass
@@ -655,29 +676,48 @@ def _run_semantic_query(
         return []
 
 
+def _custom_fields_select(spec: _TableSpec) -> str:
+    """SQL expression for a hit's Artifact.custom_fields (or ``NULL``).
+
+    Valid whenever the pass joins ``pl_artifact`` (``artifact_id_col`` set);
+    ``ChangeRequest`` and ``GlossaryTerm`` carry no Artifact FK on their search
+    row, so those hits keep the empty default.
+    """
+    return "a.custom_fields" if spec.artifact_id_col else "NULL"
+
+
 def _rows_to_hits(
     rows: Any,
     entity_type: str,
     normalizer: Callable[[float], float],
 ) -> List[SearchHit]:
-    """Map ``(id, workspace_id, title, description, score)`` rows to hits.
+    """Map ``(id, workspace_id, title, description, score[, custom_fields])``
+    rows to hits.
 
     ``normalizer`` maps this pass's raw SQL score onto the DTO's [0, 1]
     relevance scale (issue #827). It must be monotone, since the rows arrive
     in the pass's own ``ORDER BY ... DESC`` order and normalization must not
     reorder them.
     """
-    return [
-        SearchHit(
-            id=str(eid),
-            artifact_type=entity_type,
-            title=title or "",
-            description=description or "",
-            relevance_score=normalizer(float(score)),
-            workspace_id=str(ws_id) if ws_id is not None else "",
+    hits: List[SearchHit] = []
+    for row in rows:
+        if len(row) == 6:
+            eid, ws_id, title, description, score, custom_fields = row
+        else:
+            eid, ws_id, title, description, score = row
+            custom_fields = None
+        hits.append(
+            SearchHit(
+                id=str(eid),
+                artifact_type=entity_type,
+                title=title or "",
+                description=description or "",
+                relevance_score=normalizer(float(score)),
+                workspace_id=str(ws_id) if ws_id is not None else "",
+                custom_fields=coerce_custom_fields(custom_fields),
+            )
         )
-        for eid, ws_id, title, description, score in rows
-    ]
+    return hits
 
 
 def _run_fulltext_query(
@@ -707,7 +747,8 @@ def _run_fulltext_query(
             {spec.workspace_col},
             COALESCE({spec.title_col}, '') AS title,
             {spec.description_col} AS description,
-            ts_rank({tsv}, plainto_tsquery('german', %s)) AS relevance_score
+            ts_rank({tsv}, plainto_tsquery('german', %s)) AS relevance_score,
+            {_custom_fields_select(spec)} AS custom_fields
         FROM {spec.table} e
         {spec.join_sql}
         WHERE {' AND '.join(where_parts)}
@@ -799,7 +840,8 @@ def _run_lexical_query(
             {spec.workspace_col},
             COALESCE({spec.title_col}, '') AS title,
             {spec.description_col} AS description,
-            {score_sql} AS relevance_score
+            {score_sql} AS relevance_score,
+            {_custom_fields_select(spec)} AS custom_fields
         FROM {spec.table} e
         {spec.join_sql}
         WHERE {' AND '.join(where_parts)}

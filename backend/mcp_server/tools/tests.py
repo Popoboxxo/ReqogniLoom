@@ -67,6 +67,7 @@ from mcp_server.tools.ai_derivation import (
 )
 from mcp_server.tools.base import (
     BaseToolGroup,
+    artifact_custom_fields,
     mcp_audit_handoff,
     optional_uuid,
     reject_unknown_params,
@@ -77,13 +78,20 @@ from mcp_server.tools.base import (
     validate_artifact_write,
     write_mcp_audit,
 )
-from persistence.models import TestCase
+from persistence.models import TestCase, TestCaseType
 from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
 
 _VALID_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
 _VALID_RUN_RESULT_STATUSES = frozenset({"passed", "failed", "blocked", "not_run"})
+
+#: Real ``TestCase.test_type`` column values (migration 0041, lowercase
+#: ``TestCaseType``). The resolved attribute definition exposes exactly these
+#: as the ``test_type`` enum options, so MCP must accept them — the legacy
+#: TitleCase set (``TestService.VALID_TEST_TYPES``) only ever tagged
+#: ``artifact.artifact_type`` and rejected the definition's own value.
+_VALID_MODEL_TEST_TYPES = frozenset(value for value, _label in TestCaseType.choices)
 
 #: TestCase *lifecycle* states — a different axis from the execution statuses
 #: above. Derived from the model so it cannot drift from
@@ -119,12 +127,21 @@ def _test_case_to_dict(
         "status": resolve_engine_status("TestCase", tc.id, status_map=status_map),
         "version": tc.version,
         "steps": tc.steps if hasattr(tc, "steps") else [],
+        # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
+        # backing Artifact and must round-trip through test.get/test.query.
+        "custom_fields": artifact_custom_fields(tc),
     }
     if hasattr(tc, "artifact") and tc.artifact:
         result["workspace_id"] = str(tc.artifact.workspace_id)
-        # Decode test_type from artifact_type tag (e.g. "TestCase:Unit")
+        # `test_type` is the real lowercase ``TestCaseType`` model column
+        # (migration 0041) and is what the resolved definition exposes. Fall
+        # back to the legacy TitleCase artifact tag only when the column is
+        # unset (e.g. pre-0041 rows), so the definition's value round-trips.
+        model_test_type = getattr(tc, "test_type", None)
         artifact_type = tc.artifact.artifact_type or ""
-        if ":" in artifact_type:
+        if isinstance(model_test_type, str) and model_test_type:
+            result["test_type"] = model_test_type
+        elif ":" in artifact_type:
             result["test_type"] = artifact_type.split(":", 1)[1]
     return result
 
@@ -197,6 +214,23 @@ class McpTestToolGroup(BaseToolGroup):
                     "title": {"type": "string", "description": "Test case title."},
                     "description": {"type": "string", "description": "Test case description."},
                     "type": {"type": "string", "description": "Test type (default 'Unit')."},
+                    "test_type": {
+                        "type": "string",
+                        "enum": sorted(_VALID_MODEL_TEST_TYPES),
+                        "description": (
+                            "Real TestCase.test_type column value (lowercase, "
+                            "matches the attribute definition's enum options). "
+                            "Distinct from the legacy TitleCase `type` tag."
+                        ),
+                    },
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map) defined by this workspace's attribute definition."
+                        ),
+                    },
                     "linked_req_id": {
                         "type": "string",
                         "description": "Optional requirement UUID to create a 'verifies' TraceLink.",
@@ -224,9 +258,32 @@ class McpTestToolGroup(BaseToolGroup):
                         "type": "object",
                         "description": (
                             "Fields to update (title, description, steps, "
-                            "execution_status). 'status' is accepted as a "
-                            "legacy alias for execution_status."
+                            "test_type, custom_fields, execution_status). "
+                            "'status' is accepted as a legacy alias for "
+                            "execution_status."
                         ),
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "steps": {"type": "array", "items": {"type": "object"}},
+                            "test_type": {
+                                "type": "string",
+                                "enum": sorted(_VALID_MODEL_TEST_TYPES),
+                                "description": "Real lowercase TestCase.test_type value.",
+                            },
+                            "custom_fields": {
+                                "type": "object",
+                                "additionalProperties": True,
+                                "description": (
+                                    "Extended user-defined attributes (flat "
+                                    "key/value map). Replaces the stored map."
+                                ),
+                            },
+                            "execution_status": {
+                                "type": "string",
+                                "enum": sorted(_VALID_STATUSES),
+                            },
+                        },
                     },
                 },
                 "required": ["id"],
@@ -445,9 +502,25 @@ class McpTestToolGroup(BaseToolGroup):
         """
         title = require_param(params, "title")
         workspace_id = require_uuid(params, "workspace_id")
-        test_type: str = params.get("type") or params.get("test_type") or "Unit"
+        # Epic #934 WS1: `test_type` is the real lowercase model column the
+        # resolved definition exposes, while the legacy TitleCase `type` tag
+        # feeds `artifact.artifact_type`. Route by value so both spellings keep
+        # working and the definition's own enum value is no longer rejected.
+        legacy_test_type = "Unit"
+        model_test_type_value: Optional[str] = None
+        raw_test_type = params.get("test_type")
+        if raw_test_type is not None:
+            if raw_test_type in _VALID_MODEL_TEST_TYPES:
+                model_test_type_value = raw_test_type
+            else:
+                legacy_test_type = raw_test_type
+        if params.get("type") is not None:
+            legacy_test_type = params["type"]
         description: str = params.get("description", "")
         linked_req_id = optional_uuid(params, "linked_req_id")
+        # REQ-L2-AS-037: TestService.create_test_case already accepts
+        # custom_fields; the handler used to drop it.
+        custom_fields = params.get("custom_fields")
 
         # Ledger gap #1 / issue #881: same central gate as
         # TestCaseViewSet.create.
@@ -467,7 +540,9 @@ class McpTestToolGroup(BaseToolGroup):
                     title=str(title),
                     ctx=auth_context,
                     description=description,
-                    test_type=test_type,
+                    test_type=legacy_test_type,
+                    test_type_value=model_test_type_value,
+                    custom_fields=custom_fields,
                 )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -581,7 +656,7 @@ class McpTestToolGroup(BaseToolGroup):
                 existing_tc = self._service.get_test_case(tc_id, auth_context)
                 changed_fields = {
                     name: data[name]
-                    for name in ("title", "description", "steps")
+                    for name in ("title", "description", "steps", "test_type", "custom_fields")
                     if name in data
                 }
                 definition_error = validate_artifact_write(
@@ -594,6 +669,15 @@ class McpTestToolGroup(BaseToolGroup):
                 if definition_error is not None:
                     return definition_error
 
+                # Only forward optional fields the caller actually sent: both
+                # use an `_UNSET` sentinel, so an absent key must not clear the
+                # stored value.
+                optional_kwargs: Dict[str, Any] = {}
+                if "test_type" in data:
+                    optional_kwargs["test_type"] = data["test_type"]
+                if "custom_fields" in data:
+                    optional_kwargs["custom_fields"] = data["custom_fields"]
+
                 # Codeberg #313: suppress update_test_case's single internal
                 # _audit() call for the same entity — write_mcp_audit below
                 # is the sole entry.
@@ -604,6 +688,7 @@ class McpTestToolGroup(BaseToolGroup):
                         title=data.get("title"),
                         description=data.get("description"),
                         steps=data.get("steps"),
+                        **optional_kwargs,
                     )
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))

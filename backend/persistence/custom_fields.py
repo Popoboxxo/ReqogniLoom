@@ -11,6 +11,7 @@ that into a DRF error at the adapter boundary.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from django.core.exceptions import ValidationError
@@ -138,8 +139,33 @@ def validate_custom_fields(data: Any) -> dict:
 
 __all__ = [
     "validate_custom_fields",
+    "coerce_custom_fields",
     "ALLOWED_VALUE_TYPES",
     "MAX_KEYS",
     "MAX_KEY_LENGTH",
     "MAX_VALUE_STRING_LENGTH",
 ]
+
+
+def coerce_custom_fields(value: Any) -> dict:
+    """Coerce a raw DB ``custom_fields`` value to a dict.
+
+    Raw SQL cursors (``django.db.connection.cursor()``) hand back a JSONB
+    column as a string — psycopg2's default type adapters do not decode it the
+    way ``JSONField.from_db_value`` does for ORM reads. Both
+    ``ArtifactService.get_tree`` and ``SearchService`` select the column
+    directly, so decode defensively here instead of trusting the driver.
+
+    Returns:
+        The decoded dict, or ``{}`` for ``None``, malformed JSON or any
+        non-object value.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}

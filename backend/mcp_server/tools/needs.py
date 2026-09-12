@@ -15,6 +15,7 @@ from mcp_server.tools.ai_derivation import (
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
+    artifact_custom_fields,
     optional_uuid,
     require_param,
     require_uuid,
@@ -33,6 +34,9 @@ def _need_to_dict(n: Any) -> dict:
         "status": n.status,
         "moscow_priority": n.moscow_priority,
         "version": n.version,
+        # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
+        # backing Artifact; without this the MCP write is invisible on read.
+        "custom_fields": artifact_custom_fields(n),
     }
 
 
@@ -91,6 +95,14 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "MoSCoW priority (Must/Should/Could/Won't).",
                     },
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map) defined by this workspace's attribute definition."
+                        ),
+                    },
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -115,6 +127,14 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                     },
                     "moscow_priority": {"type": "string"},
                     "change_reason": {"type": "string", "description": "Reason for the change."},
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map). Replaces the stored map."
+                        ),
+                    },
                 },
                 "required": ["id"],
             },
@@ -236,6 +256,9 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         description = params.get("description", "")
         category = params.get("category", "")
         moscow_priority = params.get("moscow_priority")
+        # REQ-L2-AS-037 / Epic #934 WS1: StakeholderNeedService.create already
+        # accepts custom_fields; the handler used to drop it.
+        custom_fields = params.get("custom_fields")
 
         # Ledger gap #1 / issue #881: same central gate as
         # StakeholderNeedViewSet.create.
@@ -253,6 +276,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 description=description,
                 category=category,
                 moscow_priority=moscow_priority,
+                custom_fields=custom_fields,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -272,7 +296,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         # single source of truth for the lifecycle state. A client-sent `status`
         # is ignored (not an error) and the response reflects the true value.
         kwargs = {}
-        for f in ["title", "description", "category", "moscow_priority"]:
+        for f in ["title", "description", "category", "moscow_priority", "custom_fields"]:
             if f in params:
                 kwargs[f] = params[f]
 

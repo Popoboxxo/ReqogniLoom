@@ -25,6 +25,7 @@ from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    artifact_custom_fields,
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
@@ -89,6 +90,9 @@ def _goal_payload(
         "title": goal.title,
         "description": goal.description,
         "status": resolve_engine_status("Goal", goal.id, status_map=status_map),
+        # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
+        # version's dedicated backing Artifact.
+        "custom_fields": artifact_custom_fields(goal),
     }
 
 
@@ -165,6 +169,14 @@ class GoalToolGroup(BaseToolGroup):
                     "workspace_id": {"type": "string"},
                     "title": {"type": "string"},
                     "description": {"type": "string"},
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map) defined by this workspace's attribute definition."
+                        ),
+                    },
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -179,6 +191,14 @@ class GoalToolGroup(BaseToolGroup):
                     "lineage_id": {"type": "string"},
                     "title": {"type": "string"},
                     "description": {"type": "string"},
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map). Replaces the stored map."
+                        ),
+                    },
                 },
                 "required": ["workspace_id", "lineage_id", "title"],
             },
@@ -207,6 +227,14 @@ class GoalToolGroup(BaseToolGroup):
                     },
                     "title": {"type": "string"},
                     "description": {"type": "string"},
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map). Omit to inherit the addressed version's map."
+                        ),
+                    },
                 },
                 "required": ["goal_id"],
             },
@@ -393,6 +421,7 @@ class GoalToolGroup(BaseToolGroup):
                 description=params.get("description", ""),
                 lineage_id=None,
                 ctx=auth_context,
+                custom_fields=params.get("custom_fields"),
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
@@ -420,6 +449,7 @@ class GoalToolGroup(BaseToolGroup):
                 description=params.get("description", ""),
                 lineage_id=lineage_id,
                 ctx=auth_context,
+                custom_fields=params.get("custom_fields"),
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
@@ -462,6 +492,13 @@ class GoalToolGroup(BaseToolGroup):
             )
         title = params.get("title")
         description = params.get("description")
+        custom_fields_provided = "custom_fields" in params
+        update_kwargs: Dict[str, Any] = {}
+        # REQ-L2-AS-037 / Epic #934 WS1: forward the extended map when the
+        # caller sent it; otherwise leave it unset so GoalService.update
+        # inherits the addressed version's map.
+        if custom_fields_provided:
+            update_kwargs["custom_fields"] = params.get("custom_fields")
         try:
             existing_goal = GoalService().get(goal_id, auth_context)
             # Ledger gap #1 / issue #881: goal.update always appends a
@@ -470,16 +507,19 @@ class GoalToolGroup(BaseToolGroup):
             # validates like a create against the merged, final field
             # values (existing=None), mirroring GoalViewSet.create rather
             # than a partial-patch check.
+            merged_fields: Dict[str, Any] = {
+                "title": existing_goal.title if title is None else title,
+                "description": (
+                    existing_goal.description if description is None else description
+                ),
+            }
+            if custom_fields_provided:
+                merged_fields["custom_fields"] = params.get("custom_fields")
             definition_error = validate_artifact_write(
                 auth_context,
                 "Goal",
                 existing_goal.workspace_id,
-                {
-                    "title": existing_goal.title if title is None else title,
-                    "description": (
-                        existing_goal.description if description is None else description
-                    ),
-                },
+                merged_fields,
                 None,
             )
             if definition_error is not None:
@@ -490,6 +530,7 @@ class GoalToolGroup(BaseToolGroup):
                 auth_context,
                 title=title,
                 description=description,
+                **update_kwargs,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

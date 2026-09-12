@@ -632,6 +632,10 @@ class TestArchitectureToolGroup:
             description="",
             element_type="component",
             parent_id=UUID(parent_id),
+            # Epic #934 WS1: the writable defined attributes are forwarded too.
+            asil_level=None,
+            make_or_buy=None,
+            custom_fields=None,
         )
 
     @patch("mcp_server.tools.architecture.write_mcp_audit")

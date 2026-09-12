@@ -15,6 +15,7 @@ from persistence.models import GlossaryTerm, Workspace
 from persistence.transactions import atomic_transaction
 
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
+from application.artifact_service import _clean_custom_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.optimistic_lock import (
     assert_expected_version,
@@ -22,6 +23,9 @@ from application.optimistic_lock import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Sentinel distinguishing "custom_fields omitted" from "clear to {}".
+_UNSET = object()
 
 
 @dataclass
@@ -42,6 +46,9 @@ class GlossaryTermDTO:
     # without a direct GlossaryTerm ORM query (layering: views use
     # Serializer + Service, not the model directly).
     artifact_id: Optional[UUID] = None
+    # REQ-L2-AS-037 / Epic #934 WS1: extended user-defined attributes live on
+    # the backing Artifact; exposed so both transports can read them back.
+    custom_fields: Optional[dict] = None
 
     @classmethod
     def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
@@ -62,6 +69,11 @@ class GlossaryTermDTO:
             version=term.version,
             status=status,
             artifact_id=term.artifact_id,
+            custom_fields=(
+                getattr(term.artifact, "custom_fields", None) or {}
+                if term.artifact_id
+                else {}
+            ),
         )
 
 
@@ -128,6 +140,7 @@ class GlossaryService(ServiceBase):
         definition: str,
         synonyms: Optional[list] = None,
         abbreviation: str = "",
+        custom_fields: Optional[dict] = None,
     ) -> GlossaryTermDTO:
         if not term.strip() or not definition.strip():
             raise ValidationError("Term and definition are required.")
@@ -159,6 +172,12 @@ class GlossaryService(ServiceBase):
         # persistence/models.py for the interview_artifact_adapters gap this
         # closes).
         ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=workspace_id)
+
+        # REQ-L2-AS-037 / Epic #934 WS1: persist extended attributes on the
+        # backing Artifact (previously silently dropped by this service).
+        if custom_fields is not None:
+            gt.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            gt.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
         # appends a revision. Task 28b removed the legacy GlossaryTermVersion
@@ -197,6 +216,7 @@ class GlossaryService(ServiceBase):
         synonyms: Optional[list] = None,
         abbreviation: Optional[str] = None,
         expected_version: Optional[int] = None,
+        custom_fields: object = _UNSET,
     ) -> GlossaryTermDTO:
         """Update a GlossaryTerm (REQ-L1-044).
 
@@ -212,6 +232,8 @@ class GlossaryService(ServiceBase):
                 stale, the update is refused with ``OptimisticLockError`` (409)
                 instead of overwriting a concurrent edit. Omitting it keeps the
                 previous last-writer-wins behaviour.
+            custom_fields: REQ-L2-AS-037 extended attributes. ``_UNSET`` leaves
+                the stored map untouched; ``{}`` clears it.
 
         Raises:
             OptimisticLockError: *expected_version* does not match the stored one.
@@ -237,7 +259,18 @@ class GlossaryService(ServiceBase):
             gt.abbreviation = abbreviation
             changed = True
 
-        if not changed:
+        custom_fields_changed = False
+        if custom_fields is not _UNSET:
+            ensure_artifact(
+                gt, artifact_type="GlossaryTerm", workspace_id=gt.workspace_id
+            )
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            if cleaned_custom_fields != (gt.artifact.custom_fields or {}):
+                gt.artifact.custom_fields = cleaned_custom_fields
+                gt.artifact.save(update_fields=["custom_fields", "modified_at"])
+                custom_fields_changed = True
+
+        if not changed and not custom_fields_changed:
             return GlossaryTermDTO.from_orm(gt)
 
         # Update version and save

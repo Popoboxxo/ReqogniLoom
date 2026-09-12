@@ -898,6 +898,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "description": hit.description,
                     "relevance_score": hit.relevance_score,
                     "workspace_id": hit.workspace_id,
+                    # REQ-L2-AS-037 / Epic #934 WS1: surface the backing
+                    # Artifact's extended attributes (spec section 9).
+                    "custom_fields": dict(hit.custom_fields or {}),
                 }
                 for hit in result.results
             ],

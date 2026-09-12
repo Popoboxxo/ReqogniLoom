@@ -228,6 +228,22 @@ def validate_artifact_write(
     return None
 
 
+def artifact_custom_fields(entity: Any) -> Dict[str, Any]:
+    """Return the ``custom_fields`` map from an entity's backing Artifact.
+
+    Mirrors ``rest_api.views._artifact_custom_fields`` (REQ-L2-AS-037): the
+    extended attributes live on ``Artifact.custom_fields`` and every
+    artifact-backed entity reaches them through its OneToOne ``artifact``
+    relation. Missing/NULL normalizes to ``{}`` so the MCP read shape stays
+    stable, and non-dict values (e.g. mocked objects in unit tests) degrade to
+    ``{}`` instead of leaking into the JSON response.
+    """
+    artifact = getattr(entity, "artifact", None)
+    source = artifact if artifact is not None else entity
+    custom_fields = getattr(source, "custom_fields", None)
+    return custom_fields if isinstance(custom_fields, dict) else {}
+
+
 # ---------------------------------------------------------------------------
 # MCP Audit helper (REQ-L2-MC-012)
 # ---------------------------------------------------------------------------
@@ -378,6 +394,7 @@ class BaseToolGroup(ABC):
 __all__ = [
     "BaseToolGroup",
     "ParameterError",
+    "artifact_custom_fields",
     "require_param",
     "optional_uuid",
     "require_uuid",

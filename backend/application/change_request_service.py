@@ -27,6 +27,7 @@ from django.db import transaction
 from django.db.models import F, QuerySet
 
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
+from application.artifact_service import _clean_custom_fields
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
@@ -47,6 +48,9 @@ from persistence.artifact_backing import ensure_artifact
 from workflow import state_reader
 
 logger = logging.getLogger(__name__)
+
+#: Sentinel distinguishing "custom_fields omitted" from "clear to {}".
+_UNSET = object()
 
 # CCB workflow states in lifecycle order.
 CCB_STATES = frozenset(ChangeRequest.Status.values)
@@ -191,6 +195,7 @@ class ChangeRequestService(ServiceBase):
         requestor_id: Optional[UUID] = None,
         assigned_reviewer_id: Optional[UUID] = None,
         affected_item_ids: Optional[Sequence[UUID | str]] = None,
+        custom_fields: Optional[dict] = None,
     ) -> ChangeRequest:
         """Create a ChangeRequest in draft status (REQ-157).
 
@@ -206,6 +211,8 @@ class ChangeRequestService(ServiceBase):
             affected_item_ids: Artifact UUIDs this CR proposes to change. Each
                 is validated to exist inside *workspace_id* and the caller's
                 tenant; the "before" state snapshot is captured immediately.
+            custom_fields: REQ-L2-AS-037 extended attributes persisted on the
+                backing Artifact.
 
         Returns:
             Persisted ChangeRequest ORM instance.
@@ -236,6 +243,12 @@ class ChangeRequestService(ServiceBase):
         # ChangeRequest never had one before, so it was never a valid
         # TraceLink endpoint or baseline subject.
         ensure_artifact(cr, artifact_type="ChangeRequest", workspace_id=workspace_id)
+
+        # REQ-L2-AS-037 / Epic #934 WS1: persist extended attributes on the
+        # backing Artifact (previously silently dropped by this service).
+        if custom_fields is not None:
+            cr.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            cr.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): a CR's impact
         # assessment is exactly the kind of text a CCB reviewer must be able to
@@ -317,6 +330,7 @@ class ChangeRequestService(ServiceBase):
         assigned_reviewer_id: Optional[UUID] = None,
         affected_item_ids: Optional[Sequence[UUID | str]] = None,
         expected_version: Optional[int] = None,
+        custom_fields: object = _UNSET,
     ) -> ChangeRequest:
         """Update a ChangeRequest, incrementing its version (REQ-157).
 
@@ -334,6 +348,8 @@ class ChangeRequestService(ServiceBase):
                 stale, the update is refused with ``OptimisticLockError`` (409)
                 instead of overwriting a concurrent edit. Omitting it keeps the
                 previous last-writer-wins behaviour.
+            custom_fields: REQ-L2-AS-037 extended attributes. ``_UNSET`` leaves
+                the stored map untouched; ``{}`` clears it.
 
         Returns:
             Updated ChangeRequest ORM instance.
@@ -386,6 +402,13 @@ class ChangeRequestService(ServiceBase):
         # ChangeRequest had a backing Artifact at all) starts its history
         # instead of being silently skipped.
         ensure_artifact(cr, artifact_type="ChangeRequest", workspace_id=cr.workspace_id)
+
+        # REQ-L2-AS-037: extended attributes on the backing Artifact. `_UNSET`
+        # distinguishes "omit" from "clear to {}".
+        if custom_fields is not _UNSET:
+            cr.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            cr.artifact.save(update_fields=["custom_fields", "modified_at"])
+
         ArtifactVersionService().record(
             cr.artifact_id,
             snapshot_fields(cr, "ChangeRequest"),

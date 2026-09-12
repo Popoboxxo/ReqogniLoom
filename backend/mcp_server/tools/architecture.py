@@ -47,6 +47,7 @@ from application.services import (
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    artifact_custom_fields,
     mcp_audit_handoff,
     optional_uuid,
     require_param,
@@ -68,6 +69,12 @@ def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
         "version": el.version,
         "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
     }
+    # REQ-L2-AS-037 / Epic #934 WS1: the SE classification attributes
+    # (asil_level, make_or_buy) and the extended custom_fields map must be
+    # readable — the create used to accept/drop them and the read omitted them.
+    result["asil_level"] = getattr(el, "asil_level", None)
+    result["make_or_buy"] = getattr(el, "make_or_buy", None)
+    result["custom_fields"] = artifact_custom_fields(el)
     if hasattr(el, "artifact") and el.artifact:
         result["workspace_id"] = str(el.artifact.workspace_id)
         # Expose the backing Artifact id so callers can resolve
@@ -147,6 +154,22 @@ class ArchitectureToolGroup(BaseToolGroup):
                             "of that element (invariants I1/I3 apply)."
                         ),
                     },
+                    "asil_level": {
+                        "type": "string",
+                        "description": "Functional-safety ASIL level (REQ-L3-RF004-004).",
+                    },
+                    "make_or_buy": {
+                        "type": "string",
+                        "description": "Make-or-buy decision (REQ-L3-RF004-004).",
+                    },
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map) defined by this workspace's attribute definition."
+                        ),
+                    },
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -166,11 +189,29 @@ class ArchitectureToolGroup(BaseToolGroup):
                         "type": "object",
                         "description": (
                             "Fields to update (title, description, element_type, "
+                            "asil_level, make_or_buy, custom_fields, "
                             "expected_version, parent_id). 'parent_id' is optional: "
                             "omit it to leave the current parent unchanged, set it "
                             "to a UUID to re-parent, or set it to null to detach "
                             "the element to root (subject to invariants I1/I3/I5)."
                         ),
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "element_type": {"type": "string"},
+                            "asil_level": {"type": "string"},
+                            "make_or_buy": {"type": "string"},
+                            "custom_fields": {
+                                "type": "object",
+                                "additionalProperties": True,
+                                "description": (
+                                    "Extended user-defined attributes (flat "
+                                    "key/value map). Replaces the stored map."
+                                ),
+                            },
+                            "parent_id": {"type": ["string", "null"]},
+                            "expected_version": {"type": "integer"},
+                        },
                     },
                 },
                 "required": ["id"],
@@ -355,6 +396,11 @@ class ArchitectureToolGroup(BaseToolGroup):
         description: str = params.get("description", "")
         element_type: str = params.get("element_type", "component")
         parent_id = optional_uuid(params, "parent_id")
+        # Epic #934 WS1: these writable defined attributes were silently
+        # dropped here even though ArchitectureService already accepted them.
+        asil_level = params.get("asil_level")
+        make_or_buy = params.get("make_or_buy")
+        custom_fields = params.get("custom_fields")
 
         # Ledger gap #1 / issue #881: same central gate as
         # ArchitectureElementViewSet.create.
@@ -376,6 +422,9 @@ class ArchitectureToolGroup(BaseToolGroup):
                     description=description,
                     element_type=element_type,
                     parent_id=parent_id,
+                    asil_level=asil_level,
+                    make_or_buy=make_or_buy,
+                    custom_fields=custom_fields,
                 )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -439,7 +488,15 @@ class ArchitectureToolGroup(BaseToolGroup):
             existing_el = self._service.get_architecture_element(arch_id, auth_context)
             changed_fields = {
                 name: data[name]
-                for name in ("title", "description", "element_type", "parent_id")
+                for name in (
+                    "title",
+                    "description",
+                    "element_type",
+                    "parent_id",
+                    "asil_level",
+                    "make_or_buy",
+                    "custom_fields",
+                )
                 if name in data
             }
             definition_error = validate_artifact_write(
@@ -451,6 +508,13 @@ class ArchitectureToolGroup(BaseToolGroup):
             )
             if definition_error is not None:
                 return definition_error
+
+            # Only forward optional attributes the caller actually sent: the
+            # service uses `_UNSET` sentinels, so an absent key must not clear
+            # the stored value.
+            for optional_name in ("asil_level", "make_or_buy", "custom_fields"):
+                if optional_name in data:
+                    update_kwargs[optional_name] = data[optional_name]
 
             # Codeberg #313: suppress update_architecture_element's single
             # internal _audit() call for the same entity — write_mcp_audit
