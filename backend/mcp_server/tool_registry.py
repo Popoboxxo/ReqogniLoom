@@ -189,6 +189,15 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # UserTenantMemory row -- memory.query/memory.list are read-only (see
     # _READ_ONLY_TOOL_NAMES below).
     "memory.forget",
+    # Attribut v3 WS5 (#942): central attribute catalog. create/update/
+    # deprecate/add_to_definition/import are writes; list/search/export are
+    # read-only via _READ_ONLY_TOOL_NAMES below. Listed here as the documented
+    # write catalogue (the actual gate is the fail-closed default).
+    "attribute_catalog.create",
+    "attribute_catalog.update",
+    "attribute_catalog.deprecate",
+    "attribute_catalog.add_to_definition",
+    "attribute_catalog.import",
 )
 
 # ---------------------------------------------------------------------------
@@ -299,6 +308,13 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # -- attribute_definition.update/.reset stay fail-closed WRITE-gated.
         "attribute_definition.list",
         "attribute_definition.get",
+        # Attribut v3 WS5 (#942): attribute_catalog.list/search/export are plain
+        # reads over the tenant's catalog -- create/update/deprecate/
+        # add_to_definition/import stay fail-closed WRITE-gated. The service
+        # asserts admin on every operation either way.
+        "attribute_catalog.list",
+        "attribute_catalog.search",
+        "attribute_catalog.export",
     }
 )
 
@@ -562,6 +578,7 @@ class ToolRegistry:
         from mcp_server.tools.memory import MemoryToolGroup
         from mcp_server.tools.link_type import LinkTypeToolGroup
         from mcp_server.tools.attribute_definition import AttributeDefinitionToolGroup
+        from mcp_server.tools.attribute_catalog import AttributeCatalogToolGroup
         from mcp_server.tools.icd import IcdToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
@@ -631,6 +648,11 @@ class ToolRegistry:
             # (mcp_server/tools/base.py::validate_artifact_write), and the CSV
             # bulk importer (ImportService._validate_attribute_definitions).
             "attribute_definition": AttributeDefinitionToolGroup(),
+            # Attribut v3 WS5 (#942, spec section 8): the central
+            # item-type-independent attribute-catalog template library. list/
+            # search/export are read-exempt; the five mutating tools are
+            # fail-closed write-gated and the service re-asserts admin.
+            "attribute_catalog": AttributeCatalogToolGroup(),
             # Epic #934 WS1: ICD CRUD parity on MCP (previously REST-only).
             # Writes run the shared validate_artifact_write gate.
             "icd": IcdToolGroup(),

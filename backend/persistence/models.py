@@ -856,6 +856,60 @@ class Actor(TenantScopedModel):
         return self.display_name
 
 
+class AttributeCatalogEntry(TenantScopedModel):
+    """Item-type-independent attribute template in the tenant's catalog.
+
+    Attribut v3 WS5 (#942, spec section 8). The catalog is a *template
+    library*, not a hard binding: :attr:`definition` stores one normalized
+    ``kind="extended"`` attribute block (the exact shape
+    ``attribute_definitions.schema.normalize_attribute`` produces), and
+    applying an entry to a definition is an explicit, one-shot *copy*
+    (``AttributeCatalogService.add_to_definition``). Later edits to a catalog
+    entry therefore never reach an already-updated definition — "Re-Apply" is
+    an explicit user action.
+
+    :attr:`name` is unique per tenant (the catalog's addressing key). The
+    templating metadata (:attr:`category`, :attr:`tags`, :attr:`label`,
+    :attr:`help_text`, :attr:`origin`) is display/provenance only and is never
+    copied into a definition by ``add_to_definition``; it drives the WS5 UI
+    (Part B).
+
+    RLS: ``pl_attribute_catalog_entry`` ships its own policy migration
+    (``persistence/0089_attribute_catalog_rls_policy``) — the coverage guard
+    in ``persistence/tests/test_rls_coverage.py`` requires one per new
+    ``TenantScopedModel``.
+    """
+
+    name = models.CharField(max_length=64)
+    definition = models.JSONField()
+    category = models.CharField(max_length=64, blank=True)
+    tags = models.JSONField(default=list, blank=True)
+    label = models.JSONField(default=dict)
+    help_text = models.JSONField(default=dict)
+    origin = models.CharField(max_length=64, blank=True)
+    deprecated = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "pl_attribute_catalog_entry"
+        constraints = [
+            # Spec section 8: one catalog entry per (tenant, name).
+            models.UniqueConstraint(
+                fields=["tenant", "name"],
+                name="uq_attribute_catalog_tenant_name",
+            ),
+        ]
+        indexes = [
+            # The catalog browse view filters by category inside one tenant.
+            models.Index(
+                fields=["tenant", "category"],
+                name="idx_attr_catalog_tnt_cat",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Artifact(TenantScopedModel):
     """Generic hierarchical artifact (ADR-05, REQ-L1-001).
 

@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 192,
+  "tool_count": 200,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -890,6 +890,258 @@
       }
     },
     {
+      "name": "attribute_catalog.add_to_definition",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Copy an entry's attribute block into a global (preset) or workspace definition, resolving name collisions (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "description": "Catalog entry UUID."
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "extended"
+            ]
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "on_collision": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "overwrite",
+              "rename"
+            ],
+            "default": "skip"
+          }
+        },
+        "required": [
+          "entry_id",
+          "item_type"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.create",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Create an attribute-catalog entry (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "object",
+            "description": "One kind='extended' attribute block."
+          },
+          "category": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": "object"
+          },
+          "help_text": {
+            "type": "object"
+          },
+          "origin": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "definition"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.deprecate",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Mark an entry deprecated (or lift it) (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "description": "Catalog entry UUID."
+          },
+          "deprecated": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.export",
+      "prefix": "attribute_catalog",
+      "is_write": false,
+      "description": "Download the catalog as a re-importable document (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "include_deprecated": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "attribute_catalog.import",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Merge a catalog document into this tenant (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object",
+            "description": "attribute_catalog.export's output."
+          },
+          "on_collision": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "overwrite",
+              "rename"
+            ],
+            "default": "skip"
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.list",
+      "prefix": "attribute_catalog",
+      "is_write": false,
+      "description": "List the tenant's attribute-catalog entries (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Name substring (case-insensitive)."
+          },
+          "category": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_deprecated": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "attribute_catalog.search",
+      "prefix": "attribute_catalog",
+      "is_write": false,
+      "description": "Search the attribute catalog by name substring (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Name substring (case-insensitive)."
+          },
+          "category": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_deprecated": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.update",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Partially update an attribute-catalog entry (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "description": "Catalog entry UUID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "object"
+          },
+          "category": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": "object"
+          },
+          "help_text": {
+            "type": "object"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "deprecated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
       "name": "attribute_definition.count_usages",
       "prefix": "attribute_definition",
       "is_write": true,
@@ -1258,7 +1510,14 @@
             "items": {
               "type": "object"
             },
-            "description": "Optional full replacement section list (name, order, visible, layout). Omit to keep the row's current sections."
+            "description": "Optional full replacement section list (name, order, visible, layout, attribute_flow). Omit to keep the row's current sections."
+          },
+          "section_flow": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Optional full replacement 12-column section flow ([{kind: section, name} | {kind: spacer, size}]). Omit to keep the row's current section flow."
           }
         },
         "required": [
