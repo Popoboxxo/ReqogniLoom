@@ -53,6 +53,7 @@ from mcp_server.tools.base import (
     require_param,
     require_uuid,
     resolve_engine_status,
+    resolve_status_map,
     validate_artifact_write,
     write_mcp_audit,
 )
@@ -60,8 +61,16 @@ from mcp_server.tools.base import (
 logger = logging.getLogger(__name__)
 
 
-def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
-    """Serialise an ArchitectureElement ORM object to a dict."""
+def _arch_el_to_dict(
+    el: Any, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Serialise an ArchitectureElement ORM object to a dict.
+
+    Pass a pre-batched *status_map* (:func:`resolve_status_map`) from list-shaped
+    handlers so a page of N elements resolves its ``status`` in one engine query
+    instead of N. On the single-item paths it stays ``None`` and
+    :func:`resolve_engine_status` keeps its per-item fallback behaviour.
+    """
     result: Dict[str, Any] = {
         "id": str(el.id),
         # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
@@ -84,7 +93,9 @@ def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
     # ``ArchitectureElementSerializer`` already resolves it from the workflow
     # engine; the MCP projection omitted it, so the read-back could not satisfy
     # the Attribute Usability Contract's R check (class ``SYSTEM``).
-    result["status"] = resolve_engine_status("ArchitectureElement", el.id)
+    result["status"] = resolve_engine_status(
+        "ArchitectureElement", el.id, status_map=status_map
+    )
     result["custom_fields"] = artifact_custom_fields(el)
     if hasattr(el, "artifact") and el.artifact:
         result["workspace_id"] = str(el.artifact.workspace_id)
@@ -389,8 +400,16 @@ class ArchitectureToolGroup(BaseToolGroup):
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance -- mirrors requirements/tests/
+        # goals/interview and rest_api/mixins/workflow_state.py's rationale).
+        status_map = resolve_status_map(
+            "ArchitectureElement", [el.id for el in elements]
+        )
         return ToolResult.ok({
-            "architecture_elements": [_arch_el_to_dict(el) for el in elements],
+            "architecture_elements": [
+                _arch_el_to_dict(el, status_map) for el in elements
+            ],
             "count": len(elements),
         })
 

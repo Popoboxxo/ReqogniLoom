@@ -1608,7 +1608,9 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return self._paginate(
             request,
             items,
-            lambda item: ArchitectureElementSerializer(_arch_to_dict(item)).data,
+            serialize_page=lambda page: ArchitectureElementSerializer(
+                [_arch_to_dict(item) for item in page], many=True
+            ).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:

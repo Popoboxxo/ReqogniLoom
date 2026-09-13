@@ -10,13 +10,18 @@ from rest_framework import serializers
 from rest_framework.test import APIRequestFactory
 
 from application.adr_service import AdrService
+from application.architecture_service import ArchitectureService
 from application.goal_service import DRAFT_STATE, GoalService
 from application.models import Goal
 from persistence.models import Tenant, Workspace
 from persistence.tenancy import TenantContext
 from rest_api import serializers as api_serializers
 from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
-from rest_api.views import AdrViewSet, _goal_to_dict
+from rest_api.views import (
+    AdrViewSet,
+    ArchitectureElementViewSet,
+    _goal_to_dict,
+)
 from workflow.services import create_default_workflow
 
 EXPECTED_ITEM_TYPES = {
@@ -29,6 +34,10 @@ EXPECTED_ITEM_TYPES = {
     "ChangeRequestSerializer": "ChangeRequest",
     "GoalSerializer": "Goal",
     "MainGoalSerializer": "MainGoal",
+    # Epic #934 WS1: ArchitectureElement was newly wired through the engine
+    # seam (WorkflowStateSerializerMixin) but was missing here, so the guard
+    # did not cover it.
+    "ArchitectureElementSerializer": "ArchitectureElement",
 }
 
 
@@ -111,6 +120,64 @@ def test_list_endpoint_resolves_status_in_one_query():
         req = APIRequestFactory().get(f"/api/v1/adrs/?workspace_id={workspace.id}")
         req.auth_context = ctx
         view = AdrViewSet.as_view({"get": "list"})
+
+        from workflow import state_reader
+
+        with patch(
+            "rest_api.mixins.workflow_state.state_reader.current_states",
+            wraps=state_reader.current_states,
+        ) as spy:
+            resp = view(req)
+
+        assert resp.status_code == 200
+        assert len(resp.data["results"]) == 3
+        assert spy.call_count == 1, "status resolution must batch, not N+1"
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_architecture_element_list_resolves_status_in_one_query():
+    """Regression guard for the ArchitectureElement list N+1.
+
+    ``ArchitectureElementViewSet.list`` used to pass a per-item ``serialize``
+    lambda, so every row built a fresh ``ArchitectureElementSerializer`` and the
+    mixin's per-instance status cache never survived past one row — one
+    ``WorkflowItemState`` lookup per row. It now serialises the whole page with
+    one ``many=True`` instance via ``serialize_page`` (same shape as
+    ``RequirementViewSet.list``), which must batch into a single
+    ``current_states`` call.
+    """
+    tenant = Tenant.objects.create(name="T-arch-list-n-plus-1")
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(tenant=tenant, name="W-arch-list")
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="architecture_default",
+            item_type="ArchitectureElement",
+            tenant_id=tenant.id,
+        )
+        ctx = MagicMock(tenant_id=tenant.id, user_id=uuid.uuid4(), active_roles=("editor",))
+        ctx.has_role = lambda role: role in ctx.active_roles
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=workspace.id, title="Root", ctx=ctx
+        )
+        # I5 allows exactly one root per workspace, so build a chain.
+        for index in range(2):
+            svc.create_architecture_element(
+                workspace_id=workspace.id,
+                title=f"Child {index}",
+                ctx=ctx,
+                parent_id=root.id,
+            )
+
+        req = APIRequestFactory().get(
+            f"/api/v1/architecture/?workspace_id={workspace.id}"
+        )
+        req.auth_context = ctx
+        view = ArchitectureElementViewSet.as_view({"get": "list"})
 
         from workflow import state_reader
 

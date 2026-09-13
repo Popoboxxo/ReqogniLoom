@@ -500,6 +500,11 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     "source_element_id": str(result.icd.source_element_id),
                     "target_element_id": str(result.icd.target_element_id),
                     "version": result.current_version.version_number if result.current_version else 1,
+                    # Epic #934 WS1: ``status`` is a visible system attribute;
+                    # list/retrieve and every MCP icd.* response already carry
+                    # it, so create must too (parity -- resolve it exactly like
+                    # retrieve does).
+                    "status": _icd_status(result.icd),
                     # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
                     "custom_fields": self._icd_custom_fields(result.icd),
                     "created_at": result.icd.created_at.isoformat() if result.icd.created_at else None,
@@ -598,6 +603,10 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "name": result.icd.name,
                 "version": result.current_version.version_number if result.current_version else 1,
                 "direction": result.current_version.direction if result.current_version else None,
+                # Epic #934 WS1: keep ``status`` on the update response too --
+                # list/retrieve and every MCP icd.* response carry it, so a
+                # write round-trip must not drop it.
+                "status": _icd_status(result.icd),
                 # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
                 "custom_fields": self._icd_custom_fields(result.icd),
             })

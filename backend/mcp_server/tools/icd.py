@@ -30,7 +30,7 @@ queries live in the :mod:`icd.services` facade.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from auth_tenancy.context import AuthContext
 
@@ -51,6 +51,7 @@ from mcp_server.tools.base import (
     require_param,
     require_uuid,
     resolve_engine_status,
+    resolve_status_map,
     validate_artifact_write,
 )
 
@@ -70,12 +71,19 @@ _UPDATE_FIELDS = (
 )
 
 
-def _icd_to_dict(icd: Icd) -> Dict[str, Any]:
+def _icd_to_dict(
+    icd: Icd, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Serialize an Icd ORM row for the MCP read/create/update responses.
 
     Mirrors ``IcdViewSet.retrieve`` field-for-field (plus ``workspace_id`` and
     ``created_at``) so the contract matrix's ``_find_key``/``custom_fields``
     extraction behaves identically on both transports.
+
+    Pass a pre-batched *status_map* (:func:`resolve_status_map`) from
+    ``icd.query`` so a page of N ICDs resolves its ``status`` in one engine
+    query instead of N. The single-item read/create/update paths leave it
+    ``None`` and :func:`resolve_engine_status` keeps its per-item fallback.
     """
     return {
         "id": str(icd.id),
@@ -93,7 +101,7 @@ def _icd_to_dict(icd: Icd) -> Dict[str, Any]:
         # Epic #934 WS1: ``status`` is a visible system attribute on every
         # bootstrapped definition (``editable="workflow"``) and is resolved
         # from the workflow engine, mirroring IcdViewSet.retrieve.
-        "status": resolve_engine_status("Icd", icd.id),
+        "status": resolve_engine_status("Icd", icd.id, status_map=status_map),
         # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
         # backing Artifact; without this the MCP write is invisible on read.
         "custom_fields": artifact_custom_fields(icd),
@@ -243,8 +251,12 @@ class IcdToolGroup(BaseToolGroup):
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         icds = list_icds(workspace_id, auth_context.tenant_id)
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance -- mirrors architecture.query
+        # and rest_api.icd_views._icd_status_map's rationale).
+        status_map = resolve_status_map("Icd", [icd.id for icd in icds])
         return ToolResult.ok({
-            "icds": [_icd_to_dict(icd) for icd in icds],
+            "icds": [_icd_to_dict(icd, status_map) for icd in icds],
             "count": len(icds),
         })
 
