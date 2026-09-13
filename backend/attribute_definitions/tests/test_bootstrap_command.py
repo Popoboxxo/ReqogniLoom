@@ -14,6 +14,7 @@ from attribute_definitions.management.commands.bootstrap_attribute_definitions i
     BOOTSTRAP_ITEM_TYPES,
     EXCLUDED_MODEL_FIELDS,
     PRESETS,
+    SYSTEM_FIELDS_ENABLED_ITEM_TYPES,
     Command,
     introspect_core_attributes,
     synthetic_status_attribute,
@@ -99,18 +100,28 @@ def test_priority_carries_the_default_scale_as_enum_options() -> None:
 
 
 @pytest.mark.django_db
-def test_owner_reporter_and_priority_are_not_yet_visible_or_writable() -> None:
-    """WS2 seeds the carrier only: no REST/MCP transport reads or writes these
-    fields yet, so they must stay hidden and read-only until that lands —
-    otherwise the contract matrix (#934 WS0) would demand a round-trip no
-    transport can satisfy."""
+def test_system_field_visibility_follows_the_transport_rollout_gate() -> None:
+    """WS2 gates ``owner``/``reporter``/``priority`` per item type (#936).
+
+    A field is flipped visible/writable only for the types whose REST **and**
+    MCP transports carry it; the rest keep the hidden, read-only carrier so the
+    contract matrix (#934 WS0) never demands a round-trip no transport can
+    satisfy. ``Risk`` is excluded because its legacy free-text ``owner`` column
+    still owns the ``owner`` keyword there.
+    """
     for item_type in BOOTSTRAP_ITEM_TYPES:
         by_name = {
             a["name"]: a for a in introspect_core_attributes(item_type, "standard")
         }
+        enabled = item_type in SYSTEM_FIELDS_ENABLED_ITEM_TYPES
         for name in ("owner", "reporter", "priority"):
-            assert by_name[name]["visible"] is False, f"{item_type}.{name}"
-            assert by_name[name]["editable"] is False, f"{item_type}.{name}"
+            assert by_name[name]["visible"] is enabled, f"{item_type}.{name}"
+            assert by_name[name]["editable"] is enabled, f"{item_type}.{name}"
+        # owner/reporter are the actor type in both states (spec section 4).
+        assert by_name["owner"]["type"] == "actor", item_type
+        assert by_name["reporter"]["type"] == "actor", item_type
+        assert by_name["owner"]["multiple"] is False, item_type
+        assert by_name["owner"]["allow_external"] is False, item_type
 
 
 

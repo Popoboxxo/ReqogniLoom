@@ -117,6 +117,24 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the adr service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -267,6 +285,24 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the adr service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -1405,6 +1441,24 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the change_request service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -1553,6 +1607,24 @@
           },
           "custom_fields": {
             "description": "Optional. 'custom_fields' as accepted by the change_request service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2805,6 +2877,24 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the issue service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2969,6 +3059,24 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the issue service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [

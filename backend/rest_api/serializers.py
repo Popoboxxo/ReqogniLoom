@@ -522,6 +522,63 @@ class SanitizedJSONField(FreeTextFieldMarker, serializers.JSONField):
 
 
 # ---------------------------------------------------------------------------
+# Artifact system fields mixin (Attribut v3 WS2, #936)
+# ---------------------------------------------------------------------------
+
+
+class ArtifactSystemFieldsSerializerMixin(
+    metaclass=serializers.SerializerMetaclass
+):
+    """Adds the Artifact-level ``owner``/``reporter``/``priority`` fields.
+
+    Spec section 3: these live on ``Artifact``, not on the per-type model, so an
+    entity serializer has no attribute to bind them to. The read values are
+    supplied by the entity's DTO (``rest_api.views._artifact_system_fields``)
+    or, for a serializer handed a raw ORM object, injected in
+    ``to_representation``. Declaring the fields is what also lets a write
+    payload carrying them pass ``UnknownFieldRejectionMixin`` (#851) instead of
+    being rejected as unknown; the viewset applies them through the gateway.
+
+    ``metaclass=`` is load-bearing for the same reason as on
+    :class:`CustomFieldsSerializerMixin` (#290).
+    """
+
+    owner = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Artifact owner in actor wire form (spec section 4): "
+            '{"kind": "user", "id": "<uuid>"} or '
+            '{"kind": "external", "name": "<label>"}.'
+        ),
+    )
+    reporter = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Artifact reporter in actor wire form (spec section 4).",
+    )
+    priority = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Artifact priority. The scale is defined per attribute definition "
+            "(type=enum; default low|medium|high|critical)."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)  # type: ignore[misc]
+        # DTO dicts already carry the values (their builders add them); a raw
+        # ORM object has no such attributes, so inject the actor-form values.
+        if not isinstance(instance, dict):
+            from application.artifact_attribute_gateway import artifact_system_fields
+
+            data.update(artifact_system_fields(instance))
+        return data
+
+
+# ---------------------------------------------------------------------------
 # Unknown-field rejection (issue #851)
 # ---------------------------------------------------------------------------
 
@@ -1396,6 +1453,7 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 class AdrSerializer(
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1631,6 +1689,7 @@ class NormalizedChoiceField(serializers.ChoiceField):
 class IssueSerializer(
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1684,6 +1743,7 @@ class IssueSerializer(
 
 class ChangeRequestSerializer(
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     WorkflowStateSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,

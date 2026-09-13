@@ -145,6 +145,32 @@ _ARTIFACT_LEVEL_CORE_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def artifact_system_fields(entity: Any) -> dict[str, Any]:
+    """Return the Artifact-level system fields in wire form (spec sections 3/4).
+
+    Shared by REST DTO builders and MCP read projections so ``owner``,
+    ``reporter`` and ``priority`` are read identically on both transports (AUC).
+    ``entity`` may be a type-specific model (reaches the Artifact through its
+    OneToOne ``artifact``) or a generic ``Artifact``.
+
+    ``owner``/``reporter`` are converted to the same Actor value form the write
+    adapter accepts (``ArtifactAttributeGateway.actor_to_value``); ``priority``
+    is a plain, possibly empty string. Unset FKs become ``None``.
+    """
+    artifact = getattr(entity, "artifact", None)
+    if artifact is None:
+        artifact = entity
+    return {
+        "owner": ArtifactAttributeGateway.actor_to_value(
+            getattr(artifact, "owner", None)
+        ),
+        "reporter": ArtifactAttributeGateway.actor_to_value(
+            getattr(artifact, "reporter", None)
+        ),
+        "priority": getattr(artifact, "priority", "") or "",
+    }
+
+
 class AttributeArtifact(Protocol):
     """Minimal artifact surface the gateway operates on (structural typing).
 
@@ -615,5 +641,6 @@ __all__ = [
     "AttributeCarrier",
     "AttributeDescriptor",
     "AttributeValues",
+    "artifact_system_fields",
     "carrier_for",
 ]

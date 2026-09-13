@@ -105,6 +105,7 @@ from attribute_definitions.schema import (
 from attribute_definitions.workspace_definition_store import (
     WorkspaceAttributeDefinitionStore,
 )
+from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import ROLE_ADMIN, ApiKey, UserRole
 from auth_tenancy.services.authentication import (
     generate_api_key_plaintext,
@@ -332,6 +333,7 @@ class _Env:
     api_key: str
     registry: ToolRegistry
     icd_elements: dict[str, tuple[str, str]] = field(default_factory=dict)
+    admin_actor_id: str = ""
 
 
 def _inject_probe_attribute(tenant_id: Any) -> None:
@@ -432,6 +434,21 @@ def _build_env() -> _Env:
         assert child.status_code == 201, child.content
         icd_elements[preset] = (root.json()["id"], child.json()["id"])
 
+    # Attribut v3 WS2 (#936): an internal Actor backing the admin user, so the
+    # actor-typed system fields (owner/reporter) can be probed with a real actor
+    # id — the wire form's ``id`` is the Actor id the read path returns.
+    from application.actor_service import ActorService
+
+    actor_ctx = AuthContext(
+        user_id=admin.id,
+        tenant_id=tenant.id,
+        active_roles=(ROLE_ADMIN,),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+    admin_actor_id = str(
+        ActorService().get_or_create_for_user(actor_ctx, admin.id).id
+    )
+
     return _Env(
         tenant=tenant,
         admin=admin,
@@ -440,6 +457,7 @@ def _build_env() -> _Env:
         api_key=plaintext,
         registry=ToolRegistry(),
         icd_elements=icd_elements,
+        admin_actor_id=admin_actor_id,
     )
 
 
@@ -650,6 +668,20 @@ def _reference_probe_value(
         if item_type == "Icd" and name in ("source_element_id", "target_element_id"):
             return _fresh_architecture_element(env, preset, token)
     return None
+
+
+def _actor_probe_value(env: _Env, attribute: dict[str, Any]) -> Any:
+    """A real actor id as the wire probe value (Attribut v3 WS2, #936).
+
+    ``_build_env`` created one internal ``Actor`` for the admin user, so the
+    actor value form round-trips on both transports (write actor id -> read the
+    same actor id). A ``multiple`` actor attribute (none is bootstrapped today)
+    would use the list envelope.
+    """
+    entry = {"kind": "user", "id": env.admin_actor_id}
+    if attribute.get("multiple", False):
+        return {"multiple": True, "items": [entry]}
+    return entry
 
 
 def _fresh_architecture_element(env: _Env, preset: str, token: str) -> str:
@@ -934,6 +966,8 @@ def _run_attribute_cell(
                 )
                 writable_names.discard(attribute["name"])
                 continue
+        elif attribute["type"] == "actor":
+            value = _actor_probe_value(env, attribute)
         else:
             value = _generate_value(attribute, token)
         payload = _payload(env, preset, item_type, spec, attribute, value, token)

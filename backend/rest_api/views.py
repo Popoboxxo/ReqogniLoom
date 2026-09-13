@@ -76,6 +76,11 @@ from application.services import (
 )
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
+from application.artifact_attribute_gateway import (
+    ArtifactAttributeGateway,
+    AttributeValues,
+    artifact_system_fields,
+)
 from application.requirement_bundle_formatters import (
     format_bundle_csv,
     format_bundle_json,
@@ -419,6 +424,42 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         raise NotImplementedError
+
+    def _apply_artifact_system_fields(
+        self, request: Request, item_type: str, entity: Any, ctx: Any
+    ) -> None:
+        """Write Artifact-level ``owner``/``reporter``/``priority`` (WS2, #936).
+
+        These fields live on ``Artifact``, not on the per-type model, so the
+        type-specific create/update service cannot persist them. After that
+        service returns, this routes the client's values through the shared
+        :class:`ArtifactAttributeGateway` — the same actor-resolution and
+        validation path MCP uses — so REST and MCP cannot diverge.
+
+        Only keys actually present in the request are applied, so an unrelated
+        PATCH never clears a stored value. A workspace with no bootstrapped
+        definition is a no-op, mirroring ``_validate_attribute_definition``'s
+        graceful degradation (the fields are not visible without a definition
+        anyway).
+        """
+        raw = getattr(request, "data", None)
+        if not isinstance(raw, dict):
+            return
+        values = {
+            name: raw[name]
+            for name in ("owner", "reporter", "priority")
+            if name in raw
+        }
+        if not values:
+            return
+        from application.attribute_definition_service import AttributeDefinitionNotFound
+
+        try:
+            ArtifactAttributeGateway().write(
+                ctx, item_type, entity, AttributeValues(core=values)
+            )
+        except AttributeDefinitionNotFound:
+            return
 
 
 # ---------------------------------------------------------------------------
@@ -4388,6 +4429,8 @@ def _adr_to_dict(adr: Any) -> dict[str, Any]:
         "uid": getattr(adr, "uid", None),
         "status": getattr(adr, "status", "Draft"),
         "custom_fields": _artifact_custom_fields(adr),
+        # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+        **artifact_system_fields(adr),
         "version": adr.version,
         "created_at": adr.created_at,
         "updated_at": adr.updated_at,
@@ -4518,6 +4561,8 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
         # same silent-discard gap (the value was never even readable).
         "due_date": getattr(issue, "due_date", None),
         "custom_fields": _artifact_custom_fields(issue),
+        # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+        **artifact_system_fields(issue),
         # GH-737 follow-up audit: `version` was the one field IssueSerializer
         # declares (read-only, LOCK_VERSION_HELP_TEXT) that this dict never
         # supplied. DRF silently drops a missing read-only field instead of
@@ -4547,6 +4592,8 @@ def _cr_to_dict(cr: Any) -> dict[str, Any]:
         # REQ-L2-AS-037 / Epic #934 WS1: see _goal_to_dict — the extended
         # attributes on the backing Artifact were never read back.
         "custom_fields": _artifact_custom_fields(cr),
+        # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+        **artifact_system_fields(cr),
         "version": cr.version,
         "created_at": cr.created_at,
         "updated_at": cr.updated_at,
@@ -5129,6 +5176,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # `status` is ignored, not rejected, consistent with
                 # ADR-status-single-source.
             )
+            self._apply_artifact_system_fields(request, "Adr", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -5180,6 +5228,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 expected_version=data.get("expected_version"),
                 **extra_kwargs,
             )
+            self._apply_artifact_system_fields(request, "Adr", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -6288,6 +6337,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # workflow definition's initial_state. A client-supplied `status` is
                 # ignored, not rejected, consistent with ADR-status-single-source.
             )
+            self._apply_artifact_system_fields(request, "Issue", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -6353,6 +6403,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 expected_version=data.get("expected_version"),
                 **extra_kwargs,
             )
+            self._apply_artifact_system_fields(request, "Issue", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -6566,6 +6617,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # REQ-L2-AS-037: extended attributes from the serializer.
                 custom_fields=data.get("custom_fields"),
             )
+            self._apply_artifact_system_fields(request, "ChangeRequest", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -6619,6 +6671,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 expected_version=data.get("expected_version"),
                 **extra_kwargs,
             )
+            self._apply_artifact_system_fields(request, "ChangeRequest", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:

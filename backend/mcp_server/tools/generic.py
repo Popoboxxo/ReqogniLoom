@@ -7,6 +7,11 @@ from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from application.base import NotFoundError, OptimisticLockError
+from application.artifact_attribute_gateway import (
+    ArtifactAttributeGateway,
+    AttributeValues,
+    artifact_system_fields,
+)
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -17,6 +22,43 @@ from mcp_server.tools.base import (
     validate_artifact_write,
 )
 from workflow.state_reader import STATUS_TRACKED_ITEM_TYPES
+
+
+#: Item types whose Artifact-level system fields (``owner``/``reporter``/
+#: ``priority``) are carried by this tool group (Attribut v3 WS2, #936). Mirrors
+#: the REST wiring and the bootstrap rollout gate
+#: (``bootstrap_attribute_definitions.SYSTEM_FIELDS_ENABLED_ITEM_TYPES``).
+#: ``GlossaryTerm`` is excluded because its service returns a ``GlossaryTermDTO``
+#: whose write path does not expose the backing Artifact. ``Risk`` is excluded
+#: because its legacy free-text ``owner`` column still occupies the ``owner``
+#: keyword on ``RiskService`` (retired by the AWMS migration, spec section 10).
+_SYSTEM_FIELDS_ITEM_TYPES: frozenset[str] = frozenset(
+    {"Adr", "Issue", "ChangeRequest"}
+)
+
+_SYSTEM_FIELD_NAMES: tuple[str, ...] = ("owner", "reporter", "priority")
+
+_SYSTEM_FIELD_SCHEMA: Dict[str, Dict[str, Any]] = {
+    "owner": {
+        "type": ["object", "null"],
+        "description": (
+            "Artifact owner in actor wire form (spec section 4): "
+            '{"kind":"user","id":"<uuid>"} or '
+            '{"kind":"external","name":"<label>"}.'
+        ),
+    },
+    "reporter": {
+        "type": ["object", "null"],
+        "description": "Artifact reporter in actor wire form (spec section 4).",
+    },
+    "priority": {
+        "type": "string",
+        "description": (
+            "Artifact priority; the scale comes from the attribute definition "
+            "(default low|medium|high|critical)."
+        ),
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +300,14 @@ class GenericCrudToolGroup(BaseToolGroup):
         }
         update_required = ["id"] + update_required
 
+        # Attribut v3 WS2 (#936): advertise the Artifact-level system fields for
+        # the item types whose transports carry them, so a client sees them up
+        # front and the handler can persist them.
+        self._system_fields_enabled = self._item_type in _SYSTEM_FIELDS_ITEM_TYPES
+        if self._system_fields_on:
+            create_props.update(_SYSTEM_FIELD_SCHEMA)
+            update_props.update(_SYSTEM_FIELD_SCHEMA)
+
         # Instance-level JSON schemas (prefix is only known at construction).
         self._TOOL_SCHEMAS = [
             {
@@ -416,8 +466,53 @@ class GenericCrudToolGroup(BaseToolGroup):
                 custom_fields = getattr(artifact, "custom_fields", None)
             if isinstance(custom_fields, dict):
                 data["custom_fields"] = self._jsonify(custom_fields)
+            # Attribut v3 WS2 (#936): Artifact-level system fields in actor wire
+            # form, mirroring the REST DTO builders.
+            if self._system_fields_on:
+                data.update(artifact_system_fields(obj))
             return data
         return {"id": str(getattr(obj, "id", ""))}
+
+    @property
+    def _system_fields_on(self) -> bool:
+        """Whether this group carries the Artifact-level system fields.
+
+        ``getattr`` guarded because unit tests build a group via ``__new__`` and
+        set attributes by hand, bypassing ``__init__``.
+        """
+        return bool(getattr(self, "_system_fields_enabled", False))
+
+    def _system_field_values(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the Artifact-level system-field values present in *params*.
+
+        Empty for item types whose transports do not carry them, so ``Risk``'s
+        legacy free-text ``owner`` keeps flowing to ``RiskService`` unchanged.
+        """
+        if not self._system_fields_on:
+            return {}
+        return {name: params[name] for name in _SYSTEM_FIELD_NAMES if name in params}
+
+    def _apply_system_fields(
+        self, obj: Any, values: Dict[str, Any], auth_context: AuthContext
+    ) -> None:
+        """Persist ``owner``/``reporter``/``priority`` through the gateway.
+
+        These live on ``Artifact``, not the per-type model, so the wrapped
+        service never sees them; routing them through
+        ``ArtifactAttributeGateway.write`` gives MCP the same actor resolution
+        and validation path REST uses. A workspace without a bootstrapped
+        definition is a no-op (the fields are not visible there anyway).
+        """
+        if not values:
+            return
+        from application.attribute_definition_service import AttributeDefinitionNotFound
+
+        try:
+            ArtifactAttributeGateway().write(
+                auth_context, self._item_type, obj, AttributeValues(core=values)
+            )
+        except AttributeDefinitionNotFound:
+            return
 
     def _handle_read(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
@@ -429,7 +524,13 @@ class GenericCrudToolGroup(BaseToolGroup):
 
     def _handle_create(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
-        kwargs = {k: v for k, v in params.items() if k != "workspace_id"}
+        split_names = _SYSTEM_FIELD_NAMES if self._system_fields_on else ()
+        kwargs = {
+            k: v
+            for k, v in params.items()
+            if k not in ("workspace_id", *split_names)
+        }
+        system_values = self._system_field_values(params)
         # Ledger gap #1 / issue #881: the same central gate the REST ViewSets
         # already run (mirrors AdrViewSet.create et al.).
         definition_error = validate_artifact_write(
@@ -439,6 +540,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             return definition_error
         try:
             obj = self._create_method(ctx=auth_context, workspace_id=workspace_id, **kwargs)
+            self._apply_system_fields(obj, system_values, auth_context)
             return ToolResult.ok({"data": self._to_dict(obj)})
         except TypeError as exc:
             # #268: a required field missing from `params` (e.g. `description`
@@ -456,7 +558,13 @@ class GenericCrudToolGroup(BaseToolGroup):
 
     def _handle_update(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
-        kwargs = {k: v for k, v in params.items() if k != "id"}
+        split_names = _SYSTEM_FIELD_NAMES if self._system_fields_on else ()
+        kwargs = {
+            k: v
+            for k, v in params.items()
+            if k not in ("id", *split_names)
+        }
+        system_values = self._system_field_values(params)
         # #83 Bug 2: `status` is a workflow-managed field for every entity
         # this generic group serves (Adr, Risk, Issue, GlossaryTerm, ...) —
         # it can only move through `{prefix}.outdate` / `{prefix}.reactivate`
@@ -493,6 +601,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             if definition_error is not None:
                 return definition_error
             obj = self._update_method(ctx=auth_context, **{self._update_id_param: obj_id}, **kwargs)
+            self._apply_system_fields(obj, system_values, auth_context)
             return ToolResult.ok({"data": self._to_dict(obj)})
         except OptimisticLockError as exc:
             # SYSTEMAUDIT_2026-08-29 (REST finding 1): the wrapped services now

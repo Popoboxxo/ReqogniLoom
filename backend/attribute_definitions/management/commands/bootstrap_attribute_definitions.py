@@ -418,14 +418,41 @@ def synthetic_status_attribute() -> dict[str, Any]:
 #: single source of that attribute.
 #:
 #: ``owner``/``reporter``/``priority`` are the Artifact columns added in WS2
-#: (#936). They are seeded ``visible=False`` and ``editable=False`` on purpose
-#: for this workstream: the columns exist and are the right carrier, but no
-#: REST/MCP serializer reads or writes them yet (that lands with the Actor
-#: picker/transport work). A visible-but-unwritable attribute would make the
-#: contract matrix (#934 WS0) demand a W/R round-trip no transport can satisfy,
-#: and an editable one would render a control whose PATCH is silently dropped.
-#: A later workstream flips both flags once the transports carry the fields;
-#: existing rows pick that up via ``--sync-new-fields``/``--reset``.
+#: (#936). They are seeded ``visible=False`` and ``editable=False`` by default
+#: for this workstream: the columns exist and are the right carrier, but a
+#: transport only reads/writes them where it has been wired. A visible-but-
+#: unwritable attribute would make the contract matrix (#934 WS0) demand a W/R
+#: round-trip no transport can satisfy, and an editable one would render a
+#: control whose PATCH is silently dropped.
+#:
+#: ``SYSTEM_FIELDS_ENABLED_ITEM_TYPES`` is the explicit rollout gate: the three
+#: fields are flipped to ``visible=True``/``editable=True`` **only** for the
+#: item types whose REST and MCP transports carry them today. That is what keeps
+#: the contract ratchet green while the remaining types are wired one wave at a
+#: time (see the WS2 plan / issue #936). ``owner``/``reporter`` are the
+#: ``actor`` type (spec section 4), single-valued and internal-only by default;
+#: ``priority`` stays the enum with the ``low|medium|high|critical`` default
+#: scale.
+#:
+#: Still hidden after this wave (carrier present, transport not yet wired):
+#:
+#: * ``GlossaryTerm`` — ``GlossaryService`` returns a ``GlossaryTermDTO``, not
+#:   the ORM entity, so the value can be read but not written through the
+#:   gateway's Artifact adapter without a DTO/backing-Artifact change.
+#: * ``Risk`` — its legacy free-text ``owner`` column still owns the ``owner``
+#:   keyword on ``RiskService`` (retired by the AWMS migration, spec §10).
+#: * ``Requirement``/``StakeholderNeed``/``ArchitectureElement``/``TestCase``/
+#:   ``Goal``/``Icd`` — per-type MCP groups still pass explicit kwargs and do
+#:   not yet route the system fields through the gateway.
+SYSTEM_FIELDS_ENABLED_ITEM_TYPES: frozenset[str] = frozenset(
+    {"Adr", "Issue", "ChangeRequest"}
+)
+
+#: The names that the rollout gate above may flip.
+_GATED_SYSTEM_FIELD_NAMES: frozenset[str] = frozenset(
+    {"owner", "reporter", "priority"}
+)
+
 ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
     {
         "name": "id",
@@ -442,7 +469,9 @@ ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
     {
         "name": "owner",
         "kind": "core",
-        "type": "reference",
+        "type": "actor",
+        "multiple": False,
+        "allow_external": False,
         "editable": False,
         "visible": False,
         "required": False,
@@ -453,7 +482,9 @@ ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
     {
         "name": "reporter",
         "kind": "core",
-        "type": "reference",
+        "type": "actor",
+        "multiple": False,
+        "allow_external": False,
         "editable": False,
         "visible": False,
         "required": False,
@@ -635,9 +666,16 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
 
     # Spec section 3: the Artifact-level system fields are inherited by every
     # item type and cannot come from the per-type model walk above. Merged here
-    # so every `(item_type, preset)` definition carries them.
+    # so every `(item_type, preset)` definition carries them. The three
+    # transport-backed fields are flipped visible/editable only for the item
+    # types whose REST + MCP paths actually carry them (rollout gate above).
+    system_fields_enabled = item_type in SYSTEM_FIELDS_ENABLED_ITEM_TYPES
     for entry in ARTIFACT_LEVEL_CORE_ATTRIBUTES:
-        attributes.append(normalize_attribute(dict(entry)))
+        spec = dict(entry)
+        if system_fields_enabled and spec["name"] in _GATED_SYSTEM_FIELD_NAMES:
+            spec["visible"] = True
+            spec["editable"] = True
+        attributes.append(normalize_attribute(spec))
 
     # NOTE: preset `mandatory_fields` are deliberately not applied here — see
     # this function's docstring. They are an approval-transition contract
