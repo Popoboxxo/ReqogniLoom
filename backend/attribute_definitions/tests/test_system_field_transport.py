@@ -166,8 +166,15 @@ def test_definition_exposes_actor_type_for_owner_after_bootstrap(env) -> None:
     assert by_name["priority"]["visible"] is True
 
 
-def test_unwired_item_type_keeps_owner_hidden(env) -> None:
-    """Requirement is not in the rollout gate: its system fields stay hidden."""
+def test_risk_keeps_owner_hidden_until_awms_migration(env) -> None:
+    """Risk stays outside the rollout gate: its legacy ``owner`` column wins.
+
+    Attribut v3 WS2 (#936) deliberately leaves Risk on ``visible=false``: its
+    legacy free-text ``Risk.owner`` CharField still shadows the Artifact-level
+    ``owner`` Actor FK whenever a Risk instance is accessed, so the two cannot
+    be wired cleanly until the AWMS migration (WS7, #940) retires the column.
+    The carrier itself already exists on the Artifact row.
+    """
     from attribute_definitions.schema import stored_attributes
     from attribute_definitions.workspace_definition_store import (
         WorkspaceAttributeDefinitionStore,
@@ -175,12 +182,82 @@ def test_unwired_item_type_keeps_owner_hidden(env) -> None:
 
     tenant, _, workspace, _, _ = env
     row = WorkspaceAttributeDefinitionStore().resolve(
-        tenant.id, workspace.id, "Requirement", "standard"
+        tenant.id, workspace.id, "Risk", "standard"
     )
     by_name = {a["name"]: a for a in stored_attributes(row.definition_json)}
 
     assert by_name["owner"]["visible"] is False
     assert by_name["owner"]["editable"] is False
     assert by_name["owner"]["type"] == "actor"
+    assert by_name["reporter"]["visible"] is False
+    assert by_name["priority"]["visible"] is False
     # The carrier still exists on the Artifact row.
     assert Artifact._meta.get_field("owner") is not None
+
+
+def test_system_fields_round_trip_for_every_wired_type() -> None:
+    """REST+MCP round-trip of owner/reporter/priority for every wired type.
+
+    Drives the same real stacks as the contract matrix (``APIClient`` + JWT and
+    ``ToolRegistry.dispatch_request`` + ``reqlo_*`` API key) but asserts the
+    three system fields explicitly per item type, so a regression names the
+    exact transport/type instead of only failing the aggregate ratchet.
+    ``Risk`` is excluded on purpose: WS2 leaves it hidden until the AWMS
+    migration (WS7, #940) retires its legacy ``owner`` column.
+    """
+    from attribute_definitions.schema import SYSTEM_FIELDS_ENABLED_ITEM_TYPES
+    from attribute_definitions.tests.test_transport_contract_matrix import (
+        _JWT_OVERRIDES,
+        _McpTransport,
+        _RestTransport,
+        _SPECS,
+        _build_env,
+        _payload,
+        _token,
+    )
+    from django.test import override_settings
+
+    with override_settings(**_JWT_OVERRIDES):
+        env = _build_env()
+        workspace = env.workspaces["standard"]
+        owner = {"kind": "user", "id": env.admin_actor_id}
+        reporter = {"kind": "user", "id": env.admin_actor_id}
+        priority = "high"
+
+        failures: list[str] = []
+        for item_type in sorted(SYSTEM_FIELDS_ENABLED_ITEM_TYPES - {"Risk"}):
+            spec = _SPECS[item_type]
+            for transport in (
+                _RestTransport(env.rest_client),
+                _McpTransport(env.registry, env.api_key),
+            ):
+                token = _token(f"sft{item_type[:4]}")
+                payload = _payload(env, "standard", item_type, spec, None, None, token)
+                payload.update(owner=owner, reporter=reporter, priority=priority)
+                created = transport.create(item_type, spec, payload, workspace)
+                if not created.ok:
+                    failures.append(
+                        f"{item_type}/{transport.name}: create failed: {created.error}"
+                    )
+                    continue
+                read = transport.read(
+                    item_type, spec, created.entity_id or "", workspace
+                )
+                if not read.ok:
+                    failures.append(
+                        f"{item_type}/{transport.name}: read failed: {read.error}"
+                    )
+                    continue
+                body = read.data if isinstance(read.data, dict) else {}
+                for name, expected in (
+                    ("owner", owner),
+                    ("reporter", reporter),
+                    ("priority", priority),
+                ):
+                    if body.get(name) != expected:
+                        failures.append(
+                            f"{item_type}/{transport.name}: {name} "
+                            f"wrote {expected!r}, read {body.get(name)!r}"
+                        )
+
+        assert not failures, "System-field round-trip failures:\n" + "\n".join(failures)
