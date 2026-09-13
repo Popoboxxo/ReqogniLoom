@@ -65,6 +65,18 @@ export type AttributeEditable = boolean | "workflow" | "system" | "automation";
 /** Display density only — never a visibility or security boundary. */
 export type AttributeAudience = "basic" | "expert";
 
+/**
+ * Generic display/interaction properties (Attribut v3 WS3, #937, spec section
+ * 5). They apply to **every** attribute regardless of `kind`/`type`:
+ * `reveal` selects the "always visible / reveal on click / reveal on
+ * shortcut" mode, `mask` shortens the *rendered* label while `copyable`
+ * copies the full value, and `display_format` is a purely visual choice.
+ * Mirrors the backend's `attribute_definitions.schema.REVEAL_VALUES` etc.
+ */
+export type AttributeReveal = "always" | "click" | "shortcut";
+export type AttributeMask = "none" | "short";
+export type AttributeDisplayFormat = "text" | "mono" | "chips";
+
 export type WidgetKey =
   | "risk_matrix_rpz"
   | "markdown_tab_group"
@@ -123,6 +135,20 @@ export interface AttributeSpec {
    */
   multiple?: boolean;
   allow_external?: boolean;
+  /**
+   * Generic display/interaction properties (Attribut v3 WS3, #937, spec
+   * section 5). The backend normalizes them onto every attribute
+   * (`schema.py::_DEFAULTS`: `copyable=false`, `reveal="always"`,
+   * `mask="none"`, `display_format="text"`), so an attribute written before
+   * this feature existed keeps its old rendering. They are optional here so
+   * every pre-existing `AttributeSpec` literal (tests, fixtures) stays valid;
+   * consumers resolve them through `resolveDisplayProps` (which applies the
+   * same defaults) rather than reading the fields directly.
+   */
+  copyable?: boolean;
+  reveal?: AttributeReveal;
+  mask?: AttributeMask;
+  display_format?: AttributeDisplayFormat;
 }
 
 /** Where an attribute in a resolved (workspace-scoped) definition comes from

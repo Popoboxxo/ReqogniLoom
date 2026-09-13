@@ -421,8 +421,14 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // fresh on the merged tree per this file's own stated rule (never compute
 // deltas across concurrently-landing branches): 846, which also equals
 // 867 - 21 since the two branches' deletions touched disjoint files.
+//
+// Attribut v3 WS3 (#937): `ArtifactId` was generalized onto the new
+// `<RevealValue>` engine, which owns its styling via a CSS Module — the last
+// inline `style={{...}}` literal in `shared/ArtifactId.tsx` is gone (-1), and
+// the WS2 actor-field landing closed one more elsewhere. Re-measured on the
+// tree: 844. Baseline lowered to the measured value per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 846;
+const STYLE_BRACE_BASELINE = 844;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

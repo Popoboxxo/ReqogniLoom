@@ -4,17 +4,25 @@
  * The identifier is the *name* of an artifact, not a metadatum (ch. 2). It
  * therefore gets one canonical representation that is identical in lists,
  * trees, trace panels and detail headers — mono, selectable in one gesture,
- * and copyable by click with a visible confirmation.
+ * and copyable by click **or double-click** with a visible confirmation.
  *
- * Replaces four inline duplicates that each rendered `uid` slightly
- * differently (`fontFamily: 'monospace'` + an ad-hoc muted colour).
+ * Attribut v3 WS3 (#937): the rendering itself now lives in the generic
+ * `<RevealValue>` display engine; this component is the artifact-specific
+ * preset of it — mono, copyable, and neutral (colour encodes workflow status
+ * and nothing else, ch. 3.3, so an identifier never carries a hue of its own).
  *
- * Deliberately neutral: colour encodes workflow status and nothing else
- * (ch. 3.3), so an identifier never carries a hue of its own.
+ * `mask` is forwarded but defaults to `"none"`: the call sites pass the
+ * semantic `uid` (e.g. "SYS-REQ-001") as `value` and the already-shortened
+ * UUID prefix as `fallback`, so applying `mask="short"` here would truncate
+ * human-readable identifiers and break the "identifier is the name" contract.
+ * The generic attribute renderer applies `mask="short"` where the raw value is
+ * the opaque UUID (spec section 5).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import type { AttributeMask, AttributeReveal } from "../../api/attribute-definitions";
+import { RevealValue } from "./RevealValue";
 
 export interface ArtifactIdProps {
   /**
@@ -28,109 +36,35 @@ export interface ArtifactIdProps {
   copyValue?: string | null;
   /** Suppresses the copy interaction — used inside already-clickable rows. */
   readOnly?: boolean;
+  /** Optional label shortening (spec section 5); default keeps the label. */
+  mask?: AttributeMask;
+  /** Optional reveal mode; default `"always"` keeps the id visible. */
+  reveal?: AttributeReveal;
   testId?: string;
 }
-
-const CONFIRMATION_MS = 1500;
 
 export function ArtifactId({
   value,
   fallback,
   copyValue,
   readOnly = false,
+  mask = "none",
+  reveal = "always",
   testId = "artifact-id",
 }: ArtifactIdProps): JSX.Element | null {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // A pending confirmation timer must not fire after unmount (React 18
-  // StrictMode double-mounts this component in development).
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    [],
-  );
-
-  const label = (value && value.trim()) || (fallback && fallback.trim()) || "";
-  const clipboardText = copyValue?.trim() || label;
-
-  const handleCopy = useCallback(() => {
-    if (!clipboardText) return;
-    // navigator.clipboard is undefined on insecure origins and in jsdom —
-    // failing to copy must never break the surrounding view.
-    const write = navigator.clipboard?.writeText?.(clipboardText);
-    Promise.resolve(write)
-      .then(() => {
-        setCopied(true);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setCopied(false), CONFIRMATION_MS);
-      })
-      .catch(() => {
-        /* clipboard unavailable — silently keep the plain label */
-      });
-  }, [clipboardText]);
-
-  if (!label) return null;
-
-  const sharedStyle: React.CSSProperties = {
-    fontFamily: "var(--font-mono)",
-    fontSize: "var(--font-size-sm)",
-    fontVariantNumeric: "tabular-nums",
-    letterSpacing: "var(--tracking-normal)",
-    color: "var(--color-text)",
-    userSelect: "all",
-    whiteSpace: "nowrap",
-  };
-
-  if (readOnly) {
-    return (
-      <span data-testid={testId} style={sharedStyle}>
-        {label}
-      </span>
-    );
-  }
-
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      onClick={handleCopy}
-      title={
-        copied
-          ? t("artifactId.copied", "Bezeichner kopiert")
-          : t("artifactId.copyHint", "Bezeichner kopieren")
-      }
-      aria-label={t("artifactId.copyLabel", "Bezeichner {{id}} kopieren", {
-        id: label,
-      })}
-      style={{
-        ...sharedStyle,
-        background: "transparent",
-        border: "1px solid transparent",
-        borderRadius: "var(--radius-sm)",
-        padding: "0 var(--space-1)",
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "var(--space-1)",
-      }}
-    >
-      {label}
-      {copied && (
-        <span
-          data-testid={`${testId}-copied`}
-          role="status"
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: "var(--font-size-xs)",
-            color: "var(--color-text-muted)",
-          }}
-        >
-          {t("artifactId.copied", "Bezeichner kopiert")}
-        </span>
-      )}
-    </button>
+    <RevealValue
+      value={value}
+      fallback={fallback}
+      copyValue={copyValue}
+      readOnly={readOnly}
+      mask={mask}
+      reveal={reveal}
+      copyable
+      displayFormat="mono"
+      label={t("artifactId.term", "Bezeichner")}
+      testId={testId}
+    />
   );
 }

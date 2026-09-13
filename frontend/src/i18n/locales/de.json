@@ -1723,7 +1723,19 @@
   "artifactId": {
     "copyHint": "Bezeichner kopieren",
     "copied": "Kopiert",
-    "copyLabel": "Bezeichner {{id}} kopieren"
+    "copyLabel": "Bezeichner {{id}} kopieren",
+    "term": "Bezeichner"
+  },
+  "revealValue": {
+    "value": "Wert",
+    "copy": "Wert kopieren",
+    "copyLabel": "{{label}} kopieren",
+    "copyHint": "Zum Kopieren doppelklicken",
+    "copied": "Kopiert",
+    "show": "Wert anzeigen",
+    "hide": "Wert verbergen",
+    "revealed": "Wert angezeigt",
+    "revealHint": "Zum Anzeigen klicken oder {{shortcut}} drücken"
   },
   "pageHeader": {
     "more": "Weitere Aktionen",

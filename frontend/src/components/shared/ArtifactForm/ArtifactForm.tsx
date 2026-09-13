@@ -27,12 +27,14 @@ import type { WorkflowArtifactType } from "../../../api/workflow-transitions";
 import { useEntityReset } from "../../../hooks/use-entity-reset";
 import { useFormDirty } from "../../../hooks/use-form-dirty";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { RevealValue } from "../RevealValue";
 import { WorkflowStatusEditor } from "../../WorkflowStatusEditor";
 import styles from "./ArtifactForm.module.css";
 import { fieldErrorsFromException } from "./field-errors";
 import {
   BooleanToggle,
   DateField,
+  DisplayField,
   EnumSelect,
   MultiEnum,
   NumberField,
@@ -42,6 +44,8 @@ import {
   UserPicker,
   ActorPicker,
   attributeLabel,
+  hasConfiguredDisplay,
+  resolveDisplayProps,
   type ActorFieldValue,
 } from "./fields";
 import { useArtifactDefinition } from "./useArtifactDefinition";
@@ -424,6 +428,10 @@ export function ArtifactForm({
                       isReadOnly ||
                       attribute.editable !== true ||
                       saving,
+                    // Distinct from `disabled`: a save in flight must not switch
+                    // a configured field from its editable control to the
+                    // read-only display (that would flash the value format).
+                    displayOnly: isReadOnly || attribute.editable !== true,
                     language: i18n.language,
                     systemUnsetLabel: t("artifactForm.systemValueUnavailable"),
                     artifactId,
@@ -498,6 +506,13 @@ interface RenderArgs {
   fieldErrors: Record<string, string[]>;
   specByName: Map<string, AttributeSpec>;
   disabled: boolean;
+  /**
+   * `true` when the attribute is shown outside an editable context (read mode
+   * or a non-editable policy) — the trigger for the generic display path.
+   * Separate from `disabled` because `saving` also disables controls without
+   * changing how a configured value should be rendered.
+   */
+  displayOnly: boolean;
   /** Active UI language — needed by the `system` static-text branch. */
   language: string;
   /** Rendered for an empty `system` attribute value. */
@@ -514,6 +529,7 @@ function renderAttribute({
   fieldErrors,
   specByName,
   disabled,
+  displayOnly,
   language,
   systemUnsetLabel,
   artifactId,
@@ -526,8 +542,9 @@ function renderAttribute({
 
   // Rule 3b (Attribut v3 WS2, #936): a `system` attribute is server-owned —
   // the Artifact's own `id` is the carrier. It is NEVER an editable control:
-  // it renders as static text. Reveal/copy/mask arrive in WS3 (#937); until
-  // then this at minimum guarantees an id can never be typed over.
+  // it renders through the generic `<RevealValue>` display engine, so the WS3
+  // (#937) display properties (`reveal="click"`, `copyable`, `mask="short"`)
+  // take effect here too.
   //
   // Checked BEFORE the `workflow` comparison on purpose: comparing against the
   // first string literal narrows `editable` to its remaining string member, so
@@ -535,20 +552,24 @@ function renderAttribute({
   // be reported as having no overlap with the narrowed `boolean | "system"`.
   if (attribute.editable === "system") {
     const current = readValue(values, attribute);
+    const hasValue = current != null && current !== "";
+    const display = resolveDisplayProps(attribute);
     return (
       <div key={attribute.name} className={styles.field}>
         <span className={styles.label} id={`${testId}-label`}>
           {attributeLabel(attribute, language)}
         </span>
-        <span
-          className={styles.help}
-          id={testId}
-          data-testid={testId}
-        >
-          {current == null || current === ""
-            ? systemUnsetLabel
-            : String(current)}
-        </span>
+        <RevealValue
+          value={hasValue ? String(current) : null}
+          fallback={systemUnsetLabel}
+          copyValue={hasValue ? String(current) : null}
+          displayFormat={display.displayFormat}
+          reveal={display.reveal}
+          mask={display.mask}
+          copyable={display.copyable && hasValue}
+          label={attributeLabel(attribute, language)}
+          testId={testId}
+        />
       </div>
     );
   }
@@ -610,6 +631,25 @@ function renderAttribute({
         disabled={disabled}
         errors={boundErrors}
         testId={`artifact-widget-${attribute.name}`}
+      />
+    );
+  }
+
+  // Rule 4 (Attribut v3 WS3, #937): an attribute with at least one NON-default
+  // display property (copyable/reveal/mask/display_format) is rendered through
+  // the generic display engine whenever the field is not editable. An
+  // attribute without special properties falls straight through to its
+  // ordinary control below and keeps rendering exactly as before — the
+  // "kein Big-Bang, Defaults verhalten sich wie vorher" requirement.
+  const display = resolveDisplayProps(attribute);
+  if (displayOnly && hasConfiguredDisplay(display)) {
+    return (
+      <DisplayField
+        key={attribute.name}
+        attribute={attribute}
+        value={readValue(values, attribute)}
+        errors={errors}
+        testId={testId}
       />
     );
   }

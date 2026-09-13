@@ -22,7 +22,9 @@ export function TextArea({
       <textarea
         id={testId}
         data-testid={testId}
-        className={`${styles.control} ${errors?.length ? styles.controlInvalid : ""}`}
+        className={`${styles.control} ${
+          attribute.display_format === "mono" ? styles.controlMono : ""
+        } ${errors?.length ? styles.controlInvalid : ""}`}
         rows={6}
         value={value ?? ""}
         disabled={disabled}

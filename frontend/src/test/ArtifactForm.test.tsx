@@ -929,3 +929,108 @@ describe("ArtifactForm field mapping (WS2 #936)", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 });
+
+describe("ArtifactForm display properties (WS3 #937)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+  });
+
+  it("renders an attribute without special display properties exactly as before", async () => {
+    mockDefinition([spec({ name: "title" })]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    // The ordinary control stays, and no RevealValue affordances appear.
+    expect(await screen.findByTestId("artifact-field-title")).toHaveValue("T");
+    expect(screen.queryByTestId("artifact-field-title-copy")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("artifact-field-title-reveal")).not.toBeInTheDocument();
+  });
+
+  it("applies display_format=mono to an editable text field", async () => {
+    mockDefinition([spec({ name: "title", display_format: "mono" })]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    const control = await screen.findByTestId("artifact-field-title");
+    // `.control` plus the mono modifier — the visual-only property.
+    expect(control.classList.length).toBeGreaterThan(1);
+  });
+
+  it("renders a configured read-only list field through RevealValue as chips", async () => {
+    mockDefinition([
+      spec({
+        name: "tags",
+        type: "multi-enum",
+        options: [
+          { value: "a", label_de: "Alpha", label_en: "Alpha" },
+          { value: "b", label_de: "Beta", label_en: "Beta" },
+        ],
+        display_format: "chips",
+        copyable: true,
+        mask: "short",
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        mode="read"
+        initialValues={{ tags: ["a", "b"] }}
+        onSave={vi.fn()}
+      />
+    );
+    expect(await screen.findByTestId("artifact-field-tags-chips")).toBeInTheDocument();
+    expect(screen.getAllByTestId("artifact-field-tags-chip")).toHaveLength(2);
+    expect(screen.getByTestId("artifact-field-tags-copy")).toBeInTheDocument();
+    // The editable multi-enum control is not rendered in the display path.
+    expect(screen.queryByTestId("artifact-field-tags-option-a")).not.toBeInTheDocument();
+  });
+
+  it("drives the system id field from reveal=click + mask=short + copyable", async () => {
+    const user = userEvent.setup();
+    const uuid = "12345678-1234-4abc-8def-1234567890ab";
+    mockDefinition([
+      spec({
+        name: "uid",
+        type: "text",
+        editable: "system",
+        visible: true,
+        reveal: "click",
+        mask: "short",
+        copyable: true,
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ uid: uuid }}
+        onSave={vi.fn()}
+      />
+    );
+    // Hidden until revealed.
+    const reveal = await screen.findByTestId("artifact-field-uid-reveal");
+    expect(screen.queryByTestId("artifact-field-uid-value")).not.toBeInTheDocument();
+
+    await user.click(reveal);
+    const shown = screen.getByTestId("artifact-field-uid-value");
+    // mask="short": 8 chars + ellipsis, not the full UUID.
+    expect(shown).toHaveTextContent("12345678…");
+    expect(shown).not.toHaveTextContent(uuid);
+    // copyable is offered independently of the mask.
+    expect(screen.getByTestId("artifact-field-uid-copy")).toBeInTheDocument();
+  });
+});
+

@@ -94,6 +94,12 @@
   border-color: var(--color-danger);
 }
 
+/* display_format="mono" (Attribut v3 WS3, #937): purely visual. */
+.controlMono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 .help {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
