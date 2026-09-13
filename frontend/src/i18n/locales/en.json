@@ -2232,6 +2232,24 @@
     "moveSectionDown": "Move section down",
     "reset": "Reset to default",
     "resetConfirm": "Discard the workspace customisation and adopt the global default?",
-    "propagated": "{{count}} workspace(s) updated"
+    "propagated": "{{count}} workspace(s) updated",
+    "layout": {
+      "title": "Layout",
+      "sectionFlow": "Section layout",
+      "spacerSize": "Spacer size",
+      "addSpacer": "Add spacer",
+      "span": "Width",
+      "span_full": "Full (12)",
+      "span_half": "Half (6)",
+      "span_quarter": "Quarter (3)",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "remove": "Remove",
+      "spacer": {
+        "sm": "Small (1 column)",
+        "md": "Medium (2 columns)",
+        "lg": "Large (4 columns)"
+      }
+    }
   }
 }

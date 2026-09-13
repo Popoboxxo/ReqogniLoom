@@ -21,6 +21,8 @@ import type {
   AttributeItemType,
   AttributeSpec,
   SectionLayout,
+  SectionSpec,
+  SpacerSize,
 } from "../../../api/attribute-definitions";
 import { extractErrorMessage } from "../../../api/client";
 import type { WorkflowArtifactType } from "../../../api/workflow-transitions";
@@ -31,6 +33,13 @@ import { RevealValue } from "../RevealValue";
 import { WorkflowStatusEditor } from "../../WorkflowStatusEditor";
 import styles from "./ArtifactForm.module.css";
 import { fieldErrorsFromException } from "./field-errors";
+import {
+  orderedSectionTokens,
+  resolveAttributeFlow,
+  sectionLayoutColumns,
+  spacerColumns,
+  spanClassSuffix,
+} from "./layout-flow";
 import {
   BooleanToggle,
   DateField,
@@ -90,6 +99,12 @@ export interface FormSection {
   audience: AttributeAudience;
   attributes: AttributeSpec[];
 }
+
+/** One grid item of the section area (WS4 #938): a rendered section or an
+ * empty spacer. */
+type SectionEntry =
+  | { kind: "section"; section: FormSection; layout: SectionLayout }
+  | { kind: "spacer"; size: SpacerSize };
 
 /**
  * Group attributes into sections.
@@ -268,22 +283,67 @@ export function ArtifactForm({
   // in `definition.sections` (pre-Task-7 data, or a name introduced by an
   // attribute edit that hasn't round-tripped through ensure_sections yet)
   // defaults to visible — same "additive, no data migration" default the
-  // backend's own materialize_sections uses.
+  // backend's own materialize_sections uses. WS4 #938: the full spec (not
+  // just visible/layout) is kept, because the section-level `attribute_flow`
+  // lives on it.
   const sectionMeta = useMemo(() => {
-    const map = new Map<string, { visible: boolean; layout: SectionLayout }>();
+    const map = new Map<string, SectionSpec>();
     for (const section of definition?.sections ?? []) {
-      map.set(section.name, { visible: section.visible, layout: section.layout });
+      map.set(section.name, section);
     }
     return map;
   }, [definition]);
 
-  const sections = useMemo(
-    () =>
-      groupIntoSections(visible.filter((a) => !widgetOwned.has(a.name))).filter(
-        (section) => sectionMeta.get(section.name)?.visible !== false
-      ),
-    [visible, widgetOwned, sectionMeta]
+  const spanClass = useCallback(
+    (columns: number): string =>
+      styles[`span${spanClassSuffix(columns)}`] ?? styles.span12,
+    []
   );
+
+  const groupedSections = useMemo(
+    () => groupIntoSections(visible.filter((a) => !widgetOwned.has(a.name))),
+    [visible, widgetOwned]
+  );
+
+  /**
+   * WS4 #938 (spec section 7): section order comes from the stored
+   * `section_flow` when present, otherwise from `definition.sections` order —
+   * the same order the backend's `materialize_section_flow` uses — with a
+   * fallback to attribute first-appearance for pre-Task-7 definitions whose
+   * `sections` list is still empty. Invisible sections are filtered out
+   * BEFORE the flow is applied, so a spacer next to a hidden section survives
+   * while the hidden section itself never renders.
+   */
+  const sectionEntries = useMemo((): SectionEntry[] => {
+    const byName = new Map(groupedSections.map((section) => [section.name, section]));
+    const declared = [...(definition?.sections ?? [])].sort(
+      (a, b) => a.order - b.order || a.name.localeCompare(b.name)
+    );
+    const order: string[] = [];
+    for (const section of declared) {
+      if (byName.has(section.name)) order.push(section.name);
+    }
+    for (const section of groupedSections) {
+      if (!order.includes(section.name)) order.push(section.name);
+    }
+    const visibleOrder = order.filter(
+      (name) => sectionMeta.get(name)?.visible !== false
+    );
+    return orderedSectionTokens(definition?.section_flow, visibleOrder).flatMap(
+      (token): SectionEntry[] => {
+        if (token.kind === "spacer") return [{ kind: "spacer", size: token.size }];
+        const section = byName.get(token.name);
+        if (!section) return [];
+        return [
+          {
+            kind: "section",
+            section,
+            layout: sectionMeta.get(section.name)?.layout ?? "full",
+          },
+        ];
+      }
+    );
+  }, [definition, groupedSections, sectionMeta]);
 
   const isSectionOpen = useCallback(
     (section: FormSection): boolean => {
@@ -382,18 +442,32 @@ export function ArtifactForm({
         </div>
       ) : null}
 
-      <div className={styles.sectionsGrid}>
-      {sections.map((section) => {
+      <div className={styles.sectionsGrid} data-testid="artifact-sections-grid">
+      {sectionEntries.map((entry, entryIndex) => {
+        if (entry.kind === "spacer") {
+          return (
+            <div
+              key={`section-spacer-${entryIndex}`}
+              className={`${styles.spacerToken} ${spanClass(spacerColumns(entry.size))}`}
+              data-columns={spacerColumns(entry.size)}
+              aria-hidden="true"
+              data-testid={`artifact-section-spacer-${entryIndex}`}
+            />
+          );
+        }
+        const { section, layout } = entry;
         const open = isSectionOpen(section);
-        const layout = sectionMeta.get(section.name)?.layout ?? "full";
+        const fieldEntries = resolveAttributeFlow(
+          sectionMeta.get(section.name),
+          section.attributes
+        );
         return (
           <section
             key={section.name}
             data-testid={`artifact-section-${section.name}`}
             data-layout={layout}
-            className={`${styles.section} ${
-              layout === "half" ? styles.sectionHalf : styles.sectionFull
-            }`}
+            data-columns={sectionLayoutColumns(layout)}
+            className={`${styles.section} ${spanClass(sectionLayoutColumns(layout))}`}
           >
             <button
               type="button"
@@ -417,31 +491,56 @@ export function ArtifactForm({
             </button>
 
             {open ? (
-              <div className={styles.sectionBody}>
-                {section.attributes.map((attribute) =>
-                  renderAttribute({
-                    attribute,
+              <div
+                className={styles.sectionBody}
+                data-testid={`artifact-section-body-${section.name}`}
+              >
+                {fieldEntries.map((fieldEntry, fieldIndex) => {
+                  if (fieldEntry.kind === "spacer") {
+                    return (
+                      <div
+                        key={`field-spacer-${fieldIndex}`}
+                        className={`${styles.spacerToken} ${spanClass(fieldEntry.columns)}`}
+                        data-columns={fieldEntry.columns}
+                        aria-hidden="true"
+                        data-testid={`artifact-field-spacer-${section.name}-${fieldIndex}`}
+                      />
+                    );
+                  }
+                  const rendered = renderAttribute({
+                    attribute: fieldEntry.attribute,
                     values,
                     fieldErrors,
                     specByName,
                     disabled:
                       isReadOnly ||
-                      attribute.editable !== true ||
+                      fieldEntry.attribute.editable !== true ||
                       saving,
                     // Distinct from `disabled`: a save in flight must not switch
                     // a configured field from its editable control to the
                     // read-only display (that would flash the value format).
-                    displayOnly: isReadOnly || attribute.editable !== true,
+                    displayOnly: isReadOnly || fieldEntry.attribute.editable !== true,
                     language: i18n.language,
                     systemUnsetLabel: t("artifactForm.systemValueUnavailable"),
                     artifactId,
                     workflowArtifactType,
                     unsupportedLabel: t("artifactForm.unsupportedWidget", {
-                      widget: attribute.widget_key ?? "",
+                      widget: fieldEntry.attribute.widget_key ?? "",
                     }),
                     update,
-                  })
-                )}
+                  });
+                  if (!rendered) return null;
+                  return (
+                    <div
+                      key={fieldEntry.attribute.name}
+                      className={`${styles.fieldCell} ${spanClass(fieldEntry.columns)}`}
+                      data-columns={fieldEntry.columns}
+                      data-testid={`artifact-field-cell-${fieldEntry.attribute.name}`}
+                    >
+                      {rendered}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
           </section>

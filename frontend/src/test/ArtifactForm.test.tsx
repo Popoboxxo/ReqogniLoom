@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { resolveLocaleKey } from "./i18n-test-helpers";
@@ -59,7 +61,7 @@ import {
   groupIntoSections,
   parseFieldErrors,
 } from "../components/shared/ArtifactForm";
-import type { AttributeSpec, SectionSpec } from "../api/attribute-definitions";
+import type { AttributeSpec, LayoutToken, SectionSpec } from "../api/attribute-definitions";
 
 function spec(over: Partial<AttributeSpec>): AttributeSpec {
   return {
@@ -90,7 +92,11 @@ function section(over: Partial<SectionSpec>): SectionSpec {
   return { name: "general", order: 0, visible: true, layout: "full", ...over };
 }
 
-function mockDefinition(attributes: AttributeSpec[], sections: SectionSpec[] = []): void {
+function mockDefinition(
+  attributes: AttributeSpec[],
+  sections: SectionSpec[] = [],
+  sectionFlow?: LayoutToken[]
+): void {
   vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
     item_type: "Risk",
     preset: "standard",
@@ -99,6 +105,7 @@ function mockDefinition(attributes: AttributeSpec[], sections: SectionSpec[] = [
     attributes,
     origins: {},
     sections,
+    ...(sectionFlow !== undefined ? { section_flow: sectionFlow } : {}),
   });
 }
 
@@ -1034,3 +1041,149 @@ describe("ArtifactForm display properties (WS3 #937)", () => {
   });
 });
 
+
+describe("ArtifactForm layout engine (WS4 #938)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+  });
+
+  it("defaults every section and field to full span when no flow is stored", async () => {
+    mockDefinition([
+      spec({ name: "title", section: "general", order: 0 }),
+      spec({ name: "description", type: "textarea", section: "general", order: 1 }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-title");
+    expect(screen.getByTestId("artifact-section-general")).toHaveAttribute("data-columns", "12");
+    expect(screen.getByTestId("artifact-field-cell-title")).toHaveAttribute("data-columns", "12");
+    expect(screen.getByTestId("artifact-field-cell-description")).toHaveAttribute(
+      "data-columns",
+      "12"
+    );
+    // No flow => no spacers at all (the pre-WS4 rendering).
+    expect(screen.queryByTestId(/^artifact-section-spacer-/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/^artifact-field-spacer-/)).not.toBeInTheDocument();
+  });
+
+  it("orders sections and spacers by the stored section_flow", async () => {
+    mockDefinition(
+      [
+        spec({ name: "title", section: "general", order: 0 }),
+        spec({ name: "uid", section: "change_control", order: 0 }),
+      ],
+      [
+        section({ name: "general", order: 0 }),
+        section({ name: "change_control", order: 1 }),
+      ],
+      [
+        { kind: "section", name: "change_control" },
+        { kind: "spacer", size: "md" },
+        { kind: "section", name: "general" },
+      ]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-title");
+    const grid = screen.getByTestId("artifact-sections-grid");
+    expect(
+      Array.from(grid.children).map((child) => child.getAttribute("data-testid"))
+    ).toEqual([
+      "artifact-section-change_control",
+      "artifact-section-spacer-1",
+      "artifact-section-general",
+    ]);
+    expect(screen.getByTestId("artifact-section-spacer-1")).toHaveAttribute(
+      "data-columns",
+      "2"
+    );
+  });
+
+  it("maps attribute spans and spacers from the stored attribute_flow", async () => {
+    mockDefinition(
+      [
+        spec({ name: "a", section: "general", order: 0 }),
+        spec({ name: "b", section: "general", order: 1 }),
+        spec({ name: "c", section: "general", order: 2 }),
+      ],
+      [
+        section({
+          name: "general",
+          attribute_flow: [
+            { kind: "attribute", name: "b", span: "half" },
+            { kind: "spacer", size: "sm" },
+            { kind: "attribute", name: "a", span: "quarter" },
+          ],
+        }),
+      ]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ a: "A", b: "B", c: "C" }}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-a");
+    const body = screen.getByTestId("artifact-section-body-general");
+    expect(
+      Array.from(body.children).map((child) => child.getAttribute("data-testid"))
+    ).toEqual([
+      "artifact-field-cell-b",
+      "artifact-field-spacer-general-1",
+      "artifact-field-cell-a",
+      "artifact-field-cell-c",
+    ]);
+    expect(screen.getByTestId("artifact-field-cell-b")).toHaveAttribute("data-columns", "6");
+    expect(screen.getByTestId("artifact-field-cell-a")).toHaveAttribute("data-columns", "3");
+    expect(screen.getByTestId("artifact-field-spacer-general-1")).toHaveAttribute(
+      "data-columns",
+      "1"
+    );
+    // Unpositioned attribute keeps full width (additive derivation).
+    expect(screen.getByTestId("artifact-field-cell-c")).toHaveAttribute("data-columns", "12");
+  });
+
+  it("maps a half section onto the 12-column grid", async () => {
+    mockDefinition(
+      [spec({ name: "a", section: "left", order: 0 })],
+      [section({ name: "left", order: 0, layout: "half" })]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{}}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-a");
+    expect(screen.getByTestId("artifact-section-left")).toHaveAttribute("data-columns", "6");
+  });
+
+  it("collapses the grid to one column and hides spacers below the md breakpoint (CSS contract)", () => {
+    const css = readFileSync(
+      join(__dirname, "..", "components", "shared", "ArtifactForm", "ArtifactForm.module.css"),
+      "utf-8"
+    );
+    expect(css).toContain("grid-template-columns: repeat(12, 1fr)");
+    expect(css).toContain("@media (max-width: 768px)");
+    expect(css).toContain("grid-column: 1 / -1;");
+    expect(css).toMatch(/\.spacerToken\s*\{\s*display:\s*none;/);
+  });
+});

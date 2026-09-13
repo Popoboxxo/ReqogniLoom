@@ -160,14 +160,71 @@ export type AttributeOrigin = "global" | "global_customized" | "workspace_only";
 
 /** Section-level layout in `ArtifactForm`'s CSS Grid (Task 7/8, spec section
  * 4.4/4.5): `"full"` spans both columns, `"half"` shares a row with another
- * `"half"` section (or leaves the second column empty if it is alone). */
+ * `"half"` section (or leaves the second column empty if it is alone). Mapped
+ * onto the 12-column grid as full=12/half=6 (WS4 #938). */
 export type SectionLayout = "full" | "half";
+
+/**
+ * An attribute's width on the 12-column grid (Attribut v3 WS4 #938, spec
+ * section 7): `full`=12, `half`=6, `quarter`=3. Mirrors the backend's
+ * `attribute_definitions.schema.SPAN_COLUMNS`.
+ */
+export type AttributeSpan = "full" | "half" | "quarter";
+
+/**
+ * Relative size of a spacer token (spec section 7): `sm`=1, `md`=2, `lg`=4
+ * columns. Mirrors `attribute_definitions.schema.SPACER_COLUMNS`.
+ */
+export type SpacerSize = "sm" | "md" | "lg";
+
+/** One definition-level `section_flow` token positioning a whole section.
+ * The section's own width still comes from its `layout` — a section token
+ * carries no width of its own (spec section 7). */
+export interface SectionFlowToken {
+  kind: "section";
+  name: string;
+}
+
+/** One section-level `attribute_flow` token positioning an attribute.
+ * `span` is optional: omitted means `"full"` (the backend's
+ * `_DEFAULT_ATTRIBUTE_SPAN`, i.e. the pre-WS4 full-width stacking). */
+export interface AttributeFlowToken {
+  kind: "attribute";
+  name: string;
+  span?: AttributeSpan;
+}
+
+/** A spacer on either level — consumes `sm`=1/`md`=2/`lg`=4 of the 12 columns
+ * and renders as empty space (spec section 7). */
+export interface SpacerFlowToken {
+  kind: "spacer";
+  size: SpacerSize;
+}
+
+/**
+ * A single layout token of a `section_flow` or `attribute_flow` (WS4 #938).
+ *
+ * One flat union for both levels: which kinds are legal per level (`section`
+ * vs `attribute`) is enforced server-side by
+ * `attribute_definitions.schema.SECTION_FLOW_KINDS`/`ATTRIBUTE_FLOW_KINDS`,
+ * not by this type — the frontend only ever reads flows the backend already
+ * normalized.
+ */
+export type LayoutToken = SectionFlowToken | AttributeFlowToken | SpacerFlowToken;
 
 export interface SectionSpec {
   name: string;
   order: number;
   visible: boolean;
   layout: SectionLayout;
+  /**
+   * Section-level layout tokens (WS4 #938, spec section 7). Optional and
+   * **additive**: a section without the key renders its attributes in `order`
+   * at full span, exactly as before the 12-column engine existed. Consumers
+   * derive the default through `resolveAttributeFlow` instead of assuming the
+   * key exists (mirrors the backend's `effective_attribute_flow`).
+   */
+  attribute_flow?: LayoutToken[];
 }
 
 export interface ResolvedAttributeDefinition {
@@ -181,6 +238,14 @@ export interface ResolvedAttributeDefinition {
    * origin concept. */
   origins: Record<string, AttributeOrigin>;
   sections: SectionSpec[];
+  /**
+   * Definition-level layout tokens (WS4 #938, spec section 7). Optional and
+   * additive — absent means "no stored flow", i.e. sections render in their
+   * own order (the backend's `effective_section_flow` derivation). Consumers
+   * must NOT treat `undefined` and `[]` alike: an empty stored flow is a real
+   * (if degenerate) value and is passed through unchanged.
+   */
+  section_flow?: LayoutToken[];
 }
 
 /** What `AttributeCreateDialog` collects — always creates a `kind: "extended"`
@@ -200,6 +265,10 @@ export interface AttributeDefinitionDocument {
   item_type: AttributeItemType;
   attributes: AttributeSpec[];
   sections: SectionSpec[];
+  /** Definition-level layout tokens (WS4 #938) — present only when the
+   * exported definition stored one; the import path sends the document back
+   * as-is, so this travels without extra handling. */
+  section_flow?: LayoutToken[];
 }
 
 export type OnCollision = "skip" | "overwrite" | "rename";
@@ -211,6 +280,9 @@ export interface GlobalAttributeDefinition {
   version: number;
   attributes: AttributeSpec[];
   sections: SectionSpec[];
+  /** Definition-level layout tokens (WS4 #938) — see
+   * {@link ResolvedAttributeDefinition.section_flow}. */
+  section_flow?: LayoutToken[];
   /** Present on a PUT response: how many on-default workspaces were updated. */
   propagated_workspace_count?: number;
 }
@@ -261,17 +333,21 @@ export const attributeDefinitionsApi = {
     return apiClient.get<GlobalAttributeDefinition>(globalPath(itemType, preset));
   },
 
-  /** `sections` (Task 8) is optional — omitted, the backend preserves the
-   * row's current sections list unchanged; passed, it replaces it. */
+  /** `sections` (Task 8) and `sectionFlow` (WS4 #938) are optional —
+   * omitted, the backend preserves the row's current value unchanged; passed,
+   * it replaces it. An explicit empty `sectionFlow` is passed through (a real
+   * stored value), `undefined` omits the key entirely. */
   putGlobal(
     itemType: AttributeItemType,
     preset: WorkspacePreset,
     attributes: AttributeSpec[],
-    sections?: SectionSpec[]
+    sections?: SectionSpec[],
+    sectionFlow?: LayoutToken[]
   ): Promise<GlobalAttributeDefinition> {
     return apiClient.put<GlobalAttributeDefinition>(globalPath(itemType, preset), {
       attributes,
       ...(sections ? { sections } : {}),
+      ...(sectionFlow !== undefined ? { section_flow: sectionFlow } : {}),
     });
   },
 
@@ -284,16 +360,21 @@ export const attributeDefinitionsApi = {
     );
   },
 
-  /** `sections` is optional — see {@link putGlobal}. */
+  /** `sections`/`sectionFlow` are optional — see {@link putGlobal}. */
   putWorkspace(
     workspaceId: UUID,
     itemType: AttributeItemType,
     attributes: AttributeSpec[],
-    sections?: SectionSpec[]
+    sections?: SectionSpec[],
+    sectionFlow?: LayoutToken[]
   ): Promise<ResolvedAttributeDefinition> {
     return apiClient.put<ResolvedAttributeDefinition>(
       workspacePath(workspaceId, itemType),
-      { attributes, ...(sections ? { sections } : {}) }
+      {
+        attributes,
+        ...(sections ? { sections } : {}),
+        ...(sectionFlow !== undefined ? { section_flow: sectionFlow } : {}),
+      }
     );
   },
 

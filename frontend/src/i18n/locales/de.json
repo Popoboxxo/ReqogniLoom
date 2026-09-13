@@ -2232,6 +2232,24 @@
     "moveSectionDown": "Sektion nach unten",
     "reset": "Auf Standard zurücksetzen",
     "resetConfirm": "Workspace-Anpassungen verwerfen und den globalen Standard übernehmen?",
-    "propagated": "{{count}} Workspace(s) aktualisiert"
+    "propagated": "{{count}} Workspace(s) aktualisiert",
+    "layout": {
+      "title": "Layout",
+      "sectionFlow": "Sektions-Layout",
+      "spacerSize": "Abstandsgröße",
+      "addSpacer": "Abstand hinzufügen",
+      "span": "Breite",
+      "span_full": "Ganz (12)",
+      "span_half": "Halb (6)",
+      "span_quarter": "Viertel (3)",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "remove": "Entfernen",
+      "spacer": {
+        "sm": "Klein (1 Spalte)",
+        "md": "Mittel (2 Spalten)",
+        "lg": "Groß (4 Spalten)"
+      }
+    }
   }
 }
