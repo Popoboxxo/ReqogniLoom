@@ -362,34 +362,45 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
                 out[key] = raw[key]
 
     if "editable" in raw:
-        if raw["editable"] not in EDITABLE_VALUES:
+        # The enum values mix booleans and strings, so a list/dict is not
+        # merely invalid — it is *unhashable*, and ``in`` on a frozenset raises
+        # ``TypeError`` (a 500) instead of the intended 400. Type-check first.
+        if (
+            not isinstance(raw["editable"], (bool, str))
+            or raw["editable"] not in EDITABLE_VALUES
+        ):
             errors.append("'editable' must be true, false or \"workflow\"")
         else:
             out["editable"] = raw["editable"]
 
     if "audience" in raw:
-        if raw["audience"] not in AUDIENCE_VALUES:
+        if not isinstance(raw["audience"], str) or raw["audience"] not in AUDIENCE_VALUES:
             errors.append(f"'audience' must be one of {sorted(AUDIENCE_VALUES)}")
         else:
             out["audience"] = raw["audience"]
 
     # Generic display/interaction enums (spec section 5). Checked exactly like
     # ``audience`` so a typo is a 400 on the write that introduced it, never a
-    # value the renderer silently falls back from.
+    # value the renderer silently falls back from. The isinstance guard matters:
+    # a list/dict is unhashable and would otherwise raise ``TypeError`` out of
+    # the frozenset membership test (a 500) instead of the intended 400.
     if "reveal" in raw:
-        if raw["reveal"] not in REVEAL_VALUES:
+        if not isinstance(raw["reveal"], str) or raw["reveal"] not in REVEAL_VALUES:
             errors.append(f"'reveal' must be one of {sorted(REVEAL_VALUES)}")
         else:
             out["reveal"] = raw["reveal"]
 
     if "mask" in raw:
-        if raw["mask"] not in MASK_VALUES:
+        if not isinstance(raw["mask"], str) or raw["mask"] not in MASK_VALUES:
             errors.append(f"'mask' must be one of {sorted(MASK_VALUES)}")
         else:
             out["mask"] = raw["mask"]
 
     if "display_format" in raw:
-        if raw["display_format"] not in DISPLAY_FORMAT_VALUES:
+        if (
+            not isinstance(raw["display_format"], str)
+            or raw["display_format"] not in DISPLAY_FORMAT_VALUES
+        ):
             errors.append(
                 f"'display_format' must be one of {sorted(DISPLAY_FORMAT_VALUES)}"
             )

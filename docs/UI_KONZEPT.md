@@ -771,7 +771,7 @@ Vier kleine Komponenten, die zusammen Prinzip 3.1 durchsetzen.
 
 | Komponente | Regel |
 |---|---|
-| `<ArtifactId>` | `--font-mono`, `--font-size-sm`, `user-select: all`, Klick kopiert mit Bestätigung, übersetzter Tooltip |
+| `<ArtifactId>` | `--font-mono`, `--font-size-sm`, `user-select: all`, Klick (oder Doppelklick) kopiert mit Bestätigung, übersetzter Tooltip |
 | `<LevelBadge>` | **neutral** — Ebene ist kein Zustand |
 | `<StatusBadge>` | **einzige** farbkodierte Angabe, immer über `getStatusBadgeStyle` |
 | `<VersionBadge>` | neutral, `tabular-nums`, nur ab Version 2 |

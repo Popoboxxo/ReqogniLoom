@@ -1721,16 +1721,12 @@
     }
   },
   "artifactId": {
-    "copyHint": "Bezeichner kopieren",
-    "copied": "Kopiert",
-    "copyLabel": "Bezeichner {{id}} kopieren",
     "term": "Bezeichner"
   },
   "revealValue": {
-    "value": "Wert",
     "copy": "Wert kopieren",
     "copyLabel": "{{label}} kopieren",
-    "copyHint": "Zum Kopieren doppelklicken",
+    "copyHint": "Zum Kopieren klicken oder doppelklicken",
     "copied": "Kopiert",
     "show": "Wert anzeigen",
     "hide": "Wert verbergen",

@@ -76,6 +76,34 @@ describe("RevealValue", () => {
     expect(writeText).toHaveBeenCalledWith(UUID);
   });
 
+  it("copies the full value on a single click", () => {
+    render(<RevealValue value={UUID} mask="short" copyable testId="rv" />);
+    fireEvent.click(screen.getByTestId("rv-value"));
+    expect(writeText).toHaveBeenCalledWith(UUID);
+  });
+
+  it("does not mask the fallback placeholder", () => {
+    // `mask` shortens the *value*; the fallback is a placeholder ("Kein Wert"),
+    // so masking it produced "Kein Wer…".
+    render(<RevealValue fallback="Kein Wert" mask="short" testId="rv" />);
+    expect(screen.getByTestId("rv-value")).toHaveTextContent("Kein Wert");
+  });
+
+  it("associates an external label and description with the value group", () => {
+    render(
+      <RevealValue
+        value="x"
+        ariaLabelledBy="rv-label"
+        ariaDescribedBy="rv-help rv-error"
+        testId="rv"
+      />
+    );
+    const root = screen.getByTestId("rv");
+    expect(root).toHaveAttribute("role", "group");
+    expect(root).toHaveAttribute("aria-labelledby", "rv-label");
+    expect(root).toHaveAttribute("aria-describedby", "rv-help rv-error");
+  });
+
   it("hides the value until clicked with reveal=click", () => {
     render(<RevealValue value="geheim" reveal="click" testId="rv" />);
     expect(screen.queryByTestId("rv-value")).not.toBeInTheDocument();

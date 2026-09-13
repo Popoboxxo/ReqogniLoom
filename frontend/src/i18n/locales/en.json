@@ -1721,16 +1721,12 @@
     }
   },
   "artifactId": {
-    "copyHint": "Copy identifier",
-    "copied": "Copied",
-    "copyLabel": "Copy identifier {{id}}",
     "term": "identifier"
   },
   "revealValue": {
-    "value": "value",
     "copy": "Copy value",
     "copyLabel": "Copy {{label}}",
-    "copyHint": "Double-click to copy",
+    "copyHint": "Click or double-click to copy",
     "copied": "Copied",
     "show": "Show value",
     "hide": "Hide value",

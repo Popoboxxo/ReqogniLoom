@@ -13,7 +13,7 @@
 import { useTranslation } from "react-i18next";
 
 import { RevealValue } from "../../RevealValue";
-import { attributeLabel, FieldShell } from "./FieldShell";
+import { attributeLabel, FieldShell, helpText } from "./FieldShell";
 import { formatAttributeValue, resolveDisplayProps } from "./display-properties";
 import type { AttributeSpec } from "../../../../api/attribute-definitions";
 
@@ -33,12 +33,23 @@ export function DisplayField({
   const { i18n } = useTranslation();
   const display = resolveDisplayProps(attribute);
   const formatted = formatAttributeValue(attribute, value, i18n.language);
+  // The display path renders no labelable control, so the label is associated
+  // via `aria-labelledby` on the value; help/error are wired the same way the
+  // editable fields wire them through `ariaProps` (FieldShell.tsx).
+  const describedBy =
+    [
+      helpText(attribute, i18n.language) ? `${testId}-help` : null,
+      errors?.length ? `${testId}-error` : null,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
   return (
     <FieldShell
       attribute={attribute}
       language={i18n.language}
       errors={errors}
       testId={testId}
+      associateLabel={false}
     >
       <RevealValue
         value={formatted.text}
@@ -48,6 +59,8 @@ export function DisplayField({
         mask={display.mask}
         copyable={display.copyable}
         label={attributeLabel(attribute, i18n.language)}
+        ariaLabelledBy={`${testId}-label`}
+        ariaDescribedBy={describedBy}
         testId={testId}
       />
     </FieldShell>

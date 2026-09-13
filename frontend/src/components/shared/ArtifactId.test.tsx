@@ -57,6 +57,12 @@ describe("ArtifactId", () => {
     expect(writeText).toHaveBeenCalledWith("ADR-004");
   });
 
+  it("copies the label on a single click", () => {
+    render(<ArtifactId value="ADR-004" />);
+    fireEvent.click(screen.getByTestId("artifact-id-value"));
+    expect(writeText).toHaveBeenCalledWith("ADR-004");
+  });
+
   it("copies the full copyValue while showing the short label", () => {
     const full = "12345678-1234-4abc-8def-1234567890ab";
     render(<ArtifactId fallback={full.slice(0, 8)} copyValue={full} />);

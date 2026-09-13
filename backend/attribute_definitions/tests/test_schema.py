@@ -520,6 +520,25 @@ def test_invalid_display_property_values_are_rejected(key, value) -> None:
     assert key in " ".join(exc.value.errors)
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("reveal", ["click"]),
+        ("reveal", {"mode": "click"}),
+        ("mask", ["short"]),
+        ("display_format", {"format": "mono"}),
+        ("audience", ["expert"]),
+        ("editable", {"editable": "system"}),
+    ],
+)
+def test_unhashable_enum_values_are_rejected_as_schema_errors(key, value) -> None:
+    """A list/dict is unhashable, so ``value not in frozenset`` would raise
+    ``TypeError`` (a 500) before the guard. It must become a 400 instead."""
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_attribute(_core("title", **{key: value}))
+    assert key in " ".join(exc.value.errors)
+
+
 def test_stored_attributes_backfills_the_display_properties() -> None:
     """A row written before WS3 normalizes to the documented defaults."""
     out = stored_attributes(

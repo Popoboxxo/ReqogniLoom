@@ -12,10 +12,12 @@
  * - `reveal="shortcut"`— same, plus a documented keyboard shortcut
  *   (`Alt+Shift+R`). `event.code` is used (not `event.key`) so the shortcut
  *   works on keyboard layouts where Alt+Shift remaps the letter.
- * - `copyable`         — a copy button AND a double-click on the value copy
- *   the **full** value (`copyValue`), even when the label is masked.
- * - `mask="short"`     — the rendered label is shortened (e.g. a UUID to its
- *   first 8 characters); copying is unaffected.
+ * - `copyable`         — a copy button AND a click (or double-click) on the
+ *   value copy the **full** value (`copyValue`), even when the label is
+ *   masked.
+ * - `mask="short"`     — the rendered *value* is shortened (e.g. a UUID to its
+ *   first 8 characters); copying is unaffected, and the `fallback` placeholder
+ *   is never masked (it is not the value).
  * - `display_format`   — purely visual: `text` | `mono` | `chips`.
  *
  * Accessibility baseline (not an audit verdict): semantic buttons, a visible
@@ -58,6 +60,14 @@ export interface RevealValueProps {
   label?: string;
   /** Suppresses the copy affordance (e.g. inside an already-clickable row). */
   readOnly?: boolean;
+  /**
+   * `id` of the element that labels this value (the `FieldShell` label). When
+   * set, the root becomes a labelled `group` so the value, reveal and copy
+   * controls share one accessible name.
+   */
+  ariaLabelledBy?: string;
+  /** `id`(s) of help/error elements describing this value, space-separated. */
+  ariaDescribedBy?: string;
   testId?: string;
 }
 
@@ -89,6 +99,8 @@ export function RevealValue({
   chips = null,
   label,
   readOnly = false,
+  ariaLabelledBy,
+  ariaDescribedBy,
   testId = "reveal-value",
 }: RevealValueProps): JSX.Element | null {
   const { t } = useTranslation();
@@ -125,11 +137,15 @@ export function RevealValue({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [reveal, revealed]);
 
-  const rawLabel = (value && value.trim()) || (fallback && fallback.trim()) || "";
-  const fullValue = (copyValue && copyValue.trim()) || (value && value.trim()) || rawLabel;
+  const trimmedValue = (value ?? "").trim();
+  const trimmedFallback = (fallback ?? "").trim();
+  const rawLabel = trimmedValue || trimmedFallback;
+  const fullValue = (copyValue ?? "").trim() || trimmedValue || rawLabel;
+  // The mask shortens the *value* only. A `fallback` is a placeholder (e.g.
+  // "Kein Wert"), not a value, so masking it produced "Kein Wer…".
   const displayLabel =
-    mask === "short" && rawLabel.length > SHORT_MASK_LENGTH
-      ? `${rawLabel.slice(0, SHORT_MASK_LENGTH)}…`
+    mask === "short" && trimmedValue.length > SHORT_MASK_LENGTH
+      ? `${trimmedValue.slice(0, SHORT_MASK_LENGTH)}…`
       : rawLabel;
 
   const handleCopy = useCallback(() => {
@@ -179,14 +195,16 @@ export function RevealValue({
     );
   } else {
     body = (
-      // Double-click is a pointer-only convenience; the keyboard-accessible
-      // copy control is the adjacent `<button data-testid={`${testId}-copy`}>`,
-      // so this text is deliberately not itself a tab stop.
-      // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+      // Click and double-click are pointer conveniences; the
+      // keyboard-accessible copy control is the adjacent
+      // `<button data-testid={`${testId}-copy`}>`, so this text is
+      // deliberately not itself a tab stop.
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
       <span
         className={`${valueClass} ${copyAllowed ? styles.copyable : ""}`}
         data-testid={`${testId}-value`}
-        title={copyAllowed ? t("revealValue.copyHint", "Zum Kopieren doppelklicken") : undefined}
+        title={copyAllowed ? t("revealValue.copyHint", "Zum Kopieren klicken") : undefined}
+        onClick={copyAllowed ? handleCopy : undefined}
         onDoubleClick={copyAllowed ? handleCopy : undefined}
       >
         {displayLabel}
@@ -194,8 +212,17 @@ export function RevealValue({
     );
   }
 
+  const hasAriaAssociation = Boolean(ariaLabelledBy || ariaDescribedBy);
+
   return (
-    <span className={styles.root} id={testId} data-testid={testId}>
+    <span
+      className={styles.root}
+      id={testId}
+      data-testid={testId}
+      role={hasAriaAssociation ? "group" : undefined}
+      aria-labelledby={ariaLabelledBy}
+      aria-describedby={ariaDescribedBy}
+    >
       {body}
       {revealControlled && (
         <button
