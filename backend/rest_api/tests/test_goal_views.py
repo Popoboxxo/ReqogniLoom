@@ -143,7 +143,7 @@ def test_goal_create_and_next_version_enforce_attribute_definition():
     resolved = def_service.resolve(ctx, "Goal", workspace.id)
     attributes = list(resolved["attributes"]) + [
         {
-            "name": "priority",
+            "name": "goal_version_probe",
             "kind": "extended",
             "type": "text",
             "required": True,
@@ -164,14 +164,14 @@ def test_goal_create_and_next_version_enforce_attribute_definition():
     # Version 1 without the required custom attribute -> rejected.
     resp = _create({"workspace_id": str(workspace.id), "title": "Grow revenue"})
     assert resp.status_code == 400, resp.data
-    assert any(d["field"] == "priority" for d in resp.data["error"]["details"])
+    assert any(d["field"] == "goal_version_probe" for d in resp.data["error"]["details"])
 
     # Version 1 with the required custom attribute -> accepted.
     resp = _create(
         {
             "workspace_id": str(workspace.id),
             "title": "Grow revenue",
-            "custom_fields": {"priority": "high"},
+            "custom_fields": {"goal_version_probe": "high"},
         }
     )
     assert resp.status_code == 201, resp.data
@@ -188,7 +188,7 @@ def test_goal_create_and_next_version_enforce_attribute_definition():
         }
     )
     assert resp.status_code == 400, resp.data
-    assert any(d["field"] == "priority" for d in resp.data["error"]["details"])
+    assert any(d["field"] == "goal_version_probe" for d in resp.data["error"]["details"])
 
     # Version 2 with the required attribute resupplied -> accepted.
     resp = _create(
@@ -196,7 +196,7 @@ def test_goal_create_and_next_version_enforce_attribute_definition():
             "workspace_id": str(workspace.id),
             "title": "Grow revenue faster",
             "lineage_id": lineage_id,
-            "custom_fields": {"priority": "medium"},
+            "custom_fields": {"goal_version_probe": "medium"},
         }
     )
     assert resp.status_code == 201, resp.data
