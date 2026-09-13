@@ -157,8 +157,17 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
 #: 4-choice ``ChoiceField``, writable on ``IssueSerializer`` and documented as
 #: user-settable (L3_COMP-AS-015_IssueService_Requirements.md). The global
 #: exclusion hid it on both models; it belongs on Risk only.
+#:
+#: ``Risk.owner`` (Attribut v3 WS2, #936) joins ``severity`` here: it is the
+#: legacy free-text owner column the spec retires in favour of the
+#: Artifact-level ``owner`` Actor FK (spec sections 3/10, folded via AWMS in
+#: WS7). Keeping it introspected would collide head-on with the artifact-level
+#: ``owner`` attribute (duplicate name -> AttributeSchemaError during
+#: normalize), and it has no serializer field to write through when aliased.
+#: The column itself stays (expand/contract — no big-bang removal); only its
+#: attribute representation yields to the new system field.
 PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
-    "Risk": frozenset({"severity"}),
+    "Risk": frozenset({"severity", "owner"}),
 }
 
 #: Attributes an interview must elicit ON TOP of the ``title``/``description``
@@ -393,6 +402,85 @@ def synthetic_status_attribute() -> dict[str, Any]:
     )
 
 
+#: Artifact-level system attributes every item type inherits (spec section 3).
+#:
+#: ``introspect_core_attributes`` walks the *per-type* model (Requirement, Adr,
+#: ...), which by construction has no column for a field that lives on
+#: ``pl_artifact``. This constant is the ``ARTIFACT_LEVEL_CORE_ATTRIBUTES``
+#: source the spec calls for; ``introspect_core_attributes`` merges it into
+#: every item type's result (see there).
+#:
+#: ``id`` is the synthetic identity attribute: ``editable="system"`` (spec
+#: section 6 — server-owned, never a payload field), ``locked`` and
+#: ``visible=False`` (spec section 5: hidden by default, revealed/copied on
+#: demand). It is deliberately NOT introspected from the model PK: the model PK
+#: is in ``EXCLUDED_MODEL_FIELDS`` precisely so the synthetic definition is the
+#: single source of that attribute.
+#:
+#: ``owner``/``reporter``/``priority`` are the Artifact columns added in WS2
+#: (#936). They are seeded ``visible=False`` and ``editable=False`` on purpose
+#: for this workstream: the columns exist and are the right carrier, but no
+#: REST/MCP serializer reads or writes them yet (that lands with the Actor
+#: picker/transport work). A visible-but-unwritable attribute would make the
+#: contract matrix (#934 WS0) demand a W/R round-trip no transport can satisfy,
+#: and an editable one would render a control whose PATCH is silently dropped.
+#: A later workstream flips both flags once the transports carry the fields;
+#: existing rows pick that up via ``--sync-new-fields``/``--reset``.
+ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
+    {
+        "name": "id",
+        "kind": "core",
+        "type": "text",
+        "editable": "system",
+        "locked": True,
+        "visible": False,
+        "required": False,
+        "section": "general",
+        "order": -300,
+        "label": {"de": "ID", "en": "ID"},
+    },
+    {
+        "name": "owner",
+        "kind": "core",
+        "type": "reference",
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": "general",
+        "order": -290,
+        "label": {"de": "Owner", "en": "Owner"},
+    },
+    {
+        "name": "reporter",
+        "kind": "core",
+        "type": "reference",
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": "general",
+        "order": -280,
+        "label": {"de": "Reporter", "en": "Reporter"},
+    },
+    {
+        "name": "priority",
+        "kind": "core",
+        "type": "enum",
+        "options": [
+            {"value": "low", "label_de": "Niedrig", "label_en": "Low"},
+            {"value": "medium", "label_de": "Mittel", "label_en": "Medium"},
+            {"value": "high", "label_de": "Hoch", "label_en": "High"},
+            {"value": "critical", "label_de": "Kritisch", "label_en": "Critical"},
+        ],
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": "classification",
+        "order": -300,
+        "label": {"de": "Priorität", "en": "Priority"},
+    },
+)
+
+
 def _resolve_model(item_type: str) -> type[models.Model]:
     for app_label, model_name in MODEL_LOCATIONS[item_type]:
         try:
@@ -544,6 +632,12 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
 
     for entry in WIDGET_ATTRIBUTES.get(item_type, ()):
         attributes.append(normalize_attribute(dict(entry, export=False)))
+
+    # Spec section 3: the Artifact-level system fields are inherited by every
+    # item type and cannot come from the per-type model walk above. Merged here
+    # so every `(item_type, preset)` definition carries them.
+    for entry in ARTIFACT_LEVEL_CORE_ATTRIBUTES:
+        attributes.append(normalize_attribute(dict(entry)))
 
     # NOTE: preset `mandatory_fields` are deliberately not applied here — see
     # this function's docstring. They are an approval-transition contract

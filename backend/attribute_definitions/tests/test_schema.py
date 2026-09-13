@@ -112,6 +112,28 @@ def test_editable_accepts_workflow_literal_and_rejects_others() -> None:
         normalize_attribute(_core("s", editable="sometimes"))
 
 
+def test_editable_accepts_the_system_and_automation_literals() -> None:
+    """Spec section 6: ``system`` (server-owned) and ``automation`` (AWMS)."""
+    for value in ("system", "automation"):
+        assert normalize_attribute(_core("s", editable=value))["editable"] == value
+
+
+def test_locked_system_attribute_may_be_hidden() -> None:
+    """Spec sections 3/5: the synthetic Artifact ``id`` is locked AND hidden."""
+    out = normalize_attribute(
+        {
+            "name": "id",
+            "kind": "core",
+            "type": "text",
+            "editable": "system",
+            "locked": True,
+            "visible": False,
+        }
+    )
+    assert out["visible"] is False
+    assert out["locked"] is True
+
+
 def test_audience_defaults_to_basic_and_rejects_other_values() -> None:
     assert normalize_attribute(_core("a"))["audience"] == "basic"
     assert normalize_attribute(_core("a", audience="expert"))["audience"] == "expert"

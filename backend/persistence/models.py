@@ -781,6 +781,81 @@ class Workspace(TenantScopedModel):
         return self.name
 
 
+class Actor(TenantScopedModel):
+    """Person / team carrier for ``Artifact.owner``/``reporter`` (spec section 4).
+
+    Attribut v3 WS2 (#936): one table carries both real internal users and
+    external dummies/placeholders, so an artifact can be attributed to someone
+    who cannot log in (a customer, a reviewer from an external lab, ...) without
+    inventing a login. The two cases are told apart by :attr:`kind`:
+
+    * ``kind="user"`` — :attr:`user` points at ``persistence.User`` (login
+      capable); :attr:`display_name` mirrors the user name at creation time so
+      the attribution survives a later rename or deletion.
+    * ``kind="external"`` — free-standing placeholder, :attr:`user` is NULL.
+
+    Uniqueness (spec section 4): ``(tenant, user)`` when a user is referenced,
+    and ``(tenant, lower(display_name))`` for externals. Both are partial
+    ``UniqueConstraint``s (PostgreSQL partial unique indexes), so the two rules
+    do not collide: an internal actor and an external dummy may share a display
+    name without tripping the external rule.
+
+    ``display_name`` is deliberately NOT NULL for both kinds: it is the label
+    every read projection shows, and a nullable label would push the fallback
+    ("resolve the user, if it still exists") into every consumer.
+    """
+
+    class Kind(models.TextChoices):
+        """Spec section 4: who the actor is, not what role they play."""
+
+        USER = "user", "User"
+        EXTERNAL = "external", "External"
+
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 4: set for kind='user', NULL for externals.",
+    )
+    display_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    organization = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "pl_actor"
+        constraints = [
+            # Spec section 4: one Actor row per (tenant, user). Partial so the
+            # many external rows (user IS NULL) do not all collide.
+            models.UniqueConstraint(
+                fields=["tenant", "user"],
+                condition=models.Q(user__isnull=False),
+                name="uq_actor_tenant_user",
+            ),
+            # Spec section 4: external actors are unique per tenant ignoring
+            # case, mirroring the User username rule (persistence/0003,
+            # ``uq_user_username_ci``). Internal actors are excluded because the
+            # rule is scoped to kind='external'.
+            models.UniqueConstraint(
+                "tenant",
+                Lower("display_name"),
+                condition=models.Q(kind="external"),
+                name="uq_actor_tenant_external_name",
+            ),
+        ]
+        indexes = [
+            # The actor picker lists the active actors of one tenant.
+            models.Index(fields=["tenant", "is_active"], name="idx_actor_tnt_active"),
+        ]
+
+    def __str__(self) -> str:
+        return self.display_name
+
+
 class Artifact(TenantScopedModel):
     """Generic hierarchical artifact (ADR-05, REQ-L1-001).
 
@@ -844,6 +919,44 @@ class Artifact(TenantScopedModel):
         Workspace, on_delete=models.CASCADE, related_name="artifacts"
     )
     artifact_type = models.CharField(max_length=64)
+    # Attribut v3 WS2 (#936, spec section 3): the cross-cutting system fields.
+    # They live on Artifact — not on each of the 11 type models — so every type
+    # inherits exactly one owner/reporter/priority column set from one migration.
+    # ``owner``/``reporter`` reference the Actor entity (spec section 4) and are
+    # SET_NULL: deleting a person/placeholder must not delete the artifact they
+    # are attributed to. ``priority`` is a plain CharField *without* model
+    # ``choices`` on purpose — the scale is configurable per
+    # ``(item_type, preset)`` through the attribute definition (type=enum),
+    # validated there, not against a frozen DB vocabulary. Non-nullable by
+    # design (blank + empty default) so existing rows and the minimal preset
+    # keep working with an empty value.
+    owner = models.ForeignKey(
+        "persistence.Actor",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 3: attributed owner (internal user or external dummy).",
+    )
+    reporter = models.ForeignKey(
+        "persistence.Actor",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 3: person/team that reported the artifact.",
+    )
+    priority = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text=(
+            "Spec section 3: priority value. Deliberately no model-level "
+            "choices — the scale is defined per attribute definition "
+            "(type=enum, default low/medium/high/critical)."
+        ),
+    )
     custom_fields = models.JSONField(
         null=True,
         default=dict,
@@ -3125,6 +3238,7 @@ __all__ = [
     "User",
     "Role",
     "Workspace",
+    "Actor",
     "Artifact",
     "Requirement",
     "RequirementType",

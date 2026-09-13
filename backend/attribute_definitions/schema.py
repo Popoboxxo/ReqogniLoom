@@ -43,7 +43,13 @@ ATTRIBUTE_TYPES: frozenset[str] = frozenset(
 )
 
 #: ``"workflow"`` means: changeable only through a workflow transition.
-EDITABLE_VALUES: frozenset[Any] = frozenset({True, False, "workflow"})
+#: ``"system"`` means: server-owned (the Artifact id/status), never a client
+#: payload field. ``"automation"`` is reserved for AWMS-derived values (spec
+#: section 6) — accepted here so a stored definition never fails to normalize,
+#: but it is not yet a distinct enforcement branch.
+EDITABLE_VALUES: frozenset[Any] = frozenset(
+    {True, False, "workflow", "system", "automation"}
+)
 
 AUDIENCE_VALUES: frozenset[str] = frozenset({"basic", "expert"})
 
@@ -346,11 +352,16 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
     if out["locked"]:
         if out["kind"] != "core":
             errors.append("'locked' is only allowed on kind == 'core'")
-        # Spec section 3.1: for a locked attribute ``visible`` is fixed true —
-        # an explicit attempt to set it false is rejected, not silently
-        # coerced, so an update diff (validate_meta_only_change) can still see
-        # and reject the attempt instead of it disappearing during normalize.
-        if not out["visible"]:
+        # Spec section 3.1: a locked attribute stays visible by default. The
+        # one documented exception is the synthetic Artifact ``id`` (spec
+        # section 5): it is ``editable="system"`` and hidden
+        # (``visible=false``, revealed on demand), so demanding visible=true
+        # would make the very attribute that motivates the ``system`` literal
+        # impossible to express. Every other locked attribute (``status``)
+        # still rejects an explicit visible=false, so an update diff
+        # (validate_meta_only_change) can see and reject the attempt instead
+        # of it disappearing during normalize.
+        if not out["visible"] and out["editable"] != "system":
             errors.append(f"'{out['name']}': a locked attribute's 'visible' must be true")
 
     if errors:

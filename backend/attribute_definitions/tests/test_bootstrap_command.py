@@ -10,6 +10,7 @@ from attribute_definitions.global_definition_store import (
     GlobalAttributeDefinitionStore,
 )
 from attribute_definitions.management.commands.bootstrap_attribute_definitions import (
+    ARTIFACT_LEVEL_CORE_ATTRIBUTES,
     BOOTSTRAP_ITEM_TYPES,
     EXCLUDED_MODEL_FIELDS,
     PRESETS,
@@ -45,6 +46,74 @@ def test_synthetic_status_is_locked_and_workflow_editable() -> None:
     assert status["visible"] is True
 
 
+# --- Attribut v3 WS2 (#936): Artifact-level system attributes ---------------
+
+
+@pytest.mark.django_db
+def test_artifact_level_system_attributes_are_discovered_for_every_type() -> None:
+    """Spec section 3: ``id``/``owner``/``reporter``/``priority`` live on
+    ``Artifact``, so every item type must expose them as core attributes even
+    though they are not columns of the per-type model."""
+    expected = {entry["name"] for entry in ARTIFACT_LEVEL_CORE_ATTRIBUTES}
+    assert expected == {"id", "owner", "reporter", "priority"}
+    for item_type in BOOTSTRAP_ITEM_TYPES:
+        by_name = {
+            a["name"]: a for a in introspect_core_attributes(item_type, "standard")
+        }
+        for name in sorted(expected):
+            assert name in by_name, f"{item_type}.{name}"
+            assert by_name[name]["kind"] == "core", f"{item_type}.{name}"
+
+
+@pytest.mark.django_db
+def test_id_is_a_synthetic_system_attribute() -> None:
+    """Spec sections 3/5/6: ``id`` is server-owned, locked and hidden."""
+    for item_type in BOOTSTRAP_ITEM_TYPES:
+        by_name = {
+            a["name"]: a for a in introspect_core_attributes(item_type, "standard")
+        }
+        id_attr = by_name["id"]
+        assert id_attr["editable"] == "system", item_type
+        assert id_attr["locked"] is True, item_type
+        assert id_attr["visible"] is False, item_type
+        assert id_attr["required"] is False, item_type
+
+
+@pytest.mark.django_db
+def test_priority_carries_the_default_scale_as_enum_options() -> None:
+    """Spec section 3: priority is an enum with the default
+    ``low|medium|high|critical`` scale, configurable per definition."""
+    for item_type in BOOTSTRAP_ITEM_TYPES:
+        by_name = {
+            a["name"]: a for a in introspect_core_attributes(item_type, "standard")
+        }
+        priority = by_name["priority"]
+        assert priority["type"] == "enum", item_type
+        assert [o["value"] for o in priority["options"]] == [
+            "low",
+            "medium",
+            "high",
+            "critical",
+        ], item_type
+        assert all(o["label_de"] and o["label_en"] for o in priority["options"])
+
+
+@pytest.mark.django_db
+def test_owner_reporter_and_priority_are_not_yet_visible_or_writable() -> None:
+    """WS2 seeds the carrier only: no REST/MCP transport reads or writes these
+    fields yet, so they must stay hidden and read-only until that lands —
+    otherwise the contract matrix (#934 WS0) would demand a round-trip no
+    transport can satisfy."""
+    for item_type in BOOTSTRAP_ITEM_TYPES:
+        by_name = {
+            a["name"]: a for a in introspect_core_attributes(item_type, "standard")
+        }
+        for name in ("owner", "reporter", "priority"):
+            assert by_name[name]["visible"] is False, f"{item_type}.{name}"
+            assert by_name[name]["editable"] is False, f"{item_type}.{name}"
+
+
+
 @pytest.mark.django_db
 def test_every_attribute_is_core_and_names_are_unique() -> None:
     for item_type in BOOTSTRAP_ITEM_TYPES:
@@ -71,7 +140,14 @@ def test_dropped_status_columns_are_never_introspected() -> None:
 def test_infrastructure_columns_are_excluded() -> None:
     attributes = introspect_core_attributes("Requirement", "standard")
     names = {a["name"] for a in attributes}
-    assert not (names & (EXCLUDED_MODEL_FIELDS - {"status"}))
+    # ``status`` and the artifact-level ``id`` are deliberately re-introduced
+    # from their synthetic sources (synthetic_status_attribute /
+    # ARTIFACT_LEVEL_CORE_ATTRIBUTES) even though they sit in
+    # EXCLUDED_MODEL_FIELDS, which governs the *model* introspection loop only.
+    synthetic = {"status"} | {
+        entry["name"] for entry in ARTIFACT_LEVEL_CORE_ATTRIBUTES
+    }
+    assert not (names & (EXCLUDED_MODEL_FIELDS - synthetic))
 
 
 @pytest.mark.django_db
@@ -176,7 +252,12 @@ def test_command_warns_about_mandatory_fields_only_for_requirement(tenant) -> No
     """#912: the migrate-time warning fired for 10/11 item types (22 lines).
 
     The legacy list is Requirement-only now, so no other item type may be
-    reported; Requirement keeps its hygiene finding.
+    reported; Requirement keeps its hygiene finding. Attribut v3 WS2 (#936)
+    added the artifact-level ``priority`` attribute, which closes the
+    ``standard`` warning (its ``mandatory_fields`` ends in ``priority``); the
+    ``extended`` policy still names ``classification``/``traceability_target``/
+    ``change_reason``, which have no attribute on Requirement, so at least one
+    Requirement warning must still appear (proving the hygiene check is alive).
     """
     from io import StringIO
 
@@ -189,7 +270,8 @@ def test_command_warns_about_mandatory_fields_only_for_requirement(tenant) -> No
         if item_type == "Requirement":
             continue
         assert f"{item_type}/" not in output, output
-    assert "Requirement/standard" in output, output
+    assert "Requirement/standard" not in output, output
+    assert "Requirement/extended" in output, output
 
 
 @pytest.mark.django_db
@@ -399,7 +481,10 @@ def test_no_introspected_attribute_is_both_protected_and_editable() -> None:
         for preset in PRESETS:
             for attribute in introspect_core_attributes(item_type, preset):
                 if attribute["name"] in protected:
-                    assert attribute["editable"] is False, (
+                    # ``system`` (spec section 6) and ``workflow`` are both
+                    # "never a client PATCH field"; plain ``False`` is the
+                    # third non-writable value. Only True is a violation.
+                    assert attribute["editable"] in (False, "system", "workflow", "automation"), (
                         f"{item_type}/{preset}: '{attribute['name']}' is "
                         "PATCH-protected but introspected as editable "
                         f"({attribute['editable']!r})"

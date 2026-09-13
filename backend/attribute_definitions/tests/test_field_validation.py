@@ -186,6 +186,26 @@ def test_a_workflow_owned_attribute_is_not_type_checked_either() -> None:
     validate_values(_attrs(WORKFLOW_STATUS), {"status": "in_review"}, {"__exists__": True})
 
 
+# --- Attribut v3 WS2 (#936): ``editable="system"`` is server-owned -----------
+
+
+def test_a_system_owned_attribute_is_never_a_payload_field() -> None:
+    """Spec section 6: the Artifact ``id`` is "nie schreibbar" and not demanded.
+
+    It is ``required=False`` in the bootstrap, but the exclusion must hold even
+    if an admin flips ``required`` (a locked attribute cannot, but the rule is
+    about the server owning the value, not about this one row).
+    """
+    system_id = {
+        "name": "id", "kind": "core", "type": "text", "required": True,
+        "visible": False, "locked": True, "editable": "system",
+    }
+    # Not demanded on create, even though required=True + locked.
+    validate_values(_attrs(system_id), {}, None)
+    # An echo is ignored, not rejected: the form renderer may keep resending it.
+    validate_values(_attrs(system_id), {"id": "whatever"}, {"__exists__": True})
+
+
 def test_update_rejects_a_value_for_a_non_editable_attribute() -> None:
     attributes = _attrs(
         {"name": "title", "kind": "core", "type": "text"},

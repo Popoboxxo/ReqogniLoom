@@ -198,6 +198,14 @@ def validate_values(
         that is decoration only — the default bootstrap marks every introspected
         attribute ``editable=True``, so this fires solely for attributes an
         admin deliberately froze.
+
+    ``editable == "system"``
+        Server-owned (spec section 6: "ID, Status; nie schreibbar"). Like
+        ``"workflow"`` it is not a payload field at all, so it is excluded from
+        ``payload_names`` entirely: the client can neither be asked for it nor
+        change it. This is what makes the bootstrapped Artifact ``id`` attribute
+        (``editable="system"``, ``locked``, ``visible=false``) harmless on every
+        create, and the same rule will back any future AWMS-owned field.
     """
     # Spec section 4.4's AND-condition: a section with ``visible=false`` hides
     # itself AND every attribute in it, whatever each attribute's own
@@ -222,11 +230,12 @@ def validate_values(
     by_name = {a["name"]: a for a in attributes}
     # A widget bundles other attributes; its own name is never a payload field.
     # A workflow-owned attribute is not a payload field either (see docstring):
-    # it is excluded here so it is never required/type/rule-checked.
+    # it is excluded here so it is never required/type/rule-checked. Same for
+    # ``editable="system"`` (spec section 6) — server-owned, never client-set.
     payload_names = {
         n
         for n, a in by_name.items()
-        if a["type"] != "widget" and a["editable"] != "workflow"
+        if a["type"] != "widget" and a["editable"] not in ("workflow", "system")
     }
     # Deliberately derived from `by_name`, NOT from `payload_names`: an
     # extended attribute marked `editable="workflow"` must still count as
