@@ -16,7 +16,7 @@
 | `moscow_priority` | CharField(16) | Yes | None | MoSCoW priority (Must, Should, Could, Won't) — visible only when type='StReq' | REQ-L3-RF003-005 AC1 |
 | `complexity_fibonacci` | IntegerField | Yes | None | Complexity via Fibonacci scale (1, 2, 3, 5, 8, 13, 21) — visible only when type='SyReq' | REQ-L3-RF003-005 AC2 |
 | `verification_method` | CharField(128) | Yes | None | Verification method (Test, Review, Analysis, Inspection) — visible only when type='SyReq' | REQ-L3-RF003-005 AC2 |
-| `uid` | CharField(64) | Yes | None | Unique identifier (read-only, persisted or derived) | REQ-L2-RF-025 AC3 |
+| `uid` | CharField(64) | Yes | None | External import key (ReqIF); never auto-generated — the Artifact UUID `id` is the identity | REQ-L2-RF-025 AC3 |
 
 **Indexes:**
 - BTree on `type` (filter by requirement type in queries)
@@ -28,7 +28,7 @@
 |-------|------|------|---------|---------|--------|
 | `asil_level` | CharField(16) | Yes | None | ASIL level (QM, A, B, C, D) — visible only for ArchE | REQ-L3-RF004-004 AC1 |
 | `make_or_buy` | CharField(32) | Yes | None | Make-or-Buy decision (Make, Buy, Reuse) | REQ-L3-RF004-004 AC1 |
-| `uid` | CharField(64) | Yes | None | Unique identifier (read-only, persisted or derived) | REQ-L2-RF-025 AC3 |
+| `uid` | CharField(64) | Yes | None | External import key (ReqIF); never auto-generated — the Artifact UUID `id` is the identity | REQ-L2-RF-025 AC3 |
 
 **Indexes:**
 - BTree on `asil_level` (risk-based filtering)
@@ -335,7 +335,7 @@ class ArchitectureElementSerializer(serializers.ModelSerializer):
 
 | Question | Impact | Owner | Timeline |
 |----------|--------|-------|----------|
-| Should `uid` be auto-generated or user-entered? | Schema design, API contract | se-requirements | Before Phase 1 |
+| Should `uid` be auto-generated or user-entered? | **Resolved (Attribut v3 WS2 #936):** neither — `uid` is an external import key (set only by the ReqIF/importer paths, read-only to clients); the Artifact UUID `id` is the sole identity, no `REQ-NNN` generator | se-requirements | Done |
 | What's the exact Fibonacci sequence for complexity (1–21 or 0–21)? | Serializer validation | Frontend | Before Phase 3 |
 | Should AttributeVisibilityConfig be exposed via admin UI or API? | Admin UX, Access control | ui-ux-designer | Before Phase 3 |
 | Is TraceLink.link_type conversion to enum-like choices required now, or deferred? | Backward compatibility | se-architect | Before Phase 1 |

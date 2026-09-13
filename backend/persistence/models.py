@@ -1083,7 +1083,10 @@ class StakeholderNeed(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
@@ -1169,7 +1172,10 @@ class Requirement(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
@@ -1297,7 +1303,10 @@ class ArchitectureElement(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
@@ -1668,7 +1677,10 @@ class TestCase(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
@@ -1781,7 +1793,10 @@ class TestRun(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="test_runs"
@@ -2634,7 +2649,10 @@ class Adr(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
@@ -2767,7 +2785,10 @@ class Risk(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
@@ -3000,7 +3021,10 @@ class Issue(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing

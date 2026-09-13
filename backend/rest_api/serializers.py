@@ -59,6 +59,21 @@ LOCK_VERSION_HELP_TEXT = (
 )
 
 # ---------------------------------------------------------------------------
+# Identity semantics: ``id`` vs ``uid`` (Attribut v3 WS2, #936, spec section 3)
+# ---------------------------------------------------------------------------
+
+# Spec section 3: the Artifact UUID ``id`` is the sole identity; ``uid`` is a
+# free-form *external import key* (ReqIF). Nothing in the product auto-generates
+# a ``uid`` and there is no ``REQ-NNN`` number-circle: an unset ``uid`` is a
+# valid, permanent state. The field stays read-only on every serializer (the one
+# exception is the ReqIF importer, which round-trips the source key through the
+# service layer, never through a client payload).
+UID_HELP_TEXT = (
+    "External import key (ReqIF); never auto-generated - the Artifact UUID "
+    "'id' is the identity."
+)
+
+# ---------------------------------------------------------------------------
 # i18n error translation (REQ-L2-RA-004, REQ-L3-RA002-002)
 # ---------------------------------------------------------------------------
 
@@ -832,7 +847,7 @@ class RequirementSerializer(
         read_only=True,
         required=False,
         allow_null=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=UID_HELP_TEXT,
     )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
@@ -906,7 +921,7 @@ class StakeholderNeedSerializer(
         allow_null=True,
         help_text="MoSCoW priority",
     )
-    uid = serializers.CharField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     suspect = serializers.BooleanField(read_only=True)
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
@@ -985,7 +1000,7 @@ class ArchitectureElementSerializer(
         read_only=True,
         required=False,
         allow_null=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=UID_HELP_TEXT,
     )
     # ``expected_version`` comes from ExpectedVersionSerializerMixin — the
     # inline declaration this replaces was the only one in the codebase.
@@ -1040,7 +1055,7 @@ class TestCaseSerializer(
     workspace_id = serializers.UUIDField(required=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
-    uid = serializers.CharField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     suspect = serializers.BooleanField(required=False, default=False)
     # SysEng 2.0 N5 (test.derive_from_requirement): test steps, previously
     # persisted on the model but not exposed through the API.
@@ -1485,7 +1500,7 @@ class AdrSerializer(
     # previously missing — matches Adr.decision model TextField(max_length=5000).
     decision = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     consequences = SanitizedCharField(allow_blank=True, default="", max_length=5000)
-    uid = serializers.CharField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     # #290: AdrViewSet.partial_update forwards ``data.get("change_reason")`` to
     # AdrService.update_adr(), which records it on the audit event. The field was
     # never declared here, so DRF dropped it from validated_data and the audit
@@ -1545,7 +1560,7 @@ class RiskSerializer(
     detection = serializers.IntegerField(min_value=1, max_value=10, default=5)
     # #104: narrative field, unbounded before — cap at 10000 chars (DoS risk).
     mitigation_strategy = SanitizedCharField(allow_blank=True, default="", max_length=10000)
-    uid = serializers.CharField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     # #290: see AdrSerializer.change_reason — RiskViewSet.partial_update
     # forwards it to RiskService.update_risk() but DRF dropped it.
     change_reason = SanitizedCharField(
@@ -1635,7 +1650,7 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
             "Risk artifacts; named 'name' here for consistency with CI job naming)."
         ),
     )
-    uid = serializers.CharField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     status = serializers.CharField(read_only=True)
     # #104: matches TestRun.ci_job_id model field (CharField(max_length=255)).
     ci_job_id = serializers.CharField(allow_blank=True, default="", max_length=255)
@@ -1721,7 +1736,7 @@ class IssueSerializer(
         choices=["defect", "improvement", "documentation", "question"],
         default="defect",
     )
-    uid = serializers.CharField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     tags = serializers.JSONField(required=False, default=list)
     # Task 20 finding: `Issue.due_date` (application/issue_service.py's
     # create_issue/update_issue both already accept and persist it) was never
