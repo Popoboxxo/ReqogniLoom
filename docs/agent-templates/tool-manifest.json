@@ -564,6 +564,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -772,6 +790,24 @@
               },
               "expected_version": {
                 "type": "integer"
+              },
+              "owner": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+              },
+              "reporter": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact reporter in actor wire form (spec section 4)."
+              },
+              "priority": {
+                "type": "string",
+                "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
               }
             }
           }
@@ -2042,6 +2078,24 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the glossary service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2184,6 +2238,24 @@
           },
           "custom_fields": {
             "description": "Optional. 'custom_fields' as accepted by the glossary service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2213,6 +2285,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2245,6 +2335,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2440,6 +2548,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map). Omit to inherit the addressed version's map."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2504,6 +2630,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2593,6 +2737,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -3404,6 +3566,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -3584,6 +3764,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -3996,6 +4194,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -4165,6 +4381,24 @@
                 "type": "object",
                 "additionalProperties": true,
                 "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+              },
+              "owner": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+              },
+              "reporter": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact reporter in actor wire form (spec section 4)."
+              },
+              "priority": {
+                "type": "string",
+                "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
               }
             }
           }
@@ -4710,6 +4944,24 @@
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
           },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
+          },
           "linked_req_id": {
             "type": "string",
             "description": "Optional requirement UUID to create a 'verifies' TraceLink."
@@ -5024,6 +5276,24 @@
                   "Not Run",
                   "Passed"
                 ]
+              },
+              "owner": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+              },
+              "reporter": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact reporter in actor wire form (spec section 4)."
+              },
+              "priority": {
+                "type": "string",
+                "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
               }
             }
           }
