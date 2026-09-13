@@ -2174,6 +2174,29 @@
         "rename": "Umbenennen (als neues Attribut mit Suffix importieren)"
       }
     },
+    "catalog": {
+      "addButton": "Aus Katalog hinzufügen",
+      "dialogTitle": "Aus Katalog hinzufügen",
+      "itemTypeHint": "Vorlagen für {{itemType}}",
+      "searchLabel": "Suche",
+      "searchPlaceholder": "Nach Name suchen…",
+      "includeDeprecated": "Veraltete anzeigen",
+      "loading": "Katalog wird geladen…",
+      "empty": "Keine passenden Katalog-Einträge gefunden.",
+      "error": "Katalog konnte nicht geladen werden",
+      "noCategory": "Ohne Kategorie",
+      "deprecatedBadge": "Veraltet",
+      "entriesLabel": "Katalog-Einträge",
+      "selectHint": "Wähle eine Vorlage aus.",
+      "onCollisionLabel": "Bei Namenskonflikt",
+      "onCollision": {
+        "skip": "Überspringen (bestehendes Attribut behalten)",
+        "overwrite": "Überschreiben (bestehendes Attribut ersetzen)",
+        "rename": "Umbenennen (als neues Attribut mit Suffix hinzufügen)"
+      },
+      "add": "Hinzufügen",
+      "added": "Attribut \"{{name}}\" aus dem Katalog hinzugefügt."
+    },
     "deleteAttribute": {
       "action": "Attribut löschen",
       "title": "Attribut löschen",

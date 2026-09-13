@@ -2174,6 +2174,29 @@
         "rename": "Rename (import as a new attribute, suffixed)"
       }
     },
+    "catalog": {
+      "addButton": "Add from catalog",
+      "dialogTitle": "Add from catalog",
+      "itemTypeHint": "Templates for {{itemType}}",
+      "searchLabel": "Search",
+      "searchPlaceholder": "Search by name…",
+      "includeDeprecated": "Show deprecated",
+      "loading": "Loading catalog…",
+      "empty": "No matching catalog entries found.",
+      "error": "The catalog could not be loaded",
+      "noCategory": "No category",
+      "deprecatedBadge": "Deprecated",
+      "entriesLabel": "Catalog entries",
+      "selectHint": "Select a template.",
+      "onCollisionLabel": "On name collision",
+      "onCollision": {
+        "skip": "Skip (keep the existing attribute)",
+        "overwrite": "Overwrite (replace the existing attribute)",
+        "rename": "Rename (add as a new attribute, suffixed)"
+      },
+      "add": "Add",
+      "added": "Attribute \"{{name}}\" added from the catalog."
+    },
     "deleteAttribute": {
       "action": "Delete attribute",
       "title": "Delete attribute",

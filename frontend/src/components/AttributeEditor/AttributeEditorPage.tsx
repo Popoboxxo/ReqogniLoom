@@ -37,6 +37,10 @@ import {
   type SectionLayout,
   type SectionSpec,
 } from "../../api/attribute-definitions";
+import {
+  attributeCatalogApi,
+  type AttributeCatalogEntry,
+} from "../../api/attributeCatalog";
 import { extractErrorMessage } from "../../api/client";
 import type { WorkspacePreset } from "../../types";
 import { useAuth } from "../../context/AuthContext";
@@ -52,6 +56,7 @@ import {
   renameSectionToken,
 } from "../shared/ArtifactForm/layout-flow";
 import styles from "./AttributeEditor.module.css";
+import { AttributeCatalogDialog } from "./AttributeCatalogDialog";
 import { AttributeCreateDialog } from "./AttributeCreateDialog";
 import { AttributeImportDialog } from "./AttributeImportDialog";
 import { AttributeInspector } from "./AttributeInspector";
@@ -173,6 +178,7 @@ export function AttributeEditorPage({
     document: AttributeDefinitionDocument;
     fileName: string;
   } | null>(null);
+  const [showCatalog, setShowCatalog] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSetViewMode = useCallback((mode: ViewMode): void => {
@@ -316,6 +322,32 @@ export function AttributeEditorPage({
     [activeWorkspace?.id, isGlobal, itemType, load, pendingImport, preset]
   );
 
+  // WS5 #942 (spec section 8): apply one catalog entry to the definition the
+  // page currently edits. `add_to_definition` is a one-shot copy — the catalog
+  // is a template, not a binding — so after it succeeds the page simply
+  // refetches the (server-normalized) definition, exactly like import does.
+  const handleAddFromCatalog = useCallback(
+    async (entry: AttributeCatalogEntry, onCollision: OnCollision): Promise<void> => {
+      if (isGlobal) {
+        await attributeCatalogApi.addToDefinition(entry.id, {
+          item_type: itemType,
+          preset,
+          on_collision: onCollision,
+        });
+      } else {
+        if (!activeWorkspace?.id) return;
+        await attributeCatalogApi.addToDefinition(entry.id, {
+          item_type: itemType,
+          workspace_id: activeWorkspace.id,
+          on_collision: onCollision,
+        });
+      }
+      await load();
+      toast.show(t("attributes.catalog.added", { name: entry.name }));
+    },
+    [activeWorkspace?.id, isGlobal, itemType, load, preset, t]
+  );
+
   // Selection/scratch state is scoped to one (itemType, preset) view — carrying
   // it across a switch risks matching an unrelated attribute of the same name
   // on the newly loaded type (e.g. both Risk and Issue have a "title").
@@ -323,6 +355,7 @@ export function AttributeEditorPage({
     setSelected(null);
     setEmptySections([]);
     setNewSection(null);
+    setShowCatalog(false);
   }, [itemType, preset, isGlobal]);
 
   const isDirty = useMemo(
@@ -711,6 +744,18 @@ export function AttributeEditorPage({
           hidden
           onChange={handleFileSelected}
         />
+        {/* WS5 #942: catalog entries are admin-managed tenant configuration
+            (the REST layer 403s an editor), so the entry point is not merely
+            disabled for non-admins — it is not rendered at all. */}
+        {isAdmin ? (
+          <button
+            type="button"
+            data-testid="attribute-editor-add-from-catalog"
+            onClick={() => setShowCatalog(true)}
+          >
+            {t("attributes.catalog.addButton")}
+          </button>
+        ) : null}
         {newSection === null ? (
           <button
             type="button"
@@ -896,6 +941,14 @@ export function AttributeEditorPage({
           fileName={pendingImport.fileName}
           onConfirm={handleConfirmImport}
           onClose={() => setPendingImport(null)}
+        />
+      ) : null}
+
+      {showCatalog && isAdmin ? (
+        <AttributeCatalogDialog
+          itemType={itemType}
+          onAdd={handleAddFromCatalog}
+          onClose={() => setShowCatalog(false)}
         />
       ) : null}
     </div>
