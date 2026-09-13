@@ -107,6 +107,26 @@ describe("default derivation (no flow = old behaviour)", () => {
   });
 });
 
+describe("supported flow lifecycle: default vs explicit empty (WS4 #938)", () => {
+  it("only `undefined` derives the default; `[]` positions no token", () => {
+    // `undefined` => default derivation.
+    expect(orderedSectionTokens(undefined, ["a", "b"])).toEqual([
+      { kind: "section", name: "a" },
+      { kind: "section", name: "b" },
+    ]);
+    expect(effectiveAttributeFlowTokens(section({}), [attr("a"), attr("b")])).toEqual([
+      { kind: "attribute", name: "a", span: "full" },
+      { kind: "attribute", name: "b", span: "full" },
+    ]);
+    // explicitly stored `[]` => no tokens, no derivation.
+    expect(orderedSectionTokens([], ["a", "b"])).toEqual([]);
+    expect(
+      effectiveAttributeFlowTokens(section({ attribute_flow: [] }), [attr("a"), attr("b")])
+    ).toEqual([]);
+    expect(resolveAttributeFlow(section({ attribute_flow: [] }), [attr("a")])).toEqual([]);
+  });
+});
+
 describe("stored flow is respected, stale tokens are additive-safe", () => {
   it("keeps spacers and the stored section order, appending unpositioned sections", () => {
     expect(

@@ -417,9 +417,13 @@ def test_update_rejects_a_non_list_section_flow_param(group, ctx) -> None:
     assert result.error_code == "VALIDATION_ERROR"
 
 
-def test_get_payload_always_carries_a_section_flow_list(group, ctx) -> None:
-    """A legacy payload without a flow reads back as an empty list, so an MCP
-    client always has a well-typed key to consume."""
+def test_get_payload_omits_an_absent_section_flow(group, ctx) -> None:
+    """WS4 #938 / review F2: the flow key is additive exactly like REST.
+
+    A definition without a stored flow must NOT collapse to an explicit empty
+    flow, so an MCP client can still tell "derive the default" (key absent)
+    from "explicitly empty" (key present, ``[]``).
+    """
     with patch(
         "mcp_server.tools.attribute_definition.AttributeDefinitionService"
     ) as service:
@@ -431,7 +435,66 @@ def test_get_payload_always_carries_a_section_flow_list(group, ctx) -> None:
             api_key=VALID_API_KEY,
         )
     assert result.success is True
-    assert result.data["definition"]["section_flow"] == []
+    assert "section_flow" not in result.data["definition"]
+
+
+def test_get_payload_preserves_a_stored_section_flow(group, ctx) -> None:
+    stored = {**PAYLOAD, "section_flow": [{"kind": "section", "name": "general"}]}
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.resolve.return_value = stored
+        result = group.execute_tool(
+            tool_name="attribute_definition.get",
+            params={"item_type": "Risk", "workspace_id": str(uuid.uuid4())},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True
+    assert result.data["definition"]["section_flow"] == [
+        {"kind": "section", "name": "general"}
+    ]
+
+
+@pytest.mark.django_db
+def test_get_update_round_trip_does_not_invent_an_empty_section_flow(group) -> None:
+    """A get→update round-trip of a definition without a flow must not create
+    an explicit ``[]`` in the store (review F2)."""
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    tenant, workspace = _risk_workspace_with_definition()
+    admin_ctx = _admin_ctx(tenant)
+
+    got = group.execute_tool(
+        tool_name="attribute_definition.get",
+        params={"item_type": "Risk", "workspace_id": str(workspace.id)},
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert got.success is True, got.message
+    returned = got.data["definition"]
+    assert "section_flow" not in returned
+
+    updated = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(workspace.id),
+            "attributes": returned["attributes"],
+            "sections": returned["sections"],
+            # No "section_flow": the round-tripped payload has no key to send.
+        },
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert updated.success is True, updated.message
+    assert "section_flow" not in updated.data["definition"]
+
+    row = WorkspaceAttributeDefinitionStore().get(tenant.id, workspace.id, "Risk")
+    assert row is not None
+    assert "section_flow" not in row.definition_json
 
 
 @pytest.mark.django_db

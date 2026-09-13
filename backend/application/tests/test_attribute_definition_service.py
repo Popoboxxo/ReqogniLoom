@@ -1152,3 +1152,94 @@ def test_import_definition_rejects_a_non_list_section_flow(
             {"schema_version": 1, "attributes": [], "section_flow": {"kind": "section"}},
             preset="standard",
         )
+
+
+@pytest.mark.django_db
+def test_import_prunes_dangling_section_flow_tokens(
+    service, admin_ctx, seeded
+) -> None:
+    """Review F3: a section_flow token whose section the merge skipped/renamed
+    must not survive as a dangling reference in the stored definition."""
+    incoming = {
+        "schema_version": 1,
+        "attributes": [TITLE],
+        "sections": [
+            {"name": "general", "order": 0, "visible": True, "layout": "full"},
+            {"name": "extra", "order": 1, "visible": True, "layout": "full"},
+        ],
+        "section_flow": [
+            {"kind": "section", "name": "general"},
+            {"kind": "spacer", "size": "md"},
+            {"kind": "section", "name": "ghost"},
+            {"kind": "section", "name": "extra"},
+        ],
+    }
+    imported = service.import_definition(
+        admin_ctx, "Risk", incoming, preset="standard", on_collision="overwrite"
+    )
+    assert imported["section_flow"] == [
+        {"kind": "section", "name": "general"},
+        {"kind": "spacer", "size": "md"},
+        {"kind": "section", "name": "extra"},
+    ]
+    # Persisted, not just echoed.
+    assert service.get_global(admin_ctx, "Risk", "standard")["section_flow"] == (
+        imported["section_flow"]
+    )
+
+
+@pytest.mark.django_db
+def test_import_prunes_dangling_attribute_flow_tokens(
+    service, admin_ctx, seeded
+) -> None:
+    """Review F3: an incoming section's ``attribute_flow`` must not keep a token
+    naming an attribute the merged definition does not contain; spacers stay."""
+    incoming = {
+        "schema_version": 1,
+        "attributes": [TITLE],
+        "sections": [
+            {
+                "name": "general",
+                "order": 0,
+                "visible": True,
+                "layout": "full",
+                "attribute_flow": [
+                    {"kind": "attribute", "name": "title", "span": "half"},
+                    {"kind": "attribute", "name": "ghost", "span": "quarter"},
+                    {"kind": "spacer", "size": "sm"},
+                ],
+            }
+        ],
+    }
+    imported = service.import_definition(
+        admin_ctx, "Risk", incoming, preset="standard", on_collision="overwrite"
+    )
+    by_name = {s["name"]: s for s in imported["sections"]}
+    assert by_name["general"]["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "half"},
+        {"kind": "spacer", "size": "sm"},
+    ]
+
+
+@pytest.mark.django_db
+def test_import_keeps_an_explicitly_empty_section_flow(
+    service, admin_ctx, seeded
+) -> None:
+    """Review F3: pruning must not turn an explicit ``[]`` into a missing key."""
+    imported = service.import_definition(
+        admin_ctx,
+        "Risk",
+        {
+            "schema_version": 1,
+            "attributes": [TITLE],
+            "sections": [
+                {"name": "general", "order": 0, "visible": True, "layout": "full"}
+            ],
+            "section_flow": [],
+        },
+        preset="standard",
+        on_collision="overwrite",
+    )
+    assert imported["section_flow"] == []
+    assert service.get_global(admin_ctx, "Risk", "standard")["section_flow"] == []
+

@@ -831,6 +831,59 @@ def effective_attribute_flow(
     return materialize_attribute_flow(in_section)
 
 
+def prune_section_flow(
+    flow: list[dict[str, Any]], section_names: Iterable[str]
+) -> list[dict[str, Any]]:
+    """Drop ``section`` tokens naming a section that is not in *section_names*.
+
+    Spacers are kept; a non-dict token is kept so the write path's validator
+    can reject it with its own message. Used by the import reconciliation
+    (review F3): a flow token whose section was skipped or renamed by
+    ``_merge_import`` must not survive as a dangling reference in the store.
+    Mirrors the frontend's ``pruneSectionFlow``.
+    """
+    known = set(section_names)
+    return [
+        token
+        for token in flow
+        if not (isinstance(token, dict) and token.get("kind") == "section")
+        or token.get("name") in known
+    ]
+
+
+def prune_attribute_flows(
+    sections: list[dict[str, Any]], attribute_names: Iterable[str]
+) -> list[dict[str, Any]]:
+    """Drop ``attribute`` tokens naming an attribute that is not in
+    *attribute_names* from every section's ``attribute_flow``.
+
+    Spacers, sections without an ``attribute_flow`` list and non-list values are
+    returned untouched (the write path validates them). Mirrors the frontend's
+    ``pruneAttributeFlows``; used by the import reconciliation (review F3).
+    """
+    known = set(attribute_names)
+    pruned: list[dict[str, Any]] = []
+    for section in sections:
+        flow = section.get("attribute_flow") if isinstance(section, dict) else None
+        if not isinstance(flow, list):
+            pruned.append(section)
+            continue
+        pruned.append(
+            {
+                **section,
+                "attribute_flow": [
+                    token
+                    for token in flow
+                    if not (
+                        isinstance(token, dict) and token.get("kind") == "attribute"
+                    )
+                    or token.get("name") in known
+                ],
+            }
+        )
+    return pruned
+
+
 def resolve_attribute_span(
     attribute_name: str, section: dict[str, Any] | None
 ) -> str:
@@ -843,13 +896,16 @@ def resolve_attribute_span(
     """
     if isinstance(section, dict):
         for token in section.get("attribute_flow") or []:
-            if (
-                isinstance(token, dict)
-                and token.get("kind") == "attribute"
-                and token.get("name") == attribute_name
-                and token.get("span") in ATTRIBUTE_SPANS
-            ):
-                return token["span"]
+            if not isinstance(token, dict) or token.get("kind") != "attribute":
+                continue
+            if token.get("name") != attribute_name:
+                continue
+            span = token.get("span")
+            # Type-check before the frozenset membership test: an unhashable
+            # span (list/dict) would raise TypeError (a 500) instead of falling
+            # back to the default — the same guard normalize_flow_token has.
+            if isinstance(span, str) and span in ATTRIBUTE_SPANS:
+                return span
     return _DEFAULT_ATTRIBUTE_SPAN
 
 
@@ -1111,6 +1167,8 @@ __all__ = [
     "normalize_attribute",
     "normalize_flow_token",
     "normalize_section",
+    "prune_attribute_flows",
+    "prune_section_flow",
     "resolve_attribute_span",
     "stored_attributes",
     "stored_section_flow",

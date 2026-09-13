@@ -58,7 +58,7 @@ def _definition_payload(definition: Dict[str, Any]) -> Dict[str, Any]:
     (``resolve``/``update_workspace``/``reset_workspace``) and the global
     payload (``list_global``) each carry only a subset of these keys.
     """
-    return {
+    payload: Dict[str, Any] = {
         "item_type": str(definition["item_type"]),
         "preset": str(definition.get("preset") or ""),
         "is_customized": bool(definition.get("is_customized", False)),
@@ -71,16 +71,20 @@ def _definition_payload(definition: Dict[str, Any]) -> Dict[str, Any]:
         # ``attribute-defaults`` payload is complete. The global ``list``
         # payload may have no materialized sections yet — fall back to ``[]``.
         "sections": list(definition.get("sections", [])),
-        # WS4 #938: the definition-level section flow travels the same way;
-        # absent (legacy definition) reads as ``[]`` and the consumer derives
-        # the default from the section order.
-        "section_flow": list(definition.get("section_flow", [])),
-        **(
-            {"propagated_workspace_count": int(definition["propagated_workspace_count"])}
-            if "propagated_workspace_count" in definition
-            else {}
-        ),
     }
+    # WS4 #938: the definition-level section flow is additive, exactly like the
+    # REST payload (AttributeDefinitionService._workspace_payload /
+    # _global_payload): the key is present ONLY when the definition actually
+    # stores one, so an absent flow reads as "derive the default" rather than
+    # collapsing to an explicit empty flow. ``"section_flow" in definition``
+    # (not ``.get``) preserves a stored ``[]`` as the real value it is.
+    if "section_flow" in definition:
+        payload["section_flow"] = list(definition["section_flow"])
+    if "propagated_workspace_count" in definition:
+        payload["propagated_workspace_count"] = int(
+            definition["propagated_workspace_count"]
+        )
+    return payload
 
 
 class AttributeDefinitionToolGroup(BaseToolGroup):

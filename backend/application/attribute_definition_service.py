@@ -38,6 +38,8 @@ from attribute_definitions.global_definition_store import (
 from attribute_definitions.schema import (
     AttributeDefinitionConflictError,
     AttributeSchemaError,
+    prune_attribute_flows,
+    prune_section_flow,
     stored_attributes,
     stored_section_flow,
     stored_sections,
@@ -890,6 +892,37 @@ class AttributeDefinitionService(ServiceBase):
         # target's; ``None`` keeps the target's own flow untouched. The
         # section-level ``attribute_flow`` already travelled with
         # ``merged_sections`` above.
+        #
+        # Review F3: ``_merge_import`` may skip or rename entries, so an
+        # incoming flow token can name a section/attribute the merged
+        # definition no longer has. Reconcile both flow levels against the
+        # FINAL names (mirrors the frontend's ``pruneSectionFlow``/
+        # ``pruneAttributeFlows``) before the write, so no dangling token is
+        # persisted. An explicit ``[]`` stays ``[]`` — it is still a real value,
+        # not a missing key.
+        final_sections = (
+            merged_sections
+            if merged_sections is not None
+            else stored_sections(current_row.definition_json)
+        )
+        final_section_names = [
+            section["name"]
+            for section in final_sections
+            if isinstance(section, dict) and isinstance(section.get("name"), str)
+        ]
+        final_attribute_names = [
+            entry["name"]
+            for entry in merged
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+        ]
+        if incoming_section_flow is not None:
+            incoming_section_flow = prune_section_flow(
+                incoming_section_flow, final_section_names
+            )
+        if merged_sections is not None:
+            merged_sections = prune_attribute_flows(
+                merged_sections, final_attribute_names
+            )
         if workspace_id is not None:
             return self.update_workspace(
                 ctx, item_type, workspace_id, merged, merged_sections,

@@ -15,6 +15,8 @@ from attribute_definitions.schema import (
     normalize_attribute,
     normalize_flow_token,
     normalize_section,
+    prune_attribute_flows,
+    prune_section_flow,
     resolve_attribute_span,
     stored_attributes,
     stored_section_flow,
@@ -797,4 +799,49 @@ def test_resolve_attribute_span_defaults_to_full_without_a_flow() -> None:
     }
     assert resolve_attribute_span("title", section) == "quarter"
     assert resolve_attribute_span("other", section) == "full"
+
+
+def test_resolve_attribute_span_falls_back_on_an_unhashable_span() -> None:
+    """A hand-written/legacy row may carry a list/dict span; the public helper
+    must fall back to ``full`` instead of raising ``TypeError`` (a 500)."""
+    for bad_span in (["full"], {"value": "full"}):
+        section = {
+            "name": "general",
+            "attribute_flow": [
+                {"kind": "attribute", "name": "title", "span": bad_span},
+            ],
+        }
+        assert resolve_attribute_span("title", section) == "full"
+
+
+def test_prune_section_flow_drops_only_unknown_section_tokens() -> None:
+    flow = [
+        {"kind": "section", "name": "a"},
+        {"kind": "spacer", "size": "md"},
+        {"kind": "section", "name": "ghost"},
+    ]
+    assert prune_section_flow(flow, ["a"]) == [
+        {"kind": "section", "name": "a"},
+        {"kind": "spacer", "size": "md"},
+    ]
+
+
+def test_prune_attribute_flows_drops_only_unknown_attribute_tokens() -> None:
+    sections = [
+        {
+            "name": "general",
+            "attribute_flow": [
+                {"kind": "attribute", "name": "a", "span": "half"},
+                {"kind": "attribute", "name": "ghost", "span": "full"},
+                {"kind": "spacer", "size": "sm"},
+            ],
+        },
+        {"name": "untouched"},
+    ]
+    out = prune_attribute_flows(sections, ["a"])
+    assert out[0]["attribute_flow"] == [
+        {"kind": "attribute", "name": "a", "span": "half"},
+        {"kind": "spacer", "size": "sm"},
+    ]
+    assert out[1] == {"name": "untouched"}
 

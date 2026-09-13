@@ -11,9 +11,12 @@
  * exactly as it did before this engine existed.
  *
  * Both `undefined` (no stored flow) and `[]` (a genuinely empty stored flow)
- * are legal inputs. Callers that write a flow back must preserve that
- * distinction (`undefined` omits the key), which is why the mutators below
- * accept and return `LayoutToken[] | undefined`.
+ * are legal inputs, and they are NOT equivalent: `undefined` derives the
+ * order-based default, while `[]` is a real stored value that positions no
+ * token (the backend's `effective_*` return a stored `[]` verbatim). Callers
+ * that write a flow back must preserve that distinction (`undefined` omits the
+ * key), which is why the mutators below accept and return
+ * `LayoutToken[] | undefined`.
  */
 
 import type {
@@ -129,21 +132,27 @@ export function materializeAttributeFlow(attributes: AttributeSpec[]): LayoutTok
 /**
  * The ordered section tokens a renderer/editor should use for *sectionNames*.
  *
- * With a stored flow: its section tokens in their stored order, spacers kept,
- * tokens naming an unknown/duplicate section dropped. Sections not positioned
- * by the flow are appended in *sectionNames* order — a stale flow must never
- * make a section disappear (additive derivation, spec section 7).
+ * `undefined` (no stored flow) derives the default: one section token per name
+ * in *sectionNames* order, no spacers.
  *
- * Without a stored flow (`undefined` or `[]`): the materialized default.
+ * A stored flow — including the explicitly empty `[]` — is used as-is: its
+ * section tokens in their stored order, spacers kept, tokens naming an
+ * unknown/duplicate section dropped. An explicitly empty stored flow therefore
+ * positions NO section and must not fall back to the default derivation
+ * (mirrors the backend's `effective_section_flow`, which returns a stored `[]`
+ * verbatim). For a non-empty stored flow, sections not positioned by it are
+ * appended in *sectionNames* order — a stale flow must never make a section
+ * disappear (additive derivation, spec section 7).
  */
 export function orderedSectionTokens(
   flow: LayoutToken[] | undefined,
   sectionNames: string[]
 ): LayoutToken[] {
+  if (flow === undefined) return materializeSectionFlow(sectionNames);
   const known = new Set(sectionNames);
   const seen = new Set<string>();
   const tokens: LayoutToken[] = [];
-  for (const token of flow ?? []) {
+  for (const token of flow) {
     if (isSectionToken(token)) {
       if (!known.has(token.name) || seen.has(token.name)) continue;
       seen.add(token.name);
@@ -152,6 +161,8 @@ export function orderedSectionTokens(
       tokens.push(token);
     }
   }
+  // An explicitly empty stored flow positions nothing — do not derive.
+  if (flow.length === 0) return tokens;
   for (const name of sectionNames) {
     if (!seen.has(name)) tokens.push({ kind: "section", name });
   }
@@ -162,16 +173,24 @@ export function orderedSectionTokens(
  * The ordered attribute tokens for one section — mirrors
  * `orderedSectionTokens` one level down (the backend's
  * `effective_attribute_flow`), with `span` defaulted to `full` on every
- * attribute token and unpositioned attributes appended in *attributes* order.
+ * attribute token and, for a non-empty stored flow, unpositioned attributes
+ * appended in *attributes* order.
+ *
+ * `undefined` (the section carries no `attribute_flow` key) derives the
+ * default: every attribute at full span. An explicitly empty stored flow `[]`
+ * positions no attribute and must not fall back to that derivation — only the
+ * absence of the key is a "derive" signal.
  */
 export function effectiveAttributeFlowTokens(
   section: SectionSpec | undefined,
   attributes: AttributeSpec[]
 ): LayoutToken[] {
+  const flow = section?.attribute_flow;
+  if (flow === undefined) return materializeAttributeFlow(attributes);
   const known = new Set(attributes.map((attribute) => attribute.name));
   const seen = new Set<string>();
   const tokens: LayoutToken[] = [];
-  for (const token of section?.attribute_flow ?? []) {
+  for (const token of flow) {
     if (isAttributeToken(token)) {
       if (!known.has(token.name) || seen.has(token.name)) continue;
       seen.add(token.name);
@@ -180,6 +199,8 @@ export function effectiveAttributeFlowTokens(
       tokens.push(token);
     }
   }
+  // An explicitly empty stored flow positions nothing — do not derive.
+  if (flow.length === 0) return tokens;
   for (const attribute of attributes) {
     if (!seen.has(attribute.name)) {
       tokens.push({
