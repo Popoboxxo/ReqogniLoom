@@ -48,8 +48,17 @@ from attribute_definitions.schema import (
     ITEM_TYPES,
     PRESETS,
     SYSTEM_FIELDS_ENABLED_ITEM_TYPES,
+    materialize_sections,
     normalize_attribute,
     stored_attributes,
+    stored_sections,
+)
+from attribute_definitions.stage_matrix import (
+    OWNER_MANDATORY_STAGES,
+    PRESET_STAGE,
+    PRIORITY_MANDATORY_STAGES,
+    apply_stage_overrides,
+    build_stage_attributes,
 )
 from persistence.models import Tenant
 from presets.registry import PresetRegistry
@@ -600,10 +609,12 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     actually cares about, so nothing is lost by not duplicating it here.
     Regression net: ``rest_api/tests/test_bootstrapped_definition_allows_creates``.
 
-    Consequence: the result is currently preset-invariant. That is consistent
-    with ADR-04 (three rigor presets, one data model) — rigor is enforced at
-    transitions, not at the payload contract. The ``(item_type, preset)`` key
-    is kept regardless, because an admin may customize each preset's row.
+    ``required`` stays preset-invariant (it is the model's create contract).
+    The *staged* part of the definition — per-stage ``visible``/``audience``
+    plus the matrix's new extended attributes and its ``stage_mandatory``
+    readiness flag — is layered on afterwards from
+    :mod:`attribute_definitions.stage_matrix` (Epic #934 WS6, #939), so the
+    ``(item_type, preset)`` key now genuinely selects the rigor stage.
     """
     model = _resolve_model(item_type)
     aliases = WIDGET_FIELD_ALIASES.get(item_type, {})
@@ -674,17 +685,42 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     # so every `(item_type, preset)` definition carries them. The three
     # transport-backed fields are flipped visible/editable only for the item
     # types whose REST + MCP paths actually carry them (rollout gate above).
+    stage = PRESET_STAGE[preset]
     system_fields_enabled = item_type in SYSTEM_FIELDS_ENABLED_ITEM_TYPES
     for entry in ARTIFACT_LEVEL_CORE_ATTRIBUTES:
         spec = dict(entry)
-        if system_fields_enabled and spec["name"] in _GATED_SYSTEM_FIELD_NAMES:
-            spec["visible"] = True
-            spec["editable"] = True
+        name = spec["name"]
+        if name in _GATED_SYSTEM_FIELD_NAMES:
+            # Spec section 0 of the matrix: owner/reporter/priority become
+            # visible from stage 2 (``o``) onwards; their transport rollout gate
+            # (SYSTEM_FIELDS_ENABLED_ITEM_TYPES) still owns *whether* they may be
+            # shown at all for this type.
+            if system_fields_enabled:
+                spec["visible"] = stage >= 2
+                spec["editable"] = True
+            if name == "owner":
+                spec["stage_mandatory"] = (
+                    system_fields_enabled and stage in OWNER_MANDATORY_STAGES
+                )
+            elif name == "priority":
+                spec["stage_mandatory"] = (
+                    system_fields_enabled and stage in PRIORITY_MANDATORY_STAGES
+                )
+            else:  # reporter: visible from stage 2, never stage-mandatory
+                spec["stage_mandatory"] = False
         attributes.append(normalize_attribute(spec))
+
+    # Epic #934 WS6 (#939): layer the declarative 3-stage matrix on top of the
+    # introspection result — per-stage visibility/audience for existing
+    # attributes, plus the matrix's new extended attributes.
+    apply_stage_overrides(item_type, preset, attributes)
+    attributes.extend(build_stage_attributes(item_type, preset))
 
     # NOTE: preset `mandatory_fields` are deliberately not applied here — see
     # this function's docstring. They are an approval-transition contract
-    # (workflow.precondition_rules rule 5), not a create-payload contract.
+    # (workflow.precondition_rules rule 5), not a create-payload contract, and
+    # the matrix's own stage-requiredness rides on ``stage_mandatory`` (also
+    # not a create gate, see attribute_definitions.stage_matrix).
 
     attributes.sort(key=lambda a: (a["section"], a["order"], a["name"]))
     return attributes
@@ -764,9 +800,16 @@ class Command(BaseCommand):
                     for item_type in BOOTSTRAP_ITEM_TYPES:
                         for preset in PRESETS:
                             attributes = introspect_core_attributes(item_type, preset)
+                            # Epic #934 WS6 (#939): seed the matrix's ISO sections
+                            # explicitly so discovery and the MCP
+                            # `attribute_definition.update(sections)` contract have
+                            # a non-empty section list from the first read.
+                            sections = materialize_sections(attributes)
                             existing = store.get(tenant_id, item_type, preset)
                             if existing is None:
-                                store.initialize(tenant_id, item_type, preset, attributes)
+                                store.initialize(
+                                    tenant_id, item_type, preset, attributes, sections
+                                )
                                 created += 1
                             elif options["reset"]:
                                 # Ledger item (f): the recovery path out of a bad
@@ -774,7 +817,7 @@ class Command(BaseCommand):
                                 # its core/locked rules (correctly) make a bad seed
                                 # permanent, so the escape hatch has to bypass them.
                                 row, _propagated = store.reinitialize(
-                                    tenant_id, item_type, preset, attributes
+                                    tenant_id, item_type, preset, attributes, sections
                                 )
                                 for workspace_id in store.list_derived_workspace_ids(row):
                                     invalidate_workspace_caches(workspace_id)
@@ -840,7 +883,24 @@ class Command(BaseCommand):
             return False
         stored.extend(additions)
         stored.sort(key=lambda a: (a["section"], a["order"], a["name"]))
-        row.definition_json = {"attributes": stored}
+        # Epic #934 WS6 (#939): keep the seeded ``sections`` list consistent with
+        # the (possibly grown) attribute set. Existing sections keep their
+        # admin-configured order/visibility/layout; a section a newly synced
+        # attribute introduces is appended, never silently dropped.
+        sections = stored_sections(row.definition_json)
+        known_sections = {section["name"] for section in sections}
+        for attribute in stored:
+            if attribute["section"] not in known_sections:
+                sections.append(
+                    {
+                        "name": attribute["section"],
+                        "order": len(sections),
+                        "visible": True,
+                        "layout": "full",
+                    }
+                )
+                known_sections.add(attribute["section"])
+        row.definition_json = {"attributes": stored, "sections": sections}
         # Ledger binding (j), closed at Task 10: F("version") + 1 instead of a
         # read-modify-write, consistent with the other 3 sites in this
         # codebase (global_definition_store.py, workspace_definition_store.py

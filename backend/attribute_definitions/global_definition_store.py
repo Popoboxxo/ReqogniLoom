@@ -119,6 +119,7 @@ class GlobalAttributeDefinitionStore:
         item_type: str,
         preset: str,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> GlobalAttributeDefinition:
         """Create the global definition for ``(item_type, preset)``.
 
@@ -145,7 +146,10 @@ class GlobalAttributeDefinitionStore:
                     f"is already initialized"
                 ]
             )
-        payload = validate_definition_json({"attributes": attributes})
+        raw_payload: dict[str, Any] = {"attributes": attributes}
+        if sections is not None:
+            raw_payload["sections"] = sections
+        payload = validate_definition_json(raw_payload)
         return GlobalAttributeDefinition.unscoped.create(
             tenant_id=tenant_id,
             item_type=item_type,
@@ -159,6 +163,7 @@ class GlobalAttributeDefinitionStore:
         item_type: str,
         preset: str,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> tuple[GlobalAttributeDefinition, int]:
         """Overwrite an existing global definition wholesale, then propagate.
 
@@ -189,7 +194,10 @@ class GlobalAttributeDefinitionStore:
             raise AttributeDefinitionNotFound(
                 f"No global attribute definition for '{item_type}/{preset}'"
             )
-        payload = validate_definition_json({"attributes": attributes})
+        raw_payload: dict[str, Any] = {"attributes": attributes}
+        if sections is not None:
+            raw_payload["sections"] = sections
+        payload = validate_definition_json(raw_payload)
         with transaction.atomic():
             obj.definition_json = payload
             obj.version = F("version") + 1

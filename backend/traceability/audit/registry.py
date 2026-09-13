@@ -97,6 +97,16 @@ _EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
     }
 )
 
+#: The "Full-SE" mandate, coupled to **stage 3 / Extended only** (Epic #934
+#: WS6, #939). These are the rules that demand a complete SE chain —
+#: architecture derivation (TRACE-P3/P5), level progression (TRACE-P7),
+#: architecture decomposition (ARCH-003), leaf-requirement verification
+#: (VERIF-P8) and configurable-preset coverage (CONS-P11). A stage-1 (Minimal)
+#: or stage-2 (Standard) workspace must never fail on them: Minimal maps to the
+#: empty rule set structurally, and Standard's baseline set is disjoint from
+#: this one by construction. ``test_se_auditor_stage_coupling`` pins both.
+FULL_SE_RULE_IDS: FrozenSet[str] = _EXTENDED_ONLY_RULES
+
 #: Tier → set of active rule ids. Minimal is intentionally empty ("Minimal =
 #: no SE-Auditor mandate", §2.2) and this emptiness is enforced structurally
 #: (see _get_rule_preset_map).
@@ -148,6 +158,11 @@ def _get_rule_preset_map() -> Mapping[str, FrozenSet[str]]:
     # Structural enforcement: Minimal is always empty.
     merged["minimal"] = frozenset()
     return merged
+
+
+def full_se_rule_ids() -> FrozenSet[str]:
+    """Return the Full-SE rule ids (stage 3 / Extended only). See the constant."""
+    return FULL_SE_RULE_IDS
 
 
 def active_rule_ids_for_tier(tier: str) -> FrozenSet[str]:
@@ -274,8 +289,10 @@ __all__ = [
     "get_registered_rules",
     "clear_registry",
     "active_rule_ids_for_tier",
+    "full_se_rule_ids",
     "RULE_PRESET_MAP",
     "ALL_RULE_IDS",
+    "FULL_SE_RULE_IDS",
     "TRACE_P1",
     "TRACE_P1B",
     "TRACE_P2",

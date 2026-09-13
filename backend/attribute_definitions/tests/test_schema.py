@@ -56,7 +56,7 @@ def test_normalize_fills_every_documented_default() -> None:
         "default": None, "validation": {}, "ai_elicit": False, "export": False,
         "audience": "basic", "multiple": False, "allow_external": False,
         "copyable": False, "reveal": "always", "mask": "none",
-        "display_format": "text",
+        "display_format": "text", "stage_mandatory": False,
     }
 
 

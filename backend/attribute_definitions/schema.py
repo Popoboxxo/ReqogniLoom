@@ -120,7 +120,7 @@ CORE_EDITABLE_META_PROPERTIES: frozenset[str] = frozenset(
     {
         "required", "visible", "editable", "section", "order", "label",
         "help_text", "default", "options", "ai_elicit", "export", "audience",
-        "copyable", "reveal", "mask", "display_format",
+        "copyable", "reveal", "mask", "display_format", "stage_mandatory",
     }
 )
 
@@ -139,6 +139,12 @@ _DEFAULTS: dict[str, Any] = {
     "visible": True,
     "locked": False,
     "editable": True,
+    #: Stage-requiredness for approval/baseline readiness (Epic #934 WS6, #939).
+    #: Distinct from ``required`` (the create-payload contract, see
+    #: :mod:`attribute_definitions.stage_matrix`): a definition's ``required``
+    #: flag is enforced when the artifact is created, ``stage_mandatory`` is the
+    #: matrix's ``P`` for the preset tier and is not yet consumed by a gate.
+    "stage_mandatory": False,
     "section": "general",
     "order": 0,
     "label": {"de": "", "en": ""},
@@ -407,6 +413,7 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
         "multiple",
         "allow_external",
         "copyable",
+        "stage_mandatory",
     ):
         if key in raw:
             if not isinstance(raw[key], bool):

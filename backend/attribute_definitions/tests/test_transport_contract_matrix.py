@@ -653,8 +653,15 @@ def _reference_probe_value(
     """
     kind = attribute["type"]
     name = attribute["name"]
+    if attribute.get("kind") == "extended" and kind in ("reference", "user"):
+        # An *extended* reference/user value lives in the flat custom_fields map
+        # and is not FK-checked by the transports (that is the ``core``
+        # reference/user path's job), so any well-formed UUID round-trips. The
+        # matrix's staged attributes (e.g. Adr.supersedes, Goal.parent_goal,
+        # ChangeRequest.target_baseline) are exactly this class.
+        return str(uuid.uuid4())
     if kind == "user":
-        # Risk.owner_user_id is the only bootstrapped ``user`` attribute.
+        # Risk.owner_user_id is the only bootstrapped core ``user`` attribute.
         return str(env.admin.id)
     if kind == "reference":
         if item_type == "ArchitectureElement" and name == "parent_id":

@@ -131,11 +131,14 @@ def test_system_field_visibility_follows_the_transport_rollout_gate() -> None:
 
 
 @pytest.mark.django_db
-def test_every_attribute_is_core_and_names_are_unique() -> None:
+def test_every_attribute_is_core_or_extended_and_names_are_unique() -> None:
+    """Epic #934 WS6 (#939): the definition mixes model-backed ``core``
+    attributes with the matrix's ``extended`` ones (``custom_fields`` carrier),
+    but a name is still defined exactly once."""
     for item_type in BOOTSTRAP_ITEM_TYPES:
         attributes = introspect_core_attributes(item_type, "standard")
         assert attributes, f"{item_type} produced no attributes"
-        assert all(a["kind"] == "core" for a in attributes)
+        assert all(a["kind"] in ("core", "extended") for a in attributes)
         names = [a["name"] for a in attributes]
         assert len(names) == len(set(names)), item_type
 
@@ -496,7 +499,12 @@ def test_no_introspected_attribute_is_both_protected_and_editable() -> None:
     for item_type in BOOTSTRAP_ITEM_TYPES:
         for preset in PRESETS:
             for attribute in introspect_core_attributes(item_type, preset):
-                if attribute["name"] in protected:
+                # Scoped to ``core``: the protected set describes *top-level*
+                # PATCH keys, and only core attributes travel top-level. An
+                # extended attribute (e.g. the matrix's Icd ``version``) is
+                # nested under ``custom_fields`` and validated by
+                # ``field_validation`` against the definition instead.
+                if attribute["kind"] == "core" and attribute["name"] in protected:
                     # ``system`` (spec section 6) and ``workflow`` are both
                     # "never a client PATCH field"; plain ``False`` is the
                     # third non-writable value. Only True is a violation.
