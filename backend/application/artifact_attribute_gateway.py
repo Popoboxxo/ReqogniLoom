@@ -135,6 +135,16 @@ def carrier_for(attribute: dict[str, Any]) -> AttributeCarrier:
     return AttributeCarrier.CORE
 
 
+#: Core attributes whose column lives on the backing ``Artifact`` rather than on
+#: the type-specific entity (spec section 3, ADR-004). ``owner``/``reporter`` are
+#: ``Actor`` foreign keys; ``priority`` is a plain enum column. The gateway read/
+#: write adapter resolves them through ``_custom_fields_owner`` (the Artifact) and
+#: converts actor FKs to/from the wire value form of spec section 4.
+_ARTIFACT_LEVEL_CORE_FIELDS: frozenset[str] = frozenset(
+    {"owner", "reporter", "priority"}
+)
+
+
 class AttributeArtifact(Protocol):
     """Minimal artifact surface the gateway operates on (structural typing).
 
@@ -321,6 +331,73 @@ class ArtifactAttributeGateway:
         if callable(save):
             save()
 
+    # ---- Actor value adapter (spec section 4) ------------------------------
+
+    @staticmethod
+    def actor_to_value(actor: Any) -> dict[str, Any] | None:
+        """Convert an ``Actor`` FK into the wire value form of spec section 4.
+
+        ``None`` stays ``None`` (unset). An internal actor reads as
+        ``{"kind": "user", "id": "<actor-uuid>"}``; an external dummy reads as
+        ``{"kind": "external", "name": "<display_name>"}`` — exactly the shapes
+        the write adapter and the DB-free validator accept, which is what makes
+        the round-trip symmetric.
+        """
+        if actor is None:
+            return None
+        if getattr(actor, "kind", None) == "external":
+            return {"kind": "external", "name": actor.display_name}
+        return {"kind": "user", "id": str(actor.id)}
+
+    def resolve_actor_write_value(
+        self, ctx: AuthContext, attribute: dict[str, Any], value: Any
+    ) -> Any:
+        """Resolve a wire actor value to an ``Actor`` row for a single FK field.
+
+        Reuses ``ActorService.validate_actor_value`` (Layer 2) so REST, MCP and
+        the gateway share one existence/policy check. The type-specific entities
+        expose ``owner``/``reporter`` as a single FK, so a ``multiple`` actor
+        definition cannot be stored here — that is a definition error, raised
+        instead of silently dropping all but the first entry.
+
+        Raises:
+            ValidationError: unknown actor/user, external while disallowed, or a
+                ``multiple`` attribute on a single-valued system field.
+        """
+        from persistence.errors import ValidationError
+
+        if value is None:
+            return None
+        if attribute.get("multiple", False):
+            raise ValidationError(
+                f"'{attribute['name']}' is a multiple actor attribute and cannot "
+                "be stored in the single-valued Artifact system field"
+            )
+        from application.actor_service import ActorService
+
+        actors = ActorService().validate_actor_value(
+            ctx,
+            value,
+            multiple=False,
+            allow_external=bool(attribute.get("allow_external", False)),
+        )
+        return actors[0] if actors else None
+
+    def _read_core_value(
+        self, artifact: AttributeArtifact, attribute: dict[str, Any]
+    ) -> Any:
+        """Read one core attribute, resolving Artifact-level fields and actors."""
+        name = attribute["name"]
+        target: Any = (
+            self._custom_fields_owner(artifact)
+            if name in _ARTIFACT_LEVEL_CORE_FIELDS
+            else artifact
+        )
+        raw = getattr(target, name)
+        if attribute["type"] == "actor":
+            return self.actor_to_value(raw)
+        return raw
+
     # ---- Discovery (the ``attribute-schema`` capability) -------------------
 
     def discover(
@@ -410,7 +487,7 @@ class ArtifactAttributeGateway:
             if attribute["type"] == "widget":
                 continue
             try:
-                core[name] = getattr(artifact, name)
+                core[name] = self._read_core_value(artifact, attribute)
             except AttributeError:
                 # Definition names a column this model shape does not expose
                 # (e.g. a synthetic or stale entry); omit rather than 500.
@@ -473,6 +550,16 @@ class ArtifactAttributeGateway:
             if attribute is None or attribute["kind"] != "core":
                 continue
             if attribute["type"] == "widget":
+                continue
+            if name in _ARTIFACT_LEVEL_CORE_FIELDS:
+                # ``owner``/``reporter``/``priority`` live on the backing
+                # Artifact; actors additionally translate the wire value form
+                # into the FK row (spec sections 3/4).
+                target = self._custom_fields_owner(artifact)
+                if attribute["type"] == "actor":
+                    value = self.resolve_actor_write_value(ctx, attribute, value)
+                setattr(target, name, value)
+                _remember(target)
                 continue
             setattr(artifact, name, value)
             _remember(artifact)

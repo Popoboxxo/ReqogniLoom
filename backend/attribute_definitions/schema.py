@@ -38,9 +38,15 @@ PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")
 ATTRIBUTE_TYPES: frozenset[str] = frozenset(
     {
         "text", "textarea", "number", "boolean", "enum", "multi-enum",
-        "date", "reference", "user", "widget",
+        "date", "reference", "user", "actor", "widget",
     }
 )
+
+#: The two actor-specific properties (spec section 4). They are accepted on any
+#: attribute for forward-compatibility but only consumed when ``type == "actor"``
+#: (``field_validation._check_type``). ``user`` is the legacy spelling kept
+#: readable for definitions written before the ``actor`` type existed.
+ACTOR_TYPES: frozenset[str] = frozenset({"actor", "user"})
 
 #: ``"workflow"`` means: changeable only through a workflow transition.
 #: ``"system"`` means: server-owned (the Artifact id/status), never a client
@@ -93,6 +99,10 @@ _DEFAULTS: dict[str, Any] = {
     "ai_elicit": False,
     "export": False,
     "audience": "basic",
+    # Actor-specific (spec section 4): single person vs. team, and whether
+    # external dummies may be picked. Defaults per spec: single, internal-only.
+    "multiple": False,
+    "allow_external": False,
 }
 
 _REQUIRED_KEYS = ("name", "kind", "type")
@@ -278,7 +288,15 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
     if out["type"] not in ATTRIBUTE_TYPES:
         errors.append(f"'type' must be one of {sorted(ATTRIBUTE_TYPES)}")
 
-    for key in ("required", "visible", "locked", "ai_elicit", "export"):
+    for key in (
+        "required",
+        "visible",
+        "locked",
+        "ai_elicit",
+        "export",
+        "multiple",
+        "allow_external",
+    ):
         if key in raw:
             if not isinstance(raw[key], bool):
                 errors.append(f"'{key}' must be a boolean")
@@ -665,6 +683,7 @@ def validate_new_attribute_name(
 
 
 __all__ = [
+    "ACTOR_TYPES",
     "ALLOWED_KEYS",
     "ATTRIBUTE_KINDS",
     "ATTRIBUTE_TYPES",

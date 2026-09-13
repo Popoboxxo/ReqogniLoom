@@ -43,7 +43,7 @@ def test_normalize_fills_every_documented_default() -> None:
         "locked": False, "editable": True, "section": "general", "order": 0,
         "label": {"de": "", "en": ""}, "help_text": {"de": "", "en": ""},
         "default": None, "validation": {}, "ai_elicit": False, "export": False,
-        "audience": "basic",
+        "audience": "basic", "multiple": False, "allow_external": False,
     }
 
 
@@ -433,3 +433,42 @@ def test_stored_sections_returns_empty_for_a_row_with_no_sections_key() -> None:
 def test_stored_sections_normalizes_a_stored_list() -> None:
     out = stored_sections({"attributes": [], "sections": [{"name": "general"}]})
     assert out == [{"name": "general", "order": 0, "visible": True, "layout": "full"}]
+
+
+# ---------------------------------------------------------------------------
+# actor attribute type (Attribut v3 WS2, spec section 4)
+# ---------------------------------------------------------------------------
+
+
+def test_actor_is_a_known_attribute_type() -> None:
+    out = normalize_attribute({"name": "deciders", "kind": "extended", "type": "actor"})
+    assert out["type"] == "actor"
+    assert out["multiple"] is False
+    assert out["allow_external"] is False
+
+
+def test_actor_properties_round_trip_and_require_booleans() -> None:
+    out = normalize_attribute(
+        {
+            "name": "deciders",
+            "kind": "extended",
+            "type": "actor",
+            "multiple": True,
+            "allow_external": True,
+        }
+    )
+    assert out["multiple"] is True
+    assert out["allow_external"] is True
+
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_attribute(
+            {"name": "deciders", "kind": "extended", "type": "actor", "multiple": "yes"}
+        )
+    assert "multiple" in " ".join(exc.value.errors)
+
+
+def test_legacy_user_type_still_normalizes() -> None:
+    """Spec section 4: the previous ``user`` type stays readable."""
+    out = normalize_attribute({"name": "owner_user", "kind": "core", "type": "user"})
+    assert out["type"] == "user"
+

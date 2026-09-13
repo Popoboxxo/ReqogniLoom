@@ -305,3 +305,70 @@ def test_clearing_a_field_in_a_hidden_section_is_not_rejected() -> None:
         {"__exists__": True},
         SECTIONS,
     )
+
+
+# ---------------------------------------------------------------------------
+# actor type (Attribut v3 WS2, spec section 4) — structure only, DB-free
+# ---------------------------------------------------------------------------
+
+ACTOR_DEF = _attrs(
+    {"name": "owner", "kind": "core", "type": "actor", "editable": True},
+    {"name": "deciders", "kind": "extended", "type": "actor",
+     "multiple": True, "allow_external": True},
+    {"name": "internal_only", "kind": "extended", "type": "actor"},
+)
+
+
+def test_actor_accepts_a_user_entry() -> None:
+    validate_values(ACTOR_DEF, {"owner": {"kind": "user", "id": "abc"}}, None)
+
+
+def test_actor_rejects_a_malformed_entry() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(ACTOR_DEF, {"owner": {"kind": "robot", "id": "x"}}, None)
+    assert "kind" in " ".join(exc.value.errors["owner"])
+
+
+def test_actor_user_entry_requires_an_id() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(ACTOR_DEF, {"owner": {"kind": "user"}}, None)
+    assert "id" in " ".join(exc.value.errors["owner"])
+
+
+def test_actor_rejects_external_when_allow_external_is_false() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(
+            ACTOR_DEF, {"internal_only": {"kind": "external", "name": "TUV"}}, None
+        )
+    assert "allow_external" in " ".join(exc.value.errors["internal_only"])
+
+
+def test_actor_external_requires_a_name() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(ACTOR_DEF, {"deciders": {"multiple": True,
+                                                 "items": [{"kind": "external"}]}}, None)
+    assert "name" in " ".join(exc.value.errors["deciders"])
+
+
+def test_actor_multiple_requires_the_list_envelope() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(ACTOR_DEF, {"deciders": {"kind": "user", "id": "x"}}, None)
+    assert "multiple" in " ".join(exc.value.errors["deciders"])
+
+
+def test_actor_multiple_accepts_entries_and_an_empty_selection() -> None:
+    validate_values(
+        ACTOR_DEF,
+        {"deciders": {"multiple": True, "items": [
+            {"kind": "user", "id": "a"},
+            {"kind": "external", "name": "Frau Mueller (TUEV)"},
+        ]}},
+        None,
+    )
+    validate_values(ACTOR_DEF, {"deciders": {"multiple": True, "items": []}}, None)
+
+
+def test_actor_single_form_rejected_for_a_multiple_attribute() -> None:
+    with pytest.raises(FieldValidationError) as exc:
+        validate_values(ACTOR_DEF, {"deciders": [{"kind": "user", "id": "a"}]}, None)
+    assert "multiple" in " ".join(exc.value.errors["deciders"])

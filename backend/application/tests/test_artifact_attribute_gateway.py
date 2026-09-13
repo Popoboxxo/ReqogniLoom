@@ -38,6 +38,8 @@ def _attribute(
     validation: dict[str, Any] | None = None,
     widget_key: str | None = None,
     fields: list[str] | None = None,
+    multiple: bool = False,
+    allow_external: bool = False,
 ) -> dict[str, Any]:
     """One normalized definition entry (shape of ``stored_attributes``)."""
     return {
@@ -54,6 +56,8 @@ def _attribute(
         "validation": validation or {},
         "widget_key": widget_key,
         "fields": fields or [],
+        "multiple": multiple,
+        "allow_external": allow_external,
     }
 
 
@@ -467,3 +471,97 @@ def test_write_validates_first_and_does_not_persist_on_violation() -> None:
     assert backing.custom_fields == {"rationale": "untouched"}
     assert artifact.saves == 0
     assert backing.saves == 0
+
+
+# ---------------------------------------------------------------------------
+# Artifact-level system fields + actor adapter (WS2 #936, spec sections 3/4)
+# ---------------------------------------------------------------------------
+
+
+class _FakeActor:
+    """Structural ``Actor`` double (kind + identity + display label)."""
+
+    def __init__(self, kind: str = "user", **values: Any) -> None:
+        self.id = uuid4()
+        self.kind = kind
+        self.display_name = values.get("display_name", "Someone")
+        self.user_id = values.get("user_id")
+
+
+def test_actor_to_value_shapes_the_wire_form() -> None:
+    assert ArtifactAttributeGateway.actor_to_value(None) is None
+    internal_actor = _FakeActor("user")
+    assert ArtifactAttributeGateway.actor_to_value(internal_actor) == {
+        "kind": "user",
+        "id": str(internal_actor.id),
+    }
+    external = _FakeActor("external", display_name="Frau Mueller (TUEV)")
+    assert ArtifactAttributeGateway.actor_to_value(external) == {
+        "kind": "external",
+        "name": "Frau Mueller (TUEV)",
+    }
+
+
+def test_read_routes_artifact_level_fields_through_the_backing_artifact() -> None:
+    """``owner``/``reporter``/``priority`` live on Artifact, not the entity."""
+    actor = _FakeActor("user")
+    definitions = _FakeDefinitions(
+        attributes=[
+            _attribute("title"),
+            _attribute("owner", type_="actor"),
+            _attribute("priority", type_="enum",
+                       options=[{"value": "high", "label_de": "H", "label_en": "H"}]),
+        ],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+    backing = _FakeBacking()
+    backing.owner = actor
+    backing.priority = "high"
+    artifact = _FakeArtifact(title="t", backing=backing)
+
+    values = gateway.read(_ctx(), "Requirement", artifact)
+
+    assert values.core["owner"] == {"kind": "user", "id": str(actor.id)}
+    assert values.core["priority"] == "high"
+
+
+def test_write_sets_priority_on_the_backing_artifact() -> None:
+    """A plain Artifact-level core field is written to the Artifact, not the entity."""
+    definitions = _FakeDefinitions(
+        attributes=[
+            _attribute("priority", type_="enum",
+                       options=[{"value": "high", "label_de": "H", "label_en": "H"}]),
+        ],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+    backing = _FakeBacking()
+    artifact = _FakeArtifact(backing=backing)
+
+    result = gateway.write(
+        _ctx(), "Requirement", artifact, AttributeValues(core={"priority": "high"})
+    )
+
+    assert backing.priority == "high"
+    assert getattr(artifact, "priority", None) is None
+    assert result.core == {"priority": "high"}
+
+
+def test_write_rejects_a_multiple_actor_on_a_single_fk_system_field() -> None:
+    definitions = _FakeDefinitions(
+        attributes=[_attribute("owner", type_="actor", multiple=True)],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+    artifact = _FakeArtifact(backing=_FakeBacking())
+
+    from persistence.errors import ValidationError
+
+    with pytest.raises(ValidationError):
+        gateway.write(
+            _ctx(),
+            "Requirement",
+            artifact,
+            AttributeValues(core={"owner": {"multiple": True, "items": []}}),
+        )
