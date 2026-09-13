@@ -12,7 +12,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 describe("AttributeCreateDialog", () => {
-  it("renders all 10 attribute types in the type dropdown", () => {
+  it("renders all 11 attribute types in the type dropdown", () => {
     render(
       <AttributeCreateDialog
         scope="global"
@@ -28,7 +28,7 @@ describe("AttributeCreateDialog", () => {
     );
     expect(options).toEqual([
       "text", "textarea", "number", "boolean", "enum", "multi-enum",
-      "date", "reference", "user", "widget",
+      "date", "reference", "user", "actor", "widget",
     ]);
   });
 

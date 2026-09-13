@@ -1,0 +1,119 @@
+/* ActorPicker (Attribut v3 WS2, #936, spec section 4). All values come from
+   styles/tokens.css — no hardcoded colours or sizes (design-tokens ratchet).
+   The control chrome intentionally reuses the shared ArtifactForm `.control`
+   look; only the combobox-specific pieces (popup, chips, rows) live here. */
+
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Selected single actor: a removable chip next to the search control. */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.chipLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.chipRemove:disabled {
+  cursor: not-allowed;
+}
+
+/* The listbox popup: absolutely positioned so it does not push the form's
+   grid around while typing. */
+.listbox {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  list-style: none;
+  max-height: 16rem;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-md);
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  padding: var(--space-2);
+  text-align: left;
+  font: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.optionActive {
+  background: var(--color-surface-muted);
+}
+
+.optionMeta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.optionCreate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-primary);
+}
+
+.status {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.error {
+  font-size: var(--font-size-xs);
+  color: var(--color-danger);
+}
+
+.readOnly {
+  display: block;
+  width: 100%;
+  resize: none;
+  font: inherit;
+}

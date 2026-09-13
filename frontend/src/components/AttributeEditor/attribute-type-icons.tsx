@@ -16,6 +16,7 @@ import {
   ToggleLeft,
   Type as TypeIcon,
   User,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 
@@ -31,5 +32,9 @@ export const ATTRIBUTE_TYPE_ICONS: Record<AttributeType, LucideIcon> = {
   date: Calendar,
   reference: LinkIcon,
   user: User,
+  // The `actor` type is the people/team field (single or `multiple`); `Users`
+  // reads as "one or more people" and keeps it distinct from the legacy `user`
+  // glyph at a glance.
+  actor: Users,
   widget: Puzzle,
 };

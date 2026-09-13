@@ -9,3 +9,7 @@ export { ReferencePicker } from "./ReferencePicker";
 export { TextArea } from "./TextArea";
 export { TextField } from "./TextField";
 export { UserPicker } from "./UserPicker";
+export { ActorPicker } from "./ActorPicker";
+export type { ActorFieldValue } from "./ActorPicker";
+export { ActorDisplay, actorDisplayText } from "./ActorDisplay";
+export type { ActorDisplayProps } from "./ActorDisplay";

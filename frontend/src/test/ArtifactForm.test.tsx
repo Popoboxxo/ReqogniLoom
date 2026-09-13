@@ -40,12 +40,19 @@ vi.mock("../api/users", () => ({
   usersApi: { list: vi.fn() },
 }));
 
+// Attribut v3 WS2 (#936): the `actor` field renderer reads the workspace-member
+// directory through `api/actors`.
+vi.mock("../api/actors", () => ({
+  actorsApi: { list: vi.fn() },
+}));
+
 vi.mock("../components/WorkflowStatusEditor", () => ({
   WorkflowStatusEditor: () => <div data-testid="workflow-status-editor" />,
 }));
 
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { usersApi } from "../api/users";
+import { actorsApi } from "../api/actors";
 import {
   ArtifactForm,
   fieldErrorsFromException,
@@ -818,5 +825,107 @@ describe("ArtifactForm user directory", () => {
         screen.queryByTestId("artifact-field-owner_user-directory-unavailable")
       ).not.toBeInTheDocument()
     );
+  });
+});
+
+// Attribut v3 WS2 (#936): the definition-driven renderer maps the new `actor`
+// type onto `ActorPicker` (single/multiple by the attribute's `multiple`), the
+// `priority` enum onto `EnumSelect`, and keeps a locked `editable="system"`
+// field non-editable.
+describe("ArtifactForm field mapping (WS2 #936)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+    vi.mocked(actorsApi.list).mockReset();
+    vi.mocked(actorsApi.list).mockResolvedValue([
+      { id: "u-1", name: "Alice Admin", email: "alice@example.com" },
+    ]);
+  });
+
+  it("maps an actor attribute onto the ActorPicker combobox instead of a text input", async () => {
+    mockDefinition([spec({ name: "owner", type: "actor" })]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ owner: { kind: "user", id: "u-1" } }}
+        onSave={vi.fn()}
+      />
+    );
+    expect(await screen.findByRole("combobox")).toBeInTheDocument();
+    // The generic TextField must NOT have rendered the value.
+    expect(screen.queryByDisplayValue("u-1")).not.toBeInTheDocument();
+  });
+
+  it("renders a multiple actor attribute as a chip list", async () => {
+    mockDefinition([spec({ name: "deciders", type: "actor", multiple: true })]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{
+          deciders: { multiple: true, items: [{ kind: "user", id: "u-1" }] },
+        }}
+        onSave={vi.fn()}
+      />
+    );
+    const chip = await screen.findByTestId("artifact-field-deciders-chip");
+    expect(chip).toHaveTextContent("Alice Admin");
+  });
+
+  it("maps the priority enum onto a select with the low|medium|high|critical scale", async () => {
+    mockDefinition([
+      spec({
+        name: "priority",
+        type: "enum",
+        options: [
+          { value: "low", label_de: "Niedrig", label_en: "Low" },
+          { value: "medium", label_de: "Mittel", label_en: "Medium" },
+          { value: "high", label_de: "Hoch", label_en: "High" },
+          { value: "critical", label_de: "Kritisch", label_en: "Critical" },
+        ],
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ priority: "high" }}
+        onSave={vi.fn()}
+      />
+    );
+    const control = await screen.findByTestId("artifact-field-priority");
+    expect(control.tagName).toBe("SELECT");
+    expect(control).toHaveValue("high");
+    expect(
+      Array.from(control.querySelectorAll("option")).map((o) => o.value)
+    ).toEqual(["", "low", "medium", "high", "critical"]);
+  });
+
+  it("renders the locked system id field as static text, never an editable input", async () => {
+    mockDefinition([
+      spec({
+        name: "id",
+        type: "text",
+        editable: "system",
+        locked: true,
+        visible: true,
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ id: "00000000-0000-0000-0000-000000000123" }}
+        onSave={vi.fn()}
+      />
+    );
+    const field = await screen.findByTestId("artifact-field-id");
+    // A locked `editable: "system"` attribute is the Artifact's own identity:
+    // shown as text, never typed over (reveal/copy/mask: WS3 #937).
+    expect(field.tagName).toBe("SPAN");
+    expect(field).toHaveTextContent("00000000-0000-0000-0000-000000000123");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 });

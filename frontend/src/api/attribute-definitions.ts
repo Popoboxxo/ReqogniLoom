@@ -46,10 +46,21 @@ export type AttributeType =
   | "date"
   | "reference"
   | "user"
+  | "actor"
   | "widget";
 
-/** `"workflow"` = changeable only through a workflow transition. */
-export type AttributeEditable = boolean | "workflow";
+/**
+ * How an attribute may be changed.
+ *
+ * `true`/`false` are the ordinary editable/read-only pair; `"workflow"` means
+ * "changeable only through a workflow transition"; `"system"` means
+ * server-owned (the Artifact's own `id`) and `"automation"` is reserved for
+ * AWMS-derived values (spec section 6). Mirrors the backend's
+ * `attribute_definitions.schema.EDITABLE_VALUES`; `"system"`/`"automation"`
+ * were missing here, so a definition carrying them narrowed to `never` in a
+ * comparison and could fall through to an editable control (WS2 #936).
+ */
+export type AttributeEditable = boolean | "workflow" | "system" | "automation";
 
 /** Display density only — never a visibility or security boundary. */
 export type AttributeAudience = "basic" | "expert";
@@ -99,6 +110,19 @@ export interface AttributeSpec {
   ai_elicit: boolean;
   export: boolean;
   audience: AttributeAudience;
+  /**
+   * Actor-specific properties (Attribut v3 WS2, #936, spec section 4). The
+   * backend normalizes them onto every attribute (`schema.py::_DEFAULTS`) but
+   * only consumes them when `type == "actor"`; the field renderer therefore
+   * reads them only for that type. Optional here so every pre-existing
+   * `AttributeSpec` literal (tests, fixtures) stays valid.
+   *
+   * `multiple` selects the wire value shape (`{"multiple": true, "items":
+   * [...]}` vs. a single entry) and `allow_external` gates the "create as
+   * external person" affordance.
+   */
+  multiple?: boolean;
+  allow_external?: boolean;
 }
 
 /** Where an attribute in a resolved (workspace-scoped) definition comes from

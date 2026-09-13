@@ -2097,6 +2097,14 @@
     "deleteTitle": "Artefakt löschen",
     "unsupportedWidget": "Dieses Feld verwendet ein nicht unterstütztes Widget ({{widget}}). Die einzelnen Felder werden stattdessen direkt angezeigt.",
     "userDirectoryUnavailable": "Benutzerliste nicht verfügbar — nur Tenant-Administratoren dürfen sie lesen.",
+    "actorSearchPlaceholder": "Personen suchen…",
+    "actorLoading": "Personen werden geladen…",
+    "actorDirectoryUnavailable": "Mitgliederliste nicht verfügbar — derzeit können keine neuen Personen ausgewählt werden.",
+    "actorEmpty": "Keine Personen verfügbar.",
+    "actorNoMatches": "Kein Treffer für „{{query}}“.",
+    "actorCreateExternal": "„{{name}}“ als externe Person anlegen",
+    "actorRemove": "{{name}} entfernen",
+    "systemValueUnavailable": "Kein Wert",
     "changeReason": "Änderungsgrund",
     "changeReasonRequired": "Bitte einen Änderungsgrund angeben."
   },
@@ -2131,6 +2139,7 @@
       "date": "Datum",
       "reference": "Referenz",
       "user": "Nutzer",
+      "actor": "Person / Team",
       "widget": "Widget"
     },
     "addAttribute": "+ Attribut hinzufügen",

@@ -58,6 +58,7 @@ export function FieldShell({
       <label
         className={`${styles.label} ${attribute.required ? styles.required : ""}`}
         htmlFor={testId}
+        id={`${testId}-label`}
       >
         {attributeLabel(attribute, language)}
       </label>

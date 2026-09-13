@@ -40,6 +40,9 @@ import {
   TextArea,
   TextField,
   UserPicker,
+  ActorPicker,
+  attributeLabel,
+  type ActorFieldValue,
 } from "./fields";
 import { useArtifactDefinition } from "./useArtifactDefinition";
 import { resolveWidget } from "./widget-registry";
@@ -150,7 +153,7 @@ export function ArtifactForm({
   workflowArtifactType,
   requiresChangeReason = false,
 }: ArtifactFormProps): JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { definition, loading, error: loadError } = useArtifactDefinition(itemType);
   const [values, setValues] = useState<ArtifactFormValues>(initialValues);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
@@ -417,7 +420,12 @@ export function ArtifactForm({
                     values,
                     fieldErrors,
                     specByName,
-                    disabled: isReadOnly || attribute.editable === false || saving,
+                    disabled:
+                      isReadOnly ||
+                      attribute.editable !== true ||
+                      saving,
+                    language: i18n.language,
+                    systemUnsetLabel: t("artifactForm.systemValueUnavailable"),
                     artifactId,
                     workflowArtifactType,
                     unsupportedLabel: t("artifactForm.unsupportedWidget", {
@@ -490,6 +498,10 @@ interface RenderArgs {
   fieldErrors: Record<string, string[]>;
   specByName: Map<string, AttributeSpec>;
   disabled: boolean;
+  /** Active UI language — needed by the `system` static-text branch. */
+  language: string;
+  /** Rendered for an empty `system` attribute value. */
+  systemUnsetLabel: string;
   artifactId: string | null;
   workflowArtifactType?: WorkflowArtifactType;
   unsupportedLabel: string;
@@ -502,6 +514,8 @@ function renderAttribute({
   fieldErrors,
   specByName,
   disabled,
+  language,
+  systemUnsetLabel,
   artifactId,
   workflowArtifactType,
   unsupportedLabel,
@@ -509,6 +523,36 @@ function renderAttribute({
 }: RenderArgs): JSX.Element | null {
   const testId = `artifact-field-${attribute.name}`;
   const errors = fieldErrors[attribute.name];
+
+  // Rule 3b (Attribut v3 WS2, #936): a `system` attribute is server-owned —
+  // the Artifact's own `id` is the carrier. It is NEVER an editable control:
+  // it renders as static text. Reveal/copy/mask arrive in WS3 (#937); until
+  // then this at minimum guarantees an id can never be typed over.
+  //
+  // Checked BEFORE the `workflow` comparison on purpose: comparing against the
+  // first string literal narrows `editable` to its remaining string member, so
+  // a `=== "system"` test placed after it would (correctly, but unhelpfully)
+  // be reported as having no overlap with the narrowed `boolean | "system"`.
+  if (attribute.editable === "system") {
+    const current = readValue(values, attribute);
+    return (
+      <div key={attribute.name} className={styles.field}>
+        <span className={styles.label} id={`${testId}-label`}>
+          {attributeLabel(attribute, language)}
+        </span>
+        <span
+          className={styles.help}
+          id={testId}
+          data-testid={testId}
+          role="text"
+        >
+          {current == null || current === ""
+            ? systemUnsetLabel
+            : String(current)}
+        </span>
+      </div>
+    );
+  }
 
   // Rule 3: a workflow-owned attribute is never an editable control. In create
   // mode there is no artifact to transition yet, so it is not rendered at all —
@@ -598,6 +642,18 @@ function renderAttribute({
       return <ReferencePicker {...shared} value={value as string | null} onChange={onChange} />;
     case "user":
       return <UserPicker {...shared} value={value as string | null} onChange={onChange} />;
+    case "actor":
+      // Attribut v3 WS2 (#936): `multiple` selects between the single entry
+      // form (`{kind, id|name}`) and the `{multiple: true, items: [...]}`
+      // form; `allow_external` gates the "create as external person"
+      // affordance. Both are read from the attribute, never guessed here.
+      return (
+        <ActorPicker
+          {...shared}
+          value={value as ActorFieldValue}
+          onChange={onChange}
+        />
+      );
     default:
       return <TextField {...shared} value={value as string | null} onChange={onChange} />;
   }

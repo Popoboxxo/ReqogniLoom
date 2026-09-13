@@ -82,6 +82,35 @@ export type CustomFieldValue = string | number | boolean | null;
 
 export type CustomFields = Record<string, CustomFieldValue>;
 
+// ---------------------------------------------------------------------------
+// Actor wire values (Attribut v3 WS2, #936, spec section 4)
+//
+// `owner`/`reporter` are artifact-level system fields of the `actor` attribute
+// type; `priority` is the artifact-level `enum`. The wire form below is exactly
+// what `ActorService.validate_actor_value` accepts (and what
+// `ArtifactAttributeGateway.actor_to_value` emits):
+//
+//   single    {"kind": "user", "id": "<user-or-actor-uuid>"} | {"kind": "external", "name": "..."}
+//   multiple  {"multiple": true, "items": [<single>, ...]}
+// ---------------------------------------------------------------------------
+
+/** One actor entry in the wire form the backend's `actor` validator accepts. */
+export type ActorValue =
+  | { kind: "user"; id: string; name?: string }
+  | { kind: "external"; name: string };
+
+/**
+ * Artifact-level system fields every artifact type carries since WS2 (#936).
+ * Optional on the entity interfaces because a type only exposes them once its
+ * transport has been wired in (`SYSTEM_FIELDS_ENABLED_ITEM_TYPES`); the
+ * resolved attribute definition decides whether the field is visible.
+ */
+export interface SystemFieldValues {
+  owner?: ActorValue | null;
+  reporter?: ActorValue | null;
+  priority?: string | null;
+}
+
 /**
  * #344: mirrors the backend `RequirementType` choices
  * (`backend/persistence/models.py`), which are additionally pinned by the DB
@@ -109,7 +138,7 @@ export type RequirementLevel = 1 | 2 | 3 | 4;
 /** Ordered L1-L4 levels for select inputs; mirrors the backend enum order. */
 export const REQUIREMENT_LEVELS: RequirementLevel[] = [1, 2, 3, 4];
 
-export interface StakeholderNeed {
+export interface StakeholderNeed extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   parent_id?: string;
@@ -128,7 +157,7 @@ export interface StakeholderNeed {
   updated_at: ISODateTime;
 }
 
-export interface Requirement {
+export interface Requirement extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   artifact_id?: UUID;
@@ -198,7 +227,7 @@ export interface SimilarTraceLink {
 // TestCase (mirrors TestCaseSerializer)
 // ---------------------------------------------------------------------------
 
-export interface TestCase {
+export interface TestCase extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   title: string;
@@ -234,7 +263,7 @@ export type ASILLevel = "QM" | "A" | "B" | "C" | "D" | null;
 
 export type MakeOrBuyDecision = "Make" | "Buy" | "Reuse" | null;
 
-export interface ArchitectureElement {
+export interface ArchitectureElement extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   /** Owning Artifact — the key for workspace custom fields (REQ-016). */
@@ -335,7 +364,7 @@ export type AdrStatus =
   | "Superseded"
   | "Deleted"; // REQ-006: soft-delete marker; set by backend delete endpoint
 
-export interface Adr {
+export interface Adr extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   // Task 2.1: the backing Artifact id (Adr.artifact, backend/application/models.py)
@@ -366,7 +395,7 @@ export interface Adr {
  * Goal — lineage-versioned workspace artifact (Variante A: every edit creates
  * a new row sharing the same `lineage_id`).
  */
-export interface Goal {
+export interface Goal extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   /** Owning Artifact — the key for workspace custom fields (REQ-016). */
@@ -467,7 +496,7 @@ export type IssueSeverity = "critical" | "high" | "medium" | "low";
 export type IssueCategory = "defect" | "improvement" | "documentation" | "question";
 export type IssueStatus = "Open" | "In Progress" | "Resolved" | "Closed" | "Wontfix";
 
-export interface Issue {
+export interface Issue extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   // Task 2.3: same as Adr.artifact_id / Risk.artifact_id above — the backing
@@ -996,7 +1025,7 @@ export interface MermaidPreviewResponse {
 // Glossary
 // ---------------------------------------------------------------------------
 
-export interface GlossaryTerm {
+export interface GlossaryTerm extends SystemFieldValues {
   id: string;
   workspace_id: string;
   term: string;

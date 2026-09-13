@@ -2097,6 +2097,14 @@
     "deleteTitle": "Delete artifact",
     "unsupportedWidget": "This field uses an unsupported widget ({{widget}}). Its individual fields are shown directly instead.",
     "userDirectoryUnavailable": "User directory unavailable — only tenant administrators may read it.",
+    "actorSearchPlaceholder": "Search people…",
+    "actorLoading": "Loading people…",
+    "actorDirectoryUnavailable": "Member directory unavailable — new people cannot be picked right now.",
+    "actorEmpty": "No people available.",
+    "actorNoMatches": "No match for \"{{query}}\".",
+    "actorCreateExternal": "Create \"{{name}}\" as an external person",
+    "actorRemove": "Remove {{name}}",
+    "systemValueUnavailable": "No value",
     "changeReason": "Change reason",
     "changeReasonRequired": "Please provide a change reason."
   },
@@ -2131,6 +2139,7 @@
       "date": "Date",
       "reference": "Reference",
       "user": "User",
+      "actor": "Person / Team",
       "widget": "Widget"
     },
     "addAttribute": "+ Add attribute",
