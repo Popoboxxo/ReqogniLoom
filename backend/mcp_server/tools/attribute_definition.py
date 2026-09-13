@@ -65,6 +65,12 @@ def _definition_payload(definition: Dict[str, Any]) -> Dict[str, Any]:
         "initialized": bool(definition.get("initialized", True)),
         "version": int(definition.get("version", 0)),
         "attributes": list(definition.get("attributes", [])),
+        # Epic #934 WS1: the resolved ``sections`` list must travel with the
+        # attributes so ``attribute_definition.update(sections)`` has a
+        # round-trip (write -> read-back) and the MCP twin of the REST
+        # ``attribute-defaults`` payload is complete. The global ``list``
+        # payload may have no materialized sections yet — fall back to ``[]``.
+        "sections": list(definition.get("sections", [])),
         **(
             {"propagated_workspace_count": int(definition["propagated_workspace_count"])}
             if "propagated_workspace_count" in definition

@@ -861,6 +861,7 @@ class StakeholderNeedSerializer(
 
 
 class ArchitectureElementSerializer(
+    WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
@@ -878,7 +879,15 @@ class ArchitectureElementSerializer(
 
     REQ-L3-RF004-004: Includes ASIL level and Make-or-Buy decision fields.
     REQ-L2-RF-025 AC3: Includes uid for stable identification.
+
+    Epic #934 WS1: ``WorkflowStateSerializerMixin`` adds the read-only
+    ``status`` system attribute (``editable="workflow"`` on every bootstrapped
+    definition) that the read projection previously omitted, so the Attribute
+    Usability Contract's R check holds on REST as well.
     """
+
+    #: ``WorkflowItemState.item_type`` value for this serializer (the mixin).
+    workflow_item_type = "ArchitectureElement"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)

@@ -638,11 +638,17 @@ class TestArchitectureToolGroup:
             custom_fields=None,
         )
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.architecture.write_mcp_audit")
     def test_architecture_update_forwards_parent_id_to_service(self, mock_audit):
         """architecture.update must forward an explicit 'parent_id' (including
         null, to detach to root) for re-parenting via MCP, matching REST's
-        partial_update contract."""
+        partial_update contract.
+
+        Epic #934 WS1: the update response now resolves the read-only ``status``
+        system attribute from the workflow engine, so this path needs DB access
+        like its create siblings above.
+        """
         group, svc, _ = self._group()
         el = _mock_arch_element()
         svc.update_architecture_element.return_value = el

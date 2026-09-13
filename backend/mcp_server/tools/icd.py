@@ -50,6 +50,7 @@ from mcp_server.tools.base import (
     artifact_custom_fields,
     require_param,
     require_uuid,
+    resolve_engine_status,
     validate_artifact_write,
 )
 
@@ -89,6 +90,10 @@ def _icd_to_dict(icd: Icd) -> Dict[str, Any]:
         "postconditions": list(icd.postconditions or []),
         "invariants": list(icd.invariants or []),
         "current_revision": icd.current_revision,
+        # Epic #934 WS1: ``status`` is a visible system attribute on every
+        # bootstrapped definition (``editable="workflow"``) and is resolved
+        # from the workflow engine, mirroring IcdViewSet.retrieve.
+        "status": resolve_engine_status("Icd", icd.id),
         # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
         # backing Artifact; without this the MCP write is invisible on read.
         "custom_fields": artifact_custom_fields(icd),

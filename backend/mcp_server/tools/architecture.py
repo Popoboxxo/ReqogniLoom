@@ -52,6 +52,7 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    resolve_engine_status,
     validate_artifact_write,
     write_mcp_audit,
 )
@@ -78,6 +79,12 @@ def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
     # readable — the create used to accept/drop them and the read omitted them.
     result["asil_level"] = getattr(el, "asil_level", None)
     result["make_or_buy"] = getattr(el, "make_or_buy", None)
+    # Epic #934 WS1: ``status`` is a visible system attribute on every
+    # bootstrapped definition (``editable="workflow"``). The REST
+    # ``ArchitectureElementSerializer`` already resolves it from the workflow
+    # engine; the MCP projection omitted it, so the read-back could not satisfy
+    # the Attribute Usability Contract's R check (class ``SYSTEM``).
+    result["status"] = resolve_engine_status("ArchitectureElement", el.id)
     result["custom_fields"] = artifact_custom_fields(el)
     if hasattr(el, "artifact") and el.artifact:
         result["workspace_id"] = str(el.artifact.workspace_id)
