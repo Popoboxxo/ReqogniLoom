@@ -565,3 +565,46 @@ def test_write_rejects_a_multiple_actor_on_a_single_fk_system_field() -> None:
             artifact,
             AttributeValues(core={"owner": {"multiple": True, "items": []}}),
         )
+
+
+def test_write_ignores_system_and_workflow_owned_core_fields() -> None:
+    """Major 3 (#936 review): ``write`` must not set ``id``/``status``.
+
+    ``validate`` already excludes ``editable="workflow"``/``"system"`` from the
+    payload; the write loop used to ignore that and ``setattr`` every core name,
+    so the W seam (and anything built on it) could overwrite a server-owned
+    column. The documented behaviour is "ignore silently": no exception, no
+    ``save`` for the skipped fields.
+    """
+    definitions = _FakeDefinitions(
+        attributes=[
+            _attribute("title"),
+            _attribute("id", editable="system", visible=False),
+            _attribute("status", editable="workflow"),
+            _attribute("frozen", editable=False),
+        ],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+    artifact = _FakeArtifact(title="original", backing=_FakeBacking())
+    original_id = artifact.id
+
+    result = gateway.write(
+        _ctx(),
+        "Requirement",
+        artifact,
+        AttributeValues(
+            core={
+                "id": "hacked-id",
+                "status": "closed",
+                "frozen": "hacked",
+                "title": "changed",
+            }
+        ),
+    )
+
+    assert artifact.id == original_id
+    assert getattr(artifact, "status", None) is None
+    assert getattr(artifact, "frozen", None) is None
+    assert artifact.title == "changed"
+    assert result.core == {"title": "changed"}

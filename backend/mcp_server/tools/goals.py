@@ -545,6 +545,11 @@ class GoalToolGroup(BaseToolGroup):
             }
             if custom_fields_provided:
                 merged_fields["custom_fields"] = params.get("custom_fields")
+            # Attribut v3 WS2 (#936): owner/reporter/priority are applied to the
+            # newly appended version's Artifact below; the gate must see them so
+            # an unresolvable actor is rejected before the version is created.
+            system_values = system_field_values(params)
+            merged_fields.update(system_values)
             definition_error = validate_artifact_write(
                 auth_context,
                 "Goal",
@@ -566,7 +571,7 @@ class GoalToolGroup(BaseToolGroup):
             # newly appended version's Artifact.
             goal = GoalService().get(UUID(result["id"]), auth_context)
             apply_system_fields(
-                "Goal", goal, system_field_values(params), auth_context
+                "Goal", goal, system_values, auth_context
             )
             add_system_fields(result, goal)
         except NotFoundError as exc:

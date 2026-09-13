@@ -335,9 +335,6 @@ class ArtifactAttributeGateway:
         backing = getattr(artifact, "artifact", None)
         if backing is not None:
             return backing
-        direct = getattr(artifact, "custom_fields", None)
-        if isinstance(direct, (dict, str)):
-            return artifact
         return artifact
 
     @classmethod
@@ -417,6 +414,71 @@ class ArtifactAttributeGateway:
             allow_external=bool(attribute.get("allow_external", False)),
         )
         return actors[0] if actors else None
+
+    def validate_actor_system_fields(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        workspace_id: UUID,
+        changed_fields: dict[str, Any],
+    ) -> None:
+        """Resolve DB-backed actor references for the system fields *before* a write.
+
+        WS2 review #936 (Major 2): ``validate`` is deliberately DB-free
+        (spec section 5), so a well-formed but unknown/foreign-tenant actor UUID
+        passed it, the wrapped service created the artifact, and only the
+        subsequent system-field write failed — leaving a duplicate on retry.
+        This companion performs the Layer-2 half (``validate_actor_value`` /
+        ``resolve_reference``) for ``owner``/``reporter`` while the payload is
+        still only a payload, so an unresolvable actor is rejected *before* the
+        service call. Both transports call it from their existing validation
+        seam, which is what keeps REST and MCP identical (ADR-004).
+
+        Only ``visible`` + ``editable`` actor attributes are checked — exactly
+        the ones :meth:`write` would apply (Major 3) — so a hidden legacy field
+        (e.g. ``Risk.owner``) is neither resolved nor created here.
+
+        Args:
+            ctx: Request identity.
+            item_type: One of ``ITEM_TYPES``.
+            workspace_id: Workspace whose tier selects the definition.
+            changed_fields: The payload about to be written.
+
+        Raises:
+            FieldValidationError: an actor value could not be resolved (unknown
+                actor/user, external while disallowed, or a ``multiple``
+                definition on the single-valued system field). The per-field
+                messages mirror the ones :meth:`write` would raise, so both
+                transports map them to VALIDATION_ERROR identically.
+            AttributeDefinitionNotFound: propagated from
+                :meth:`resolve_definition` (callers degrade to a no-op).
+        """
+        names = [
+            name for name in _ARTIFACT_LEVEL_CORE_FIELDS if name in changed_fields
+        ]
+        if not names:
+            return
+        from attribute_definitions.field_validation import FieldValidationError
+        from persistence.errors import NotFoundError, ValidationError
+
+        definition = self.resolve_definition(ctx, item_type, workspace_id)
+        by_name = {attribute["name"]: attribute for attribute in definition["attributes"]}
+        errors: dict[str, list[str]] = {}
+        for name in names:
+            attribute = by_name.get(name)
+            if (
+                attribute is None
+                or attribute["type"] != "actor"
+                or not attribute["visible"]
+                or attribute["editable"] is not True
+            ):
+                continue
+            try:
+                self.resolve_actor_write_value(ctx, attribute, changed_fields[name])
+            except (ValidationError, NotFoundError) as exc:
+                errors[name] = [str(exc)]
+        if errors:
+            raise FieldValidationError(errors)
 
     def _read_core_value(
         self, artifact: AttributeArtifact, attribute: dict[str, Any]
@@ -585,6 +647,16 @@ class ArtifactAttributeGateway:
             if attribute is None or attribute["kind"] != "core":
                 continue
             if attribute["type"] == "widget":
+                continue
+            # WS2 review #936 (Major 3): only a visible *and* editable core
+            # attribute is writeable through this seam. ``validate()`` already
+            # excludes ``editable in ("workflow", "system")`` from the payload
+            # entirely, and ``editable is False`` is rejected on update; this
+            # loop used to ignore both and wrote every core name by
+            # ``setattr``, so ``core={"id": ...}`` / ``{"status": ...}`` could
+            # overwrite a server-owned column. Ignoring them here keeps W
+            # symmetric with V (spec section 6: "ID, Status; nie schreibbar").
+            if not attribute["visible"] or attribute["editable"] is not True:
                 continue
             if name in _ARTIFACT_LEVEL_CORE_FIELDS:
                 # ``owner``/``reporter``/``priority`` live on the backing

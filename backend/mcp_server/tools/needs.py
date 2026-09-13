@@ -320,6 +320,11 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         for f in ["title", "description", "category", "moscow_priority", "custom_fields"]:
             if f in params:
                 kwargs[f] = params[f]
+        # Attribut v3 WS2 (#936): owner/reporter/priority are Artifact-level and
+        # never reach StakeholderNeedService.update(); they still have to be
+        # part of the definition gate so an unresolvable actor is rejected
+        # before the service call.
+        system_values = system_field_values(params)
 
         try:
             # Ledger gap #1 / issue #881: same central gate as
@@ -330,7 +335,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 auth_context,
                 "StakeholderNeed",
                 existing_need.workspace_id,
-                dict(kwargs),
+                {**kwargs, **system_values},
                 {"__exists__": True},
             )
             if definition_error is not None:
@@ -344,7 +349,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             apply_system_fields(
-                "StakeholderNeed", need, system_field_values(params), auth_context
+                "StakeholderNeed", need, system_values, auth_context
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

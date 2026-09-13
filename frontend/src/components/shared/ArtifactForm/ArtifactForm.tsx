@@ -544,7 +544,6 @@ function renderAttribute({
           className={styles.help}
           id={testId}
           data-testid={testId}
-          role="text"
         >
           {current == null || current === ""
             ? systemUnsetLabel

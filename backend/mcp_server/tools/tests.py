@@ -629,6 +629,11 @@ class McpTestToolGroup(BaseToolGroup):
         """
         tc_id = require_uuid(params, "id")
         data: Dict[str, Any] = params.get("data") or {}
+        # Attribut v3 WS2 (#936): owner/reporter/priority live on the Artifact;
+        # the nested `data` object carries them for this group. Applied inside
+        # each branch's try block (below) so a rejected value maps to
+        # VALIDATION_ERROR instead of the dispatcher's blanket INTERNAL_ERROR.
+        system_values = system_field_values(data)
 
         # Handle execution_status update path
         status = data.get("status") or data.get("execution_status")
@@ -662,6 +667,7 @@ class McpTestToolGroup(BaseToolGroup):
                         execution_status=status,
                         ctx=auth_context,
                     )
+                apply_system_fields("TestCase", tc, system_values, auth_context)
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             except ValidationError as exc:
@@ -680,6 +686,7 @@ class McpTestToolGroup(BaseToolGroup):
                     for name in ("title", "description", "steps", "test_type", "custom_fields")
                     if name in data
                 }
+                changed_fields.update(system_values)
                 definition_error = validate_artifact_write(
                     auth_context,
                     "TestCase",
@@ -711,18 +718,13 @@ class McpTestToolGroup(BaseToolGroup):
                         steps=data.get("steps"),
                         **optional_kwargs,
                     )
+                apply_system_fields("TestCase", tc, system_values, auth_context)
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             except ValidationError as exc:
                 return ToolResult.error("VALIDATION_ERROR", str(exc))
             except PermissionDeniedError as exc:
                 return ToolResult.error("PERMISSION_DENIED", str(exc))
-
-        # Attribut v3 WS2 (#936): owner/reporter/priority live on the
-        # Artifact; the nested `data` object carries them for this group.
-        apply_system_fields(
-            "TestCase", tc, system_field_values(data), auth_context
-        )
 
         write_mcp_audit(
             ctx=auth_context,

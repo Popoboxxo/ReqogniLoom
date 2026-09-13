@@ -24,6 +24,7 @@ from typing import Any, Iterable, Optional
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
+from django.db.models.functions import Lower
 
 from auth_tenancy.context import AuthContext
 from persistence.errors import NotFoundError, ValidationError
@@ -117,9 +118,7 @@ class ActorService(ServiceBase):
         if not name:
             raise ValidationError("An external actor requires a non-empty display name")
 
-        existing = Actor.objects.filter(
-            kind=Actor.Kind.EXTERNAL, display_name__iexact=name
-        ).first()
+        existing = self._find_external_by_name(name)
         if existing is not None:
             return existing
 
@@ -134,12 +133,28 @@ class ActorService(ServiceBase):
                 )
         except IntegrityError:
             # Concurrent create won the unique-index race; return its row.
-            existing = Actor.objects.filter(
-                kind=Actor.Kind.EXTERNAL, display_name__iexact=name
-            ).first()
+            existing = self._find_external_by_name(name)
             if existing is None:  # pragma: no cover - defensive
                 raise
             return existing
+
+    @staticmethod
+    def _find_external_by_name(name: str) -> Optional[Actor]:
+        """Look up the tenant's external actor by name, index-conformantly.
+
+        The partial unique index is ``Lower("display_name")`` restricted to
+        ``kind="external"`` (migration 0085). ``display_name__iexact`` compiles
+        to an ``UPPER(...)``/``LIKE`` comparison that does not match that
+        expression index, so the concurrent-create retry could miss the row the
+        race just inserted. Comparing ``Lower("display_name")`` directly makes
+        the lookup use the same expression the index is built on.
+        """
+        return (
+            Actor.objects.filter(kind=Actor.Kind.EXTERNAL)
+            .annotate(_name_lower=Lower("display_name"))
+            .filter(_name_lower=name.lower())
+            .first()
+        )
 
     @transaction.atomic
     def get_or_create_for_user(self, ctx: AuthContext, user_id: Any) -> Actor:

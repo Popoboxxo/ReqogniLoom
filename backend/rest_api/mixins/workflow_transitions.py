@@ -205,8 +205,17 @@ class WorkflowTransitionsMixin:
             return None
         details: list[dict[str, Any]]
         try:
-            ArtifactAttributeGateway().validate(
+            gateway = ArtifactAttributeGateway()
+            gateway.validate(
                 ctx, self.attribute_item_type, workspace_id, changed_fields, existing
+            )
+            # WS2 review #936 (Major 2): the DB-free definition check cannot
+            # tell an unknown/foreign-tenant actor UUID from a valid one, so the
+            # Artifact-level owner/reporter references are resolved here — before
+            # the ViewSet's own service call creates the row — and an
+            # unresolvable actor is reported as a normal field validation error.
+            gateway.validate_actor_system_fields(
+                ctx, self.attribute_item_type, workspace_id, changed_fields
             )
         except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
             return None

@@ -250,10 +250,9 @@ export function ActorPicker({
     >
       <div
         className={styles.root}
-        id={testId}
         data-testid={testId}
         role={multiple ? "group" : undefined}
-        aria-labelledby={`${testId}-label`}
+        aria-labelledby={multiple ? `${testId}-label` : undefined}
       >
         {multiple && selected.length > 0 ? (
           <div className={styles.chipRow}>
@@ -285,11 +284,11 @@ export function ActorPicker({
           </div>
         ) : null}
 
-        {/* One stable element carries the label's `htmlFor` for both variants:
-            the single-mode combobox uses `${testId}-input`, multiple mode uses
-            `${testId}-search`, and the shell id stays on the group. */}
+        {/* The label's `htmlFor` targets `${testId}`, so that id must sit on
+            the actual control in both variants (single + multiple); the wrapper
+            only carries the group role in multiple mode. */}
         <input
-          id={multiple ? undefined : `${testId}-input`}
+          id={testId}
           data-testid={multiple ? `${testId}-search` : `${testId}-input`}
           ref={inputRef}
           className={`${formStyles.control} ${

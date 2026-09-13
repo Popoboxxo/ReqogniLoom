@@ -211,9 +211,9 @@ class StakeholderNeedService(ServiceBase):
 
     def get(self, ctx: AuthContext, need_id: UUID | str) -> StakeholderNeedDTO:
         try:
-            need = StakeholderNeed.objects.select_related("artifact").get(
-                id=need_id, tenant_id=ctx.tenant_id
-            )
+            need = StakeholderNeed.objects.select_related(
+                "artifact", "artifact__owner", "artifact__reporter"
+            ).get(id=need_id, tenant_id=ctx.tenant_id)
             return StakeholderNeedDTO.from_orm(need)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
@@ -233,7 +233,9 @@ class StakeholderNeedService(ServiceBase):
         Issue #267 (same root cause as RequirementService.list_requirements):
         ``search`` case-insensitively filters on title/description/uid.
         """
-        needs = StakeholderNeed.objects.select_related("artifact").filter(
+        needs = StakeholderNeed.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             tenant_id=ctx.tenant_id, artifact__workspace_id=workspace_id
         )
         if not include_deleted:
@@ -430,9 +432,9 @@ class StakeholderNeedService(ServiceBase):
             Dict containing the task_id.
         """
         try:
-            need = StakeholderNeed.objects.select_related("artifact").get(
-                id=need_id, tenant_id=ctx.tenant_id
-            )
+            need = StakeholderNeed.objects.select_related(
+                "artifact", "artifact__owner", "artifact__reporter"
+            ).get(id=need_id, tenant_id=ctx.tenant_id)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 

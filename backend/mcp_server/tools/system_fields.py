@@ -99,6 +99,8 @@ def apply_system_fields(
         AttributeValues,
     )
     from application.attribute_definition_service import AttributeDefinitionNotFound
+    from attribute_definitions.field_validation import FieldValidationError
+    from persistence.errors import ValidationError
 
     try:
         ArtifactAttributeGateway().write(
@@ -106,6 +108,14 @@ def apply_system_fields(
         )
     except AttributeDefinitionNotFound:
         return
+    except FieldValidationError as exc:
+        # WS2 review #936 (Major 1): ``FieldValidationError`` is a plain
+        # ``ValueError``, not ``persistence.errors.ValidationError``. A value the
+        # gateway's own re-validation rejects used to escape every handler's
+        # ``except ValidationError`` and surface as the dispatcher's blanket
+        # INTERNAL_ERROR (HTTP 500). Re-raise as the domain error the handlers
+        # already map to VALIDATION_ERROR, preserving the per-field detail.
+        raise ValidationError(str(exc)) from exc
 
 
 def add_system_fields(payload: Dict[str, Any], obj: Any) -> Dict[str, Any]:

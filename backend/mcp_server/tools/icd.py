@@ -332,9 +332,15 @@ class IcdToolGroup(BaseToolGroup):
         # "keep the current value" in ``IcdUpdateDTO``/``update_icd``. The gate
         # sees exactly the changed fields, matching the update semantics of the
         # REST PATCH path.
+        #
+        # Attribut v3 WS2 (#936): owner/reporter/priority are Artifact-level and
+        # applied through the gateway below, but the definition gate must see
+        # them too so an unresolvable actor is rejected before the service call.
+        system_values = system_field_values(params)
         changed_fields = {
             field: params[field] for field in _UPDATE_FIELDS if field in params
         }
+        changed_fields.update(system_values)
         definition_error = validate_artifact_write(
             auth_context,
             _ITEM_TYPE,
@@ -355,7 +361,7 @@ class IcdToolGroup(BaseToolGroup):
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             apply_system_fields(
-                _ITEM_TYPE, result.icd, system_field_values(params), auth_context
+                _ITEM_TYPE, result.icd, system_values, auth_context
             )
         except Icd.DoesNotExist:
             return ToolResult.error("NOT_FOUND", f"ICD {icd_id} not found.")

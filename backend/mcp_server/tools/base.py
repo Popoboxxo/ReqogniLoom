@@ -199,6 +199,12 @@ def validate_artifact_write(
     (not an artifact write), no bootstrapped definition for this item type/
     preset, or a cross-tenant workspace id (the wrapped service call below
     answers that with its own error).
+
+    Since WS2 review #936 the gate also resolves the Artifact-level
+    ``owner``/``reporter`` actor references against the DB (the DB-free
+    definition check cannot distinguish an unknown actor UUID from a valid
+    one), so an unresolvable actor is rejected before the wrapped service
+    creates the artifact.
     """
     if not item_type or workspace_id is None:
         return None
@@ -211,8 +217,16 @@ def validate_artifact_write(
     from presets.exceptions import CrossTenantWorkspaceError
 
     try:
-        ArtifactAttributeGateway().validate(
+        gateway = ArtifactAttributeGateway()
+        gateway.validate(
             auth_context, item_type, workspace_id, changed_fields, existing
+        )
+        # WS2 review #936 (Major 2): the DB-free check above cannot tell an
+        # unknown/foreign-tenant actor UUID from a valid one. Resolve the
+        # Artifact-level actor references here so an unresolvable owner/reporter
+        # is rejected before the wrapped service creates the artifact.
+        gateway.validate_actor_system_fields(
+            auth_context, item_type, workspace_id, changed_fields
         )
     except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
         return None

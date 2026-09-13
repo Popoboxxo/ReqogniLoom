@@ -4,7 +4,7 @@ GlossaryService — Semantic Project Glossary CRUD and Versioning (REQ-L1-044).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, List, Optional
 from uuid import UUID
 
@@ -49,19 +49,19 @@ class GlossaryTermDTO:
     # REQ-L2-AS-037 / Epic #934 WS1: extended user-defined attributes live on
     # the backing Artifact; exposed so both transports can read them back.
     custom_fields: Optional[dict] = None
-    # Attribut v3 WS2 (#936): the backing Artifact ORM row, exposed through the
-    # read-only ``artifact`` property below. The ArtifactAttributeGateway needs
-    # it to persist the Artifact-level system fields (owner/reporter/priority)
-    # and to read them back — the DTO itself carries no persistence method. The
-    # private field name keeps the raw model instance out of the generic MCP
-    # ``_to_dict`` projection (which skips underscore-prefixed keys and could
-    # not JSON-encode a model instance anyway).
-    _artifact: Any = field(default=None, repr=False, compare=False)
 
     @property
     def artifact(self) -> Any:
-        """The DTO's backing ``persistence.Artifact`` row, or ``None``."""
-        return self._artifact
+        """The DTO's backing ``persistence.Artifact`` row, or ``None``.
+
+        Attribut v3 WS2 (#936): the ArtifactAttributeGateway needs the backing
+        row to persist and read the Artifact-level system fields
+        (owner/reporter/priority) — the DTO itself carries no persistence
+        method. Mirror of ``StakeholderNeedDTO.artifact``: kept as an instance
+        attribute (set in :meth:`from_orm`) rather than a dataclass field, so
+        ``dataclasses.asdict()`` never tries to serialise a Django model.
+        """
+        return getattr(self, "_artifact", None)
 
     @classmethod
     def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
@@ -72,7 +72,7 @@ class GlossaryTermDTO:
         # #831: surfaced on the DTO as ``status`` (the artifact-consistent
         # wire key), not ``lifecycle_status``.
         status = term.artifact.lifecycle_status if term.artifact_id else "active"
-        return cls(
+        dto = cls(
             id=term.id,
             workspace_id=term.workspace_id,
             term=term.term,
@@ -87,10 +87,11 @@ class GlossaryTermDTO:
                 if term.artifact_id
                 else {}
             ),
-            # WS2 #936: expose the backing row so the gateway can persist and
-            # read the Artifact-level system fields for both transports.
-            _artifact=term.artifact if term.artifact_id else None,
         )
+        # WS2 #936: keep the backing row reachable so the gateway can persist
+        # and read the Artifact-level system fields for both transports.
+        dto._artifact = term.artifact if term.artifact_id else None
+        return dto
 
 
 class GlossaryService(ServiceBase):
@@ -112,7 +113,9 @@ class GlossaryService(ServiceBase):
         entities (TestCase, Issue, ADR, Risk, StakeholderNeed), which report
         ``status="outdated"`` on GET after delete via their mirrored column.
         """
-        term = GlossaryTerm.objects.select_related("artifact").filter(
+        term = GlossaryTerm.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             id=term_id
         ).first()
         if not term:
@@ -133,7 +136,9 @@ class GlossaryService(ServiceBase):
         REQ-006: Excludes soft-deleted terms (``status`` == "outdated") by
         default. Pass ``include_deleted=True`` for admin/audit access.
         """
-        qs = GlossaryTerm.objects.select_related("artifact").filter(
+        qs = GlossaryTerm.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
         )
         if not include_deleted:

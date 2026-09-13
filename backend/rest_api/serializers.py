@@ -1844,7 +1844,12 @@ class IcdParameterSerializer(serializers.Serializer):
 
 QUERYSET_OPTIMIZATIONS: dict[str, dict[str, list[str]]] = {
     "requirement": {
-        "select_related": ["artifact", "artifact__workspace"],
+        "select_related": [
+            "artifact",
+            "artifact__workspace",
+            "artifact__owner",
+            "artifact__reporter",
+        ],
         "prefetch_related": [],
     },
     "artifact": {
@@ -1852,11 +1857,21 @@ QUERYSET_OPTIMIZATIONS: dict[str, dict[str, list[str]]] = {
         "prefetch_related": [],
     },
     "architecture_element": {
-        "select_related": ["artifact", "artifact__workspace"],
+        "select_related": [
+            "artifact",
+            "artifact__workspace",
+            "artifact__owner",
+            "artifact__reporter",
+        ],
         "prefetch_related": [],
     },
     "test_case": {
-        "select_related": ["artifact", "artifact__workspace"],
+        "select_related": [
+            "artifact",
+            "artifact__workspace",
+            "artifact__owner",
+            "artifact__reporter",
+        ],
         "prefetch_related": [],
     },
     "trace_link": {

@@ -536,6 +536,10 @@ class ArchitectureToolGroup(BaseToolGroup):
             # part of this tool's params, so it is resolved via a lookup
             # first (mirrors architecture.outdate's own resolution).
             existing_el = self._service.get_architecture_element(arch_id, auth_context)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact
+            # (nested under `data` for this group) and must be part of the
+            # definition gate, not only of the post-call gateway write.
+            system_values = system_field_values(data)
             changed_fields = {
                 name: data[name]
                 for name in (
@@ -549,6 +553,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                 )
                 if name in data
             }
+            changed_fields.update(system_values)
             definition_error = validate_artifact_write(
                 auth_context,
                 "ArchitectureElement",
@@ -582,7 +587,7 @@ class ArchitectureToolGroup(BaseToolGroup):
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact;
             # the nested `data` object carries them for this tool group.
             apply_system_fields(
-                "ArchitectureElement", el, system_field_values(data), auth_context
+                "ArchitectureElement", el, system_values, auth_context
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

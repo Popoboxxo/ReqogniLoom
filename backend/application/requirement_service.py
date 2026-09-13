@@ -653,7 +653,9 @@ class RequirementService(ServiceBase):
         instead of materialising the full result set.
         """
         self._set_tenant_context(ctx)
-        qs = Requirement.objects.select_related("artifact").filter(
+        qs = Requirement.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             artifact__workspace_id=workspace_id
         )
         from workflow.services import outdated_item_ids

@@ -261,3 +261,105 @@ def test_system_fields_round_trip_for_every_wired_type() -> None:
                         )
 
         assert not failures, "System-field round-trip failures:\n" + "\n".join(failures)
+
+
+# ---------------------------------------------------------------------------
+# WS2 review #936 — hardened error paths (Major 1 / Major 2)
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_system_field_violation_maps_to_validation_error(env) -> None:
+    """Major 1 (#936 review): a bad system-field value is VALIDATION_ERROR.
+
+    ``adr.update`` used to drop owner/reporter/priority from the definition
+    gate, so a violating value only failed inside the post-write gateway call.
+    ``FieldValidationError`` is a plain ``ValueError``, not
+    ``persistence.errors.ValidationError``, so every handler's ``except`` missed
+    it and the dispatcher answered the blanket INTERNAL_ERROR (HTTP 500).
+    """
+    _, _, workspace, ctx, _ = env
+    group = GenericCrudToolGroup("adr", AdrService)
+
+    created = group.execute_tool(
+        tool_name="adr.create",
+        params={"workspace_id": str(workspace.id), "title": "ADR", "description": ""},
+        auth_context=ctx,
+        api_key=API_KEY,
+    )
+    assert created.success is True, created.message
+    adr_id = created.data["data"]["id"]
+
+    updated = group.execute_tool(
+        tool_name="adr.update",
+        params={"id": adr_id, "priority": "not-a-priority"},
+        auth_context=ctx,
+        api_key=API_KEY,
+    )
+
+    assert updated.success is False
+    assert updated.error_code == "VALIDATION_ERROR", updated.message
+    assert "priority" in (updated.message or "")
+
+
+def test_mcp_create_with_unknown_actor_uuid_persists_nothing(env) -> None:
+    """Major 2 (#936 review): an unresolvable actor rejects before the create.
+
+    The DB-free definition check accepts ``{"kind": "user", "id": "<uuid>"}``;
+    the unknown actor used to surface only after the service committed the
+    artifact, leaving a duplicate behind on retry. The pre-service actor
+    preflight must reject it and leave no Adr Artifact row.
+    """
+    _, _, workspace, ctx, _ = env
+    group = GenericCrudToolGroup("adr", AdrService)
+    before = Artifact.unscoped.filter(workspace_id=workspace.id).count()
+
+    created = group.execute_tool(
+        tool_name="adr.create",
+        params={
+            "workspace_id": str(workspace.id),
+            "title": "ADR with ghost owner",
+            "description": "",
+            "owner": {"kind": "user", "id": str(uuid.uuid4())},
+        },
+        auth_context=ctx,
+        api_key=API_KEY,
+    )
+
+    assert created.success is False
+    assert created.error_code in ("VALIDATION_ERROR", "NOT_FOUND"), created.message
+    assert (
+        Artifact.unscoped.filter(workspace_id=workspace.id).count() == before
+    ), "no artifact may be persisted when the actor is unresolvable"
+
+
+def test_rest_create_with_unknown_actor_uuid_persists_nothing() -> None:
+    """Major 2 (#936 review): the REST create path is covered too."""
+    from django.test import override_settings
+
+    from attribute_definitions.tests.test_transport_contract_matrix import (
+        _JWT_OVERRIDES,
+        _SPECS,
+        _build_env,
+        _payload,
+        _token,
+    )
+
+    with override_settings(**_JWT_OVERRIDES):
+        env = _build_env()
+        workspace = env.workspaces["standard"]
+        payload = _payload(
+            env, "standard", "Adr", _SPECS["Adr"], None, None, _token("badactor")
+        )
+        payload["owner"] = {"kind": "user", "id": str(uuid.uuid4())}
+        before = Artifact.unscoped.filter(workspace_id=workspace.id).count()
+
+        response = env.rest_client.post(
+            "/api/v1/adrs/",
+            {"workspace_id": str(workspace.id), **payload},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert (
+            Artifact.unscoped.filter(workspace_id=workspace.id).count() == before
+        ), "no artifact may be persisted when the actor is unresolvable"

@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from application.base import NotFoundError, OptimisticLockError
+from application.base import NotFoundError, OptimisticLockError, ValidationError
 from application.artifact_attribute_gateway import artifact_system_fields
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
@@ -484,7 +484,12 @@ class GenericCrudToolGroup(BaseToolGroup):
             return definition_error
         try:
             obj = self._create_method(ctx=auth_context, workspace_id=workspace_id, **kwargs)
-            apply_system_fields(self._item_type, obj, system_values, auth_context)
+            try:
+                apply_system_fields(self._item_type, obj, system_values, auth_context)
+            except ValidationError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
+            except NotFoundError as exc:
+                return ToolResult.error("NOT_FOUND", str(exc))
             return ToolResult.ok({"data": self._to_dict(obj)})
         except TypeError as exc:
             # #268: a required field missing from `params` (e.g. `description`
@@ -539,13 +544,25 @@ class GenericCrudToolGroup(BaseToolGroup):
             # bare ``except Exception`` below exactly as it did before this
             # validation call was added.
             workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
+            # Attribut v3 WS2 (#936): owner/reporter/priority are Artifact-level
+            # and never reach the wrapped update method, but the definition gate
+            # must see them so an unresolvable actor is rejected before the call.
             definition_error = validate_artifact_write(
-                auth_context, self._item_type, workspace_id, dict(kwargs), {"__exists__": True}
+                auth_context,
+                self._item_type,
+                workspace_id,
+                {**kwargs, **system_values},
+                {"__exists__": True},
             )
             if definition_error is not None:
                 return definition_error
             obj = self._update_method(ctx=auth_context, **{self._update_id_param: obj_id}, **kwargs)
-            apply_system_fields(self._item_type, obj, system_values, auth_context)
+            try:
+                apply_system_fields(self._item_type, obj, system_values, auth_context)
+            except ValidationError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
+            except NotFoundError as exc:
+                return ToolResult.error("NOT_FOUND", str(exc))
             return ToolResult.ok({"data": self._to_dict(obj)})
         except OptimisticLockError as exc:
             # SYSTEMAUDIT_2026-08-29 (REST finding 1): the wrapped services now
