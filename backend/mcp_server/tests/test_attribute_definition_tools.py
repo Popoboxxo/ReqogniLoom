@@ -664,3 +664,33 @@ def test_payload_is_json_serialisable_with_the_stdlib_encoder() -> None:
     from mcp_server.tools.attribute_definition import _definition_payload
 
     json.dumps(_definition_payload(PAYLOAD))
+
+
+def test_definition_payload_carries_the_generic_display_properties() -> None:
+    """Spec section 5 / WS3 #937: every attribute_definition.* result exposes
+    the normalized display properties, so the MCP schema is transport-complete."""
+    from mcp_server.tools.attribute_definition import _definition_payload
+
+    payload = _definition_payload(
+        {
+            "item_type": "Risk",
+            "preset": "standard",
+            "version": 1,
+            "attributes": [
+                {
+                    "name": "id",
+                    "kind": "core",
+                    "type": "text",
+                    "copyable": True,
+                    "reveal": "click",
+                    "mask": "short",
+                    "display_format": "mono",
+                }
+            ],
+        }
+    )
+    (attribute,) = payload["attributes"]
+    assert attribute["copyable"] is True
+    assert attribute["reveal"] == "click"
+    assert attribute["mask"] == "short"
+    assert attribute["display_format"] == "mono"

@@ -90,6 +90,17 @@ EDITABLE_VALUES: frozenset[Any] = frozenset(
 
 AUDIENCE_VALUES: frozenset[str] = frozenset({"basic", "expert"})
 
+#: Generic display/interaction properties (spec section 5). They apply to
+#: **every** attribute regardless of ``kind``/``type``: ``reveal`` selects the
+#: "always visible / reveal on click / reveal on shortcut" mode, ``mask``
+#: shortens the *rendered* label while ``copyable`` copies the full value, and
+#: ``display_format`` is a purely visual choice. The bootstrapped Artifact
+#: ``id`` attribute is the first consumer (spec section 5:
+#: ``reveal="click"``/``copyable=True``/``mask="short"``).
+REVEAL_VALUES: frozenset[str] = frozenset({"always", "click", "shortcut"})
+MASK_VALUES: frozenset[str] = frozenset({"none", "short"})
+DISPLAY_FORMAT_VALUES: frozenset[str] = frozenset({"text", "mono", "chips"})
+
 #: Registered widget keys (spec section 6.3). Deliberately an open extension
 #: point: a new special case adds a key here and a component in the frontend
 #: registry rather than weakening the renderer contract.
@@ -99,10 +110,17 @@ WIDGET_KEYS: frozenset[str] = frozenset(
 
 #: The only properties an admin may change on a ``kind="core"`` attribute.
 #: ``name``/``type``/existence are fixed by the Django model.
+#:
+#: The generic display/interaction properties (spec section 5, WS3 #937) are
+#: presentation-only, exactly like ``section``/``order``/``label``/``audience``,
+#: and the spec states they apply to **every** attribute — so they are
+#: admin-configurable on core attributes too (including ``locked`` ones, which
+#: still only allow cosmetics, see ``LOCKED_IMMUTABLE_PROPERTIES``).
 CORE_EDITABLE_META_PROPERTIES: frozenset[str] = frozenset(
     {
         "required", "visible", "editable", "section", "order", "label",
         "help_text", "default", "options", "ai_elicit", "export", "audience",
+        "copyable", "reveal", "mask", "display_format",
     }
 )
 
@@ -134,6 +152,14 @@ _DEFAULTS: dict[str, Any] = {
     # external dummies may be picked. Defaults per spec: single, internal-only.
     "multiple": False,
     "allow_external": False,
+    # Generic display/interaction (spec section 5): visible by default, no
+    # copy affordance, no label masking, plain text rendering. A stored row
+    # written before this feature existed therefore keeps its old rendering
+    # (spec section 5's "additive, no data migration" rule).
+    "copyable": False,
+    "reveal": "always",
+    "mask": "none",
+    "display_format": "text",
 }
 
 _REQUIRED_KEYS = ("name", "kind", "type")
@@ -327,6 +353,7 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
         "export",
         "multiple",
         "allow_external",
+        "copyable",
     ):
         if key in raw:
             if not isinstance(raw[key], bool):
@@ -345,6 +372,29 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"'audience' must be one of {sorted(AUDIENCE_VALUES)}")
         else:
             out["audience"] = raw["audience"]
+
+    # Generic display/interaction enums (spec section 5). Checked exactly like
+    # ``audience`` so a typo is a 400 on the write that introduced it, never a
+    # value the renderer silently falls back from.
+    if "reveal" in raw:
+        if raw["reveal"] not in REVEAL_VALUES:
+            errors.append(f"'reveal' must be one of {sorted(REVEAL_VALUES)}")
+        else:
+            out["reveal"] = raw["reveal"]
+
+    if "mask" in raw:
+        if raw["mask"] not in MASK_VALUES:
+            errors.append(f"'mask' must be one of {sorted(MASK_VALUES)}")
+        else:
+            out["mask"] = raw["mask"]
+
+    if "display_format" in raw:
+        if raw["display_format"] not in DISPLAY_FORMAT_VALUES:
+            errors.append(
+                f"'display_format' must be one of {sorted(DISPLAY_FORMAT_VALUES)}"
+            )
+        else:
+            out["display_format"] = raw["display_format"]
 
     if "section" in raw:
         if not isinstance(raw["section"], str) or not raw["section"].strip():
@@ -722,10 +772,13 @@ __all__ = [
     "AttributeDefinitionConflictError",
     "AttributeSchemaError",
     "CORE_EDITABLE_META_PROPERTIES",
+    "DISPLAY_FORMAT_VALUES",
     "EDITABLE_VALUES",
     "ITEM_TYPES",
     "LOCKED_IMMUTABLE_PROPERTIES",
+    "MASK_VALUES",
     "PRESETS",
+    "REVEAL_VALUES",
     "SECTION_LAYOUTS",
     "SYSTEM_FIELDS_ENABLED_ITEM_TYPES",
     "WIDGET_KEYS",

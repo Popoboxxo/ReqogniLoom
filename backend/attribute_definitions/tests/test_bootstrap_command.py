@@ -78,6 +78,11 @@ def test_id_is_a_synthetic_system_attribute() -> None:
         assert id_attr["locked"] is True, item_type
         assert id_attr["visible"] is False, item_type
         assert id_attr["required"] is False, item_type
+        # Spec section 5 / WS3 #937: the id field is the first consumer of the
+        # generic display properties.
+        assert id_attr["reveal"] == "click", item_type
+        assert id_attr["copyable"] is True, item_type
+        assert id_attr["mask"] == "short", item_type
 
 
 @pytest.mark.django_db

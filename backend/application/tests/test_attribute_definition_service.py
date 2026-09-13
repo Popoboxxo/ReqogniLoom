@@ -709,6 +709,51 @@ def test_export_definition_global_produces_a_re_importable_document(
 
 
 @pytest.mark.django_db
+def test_export_import_round_trips_the_display_properties(
+    service, admin_ctx, tenant
+) -> None:
+    """WS3 #937: ``copyable``/``reveal``/``mask``/``display_format`` are part of
+    the normalized attribute block and must survive an export -> import cycle
+    untouched (``stored_attributes`` backfills defaults on a legacy row, so the
+    importer can never silently drop a configured value)."""
+    from attribute_definitions.schema import stored_attributes
+
+    display_note = dict(
+        NOTE,
+        copyable=True,
+        reveal="click",
+        mask="short",
+        display_format="chips",
+    )
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "standard", [TITLE, display_note]
+    )
+
+    exported = service.export_definition(admin_ctx, "Risk", preset="standard")
+    exported_note = {a["name"]: a for a in exported["attributes"]}["note"]
+    assert exported_note["copyable"] is True
+    assert exported_note["reveal"] == "click"
+    assert exported_note["mask"] == "short"
+    assert exported_note["display_format"] == "chips"
+
+    imported = service.import_definition(
+        admin_ctx, "Risk", exported, preset="standard", on_collision="overwrite"
+    )
+    by_name = {a["name"]: a for a in imported["attributes"]}
+    assert by_name["note"]["copyable"] is True
+    assert by_name["note"]["reveal"] == "click"
+    assert by_name["note"]["mask"] == "short"
+    assert by_name["note"]["display_format"] == "chips"
+
+    stored = stored_attributes(
+        GlobalAttributeDefinitionStore()
+        .get(tenant.id, "Risk", "standard")
+        .definition_json
+    )
+    assert {a["name"]: a for a in stored}["note"]["reveal"] == "click"
+
+
+@pytest.mark.django_db
 def test_export_definition_workspace_scope(service, admin_ctx, workspace, seeded) -> None:
     with patch("presets.services.get_preset") as get_preset:
         get_preset.return_value.preset = "standard"

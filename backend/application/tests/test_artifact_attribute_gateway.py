@@ -40,6 +40,10 @@ def _attribute(
     fields: list[str] | None = None,
     multiple: bool = False,
     allow_external: bool = False,
+    copyable: bool = False,
+    reveal: str = "always",
+    mask: str = "none",
+    display_format: str = "text",
 ) -> dict[str, Any]:
     """One normalized definition entry (shape of ``stored_attributes``)."""
     return {
@@ -58,6 +62,10 @@ def _attribute(
         "fields": fields or [],
         "multiple": multiple,
         "allow_external": allow_external,
+        "copyable": copyable,
+        "reveal": reveal,
+        "mask": mask,
+        "display_format": display_format,
     }
 
 
@@ -303,6 +311,33 @@ def test_discover_projects_the_descriptor_fields() -> None:
     assert descriptor.required is True
     assert descriptor.options == [option]
     assert descriptor.validation == {"regex": "a"}
+
+
+def test_discover_exposes_the_generic_display_properties() -> None:
+    """Spec section 5 / WS3 #937: the descriptor carries copyable/reveal/mask/
+    display_format, so the renderer receives them on both transports."""
+    definitions = _FakeDefinitions(
+        attributes=[
+            _attribute(
+                "id",
+                visible=False,
+                editable="system",
+                copyable=True,
+                reveal="click",
+                mask="short",
+                display_format="mono",
+            )
+        ],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+
+    (descriptor,) = gateway.discover(_ctx(), "Requirement", uuid4())
+
+    assert descriptor.copyable is True
+    assert descriptor.reveal == "click"
+    assert descriptor.mask == "short"
+    assert descriptor.display_format == "mono"
 
 
 # ---------------------------------------------------------------------------

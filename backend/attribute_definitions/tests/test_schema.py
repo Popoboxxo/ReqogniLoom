@@ -44,6 +44,8 @@ def test_normalize_fills_every_documented_default() -> None:
         "label": {"de": "", "en": ""}, "help_text": {"de": "", "en": ""},
         "default": None, "validation": {}, "ai_elicit": False, "export": False,
         "audience": "basic", "multiple": False, "allow_external": False,
+        "copyable": False, "reveal": "always", "mask": "none",
+        "display_format": "text",
     }
 
 
@@ -196,7 +198,8 @@ def test_meta_only_change_allows_core_meta_properties() -> None:
     old = [normalize_attribute(_core("title"))]
     new = [normalize_attribute(_core("title", required=True, section="classification",
                                      order=9, audience="expert", ai_elicit=True,
-                                     export=True))]
+                                     export=True, copyable=True, reveal="click",
+                                     mask="short", display_format="mono"))]
     validate_meta_only_change(old, new)
 
 
@@ -471,4 +474,59 @@ def test_legacy_user_type_still_normalizes() -> None:
     """Spec section 4: the previous ``user`` type stays readable."""
     out = normalize_attribute({"name": "owner_user", "kind": "core", "type": "user"})
     assert out["type"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# Generic display/interaction properties (Attribut v3 WS3, spec section 5)
+# ---------------------------------------------------------------------------
+
+
+def test_display_properties_default_to_the_spec_values() -> None:
+    out = normalize_attribute(_core("title"))
+    assert out["copyable"] is False
+    assert out["reveal"] == "always"
+    assert out["mask"] == "none"
+    assert out["display_format"] == "text"
+
+
+def test_display_properties_round_trip() -> None:
+    out = normalize_attribute(
+        _core(
+            "id",
+            copyable=True,
+            reveal="shortcut",
+            mask="short",
+            display_format="mono",
+        )
+    )
+    assert out["copyable"] is True
+    assert out["reveal"] == "shortcut"
+    assert out["mask"] == "short"
+    assert out["display_format"] == "mono"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("reveal", "hover"),
+        ("mask", "full"),
+        ("display_format", "rich"),
+        ("copyable", "yes"),
+    ],
+)
+def test_invalid_display_property_values_are_rejected(key, value) -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_attribute(_core("title", **{key: value}))
+    assert key in " ".join(exc.value.errors)
+
+
+def test_stored_attributes_backfills_the_display_properties() -> None:
+    """A row written before WS3 normalizes to the documented defaults."""
+    out = stored_attributes(
+        {"attributes": [{"name": "t", "kind": "core", "type": "text"}]}
+    )
+    assert out[0]["copyable"] is False
+    assert out[0]["reveal"] == "always"
+    assert out[0]["mask"] == "none"
+    assert out[0]["display_format"] == "text"
 

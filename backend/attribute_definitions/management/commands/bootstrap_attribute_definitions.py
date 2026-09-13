@@ -414,7 +414,9 @@ def synthetic_status_attribute() -> dict[str, Any]:
 #: ``id`` is the synthetic identity attribute: ``editable="system"`` (spec
 #: section 6 — server-owned, never a payload field), ``locked`` and
 #: ``visible=False`` (spec section 5: hidden by default, revealed/copied on
-#: demand). It is deliberately NOT introspected from the model PK: the model PK
+#: demand). Its generic display properties are configured right here
+#: (spec section 5: ``reveal="click"`` / ``copyable=True`` / ``mask="short"``).
+#: It is deliberately NOT introspected from the model PK: the model PK
 #: is in ``EXCLUDED_MODEL_FIELDS`` precisely so the synthetic definition is the
 #: single source of that attribute.
 #:
@@ -457,6 +459,13 @@ ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
         "editable": "system",
         "locked": True,
         "visible": False,
+        # Spec section 5: the id system field is the first consumer of the
+        # generic display properties — hidden by default, revealed on click,
+        # copy-to-clipboard enabled, and rendered as an 8-character short label
+        # while ``copyable`` copies the full UUID (the ``mask`` contract).
+        "reveal": "click",
+        "copyable": True,
+        "mask": "short",
         "required": False,
         "section": "general",
         "order": -300,

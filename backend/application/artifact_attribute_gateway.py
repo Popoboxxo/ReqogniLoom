@@ -204,6 +204,13 @@ class AttributeDescriptor:
     options: list[dict[str, str]]
     validation: dict[str, Any]
     order: int
+    #: Generic display/interaction properties (spec section 5, WS3 #937). Part
+    #: of the discovery contract so a renderer can build the reveal/copy/mask
+    #: affordance from the same projection on both transports.
+    copyable: bool
+    reveal: str
+    mask: str
+    display_format: str
 
 
 @dataclass(frozen=True)
@@ -530,6 +537,10 @@ class ArtifactAttributeGateway:
                 options=attribute["options"],
                 validation=attribute["validation"],
                 order=attribute["order"],
+                copyable=attribute["copyable"],
+                reveal=attribute["reveal"],
+                mask=attribute["mask"],
+                display_format=attribute["display_format"],
             )
             for attribute in definition["attributes"]
         ]
