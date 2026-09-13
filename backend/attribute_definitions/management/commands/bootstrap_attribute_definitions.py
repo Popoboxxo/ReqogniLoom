@@ -47,6 +47,7 @@ from attribute_definitions.models import GlobalAttributeDefinition
 from attribute_definitions.schema import (
     ITEM_TYPES,
     PRESETS,
+    SYSTEM_FIELDS_ENABLED_ITEM_TYPES,
     normalize_attribute,
     stored_attributes,
 )
@@ -434,19 +435,14 @@ def synthetic_status_attribute() -> dict[str, Any]:
 #: ``priority`` stays the enum with the ``low|medium|high|critical`` default
 #: scale.
 #:
-#: Still hidden after this wave (carrier present, transport not yet wired):
+#: WS2 part B2 (#936) wired the remaining transport paths, so the canonical
+#: set now lives in ``attribute_definitions.schema`` (Django-free, importable
+#: by the MCP helpers that mirror it) and is imported above. Still hidden:
 #:
-#: * ``GlossaryTerm`` — ``GlossaryService`` returns a ``GlossaryTermDTO``, not
-#:   the ORM entity, so the value can be read but not written through the
-#:   gateway's Artifact adapter without a DTO/backing-Artifact change.
 #: * ``Risk`` — its legacy free-text ``owner`` column still owns the ``owner``
-#:   keyword on ``RiskService`` (retired by the AWMS migration, spec §10).
-#: * ``Requirement``/``StakeholderNeed``/``ArchitectureElement``/``TestCase``/
-#:   ``Goal``/``Icd`` — per-type MCP groups still pass explicit kwargs and do
-#:   not yet route the system fields through the gateway.
-SYSTEM_FIELDS_ENABLED_ITEM_TYPES: frozenset[str] = frozenset(
-    {"Adr", "Issue", "ChangeRequest"}
-)
+#:   keyword on ``RiskService``; the AWMS migration (WS7, #940) retires it
+#:   first, and until then a visible ``owner`` attribute would collide with the
+#:   introspected legacy column (see ``PER_ITEM_TYPE_EXCLUDED_FIELDS``).
 
 #: The names that the rollout gate above may flip.
 _GATED_SYSTEM_FIELD_NAMES: frozenset[str] = frozenset(

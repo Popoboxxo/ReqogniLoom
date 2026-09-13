@@ -751,6 +751,7 @@ class ArtifactSerializer(
 class RequirementSerializer(
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -875,6 +876,7 @@ class RequirementSerializer(
 class StakeholderNeedSerializer(
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -920,6 +922,7 @@ class StakeholderNeedSerializer(
 class ArchitectureElementSerializer(
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1018,6 +1021,7 @@ class ArchitectureElementSerializer(
 class TestCaseSerializer(
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1557,6 +1561,7 @@ class RiskSerializer(
 class GoalSerializer(
     CustomFieldsSerializerMixin,
     WorkflowStateSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
 ):
@@ -1882,6 +1887,7 @@ def apply_queryset_optimizations(queryset: Any, entity_type: str) -> Any:
 
 class GlossaryTermSerializer(
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     serializers.Serializer,
 ):

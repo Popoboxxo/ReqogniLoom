@@ -57,6 +57,12 @@ from mcp_server.tools.base import (
     validate_artifact_write,
     write_mcp_audit,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +112,8 @@ def _arch_el_to_dict(
         # (rest_api/serializers.py), which already exposes artifact_id via a
         # read-only UUIDField.
         result["artifact_id"] = str(el.artifact_id)
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, el)
     return result
 
 
@@ -192,6 +200,8 @@ class ArchitectureToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -233,6 +243,9 @@ class ArchitectureToolGroup(BaseToolGroup):
                             },
                             "parent_id": {"type": ["string", "null"]},
                             "expected_version": {"type": "integer"},
+                            # Attribut v3 WS2 (#936): Artifact-level system
+                            # fields are applied through the gateway.
+                            **SYSTEM_FIELD_SCHEMA,
                         },
                     },
                 },
@@ -456,6 +469,13 @@ class ArchitectureToolGroup(BaseToolGroup):
                     make_or_buy=make_or_buy,
                     custom_fields=custom_fields,
                 )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "ArchitectureElement",
+                el,
+                system_field_values(params),
+                auth_context,
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -559,6 +579,11 @@ class ArchitectureToolGroup(BaseToolGroup):
                     element_type=data.get("element_type"),
                     **update_kwargs,
                 )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact;
+            # the nested `data` object carries them for this tool group.
+            apply_system_fields(
+                "ArchitectureElement", el, system_field_values(data), auth_context
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except OptimisticLockError as exc:

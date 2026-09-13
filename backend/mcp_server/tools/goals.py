@@ -31,6 +31,12 @@ from mcp_server.tools.base import (
     resolve_status_map,
     validate_artifact_write,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
 from workflow.definition_store import PRESET_SCHEMAS, PROPOSED_STATE
 
 # Issue #270 finding 5: ``target_state`` used to be an unconstrained string, so
@@ -83,7 +89,7 @@ def _goal_payload(
     goal: Any, status_map: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     """Serialize a Goal ORM row for the ``goal.read``/``goal.query`` responses."""
-    return {
+    result = {
         "id": str(goal.id),
         "lineage_id": str(goal.lineage_id),
         "sequence_number": goal.sequence_number,
@@ -94,6 +100,9 @@ def _goal_payload(
         # version's dedicated backing Artifact.
         "custom_fields": artifact_custom_fields(goal),
     }
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, goal)
+    return result
 
 
 def _main_goal_payload(
@@ -177,6 +186,8 @@ class GoalToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -199,6 +210,8 @@ class GoalToolGroup(BaseToolGroup):
                             "map). Replaces the stored map."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "lineage_id", "title"],
             },
@@ -235,6 +248,9 @@ class GoalToolGroup(BaseToolGroup):
                             "map). Omit to inherit the addressed version's map."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields,
+                    # applied to the newly appended version's Artifact.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["goal_id"],
             },
@@ -423,6 +439,13 @@ class GoalToolGroup(BaseToolGroup):
                 ctx=auth_context,
                 custom_fields=params.get("custom_fields"),
             )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on the
+            # version's dedicated backing Artifact.
+            goal = GoalService().get(UUID(result["id"]), auth_context)
+            apply_system_fields(
+                "Goal", goal, system_field_values(params), auth_context
+            )
+            add_system_fields(result, goal)
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
@@ -451,6 +474,13 @@ class GoalToolGroup(BaseToolGroup):
                 ctx=auth_context,
                 custom_fields=params.get("custom_fields"),
             )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on the
+            # version's dedicated backing Artifact.
+            goal = GoalService().get(UUID(result["id"]), auth_context)
+            apply_system_fields(
+                "Goal", goal, system_field_values(params), auth_context
+            )
+            add_system_fields(result, goal)
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
@@ -532,6 +562,13 @@ class GoalToolGroup(BaseToolGroup):
                 description=description,
                 **update_kwargs,
             )
+            # Attribut v3 WS2 (#936): owner/reporter/priority are applied to the
+            # newly appended version's Artifact.
+            goal = GoalService().get(UUID(result["id"]), auth_context)
+            apply_system_fields(
+                "Goal", goal, system_field_values(params), auth_context
+            )
+            add_system_fields(result, goal)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

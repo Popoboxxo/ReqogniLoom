@@ -56,6 +56,12 @@ from mcp_server.tools.base import (
     validate_artifact_write,
     write_mcp_audit,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +110,8 @@ def _requirement_to_dict(
     }
     if hasattr(req, "artifact") and req.artifact:
         result["workspace_id"] = str(req.artifact.workspace_id)
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, req)
     return result
 
 
@@ -218,6 +226,8 @@ class RequirementsToolGroup(BaseToolGroup):
                             "definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "title"],
                 # Issue #409: without this, unknown fields in a create payload
@@ -274,6 +284,9 @@ class RequirementsToolGroup(BaseToolGroup):
                                     "key/value map). Replaces the stored map."
                                 ),
                             },
+                            # Attribut v3 WS2 (#936): Artifact-level system
+                            # fields are applied through the gateway.
+                            **SYSTEM_FIELD_SCHEMA,
                         },
                     },
                 },
@@ -468,6 +481,10 @@ class RequirementsToolGroup(BaseToolGroup):
                     level=level,
                     custom_fields=custom_fields,
                 )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "Requirement", req, system_field_values(params), auth_context
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -527,6 +544,15 @@ class RequirementsToolGroup(BaseToolGroup):
         if "custom_fields" in data or "custom_fields" in params:
             custom_fields_kwargs["custom_fields"] = _field("custom_fields")
 
+        # Attribut v3 WS2 (#936): the Artifact-level system fields are accepted
+        # flat or under `data`; the service never sees them (they are applied
+        # through the gateway below).
+        system_values = {
+            name: _field(name)
+            for name in ("owner", "reporter", "priority")
+            if name in data or name in params
+        }
+
         try:
             # Ledger gap #1 / issue #881: same central gate as
             # RequirementViewSet.partial_update. workspace_id is not part of
@@ -556,6 +582,8 @@ class RequirementsToolGroup(BaseToolGroup):
                     change_reason=_field("change_reason"),
                     **custom_fields_kwargs,
                 )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields("Requirement", req, system_values, auth_context)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:

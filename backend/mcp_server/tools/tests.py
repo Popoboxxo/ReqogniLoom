@@ -78,6 +78,12 @@ from mcp_server.tools.base import (
     validate_artifact_write,
     write_mcp_audit,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
 from persistence.models import TestCase, TestCaseType
 from traceability.types import LinkType
 
@@ -147,6 +153,8 @@ def _test_case_to_dict(
             result["test_type"] = model_test_type
         elif ":" in artifact_type:
             result["test_type"] = artifact_type.split(":", 1)[1]
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, tc)
     return result
 
 
@@ -235,6 +243,8 @@ class McpTestToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                     "linked_req_id": {
                         "type": "string",
                         "description": "Optional requirement UUID to create a 'verifies' TraceLink.",
@@ -287,6 +297,9 @@ class McpTestToolGroup(BaseToolGroup):
                                 "type": "string",
                                 "enum": sorted(_VALID_STATUSES),
                             },
+                            # Attribut v3 WS2 (#936): Artifact-level system
+                            # fields are applied through the gateway.
+                            **SYSTEM_FIELD_SCHEMA,
                         },
                     },
                 },
@@ -548,6 +561,10 @@ class McpTestToolGroup(BaseToolGroup):
                     test_type_value=model_test_type_value,
                     custom_fields=custom_fields,
                 )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "TestCase", tc, system_field_values(params), auth_context
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -700,6 +717,12 @@ class McpTestToolGroup(BaseToolGroup):
                 return ToolResult.error("VALIDATION_ERROR", str(exc))
             except PermissionDeniedError as exc:
                 return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        # Attribut v3 WS2 (#936): owner/reporter/priority live on the
+        # Artifact; the nested `data` object carries them for this group.
+        apply_system_fields(
+            "TestCase", tc, system_field_values(data), auth_context
+        )
 
         write_mcp_audit(
             ctx=auth_context,

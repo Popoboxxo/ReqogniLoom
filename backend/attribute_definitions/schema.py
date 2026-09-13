@@ -35,6 +35,37 @@ ITEM_TYPES: tuple[str, ...] = (
 
 PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")
 
+#: Item types whose REST **and** MCP transports carry the Artifact-level
+#: system fields (``owner``/``reporter``/``priority``) today (Attribut v3 WS2,
+#: #936). The bootstrap command flips those attributes to
+#: ``visible=True``/``editable=True`` **only** for these types; every other
+#: type keeps the hidden, non-editable carrier so the contract matrix (#934
+#: WS0) never demands a write/read round-trip no transport can satisfy.
+#:
+#: Deliberately absent:
+#: * ``Risk`` — its legacy free-text ``owner`` column still shadows the
+#:   artifact-level ``owner`` FK and owns the ``owner`` keyword on
+#:   ``RiskService``; the AWMS migration (WS7, #940) retires it first.
+#: * ``MainGoal`` is not an ``ITEM_TYPES`` member (no attribute definition).
+#:
+#: Lives here (Django-free) rather than in the management command so both the
+#: bootstrap and the MCP transport helpers can import the one list without
+#: pulling in a command module.
+SYSTEM_FIELDS_ENABLED_ITEM_TYPES: frozenset[str] = frozenset(
+    {
+        "Requirement",
+        "StakeholderNeed",
+        "ArchitectureElement",
+        "TestCase",
+        "Adr",
+        "Issue",
+        "Goal",
+        "Icd",
+        "GlossaryTerm",
+        "ChangeRequest",
+    }
+)
+
 ATTRIBUTE_TYPES: frozenset[str] = frozenset(
     {
         "text", "textarea", "number", "boolean", "enum", "multi-enum",
@@ -696,6 +727,7 @@ __all__ = [
     "LOCKED_IMMUTABLE_PROPERTIES",
     "PRESETS",
     "SECTION_LAYOUTS",
+    "SYSTEM_FIELDS_ENABLED_ITEM_TYPES",
     "WIDGET_KEYS",
     "materialize_sections",
     "normalize_attribute",

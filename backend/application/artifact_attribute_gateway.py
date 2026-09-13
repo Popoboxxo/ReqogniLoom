@@ -322,13 +322,22 @@ class ArtifactAttributeGateway:
         directly. Mirrors ``mcp_server.tools.base.artifact_custom_fields`` and
         ``rest_api.views._artifact_custom_fields`` without importing a Layer 3
         module from Layer 2 (ADR-01) — the same fallback rule, resolved locally.
+
+        The backing ``.artifact`` relation is preferred over a direct
+        ``custom_fields`` attribute: a service DTO (``GlossaryTermDTO``, WS2
+        #936) carries its own ``custom_fields`` *dict* for the wire but has no
+        persistence method, so returning the DTO would make every system-field
+        write a silent no-op. Preferring the relation means such a DTO only has
+        to expose its backing ``Artifact`` (via its ``artifact`` property) and
+        the write lands on the real row. A real ``Artifact`` has no ``.artifact``
+        attribute, so the generic case still resolves to itself.
         """
-        direct = getattr(artifact, "custom_fields", None)
-        if isinstance(direct, (dict, str)):
-            return artifact
         backing = getattr(artifact, "artifact", None)
         if backing is not None:
             return backing
+        direct = getattr(artifact, "custom_fields", None)
+        if isinstance(direct, (dict, str)):
+            return artifact
         return artifact
 
     @classmethod

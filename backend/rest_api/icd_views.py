@@ -47,6 +47,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from application.artifact_attribute_gateway import artifact_system_fields
 from application.artifact_diff_service import (
     ArtifactDiffService,
     creation_baseline_entry,
@@ -314,6 +315,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # Task 28c-2: was the current IcdVersion's UUID; that row no longer
             # exists, so this is the revision number instead.
             "current_revision": icd.current_revision,
+            # Attribut v3 WS2 (#936): Artifact-level system fields, actor form.
+            **artifact_system_fields(icd),
             "created_at": icd.created_at.isoformat() if icd.created_at else None,
         }
 
@@ -492,6 +495,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 custom_fields=custom_fields,
             )
             result = create_icd(dto)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            self._apply_artifact_system_fields(request, "Icd", result.icd, ctx)
             return Response(
                 {
                     "id": str(result.icd.id),
@@ -507,6 +512,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     "status": _icd_status(result.icd),
                     # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
                     "custom_fields": self._icd_custom_fields(result.icd),
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **artifact_system_fields(result.icd),
                     "created_at": result.icd.created_at.isoformat() if result.icd.created_at else None,
                 },
                 status=status.HTTP_201_CREATED,
@@ -555,6 +562,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "status": _icd_status(icd),
                 # REQ-L2-AS-037 / Epic #934 WS1: extended attributes.
                 "custom_fields": self._icd_custom_fields(icd),
+                # Attribut v3 WS2 (#936): Artifact-level system fields.
+                **artifact_system_fields(icd),
                 "created_at": icd.created_at.isoformat() if icd.created_at else None,
             })
         except Icd.DoesNotExist:
@@ -598,6 +607,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 custom_fields=request.data.get("custom_fields"),
             )
             result = update_icd(icd_id=UUID(pk), payload=dto, tenant_id=ctx.tenant_id)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            self._apply_artifact_system_fields(request, "Icd", result.icd, ctx)
             return Response({
                 "id": str(result.icd.id),
                 "name": result.icd.name,
@@ -609,6 +620,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "status": _icd_status(result.icd),
                 # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
                 "custom_fields": self._icd_custom_fields(result.icd),
+                # Attribut v3 WS2 (#936): Artifact-level system fields.
+                **artifact_system_fields(result.icd),
             })
         except Icd.DoesNotExist:
             return Response(

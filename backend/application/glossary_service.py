@@ -4,8 +4,8 @@ GlossaryService — Semantic Project Glossary CRUD and Versioning (REQ-L1-044).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
@@ -49,6 +49,19 @@ class GlossaryTermDTO:
     # REQ-L2-AS-037 / Epic #934 WS1: extended user-defined attributes live on
     # the backing Artifact; exposed so both transports can read them back.
     custom_fields: Optional[dict] = None
+    # Attribut v3 WS2 (#936): the backing Artifact ORM row, exposed through the
+    # read-only ``artifact`` property below. The ArtifactAttributeGateway needs
+    # it to persist the Artifact-level system fields (owner/reporter/priority)
+    # and to read them back — the DTO itself carries no persistence method. The
+    # private field name keeps the raw model instance out of the generic MCP
+    # ``_to_dict`` projection (which skips underscore-prefixed keys and could
+    # not JSON-encode a model instance anyway).
+    _artifact: Any = field(default=None, repr=False, compare=False)
+
+    @property
+    def artifact(self) -> Any:
+        """The DTO's backing ``persistence.Artifact`` row, or ``None``."""
+        return self._artifact
 
     @classmethod
     def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
@@ -74,6 +87,9 @@ class GlossaryTermDTO:
                 if term.artifact_id
                 else {}
             ),
+            # WS2 #936: expose the backing row so the gateway can persist and
+            # read the Artifact-level system fields for both transports.
+            _artifact=term.artifact if term.artifact_id else None,
         )
 
 

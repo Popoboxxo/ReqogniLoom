@@ -54,6 +54,12 @@ from mcp_server.tools.base import (
     resolve_status_map,
     validate_artifact_write,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
 
 #: The item type Icd is keyed by in the resolved AttributeDefinition (the same
 #: key ``IcdViewSet.attribute_item_type`` uses).
@@ -85,7 +91,7 @@ def _icd_to_dict(
     query instead of N. The single-item read/create/update paths leave it
     ``None`` and :func:`resolve_engine_status` keeps its per-item fallback.
     """
-    return {
+    result = {
         "id": str(icd.id),
         "workspace_id": str(icd.workspace_id),
         "name": icd.name,
@@ -107,6 +113,9 @@ def _icd_to_dict(
         "custom_fields": artifact_custom_fields(icd),
         "created_at": icd.created_at.isoformat() if icd.created_at else None,
     }
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, icd)
+    return result
 
 
 class IcdToolGroup(BaseToolGroup):
@@ -163,6 +172,8 @@ class IcdToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": [
                     "workspace_id",
@@ -211,6 +222,8 @@ class IcdToolGroup(BaseToolGroup):
                             "map). Replaces the stored map."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["id"],
             },
@@ -297,6 +310,10 @@ class IcdToolGroup(BaseToolGroup):
         )
         try:
             result = create_icd(payload)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                _ITEM_TYPE, result.icd, system_field_values(params), auth_context
+            )
         except (ValueError, ValidationError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         return ToolResult.ok({"icd": _icd_to_dict(result.icd)})
@@ -335,6 +352,10 @@ class IcdToolGroup(BaseToolGroup):
         try:
             result = update_icd(
                 icd_id=icd_id, payload=payload, tenant_id=auth_context.tenant_id
+            )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                _ITEM_TYPE, result.icd, system_field_values(params), auth_context
             )
         except Icd.DoesNotExist:
             return ToolResult.error("NOT_FOUND", f"ICD {icd_id} not found.")
