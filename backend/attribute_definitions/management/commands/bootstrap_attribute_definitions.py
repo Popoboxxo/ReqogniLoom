@@ -437,14 +437,20 @@ def synthetic_status_attribute() -> dict[str, Any]:
 #: round-trip no transport can satisfy, and an editable one would render a
 #: control whose PATCH is silently dropped.
 #:
-#: ``SYSTEM_FIELDS_ENABLED_ITEM_TYPES`` is the explicit rollout gate: the three
-#: fields are flipped to ``visible=True``/``editable=True`` **only** for the
-#: item types whose REST and MCP transports carry them today. That is what keeps
-#: the contract ratchet green while the remaining types are wired one wave at a
-#: time (see the WS2 plan / issue #936). ``owner``/``reporter`` are the
+#: ``SYSTEM_FIELDS_ENABLED_ITEM_TYPES`` is the explicit transport rollout gate:
+#: the three fields are flipped to ``editable=True`` **only** for the item types
+#: whose REST and MCP transports carry them today. That is what keeps the
+#: contract ratchet green while the remaining types are wired one wave at a
+#: time (see the WS2 plan / issue #936).
+#:
+#: ``visible`` has a second, orthogonal gate since WS6 (#939): the matrix's
+#: cross-cutting section 0 makes ``owner``/``reporter``/``priority`` hidden at
+#: stage 1 (``-``) and visible from stage 2 (``o``/``P``), so for an enabled type
+#: they are shown on standard/extended only. ``owner``/``reporter`` are the
 #: ``actor`` type (spec section 4), single-valued and internal-only by default;
 #: ``priority`` stays the enum with the ``low|medium|high|critical`` default
-#: scale.
+#: scale. Their stage-readiness rides on ``stage_mandatory`` (owner at stage 3,
+#: priority at stages 2–3).
 #:
 #: WS2 part B2 (#936) wired the remaining transport paths, so the canonical
 #: set now lives in ``attribute_definitions.schema`` (Django-free, importable
