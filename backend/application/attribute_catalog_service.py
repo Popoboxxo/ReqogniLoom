@@ -37,6 +37,7 @@ from attribute_definitions.schema import (
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from persistence.errors import NotFoundError
+from persistence.free_text import find_free_text_violation
 
 from application.attribute_definition_service import (
     AttributeDefinitionNotFound,
@@ -51,6 +52,42 @@ logger = logging.getLogger(__name__)
 _CATALOG_SCHEMA_VERSION = 1
 
 _ON_COLLISION_CHOICES = frozenset({"skip", "overwrite", "rename"})
+
+#: Mirrors persistence.models.AttributeCatalogEntry's ``CharField(max_length=64)``
+#: columns. ``create_entry``/``update_entry``/``import_catalog`` write straight
+#: to the model (never through a DRF serializer), so an oversized value reached
+#: Postgres' ``varchar(64)`` unchecked and raised an uncaught ``DataError``
+#: (not an ``IntegrityError``) — HTTP 500 / MCP ``INTERNAL_ERROR`` instead of
+#: the clean 400 a malformed payload deserves (#942). Capping here, before the
+#: write, turns that into an ``AttributeSchemaError`` -> 400/VALIDATION_ERROR.
+_CATEGORY_MAX_LENGTH = 64
+_ORIGIN_MAX_LENGTH = 64
+
+#: ``label``/``help_text`` are ``JSONField``s (no DB width), but they are
+#: user-authored display prose. Free-text rules + a generous bound keep a
+#: pathological value from being stored verbatim.
+_I18N_TEXT_MAX_LENGTH = 2000
+
+
+def _normalize_text(value: Any, *, max_length: int, field_name: str) -> str:
+    """Validate one free-text catalog field, or raise ``AttributeSchemaError``.
+
+    Rejects HTML markup / script-capable URIs through the shared
+    :mod:`persistence.free_text` core (the same rules the REST serializer seam
+    and ``Artifact.custom_fields`` apply, so REST and MCP stay identical) and
+    enforces *max_length* before the value can reach the database. Mirrors
+    ``application/workspace_service.py``'s ``_sanitize_and_cap`` (#56/#80), but
+    fails loudly with this service's error type instead of silently truncating.
+    """
+    clean = "" if value is None else str(value)
+    violation = find_free_text_violation(clean)
+    if violation is not None:
+        raise AttributeSchemaError([f"'{field_name}' {violation}"])
+    if len(clean) > max_length:
+        raise AttributeSchemaError(
+            [f"'{field_name}' must be at most {max_length} characters"]
+        )
+    return clean
 
 
 class AttributeCatalogNotFound(NotFoundError):
@@ -106,7 +143,13 @@ class AttributeCatalogService(ServiceBase):
 
     @staticmethod
     def _normalize_i18n(value: Any, key: str) -> dict[str, str]:
-        """Coerce ``{de, en}`` metadata to its canonical two-key shape."""
+        """Coerce ``{de, en}`` metadata to its canonical two-key shape.
+
+        Both language values are validated as free text (markup/scripted
+        URIs rejected) and length-capped — ``label``/``help_text`` are display
+        prose the catalog UI renders, so an unsanitized value would be stored
+        XSS for any non-React consumer (#942).
+        """
         if value is None:
             return {"de": "", "en": ""}
         if not isinstance(value, dict):
@@ -117,8 +160,16 @@ class AttributeCatalogService(ServiceBase):
                 [f"'{key}' has unknown key(s): {', '.join(extra)}"]
             )
         return {
-            "de": str(value.get("de") or ""),
-            "en": str(value.get("en") or ""),
+            "de": _normalize_text(
+                value.get("de"),
+                max_length=_I18N_TEXT_MAX_LENGTH,
+                field_name=f"{key}.de",
+            ),
+            "en": _normalize_text(
+                value.get("en"),
+                max_length=_I18N_TEXT_MAX_LENGTH,
+                field_name=f"{key}.en",
+            ),
         }
 
     # ---- Payloads ---------------------------------------------------------
@@ -267,6 +318,12 @@ class AttributeCatalogService(ServiceBase):
         clean_name = self._normalize_name(name)
         block = self._normalize_definition(definition)
         clean_tags = self._normalize_tags(tags)
+        clean_category = _normalize_text(
+            category, max_length=_CATEGORY_MAX_LENGTH, field_name="category"
+        )
+        clean_origin = _normalize_text(
+            origin, max_length=_ORIGIN_MAX_LENGTH, field_name="origin"
+        )
         clean_label = self._normalize_i18n(label, "label")
         clean_help = self._normalize_i18n(help_text, "help_text")
 
@@ -283,11 +340,11 @@ class AttributeCatalogService(ServiceBase):
                         tenant_id=ctx.tenant_id,
                         name=clean_name,
                         definition=block,
-                        category=category or "",
+                        category=clean_category,
                         tags=clean_tags,
                         label=clean_label,
                         help_text=clean_help,
-                        origin=origin or "",
+                        origin=clean_origin,
                     )
             except IntegrityError as exc:
                 # Concurrent create won the unique-index race.
@@ -299,7 +356,7 @@ class AttributeCatalogService(ServiceBase):
                 operation=AuditEntry.OP_CREATE,
                 entity_type="AttributeCatalogEntry",
                 entity_id=entry.id,
-                details={"name": clean_name, "category": category or ""},
+                details={"name": clean_name, "category": clean_category},
             )
         return self._entry_payload(entry)
 
@@ -333,7 +390,9 @@ class AttributeCatalogService(ServiceBase):
         if definition is not None:
             updates["definition"] = self._normalize_definition(definition)
         if category is not None:
-            updates["category"] = category
+            updates["category"] = _normalize_text(
+                category, max_length=_CATEGORY_MAX_LENGTH, field_name="category"
+            )
         if tags is not None:
             updates["tags"] = self._normalize_tags(tags)
         if label is not None:
@@ -341,7 +400,9 @@ class AttributeCatalogService(ServiceBase):
         if help_text is not None:
             updates["help_text"] = self._normalize_i18n(help_text, "help_text")
         if origin is not None:
-            updates["origin"] = origin
+            updates["origin"] = _normalize_text(
+                origin, max_length=_ORIGIN_MAX_LENGTH, field_name="origin"
+            )
         if deprecated is not None:
             updates["deprecated"] = bool(deprecated)
 
@@ -452,6 +513,15 @@ class AttributeCatalogService(ServiceBase):
             on_collision,
             reserved_field_names=AttributeDefinitionService._model_field_names(item_type),
         )
+        if on_collision == "skip" and merged == current["attributes"]:
+            # Nothing to copy: the entry's name already exists and "skip"
+            # leaves it untouched. Writing anyway would bump the definition's
+            # version and emit an audit entry for a genuine no-op (#942).
+            return {
+                "definition": current,
+                "catalog_entry_id": str(entry.id),
+                "on_collision": on_collision,
+            }
         if workspace_id is not None:
             updated = self._definitions.update_workspace(
                 ctx, item_type, workspace_id, merged
@@ -582,11 +652,19 @@ class AttributeCatalogService(ServiceBase):
         return {
             "name": self._normalize_name(doc.get("name")),
             "definition": self._normalize_definition(doc.get("definition")),
-            "category": str(doc.get("category") or ""),
+            "category": _normalize_text(
+                doc.get("category"),
+                max_length=_CATEGORY_MAX_LENGTH,
+                field_name="category",
+            ),
             "tags": self._normalize_tags(doc.get("tags")),
             "label": self._normalize_i18n(doc.get("label"), "label"),
             "help_text": self._normalize_i18n(doc.get("help_text"), "help_text"),
-            "origin": str(doc.get("origin") or ""),
+            "origin": _normalize_text(
+                doc.get("origin"),
+                max_length=_ORIGIN_MAX_LENGTH,
+                field_name="origin",
+            ),
             "deprecated": bool(doc.get("deprecated", False)),
         }
 

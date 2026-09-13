@@ -79,6 +79,25 @@ class TestCrud:
         )
         assert response.status_code == 400
 
+    def test_create_oversized_category_is_a_400_not_a_500(self, admin_client) -> None:
+        """#942: varchar(64) overflow must map to a clean validation error."""
+        response = _create(admin_client, category="x" * 65)
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_create_oversized_origin_is_a_400(self, admin_client) -> None:
+        response = _create(admin_client, origin="x" * 65)
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_patch_oversized_category_is_a_400(self, admin_client) -> None:
+        entry = _create(admin_client).json()
+        patched = admin_client.patch(
+            f"{BASE}{entry['id']}/", {"category": "x" * 65}, format="json"
+        )
+        assert patched.status_code == 400
+        assert patched.json()["error"]["code"] == "VALIDATION_ERROR"
+
     def test_patch_updates_only_sent_fields(self, admin_client) -> None:
         entry = _create(admin_client).json()
         patched = admin_client.patch(

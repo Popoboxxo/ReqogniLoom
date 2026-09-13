@@ -157,6 +157,25 @@ class TestCreate:
         with pytest.raises(AttributeSchemaError):
             _create(service, admin_ctx, label={"fr": "Impact"})
 
+    def test_create_rejects_oversized_category(self, service, admin_ctx) -> None:
+        """#942: >64 chars must be a schema error, not a Postgres DataError."""
+        with pytest.raises(AttributeSchemaError) as exc:
+            _create(service, admin_ctx, category="x" * 65)
+        assert "category" in str(exc.value)
+
+    def test_create_rejects_oversized_origin(self, service, admin_ctx) -> None:
+        with pytest.raises(AttributeSchemaError) as exc:
+            _create(service, admin_ctx, origin="x" * 65)
+        assert "origin" in str(exc.value)
+
+    def test_create_rejects_markup_in_label(self, service, admin_ctx) -> None:
+        with pytest.raises(AttributeSchemaError):
+            _create(
+                service,
+                admin_ctx,
+                label={"de": "<script>alert(1)</script>", "en": "Impact"},
+            )
+
     def test_create_is_audited(self, service, admin_ctx) -> None:
         from audit.models import AuditEntry
 
@@ -250,6 +269,17 @@ class TestUpdate:
     def test_update_unknown_entry_raises(self, service, admin_ctx) -> None:
         with pytest.raises(AttributeCatalogNotFound):
             service.update_entry(admin_ctx, uuid.uuid4(), category="x")
+
+    def test_update_rejects_oversized_category(self, service, admin_ctx) -> None:
+        entry = _create(service, admin_ctx)
+        with pytest.raises(AttributeSchemaError) as exc:
+            service.update_entry(admin_ctx, entry["id"], category="x" * 65)
+        assert "category" in str(exc.value)
+
+    def test_update_rejects_oversized_origin(self, service, admin_ctx) -> None:
+        entry = _create(service, admin_ctx)
+        with pytest.raises(AttributeSchemaError):
+            service.update_entry(admin_ctx, entry["id"], origin="x" * 65)
 
 
 class TestAddToDefinition:
@@ -368,6 +398,20 @@ class TestAddToDefinition:
                 admin_ctx, uuid.uuid4(), "Risk", preset="standard"
             )
 
+    def test_skip_on_an_existing_name_is_a_true_no_op(
+        self, service, admin_ctx, seeded
+    ) -> None:
+        """#942: a skipped collision must not bump the definition version."""
+        entry = _create(service, admin_ctx)
+        first = service.add_to_definition(
+            admin_ctx, entry["id"], "Risk", preset="standard", on_collision="skip"
+        )
+        second = service.add_to_definition(
+            admin_ctx, entry["id"], "Risk", preset="standard", on_collision="skip"
+        )
+        assert second["definition"]["version"] == first["definition"]["version"]
+        assert second["definition"]["attributes"] == first["definition"]["attributes"]
+
 
 class TestExportImport:
     def test_round_trip_into_an_empty_catalog(self, service, admin_ctx) -> None:
@@ -441,4 +485,20 @@ class TestExportImport:
         }
         with pytest.raises(AttributeSchemaError):
             service.import_catalog(admin_ctx, document)
+        assert service.list_entries(admin_ctx) == []
+
+    def test_import_rejects_an_oversized_category(self, service, admin_ctx) -> None:
+        document = {
+            "schema_version": 1,
+            "entries": [
+                {
+                    "name": "good",
+                    "definition": CATALOG_BLOCK,
+                    "category": "x" * 65,
+                },
+            ],
+        }
+        with pytest.raises(AttributeSchemaError) as exc:
+            service.import_catalog(admin_ctx, document)
+        assert "category" in str(exc.value)
         assert service.list_entries(admin_ctx) == []

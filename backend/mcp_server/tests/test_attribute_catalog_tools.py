@@ -306,6 +306,67 @@ class TestWriteHandlers:
         assert result.error_code == "VALIDATION_ERROR"
 
 
+class TestLengthValidation:
+    """#942: oversized catalog metadata is a VALIDATION_ERROR, not INTERNAL_ERROR."""
+
+    @pytest.mark.django_db
+    def test_create_oversized_category_is_a_validation_error(
+        self, admin_client, e2e_userrole_admin
+    ) -> None:
+        from mcp_server.views import _get_handler
+
+        result = _get_handler()._registry.dispatch_request(
+            "attribute_catalog.create",
+            {
+                "name": "oversized_category",
+                "definition": ENTRY["definition"],
+                "category": "x" * 65,
+            },
+            admin_client.defaults["HTTP_X_API_KEY"],
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    @pytest.mark.django_db
+    def test_create_oversized_origin_is_a_validation_error(
+        self, admin_client, e2e_userrole_admin
+    ) -> None:
+        from mcp_server.views import _get_handler
+
+        result = _get_handler()._registry.dispatch_request(
+            "attribute_catalog.create",
+            {
+                "name": "oversized_origin",
+                "definition": ENTRY["definition"],
+                "origin": "x" * 65,
+            },
+            admin_client.defaults["HTTP_X_API_KEY"],
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    @pytest.mark.django_db
+    def test_update_oversized_category_is_a_validation_error(
+        self, admin_client, e2e_userrole_admin
+    ) -> None:
+        from mcp_server.views import _get_handler
+
+        api_key = admin_client.defaults["HTTP_X_API_KEY"]
+        created = _get_handler()._registry.dispatch_request(
+            "attribute_catalog.create",
+            {"name": "oversized_update", "definition": ENTRY["definition"]},
+            api_key,
+        )
+        assert created.success is True, created
+        result = _get_handler()._registry.dispatch_request(
+            "attribute_catalog.update",
+            {"entry_id": created.data["entry"]["id"], "category": "x" * 65},
+            api_key,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+
 class TestFailClosedWriteGate:
     """The registry's RBAC gate must treat the five mutating tools as writes."""
 
