@@ -643,3 +643,64 @@ def test_write_ignores_system_and_workflow_owned_core_fields() -> None:
     assert getattr(artifact, "frozen", None) is None
     assert artifact.title == "changed"
     assert result.core == {"title": "changed"}
+
+
+# ---------------------------------------------------------------------------
+# Layout span discovery (WS4 #938, spec section 7)
+# ---------------------------------------------------------------------------
+
+
+def test_discover_defaults_every_span_to_full_without_a_flow() -> None:
+    """A legacy definition (no ``attribute_flow``) still yields a usable layout
+    hint: every attribute is ``full``."""
+    definitions = _FakeDefinitions(
+        attributes=[_attribute("title"), _attribute("note", kind="extended")],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+
+    spans = [d.span for d in gateway.discover(_ctx(), "Requirement", uuid4())]
+
+    assert spans == ["full", "full"]
+
+
+def test_discover_resolves_the_span_from_the_sections_attribute_flow() -> None:
+    section = {
+        "name": "general",
+        "order": 0,
+        "visible": True,
+        "layout": "full",
+        "attribute_flow": [
+            {"kind": "attribute", "name": "title", "span": "half"},
+            {"kind": "spacer", "size": "sm"},
+            {"kind": "attribute", "name": "note", "span": "quarter"},
+        ],
+    }
+    definitions = _FakeDefinitions(
+        attributes=[_attribute("title"), _attribute("note", kind="extended")],
+        sections=[section],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+
+    by_name = {d.name: d.span for d in gateway.discover(_ctx(), "Requirement", uuid4())}
+
+    assert by_name == {"title": "half", "note": "quarter"}
+
+
+def test_discover_span_falls_back_to_full_for_an_unpositioned_attribute() -> None:
+    section = {
+        "name": "general",
+        "order": 0,
+        "visible": True,
+        "layout": "full",
+        "attribute_flow": [{"kind": "attribute", "name": "title", "span": "half"}],
+    }
+    definitions = _FakeDefinitions(
+        attributes=[_attribute("title"), _attribute("extra")],
+        sections=[section],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+
+    by_name = {d.name: d.span for d in gateway.discover(_ctx(), "Requirement", uuid4())}
+
+    assert by_name == {"title": "half", "extra": "full"}

@@ -7,14 +7,23 @@ from attribute_definitions.schema import (
     ITEM_TYPES,
     PRESETS,
     AttributeSchemaError,
+    effective_attribute_flow,
+    effective_section_flow,
+    materialize_attribute_flow,
+    materialize_section_flow,
     materialize_sections,
     normalize_attribute,
+    normalize_flow_token,
     normalize_section,
+    resolve_attribute_span,
     stored_attributes,
+    stored_section_flow,
     stored_sections,
+    validate_attribute_flow_json,
     validate_definition_json,
     validate_definition_key,
     validate_meta_only_change,
+    validate_section_flow_json,
     validate_sections_json,
 )
 
@@ -548,4 +557,244 @@ def test_stored_attributes_backfills_the_display_properties() -> None:
     assert out[0]["reveal"] == "always"
     assert out[0]["mask"] == "none"
     assert out[0]["display_format"] == "text"
+
+
+# ---------------------------------------------------------------------------
+# Attribut v3 WS4 #938 — 12-column layout flow (spec section 7)
+# ---------------------------------------------------------------------------
+
+
+def _flow_section(name: str, **over) -> dict:
+    base = {"name": name}
+    base.update(over)
+    return base
+
+
+def test_normalize_section_omits_attribute_flow_when_absent() -> None:
+    """Additive: a section without a flow keeps the exact pre-WS4 shape, so
+    every stored definition normalizes unchanged."""
+    out = normalize_section({"name": "general"})
+    assert "attribute_flow" not in out
+
+
+def test_normalize_section_carries_a_valid_attribute_flow() -> None:
+    out = normalize_section(
+        {
+            "name": "general",
+            "attribute_flow": [
+                {"kind": "attribute", "name": "title", "span": "half"},
+                {"kind": "spacer", "size": "sm"},
+                {"kind": "attribute", "name": "description"},
+            ],
+        }
+    )
+    assert out["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "half"},
+        {"kind": "spacer", "size": "sm"},
+        {"kind": "attribute", "name": "description", "span": "full"},
+    ]
+
+
+def test_normalize_flow_token_rejects_an_unknown_kind() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_flow_token({"kind": "column"}, allowed_kinds=frozenset({"section"}))
+    assert "kind" in " ".join(exc.value.errors)
+
+
+def test_normalize_flow_token_enforces_the_level_gate() -> None:
+    """``section_flow`` never accepts an attribute token and vice versa."""
+    with pytest.raises(AttributeSchemaError):
+        normalize_flow_token(
+            {"kind": "attribute", "name": "title"},
+            allowed_kinds=frozenset({"section", "spacer"}),
+        )
+    with pytest.raises(AttributeSchemaError):
+        normalize_flow_token(
+            {"kind": "section", "name": "general"},
+            allowed_kinds=frozenset({"attribute", "spacer"}),
+        )
+
+
+@pytest.mark.parametrize("span", ["third", "12", "wide"])
+def test_normalize_flow_token_rejects_an_invalid_span(span) -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_flow_token(
+            {"kind": "attribute", "name": "title", "span": span},
+            allowed_kinds=frozenset({"attribute"}),
+        )
+    assert "span" in " ".join(exc.value.errors)
+
+
+@pytest.mark.parametrize("size", ["xl", "1", "medium"])
+def test_normalize_flow_token_rejects_an_invalid_spacer_size(size) -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_flow_token(
+            {"kind": "spacer", "size": size},
+            allowed_kinds=frozenset({"spacer"}),
+        )
+    assert "size" in " ".join(exc.value.errors)
+
+
+def test_normalize_flow_token_rejects_an_unknown_key() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        normalize_flow_token(
+            {"kind": "spacer", "size": "sm", "span": "full"},
+            allowed_kinds=frozenset({"spacer"}),
+        )
+    assert "span" in " ".join(exc.value.errors)
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        {"kind": ["section"], "name": "general"},
+        {"kind": "attribute", "name": "title", "span": ["half"]},
+        {"kind": "spacer", "size": {"value": "sm"}},
+    ],
+)
+def test_normalize_flow_token_rejects_unhashable_values_as_schema_errors(token) -> None:
+    """A list/dict is unhashable, so a bare frozenset membership test would
+    raise ``TypeError`` (a 500); it must be the documented 400 (WS3-F3)."""
+    with pytest.raises(AttributeSchemaError):
+        normalize_flow_token(token, allowed_kinds=frozenset({"attribute", "section", "spacer"}))
+
+
+def test_validate_section_flow_json_preserves_order() -> None:
+    flow = [
+        {"kind": "section", "name": "content"},
+        {"kind": "spacer", "size": "md"},
+        {"kind": "section", "name": "general"},
+    ]
+    assert validate_section_flow_json(flow) == flow
+
+
+def test_validate_attribute_flow_json_rejects_a_non_list() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_attribute_flow_json({"kind": "attribute", "name": "title"})
+    assert "attribute_flow" in " ".join(exc.value.errors)
+
+
+def test_materialize_section_flow_derives_the_section_order() -> None:
+    sections = [
+        {"name": "general", "order": 0, "visible": True, "layout": "full"},
+        {"name": "extra", "order": 1, "visible": True, "layout": "half"},
+    ]
+    assert materialize_section_flow(sections) == [
+        {"kind": "section", "name": "general"},
+        {"kind": "section", "name": "extra"},
+    ]
+
+
+def test_materialize_attribute_flow_derives_full_width_per_attribute() -> None:
+    attributes = [
+        normalize_attribute(_core("title", order=0)),
+        normalize_attribute({"name": "note", "kind": "extended", "type": "text", "order": 1}),
+    ]
+    assert materialize_attribute_flow(attributes) == [
+        {"kind": "attribute", "name": "title", "span": "full"},
+        {"kind": "attribute", "name": "note", "span": "full"},
+    ]
+
+
+def test_validate_definition_json_carries_section_and_attribute_flows() -> None:
+    payload = {
+        "attributes": [_core("title", section="general"), _core("note", section="extra")],
+        "sections": [
+            _flow_section("general"),
+            _flow_section(
+                "extra",
+                attribute_flow=[{"kind": "attribute", "name": "note", "span": "quarter"}],
+            ),
+        ],
+        "section_flow": [
+            {"kind": "section", "name": "general"},
+            {"kind": "spacer", "size": "lg"},
+            {"kind": "section", "name": "extra"},
+        ],
+    }
+    out = validate_definition_json(payload)
+    assert out["section_flow"] == payload["section_flow"]
+    by_name = {s["name"]: s for s in out["sections"]}
+    assert by_name["extra"]["attribute_flow"] == [
+        {"kind": "attribute", "name": "note", "span": "quarter"}
+    ]
+    assert "attribute_flow" not in by_name["general"]
+
+
+def test_validate_definition_json_omits_the_flow_key_when_absent() -> None:
+    out = validate_definition_json({"attributes": [_core("title")]})
+    assert "section_flow" not in out
+
+
+def test_validate_definition_json_rejects_an_invalid_section_flow() -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        validate_definition_json(
+            {
+                "attributes": [_core("title")],
+                "section_flow": [{"kind": "attribute", "name": "title"}],
+            }
+        )
+    assert "kind" in " ".join(exc.value.errors)
+
+
+def test_stored_section_flow_returns_empty_without_the_key() -> None:
+    assert stored_section_flow({"attributes": []}) == []
+
+
+def test_stored_section_flow_normalizes_a_stored_flow() -> None:
+    out = stored_section_flow(
+        {"attributes": [], "section_flow": [{"kind": "spacer", "size": "lg"}]}
+    )
+    assert out == [{"kind": "spacer", "size": "lg"}]
+
+
+def test_effective_section_flow_derives_from_sections_when_absent() -> None:
+    definition = {
+        "attributes": [],
+        "sections": [
+            {"name": "general", "order": 0, "visible": True, "layout": "full"},
+        ],
+    }
+    assert effective_section_flow(definition) == [
+        {"kind": "section", "name": "general"}
+    ]
+
+
+def test_effective_section_flow_prefers_a_stored_flow() -> None:
+    definition = {
+        "attributes": [],
+        "sections": [{"name": "general", "order": 0, "visible": True, "layout": "full"}],
+        "section_flow": [{"kind": "spacer", "size": "sm"}],
+    }
+    assert effective_section_flow(definition) == [{"kind": "spacer", "size": "sm"}]
+
+
+def test_effective_attribute_flow_derives_from_attributes_when_absent() -> None:
+    section = {"name": "general"}
+    attributes = [normalize_attribute(_core("title")), normalize_attribute(_core("note"))]
+    assert effective_attribute_flow(section, attributes) == [
+        {"kind": "attribute", "name": "title", "span": "full"},
+        {"kind": "attribute", "name": "note", "span": "full"},
+    ]
+
+
+def test_effective_attribute_flow_prefers_a_stored_flow() -> None:
+    section = {
+        "name": "general",
+        "attribute_flow": [{"kind": "attribute", "name": "title", "span": "half"}],
+    }
+    assert effective_attribute_flow(section, [normalize_attribute(_core("title"))]) == [
+        {"kind": "attribute", "name": "title", "span": "half"}
+    ]
+
+
+def test_resolve_attribute_span_defaults_to_full_without_a_flow() -> None:
+    assert resolve_attribute_span("title", {"name": "general"}) == "full"
+    assert resolve_attribute_span("title", None) == "full"
+    section = {
+        "name": "general",
+        "attribute_flow": [{"kind": "attribute", "name": "title", "span": "quarter"}],
+    }
+    assert resolve_attribute_span("title", section) == "quarter"
+    assert resolve_attribute_span("other", section) == "full"
 

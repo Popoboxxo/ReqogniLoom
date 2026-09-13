@@ -119,11 +119,12 @@ class WorkspaceAttributeDefinitionStore:
         item_type: str,
         attributes: list[dict[str, Any]],
         sections: list[dict[str, Any]] | None = None,
+        section_flow: list[dict[str, Any]] | None = None,
     ) -> WorkspaceAttributeDefinition:
         """Persist a workspace override and flip ``is_customized`` to True.
 
-        *sections* is optional — see
-        ``GlobalAttributeDefinitionStore.update()``'s identical parameter.
+        *sections*/*section_flow* are optional — see
+        ``GlobalAttributeDefinitionStore.update()``'s identical parameters.
 
         Raises:
             AttributeDefinitionNotFound: the workspace has never been resolved.
@@ -139,6 +140,8 @@ class WorkspaceAttributeDefinitionStore:
         raw_payload: dict[str, Any] = {"attributes": attributes}
         if sections is not None:
             raw_payload["sections"] = sections
+        if section_flow is not None:
+            raw_payload["section_flow"] = section_flow
         payload = validate_definition_json(raw_payload)
         # Ledger item (e): normalize the stored row before it is indexed as a
         # dict of required keys — see global_definition_store.update() for the
@@ -146,11 +149,22 @@ class WorkspaceAttributeDefinitionStore:
         old = stored_attributes(obj.definition_json)
         validate_meta_only_change(old, payload["attributes"])
 
-        # Task 7/8: carry the existing 'sections' list over when the caller
-        # didn't send one — see GlobalAttributeDefinitionStore.update()'s
-        # identical comment for why (definition_json is replaced wholesale).
-        if "sections" not in payload and isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
+        # Task 7/8 + WS4: carry the existing 'sections'/'section_flow' lists
+        # over when the caller didn't send one — see
+        # GlobalAttributeDefinitionStore.update()'s identical comment for why
+        # (definition_json is replaced wholesale).
+        if (
+            "sections" not in payload
+            and isinstance(obj.definition_json, dict)
+            and "sections" in obj.definition_json
+        ):
             payload["sections"] = obj.definition_json["sections"]
+        if (
+            "section_flow" not in payload
+            and isinstance(obj.definition_json, dict)
+            and "section_flow" in obj.definition_json
+        ):
+            payload["section_flow"] = obj.definition_json["section_flow"]
 
         obj.definition_json = payload
         obj.is_customized = True

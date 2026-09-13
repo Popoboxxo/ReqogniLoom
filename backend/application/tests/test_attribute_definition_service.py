@@ -1024,3 +1024,131 @@ def test_delete_workspace_of_an_unknown_name_raises_not_found(
         with pytest.raises(AttributeDefinitionNotFound):
             service.delete_workspace(admin_ctx, "Risk", workspace.id, "nope")
         assert service.resolve(admin_ctx, "Risk", workspace.id)["is_customized"] is False
+
+
+# --- Attribut v3 WS4 #938: 12-column layout flows --------------------------
+
+
+_SECTION_FLOW = [
+    {"kind": "section", "name": "general"},
+    {"kind": "spacer", "size": "md"},
+    {"kind": "section", "name": "extra"},
+]
+_SECTIONS_WITH_FLOW = [
+    {
+        "name": "general",
+        "order": 0,
+        "visible": True,
+        "layout": "full",
+        "attribute_flow": [{"kind": "attribute", "name": "title", "span": "half"}],
+    },
+    {"name": "extra", "order": 1, "visible": True, "layout": "full"},
+]
+
+
+@pytest.mark.django_db
+def test_update_global_persists_the_layout_flows(service, admin_ctx, seeded) -> None:
+    out = service.update_global(
+        admin_ctx, "Risk", "standard", [TITLE, NOTE],
+        _SECTIONS_WITH_FLOW, _SECTION_FLOW,
+    )
+    assert out["section_flow"] == _SECTION_FLOW
+    by_name = {s["name"]: s for s in out["sections"]}
+    assert by_name["general"]["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "half"}
+    ]
+
+
+@pytest.mark.django_db
+def test_update_global_preserves_the_flow_when_omitted(service, admin_ctx, seeded) -> None:
+    service.update_global(
+        admin_ctx, "Risk", "standard", [TITLE, NOTE],
+        _SECTIONS_WITH_FLOW, _SECTION_FLOW,
+    )
+    out = service.update_global(admin_ctx, "Risk", "standard", [TITLE, dict(NOTE, order=2)])
+    assert out["section_flow"] == _SECTION_FLOW
+    by_name = {s["name"]: s for s in out["sections"]}
+    assert by_name["general"]["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "half"}
+    ]
+
+
+@pytest.mark.django_db
+def test_update_global_rejects_an_invalid_section_flow(service, admin_ctx, seeded) -> None:
+    with pytest.raises(AttributeSchemaError) as exc:
+        service.update_global(
+            admin_ctx, "Risk", "standard", [TITLE],
+            section_flow=[{"kind": "attribute", "name": "title"}],
+        )
+    assert "kind" in " ".join(exc.value.errors)
+
+
+@pytest.mark.django_db
+def test_update_workspace_persists_the_layout_flows(
+    service, admin_ctx, workspace, seeded
+) -> None:
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "standard"
+        service.resolve(admin_ctx, "Risk", workspace.id)
+        out = service.update_workspace(
+            admin_ctx, "Risk", workspace.id, [TITLE, NOTE],
+            _SECTIONS_WITH_FLOW, _SECTION_FLOW,
+        )
+    assert out["section_flow"] == _SECTION_FLOW
+    assert {s["name"]: s for s in out["sections"]}["general"]["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "half"}
+    ]
+
+
+@pytest.mark.django_db
+def test_export_import_round_trips_the_layout_flows(service, admin_ctx, seeded) -> None:
+    """WS4 #938: a stored flow set (definition-level + per-section) survives an
+    export -> import cycle into a differently-seeded target untouched."""
+    service.update_global(
+        admin_ctx, "Risk", "standard", [TITLE, NOTE],
+        _SECTIONS_WITH_FLOW, _SECTION_FLOW,
+    )
+    exported = service.export_definition(admin_ctx, "Risk", preset="standard")
+    assert exported["section_flow"] == _SECTION_FLOW
+    assert {s["name"]: s for s in exported["sections"]}["general"]["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "half"}
+    ]
+
+    imported = service.import_definition(
+        admin_ctx, "Risk", exported, preset="minimal", on_collision="overwrite"
+    )
+    assert imported["section_flow"] == _SECTION_FLOW
+    assert {s["name"]: s for s in imported["sections"]}["general"]["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "half"}
+    ]
+    # Persisted, not just echoed.
+    stored = service.get_global(admin_ctx, "Risk", "minimal")
+    assert stored["section_flow"] == _SECTION_FLOW
+
+
+@pytest.mark.django_db
+def test_import_definition_without_a_flow_key_leaves_it_untouched(
+    service, admin_ctx, seeded
+) -> None:
+    service.update_global(
+        admin_ctx, "Risk", "standard", [TITLE, NOTE],
+        _SECTIONS_WITH_FLOW, _SECTION_FLOW,
+    )
+    imported = service.import_definition(
+        admin_ctx, "Risk",
+        {"schema_version": 1, "attributes": [dict(TITLE, order=5)]},
+        preset="standard",
+    )
+    assert imported["section_flow"] == _SECTION_FLOW
+
+
+@pytest.mark.django_db
+def test_import_definition_rejects_a_non_list_section_flow(
+    service, admin_ctx, seeded
+) -> None:
+    with pytest.raises(AttributeSchemaError):
+        service.import_definition(
+            admin_ctx, "Risk",
+            {"schema_version": 1, "attributes": [], "section_flow": {"kind": "section"}},
+            preset="standard",
+        )

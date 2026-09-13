@@ -39,6 +39,7 @@ from attribute_definitions.schema import (
     AttributeDefinitionConflictError,
     AttributeSchemaError,
     stored_attributes,
+    stored_section_flow,
     stored_sections,
     validate_new_attribute_name,
 )
@@ -178,7 +179,7 @@ class AttributeDefinitionService(ServiceBase):
             )
             for attribute in attributes
         }
-        return {
+        payload: dict[str, Any] = {
             "item_type": row.item_type,
             "preset": row.preset,
             "is_customized": row.is_customized,
@@ -189,6 +190,12 @@ class AttributeDefinitionService(ServiceBase):
             # before this is ever called, so 'sections' is always present.
             "sections": stored_sections(row.definition_json),
         }
+        # WS4 #938: the definition-level section flow travels with the payload
+        # "soweit vorhanden" — additive, so a row without one keeps the exact
+        # payload shape it had (consumers derive the default flow instead).
+        if isinstance(row.definition_json, dict) and "section_flow" in row.definition_json:
+            payload["section_flow"] = stored_section_flow(row.definition_json)
+        return payload
 
     def _global_payload(
         self, item_type: str, preset: str, row: Any, *, propagated: int | None = None
@@ -206,6 +213,13 @@ class AttributeDefinitionService(ServiceBase):
             # 'sections' -- stored_sections tolerates that, returning []).
             "sections": stored_sections(row.definition_json) if row is not None else [],
         }
+        # WS4 #938: same additive flow exposure as _workspace_payload.
+        if (
+            row is not None
+            and isinstance(row.definition_json, dict)
+            and "section_flow" in row.definition_json
+        ):
+            payload["section_flow"] = stored_section_flow(row.definition_json)
         if propagated is not None:
             payload["propagated_workspace_count"] = propagated
         return payload
@@ -309,12 +323,13 @@ class AttributeDefinitionService(ServiceBase):
         preset: str,
         attributes: list[dict[str, Any]],
         sections: list[dict[str, Any]] | None = None,
+        section_flow: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Replace the tenant-wide default and propagate to on-default workspaces.
 
-        *sections* (Task 8) is optional — omitted, the row's existing
-        ``sections`` list is preserved unchanged; passed, it replaces it
-        (validated the same way ``attributes`` is).
+        *sections* (Task 8) and *section_flow* (WS4 #938) are optional —
+        omitted, the row's existing value is preserved unchanged; passed, it
+        replaces it (validated the same way ``attributes`` is).
 
         Raises:
             PermissionDeniedError: caller is not an admin.
@@ -326,7 +341,7 @@ class AttributeDefinitionService(ServiceBase):
         self._set_tenant_context(ctx)
         with transaction.atomic():
             row, propagated = self._global.update(
-                ctx.tenant_id, item_type, preset, attributes, sections
+                ctx.tenant_id, item_type, preset, attributes, sections, section_flow
             )
             self._audit(
                 ctx,
@@ -350,17 +365,19 @@ class AttributeDefinitionService(ServiceBase):
         workspace_id: UUID,
         attributes: list[dict[str, Any]],
         sections: list[dict[str, Any]] | None = None,
+        section_flow: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Persist a workspace override (sets ``is_customized=True``).
 
-        *sections* is optional — see :meth:`update_global`'s identical
-        parameter.
+        *sections*/*section_flow* are optional — see :meth:`update_global`'s
+        identical parameters.
         """
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         with transaction.atomic():
             row = self._workspace.update(
-                ctx.tenant_id, workspace_id, item_type, attributes, sections
+                ctx.tenant_id, workspace_id, item_type, attributes, sections,
+                section_flow,
             )
             self._audit(
                 ctx,
@@ -703,7 +720,8 @@ class AttributeDefinitionService(ServiceBase):
         preset: str | None = None,
         workspace_id: UUID | None = None,
     ) -> dict[str, Any]:
-        """Serialize a whole definition (attributes + sections) for download.
+        """Serialize a whole definition (attributes + sections + optional
+        ``section_flow``) for download.
 
         Exactly one of *preset* (global scope) / *workspace_id* (workspace
         scope, resolved from the workspace's own tier) must be given.
@@ -739,12 +757,18 @@ class AttributeDefinitionService(ServiceBase):
             raise AttributeSchemaError(
                 ["export_definition requires either preset or workspace_id"]
             )
-        return {
+        document: dict[str, Any] = {
             "schema_version": _EXPORT_SCHEMA_VERSION,
             "item_type": item_type,
             "attributes": stored_attributes(row.definition_json),
             "sections": stored_sections(row.definition_json),
         }
+        # WS4 #938: a stored definition-level flow round-trips losslessly.
+        # Absent, the key stays absent (the importer then leaves the target's
+        # own flow untouched, and both sides derive the default).
+        if isinstance(row.definition_json, dict) and "section_flow" in row.definition_json:
+            document["section_flow"] = stored_section_flow(row.definition_json)
+        return document
 
     def import_definition(
         self,
@@ -775,18 +799,21 @@ class AttributeDefinitionService(ServiceBase):
 
         ``payload["sections"]`` is merged by the identical rules and applied
         alongside the attributes; a document without a ``sections`` key leaves
-        the target's own sections untouched.
+        the target's own sections untouched. The same holds for the WS4 #938
+        ``section_flow`` and the per-section ``attribute_flow``: a document
+        carrying them round-trips them losslessly, one without leaves the
+        target's flow untouched.
 
         Raises:
             PermissionDeniedError: caller is not an admin.
             AttributeSchemaError: *on_collision* is not one of "skip"/
                 "overwrite"/"rename", the payload's ``schema_version`` is
                 missing or unrecognized, ``attributes`` is not a list,
-                ``sections`` is present but not a list, an added attribute
-                name is invalid or shadows a model field, or the merged result
-                fails the normal update validation (e.g. an incoming
-                ``kind="core"`` entry — rejected the same way a fresh core
-                create is).
+                ``sections`` is present but not a list, ``section_flow`` is
+                present but not a list, an added attribute name is invalid or
+                shadows a model field, or the merged result fails the normal
+                update validation (e.g. an incoming ``kind="core"`` entry —
+                rejected the same way a fresh core create is).
             AttributeDefinitionNotFound: no definition exists yet to import into.
         """
         ServiceBase._assert_permission(ctx, "admin")
@@ -805,6 +832,18 @@ class AttributeDefinitionService(ServiceBase):
         incoming_sections = payload.get("sections")
         if incoming_sections is not None and not isinstance(incoming_sections, list):
             raise AttributeSchemaError(["'sections', if present, must be a list"])
+        # WS4 #938. ``"section_flow" in payload`` (not ``.get``) distinguishes
+        # "document carries no flow" (leave the target's flow alone) from an
+        # explicitly empty flow, exactly like ``sections`` above. The
+        # section-level ``attribute_flow`` needs no special handling: it lives
+        # inside the section entries ``_merge_import`` already carries over
+        # verbatim under ``overwrite`` and for every newly added name.
+        incoming_section_flow: list[Any] | None = None
+        if "section_flow" in payload:
+            raw_flow = payload["section_flow"]
+            if not isinstance(raw_flow, list):
+                raise AttributeSchemaError(["'section_flow', if present, must be a list"])
+            incoming_section_flow = raw_flow
 
         if workspace_id is not None:
             current_row = self._workspace.resolve(
@@ -846,11 +885,19 @@ class AttributeDefinitionService(ServiceBase):
                 on_collision,
             )
         )
+        # WS4 #938: the section flow is a whole-list property (not an entry
+        # list merged by name), so an incoming flow simply replaces the
+        # target's; ``None`` keeps the target's own flow untouched. The
+        # section-level ``attribute_flow`` already travelled with
+        # ``merged_sections`` above.
         if workspace_id is not None:
             return self.update_workspace(
-                ctx, item_type, workspace_id, merged, merged_sections
+                ctx, item_type, workspace_id, merged, merged_sections,
+                incoming_section_flow,
             )
-        return self.update_global(ctx, item_type, preset, merged, merged_sections)
+        return self.update_global(
+            ctx, item_type, preset, merged, merged_sections, incoming_section_flow
+        )
 
     @staticmethod
     def _merge_import(

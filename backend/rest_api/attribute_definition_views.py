@@ -90,6 +90,23 @@ def _read_sections(
     return sections, None
 
 
+def _read_section_flow(
+    request: Request, lang: str
+) -> tuple[list[dict[str, Any]] | None, Response | None]:
+    """Extract the optional ``section_flow`` list of a PUT body (WS4 #938).
+
+    Same contract as :func:`_read_sections`: absent means "leave the row's
+    current flow unchanged"; only a present-but-wrong-shaped value is a 400.
+    """
+    payload = request.data if isinstance(request.data, dict) else {}
+    if "section_flow" not in payload:
+        return None, None
+    section_flow = payload["section_flow"]
+    if not isinstance(section_flow, list):
+        return None, _validation(lang, "'section_flow', if present, must be a list.")
+    return section_flow, None
+
+
 class AttributeDefaultsListView(APIView):
     """GET /attribute-defaults/ — list the tenant's global attribute defaults."""
 
@@ -130,9 +147,12 @@ class AttributeDefaultsDetailView(APIView):
         sections, sections_error = _read_sections(request, lang)
         if sections_error is not None:
             return sections_error
+        section_flow, section_flow_error = _read_section_flow(request, lang)
+        if section_flow_error is not None:
+            return section_flow_error
         try:
             payload = AttributeDefinitionService().update_global(
-                ctx, item_type, preset, attributes, sections
+                ctx, item_type, preset, attributes, sections, section_flow
             )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))
@@ -211,9 +231,12 @@ class WorkspaceAttributeDefinitionView(APIView):
         sections, sections_error = _read_sections(request, lang)
         if sections_error is not None:
             return sections_error
+        section_flow, section_flow_error = _read_section_flow(request, lang)
+        if section_flow_error is not None:
+            return section_flow_error
         try:
             payload = AttributeDefinitionService().update_workspace(
-                ctx, item_type, workspace_id, attributes, sections
+                ctx, item_type, workspace_id, attributes, sections, section_flow
             )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))

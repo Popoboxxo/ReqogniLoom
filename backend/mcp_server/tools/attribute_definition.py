@@ -71,6 +71,10 @@ def _definition_payload(definition: Dict[str, Any]) -> Dict[str, Any]:
         # ``attribute-defaults`` payload is complete. The global ``list``
         # payload may have no materialized sections yet — fall back to ``[]``.
         "sections": list(definition.get("sections", [])),
+        # WS4 #938: the definition-level section flow travels the same way;
+        # absent (legacy definition) reads as ``[]`` and the consumer derives
+        # the default from the section order.
+        "section_flow": list(definition.get("section_flow", [])),
         **(
             {"propagated_workspace_count": int(definition["propagated_workspace_count"])}
             if "propagated_workspace_count" in definition
@@ -129,8 +133,17 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
                     "items": {"type": "object"},
                     "description": (
                         "Optional full replacement section list "
-                        "(name, order, visible, layout). Omit to keep the "
-                        "row's current sections."
+                        "(name, order, visible, layout, attribute_flow). Omit "
+                        "to keep the row's current sections."
+                    ),
+                },
+                "section_flow": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "Optional full replacement 12-column section flow "
+                        "([{kind: section, name} | {kind: spacer, size}]). "
+                        "Omit to keep the row's current section flow."
                     ),
                 },
             },
@@ -372,9 +385,16 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
             return ToolResult.error(
                 "VALIDATION_ERROR", "Parameter 'sections', if present, must be a list."
             )
+        section_flow = params.get("section_flow")
+        if section_flow is not None and not isinstance(section_flow, list):
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'section_flow', if present, must be a list.",
+            )
         try:
             definition = self._get_service().update_workspace(
-                auth_context, item_type, workspace_id, attributes, sections
+                auth_context, item_type, workspace_id, attributes, sections,
+                section_flow,
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))

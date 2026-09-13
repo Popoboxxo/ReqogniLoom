@@ -317,6 +317,123 @@ def test_update_rejects_a_non_list_sections_param(group, ctx) -> None:
     assert result.error_code == "VALIDATION_ERROR"
 
 
+def test_update_schema_declares_section_flow(group) -> None:
+    schema = {t["name"]: t["inputSchema"] for t in group.get_tool_schemas()}
+    properties = schema["attribute_definition.update"]["properties"]
+    assert "section_flow" in properties
+    assert "section_flow" not in schema["attribute_definition.update"]["required"]
+
+
+@pytest.mark.django_db
+def test_update_persists_the_layout_flows(group) -> None:
+    """WS4 #938: the MCP ``update`` must carry the definition-level
+    ``section_flow`` and a section's ``attribute_flow`` through to the store."""
+    from application.attribute_definition_service import AttributeDefinitionService
+    from attribute_definitions.schema import stored_section_flow, stored_sections
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    tenant, workspace = _risk_workspace_with_definition()
+    admin_ctx = _admin_ctx(tenant)
+    definition = AttributeDefinitionService().resolve(admin_ctx, "Risk", workspace.id)
+    sections = [
+        {
+            "name": "general",
+            "order": 0,
+            "visible": True,
+            "layout": "full",
+            "attribute_flow": [{"kind": "attribute", "name": "title", "span": "quarter"}],
+        }
+    ]
+    section_flow = [
+        {"kind": "section", "name": "general"},
+        {"kind": "spacer", "size": "lg"},
+    ]
+
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(workspace.id),
+            "attributes": definition["attributes"],
+            "sections": sections,
+            "section_flow": section_flow,
+        },
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is True, result.message
+    row = WorkspaceAttributeDefinitionStore().get(tenant.id, workspace.id, "Risk")
+    assert row is not None
+    assert stored_section_flow(row.definition_json) == section_flow
+    assert stored_sections(row.definition_json)[0]["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "quarter"}
+    ]
+    # The read-back payload must expose the same flow.
+    assert result.data["definition"]["section_flow"] == section_flow
+
+
+@pytest.mark.django_db
+def test_update_rejects_an_invalid_section_flow(group) -> None:
+    from application.attribute_definition_service import AttributeDefinitionService
+
+    tenant, workspace = _risk_workspace_with_definition()
+    admin_ctx = _admin_ctx(tenant)
+    definition = AttributeDefinitionService().resolve(admin_ctx, "Risk", workspace.id)
+
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(workspace.id),
+            "attributes": definition["attributes"],
+            "section_flow": [{"kind": "section", "name": "general", "span": "full"}],
+        },
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "span" in result.message
+
+
+@pytest.mark.django_db
+def test_update_rejects_a_non_list_section_flow_param(group, ctx) -> None:
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(uuid.uuid4()),
+            "attributes": [],
+            "section_flow": "nope",
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+def test_get_payload_always_carries_a_section_flow_list(group, ctx) -> None:
+    """A legacy payload without a flow reads back as an empty list, so an MCP
+    client always has a well-typed key to consume."""
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.resolve.return_value = PAYLOAD
+        result = group.execute_tool(
+            tool_name="attribute_definition.get",
+            params={"item_type": "Risk", "workspace_id": str(uuid.uuid4())},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True
+    assert result.data["definition"]["section_flow"] == []
+
+
 @pytest.mark.django_db
 def test_get_maps_a_cross_tenant_workspace_id_to_permission_denied() -> None:
     """Adversarial probe (standing instruction on this SDD run): a

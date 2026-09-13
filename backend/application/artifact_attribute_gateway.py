@@ -82,6 +82,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from attribute_definitions.schema import resolve_attribute_span
 
 if TYPE_CHECKING:
     from application.attribute_definition_service import AttributeDefinitionService
@@ -204,6 +205,12 @@ class AttributeDescriptor:
     options: list[dict[str, str]]
     validation: dict[str, Any]
     order: int
+    #: Layout span (WS4 #938, spec section 7): the token positioning this
+    #: attribute inside its section's 12-column grid — ``full``/``half``/
+    #: ``quarter``. Resolved from the section's ``attribute_flow``; ``full``
+    #: when the definition carries no flow (the pre-WS4 stacking), so the
+    #: descriptor is a usable layout hint for every stored definition.
+    span: str
     #: Generic display/interaction properties (spec section 5, WS3 #937). Part
     #: of the discovery contract so a renderer can build the reveal/copy/mask
     #: affordance from the same projection on both transports.
@@ -523,6 +530,14 @@ class ArtifactAttributeGateway:
                 :meth:`resolve_definition`.
         """
         definition = self.resolve_definition(ctx, item_type, workspace_id)
+        # WS4 #938: an attribute's span lives on its *section*'s
+        # ``attribute_flow``; resolve it here so both transports receive the
+        # same layout hint. A definition without sections/flows (the additive
+        # legacy case) yields "full" for every attribute.
+        sections_by_name = {
+            section["name"]: section
+            for section in (definition.get("sections") or [])
+        }
         return [
             AttributeDescriptor(
                 name=attribute["name"],
@@ -537,6 +552,9 @@ class ArtifactAttributeGateway:
                 options=attribute["options"],
                 validation=attribute["validation"],
                 order=attribute["order"],
+                span=resolve_attribute_span(
+                    attribute["name"], sections_by_name.get(attribute["section"])
+                ),
                 copyable=attribute["copyable"],
                 reveal=attribute["reveal"],
                 mask=attribute["mask"],

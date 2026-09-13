@@ -175,8 +175,61 @@ _NEW_ATTRIBUTE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 #: ``"half"`` section (or leaves the second column empty if it is alone).
 SECTION_LAYOUTS: frozenset[str] = frozenset({"full", "half"})
 
+# --- Layout engine, 12-column grid (spec section 7, WS4 #938) --------------
+#
+# The vocabulary below is the source of truth for the layout *model*; the
+# frontend renderer consumes the tokens, not the numbers. Both vocabularies are
+# deliberately Django-free so a stored ``definition_json`` can be normalized
+# from a data migration or a pure unit test.
+
+#: Column count every ``span``/spacer resolves inside (spec section 7).
+GRID_COLUMNS: int = 12
+
+#: ``span`` token -> columns on an **attribute** flow token.
+#: ``full``=12, ``half``=6, ``quarter``=3 (spec section 7).
+SPAN_COLUMNS: dict[str, int] = {"full": 12, "half": 6, "quarter": 3}
+
+#: A section's own width (the pre-existing ``layout`` key) mapped into the same
+#: 12 columns. ``quarter`` is deliberately not a section width: spec section 4.5
+#: keeps sections at full/half, which is what :data:`SECTION_LAYOUTS` enforces.
+SECTION_SPAN_COLUMNS: dict[str, int] = {"full": 12, "half": 6}
+
+#: ``spacer.size`` token -> columns (relative sizes, spec section 7):
+#: ``sm``=1, ``md``=2, ``lg``=4. A spacer consumes that many columns and leaves
+#: the remaining ones for the next token.
+SPACER_COLUMNS: dict[str, int] = {"sm": 1, "md": 2, "lg": 4}
+
+#: Accepted ``span`` values on an ``attribute_flow`` attribute token.
+ATTRIBUTE_SPANS: frozenset[str] = frozenset(SPAN_COLUMNS)
+
+#: Accepted ``size`` values on a spacer token.
+SPACER_SIZES: frozenset[str] = frozenset(SPACER_COLUMNS)
+
+#: Token kinds a definition-level ``section_flow`` may carry. No ``attribute``
+#: token: an attribute is positioned inside its own section's
+#: ``attribute_flow`` (spec section 7's flat Section -> Attribute model).
+SECTION_FLOW_KINDS: frozenset[str] = frozenset({"section", "spacer"})
+
+#: Token kinds a section-level ``attribute_flow`` may carry.
+ATTRIBUTE_FLOW_KINDS: frozenset[str] = frozenset({"attribute", "spacer"})
+
+#: Per-kind key whitelist for a flow token — an unknown key on one kind is a
+#: 400, never silently dropped (spec section 7).
+_FLOW_TOKEN_KEYS: dict[str, frozenset[str]] = {
+    "section": frozenset({"kind", "name"}),
+    "attribute": frozenset({"kind", "name", "span"}),
+    "spacer": frozenset({"kind", "size"}),
+}
+
+#: Default ``span`` of an attribute token that omits one: full width, i.e. the
+#: pre-WS4 renderer's per-attribute stacking (spec section 7's "missing flow =
+#: old behaviour" rule).
+_DEFAULT_ATTRIBUTE_SPAN = "full"
+
 _SECTION_DEFAULTS: dict[str, Any] = {"order": 0, "visible": True, "layout": "full"}
-_SECTION_ALLOWED_KEYS: frozenset[str] = frozenset({"name"}) | frozenset(_SECTION_DEFAULTS)
+_SECTION_ALLOWED_KEYS: frozenset[str] = (
+    frozenset({"name", "attribute_flow"}) | frozenset(_SECTION_DEFAULTS)
+)
 
 
 class AttributeSchemaError(ValueError):
@@ -479,12 +532,128 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def normalize_flow_token(
+    raw: Any, *, allowed_kinds: frozenset[str]
+) -> dict[str, Any]:
+    """Return one layout flow token with its documented keys, or raise.
+
+    The flat layout primitives of spec section 7 are::
+
+        {"kind": "section",   "name": <str>}
+        {"kind": "attribute", "name": <str>, "span": "full|half|quarter"}
+        {"kind": "spacer",    "size": "sm|md|lg"}
+
+    *allowed_kinds* is the level gate: a definition-level ``section_flow``
+    never accepts an ``attribute`` token, a section-level ``attribute_flow``
+    never accepts a ``section`` token. The order of the returned tokens is
+    preserved by the callers — a flow's order *is* its layout.
+
+    Raises:
+        AttributeSchemaError: not an object, missing/unknown/level-forbidden
+            ``kind``, an unknown key for the kind, an invalid ``span``/``size``,
+            or a missing/non-string ``name`` (section and attribute tokens).
+            Every value is type-checked before a frozenset membership test so
+            an unhashable value (list/dict) is the documented 400 instead of a
+            ``TypeError`` 500 (same guard as WS3's ``editable`` check).
+    """
+    if not isinstance(raw, dict):
+        raise AttributeSchemaError(["flow token must be an object"])
+
+    kind = raw.get("kind")
+    if not isinstance(kind, str) or kind not in allowed_kinds:
+        raise AttributeSchemaError(
+            [f"'kind' must be one of {sorted(allowed_kinds)}"]
+        )
+
+    errors: list[str] = []
+    unknown = sorted(set(raw) - _FLOW_TOKEN_KEYS[kind])
+    if unknown:
+        errors.append(f"flow token has unknown key(s): {', '.join(unknown)}")
+
+    out: dict[str, Any] = {"kind": kind}
+    if kind in ("section", "attribute"):
+        name = raw.get("name")
+        if not isinstance(name, str) or not name.strip():
+            errors.append("'name' must be a non-empty string")
+        else:
+            out["name"] = name.strip()
+    if kind == "attribute":
+        span = raw.get("span", _DEFAULT_ATTRIBUTE_SPAN)
+        if not isinstance(span, str) or span not in ATTRIBUTE_SPANS:
+            errors.append(f"'span' must be one of {sorted(ATTRIBUTE_SPANS)}")
+        else:
+            out["span"] = span
+    if kind == "spacer":
+        size = raw.get("size")
+        if not isinstance(size, str) or size not in SPACER_SIZES:
+            errors.append(f"'size' must be one of {sorted(SPACER_SIZES)}")
+        else:
+            out["size"] = size
+
+    if errors:
+        raise AttributeSchemaError(errors)
+    return out
+
+
+def _validate_flow_json(
+    flow: Any,
+    *,
+    allowed_kinds: frozenset[str],
+    label: str,
+) -> list[dict[str, Any]]:
+    """Validate a whole flow list, prefixing every error with its index."""
+    if not isinstance(flow, list):
+        raise AttributeSchemaError([f"'{label}' must be a list"])
+
+    errors: list[str] = []
+    normalized: list[dict[str, Any]] = []
+    for index, entry in enumerate(flow):
+        try:
+            normalized.append(normalize_flow_token(entry, allowed_kinds=allowed_kinds))
+        except AttributeSchemaError as exc:
+            errors.extend(f"{label}[{index}]: {e}" for e in exc.errors)
+
+    if errors:
+        raise AttributeSchemaError(errors)
+    return normalized
+
+
+def validate_section_flow_json(flow: Any) -> list[dict[str, Any]]:
+    """Validate a definition-level ``section_flow`` and return it normalized.
+
+    Only ``{"kind": "section", "name"}`` and ``{"kind": "spacer", "size"}``
+    tokens are accepted (spec section 7). Order is preserved.
+    """
+    return _validate_flow_json(
+        flow, allowed_kinds=SECTION_FLOW_KINDS, label="section_flow"
+    )
+
+
+def validate_attribute_flow_json(flow: Any) -> list[dict[str, Any]]:
+    """Validate a section-level ``attribute_flow`` and return it normalized.
+
+    Only ``{"kind": "attribute", "name", "span"}`` and
+    ``{"kind": "spacer", "size"}`` tokens are accepted (spec section 7). Order
+    is preserved.
+    """
+    return _validate_flow_json(
+        flow, allowed_kinds=ATTRIBUTE_FLOW_KINDS, label="attribute_flow"
+    )
+
+
 def normalize_section(raw: dict[str, Any]) -> dict[str, Any]:
     """Return *raw* with every documented key present, or raise.
 
     Mirrors :func:`normalize_attribute`'s shape/behaviour for the
     ``{name, order, visible, layout}`` dict describing one section (spec
-    section 4.4/4.5).
+    section 4.4/4.5), plus the optional section-level ``attribute_flow``
+    (spec section 7, WS4 #938).
+
+    ``attribute_flow`` is **additive**: a section without the key keeps its old
+    shape exactly (the returned dict has no ``attribute_flow`` key), so every
+    definition stored before WS4 normalizes unchanged. Consumers derive the
+    default with :func:`effective_attribute_flow` instead of relying on a
+    backfilled key.
 
     Raises:
         AttributeSchemaError: any structural violation; ``.errors`` lists all
@@ -518,10 +687,21 @@ def normalize_section(raw: dict[str, Any]) -> dict[str, Any]:
             out["visible"] = raw["visible"]
 
     if "layout" in raw:
-        if raw["layout"] not in SECTION_LAYOUTS:
+        # Type-check before the frozenset membership test: a list/dict is
+        # unhashable and would raise TypeError (a 500) instead of the 400.
+        if (
+            not isinstance(raw["layout"], str)
+            or raw["layout"] not in SECTION_LAYOUTS
+        ):
             errors.append(f"'layout' must be one of {sorted(SECTION_LAYOUTS)}")
         else:
             out["layout"] = raw["layout"]
+
+    if "attribute_flow" in raw:
+        try:
+            out["attribute_flow"] = validate_attribute_flow_json(raw["attribute_flow"])
+        except AttributeSchemaError as exc:
+            errors.extend(exc.errors)
 
     if errors:
         raise AttributeSchemaError(errors)
@@ -576,11 +756,110 @@ def materialize_sections(attributes: list[dict[str, Any]]) -> list[dict[str, Any
     ]
 
 
+def materialize_section_flow(
+    sections: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Derive the default ``section_flow`` from a sections list (spec section 7).
+
+    One ``{"kind": "section", "name"}`` token per section, in the list's own
+    (already ``(order, name)``-sorted) order — no spacers. This is spec section
+    7's "Fehlt ein Flow, wird er aus der Reihenfolge abgeleitet" default: a
+    reader that receives no flow renders every section in order, exactly as
+    before the 12-column engine existed.
+    """
+    return [{"kind": "section", "name": section["name"]} for section in sections]
+
+
+def materialize_attribute_flow(
+    attributes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Derive a default ``attribute_flow`` from *attributes* (spec section 7).
+
+    *attributes* must already be restricted to one section and ordered (the
+    definition's ``(section, order, name)`` sort does this). One
+    ``{"kind": "attribute", "name", "span": "full"}`` token per attribute:
+    ``full`` is the width the pre-WS4 renderer gave every field, so this is the
+    derivation that keeps an old definition's rendering identical.
+    """
+    return [
+        {
+            "kind": "attribute",
+            "name": attribute["name"],
+            "span": _DEFAULT_ATTRIBUTE_SPAN,
+        }
+        for attribute in attributes
+    ]
+
+
+def effective_section_flow(
+    definition_json: Any,
+    sections: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return the stored ``section_flow``, or derive one from ``sections``.
+
+    The additive read rule of spec section 7 in one place: a definition that
+    carries a flow uses it unchanged; a definition without one gets the
+    order-derived default. *sections* is an optional pre-normalized override
+    (callers that already hold :func:`stored_sections` output avoid a second
+    pass).
+    """
+    if isinstance(definition_json, dict) and "section_flow" in definition_json:
+        return validate_section_flow_json(definition_json["section_flow"])
+    if sections is None:
+        sections = stored_sections(definition_json)
+    return materialize_section_flow(sections)
+
+
+def effective_attribute_flow(
+    section: dict[str, Any], attributes: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return *section*'s ``attribute_flow``, or derive one from *attributes*.
+
+    *attributes* must be the definition's attributes of that section (the
+    function filters by ``attribute["section"]`` defensively, so a caller may
+    pass the whole list). A section without an ``attribute_flow`` key gets the
+    order-derived default — spec section 7's "missing flow = old behaviour".
+    """
+    flow = section.get("attribute_flow")
+    if isinstance(flow, list):
+        return validate_attribute_flow_json(flow)
+    in_section = [
+        attribute
+        for attribute in attributes
+        if attribute.get("section") == section.get("name")
+    ]
+    return materialize_attribute_flow(in_section)
+
+
+def resolve_attribute_span(
+    attribute_name: str, section: dict[str, Any] | None
+) -> str:
+    """Return the ``span`` token positioning *attribute_name* inside *section*.
+
+    Falls back to ``"full"`` when the section carries no ``attribute_flow``
+    (the pre-WS4 rendering) or does not position that attribute — the additive
+    derivation spec section 7 requires. Consumed by the discovery projection
+    (``ArtifactAttributeGateway.discover``).
+    """
+    if isinstance(section, dict):
+        for token in section.get("attribute_flow") or []:
+            if (
+                isinstance(token, dict)
+                and token.get("kind") == "attribute"
+                and token.get("name") == attribute_name
+                and token.get("span") in ATTRIBUTE_SPANS
+            ):
+                return token["span"]
+    return _DEFAULT_ATTRIBUTE_SPAN
+
+
 def validate_definition_json(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate a whole ``{"attributes": [...], "sections": [...]}`` payload.
 
-    ``sections`` is optional on the way in — omitting it (every call site
-    before Task 7) normalizes only ``attributes``, unchanged behaviour.
+    ``sections`` and ``section_flow`` are optional on the way in — omitting
+    them (every call site before their feature) normalizes only what was sent,
+    unchanged behaviour. A section's optional ``attribute_flow`` is normalized
+    by :func:`normalize_section`.
 
     Attributes come back sorted by ``(section, order, name)`` so every consumer
     (form renderer, interview protocol, export) sees the same stable order
@@ -616,6 +895,13 @@ def validate_definition_json(payload: dict[str, Any]) -> dict[str, Any]:
         except AttributeSchemaError as exc:
             errors.extend(exc.errors)
 
+    section_flow: list[dict[str, Any]] | None = None
+    if "section_flow" in payload:
+        try:
+            section_flow = validate_section_flow_json(payload["section_flow"])
+        except AttributeSchemaError as exc:
+            errors.extend(exc.errors)
+
     if errors:
         raise AttributeSchemaError(errors)
 
@@ -623,6 +909,8 @@ def validate_definition_json(payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {"attributes": normalized}
     if sections is not None:
         result["sections"] = sections
+    if section_flow is not None:
+        result["section_flow"] = section_flow
     return result
 
 
@@ -664,6 +952,20 @@ def stored_sections(definition_json: Any) -> list[dict[str, Any]]:
     if not isinstance(definition_json, dict) or "sections" not in definition_json:
         return []
     return validate_sections_json(definition_json["sections"])
+
+
+def stored_section_flow(definition_json: Any) -> list[dict[str, Any]]:
+    """Normalize a stored ``definition_json['section_flow']`` list, or ``[]``.
+
+    Mirrors :func:`stored_sections` for the flow side of the same JSONField.
+    An absent ``'section_flow'`` key returns ``[]`` — distinguishing "no flow at
+    all" (derive the default, spec section 7) from "an explicitly stored empty
+    flow" is the caller's job (it checks ``"section_flow" in definition_json``
+    directly).
+    """
+    if not isinstance(definition_json, dict) or "section_flow" not in definition_json:
+        return []
+    return validate_section_flow_json(definition_json["section_flow"])
 
 
 def _by_name(attributes: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -777,7 +1079,9 @@ def validate_new_attribute_name(
 __all__ = [
     "ACTOR_TYPES",
     "ALLOWED_KEYS",
+    "ATTRIBUTE_FLOW_KINDS",
     "ATTRIBUTE_KINDS",
+    "ATTRIBUTE_SPANS",
     "ATTRIBUTE_TYPES",
     "AUDIENCE_VALUES",
     "AttributeDefinitionConflictError",
@@ -785,22 +1089,37 @@ __all__ = [
     "CORE_EDITABLE_META_PROPERTIES",
     "DISPLAY_FORMAT_VALUES",
     "EDITABLE_VALUES",
+    "GRID_COLUMNS",
     "ITEM_TYPES",
     "LOCKED_IMMUTABLE_PROPERTIES",
     "MASK_VALUES",
     "PRESETS",
     "REVEAL_VALUES",
+    "SECTION_FLOW_KINDS",
     "SECTION_LAYOUTS",
+    "SECTION_SPAN_COLUMNS",
+    "SPACER_COLUMNS",
+    "SPACER_SIZES",
+    "SPAN_COLUMNS",
     "SYSTEM_FIELDS_ENABLED_ITEM_TYPES",
     "WIDGET_KEYS",
+    "effective_attribute_flow",
+    "effective_section_flow",
+    "materialize_attribute_flow",
+    "materialize_section_flow",
     "materialize_sections",
     "normalize_attribute",
+    "normalize_flow_token",
     "normalize_section",
+    "resolve_attribute_span",
     "stored_attributes",
+    "stored_section_flow",
     "stored_sections",
+    "validate_attribute_flow_json",
     "validate_definition_json",
     "validate_definition_key",
     "validate_meta_only_change",
     "validate_new_attribute_name",
+    "validate_section_flow_json",
     "validate_sections_json",
 ]
