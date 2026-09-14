@@ -5065,9 +5065,11 @@
             "default": "technical"
           },
           "owner": {
-            "type": "string",
-            "description": "Optional. 'owner' as accepted by the risk service.",
-            "default": ""
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
           },
           "mitigation_strategy": {
             "type": "string",
@@ -5090,6 +5092,17 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the risk service."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -5248,8 +5261,11 @@
             "description": "Optional. 'category' as accepted by the risk service."
           },
           "owner": {
-            "type": "string",
-            "description": "Optional. 'owner' as accepted by the risk service."
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
           },
           "mitigation_strategy": {
             "type": "string",
@@ -5273,6 +5289,17 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the risk service."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
