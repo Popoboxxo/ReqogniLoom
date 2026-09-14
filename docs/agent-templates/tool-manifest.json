@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 192,
+  "tool_count": 206,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -117,6 +117,24 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the adr service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -267,6 +285,24 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the adr service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -528,6 +564,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -736,6 +790,24 @@
               },
               "expected_version": {
                 "type": "integer"
+              },
+              "owner": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+              },
+              "reporter": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact reporter in actor wire form (spec section 4)."
+              },
+              "priority": {
+                "type": "string",
+                "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
               }
             }
           }
@@ -814,6 +886,258 @@
         },
         "required": [
           "query"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.add_to_definition",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Copy an entry's attribute block into a global (preset) or workspace definition, resolving name collisions (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "description": "Catalog entry UUID."
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "standard",
+              "extended"
+            ]
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "on_collision": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "overwrite",
+              "rename"
+            ],
+            "default": "skip"
+          }
+        },
+        "required": [
+          "entry_id",
+          "item_type"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.create",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Create an attribute-catalog entry (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "object",
+            "description": "One kind='extended' attribute block."
+          },
+          "category": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": "object"
+          },
+          "help_text": {
+            "type": "object"
+          },
+          "origin": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "definition"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.deprecate",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Mark an entry deprecated (or lift it) (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "description": "Catalog entry UUID."
+          },
+          "deprecated": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.export",
+      "prefix": "attribute_catalog",
+      "is_write": false,
+      "description": "Download the catalog as a re-importable document (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "include_deprecated": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "attribute_catalog.import",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Merge a catalog document into this tenant (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object",
+            "description": "attribute_catalog.export's output."
+          },
+          "on_collision": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "overwrite",
+              "rename"
+            ],
+            "default": "skip"
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.list",
+      "prefix": "attribute_catalog",
+      "is_write": false,
+      "description": "List the tenant's attribute-catalog entries (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Name substring (case-insensitive)."
+          },
+          "category": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_deprecated": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "attribute_catalog.search",
+      "prefix": "attribute_catalog",
+      "is_write": false,
+      "description": "Search the attribute catalog by name substring (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Name substring (case-insensitive)."
+          },
+          "category": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_deprecated": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "attribute_catalog.update",
+      "prefix": "attribute_catalog",
+      "is_write": true,
+      "description": "Partially update an attribute-catalog entry (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "description": "Catalog entry UUID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "object"
+          },
+          "category": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": "object"
+          },
+          "help_text": {
+            "type": "object"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "deprecated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entry_id"
         ]
       }
     },
@@ -1186,13 +1510,139 @@
             "items": {
               "type": "object"
             },
-            "description": "Optional full replacement section list (name, order, visible, layout). Omit to keep the row's current sections."
+            "description": "Optional full replacement section list (name, order, visible, layout, attribute_flow). Omit to keep the row's current sections."
+          },
+          "section_flow": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Optional full replacement 12-column section flow ([{kind: section, name} | {kind: spacer, size}]). Omit to keep the row's current section flow."
           }
         },
         "required": [
           "item_type",
           "workspace_id",
           "attributes"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.apply",
+      "prefix": "attribute_migration",
+      "is_write": true,
+      "description": "Execute an AWMS plan: snapshot, migrate values, audit (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "description": "Declarative AWMS plan: {id, description, scope{item_type, preset, workspace}, mode, options, steps:[{op, ...}]}."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.dry_run",
+      "prefix": "attribute_migration",
+      "is_write": true,
+      "description": "Plan a migration against real data and return the full change report without modifying artifacts (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "description": "Declarative AWMS plan: {id, description, scope{item_type, preset, workspace}, mode, options, steps:[{op, ...}]}."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.get_run",
+      "prefix": "attribute_migration",
+      "is_write": false,
+      "description": "Return one AWMS run including its stored report (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Run UUID."
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.list_runs",
+      "prefix": "attribute_migration",
+      "is_write": false,
+      "description": "List AWMS runs of the tenant, newest first (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "dry_run",
+              "apply"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "attribute_migration.plan",
+      "prefix": "attribute_migration",
+      "is_write": false,
+      "description": "Validate an AWMS plan document and return its normalized form + SHA-256 hash. No database write.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "description": "Declarative AWMS plan: {id, description, scope{item_type, preset, workspace}, mode, options, steps:[{op, ...}]}."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.rollback",
+      "prefix": "attribute_migration",
+      "is_write": true,
+      "description": "Restore every artifact of a previous apply run (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Run UUID."
+          }
+        },
+        "required": [
+          "run_id"
         ]
       }
     },
@@ -1405,6 +1855,24 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the change_request service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -1553,6 +2021,24 @@
           },
           "custom_fields": {
             "description": "Optional. 'custom_fields' as accepted by the change_request service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -1970,6 +2456,24 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the glossary service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2112,6 +2616,24 @@
           },
           "custom_fields": {
             "description": "Optional. 'custom_fields' as accepted by the glossary service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2141,6 +2663,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2173,6 +2713,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2368,6 +2926,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map). Omit to inherit the addressed version's map."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2432,6 +3008,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2521,6 +3115,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2805,6 +3417,24 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the issue service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -2969,6 +3599,24 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the issue service."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -3296,6 +3944,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -3476,6 +4142,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -3888,6 +4572,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -4057,6 +4759,24 @@
                 "type": "object",
                 "additionalProperties": true,
                 "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+              },
+              "owner": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+              },
+              "reporter": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact reporter in actor wire form (spec section 4)."
+              },
+              "priority": {
+                "type": "string",
+                "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
               }
             }
           }
@@ -4345,9 +5065,11 @@
             "default": "technical"
           },
           "owner": {
-            "type": "string",
-            "description": "Optional. 'owner' as accepted by the risk service.",
-            "default": ""
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
           },
           "mitigation_strategy": {
             "type": "string",
@@ -4370,6 +5092,17 @@
           "custom_fields": {
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the risk service."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -4528,8 +5261,11 @@
             "description": "Optional. 'category' as accepted by the risk service."
           },
           "owner": {
-            "type": "string",
-            "description": "Optional. 'owner' as accepted by the risk service."
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
           },
           "mitigation_strategy": {
             "type": "string",
@@ -4553,6 +5289,17 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the risk service."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           }
         },
         "required": [
@@ -4601,6 +5348,24 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "owner": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+          },
+          "reporter": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Artifact reporter in actor wire form (spec section 4)."
+          },
+          "priority": {
+            "type": "string",
+            "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
           },
           "linked_req_id": {
             "type": "string",
@@ -4916,6 +5681,24 @@
                   "Not Run",
                   "Passed"
                 ]
+              },
+              "owner": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact owner in actor wire form (spec section 4): {\"kind\":\"user\",\"id\":\"<uuid>\"} or {\"kind\":\"external\",\"name\":\"<label>\"}."
+              },
+              "reporter": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Artifact reporter in actor wire form (spec section 4)."
+              },
+              "priority": {
+                "type": "string",
+                "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
               }
             }
           }

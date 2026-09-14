@@ -55,3 +55,19 @@ class TestGlossaryStatusFieldName:
         data = GlossaryTermSerializer(_dto(status="outdated")).data
         assert data["status"] == "outdated"
         assert "lifecycle_status" not in data
+
+    def test_asdict_does_not_serialise_the_backing_artifact(self) -> None:
+        """WS2 #936 review (Minor 2): ``_artifact`` is an instance attribute.
+
+        As a dataclass field it would have been picked up by
+        ``dataclasses.asdict()`` and tried to serialise a Django model (or
+        deep-copy it), exactly as ``StakeholderNeedDTO`` avoids.
+        """
+        import dataclasses
+
+        dto = _dto()
+        dto._artifact = object()  # simulate a backing Artifact row
+        data = dataclasses.asdict(dto)
+        assert "artifact" not in data
+        assert "_artifact" not in data
+        assert dto.artifact is not None

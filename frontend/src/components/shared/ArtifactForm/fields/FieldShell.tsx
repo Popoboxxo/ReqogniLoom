@@ -42,6 +42,14 @@ interface FieldShellProps {
   language: string;
   errors?: string[];
   testId: string;
+  /**
+   * `false` when the child is not a labelable control (e.g. the read-only
+   * `<RevealValue>` display): a `<label htmlFor>` would point at a non-focusable
+   * `<span>` and do nothing. In that case the label text renders as a plain
+   * element with the same `id`, so the display path can associate it via
+   * `aria-labelledby` instead.
+   */
+  associateLabel?: boolean;
   children: ReactNode;
 }
 
@@ -50,17 +58,22 @@ export function FieldShell({
   language,
   errors,
   testId,
+  associateLabel = true,
   children,
 }: FieldShellProps): JSX.Element {
   const help = helpText(attribute, language);
+  const labelClassName = `${styles.label} ${attribute.required ? styles.required : ""}`;
   return (
     <div className={styles.field}>
-      <label
-        className={`${styles.label} ${attribute.required ? styles.required : ""}`}
-        htmlFor={testId}
-      >
-        {attributeLabel(attribute, language)}
-      </label>
+      {associateLabel ? (
+        <label className={labelClassName} htmlFor={testId} id={`${testId}-label`}>
+          {attributeLabel(attribute, language)}
+        </label>
+      ) : (
+        <span className={labelClassName} id={`${testId}-label`}>
+          {attributeLabel(attribute, language)}
+        </span>
+      )}
       {children}
       {help ? (
         <span className={styles.help} id={`${testId}-help`}>

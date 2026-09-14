@@ -1721,9 +1721,17 @@
     }
   },
   "artifactId": {
-    "copyHint": "Copy identifier",
+    "term": "identifier"
+  },
+  "revealValue": {
+    "copy": "Copy value",
+    "copyLabel": "Copy {{label}}",
+    "copyHint": "Click or double-click to copy",
     "copied": "Copied",
-    "copyLabel": "Copy identifier {{id}}"
+    "show": "Show value",
+    "hide": "Hide value",
+    "revealed": "Value shown",
+    "revealHint": "Click or press {{shortcut}} to show"
   },
   "pageHeader": {
     "more": "More actions",
@@ -2097,6 +2105,14 @@
     "deleteTitle": "Delete artifact",
     "unsupportedWidget": "This field uses an unsupported widget ({{widget}}). Its individual fields are shown directly instead.",
     "userDirectoryUnavailable": "User directory unavailable — only tenant administrators may read it.",
+    "actorSearchPlaceholder": "Search people…",
+    "actorLoading": "Loading people…",
+    "actorDirectoryUnavailable": "Member directory unavailable — new people cannot be picked right now.",
+    "actorEmpty": "No people available.",
+    "actorNoMatches": "No match for \"{{query}}\".",
+    "actorCreateExternal": "Create \"{{name}}\" as an external person",
+    "actorRemove": "Remove {{name}}",
+    "systemValueUnavailable": "No value",
     "changeReason": "Change reason",
     "changeReasonRequired": "Please provide a change reason."
   },
@@ -2131,6 +2147,7 @@
       "date": "Date",
       "reference": "Reference",
       "user": "User",
+      "actor": "Person / Team",
       "widget": "Widget"
     },
     "addAttribute": "+ Add attribute",
@@ -2156,6 +2173,29 @@
         "overwrite": "Overwrite (replace the existing attribute)",
         "rename": "Rename (import as a new attribute, suffixed)"
       }
+    },
+    "catalog": {
+      "addButton": "Add from catalog",
+      "dialogTitle": "Add from catalog",
+      "itemTypeHint": "Templates for {{itemType}}",
+      "searchLabel": "Search",
+      "searchPlaceholder": "Search by name…",
+      "includeDeprecated": "Show deprecated",
+      "loading": "Loading catalog…",
+      "empty": "No matching catalog entries found.",
+      "error": "The catalog could not be loaded",
+      "noCategory": "No category",
+      "deprecatedBadge": "Deprecated",
+      "entriesLabel": "Catalog entries",
+      "selectHint": "Select a template.",
+      "onCollisionLabel": "On name collision",
+      "onCollision": {
+        "skip": "Skip (keep the existing attribute)",
+        "overwrite": "Overwrite (replace the existing attribute)",
+        "rename": "Rename (add as a new attribute, suffixed)"
+      },
+      "add": "Add",
+      "added": "Attribute \"{{name}}\" added from the catalog."
     },
     "deleteAttribute": {
       "action": "Delete attribute",
@@ -2215,6 +2255,24 @@
     "moveSectionDown": "Move section down",
     "reset": "Reset to default",
     "resetConfirm": "Discard the workspace customisation and adopt the global default?",
-    "propagated": "{{count}} workspace(s) updated"
+    "propagated": "{{count}} workspace(s) updated",
+    "layout": {
+      "title": "Layout",
+      "sectionFlow": "Section layout",
+      "spacerSize": "Spacer size",
+      "addSpacer": "Add spacer",
+      "span": "Width",
+      "span_full": "Full (12)",
+      "span_half": "Half (6)",
+      "span_quarter": "Quarter (3)",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "remove": "Remove",
+      "spacer": {
+        "sm": "Small (1 column)",
+        "md": "Medium (2 columns)",
+        "lg": "Large (4 columns)"
+      }
+    }
   }
 }

@@ -903,8 +903,14 @@ class TestRequirementListSearchFilter:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestArchitectureElementViewSetRouting:
-    """PATCH /api/v1/architecture/{pk}/ passes expected_version to service."""
+    """PATCH /api/v1/architecture/{pk}/ passes expected_version to service.
+
+    ``django_db`` is required since WS1 (#935) wired ``ArchitectureElementSerializer``
+    onto the workflow engine seam: serializing the PATCH response now resolves the
+    ``status`` system attribute, which reads from the database.
+    """
 
     def _svc_mock(self) -> MagicMock:
         svc = MagicMock()

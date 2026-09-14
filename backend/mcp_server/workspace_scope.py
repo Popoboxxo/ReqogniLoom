@@ -289,6 +289,19 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #: * ``attribute_definition.list`` — the tenant-wide global defaults are
 #:   per (item_type, preset), not per workspace; there is no workspace to
 #:   scope to. The handler is admin-gated in the service.
+#: * ``attribute_catalog.list`` / ``attribute_catalog.search`` /
+#:   ``attribute_catalog.export`` — the central catalog (WS5 #942) is a
+#:   tenant-wide template library by design (spec section 8), not a workspace
+#:   resource: entries carry no workspace and are shared across all of them.
+#:   All three are admin-gated in ``AttributeCatalogService``, so a caller
+#:   without tenant-wide admin standing cannot reach any row.
+#: * ``attribute_migration.plan`` / ``attribute_migration.list_runs`` /
+#:   ``attribute_migration.get_run`` — AWMS (WS7 #940) is tenant-wide admin
+#:   tooling: ``plan`` is a pure schema validation + hash with no DB access at
+#:   all, and the run history is keyed by the plan's scope (which may span
+#:   several workspaces) rather than by one workspace. All three are admin-gated
+#:   in ``AttributeMigrationService``; ``dry_run``/``apply``/``rollback`` are
+#:   fail-closed write-gated in the tool registry.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -304,6 +317,12 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "prompt_variable.list",
         "artifact.search",
         "attribute_definition.list",
+        "attribute_catalog.list",
+        "attribute_catalog.search",
+        "attribute_catalog.export",
+        "attribute_migration.plan",
+        "attribute_migration.list_runs",
+        "attribute_migration.get_run",
     }
 )
 

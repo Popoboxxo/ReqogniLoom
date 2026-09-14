@@ -153,6 +153,88 @@ class TestIcdViewSetCreateValidation:
         assert "semantic_description" in response.data["error"]["message"]
 
 
+class TestIcdWriteResponsesCarryStatus:
+    """Epic #934 WS1: create/update must project the ``status`` system attribute.
+
+    ``list``/``retrieve`` and every MCP ``icd.*`` response already carry
+    ``status``; the write responses omitted it, so a REST create/update
+    round-trip lost a visible system attribute the transport contract promises.
+    """
+
+    def test_create_success_includes_status(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/icds/",
+            data={
+                "name": "My ICD",
+                "workspace_id": str(uuid.uuid4()),
+                "source_element_id": str(uuid.uuid4()),
+                "target_element_id": str(uuid.uuid4()),
+                "semantic_description": "short",
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = IcdViewSet.as_view({"post": "create"})
+
+        fake_icd = MagicMock()
+        fake_icd.id = FAKE_ICD_ID
+        fake_icd.name = "My ICD"
+        fake_icd.workspace_id = uuid.uuid4()
+        fake_icd.source_element_id = uuid.uuid4()
+        fake_icd.target_element_id = uuid.uuid4()
+        fake_icd.created_at = None
+        fake_result = MagicMock()
+        fake_result.icd = fake_icd
+        fake_result.current_version.version_number = 1
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_tenant"), patch("rest_api.icd_views.get_user"):
+                with patch(
+                    "rest_api.icd_views.create_icd", return_value=fake_result
+                ):
+                    response = view(req)
+
+        assert response.status_code == 201
+        assert isinstance(response.data["status"], str)
+        assert response.data["status"]
+
+    def test_partial_update_success_includes_status(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.patch(
+            f"/api/v1/icds/{FAKE_ICD_ID}/",
+            data={"semantic_description": "short"},
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = IcdViewSet.as_view({"patch": "partial_update"})
+
+        fake_icd = MagicMock()
+        fake_icd.id = FAKE_ICD_ID
+        fake_icd.name = "My ICD"
+        fake_result = MagicMock()
+        fake_result.icd = fake_icd
+        fake_result.current_version.version_number = 2
+        fake_result.current_version.direction = "unidirectional"
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_user"):
+                with patch(
+                    "rest_api.icd_views.update_icd", return_value=fake_result
+                ):
+                    response = view(req, pk=str(FAKE_ICD_ID))
+
+        assert response.status_code == 200
+        assert isinstance(response.data["status"], str)
+        assert response.data["status"]
+
+
 class TestIcdViewSetErrorMessageMasking:
     """SA-03 / issue #697 (CWE-209): typed handlers must not forward arbitrary
     exception text.

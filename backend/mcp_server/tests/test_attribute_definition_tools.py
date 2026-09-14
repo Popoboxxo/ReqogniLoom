@@ -317,6 +317,186 @@ def test_update_rejects_a_non_list_sections_param(group, ctx) -> None:
     assert result.error_code == "VALIDATION_ERROR"
 
 
+def test_update_schema_declares_section_flow(group) -> None:
+    schema = {t["name"]: t["inputSchema"] for t in group.get_tool_schemas()}
+    properties = schema["attribute_definition.update"]["properties"]
+    assert "section_flow" in properties
+    assert "section_flow" not in schema["attribute_definition.update"]["required"]
+
+
+@pytest.mark.django_db
+def test_update_persists_the_layout_flows(group) -> None:
+    """WS4 #938: the MCP ``update`` must carry the definition-level
+    ``section_flow`` and a section's ``attribute_flow`` through to the store."""
+    from application.attribute_definition_service import AttributeDefinitionService
+    from attribute_definitions.schema import stored_section_flow, stored_sections
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    tenant, workspace = _risk_workspace_with_definition()
+    admin_ctx = _admin_ctx(tenant)
+    definition = AttributeDefinitionService().resolve(admin_ctx, "Risk", workspace.id)
+    sections = [
+        {
+            "name": "general",
+            "order": 0,
+            "visible": True,
+            "layout": "full",
+            "attribute_flow": [{"kind": "attribute", "name": "title", "span": "quarter"}],
+        }
+    ]
+    section_flow = [
+        {"kind": "section", "name": "general"},
+        {"kind": "spacer", "size": "lg"},
+    ]
+
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(workspace.id),
+            "attributes": definition["attributes"],
+            "sections": sections,
+            "section_flow": section_flow,
+        },
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is True, result.message
+    row = WorkspaceAttributeDefinitionStore().get(tenant.id, workspace.id, "Risk")
+    assert row is not None
+    assert stored_section_flow(row.definition_json) == section_flow
+    assert stored_sections(row.definition_json)[0]["attribute_flow"] == [
+        {"kind": "attribute", "name": "title", "span": "quarter"}
+    ]
+    # The read-back payload must expose the same flow.
+    assert result.data["definition"]["section_flow"] == section_flow
+
+
+@pytest.mark.django_db
+def test_update_rejects_an_invalid_section_flow(group) -> None:
+    from application.attribute_definition_service import AttributeDefinitionService
+
+    tenant, workspace = _risk_workspace_with_definition()
+    admin_ctx = _admin_ctx(tenant)
+    definition = AttributeDefinitionService().resolve(admin_ctx, "Risk", workspace.id)
+
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(workspace.id),
+            "attributes": definition["attributes"],
+            "section_flow": [{"kind": "section", "name": "general", "span": "full"}],
+        },
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "span" in result.message
+
+
+@pytest.mark.django_db
+def test_update_rejects_a_non_list_section_flow_param(group, ctx) -> None:
+    result = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(uuid.uuid4()),
+            "attributes": [],
+            "section_flow": "nope",
+        },
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+def test_get_payload_omits_an_absent_section_flow(group, ctx) -> None:
+    """WS4 #938 / review F2: the flow key is additive exactly like REST.
+
+    A definition without a stored flow must NOT collapse to an explicit empty
+    flow, so an MCP client can still tell "derive the default" (key absent)
+    from "explicitly empty" (key present, ``[]``).
+    """
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.resolve.return_value = PAYLOAD
+        result = group.execute_tool(
+            tool_name="attribute_definition.get",
+            params={"item_type": "Risk", "workspace_id": str(uuid.uuid4())},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True
+    assert "section_flow" not in result.data["definition"]
+
+
+def test_get_payload_preserves_a_stored_section_flow(group, ctx) -> None:
+    stored = {**PAYLOAD, "section_flow": [{"kind": "section", "name": "general"}]}
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.resolve.return_value = stored
+        result = group.execute_tool(
+            tool_name="attribute_definition.get",
+            params={"item_type": "Risk", "workspace_id": str(uuid.uuid4())},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True
+    assert result.data["definition"]["section_flow"] == [
+        {"kind": "section", "name": "general"}
+    ]
+
+
+@pytest.mark.django_db
+def test_get_update_round_trip_does_not_invent_an_empty_section_flow(group) -> None:
+    """A get→update round-trip of a definition without a flow must not create
+    an explicit ``[]`` in the store (review F2)."""
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    tenant, workspace = _risk_workspace_with_definition()
+    admin_ctx = _admin_ctx(tenant)
+
+    got = group.execute_tool(
+        tool_name="attribute_definition.get",
+        params={"item_type": "Risk", "workspace_id": str(workspace.id)},
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert got.success is True, got.message
+    returned = got.data["definition"]
+    assert "section_flow" not in returned
+
+    updated = group.execute_tool(
+        tool_name="attribute_definition.update",
+        params={
+            "item_type": "Risk",
+            "workspace_id": str(workspace.id),
+            "attributes": returned["attributes"],
+            "sections": returned["sections"],
+            # No "section_flow": the round-tripped payload has no key to send.
+        },
+        auth_context=admin_ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert updated.success is True, updated.message
+    assert "section_flow" not in updated.data["definition"]
+
+    row = WorkspaceAttributeDefinitionStore().get(tenant.id, workspace.id, "Risk")
+    assert row is not None
+    assert "section_flow" not in row.definition_json
+
+
 @pytest.mark.django_db
 def test_get_maps_a_cross_tenant_workspace_id_to_permission_denied() -> None:
     """Adversarial probe (standing instruction on this SDD run): a
@@ -664,3 +844,33 @@ def test_payload_is_json_serialisable_with_the_stdlib_encoder() -> None:
     from mcp_server.tools.attribute_definition import _definition_payload
 
     json.dumps(_definition_payload(PAYLOAD))
+
+
+def test_definition_payload_carries_the_generic_display_properties() -> None:
+    """Spec section 5 / WS3 #937: every attribute_definition.* result exposes
+    the normalized display properties, so the MCP schema is transport-complete."""
+    from mcp_server.tools.attribute_definition import _definition_payload
+
+    payload = _definition_payload(
+        {
+            "item_type": "Risk",
+            "preset": "standard",
+            "version": 1,
+            "attributes": [
+                {
+                    "name": "id",
+                    "kind": "core",
+                    "type": "text",
+                    "copyable": True,
+                    "reveal": "click",
+                    "mask": "short",
+                    "display_format": "mono",
+                }
+            ],
+        }
+    )
+    (attribute,) = payload["attributes"]
+    assert attribute["copyable"] is True
+    assert attribute["reveal"] == "click"
+    assert attribute["mask"] == "short"
+    assert attribute["display_format"] == "mono"

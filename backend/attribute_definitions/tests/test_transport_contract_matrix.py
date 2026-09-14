@@ -105,6 +105,7 @@ from attribute_definitions.schema import (
 from attribute_definitions.workspace_definition_store import (
     WorkspaceAttributeDefinitionStore,
 )
+from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import ROLE_ADMIN, ApiKey, UserRole
 from auth_tenancy.services.authentication import (
     generate_api_key_plaintext,
@@ -332,6 +333,7 @@ class _Env:
     api_key: str
     registry: ToolRegistry
     icd_elements: dict[str, tuple[str, str]] = field(default_factory=dict)
+    admin_actor_id: str = ""
 
 
 def _inject_probe_attribute(tenant_id: Any) -> None:
@@ -432,6 +434,21 @@ def _build_env() -> _Env:
         assert child.status_code == 201, child.content
         icd_elements[preset] = (root.json()["id"], child.json()["id"])
 
+    # Attribut v3 WS2 (#936): an internal Actor backing the admin user, so the
+    # actor-typed system fields (owner/reporter) can be probed with a real actor
+    # id — the wire form's ``id`` is the Actor id the read path returns.
+    from application.actor_service import ActorService
+
+    actor_ctx = AuthContext(
+        user_id=admin.id,
+        tenant_id=tenant.id,
+        active_roles=(ROLE_ADMIN,),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+    admin_actor_id = str(
+        ActorService().get_or_create_for_user(actor_ctx, admin.id).id
+    )
+
     return _Env(
         tenant=tenant,
         admin=admin,
@@ -440,6 +457,7 @@ def _build_env() -> _Env:
         api_key=plaintext,
         registry=ToolRegistry(),
         icd_elements=icd_elements,
+        admin_actor_id=admin_actor_id,
     )
 
 
@@ -635,8 +653,15 @@ def _reference_probe_value(
     """
     kind = attribute["type"]
     name = attribute["name"]
+    if attribute.get("kind") == "extended" and kind in ("reference", "user"):
+        # An *extended* reference/user value lives in the flat custom_fields map
+        # and is not FK-checked by the transports (that is the ``core``
+        # reference/user path's job), so any well-formed UUID round-trips. The
+        # matrix's staged attributes (e.g. Adr.supersedes, Goal.parent_goal,
+        # ChangeRequest.target_baseline) are exactly this class.
+        return str(uuid.uuid4())
     if kind == "user":
-        # Risk.owner_user_id is the only bootstrapped ``user`` attribute.
+        # Risk.owner_user_id is the only bootstrapped core ``user`` attribute.
         return str(env.admin.id)
     if kind == "reference":
         if item_type == "ArchitectureElement" and name == "parent_id":
@@ -650,6 +675,20 @@ def _reference_probe_value(
         if item_type == "Icd" and name in ("source_element_id", "target_element_id"):
             return _fresh_architecture_element(env, preset, token)
     return None
+
+
+def _actor_probe_value(env: _Env, attribute: dict[str, Any]) -> Any:
+    """A real actor id as the wire probe value (Attribut v3 WS2, #936).
+
+    ``_build_env`` created one internal ``Actor`` for the admin user, so the
+    actor value form round-trips on both transports (write actor id -> read the
+    same actor id). A ``multiple`` actor attribute (none is bootstrapped today)
+    would use the list envelope.
+    """
+    entry = {"kind": "user", "id": env.admin_actor_id}
+    if attribute.get("multiple", False):
+        return {"multiple": True, "items": [entry]}
+    return entry
 
 
 def _fresh_architecture_element(env: _Env, preset: str, token: str) -> str:
@@ -934,6 +973,8 @@ def _run_attribute_cell(
                 )
                 writable_names.discard(attribute["name"])
                 continue
+        elif attribute["type"] == "actor":
+            value = _actor_probe_value(env, attribute)
         else:
             value = _generate_value(attribute, token)
         payload = _payload(env, preset, item_type, spec, attribute, value, token)
@@ -1381,34 +1422,279 @@ def _run_mcp_discovery(
     return 1
 
 
-def _ratchet_unprobed_tools(
-    *, preset: str, limitations: list[dict[str, Any]]
-) -> None:
-    """Explicit, justified limitations for tools this in-process matrix does not probe.
+def _tree_contains_custom_field(node: Any, name: str, value: Any) -> bool:
+    """Return True when any node of a ``get_tree`` payload carries *value*.
 
-    All three are WS1-parity scope (#935) and are named here rather than
-    silently skipped.
+    Recurses through ``children`` so a probed *child* node is exercised, not
+    only the root.
     """
-    reasons = {
-        "artifact.search": (
-            "not probed by this in-process matrix: SearchService needs a "
-            "populated full-text/vector index the harness does not build "
-            "(WS1 parity, #935)"
-        ),
-        "artifact.get_tree": (
-            "not probed by this in-process matrix: the harness does not seed "
-            "the parent/child hierarchy the tree probe would walk (WS1 "
-            "parity, #935)"
-        ),
-        "attribute_definition.update(sections)": (
-            "not probed: a write probe would mutate the workspace definition "
-            "under test; sections round-trip is WS1 parity scope (#935)"
-        ),
-    }
-    for attribute, reason in reasons.items():
-        limitations.append(
-            _limitation("*", preset, "MCP", attribute, reason, ISSUE_WS1_PARITY)
+    if not isinstance(node, dict):
+        return False
+    custom = node.get("custom_fields")
+    if isinstance(custom, dict) and custom.get(name) == value:
+        return True
+    children = node.get("children")
+    if isinstance(children, list):
+        return any(_tree_contains_custom_field(child, name, value) for child in children)
+    return False
+
+
+def _probe_element_payload(
+    env: _Env, preset: str, item_type: str, attribute: dict[str, Any], value: Any, token: str
+) -> dict[str, Any]:
+    """Create payload for an ArchitectureElement whose extended probe is *value*."""
+    spec = _SPECS[item_type]
+    return _payload(env, preset, item_type, spec, attribute, value, token)
+
+
+def _run_mcp_search_probe(
+    *, env: _Env, preset: str, workspace: Workspace, violations: list[dict[str, Any]]
+) -> int:
+    """Probe ``artifact.search`` for the backing Artifact's ``custom_fields``.
+
+    A uniquely titled ArchitectureElement is created with the synthetic
+    extended probe, then searched for by its title token. The lexical pass
+    matches that substring without any full-text/vector index seeding, so the
+    harvested result row must expose the extended map (Epic #934 WS1).
+    """
+    assert _SPECS["ArchitectureElement"].mcp_create is not None
+    token = _token(f"search{preset[:3]}")
+    value = f"cm-search-{token}"
+    payload = _probe_element_payload(
+        env,
+        preset,
+        "ArchitectureElement",
+        {"name": PROBE_NAME, "kind": "extended", "type": "text"},
+        value,
+        token,
+    )
+    create = env.registry.dispatch_request(
+        tool_name=_SPECS["ArchitectureElement"].mcp_create,
+        params={"workspace_id": str(workspace.id), **payload},
+        api_key=env.api_key,
+    )
+    executed = 1
+    if not create.success:
+        violations.append(
+            _violation(
+                "*",
+                preset,
+                "MCP",
+                "artifact.search",
+                "SEARCH",
+                f"probe artifact create failed: {create.error_code}: {create.message}",
+            )
         )
+        return executed
+
+    result = env.registry.dispatch_request(
+        tool_name="artifact.search",
+        params={
+            "query": token,
+            "workspace_id": str(workspace.id),
+            "type_filter": ["ArchitectureElement"],
+        },
+        api_key=env.api_key,
+    )
+    executed += 1
+    if not result.success:
+        violations.append(
+            _violation(
+                "*", preset, "MCP", "artifact.search", "SEARCH",
+                f"{result.error_code}: {result.message}",
+            )
+        )
+        return executed
+    results = result.data.get("results") if isinstance(result.data, dict) else None
+    found = any(
+        isinstance(hit, dict)
+        and (hit.get("custom_fields") or {}).get(PROBE_NAME) == value
+        for hit in (results or [])
+    )
+    if not found:
+        violations.append(
+            _violation(
+                "*",
+                preset,
+                "MCP",
+                "artifact.search",
+                "SEARCH",
+                "artifact.search did not surface the probe artifact's custom_fields",
+            )
+        )
+    return executed
+
+
+def _run_mcp_tree_probe(
+    *, env: _Env, preset: str, workspace: Workspace, violations: list[dict[str, Any]]
+) -> int:
+    """Probe ``artifact.get_tree`` for each node's ``custom_fields``.
+
+    The probe element is created under the workspace root, so walking the tree
+    from that root exercises a *child* node's extended map (Epic #934 WS1).
+    """
+    assert _SPECS["ArchitectureElement"].mcp_create is not None
+    token = _token(f"tree{preset[:3]}")
+    value = f"cm-tree-{token}"
+    payload = _probe_element_payload(
+        env,
+        preset,
+        "ArchitectureElement",
+        {"name": PROBE_NAME, "kind": "extended", "type": "text"},
+        value,
+        token,
+    )
+    create = env.registry.dispatch_request(
+        tool_name=_SPECS["ArchitectureElement"].mcp_create,
+        params={"workspace_id": str(workspace.id), **payload},
+        api_key=env.api_key,
+    )
+    executed = 1
+    if not create.success:
+        violations.append(
+            _violation(
+                "*",
+                preset,
+                "MCP",
+                "artifact.get_tree",
+                "TREE",
+                f"probe artifact create failed: {create.error_code}: {create.message}",
+            )
+        )
+        return executed
+
+    result = env.registry.dispatch_request(
+        tool_name="artifact.get_tree",
+        params={
+            "root_id": str(env.icd_elements[preset][0]),
+            "workspace_id": str(workspace.id),
+        },
+        api_key=env.api_key,
+    )
+    executed += 1
+    if not result.success:
+        violations.append(
+            _violation(
+                "*", preset, "MCP", "artifact.get_tree", "TREE",
+                f"{result.error_code}: {result.message}",
+            )
+        )
+        return executed
+    tree = result.data.get("tree") if isinstance(result.data, dict) else None
+    if not _tree_contains_custom_field(tree, PROBE_NAME, value):
+        violations.append(
+            _violation(
+                "*",
+                preset,
+                "MCP",
+                "artifact.get_tree",
+                "TREE",
+                "artifact.get_tree did not surface the probe node's custom_fields",
+            )
+        )
+    return executed
+
+
+def _run_mcp_sections_probe(
+    *, env: _Env, preset: str, workspace: Workspace, violations: list[dict[str, Any]]
+) -> int:
+    """Probe the ``attribute_definition.update(sections)`` round-trip on MCP.
+
+    Reads the resolved definition, toggles the first section's ``layout``,
+    writes attributes+sections back through ``attribute_definition.update`` and
+    asserts the following ``attribute_definition.get`` returns the written
+    sections. The original sections are restored afterwards so the attribute
+    cells of this workspace keep resolving against the definition they probed.
+    """
+    item_type = "Requirement"
+    workspace_id = str(workspace.id)
+
+    def _get() -> Any:
+        return env.registry.dispatch_request(
+            tool_name="attribute_definition.get",
+            params={"item_type": item_type, "workspace_id": workspace_id},
+            api_key=env.api_key,
+        )
+
+    def _update(target_sections: list[dict[str, Any]], attributes: list[dict[str, Any]]) -> Any:
+        return env.registry.dispatch_request(
+            tool_name="attribute_definition.update",
+            params={
+                "item_type": item_type,
+                "workspace_id": workspace_id,
+                "attributes": attributes,
+                "sections": target_sections,
+            },
+            api_key=env.api_key,
+        )
+
+    executed = 1
+    current = _get()
+    if not current.success:
+        violations.append(
+            _violation(
+                "*", preset, "MCP", "attribute_definition.update(sections)", "UPDATE",
+                f"could not read the definition to probe: {current.error_code}: {current.message}",
+            )
+        )
+        return executed
+    definition = current.data.get("definition") if isinstance(current.data, dict) else None
+    attributes = definition.get("attributes") if isinstance(definition, dict) else None
+    sections = definition.get("sections") if isinstance(definition, dict) else None
+    if not isinstance(attributes, list) or not isinstance(sections, list) or not sections:
+        violations.append(
+            _violation(
+                "*", preset, "MCP", "attribute_definition.update(sections)", "UPDATE",
+                "resolved definition exposes no sections to round-trip",
+            )
+        )
+        return executed
+
+    modified = [dict(section) for section in sections]
+    modified[0]["layout"] = "half" if modified[0].get("layout") != "half" else "full"
+    try:
+        update = _update(modified, attributes)
+        executed += 1
+        if not update.success:
+            violations.append(
+                _violation(
+                    "*", preset, "MCP", "attribute_definition.update(sections)", "UPDATE",
+                    f"{update.error_code}: {update.message}",
+                )
+            )
+            return executed
+        read = _get()
+        executed += 1
+        if not read.success:
+            violations.append(
+                _violation(
+                    "*", preset, "MCP", "attribute_definition.update(sections)", "UPDATE",
+                    f"post-update read failed: {read.error_code}: {read.message}",
+                )
+            )
+            return executed
+        read_definition = read.data.get("definition") if isinstance(read.data, dict) else None
+        read_sections = (
+            read_definition.get("sections") if isinstance(read_definition, dict) else None
+        )
+        if read_sections != modified:
+            violations.append(
+                _violation(
+                    "*", preset, "MCP", "attribute_definition.update(sections)", "UPDATE",
+                    f"sections did not round-trip: wrote {modified!r}, read {read_sections!r}",
+                )
+            )
+    finally:
+        restored = _update(sections, attributes)
+        if not restored.success:
+            violations.append(
+                _violation(
+                    "*", preset, "MCP", "attribute_definition.update(sections)", "UPDATE",
+                    "could not restore the pre-probe sections "
+                    f"({restored.error_code}: {restored.message})",
+                )
+            )
+    return executed
 
 
 def _run_matrix(env: _Env) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
@@ -1426,7 +1712,6 @@ def _run_matrix(env: _Env) -> tuple[list[dict[str, Any]], list[dict[str, Any]], 
         limitations.append(
             _limitation("*", preset, "REST+MCP", "boolean", _BOOLEAN_V_REASON, ISSUE_WS0_CONTRACT_MATRIX)
         )
-        _ratchet_unprobed_tools(preset=preset, limitations=limitations)
         for item_type in ITEM_TYPES:
             row = workspace_resolver.resolve(env.tenant.id, workspace.id, item_type, preset)
             attributes = stored_attributes(row.definition_json)
@@ -1495,6 +1780,17 @@ def _run_matrix(env: _Env) -> tuple[list[dict[str, Any]], list[dict[str, Any]], 
                 sections=sections,
                 violations=violations,
             )
+        # Whole-workspace MCP tools whose contract is not per-item-type but per
+        # preset. Each probe is keyed ``(item_type="*", preset, "MCP", tool)``.
+        executed += _run_mcp_sections_probe(
+            env=env, preset=preset, workspace=workspace, violations=violations
+        )
+        executed += _run_mcp_search_probe(
+            env=env, preset=preset, workspace=workspace, violations=violations
+        )
+        executed += _run_mcp_tree_probe(
+            env=env, preset=preset, workspace=workspace, violations=violations
+        )
     return violations, limitations, executed
 
 

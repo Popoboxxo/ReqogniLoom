@@ -21,18 +21,29 @@ import type {
   AttributeItemType,
   AttributeSpec,
   SectionLayout,
+  SectionSpec,
+  SpacerSize,
 } from "../../../api/attribute-definitions";
 import { extractErrorMessage } from "../../../api/client";
 import type { WorkflowArtifactType } from "../../../api/workflow-transitions";
 import { useEntityReset } from "../../../hooks/use-entity-reset";
 import { useFormDirty } from "../../../hooks/use-form-dirty";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { RevealValue } from "../RevealValue";
 import { WorkflowStatusEditor } from "../../WorkflowStatusEditor";
 import styles from "./ArtifactForm.module.css";
 import { fieldErrorsFromException } from "./field-errors";
 import {
+  orderedSectionTokens,
+  resolveAttributeFlow,
+  sectionLayoutColumns,
+  spacerColumns,
+  spanClassSuffix,
+} from "./layout-flow";
+import {
   BooleanToggle,
   DateField,
+  DisplayField,
   EnumSelect,
   MultiEnum,
   NumberField,
@@ -40,6 +51,11 @@ import {
   TextArea,
   TextField,
   UserPicker,
+  ActorPicker,
+  attributeLabel,
+  hasConfiguredDisplay,
+  resolveDisplayProps,
+  type ActorFieldValue,
 } from "./fields";
 import { useArtifactDefinition } from "./useArtifactDefinition";
 import { resolveWidget } from "./widget-registry";
@@ -83,6 +99,12 @@ export interface FormSection {
   audience: AttributeAudience;
   attributes: AttributeSpec[];
 }
+
+/** One grid item of the section area (WS4 #938): a rendered section or an
+ * empty spacer. */
+type SectionEntry =
+  | { kind: "section"; section: FormSection; layout: SectionLayout }
+  | { kind: "spacer"; size: SpacerSize };
 
 /**
  * Group attributes into sections.
@@ -150,7 +172,7 @@ export function ArtifactForm({
   workflowArtifactType,
   requiresChangeReason = false,
 }: ArtifactFormProps): JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { definition, loading, error: loadError } = useArtifactDefinition(itemType);
   const [values, setValues] = useState<ArtifactFormValues>(initialValues);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
@@ -261,22 +283,67 @@ export function ArtifactForm({
   // in `definition.sections` (pre-Task-7 data, or a name introduced by an
   // attribute edit that hasn't round-tripped through ensure_sections yet)
   // defaults to visible — same "additive, no data migration" default the
-  // backend's own materialize_sections uses.
+  // backend's own materialize_sections uses. WS4 #938: the full spec (not
+  // just visible/layout) is kept, because the section-level `attribute_flow`
+  // lives on it.
   const sectionMeta = useMemo(() => {
-    const map = new Map<string, { visible: boolean; layout: SectionLayout }>();
+    const map = new Map<string, SectionSpec>();
     for (const section of definition?.sections ?? []) {
-      map.set(section.name, { visible: section.visible, layout: section.layout });
+      map.set(section.name, section);
     }
     return map;
   }, [definition]);
 
-  const sections = useMemo(
-    () =>
-      groupIntoSections(visible.filter((a) => !widgetOwned.has(a.name))).filter(
-        (section) => sectionMeta.get(section.name)?.visible !== false
-      ),
-    [visible, widgetOwned, sectionMeta]
+  const spanClass = useCallback(
+    (columns: number): string =>
+      styles[`span${spanClassSuffix(columns)}`] ?? styles.span12,
+    []
   );
+
+  const groupedSections = useMemo(
+    () => groupIntoSections(visible.filter((a) => !widgetOwned.has(a.name))),
+    [visible, widgetOwned]
+  );
+
+  /**
+   * WS4 #938 (spec section 7): section order comes from the stored
+   * `section_flow` when present, otherwise from `definition.sections` order —
+   * the same order the backend's `materialize_section_flow` uses — with a
+   * fallback to attribute first-appearance for pre-Task-7 definitions whose
+   * `sections` list is still empty. Invisible sections are filtered out
+   * BEFORE the flow is applied, so a spacer next to a hidden section survives
+   * while the hidden section itself never renders.
+   */
+  const sectionEntries = useMemo((): SectionEntry[] => {
+    const byName = new Map(groupedSections.map((section) => [section.name, section]));
+    const declared = [...(definition?.sections ?? [])].sort(
+      (a, b) => a.order - b.order || a.name.localeCompare(b.name)
+    );
+    const order: string[] = [];
+    for (const section of declared) {
+      if (byName.has(section.name)) order.push(section.name);
+    }
+    for (const section of groupedSections) {
+      if (!order.includes(section.name)) order.push(section.name);
+    }
+    const visibleOrder = order.filter(
+      (name) => sectionMeta.get(name)?.visible !== false
+    );
+    return orderedSectionTokens(definition?.section_flow, visibleOrder).flatMap(
+      (token): SectionEntry[] => {
+        if (token.kind === "spacer") return [{ kind: "spacer", size: token.size }];
+        const section = byName.get(token.name);
+        if (!section) return [];
+        return [
+          {
+            kind: "section",
+            section,
+            layout: sectionMeta.get(section.name)?.layout ?? "full",
+          },
+        ];
+      }
+    );
+  }, [definition, groupedSections, sectionMeta]);
 
   const isSectionOpen = useCallback(
     (section: FormSection): boolean => {
@@ -375,18 +442,32 @@ export function ArtifactForm({
         </div>
       ) : null}
 
-      <div className={styles.sectionsGrid}>
-      {sections.map((section) => {
+      <div className={styles.sectionsGrid} data-testid="artifact-sections-grid">
+      {sectionEntries.map((entry, entryIndex) => {
+        if (entry.kind === "spacer") {
+          return (
+            <div
+              key={`section-spacer-${entryIndex}`}
+              className={`${styles.spacerToken} ${spanClass(spacerColumns(entry.size))}`}
+              data-columns={spacerColumns(entry.size)}
+              aria-hidden="true"
+              data-testid={`artifact-section-spacer-${entryIndex}`}
+            />
+          );
+        }
+        const { section, layout } = entry;
         const open = isSectionOpen(section);
-        const layout = sectionMeta.get(section.name)?.layout ?? "full";
+        const fieldEntries = resolveAttributeFlow(
+          sectionMeta.get(section.name),
+          section.attributes
+        );
         return (
           <section
             key={section.name}
             data-testid={`artifact-section-${section.name}`}
             data-layout={layout}
-            className={`${styles.section} ${
-              layout === "half" ? styles.sectionHalf : styles.sectionFull
-            }`}
+            data-columns={sectionLayoutColumns(layout)}
+            className={`${styles.section} ${spanClass(sectionLayoutColumns(layout))}`}
           >
             <button
               type="button"
@@ -410,22 +491,63 @@ export function ArtifactForm({
             </button>
 
             {open ? (
-              <div className={styles.sectionBody}>
-                {section.attributes.map((attribute) =>
-                  renderAttribute({
-                    attribute,
+              <div
+                className={styles.sectionBody}
+                data-testid={`artifact-section-body-${section.name}`}
+              >
+                {fieldEntries.map((fieldEntry, fieldIndex) => {
+                  if (fieldEntry.kind === "spacer") {
+                    return (
+                      <div
+                        key={`field-spacer-${fieldIndex}`}
+                        className={`${styles.spacerToken} ${spanClass(fieldEntry.columns)}`}
+                        data-columns={fieldEntry.columns}
+                        aria-hidden="true"
+                        data-testid={`artifact-field-spacer-${section.name}-${fieldIndex}`}
+                      />
+                    );
+                  }
+                  const rendered = renderAttribute({
+                    attribute: fieldEntry.attribute,
                     values,
                     fieldErrors,
                     specByName,
-                    disabled: isReadOnly || attribute.editable === false || saving,
+                    disabled:
+                      isReadOnly ||
+                      saving ||
+                      // A workflow-owned attribute is editable through the
+                      // WorkflowStatusEditor's own transition menu, not through
+                      // the generic editable-control path — `editable ===
+                      // "workflow"` must therefore NOT count as "not editable"
+                      // here, or the status editor renders without its trigger
+                      // (E2E: workflow-transition-trigger missing).
+                      (fieldEntry.attribute.editable !== true &&
+                        fieldEntry.attribute.editable !== "workflow"),
+                    // Distinct from `disabled`: a save in flight must not switch
+                    // a configured field from its editable control to the
+                    // read-only display (that would flash the value format).
+                    displayOnly: isReadOnly || fieldEntry.attribute.editable !== true,
+                    language: i18n.language,
+                    systemUnsetLabel: t("artifactForm.systemValueUnavailable"),
                     artifactId,
                     workflowArtifactType,
                     unsupportedLabel: t("artifactForm.unsupportedWidget", {
-                      widget: attribute.widget_key ?? "",
+                      widget: fieldEntry.attribute.widget_key ?? "",
                     }),
                     update,
-                  })
-                )}
+                  });
+                  if (!rendered) return null;
+                  return (
+                    <div
+                      key={fieldEntry.attribute.name}
+                      className={`${styles.fieldCell} ${spanClass(fieldEntry.columns)}`}
+                      data-columns={fieldEntry.columns}
+                      data-testid={`artifact-field-cell-${fieldEntry.attribute.name}`}
+                    >
+                      {rendered}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
           </section>
@@ -490,6 +612,17 @@ interface RenderArgs {
   fieldErrors: Record<string, string[]>;
   specByName: Map<string, AttributeSpec>;
   disabled: boolean;
+  /**
+   * `true` when the attribute is shown outside an editable context (read mode
+   * or a non-editable policy) — the trigger for the generic display path.
+   * Separate from `disabled` because `saving` also disables controls without
+   * changing how a configured value should be rendered.
+   */
+  displayOnly: boolean;
+  /** Active UI language — needed by the `system` static-text branch. */
+  language: string;
+  /** Rendered for an empty `system` attribute value. */
+  systemUnsetLabel: string;
   artifactId: string | null;
   workflowArtifactType?: WorkflowArtifactType;
   unsupportedLabel: string;
@@ -502,6 +635,9 @@ function renderAttribute({
   fieldErrors,
   specByName,
   disabled,
+  displayOnly,
+  language,
+  systemUnsetLabel,
   artifactId,
   workflowArtifactType,
   unsupportedLabel,
@@ -509,6 +645,40 @@ function renderAttribute({
 }: RenderArgs): JSX.Element | null {
   const testId = `artifact-field-${attribute.name}`;
   const errors = fieldErrors[attribute.name];
+
+  // Rule 3b (Attribut v3 WS2, #936): a `system` attribute is server-owned —
+  // the Artifact's own `id` is the carrier. It is NEVER an editable control:
+  // it renders through the generic `<RevealValue>` display engine, so the WS3
+  // (#937) display properties (`reveal="click"`, `copyable`, `mask="short"`)
+  // take effect here too.
+  //
+  // Checked BEFORE the `workflow` comparison on purpose: comparing against the
+  // first string literal narrows `editable` to its remaining string member, so
+  // a `=== "system"` test placed after it would (correctly, but unhelpfully)
+  // be reported as having no overlap with the narrowed `boolean | "system"`.
+  if (attribute.editable === "system") {
+    const current = readValue(values, attribute);
+    const hasValue = current != null && current !== "";
+    const display = resolveDisplayProps(attribute);
+    return (
+      <div key={attribute.name} className={styles.field}>
+        <span className={styles.label} id={`${testId}-label`}>
+          {attributeLabel(attribute, language)}
+        </span>
+        <RevealValue
+          value={hasValue ? String(current) : null}
+          fallback={systemUnsetLabel}
+          copyValue={hasValue ? String(current) : null}
+          displayFormat={display.displayFormat}
+          reveal={display.reveal}
+          mask={display.mask}
+          copyable={display.copyable && hasValue}
+          label={attributeLabel(attribute, language)}
+          testId={testId}
+        />
+      </div>
+    );
+  }
 
   // Rule 3: a workflow-owned attribute is never an editable control. In create
   // mode there is no artifact to transition yet, so it is not rendered at all —
@@ -571,6 +741,25 @@ function renderAttribute({
     );
   }
 
+  // Rule 4 (Attribut v3 WS3, #937): an attribute with at least one NON-default
+  // display property (copyable/reveal/mask/display_format) is rendered through
+  // the generic display engine whenever the field is not editable. An
+  // attribute without special properties falls straight through to its
+  // ordinary control below and keeps rendering exactly as before — the
+  // "kein Big-Bang, Defaults verhalten sich wie vorher" requirement.
+  const display = resolveDisplayProps(attribute);
+  if (displayOnly && hasConfiguredDisplay(display)) {
+    return (
+      <DisplayField
+        key={attribute.name}
+        attribute={attribute}
+        value={readValue(values, attribute)}
+        errors={errors}
+        testId={testId}
+      />
+    );
+  }
+
   const shared = {
     key: attribute.name,
     attribute,
@@ -598,6 +787,18 @@ function renderAttribute({
       return <ReferencePicker {...shared} value={value as string | null} onChange={onChange} />;
     case "user":
       return <UserPicker {...shared} value={value as string | null} onChange={onChange} />;
+    case "actor":
+      // Attribut v3 WS2 (#936): `multiple` selects between the single entry
+      // form (`{kind, id|name}`) and the `{multiple: true, items: [...]}`
+      // form; `allow_external` gates the "create as external person"
+      // affordance. Both are read from the attribute, never guessed here.
+      return (
+        <ActorPicker
+          {...shared}
+          value={value as ActorFieldValue}
+          onChange={onChange}
+        />
+      );
     default:
       return <TextField {...shared} value={value as string | null} onChange={onChange} />;
   }

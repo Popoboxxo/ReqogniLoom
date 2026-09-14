@@ -59,7 +59,13 @@ test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
     // Click to verify details
     await page.click(`text=${apiTitle}`);
     await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(apiTitle);
-    await expect(page.locator('textarea')).toHaveValue('Created via REST API');
+    // Attribut v3 WS6 (#939) added further extended textareas to the Need form
+    // (e.g. rationale), so a bare `page.locator('textarea')` is now ambiguous
+    // (Playwright strict-mode violation). Scope to the description field's own
+    // testid, which the shared TextArea renders.
+    await expect(page.locator('[data-testid="artifact-field-description"]')).toHaveValue(
+      'Created via REST API'
+    );
     // NOTE: NeedForm's MoSCoW-priority <select> has no data-testid/label
     // association (frontend/src/components/NeedsEditors/NeedForm.tsx), and
     // the page renders several other <select> elements (status filter, sort,

@@ -31,11 +31,16 @@ import {
   type AttributeItemType,
   type AttributeOrigin,
   type AttributeSpec,
+  type LayoutToken,
   type NewAttributeInput,
   type OnCollision,
   type SectionLayout,
   type SectionSpec,
 } from "../../api/attribute-definitions";
+import {
+  attributeCatalogApi,
+  type AttributeCatalogEntry,
+} from "../../api/attributeCatalog";
 import { extractErrorMessage } from "../../api/client";
 import type { WorkspacePreset } from "../../types";
 import { useAuth } from "../../context/AuthContext";
@@ -44,12 +49,20 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/Toast/useToast";
 import { PresetSegmentedControl } from "../WorkflowEditor/PresetSegmentedControl";
 import { WORKFLOW_PRESETS } from "../WorkflowEditor/constants";
+import {
+  deleteSectionToken,
+  pruneAttributeFlows,
+  pruneSectionFlow,
+  renameSectionToken,
+} from "../shared/ArtifactForm/layout-flow";
 import styles from "./AttributeEditor.module.css";
+import { AttributeCatalogDialog } from "./AttributeCatalogDialog";
 import { AttributeCreateDialog } from "./AttributeCreateDialog";
 import { AttributeImportDialog } from "./AttributeImportDialog";
 import { AttributeInspector } from "./AttributeInspector";
 import { AttributeList } from "./AttributeList";
 import { AttributeTable } from "./AttributeTable";
+import { LayoutFlowEditor } from "./LayoutFlowEditor";
 import {
   deleteSection,
   deleteSectionSpec,
@@ -58,6 +71,7 @@ import {
   patchAttribute,
   renameSection,
   renameSectionSpec,
+  setSectionAttributeFlow,
   setSectionLayout,
   toggleSectionVisible,
 } from "./attribute-edits";
@@ -137,6 +151,13 @@ export function AttributeEditorPage({
   const [loaded, setLoaded] = useState<AttributeSpec[]>([]);
   const [sections, setSections] = useState<SectionSpec[]>([]);
   const [loadedSections, setLoadedSections] = useState<SectionSpec[]>([]);
+  /** WS4 #938: `undefined` = the definition stores NO `section_flow` (the
+   * additive default; a save must omit the key), `[]` = a stored empty flow. */
+  const [sectionFlow, setSectionFlow] = useState<LayoutToken[] | undefined>(undefined);
+  const [loadedSectionFlow, setLoadedSectionFlow] = useState<LayoutToken[] | undefined>(
+    undefined
+  );
+  const [showLayout, setShowLayout] = useState(false);
   const [isCustomized, setIsCustomized] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [emptySections, setEmptySections] = useState<string[]>([]);
@@ -157,6 +178,7 @@ export function AttributeEditorPage({
     document: AttributeDefinitionDocument;
     fileName: string;
   } | null>(null);
+  const [showCatalog, setShowCatalog] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSetViewMode = useCallback((mode: ViewMode): void => {
@@ -168,15 +190,54 @@ export function AttributeEditorPage({
     }
   }, []);
 
+  /**
+   * Store a definition fetched from the server (or just written back), after
+   * pruning layout tokens that no longer point at a real section/attribute —
+   * e.g. an attribute delete (an immediate API call, not a buffered edit)
+   * leaves a stale token in the stored `attribute_flow`. Pruning keeps both
+   * the current and the loaded snapshot identical, so this never fabricates a
+   * dirty state; the cleaned flow is persisted by the next Save.
+   */
+  const applyDefinition = useCallback(
+    (
+      nextAttributes: AttributeSpec[],
+      nextSections: SectionSpec[],
+      nextFlow: LayoutToken[] | undefined
+    ): void => {
+      const prunedSections = pruneAttributeFlows(
+        nextSections,
+        nextAttributes.map((attribute) => attribute.name)
+      );
+      const sectionNameList: string[] = [];
+      for (const section of prunedSections) {
+        if (!sectionNameList.includes(section.name)) sectionNameList.push(section.name);
+      }
+      for (const attribute of nextAttributes) {
+        if (!sectionNameList.includes(attribute.section)) {
+          sectionNameList.push(attribute.section);
+        }
+      }
+      const prunedFlow = pruneSectionFlow(nextFlow, sectionNameList);
+      setAttributes(nextAttributes);
+      setLoaded(nextAttributes);
+      setSections(prunedSections);
+      setLoadedSections(prunedSections);
+      setSectionFlow(prunedFlow);
+      setLoadedSectionFlow(prunedFlow);
+    },
+    []
+  );
+
   const load = useCallback(async (): Promise<void> => {
     setError(null);
     try {
       if (isGlobal) {
         const definition = await attributeDefinitionsApi.getGlobal(itemType, preset);
-        setAttributes(definition.attributes);
-        setLoaded(definition.attributes);
-        setSections(definition.sections);
-        setLoadedSections(definition.sections);
+        applyDefinition(
+          definition.attributes,
+          definition.sections,
+          definition.section_flow
+        );
         setIsCustomized(false);
         setOrigins({});
       } else {
@@ -185,17 +246,18 @@ export function AttributeEditorPage({
           activeWorkspace.id,
           itemType
         );
-        setAttributes(definition.attributes);
-        setLoaded(definition.attributes);
-        setSections(definition.sections);
-        setLoadedSections(definition.sections);
+        applyDefinition(
+          definition.attributes,
+          definition.sections,
+          definition.section_flow
+        );
         setIsCustomized(definition.is_customized);
         setOrigins(definition.origins);
       }
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
     }
-  }, [activeWorkspace?.id, isGlobal, itemType, preset]);
+  }, [activeWorkspace?.id, applyDefinition, isGlobal, itemType, preset]);
 
   useEffect(() => {
     void load();
@@ -260,6 +322,32 @@ export function AttributeEditorPage({
     [activeWorkspace?.id, isGlobal, itemType, load, pendingImport, preset]
   );
 
+  // WS5 #942 (spec section 8): apply one catalog entry to the definition the
+  // page currently edits. `add_to_definition` is a one-shot copy — the catalog
+  // is a template, not a binding — so after it succeeds the page simply
+  // refetches the (server-normalized) definition, exactly like import does.
+  const handleAddFromCatalog = useCallback(
+    async (entry: AttributeCatalogEntry, onCollision: OnCollision): Promise<void> => {
+      if (isGlobal) {
+        await attributeCatalogApi.addToDefinition(entry.id, {
+          item_type: itemType,
+          preset,
+          on_collision: onCollision,
+        });
+      } else {
+        if (!activeWorkspace?.id) return;
+        await attributeCatalogApi.addToDefinition(entry.id, {
+          item_type: itemType,
+          workspace_id: activeWorkspace.id,
+          on_collision: onCollision,
+        });
+      }
+      await load();
+      toast.show(t("attributes.catalog.added", { name: entry.name }));
+    },
+    [activeWorkspace?.id, isGlobal, itemType, load, preset, t]
+  );
+
   // Selection/scratch state is scoped to one (itemType, preset) view — carrying
   // it across a switch risks matching an unrelated attribute of the same name
   // on the newly loaded type (e.g. both Risk and Issue have a "title").
@@ -267,13 +355,15 @@ export function AttributeEditorPage({
     setSelected(null);
     setEmptySections([]);
     setNewSection(null);
+    setShowCatalog(false);
   }, [itemType, preset, isGlobal]);
 
   const isDirty = useMemo(
     () =>
       JSON.stringify(attributes) !== JSON.stringify(loaded) ||
-      JSON.stringify(sections) !== JSON.stringify(loadedSections),
-    [attributes, loaded, sections, loadedSections]
+      JSON.stringify(sections) !== JSON.stringify(loadedSections) ||
+      JSON.stringify(sectionFlow) !== JSON.stringify(loadedSectionFlow),
+    [attributes, loaded, sections, loadedSections, sectionFlow, loadedSectionFlow]
   );
 
   const selectedAttribute = attributes.find((a) => a.name === selected) ?? null;
@@ -284,32 +374,48 @@ export function AttributeEditorPage({
     toast.clear();
     try {
       if (isGlobal) {
-        const result = await attributeDefinitionsApi.putGlobal(
-          itemType,
-          preset,
-          attributes,
-          sections
-        );
-        setAttributes(result.attributes);
-        setLoaded(result.attributes);
-        setSections(result.sections);
-        setLoadedSections(result.sections);
+        // `sectionFlow` is passed only when the definition HAS a flow: passing
+        // an explicit `[]` for a definition that never had one would store an
+        // empty flow and change what backend consumers derive. Same rule for
+        // the workspace branch below.
+        const result =
+          sectionFlow !== undefined
+            ? await attributeDefinitionsApi.putGlobal(
+                itemType,
+                preset,
+                attributes,
+                sections,
+                sectionFlow
+              )
+            : await attributeDefinitionsApi.putGlobal(
+                itemType,
+                preset,
+                attributes,
+                sections
+              );
+        applyDefinition(result.attributes, result.sections, result.section_flow);
         if (typeof result.propagated_workspace_count === "number") {
           toast.show(
             t("attributes.propagated", { count: result.propagated_workspace_count })
           );
         }
       } else if (activeWorkspace?.id) {
-        const result = await attributeDefinitionsApi.putWorkspace(
-          activeWorkspace.id,
-          itemType,
-          attributes,
-          sections
-        );
-        setAttributes(result.attributes);
-        setLoaded(result.attributes);
-        setSections(result.sections);
-        setLoadedSections(result.sections);
+        const result =
+          sectionFlow !== undefined
+            ? await attributeDefinitionsApi.putWorkspace(
+                activeWorkspace.id,
+                itemType,
+                attributes,
+                sections,
+                sectionFlow
+              )
+            : await attributeDefinitionsApi.putWorkspace(
+                activeWorkspace.id,
+                itemType,
+                attributes,
+                sections
+              );
+        applyDefinition(result.attributes, result.sections, result.section_flow);
         setIsCustomized(result.is_customized);
         setOrigins(result.origins);
       }
@@ -318,7 +424,17 @@ export function AttributeEditorPage({
     } finally {
       setSaving(false);
     }
-  }, [activeWorkspace?.id, attributes, isGlobal, itemType, preset, sections, t]);
+  }, [
+    activeWorkspace?.id,
+    applyDefinition,
+    attributes,
+    isGlobal,
+    itemType,
+    preset,
+    sectionFlow,
+    sections,
+    t,
+  ]);
 
   const handleReset = useCallback(async (): Promise<void> => {
     if (!activeWorkspace?.id) return;
@@ -328,16 +444,13 @@ export function AttributeEditorPage({
         activeWorkspace.id,
         itemType
       );
-      setAttributes(result.attributes);
-      setLoaded(result.attributes);
-      setSections(result.sections);
-      setLoadedSections(result.sections);
+      applyDefinition(result.attributes, result.sections, result.section_flow);
       setIsCustomized(result.is_customized);
       setOrigins(result.origins);
     } catch (exc: unknown) {
       setError(extractErrorMessage(exc));
     }
-  }, [activeWorkspace?.id, itemType]);
+  }, [activeWorkspace?.id, applyDefinition, itemType]);
 
   // NOTE (deviation from the plan's literal snippet): `renameSection` and
   // `deleteSection` can throw. Calling them from INSIDE a `setState` updater
@@ -356,6 +469,11 @@ export function AttributeEditorPage({
         const next = renameSection(attributes, from, to);
         setAttributes(next);
         setSections((current) => renameSectionSpec(current, from, to));
+        // WS4 #938 (scope rule 5): a section rename must rename its
+        // `section_flow` token too, or the flow points at a name that no
+        // longer exists. Renaming onto an existing section drops the source
+        // token (same merge semantics `renameSectionSpec` applies).
+        setSectionFlow((current) => renameSectionToken(current, from, to));
         setEmptySections((current) =>
           current.map((s) => (s === from ? to.trim() : s)).filter(Boolean)
         );
@@ -375,6 +493,8 @@ export function AttributeEditorPage({
         const next = deleteSection(attributes, name);
         setAttributes(next);
         setSections((current) => deleteSectionSpec(current, name));
+        // WS4 #938 (scope rule 5): drop the deleted section's flow token.
+        setSectionFlow((current) => deleteSectionToken(current, name));
         setEmptySections((current) => current.filter((s) => s !== name));
       } catch (exc: unknown) {
         setError(exc instanceof Error ? exc.message : String(exc));
@@ -394,6 +514,19 @@ export function AttributeEditorPage({
   const handleSetSectionLayout = useCallback((name: string, layout: SectionLayout): void => {
     setSections((current) => setSectionLayout(current, name, layout));
   }, []);
+
+  // WS4 #938: the layout editor's two write paths — both stay local buffered
+  // edits (dirty state + normal Save PUT), never an immediate API call.
+  const handleSectionFlowChange = useCallback((next: LayoutToken[]): void => {
+    setSectionFlow(next);
+  }, []);
+
+  const handleAttributeFlowChange = useCallback(
+    (name: string, flow: LayoutToken[]): void => {
+      setSections((current) => setSectionAttributeFlow(current, name, flow));
+    },
+    []
+  );
 
   // The inspector's free-text section field moves a single attribute into a
   // (possibly new) section, same as a drag in `AttributeList` — so it must
@@ -581,6 +714,14 @@ export function AttributeEditorPage({
         </span>
         <button
           type="button"
+          data-testid="attribute-editor-layout-toggle"
+          aria-pressed={showLayout}
+          onClick={() => setShowLayout((current) => !current)}
+        >
+          {t("attributes.layout.title")}
+        </button>
+        <button
+          type="button"
           data-testid="attribute-editor-export"
           disabled={!isAdmin}
           onClick={() => void handleExport()}
@@ -603,6 +744,18 @@ export function AttributeEditorPage({
           hidden
           onChange={handleFileSelected}
         />
+        {/* WS5 #942: catalog entries are admin-managed tenant configuration
+            (the REST layer 403s an editor), so the entry point is not merely
+            disabled for non-admins — it is not rendered at all. */}
+        {isAdmin ? (
+          <button
+            type="button"
+            data-testid="attribute-editor-add-from-catalog"
+            onClick={() => setShowCatalog(true)}
+          >
+            {t("attributes.catalog.addButton")}
+          </button>
+        ) : null}
         {newSection === null ? (
           <button
             type="button"
@@ -657,6 +810,18 @@ export function AttributeEditorPage({
         <div className={styles.toast} role="status" data-testid="attribute-editor-toast">
           {toast.message}
         </div>
+      ) : null}
+
+      {showLayout ? (
+        <LayoutFlowEditor
+          attributes={attributes}
+          sections={sections}
+          sectionFlow={sectionFlow}
+          emptySections={emptySections}
+          readOnly={!isAdmin}
+          onSectionFlowChange={handleSectionFlowChange}
+          onAttributeFlowChange={handleAttributeFlowChange}
+        />
       ) : null}
 
       <div className={styles.body}>
@@ -776,6 +941,14 @@ export function AttributeEditorPage({
           fileName={pendingImport.fileName}
           onConfirm={handleConfirmImport}
           onClose={() => setPendingImport(null)}
+        />
+      ) : null}
+
+      {showCatalog && isAdmin ? (
+        <AttributeCatalogDialog
+          itemType={itemType}
+          onAdd={handleAddFromCatalog}
+          onClose={() => setShowCatalog(false)}
         />
       ) : null}
     </div>

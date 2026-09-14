@@ -166,7 +166,10 @@ ENTITY_FIELD_SPECS: Dict[str, List[tuple]] = {
         ("impact", "str"),
         ("risk_score", "int"),
         ("severity", "str"),
-        ("owner", "str"),
+        # Attribut v3 WS7 (#940): Risk.owner was renamed to owner_name (same DB
+        # column) so it no longer shadows the Artifact.owner Actor FK; the CSV
+        # column follows so getattr(obj, col) keeps resolving.
+        ("owner_name", "str"),
         ("mitigation_strategy", "str"),
         ("detection", "int"),
         ("status", "str"),

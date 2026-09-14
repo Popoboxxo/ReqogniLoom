@@ -52,15 +52,31 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
     validate_artifact_write,
     write_mcp_audit,
+)
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
-    """Serialise an ArchitectureElement ORM object to a dict."""
+def _arch_el_to_dict(
+    el: Any, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Serialise an ArchitectureElement ORM object to a dict.
+
+    Pass a pre-batched *status_map* (:func:`resolve_status_map`) from list-shaped
+    handlers so a page of N elements resolves its ``status`` in one engine query
+    instead of N. On the single-item paths it stays ``None`` and
+    :func:`resolve_engine_status` keeps its per-item fallback behaviour.
+    """
     result: Dict[str, Any] = {
         "id": str(el.id),
         # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
@@ -78,6 +94,14 @@ def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
     # readable — the create used to accept/drop them and the read omitted them.
     result["asil_level"] = getattr(el, "asil_level", None)
     result["make_or_buy"] = getattr(el, "make_or_buy", None)
+    # Epic #934 WS1: ``status`` is a visible system attribute on every
+    # bootstrapped definition (``editable="workflow"``). The REST
+    # ``ArchitectureElementSerializer`` already resolves it from the workflow
+    # engine; the MCP projection omitted it, so the read-back could not satisfy
+    # the Attribute Usability Contract's R check (class ``SYSTEM``).
+    result["status"] = resolve_engine_status(
+        "ArchitectureElement", el.id, status_map=status_map
+    )
     result["custom_fields"] = artifact_custom_fields(el)
     if hasattr(el, "artifact") and el.artifact:
         result["workspace_id"] = str(el.artifact.workspace_id)
@@ -88,6 +112,8 @@ def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
         # (rest_api/serializers.py), which already exposes artifact_id via a
         # read-only UUIDField.
         result["artifact_id"] = str(el.artifact_id)
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, el)
     return result
 
 
@@ -174,6 +200,8 @@ class ArchitectureToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -215,6 +243,9 @@ class ArchitectureToolGroup(BaseToolGroup):
                             },
                             "parent_id": {"type": ["string", "null"]},
                             "expected_version": {"type": "integer"},
+                            # Attribut v3 WS2 (#936): Artifact-level system
+                            # fields are applied through the gateway.
+                            **SYSTEM_FIELD_SCHEMA,
                         },
                     },
                 },
@@ -382,8 +413,16 @@ class ArchitectureToolGroup(BaseToolGroup):
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance -- mirrors requirements/tests/
+        # goals/interview and rest_api/mixins/workflow_state.py's rationale).
+        status_map = resolve_status_map(
+            "ArchitectureElement", [el.id for el in elements]
+        )
         return ToolResult.ok({
-            "architecture_elements": [_arch_el_to_dict(el) for el in elements],
+            "architecture_elements": [
+                _arch_el_to_dict(el, status_map) for el in elements
+            ],
             "count": len(elements),
         })
 
@@ -430,6 +469,13 @@ class ArchitectureToolGroup(BaseToolGroup):
                     make_or_buy=make_or_buy,
                     custom_fields=custom_fields,
                 )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "ArchitectureElement",
+                el,
+                system_field_values(params),
+                auth_context,
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -490,6 +536,10 @@ class ArchitectureToolGroup(BaseToolGroup):
             # part of this tool's params, so it is resolved via a lookup
             # first (mirrors architecture.outdate's own resolution).
             existing_el = self._service.get_architecture_element(arch_id, auth_context)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact
+            # (nested under `data` for this group) and must be part of the
+            # definition gate, not only of the post-call gateway write.
+            system_values = system_field_values(data)
             changed_fields = {
                 name: data[name]
                 for name in (
@@ -503,6 +553,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                 )
                 if name in data
             }
+            changed_fields.update(system_values)
             definition_error = validate_artifact_write(
                 auth_context,
                 "ArchitectureElement",
@@ -533,6 +584,11 @@ class ArchitectureToolGroup(BaseToolGroup):
                     element_type=data.get("element_type"),
                     **update_kwargs,
                 )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact;
+            # the nested `data` object carries them for this tool group.
+            apply_system_fields(
+                "ArchitectureElement", el, system_values, auth_context
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except OptimisticLockError as exc:

@@ -8,6 +8,7 @@
 
 import type {
   AttributeSpec,
+  LayoutToken,
   SectionLayout,
   SectionSpec,
 } from "../../api/attribute-definitions";
@@ -191,6 +192,28 @@ export function setSectionLayout(
     return sections.map((s) => (s.name === name ? { ...s, layout } : s));
   }
   return [...sections, { name, order: sections.length, visible: true, layout }];
+}
+
+/**
+ * WS4 #938: replace one section's `attribute_flow` (the layout editor's write
+ * path), same upsert fallback as {@link setSectionLayout}. The flow is the
+ * editor's already-normalized effective list, so every token references a
+ * real attribute of the section.
+ */
+export function setSectionAttributeFlow(
+  sections: SectionSpec[],
+  name: string,
+  attributeFlow: LayoutToken[]
+): SectionSpec[] {
+  if (sections.some((s) => s.name === name)) {
+    return sections.map((s) =>
+      s.name === name ? { ...s, attribute_flow: attributeFlow } : s
+    );
+  }
+  return [
+    ...sections,
+    { name, order: sections.length, visible: true, layout: "full", attribute_flow: attributeFlow },
+  ];
 }
 
 export function isMetaPropertyLocked(

@@ -40,13 +40,15 @@ def test_releasable_names_spare_the_columns_the_model_itself_requires() -> None:
     so it is a genuine create-payload requirement on every preset and must
     survive the repair. ``description``/``acceptance_criteria`` are
     ``blank=True``, so their requiredness could only have come from the
-    overlay.
+    overlay. ``priority`` joins them via Attribut v3 WS2 (#936): it is now an
+    artifact-level attribute with ``required=False`` — the preset's mandatory
+    ``priority`` is an approval-transition gate (rule 5), not a create gate.
     """
     assert migration._releasable_names("minimal") == set()
     for preset in ("standard", "extended"):
         releasable = migration._releasable_names(preset)
         assert "title" not in releasable, preset
-        assert {"description", "acceptance_criteria"} <= releasable, preset
+        assert {"description", "acceptance_criteria", "priority"} <= releasable, preset
 
 
 def test_relax_clears_only_the_overlay_flags() -> None:
@@ -61,8 +63,9 @@ def test_relax_clears_only_the_overlay_flags() -> None:
     assert after["title"] is True
     assert after["description"] is False
     assert after["acceptance_criteria"] is False
+    assert after["priority"] is False
     # Nothing outside the released names moved.
-    untouched = set(before) - {"description", "acceptance_criteria"}
+    untouched = set(before) - {"description", "acceptance_criteria", "priority"}
     assert {n: after[n] for n in untouched} == {n: before[n] for n in untouched}
 
 

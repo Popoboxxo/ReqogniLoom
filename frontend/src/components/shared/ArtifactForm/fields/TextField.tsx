@@ -22,7 +22,9 @@ export function TextField({
       <input
         id={testId}
         data-testid={testId}
-        className={`${styles.control} ${errors?.length ? styles.controlInvalid : ""}`}
+        className={`${styles.control} ${
+          attribute.display_format === "mono" ? styles.controlMono : ""
+        } ${errors?.length ? styles.controlInvalid : ""}`}
         type="text"
         value={value ?? ""}
         disabled={disabled}

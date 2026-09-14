@@ -82,6 +82,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from attribute_definitions.schema import resolve_attribute_span
 
 if TYPE_CHECKING:
     from application.attribute_definition_service import AttributeDefinitionService
@@ -135,6 +136,42 @@ def carrier_for(attribute: dict[str, Any]) -> AttributeCarrier:
     return AttributeCarrier.CORE
 
 
+#: Core attributes whose column lives on the backing ``Artifact`` rather than on
+#: the type-specific entity (spec section 3, ADR-004). ``owner``/``reporter`` are
+#: ``Actor`` foreign keys; ``priority`` is a plain enum column. The gateway read/
+#: write adapter resolves them through ``_custom_fields_owner`` (the Artifact) and
+#: converts actor FKs to/from the wire value form of spec section 4.
+_ARTIFACT_LEVEL_CORE_FIELDS: frozenset[str] = frozenset(
+    {"owner", "reporter", "priority"}
+)
+
+
+def artifact_system_fields(entity: Any) -> dict[str, Any]:
+    """Return the Artifact-level system fields in wire form (spec sections 3/4).
+
+    Shared by REST DTO builders and MCP read projections so ``owner``,
+    ``reporter`` and ``priority`` are read identically on both transports (AUC).
+    ``entity`` may be a type-specific model (reaches the Artifact through its
+    OneToOne ``artifact``) or a generic ``Artifact``.
+
+    ``owner``/``reporter`` are converted to the same Actor value form the write
+    adapter accepts (``ArtifactAttributeGateway.actor_to_value``); ``priority``
+    is a plain, possibly empty string. Unset FKs become ``None``.
+    """
+    artifact = getattr(entity, "artifact", None)
+    if artifact is None:
+        artifact = entity
+    return {
+        "owner": ArtifactAttributeGateway.actor_to_value(
+            getattr(artifact, "owner", None)
+        ),
+        "reporter": ArtifactAttributeGateway.actor_to_value(
+            getattr(artifact, "reporter", None)
+        ),
+        "priority": getattr(artifact, "priority", "") or "",
+    }
+
+
 class AttributeArtifact(Protocol):
     """Minimal artifact surface the gateway operates on (structural typing).
 
@@ -168,6 +205,19 @@ class AttributeDescriptor:
     options: list[dict[str, str]]
     validation: dict[str, Any]
     order: int
+    #: Layout span (WS4 #938, spec section 7): the token positioning this
+    #: attribute inside its section's 12-column grid — ``full``/``half``/
+    #: ``quarter``. Resolved from the section's ``attribute_flow``; ``full``
+    #: when the definition carries no flow (the pre-WS4 stacking), so the
+    #: descriptor is a usable layout hint for every stored definition.
+    span: str
+    #: Generic display/interaction properties (spec section 5, WS3 #937). Part
+    #: of the discovery contract so a renderer can build the reveal/copy/mask
+    #: affordance from the same projection on both transports.
+    copyable: bool
+    reveal: str
+    mask: str
+    display_format: str
 
 
 @dataclass(frozen=True)
@@ -286,10 +336,16 @@ class ArtifactAttributeGateway:
         directly. Mirrors ``mcp_server.tools.base.artifact_custom_fields`` and
         ``rest_api.views._artifact_custom_fields`` without importing a Layer 3
         module from Layer 2 (ADR-01) — the same fallback rule, resolved locally.
+
+        The backing ``.artifact`` relation is preferred over a direct
+        ``custom_fields`` attribute: a service DTO (``GlossaryTermDTO``, WS2
+        #936) carries its own ``custom_fields`` *dict* for the wire but has no
+        persistence method, so returning the DTO would make every system-field
+        write a silent no-op. Preferring the relation means such a DTO only has
+        to expose its backing ``Artifact`` (via its ``artifact`` property) and
+        the write lands on the real row. A real ``Artifact`` has no ``.artifact``
+        attribute, so the generic case still resolves to itself.
         """
-        direct = getattr(artifact, "custom_fields", None)
-        if isinstance(direct, (dict, str)):
-            return artifact
         backing = getattr(artifact, "artifact", None)
         if backing is not None:
             return backing
@@ -321,6 +377,138 @@ class ArtifactAttributeGateway:
         if callable(save):
             save()
 
+    # ---- Actor value adapter (spec section 4) ------------------------------
+
+    @staticmethod
+    def actor_to_value(actor: Any) -> dict[str, Any] | None:
+        """Convert an ``Actor`` FK into the wire value form of spec section 4.
+
+        ``None`` stays ``None`` (unset). An internal actor reads as
+        ``{"kind": "user", "id": "<actor-uuid>"}``; an external dummy reads as
+        ``{"kind": "external", "name": "<display_name>"}`` — exactly the shapes
+        the write adapter and the DB-free validator accept, which is what makes
+        the round-trip symmetric.
+        """
+        if actor is None:
+            return None
+        if getattr(actor, "kind", None) == "external":
+            return {"kind": "external", "name": actor.display_name}
+        return {"kind": "user", "id": str(actor.id)}
+
+    def resolve_actor_write_value(
+        self, ctx: AuthContext, attribute: dict[str, Any], value: Any
+    ) -> Any:
+        """Resolve a wire actor value to an ``Actor`` row for a single FK field.
+
+        Reuses ``ActorService.validate_actor_value`` (Layer 2) so REST, MCP and
+        the gateway share one existence/policy check. The type-specific entities
+        expose ``owner``/``reporter`` as a single FK, so a ``multiple`` actor
+        definition cannot be stored here — that is a definition error, raised
+        instead of silently dropping all but the first entry.
+
+        Raises:
+            ValidationError: unknown actor/user, external while disallowed, or a
+                ``multiple`` attribute on a single-valued system field.
+        """
+        from persistence.errors import ValidationError
+
+        if value is None:
+            return None
+        if attribute.get("multiple", False):
+            raise ValidationError(
+                f"'{attribute['name']}' is a multiple actor attribute and cannot "
+                "be stored in the single-valued Artifact system field"
+            )
+        from application.actor_service import ActorService
+
+        actors = ActorService().validate_actor_value(
+            ctx,
+            value,
+            multiple=False,
+            allow_external=bool(attribute.get("allow_external", False)),
+        )
+        return actors[0] if actors else None
+
+    def validate_actor_system_fields(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        workspace_id: UUID,
+        changed_fields: dict[str, Any],
+    ) -> None:
+        """Resolve DB-backed actor references for the system fields *before* a write.
+
+        WS2 review #936 (Major 2): ``validate`` is deliberately DB-free
+        (spec section 5), so a well-formed but unknown/foreign-tenant actor UUID
+        passed it, the wrapped service created the artifact, and only the
+        subsequent system-field write failed — leaving a duplicate on retry.
+        This companion performs the Layer-2 half (``validate_actor_value`` /
+        ``resolve_reference``) for ``owner``/``reporter`` while the payload is
+        still only a payload, so an unresolvable actor is rejected *before* the
+        service call. Both transports call it from their existing validation
+        seam, which is what keeps REST and MCP identical (ADR-004).
+
+        Only ``visible`` + ``editable`` actor attributes are checked — exactly
+        the ones :meth:`write` would apply (Major 3) — so a hidden legacy field
+        (e.g. ``Risk.owner``) is neither resolved nor created here.
+
+        Args:
+            ctx: Request identity.
+            item_type: One of ``ITEM_TYPES``.
+            workspace_id: Workspace whose tier selects the definition.
+            changed_fields: The payload about to be written.
+
+        Raises:
+            FieldValidationError: an actor value could not be resolved (unknown
+                actor/user, external while disallowed, or a ``multiple``
+                definition on the single-valued system field). The per-field
+                messages mirror the ones :meth:`write` would raise, so both
+                transports map them to VALIDATION_ERROR identically.
+            AttributeDefinitionNotFound: propagated from
+                :meth:`resolve_definition` (callers degrade to a no-op).
+        """
+        names = [
+            name for name in _ARTIFACT_LEVEL_CORE_FIELDS if name in changed_fields
+        ]
+        if not names:
+            return
+        from attribute_definitions.field_validation import FieldValidationError
+        from persistence.errors import NotFoundError, ValidationError
+
+        definition = self.resolve_definition(ctx, item_type, workspace_id)
+        by_name = {attribute["name"]: attribute for attribute in definition["attributes"]}
+        errors: dict[str, list[str]] = {}
+        for name in names:
+            attribute = by_name.get(name)
+            if (
+                attribute is None
+                or attribute["type"] != "actor"
+                or not attribute["visible"]
+                or attribute["editable"] is not True
+            ):
+                continue
+            try:
+                self.resolve_actor_write_value(ctx, attribute, changed_fields[name])
+            except (ValidationError, NotFoundError) as exc:
+                errors[name] = [str(exc)]
+        if errors:
+            raise FieldValidationError(errors)
+
+    def _read_core_value(
+        self, artifact: AttributeArtifact, attribute: dict[str, Any]
+    ) -> Any:
+        """Read one core attribute, resolving Artifact-level fields and actors."""
+        name = attribute["name"]
+        target: Any = (
+            self._custom_fields_owner(artifact)
+            if name in _ARTIFACT_LEVEL_CORE_FIELDS
+            else artifact
+        )
+        raw = getattr(target, name)
+        if attribute["type"] == "actor":
+            return self.actor_to_value(raw)
+        return raw
+
     # ---- Discovery (the ``attribute-schema`` capability) -------------------
 
     def discover(
@@ -342,6 +530,14 @@ class ArtifactAttributeGateway:
                 :meth:`resolve_definition`.
         """
         definition = self.resolve_definition(ctx, item_type, workspace_id)
+        # WS4 #938: an attribute's span lives on its *section*'s
+        # ``attribute_flow``; resolve it here so both transports receive the
+        # same layout hint. A definition without sections/flows (the additive
+        # legacy case) yields "full" for every attribute.
+        sections_by_name = {
+            section["name"]: section
+            for section in (definition.get("sections") or [])
+        }
         return [
             AttributeDescriptor(
                 name=attribute["name"],
@@ -356,6 +552,13 @@ class ArtifactAttributeGateway:
                 options=attribute["options"],
                 validation=attribute["validation"],
                 order=attribute["order"],
+                span=resolve_attribute_span(
+                    attribute["name"], sections_by_name.get(attribute["section"])
+                ),
+                copyable=attribute["copyable"],
+                reveal=attribute["reveal"],
+                mask=attribute["mask"],
+                display_format=attribute["display_format"],
             )
             for attribute in definition["attributes"]
         ]
@@ -410,7 +613,7 @@ class ArtifactAttributeGateway:
             if attribute["type"] == "widget":
                 continue
             try:
-                core[name] = getattr(artifact, name)
+                core[name] = self._read_core_value(artifact, attribute)
             except AttributeError:
                 # Definition names a column this model shape does not expose
                 # (e.g. a synthetic or stale entry); omit rather than 500.
@@ -474,6 +677,26 @@ class ArtifactAttributeGateway:
                 continue
             if attribute["type"] == "widget":
                 continue
+            # WS2 review #936 (Major 3): only a visible *and* editable core
+            # attribute is writeable through this seam. ``validate()`` already
+            # excludes ``editable in ("workflow", "system")`` from the payload
+            # entirely, and ``editable is False`` is rejected on update; this
+            # loop used to ignore both and wrote every core name by
+            # ``setattr``, so ``core={"id": ...}`` / ``{"status": ...}`` could
+            # overwrite a server-owned column. Ignoring them here keeps W
+            # symmetric with V (spec section 6: "ID, Status; nie schreibbar").
+            if not attribute["visible"] or attribute["editable"] is not True:
+                continue
+            if name in _ARTIFACT_LEVEL_CORE_FIELDS:
+                # ``owner``/``reporter``/``priority`` live on the backing
+                # Artifact; actors additionally translate the wire value form
+                # into the FK row (spec sections 3/4).
+                target = self._custom_fields_owner(artifact)
+                if attribute["type"] == "actor":
+                    value = self.resolve_actor_write_value(ctx, attribute, value)
+                setattr(target, name, value)
+                _remember(target)
+                continue
             setattr(artifact, name, value)
             _remember(artifact)
 
@@ -528,5 +751,6 @@ __all__ = [
     "AttributeCarrier",
     "AttributeDescriptor",
     "AttributeValues",
+    "artifact_system_fields",
     "carrier_for",
 ]

@@ -7,28 +7,76 @@
   gap: var(--space-4);
 }
 
-/* Task 8 (spec section 4.5): sections lay out on a 2-column grid. A "half"
-   section spans one column (two consecutive "half" sections sit side by
-   side; a lone one leaves the second column empty -- default grid-auto-flow
-   does this with no extra rule). "full" (the default) always spans both. */
+/* WS4 #938 (spec section 7): sections and fields lay out on one shared
+   12-column grid. Section width still comes from the section's own `layout`
+   (full=12/half=6), fields from their `attribute_flow` span
+   (full=12/half=6/quarter=3), spacers consume sm=1/md=2/lg=4 columns. A
+   definition without a flow derives full/token defaults, so the pre-WS4
+   rendering is reproduced exactly. */
 .sectionsGrid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(12, 1fr);
   gap: var(--space-4);
 }
 
+.sectionBody {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* One grid item per field. `min-width: 0` keeps a wide control (table,
+   textarea) from forcing its column wider than its share. */
+.fieldCell {
+  min-width: 0;
+}
+
+/* Empty spacer token — consumes its columns, draws nothing. */
+.spacerToken {
+  min-width: 0;
+}
+
+.span1 { grid-column: span 1; }
+.span2 { grid-column: span 2; }
+.span3 { grid-column: span 3; }
+.span4 { grid-column: span 4; }
+.span5 { grid-column: span 5; }
+.span6 { grid-column: span 6; }
+.span7 { grid-column: span 7; }
+.span8 { grid-column: span 8; }
+.span9 { grid-column: span 9; }
+.span10 { grid-column: span 10; }
+.span11 { grid-column: span 11; }
+.span12 { grid-column: span 12; }
+
+/* Responsive collapse (spec section 7): below the existing `--bp-md` (768px)
+   the grid stacks to a single column and spacers disappear entirely — an
+   empty spacer row would otherwise be pure noise in the narrow layout. */
 @media (max-width: 768px) {
-  .sectionsGrid {
+  .sectionsGrid,
+  .sectionBody {
     grid-template-columns: 1fr;
   }
-}
 
-.sectionFull {
-  grid-column: span 2;
-}
+  .span1,
+  .span2,
+  .span3,
+  .span4,
+  .span5,
+  .span6,
+  .span7,
+  .span8,
+  .span9,
+  .span10,
+  .span11,
+  .span12 {
+    grid-column: 1 / -1;
+  }
 
-.sectionHalf {
-  grid-column: span 1;
+  .spacerToken {
+    display: none;
+  }
 }
 
 .section {
@@ -49,13 +97,6 @@
   font-weight: var(--weight-semibold);
   color: var(--color-text);
   padding: 0;
-}
-
-.sectionBody {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
 }
 
 .field {
@@ -92,6 +133,12 @@
 
 .controlInvalid {
   border-color: var(--color-danger);
+}
+
+/* display_format="mono" (Attribut v3 WS3, #937): purely visual. */
+.controlMono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .help {

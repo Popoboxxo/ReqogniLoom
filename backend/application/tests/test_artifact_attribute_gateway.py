@@ -38,6 +38,12 @@ def _attribute(
     validation: dict[str, Any] | None = None,
     widget_key: str | None = None,
     fields: list[str] | None = None,
+    multiple: bool = False,
+    allow_external: bool = False,
+    copyable: bool = False,
+    reveal: str = "always",
+    mask: str = "none",
+    display_format: str = "text",
 ) -> dict[str, Any]:
     """One normalized definition entry (shape of ``stored_attributes``)."""
     return {
@@ -54,6 +60,12 @@ def _attribute(
         "validation": validation or {},
         "widget_key": widget_key,
         "fields": fields or [],
+        "multiple": multiple,
+        "allow_external": allow_external,
+        "copyable": copyable,
+        "reveal": reveal,
+        "mask": mask,
+        "display_format": display_format,
     }
 
 
@@ -301,6 +313,33 @@ def test_discover_projects_the_descriptor_fields() -> None:
     assert descriptor.validation == {"regex": "a"}
 
 
+def test_discover_exposes_the_generic_display_properties() -> None:
+    """Spec section 5 / WS3 #937: the descriptor carries copyable/reveal/mask/
+    display_format, so the renderer receives them on both transports."""
+    definitions = _FakeDefinitions(
+        attributes=[
+            _attribute(
+                "id",
+                visible=False,
+                editable="system",
+                copyable=True,
+                reveal="click",
+                mask="short",
+                display_format="mono",
+            )
+        ],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+
+    (descriptor,) = gateway.discover(_ctx(), "Requirement", uuid4())
+
+    assert descriptor.copyable is True
+    assert descriptor.reveal == "click"
+    assert descriptor.mask == "short"
+    assert descriptor.display_format == "mono"
+
+
 # ---------------------------------------------------------------------------
 # Read
 # ---------------------------------------------------------------------------
@@ -467,3 +506,201 @@ def test_write_validates_first_and_does_not_persist_on_violation() -> None:
     assert backing.custom_fields == {"rationale": "untouched"}
     assert artifact.saves == 0
     assert backing.saves == 0
+
+
+# ---------------------------------------------------------------------------
+# Artifact-level system fields + actor adapter (WS2 #936, spec sections 3/4)
+# ---------------------------------------------------------------------------
+
+
+class _FakeActor:
+    """Structural ``Actor`` double (kind + identity + display label)."""
+
+    def __init__(self, kind: str = "user", **values: Any) -> None:
+        self.id = uuid4()
+        self.kind = kind
+        self.display_name = values.get("display_name", "Someone")
+        self.user_id = values.get("user_id")
+
+
+def test_actor_to_value_shapes_the_wire_form() -> None:
+    assert ArtifactAttributeGateway.actor_to_value(None) is None
+    internal_actor = _FakeActor("user")
+    assert ArtifactAttributeGateway.actor_to_value(internal_actor) == {
+        "kind": "user",
+        "id": str(internal_actor.id),
+    }
+    external = _FakeActor("external", display_name="Frau Mueller (TUEV)")
+    assert ArtifactAttributeGateway.actor_to_value(external) == {
+        "kind": "external",
+        "name": "Frau Mueller (TUEV)",
+    }
+
+
+def test_read_routes_artifact_level_fields_through_the_backing_artifact() -> None:
+    """``owner``/``reporter``/``priority`` live on Artifact, not the entity."""
+    actor = _FakeActor("user")
+    definitions = _FakeDefinitions(
+        attributes=[
+            _attribute("title"),
+            _attribute("owner", type_="actor"),
+            _attribute("priority", type_="enum",
+                       options=[{"value": "high", "label_de": "H", "label_en": "H"}]),
+        ],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+    backing = _FakeBacking()
+    backing.owner = actor
+    backing.priority = "high"
+    artifact = _FakeArtifact(title="t", backing=backing)
+
+    values = gateway.read(_ctx(), "Requirement", artifact)
+
+    assert values.core["owner"] == {"kind": "user", "id": str(actor.id)}
+    assert values.core["priority"] == "high"
+
+
+def test_write_sets_priority_on_the_backing_artifact() -> None:
+    """A plain Artifact-level core field is written to the Artifact, not the entity."""
+    definitions = _FakeDefinitions(
+        attributes=[
+            _attribute("priority", type_="enum",
+                       options=[{"value": "high", "label_de": "H", "label_en": "H"}]),
+        ],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+    backing = _FakeBacking()
+    artifact = _FakeArtifact(backing=backing)
+
+    result = gateway.write(
+        _ctx(), "Requirement", artifact, AttributeValues(core={"priority": "high"})
+    )
+
+    assert backing.priority == "high"
+    assert getattr(artifact, "priority", None) is None
+    assert result.core == {"priority": "high"}
+
+
+def test_write_rejects_a_multiple_actor_on_a_single_fk_system_field() -> None:
+    definitions = _FakeDefinitions(
+        attributes=[_attribute("owner", type_="actor", multiple=True)],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+    artifact = _FakeArtifact(backing=_FakeBacking())
+
+    from persistence.errors import ValidationError
+
+    with pytest.raises(ValidationError):
+        gateway.write(
+            _ctx(),
+            "Requirement",
+            artifact,
+            AttributeValues(core={"owner": {"multiple": True, "items": []}}),
+        )
+
+
+def test_write_ignores_system_and_workflow_owned_core_fields() -> None:
+    """Major 3 (#936 review): ``write`` must not set ``id``/``status``.
+
+    ``validate`` already excludes ``editable="workflow"``/``"system"`` from the
+    payload; the write loop used to ignore that and ``setattr`` every core name,
+    so the W seam (and anything built on it) could overwrite a server-owned
+    column. The documented behaviour is "ignore silently": no exception, no
+    ``save`` for the skipped fields.
+    """
+    definitions = _FakeDefinitions(
+        attributes=[
+            _attribute("title"),
+            _attribute("id", editable="system", visible=False),
+            _attribute("status", editable="workflow"),
+            _attribute("frozen", editable=False),
+        ],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+    artifact = _FakeArtifact(title="original", backing=_FakeBacking())
+    original_id = artifact.id
+
+    result = gateway.write(
+        _ctx(),
+        "Requirement",
+        artifact,
+        AttributeValues(
+            core={
+                "id": "hacked-id",
+                "status": "closed",
+                "frozen": "hacked",
+                "title": "changed",
+            }
+        ),
+    )
+
+    assert artifact.id == original_id
+    assert getattr(artifact, "status", None) is None
+    assert getattr(artifact, "frozen", None) is None
+    assert artifact.title == "changed"
+    assert result.core == {"title": "changed"}
+
+
+# ---------------------------------------------------------------------------
+# Layout span discovery (WS4 #938, spec section 7)
+# ---------------------------------------------------------------------------
+
+
+def test_discover_defaults_every_span_to_full_without_a_flow() -> None:
+    """A legacy definition (no ``attribute_flow``) still yields a usable layout
+    hint: every attribute is ``full``."""
+    definitions = _FakeDefinitions(
+        attributes=[_attribute("title"), _attribute("note", kind="extended")],
+        sections=[_visible_section()],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+
+    spans = [d.span for d in gateway.discover(_ctx(), "Requirement", uuid4())]
+
+    assert spans == ["full", "full"]
+
+
+def test_discover_resolves_the_span_from_the_sections_attribute_flow() -> None:
+    section = {
+        "name": "general",
+        "order": 0,
+        "visible": True,
+        "layout": "full",
+        "attribute_flow": [
+            {"kind": "attribute", "name": "title", "span": "half"},
+            {"kind": "spacer", "size": "sm"},
+            {"kind": "attribute", "name": "note", "span": "quarter"},
+        ],
+    }
+    definitions = _FakeDefinitions(
+        attributes=[_attribute("title"), _attribute("note", kind="extended")],
+        sections=[section],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+
+    by_name = {d.name: d.span for d in gateway.discover(_ctx(), "Requirement", uuid4())}
+
+    assert by_name == {"title": "half", "note": "quarter"}
+
+
+def test_discover_span_falls_back_to_full_for_an_unpositioned_attribute() -> None:
+    section = {
+        "name": "general",
+        "order": 0,
+        "visible": True,
+        "layout": "full",
+        "attribute_flow": [{"kind": "attribute", "name": "title", "span": "half"}],
+    }
+    definitions = _FakeDefinitions(
+        attributes=[_attribute("title"), _attribute("extra")],
+        sections=[section],
+    )
+    gateway = ArtifactAttributeGateway(definitions=definitions)  # type: ignore[arg-type]
+
+    by_name = {d.name: d.span for d in gateway.discover(_ctx(), "Requirement", uuid4())}
+
+    assert by_name == {"title": "half", "extra": "full"}

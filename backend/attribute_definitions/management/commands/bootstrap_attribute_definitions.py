@@ -47,8 +47,18 @@ from attribute_definitions.models import GlobalAttributeDefinition
 from attribute_definitions.schema import (
     ITEM_TYPES,
     PRESETS,
+    SYSTEM_FIELDS_ENABLED_ITEM_TYPES,
+    materialize_sections,
     normalize_attribute,
     stored_attributes,
+    stored_sections,
+)
+from attribute_definitions.stage_matrix import (
+    OWNER_MANDATORY_STAGES,
+    PRESET_STAGE,
+    PRIORITY_MANDATORY_STAGES,
+    apply_stage_overrides,
+    build_stage_attributes,
 )
 from persistence.models import Tenant
 from presets.registry import PresetRegistry
@@ -157,8 +167,17 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
 #: 4-choice ``ChoiceField``, writable on ``IssueSerializer`` and documented as
 #: user-settable (L3_COMP-AS-015_IssueService_Requirements.md). The global
 #: exclusion hid it on both models; it belongs on Risk only.
+#:
+#: ``Risk.owner`` (Attribut v3 WS2, #936) joins ``severity`` here: it is the
+#: legacy free-text owner column the spec retires in favour of the
+#: Artifact-level ``owner`` Actor FK (spec sections 3/10). WS7 (#940) renamed
+#: the column to ``Risk.owner_name`` (same DB column) and folds it onto the
+#: Actor carrier via AWMS; the renamed column stays out of the introspected
+#: definition so it cannot collide with the artifact-level ``owner`` attribute
+#: (duplicate name -> AttributeSchemaError during normalize). The physical
+#: column is dropped in a later contract step.
 PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
-    "Risk": frozenset({"severity"}),
+    "Risk": frozenset({"severity", "owner_name"}),
 }
 
 #: Attributes an interview must elicit ON TOP of the ``title``/``description``
@@ -393,6 +412,125 @@ def synthetic_status_attribute() -> dict[str, Any]:
     )
 
 
+#: Artifact-level system attributes every item type inherits (spec section 3).
+#:
+#: ``introspect_core_attributes`` walks the *per-type* model (Requirement, Adr,
+#: ...), which by construction has no column for a field that lives on
+#: ``pl_artifact``. This constant is the ``ARTIFACT_LEVEL_CORE_ATTRIBUTES``
+#: source the spec calls for; ``introspect_core_attributes`` merges it into
+#: every item type's result (see there).
+#:
+#: ``id`` is the synthetic identity attribute: ``editable="system"`` (spec
+#: section 6 — server-owned, never a payload field), ``locked`` and
+#: ``visible=False`` (spec section 5: hidden by default, revealed/copied on
+#: demand). Its generic display properties are configured right here
+#: (spec section 5: ``reveal="click"`` / ``copyable=True`` / ``mask="short"``).
+#: It is deliberately NOT introspected from the model PK: the model PK
+#: is in ``EXCLUDED_MODEL_FIELDS`` precisely so the synthetic definition is the
+#: single source of that attribute.
+#:
+#: ``owner``/``reporter``/``priority`` are the Artifact columns added in WS2
+#: (#936). They are seeded ``visible=False`` and ``editable=False`` by default
+#: for this workstream: the columns exist and are the right carrier, but a
+#: transport only reads/writes them where it has been wired. A visible-but-
+#: unwritable attribute would make the contract matrix (#934 WS0) demand a W/R
+#: round-trip no transport can satisfy, and an editable one would render a
+#: control whose PATCH is silently dropped.
+#:
+#: ``SYSTEM_FIELDS_ENABLED_ITEM_TYPES`` is the explicit transport rollout gate:
+#: the three fields are flipped to ``editable=True`` **only** for the item types
+#: whose REST and MCP transports carry them today. That is what keeps the
+#: contract ratchet green while the remaining types are wired one wave at a
+#: time (see the WS2 plan / issue #936).
+#:
+#: ``visible`` has a second, orthogonal gate since WS6 (#939): the matrix's
+#: cross-cutting section 0 makes ``owner``/``reporter``/``priority`` hidden at
+#: stage 1 (``-``) and visible from stage 2 (``o``/``P``), so for an enabled type
+#: they are shown on standard/extended only. ``owner``/``reporter`` are the
+#: ``actor`` type (spec section 4), single-valued and internal-only by default;
+#: ``priority`` stays the enum with the ``low|medium|high|critical`` default
+#: scale. Their stage-readiness rides on ``stage_mandatory`` (owner at stage 3,
+#: priority at stages 2–3).
+#:
+#: WS2 part B2 (#936) wired the remaining transport paths, so the canonical
+#: set now lives in ``attribute_definitions.schema`` (Django-free, importable
+#: by the MCP helpers that mirror it) and is imported above. WS7 (#940) added
+#: ``Risk``: its legacy free-text ``owner`` column was renamed to ``owner_name``
+#: (same DB column), so the Artifact-level ``owner`` FK is no longer shadowed
+#: and the introspected legacy column (see ``PER_ITEM_TYPE_EXCLUDED_FIELDS``)
+#: no longer collides with it.
+
+#: The names that the rollout gate above may flip.
+_GATED_SYSTEM_FIELD_NAMES: frozenset[str] = frozenset(
+    {"owner", "reporter", "priority"}
+)
+
+ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
+    {
+        "name": "id",
+        "kind": "core",
+        "type": "text",
+        "editable": "system",
+        "locked": True,
+        "visible": False,
+        # Spec section 5: the id system field is the first consumer of the
+        # generic display properties — hidden by default, revealed on click,
+        # copy-to-clipboard enabled, and rendered as an 8-character short label
+        # while ``copyable`` copies the full UUID (the ``mask`` contract).
+        "reveal": "click",
+        "copyable": True,
+        "mask": "short",
+        "required": False,
+        "section": "general",
+        "order": -300,
+        "label": {"de": "ID", "en": "ID"},
+    },
+    {
+        "name": "owner",
+        "kind": "core",
+        "type": "actor",
+        "multiple": False,
+        "allow_external": False,
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": "general",
+        "order": -290,
+        "label": {"de": "Owner", "en": "Owner"},
+    },
+    {
+        "name": "reporter",
+        "kind": "core",
+        "type": "actor",
+        "multiple": False,
+        "allow_external": False,
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": "general",
+        "order": -280,
+        "label": {"de": "Reporter", "en": "Reporter"},
+    },
+    {
+        "name": "priority",
+        "kind": "core",
+        "type": "enum",
+        "options": [
+            {"value": "low", "label_de": "Niedrig", "label_en": "Low"},
+            {"value": "medium", "label_de": "Mittel", "label_en": "Medium"},
+            {"value": "high", "label_de": "Hoch", "label_en": "High"},
+            {"value": "critical", "label_de": "Kritisch", "label_en": "Critical"},
+        ],
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": "classification",
+        "order": -300,
+        "label": {"de": "Priorität", "en": "Priority"},
+    },
+)
+
+
 def _resolve_model(item_type: str) -> type[models.Model]:
     for app_label, model_name in MODEL_LOCATIONS[item_type]:
         try:
@@ -476,10 +614,12 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     actually cares about, so nothing is lost by not duplicating it here.
     Regression net: ``rest_api/tests/test_bootstrapped_definition_allows_creates``.
 
-    Consequence: the result is currently preset-invariant. That is consistent
-    with ADR-04 (three rigor presets, one data model) — rigor is enforced at
-    transitions, not at the payload contract. The ``(item_type, preset)`` key
-    is kept regardless, because an admin may customize each preset's row.
+    ``required`` stays preset-invariant (it is the model's create contract).
+    The *staged* part of the definition — per-stage ``visible``/``audience``
+    plus the matrix's new extended attributes and its ``stage_mandatory``
+    readiness flag — is layered on afterwards from
+    :mod:`attribute_definitions.stage_matrix` (Epic #934 WS6, #939), so the
+    ``(item_type, preset)`` key now genuinely selects the rigor stage.
     """
     model = _resolve_model(item_type)
     aliases = WIDGET_FIELD_ALIASES.get(item_type, {})
@@ -545,9 +685,47 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     for entry in WIDGET_ATTRIBUTES.get(item_type, ()):
         attributes.append(normalize_attribute(dict(entry, export=False)))
 
+    # Spec section 3: the Artifact-level system fields are inherited by every
+    # item type and cannot come from the per-type model walk above. Merged here
+    # so every `(item_type, preset)` definition carries them. The three
+    # transport-backed fields are flipped visible/editable only for the item
+    # types whose REST + MCP paths actually carry them (rollout gate above).
+    stage = PRESET_STAGE[preset]
+    system_fields_enabled = item_type in SYSTEM_FIELDS_ENABLED_ITEM_TYPES
+    for entry in ARTIFACT_LEVEL_CORE_ATTRIBUTES:
+        spec = dict(entry)
+        name = spec["name"]
+        if name in _GATED_SYSTEM_FIELD_NAMES:
+            # Spec section 0 of the matrix: owner/reporter/priority become
+            # visible from stage 2 (``o``) onwards; their transport rollout gate
+            # (SYSTEM_FIELDS_ENABLED_ITEM_TYPES) still owns *whether* they may be
+            # shown at all for this type.
+            if system_fields_enabled:
+                spec["visible"] = stage >= 2
+                spec["editable"] = True
+            if name == "owner":
+                spec["stage_mandatory"] = (
+                    system_fields_enabled and stage in OWNER_MANDATORY_STAGES
+                )
+            elif name == "priority":
+                spec["stage_mandatory"] = (
+                    system_fields_enabled and stage in PRIORITY_MANDATORY_STAGES
+                )
+            else:  # reporter: visible from stage 2, never stage-mandatory
+                spec["stage_mandatory"] = False
+        attributes.append(normalize_attribute(spec))
+
+    # Epic #934 WS6 (#939): layer the declarative 3-stage matrix on top of the
+    # introspection result — per-stage visibility/audience for existing
+    # attributes, plus the matrix's new extended attributes.
+    apply_stage_overrides(item_type, preset, attributes)
+    attributes.extend(build_stage_attributes(item_type, preset))
+
     # NOTE: preset `mandatory_fields` are deliberately not applied here — see
     # this function's docstring. They are an approval-transition contract
-    # (workflow.precondition_rules rule 5), not a create-payload contract.
+    # (workflow.precondition_rules rule 5), not a create-payload contract, and
+    # the matrix's own stage-requiredness rides on ``stage_mandatory`` (also
+    # not a create gate, see attribute_definitions.stage_matrix).
 
     attributes.sort(key=lambda a: (a["section"], a["order"], a["name"]))
     return attributes
@@ -627,9 +805,16 @@ class Command(BaseCommand):
                     for item_type in BOOTSTRAP_ITEM_TYPES:
                         for preset in PRESETS:
                             attributes = introspect_core_attributes(item_type, preset)
+                            # Epic #934 WS6 (#939): seed the matrix's ISO sections
+                            # explicitly so discovery and the MCP
+                            # `attribute_definition.update(sections)` contract have
+                            # a non-empty section list from the first read.
+                            sections = materialize_sections(attributes)
                             existing = store.get(tenant_id, item_type, preset)
                             if existing is None:
-                                store.initialize(tenant_id, item_type, preset, attributes)
+                                store.initialize(
+                                    tenant_id, item_type, preset, attributes, sections
+                                )
                                 created += 1
                             elif options["reset"]:
                                 # Ledger item (f): the recovery path out of a bad
@@ -637,7 +822,7 @@ class Command(BaseCommand):
                                 # its core/locked rules (correctly) make a bad seed
                                 # permanent, so the escape hatch has to bypass them.
                                 row, _propagated = store.reinitialize(
-                                    tenant_id, item_type, preset, attributes
+                                    tenant_id, item_type, preset, attributes, sections
                                 )
                                 for workspace_id in store.list_derived_workspace_ids(row):
                                     invalidate_workspace_caches(workspace_id)
@@ -703,7 +888,24 @@ class Command(BaseCommand):
             return False
         stored.extend(additions)
         stored.sort(key=lambda a: (a["section"], a["order"], a["name"]))
-        row.definition_json = {"attributes": stored}
+        # Epic #934 WS6 (#939): keep the seeded ``sections`` list consistent with
+        # the (possibly grown) attribute set. Existing sections keep their
+        # admin-configured order/visibility/layout; a section a newly synced
+        # attribute introduces is appended, never silently dropped.
+        sections = stored_sections(row.definition_json)
+        known_sections = {section["name"] for section in sections}
+        for attribute in stored:
+            if attribute["section"] not in known_sections:
+                sections.append(
+                    {
+                        "name": attribute["section"],
+                        "order": len(sections),
+                        "visible": True,
+                        "layout": "full",
+                    }
+                )
+                known_sections.add(attribute["section"])
+        row.definition_json = {"attributes": stored, "sections": sections}
         # Ledger binding (j), closed at Task 10: F("version") + 1 instead of a
         # read-modify-write, consistent with the other 3 sites in this
         # codebase (global_definition_store.py, workspace_definition_store.py

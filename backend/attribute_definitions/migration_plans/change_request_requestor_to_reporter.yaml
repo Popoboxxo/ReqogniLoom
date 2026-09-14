@@ -1,0 +1,33 @@
+# AWMS first-plan set (Matrix §11 / Spec §8): ChangeRequest-Legacy-UUIDs -> Actor.
+# requestor_id -> reporter (Matrix §11: "requestor_id -> Systemfeld reporter").
+# created_by_name dient als Fallback, wenn requestor_id leer ist.
+version: 1
+id: 2026-09-change-request-requestor-to-reporter
+description: >-
+  ChangeRequest.requestor_id auf den Artifact.reporter-Traeger migrieren,
+  created_by_name als Fallback. Nur leere Ziele.
+scope:
+  tenant: current
+  item_type: ChangeRequest
+  preset: [minimal, standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: migrate_value
+    from: {source: model_field, name: requestor_id}
+    to: {target: model_field, name: reporter}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: to_actor
+  - op: migrate_value
+    from: {source: model_field, name: created_by_name}
+    to: {target: model_field, name: reporter}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: to_actor
+  - op: verify
+    assertions: ["failed == 0"]

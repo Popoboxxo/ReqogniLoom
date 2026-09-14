@@ -98,7 +98,7 @@ class RiskDTO:
             impact=risk.impact,
             risk_score=risk.risk_score,
             severity=risk.severity,
-            owner=risk.owner,
+            owner=risk.owner_name,
             mitigation_strategy=risk.mitigation_strategy,
             status=resolved_status,
             version=risk.version,
@@ -260,7 +260,7 @@ class RiskService(ServiceBase):
             category=category,
             probability=probability,
             impact=impact,
-            owner=owner,
+            owner_name=owner,
             mitigation_strategy=mitigation_strategy,
             uid=uid,
             detection=detection,
@@ -382,7 +382,7 @@ class RiskService(ServiceBase):
                 raise ValidationError(f"Invalid category '{category}'")
             risk.category = category
         if owner is not None:
-            risk.owner = owner
+            risk.owner_name = owner
         if mitigation_strategy is not None:
             risk.mitigation_strategy = mitigation_strategy
         if detection is not None:

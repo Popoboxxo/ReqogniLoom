@@ -319,3 +319,91 @@ describe("WorkspaceContext / reloadWorkspaces pagination (Task 1, GESAMTTEST_BER
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dashboard robustness: a workspace whose backend `preset` blob is malformed
+// (e.g. an empty `{}` from a workspace created without a preset) must not
+// reach the UI as an object. `WorkspaceCard` renders `workspace.preset` as a
+// React child, so an object there crashed the whole dashboard route (E2E
+// dashboard.spec.ts) — and with it every spec that lands on the dashboard.
+// `normalizePreset` must fall back to a valid tier string instead.
+// ---------------------------------------------------------------------------
+
+function FirstPresetType(): JSX.Element {
+  const { workspaces } = useWorkspace();
+  const first = workspaces[0];
+  return (
+    <div data-testid="ws-preset-type">
+      {typeof first?.preset}:{String(first?.preset)}
+    </div>
+  );
+}
+
+describe("WorkspaceContext / preset normalization (dashboard robustness)", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.clearAllMocks();
+    installLocalStorageStub();
+  });
+
+  it("normalizes a malformed empty preset object to a valid tier string", async () => {
+    const malformed = {
+      ...makeWorkspace("ws-bad", "Broken preset"),
+      preset: {} as unknown as Workspace["preset"],
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/auth/me/")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              user: {
+                id: "u-1",
+                username: "tester",
+                email: "t@x",
+                first_name: "",
+                last_name: "",
+                is_active: true,
+                tenant_id: null,
+                roles: ["admin"],
+              },
+              tenant_id: null,
+              roles: ["admin"],
+            }),
+          } as unknown as Response;
+        }
+        if (url.includes("/workspaces/")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              count: 1,
+              next: null,
+              previous: null,
+              results: [malformed],
+            }),
+          } as unknown as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+      })
+    );
+
+    render(
+      <AuthProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <FirstPresetType />
+          </WorkspaceProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ws-preset-type").textContent).toBe("string:standard");
+    });
+  });
+});

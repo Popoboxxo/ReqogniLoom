@@ -119,6 +119,7 @@ class GlobalAttributeDefinitionStore:
         item_type: str,
         preset: str,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> GlobalAttributeDefinition:
         """Create the global definition for ``(item_type, preset)``.
 
@@ -145,7 +146,10 @@ class GlobalAttributeDefinitionStore:
                     f"is already initialized"
                 ]
             )
-        payload = validate_definition_json({"attributes": attributes})
+        raw_payload: dict[str, Any] = {"attributes": attributes}
+        if sections is not None:
+            raw_payload["sections"] = sections
+        payload = validate_definition_json(raw_payload)
         return GlobalAttributeDefinition.unscoped.create(
             tenant_id=tenant_id,
             item_type=item_type,
@@ -159,6 +163,7 @@ class GlobalAttributeDefinitionStore:
         item_type: str,
         preset: str,
         attributes: list[dict[str, Any]],
+        sections: list[dict[str, Any]] | None = None,
     ) -> tuple[GlobalAttributeDefinition, int]:
         """Overwrite an existing global definition wholesale, then propagate.
 
@@ -189,7 +194,10 @@ class GlobalAttributeDefinitionStore:
             raise AttributeDefinitionNotFound(
                 f"No global attribute definition for '{item_type}/{preset}'"
             )
-        payload = validate_definition_json({"attributes": attributes})
+        raw_payload: dict[str, Any] = {"attributes": attributes}
+        if sections is not None:
+            raw_payload["sections"] = sections
+        payload = validate_definition_json(raw_payload)
         with transaction.atomic():
             obj.definition_json = payload
             obj.version = F("version") + 1
@@ -205,13 +213,15 @@ class GlobalAttributeDefinitionStore:
         preset: str,
         attributes: list[dict[str, Any]],
         sections: list[dict[str, Any]] | None = None,
+        section_flow: list[dict[str, Any]] | None = None,
     ) -> tuple[GlobalAttributeDefinition, int]:
-        """Replace the attribute list (and, if given, the sections list), bump
-        ``version``, propagate.
+        """Replace the attribute list (and, if given, the sections/flow lists),
+        bump ``version``, propagate.
 
-        *sections* is optional (Task 8: the admin UI now sends its current
-        list on every PUT, same as *attributes* — earlier/other callers that
-        omit it keep the row's existing ``sections`` unchanged, never wiped).
+        *sections* and *section_flow* are optional (Task 8/WS4: the admin UI
+        now sends its current lists on every PUT, same as *attributes* —
+        earlier/other callers that omit them keep the row's existing values
+        unchanged, never wiped).
 
         Returns:
             ``(row, propagated_workspace_count)``.
@@ -229,6 +239,8 @@ class GlobalAttributeDefinitionStore:
         raw_payload: dict[str, Any] = {"attributes": attributes}
         if sections is not None:
             raw_payload["sections"] = sections
+        if section_flow is not None:
+            raw_payload["section_flow"] = section_flow
         payload = validate_definition_json(raw_payload)
         # Ledger item (e): the STORED row is normalized before it is used as a
         # dict of required keys. ``validate_meta_only_change`` indexes
@@ -238,13 +250,23 @@ class GlobalAttributeDefinitionStore:
         old = stored_attributes(obj.definition_json)
         validate_meta_only_change(old, payload["attributes"])
 
-        # Task 7/8: a caller that did NOT send 'sections' (sections=None) must
-        # not lose the row's existing list — definition_json is replaced
+        # Task 7/8 + WS4: a caller that did NOT send 'sections'/'section_flow'
+        # must not lose the row's existing lists — definition_json is replaced
         # wholesale below, so without this carry-over every attribute-only PUT
         # would silently erase whatever ensure_sections()/an earlier
-        # sections-aware PUT had stored.
-        if "sections" not in payload and isinstance(obj.definition_json, dict) and "sections" in obj.definition_json:
+        # sections- or flow-aware PUT had stored.
+        if (
+            "sections" not in payload
+            and isinstance(obj.definition_json, dict)
+            and "sections" in obj.definition_json
+        ):
             payload["sections"] = obj.definition_json["sections"]
+        if (
+            "section_flow" not in payload
+            and isinstance(obj.definition_json, dict)
+            and "section_flow" in obj.definition_json
+        ):
+            payload["section_flow"] = obj.definition_json["section_flow"]
 
         with transaction.atomic():
             obj.definition_json = payload

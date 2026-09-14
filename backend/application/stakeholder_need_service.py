@@ -55,6 +55,18 @@ class StakeholderNeedDTO:
     modified_at: datetime
     custom_fields: dict = None  # REQ-L2-AS-037: user-defined attributes
 
+    @property
+    def artifact(self) -> Any:
+        """Backing ``persistence.Artifact`` row, when built from an ORM instance.
+
+        Attribut v3 WS2 (#936): the ArtifactAttributeGateway needs the backing
+        row to persist/read the Artifact-level system fields (owner/reporter/
+        priority). Kept as an instance attribute rather than a dataclass field
+        so ``asdict()`` in :meth:`to_dict` never has to deep-copy a model
+        instance.
+        """
+        return getattr(self, "_artifact", None)
+
     @classmethod
     def from_orm(
         cls, need: StakeholderNeed, *, status: str | None = None
@@ -78,7 +90,7 @@ class StakeholderNeedDTO:
                 status = state_reader.current_state("StakeholderNeed", need.id)
             except Exception:  # noqa: BLE001 -- TenantContextNotSetError or similar
                 status = None
-        return cls(
+        dto = cls(
             id=need.id,
             workspace_id=need.artifact.workspace_id,
             artifact_id=need.artifact_id,  # REQ-001: expose FK for diff/versions lookup
@@ -100,6 +112,10 @@ class StakeholderNeedDTO:
             modified_at=need.modified_at,
             custom_fields=getattr(need.artifact, "custom_fields", None) or {},
         )
+        # WS2 #936: keep the backing Artifact reachable so the shared gateway
+        # can persist/read the Artifact-level system fields.
+        dto._artifact = need.artifact if need.artifact_id else None
+        return dto
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -195,9 +211,9 @@ class StakeholderNeedService(ServiceBase):
 
     def get(self, ctx: AuthContext, need_id: UUID | str) -> StakeholderNeedDTO:
         try:
-            need = StakeholderNeed.objects.select_related("artifact").get(
-                id=need_id, tenant_id=ctx.tenant_id
-            )
+            need = StakeholderNeed.objects.select_related(
+                "artifact", "artifact__owner", "artifact__reporter"
+            ).get(id=need_id, tenant_id=ctx.tenant_id)
             return StakeholderNeedDTO.from_orm(need)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
@@ -217,7 +233,9 @@ class StakeholderNeedService(ServiceBase):
         Issue #267 (same root cause as RequirementService.list_requirements):
         ``search`` case-insensitively filters on title/description/uid.
         """
-        needs = StakeholderNeed.objects.select_related("artifact").filter(
+        needs = StakeholderNeed.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             tenant_id=ctx.tenant_id, artifact__workspace_id=workspace_id
         )
         if not include_deleted:
@@ -414,9 +432,9 @@ class StakeholderNeedService(ServiceBase):
             Dict containing the task_id.
         """
         try:
-            need = StakeholderNeed.objects.select_related("artifact").get(
-                id=need_id, tenant_id=ctx.tenant_id
-            )
+            need = StakeholderNeed.objects.select_related(
+                "artifact", "artifact__owner", "artifact__reporter"
+            ).get(id=need_id, tenant_id=ctx.tenant_id)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 

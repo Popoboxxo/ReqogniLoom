@@ -23,24 +23,34 @@ serializer's own control fields (``change_reason``, ``expected_version``, ...),
 and ``WorkflowTransitionsMixin._validate_patch_payload`` already guards those.
 
 Type-check coverage
--------------------
-``_check_type`` deliberately covers only four of the ten attribute types:
+------------------
+``_check_type`` deliberately covers only five of the eleven attribute types:
 
 ===============  ==========================================================
 ``number``       must parse as a number (a ``bool`` does not count)
 ``boolean``      must be a real JSON boolean
 ``enum``         value must be one of ``options[].value``
 ``multi-enum``   must be a list, every entry one of ``options[].value``
+``actor``        entry shape + ``multiple``/``allow_external`` (spec §4)
 ===============  ==========================================================
 
-``text``, ``textarea``, ``date``, ``reference`` and ``user`` are intentional
-pass-throughs: this module is DB-free and Django-free, so it can neither
-resolve a ``reference``/``user`` id nor apply the project's date parsing, and
-inventing a second, weaker copy of either check here would disagree with the
-serializer that owns it. Their shape is enforced one layer up (the DRF
-serializer field / the service), and their *content* by the ``validation``
-rules (``regex``/``length``), which do apply to every type. ``widget`` carries
-no value of its own at all — it renders the attributes it names in ``fields``.
+``text``, ``textarea``, ``date``, ``reference`` and the legacy ``user`` type
+are intentional pass-throughs: this module is DB-free and Django-free, so it
+can neither resolve a ``reference``/``user`` id nor apply the project's date
+parsing, and inventing a second, weaker copy of either check here would
+disagree with the serializer that owns it. Their shape is enforced one layer
+up (the DRF serializer field / the service), and their *content* by the
+``validation`` rules (``regex``/``length``), which do apply to every type.
+``widget`` carries no value of its own at all — it renders the attributes it
+names in ``fields``.
+
+``actor`` (spec section 4) is checked for *structure* only: presence and shape
+of ``kind``/``id``/``name``, the ``multiple`` list form and the
+``allow_external`` gate. Whether the referenced ``Actor``/``User`` actually
+exists is a DB question and belongs to ``ActorService.validate_actor_value``
+(Layer 2) — keeping this module DB-free is what lets it run in the bulk
+importer and in pure unit tests alike. ``user`` stays a pass-through for
+definitions written before the ``actor`` type existed (spec section 4).
 
 ``editable``
 ------------
@@ -56,6 +66,13 @@ from typing import Any
 EXTENDED_PAYLOAD_KEY = "custom_fields"
 
 _ENUM_TYPES = frozenset({"enum", "multi-enum"})
+
+#: The two actor kinds of the ``actor`` attribute type (spec section 4).
+_ACTOR_KINDS = frozenset({"user", "external"})
+
+#: The only keys an actor value entry may carry. ``kind`` is required; a
+#: ``user`` entry is identified by ``id``, an ``external`` one by ``name``.
+_ACTOR_ENTRY_KEYS = frozenset({"kind", "id", "name"})
 
 
 class FieldValidationError(ValueError):
@@ -115,6 +132,75 @@ def _check_type(attribute: dict[str, Any], value: Any, out: list[str]) -> None:
         unknown = sorted({str(v) for v in value} - allowed)
         if unknown:
             out.append(f"contains unknown option(s): {', '.join(unknown)}")
+    elif kind == "actor":
+        _check_actor(attribute, value, out)
+
+
+def _check_actor_entry(
+    value: Any, allow_external: bool, out: list[str], prefix: str = ""
+) -> None:
+    """Validate one actor value entry (spec section 4). DB-free.
+
+    The entry is ``{"kind": "user", "id": "<uuid>"}`` for an internal actor or
+    ``{"kind": "external", "name": "<label>"}`` for a dummy. Existence of the
+    referenced ``Actor``/``User`` is intentionally **not** checked here — this
+    module must stay DB-free; ``ActorService.validate_actor_value`` owns that.
+    """
+    if not isinstance(value, dict):
+        out.append(prefix + "must be an object with 'kind' and 'id'/'name'")
+        return
+    unknown = sorted(set(value) - _ACTOR_ENTRY_KEYS)
+    if unknown:
+        out.append(prefix + f"has unknown key(s): {', '.join(unknown)}")
+    kind = value.get("kind")
+    if kind not in _ACTOR_KINDS:
+        out.append(prefix + "must have 'kind' of 'user' or 'external'")
+        return
+    if kind == "external":
+        if not allow_external:
+            out.append(
+                prefix + "kind 'external' is not allowed (allow_external is false)"
+            )
+        name = value.get("name")
+        if not isinstance(name, str) or not name.strip():
+            out.append(prefix + "an external actor requires a non-empty 'name'")
+        if value.get("id"):
+            out.append(prefix + "an external actor must not carry an 'id'")
+    else:  # kind == "user"
+        actor_id = value.get("id")
+        if not isinstance(actor_id, str) or not actor_id.strip():
+            out.append(prefix + "a user actor requires a non-empty 'id'")
+        name = value.get("name")
+        if name is not None and not isinstance(name, str):
+            out.append(prefix + "'name' must be a string when present")
+
+
+def _check_actor(attribute: dict[str, Any], value: Any, out: list[str]) -> None:
+    """Validate an ``actor`` value: single entry or ``multiple`` list form.
+
+    ``multiple`` (attribute property, spec section 4) selects the shape:
+    ``False`` -> one :func:`_check_actor_entry` dict; ``True`` ->
+    ``{"multiple": true, "items": [<entry>, ...]}``.
+    """
+    allow_external = bool(attribute.get("allow_external", False))
+    if not attribute.get("multiple", False):
+        _check_actor_entry(value, allow_external, out)
+        return
+    if not isinstance(value, dict) or value.get("multiple") is not True:
+        out.append(
+            "must be an object with 'multiple': true and an 'items' list "
+            "(this attribute is configured as a team/multi-actor field)"
+        )
+        return
+    unknown = sorted(set(value) - {"multiple", "items"})
+    if unknown:
+        out.append(f"has unknown key(s): {', '.join(unknown)}")
+    items = value.get("items")
+    if not isinstance(items, list):
+        out.append("'items' must be a list")
+        return
+    for index, item in enumerate(items):
+        _check_actor_entry(item, allow_external, out, prefix=f"items[{index}]: ")
 
 
 def _check_rules(attribute: dict[str, Any], value: Any, out: list[str]) -> None:
@@ -198,6 +284,14 @@ def validate_values(
         that is decoration only — the default bootstrap marks every introspected
         attribute ``editable=True``, so this fires solely for attributes an
         admin deliberately froze.
+
+    ``editable == "system"``
+        Server-owned (spec section 6: "ID, Status; nie schreibbar"). Like
+        ``"workflow"`` it is not a payload field at all, so it is excluded from
+        ``payload_names`` entirely: the client can neither be asked for it nor
+        change it. This is what makes the bootstrapped Artifact ``id`` attribute
+        (``editable="system"``, ``locked``, ``visible=false``) harmless on every
+        create, and the same rule will back any future AWMS-owned field.
     """
     # Spec section 4.4's AND-condition: a section with ``visible=false`` hides
     # itself AND every attribute in it, whatever each attribute's own
@@ -222,11 +316,12 @@ def validate_values(
     by_name = {a["name"]: a for a in attributes}
     # A widget bundles other attributes; its own name is never a payload field.
     # A workflow-owned attribute is not a payload field either (see docstring):
-    # it is excluded here so it is never required/type/rule-checked.
+    # it is excluded here so it is never required/type/rule-checked. Same for
+    # ``editable="system"`` (spec section 6) — server-owned, never client-set.
     payload_names = {
         n
         for n, a in by_name.items()
-        if a["type"] != "widget" and a["editable"] != "workflow"
+        if a["type"] != "widget" and a["editable"] not in ("workflow", "system")
     }
     # Deliberately derived from `by_name`, NOT from `payload_names`: an
     # extended attribute marked `editable="workflow"` must still count as

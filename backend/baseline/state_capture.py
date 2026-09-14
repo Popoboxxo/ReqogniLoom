@@ -338,7 +338,9 @@ def _capture_application_entities(
             "detection": risk.detection,
             "risk_score": risk.risk_score,
             "severity": risk.severity,
-            "owner": risk.owner,
+            # Attribut v3 WS7 (#940): Risk.owner was renamed to owner_name (same
+            # DB column); the captured baseline key keeps its published name.
+            "owner": risk.owner_name,
             "owner_user_id": str(risk.owner_user_id) if risk.owner_user_id else None,
             "mitigation_strategy": risk.mitigation_strategy,
             "status": risk_states.get(str(risk.id)) or risk_initial_state,

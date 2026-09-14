@@ -22,10 +22,16 @@ from mcp_server.tools.base import (
     validate_artifact_write,
     write_mcp_audit,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
 
 
 def _need_to_dict(n: Any) -> dict:
-    return {
+    result = {
         "id": str(n.id),
         # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
         # StakeholderNeed definition (the REST serializer returns it); the MCP
@@ -42,6 +48,9 @@ def _need_to_dict(n: Any) -> dict:
         # backing Artifact; without this the MCP write is invisible on read.
         "custom_fields": artifact_custom_fields(n),
     }
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, n)
+    return result
 
 
 class StakeholderNeedsToolGroup(BaseToolGroup):
@@ -107,6 +116,8 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -139,6 +150,8 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                             "map). Replaces the stored map."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["id"],
             },
@@ -282,6 +295,10 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 moscow_priority=moscow_priority,
                 custom_fields=custom_fields,
             )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "StakeholderNeed", need, system_field_values(params), auth_context
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -303,6 +320,11 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         for f in ["title", "description", "category", "moscow_priority", "custom_fields"]:
             if f in params:
                 kwargs[f] = params[f]
+        # Attribut v3 WS2 (#936): owner/reporter/priority are Artifact-level and
+        # never reach StakeholderNeedService.update(); they still have to be
+        # part of the definition gate so an unresolvable actor is rejected
+        # before the service call.
+        system_values = system_field_values(params)
 
         try:
             # Ledger gap #1 / issue #881: same central gate as
@@ -313,7 +335,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 auth_context,
                 "StakeholderNeed",
                 existing_need.workspace_id,
-                dict(kwargs),
+                {**kwargs, **system_values},
                 {"__exists__": True},
             )
             if definition_error is not None:
@@ -324,6 +346,10 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 need_id=need_id,
                 change_reason=change_reason,
                 **kwargs,
+            )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "StakeholderNeed", need, system_values, auth_context
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

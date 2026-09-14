@@ -479,3 +479,113 @@ describe("AttributeEditorPage", () => {
     expect(attributeDefinitionsApi.putWorkspace).not.toHaveBeenCalled();
   });
 });
+
+// WS4 #938: the layout editor edits section_flow/attribute_flow as local
+// buffered state and persists them through the normal Save PUT — never an
+// immediate API call of its own.
+describe("AttributeEditorPage layout engine (WS4 #938)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.putWorkspace).mockReset();
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [attr({ name: "title", section: "general", order: 0 })],
+      origins: {},
+      sections: [
+        section({
+          name: "general",
+          attribute_flow: [{ kind: "attribute", name: "title", span: "full" }],
+        }),
+      ],
+      section_flow: [
+        { kind: "section", name: "general" },
+        { kind: "spacer", size: "md" },
+      ],
+    });
+  });
+
+  function renderLayoutPage() {
+    return render(
+      <MemoryRouter initialEntries={["/attributes/Requirement"]}>
+        <AttributeEditorPage scope="workspace" />
+      </MemoryRouter>
+    );
+  }
+
+  it("sends the edited section_flow and attribute_flow on save", async () => {
+    vi.mocked(attributeDefinitionsApi.putWorkspace).mockImplementation(
+      async (_ws, _itemType, attributesArg, sectionsArg, sectionFlowArg) => ({
+        item_type: "Requirement",
+        preset: "standard",
+        is_customized: true,
+        version: 2,
+        attributes: attributesArg as AttributeSpec[],
+        origins: {},
+        sections: sectionsArg ?? [],
+        ...(sectionFlowArg !== undefined ? { section_flow: sectionFlowArg } : {}),
+      })
+    );
+    renderLayoutPage();
+    await userEvent.click(await screen.findByTestId("attribute-editor-layout-toggle"));
+
+    fireEvent.change(await screen.findByTestId("section-flow-token-1-size"), {
+      target: { value: "lg" },
+    });
+    fireEvent.change(screen.getByTestId("attribute-flow-general-token-0-span"), {
+      target: { value: "half" },
+    });
+    await userEvent.click(screen.getByTestId("attribute-editor-save"));
+
+    await waitFor(() =>
+      expect(attributeDefinitionsApi.putWorkspace).toHaveBeenCalledWith(
+        "ws-1",
+        "Requirement",
+        expect.any(Array),
+        [
+          expect.objectContaining({
+            name: "general",
+            attribute_flow: [{ kind: "attribute", name: "title", span: "half" }],
+          }),
+        ],
+        [
+          { kind: "section", name: "general" },
+          { kind: "spacer", size: "lg" },
+        ]
+      )
+    );
+  });
+
+  it("renames the section_flow token when a section is renamed", async () => {
+    vi.mocked(attributeDefinitionsApi.putWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: true,
+      version: 2,
+      attributes: [attr({ name: "title", section: "basics", order: 0 })],
+      origins: {},
+      sections: [section({ name: "basics" })],
+      section_flow: [{ kind: "section", name: "basics" }],
+    });
+    renderLayoutPage();
+    await userEvent.click(await screen.findByTestId("attribute-section-general-rename"));
+    const input = screen.getByTestId("attribute-section-general-name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "basics{Enter}");
+    await userEvent.click(screen.getByTestId("attribute-editor-save"));
+
+    await waitFor(() =>
+      expect(attributeDefinitionsApi.putWorkspace).toHaveBeenCalledWith(
+        "ws-1",
+        "Requirement",
+        expect.any(Array),
+        expect.any(Array),
+        [
+          { kind: "section", name: "basics" },
+          { kind: "spacer", size: "md" },
+        ]
+      )
+    );
+  });
+});

@@ -28,6 +28,7 @@ const ATTRIBUTE_TYPES: readonly AttributeType[] = [
   "date",
   "reference",
   "user",
+  "actor",
   "widget",
 ];
 

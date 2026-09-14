@@ -30,7 +30,7 @@ queries live in the :mod:`icd.services` facade.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from auth_tenancy.context import AuthContext
 
@@ -50,7 +50,15 @@ from mcp_server.tools.base import (
     artifact_custom_fields,
     require_param,
     require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
     validate_artifact_write,
+)
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
 )
 
 #: The item type Icd is keyed by in the resolved AttributeDefinition (the same
@@ -69,14 +77,21 @@ _UPDATE_FIELDS = (
 )
 
 
-def _icd_to_dict(icd: Icd) -> Dict[str, Any]:
+def _icd_to_dict(
+    icd: Icd, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Serialize an Icd ORM row for the MCP read/create/update responses.
 
     Mirrors ``IcdViewSet.retrieve`` field-for-field (plus ``workspace_id`` and
     ``created_at``) so the contract matrix's ``_find_key``/``custom_fields``
     extraction behaves identically on both transports.
+
+    Pass a pre-batched *status_map* (:func:`resolve_status_map`) from
+    ``icd.query`` so a page of N ICDs resolves its ``status`` in one engine
+    query instead of N. The single-item read/create/update paths leave it
+    ``None`` and :func:`resolve_engine_status` keeps its per-item fallback.
     """
-    return {
+    result = {
         "id": str(icd.id),
         "workspace_id": str(icd.workspace_id),
         "name": icd.name,
@@ -89,11 +104,18 @@ def _icd_to_dict(icd: Icd) -> Dict[str, Any]:
         "postconditions": list(icd.postconditions or []),
         "invariants": list(icd.invariants or []),
         "current_revision": icd.current_revision,
+        # Epic #934 WS1: ``status`` is a visible system attribute on every
+        # bootstrapped definition (``editable="workflow"``) and is resolved
+        # from the workflow engine, mirroring IcdViewSet.retrieve.
+        "status": resolve_engine_status("Icd", icd.id, status_map=status_map),
         # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
         # backing Artifact; without this the MCP write is invisible on read.
         "custom_fields": artifact_custom_fields(icd),
         "created_at": icd.created_at.isoformat() if icd.created_at else None,
     }
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, icd)
+    return result
 
 
 class IcdToolGroup(BaseToolGroup):
@@ -150,6 +172,8 @@ class IcdToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": [
                     "workspace_id",
@@ -198,6 +222,8 @@ class IcdToolGroup(BaseToolGroup):
                             "map). Replaces the stored map."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["id"],
             },
@@ -238,8 +264,12 @@ class IcdToolGroup(BaseToolGroup):
     ) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
         icds = list_icds(workspace_id, auth_context.tenant_id)
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance -- mirrors architecture.query
+        # and rest_api.icd_views._icd_status_map's rationale).
+        status_map = resolve_status_map("Icd", [icd.id for icd in icds])
         return ToolResult.ok({
-            "icds": [_icd_to_dict(icd) for icd in icds],
+            "icds": [_icd_to_dict(icd, status_map) for icd in icds],
             "count": len(icds),
         })
 
@@ -280,6 +310,10 @@ class IcdToolGroup(BaseToolGroup):
         )
         try:
             result = create_icd(payload)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                _ITEM_TYPE, result.icd, system_field_values(params), auth_context
+            )
         except (ValueError, ValidationError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         return ToolResult.ok({"icd": _icd_to_dict(result.icd)})
@@ -298,9 +332,15 @@ class IcdToolGroup(BaseToolGroup):
         # "keep the current value" in ``IcdUpdateDTO``/``update_icd``. The gate
         # sees exactly the changed fields, matching the update semantics of the
         # REST PATCH path.
+        #
+        # Attribut v3 WS2 (#936): owner/reporter/priority are Artifact-level and
+        # applied through the gateway below, but the definition gate must see
+        # them too so an unresolvable actor is rejected before the service call.
+        system_values = system_field_values(params)
         changed_fields = {
             field: params[field] for field in _UPDATE_FIELDS if field in params
         }
+        changed_fields.update(system_values)
         definition_error = validate_artifact_write(
             auth_context,
             _ITEM_TYPE,
@@ -318,6 +358,10 @@ class IcdToolGroup(BaseToolGroup):
         try:
             result = update_icd(
                 icd_id=icd_id, payload=payload, tenant_id=auth_context.tenant_id
+            )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                _ITEM_TYPE, result.icd, system_values, auth_context
             )
         except Icd.DoesNotExist:
             return ToolResult.error("NOT_FOUND", f"ICD {icd_id} not found.")

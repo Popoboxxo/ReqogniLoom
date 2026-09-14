@@ -320,9 +320,9 @@ class TestAppModelRoundTrip:
             impact="high",
             risk_score=9,
             severity="high",
-            owner="ops-team",
             mitigation_strategy="Add redundancy",
             detection=8,
+            owner_name="ops-team",
             uid="RISK-RT-001",
             created_by_name="author-2",
         )
@@ -336,7 +336,7 @@ class TestAppModelRoundTrip:
         assert out.risk_score == 9
         assert out.severity == "high"
         assert out.detection == 8
-        assert out.owner == "ops-team"
+        assert out.owner_name == "ops-team"
         assert state_reader.current_state("Risk", out.id) == "Identified"
         assert out.uid == "RISK-RT-001"
 

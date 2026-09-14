@@ -781,6 +781,244 @@ class Workspace(TenantScopedModel):
         return self.name
 
 
+class Actor(TenantScopedModel):
+    """Person / team carrier for ``Artifact.owner``/``reporter`` (spec section 4).
+
+    Attribut v3 WS2 (#936): one table carries both real internal users and
+    external dummies/placeholders, so an artifact can be attributed to someone
+    who cannot log in (a customer, a reviewer from an external lab, ...) without
+    inventing a login. The two cases are told apart by :attr:`kind`:
+
+    * ``kind="user"`` — :attr:`user` points at ``persistence.User`` (login
+      capable); :attr:`display_name` mirrors the user name at creation time so
+      the attribution survives a later rename or deletion.
+    * ``kind="external"`` — free-standing placeholder, :attr:`user` is NULL.
+
+    Uniqueness (spec section 4): ``(tenant, user)`` when a user is referenced,
+    and ``(tenant, lower(display_name))`` for externals. Both are partial
+    ``UniqueConstraint``s (PostgreSQL partial unique indexes), so the two rules
+    do not collide: an internal actor and an external dummy may share a display
+    name without tripping the external rule.
+
+    ``display_name`` is deliberately NOT NULL for both kinds: it is the label
+    every read projection shows, and a nullable label would push the fallback
+    ("resolve the user, if it still exists") into every consumer.
+    """
+
+    class Kind(models.TextChoices):
+        """Spec section 4: who the actor is, not what role they play."""
+
+        USER = "user", "User"
+        EXTERNAL = "external", "External"
+
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 4: set for kind='user', NULL for externals.",
+    )
+    display_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    organization = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "pl_actor"
+        constraints = [
+            # Spec section 4: one Actor row per (tenant, user). Partial so the
+            # many external rows (user IS NULL) do not all collide.
+            models.UniqueConstraint(
+                fields=["tenant", "user"],
+                condition=models.Q(user__isnull=False),
+                name="uq_actor_tenant_user",
+            ),
+            # Spec section 4: external actors are unique per tenant ignoring
+            # case, mirroring the User username rule (persistence/0003,
+            # ``uq_user_username_ci``). Internal actors are excluded because the
+            # rule is scoped to kind='external'.
+            models.UniqueConstraint(
+                "tenant",
+                Lower("display_name"),
+                condition=models.Q(kind="external"),
+                name="uq_actor_tenant_external_name",
+            ),
+        ]
+        indexes = [
+            # The actor picker lists the active actors of one tenant.
+            models.Index(fields=["tenant", "is_active"], name="idx_actor_tnt_active"),
+        ]
+
+    def __str__(self) -> str:
+        return self.display_name
+
+
+class AttributeCatalogEntry(TenantScopedModel):
+    """Item-type-independent attribute template in the tenant's catalog.
+
+    Attribut v3 WS5 (#942, spec section 8). The catalog is a *template
+    library*, not a hard binding: :attr:`definition` stores one normalized
+    ``kind="extended"`` attribute block (the exact shape
+    ``attribute_definitions.schema.normalize_attribute`` produces), and
+    applying an entry to a definition is an explicit, one-shot *copy*
+    (``AttributeCatalogService.add_to_definition``). Later edits to a catalog
+    entry therefore never reach an already-updated definition — "Re-Apply" is
+    an explicit user action.
+
+    :attr:`name` is unique per tenant (the catalog's addressing key). The
+    templating metadata (:attr:`category`, :attr:`tags`, :attr:`label`,
+    :attr:`help_text`, :attr:`origin`) is display/provenance only and is never
+    copied into a definition by ``add_to_definition``; it drives the WS5 UI
+    (Part B).
+
+    RLS: ``pl_attribute_catalog_entry`` ships its own policy migration
+    (``persistence/0089_attribute_catalog_rls_policy``) — the coverage guard
+    in ``persistence/tests/test_rls_coverage.py`` requires one per new
+    ``TenantScopedModel``.
+    """
+
+    name = models.CharField(max_length=64)
+    definition = models.JSONField()
+    category = models.CharField(max_length=64, blank=True)
+    tags = models.JSONField(default=list, blank=True)
+    label = models.JSONField(default=dict)
+    help_text = models.JSONField(default=dict)
+    origin = models.CharField(max_length=64, blank=True)
+    deprecated = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "pl_attribute_catalog_entry"
+        constraints = [
+            # Spec section 8: one catalog entry per (tenant, name).
+            models.UniqueConstraint(
+                fields=["tenant", "name"],
+                name="uq_attribute_catalog_tenant_name",
+            ),
+        ]
+        indexes = [
+            # The catalog browse view filters by category inside one tenant.
+            models.Index(
+                fields=["tenant", "category"],
+                name="idx_attr_catalog_tnt_cat",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class AttributeMigrationRun(TenantScopedModel):
+    """One AWMS run — a dry-run preview or a real value migration (spec §6).
+
+    Attribut v3 WS7 (#940). A *plan* is the declarative input; a *run* is the
+    auditable output: which plan (``plan_id`` + ``plan_hash``), in which mode,
+    with what counts and report. The run row is written for **both** modes:
+    ``dry_run`` records ``status="planned"`` with the full preview so the
+    operator (and an agent) can compare previews over time; only ``apply``
+    additionally writes snapshots and mutates artifacts.
+
+    ``plan_hash`` is the SHA-256 of the normalized plan (spec §6): a changed
+    plan carrying the same ``plan_id`` is detectable instead of silently
+    superseding an already-applied run.
+
+    ``snapshot_reference`` lists the ids of the :class:`AttributeMigrationSnapshot`
+    rows this run created — the rollback index. The snapshots themselves are a
+    separate table because one run touches many artifacts.
+
+    RLS: ships its own policy migration (``persistence/0091_...``) — the
+    coverage guard in ``persistence/tests/test_rls_coverage.py`` requires one
+    per new ``TenantScopedModel``.
+    """
+
+    MODE_DRY_RUN = "dry_run"
+    MODE_APPLY = "apply"
+    MODE_CHOICES = [
+        (MODE_DRY_RUN, "Dry run"),
+        (MODE_APPLY, "Apply"),
+    ]
+
+    STATUS_PLANNED = "planned"
+    STATUS_APPLIED = "applied"
+    STATUS_PARTIAL = "partial"
+    STATUS_FAILED = "failed"
+    STATUS_ROLLED_BACK = "rolled_back"
+    STATUS_CHOICES = [
+        (STATUS_PLANNED, "Planned (dry run)"),
+        (STATUS_APPLIED, "Applied"),
+        (STATUS_PARTIAL, "Partially applied"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_ROLLED_BACK, "Rolled back"),
+    ]
+
+    plan_id = models.CharField(max_length=128)
+    plan_hash = models.CharField(max_length=64)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PLANNED
+    )
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    actor_type = models.CharField(max_length=16, default="user")
+    actor_label = models.CharField(max_length=255, blank=True, default="")
+    #: Aggregate counters (steps/changed/skipped/failed) — duplicated out of
+    #: ``report_json`` so a run list can be rendered without parsing the report.
+    counts = models.JSONField(default=dict, blank=True)
+    report_json = models.JSONField(default=dict, blank=True)
+    #: Snapshot row ids created by an ``apply`` run (the rollback index).
+    snapshot_reference = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "pl_attribute_migration_run"
+        indexes = [
+            models.Index(fields=["tenant", "plan_id"], name="idx_amr_tnt_plan"),
+            models.Index(fields=["tenant", "started_at"], name="idx_amr_tnt_started"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AttributeMigrationRun({self.plan_id}:{self.status})"
+
+
+class AttributeMigrationSnapshot(TenantScopedModel):
+    """Before-image of one artifact touched by an AWMS ``apply`` run (spec §6).
+
+    One row per ``(run, artifact)``. :attr:`custom_fields` is the artifact's
+    complete ``custom_fields`` map *before* the run; :attr:`model_fields` maps
+    each touched model-field name to its before-value. Rollback restores both.
+
+    ``model_fields`` stores only the fields the plan referenced — a full row
+    image would be needless exposure for a bulk migration. A field the snapshot
+    does not mention is never touched by rollback either.
+    """
+
+    run = models.ForeignKey(
+        "persistence.AttributeMigrationRun",
+        on_delete=models.CASCADE,
+        related_name="snapshots",
+    )
+    artifact_id = models.UUIDField(db_index=True)
+    workspace_id = models.UUIDField(null=True, blank=True)
+    custom_fields = models.JSONField(null=True, blank=True)
+    model_fields = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "pl_attribute_migration_snapshot"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "artifact_id"],
+                name="uq_attr_mig_snapshot_run_artifact",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "run"], name="idx_ams_tnt_run"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AttributeMigrationSnapshot({self.artifact_id})"
+
+
 class Artifact(TenantScopedModel):
     """Generic hierarchical artifact (ADR-05, REQ-L1-001).
 
@@ -844,6 +1082,44 @@ class Artifact(TenantScopedModel):
         Workspace, on_delete=models.CASCADE, related_name="artifacts"
     )
     artifact_type = models.CharField(max_length=64)
+    # Attribut v3 WS2 (#936, spec section 3): the cross-cutting system fields.
+    # They live on Artifact — not on each of the 11 type models — so every type
+    # inherits exactly one owner/reporter/priority column set from one migration.
+    # ``owner``/``reporter`` reference the Actor entity (spec section 4) and are
+    # SET_NULL: deleting a person/placeholder must not delete the artifact they
+    # are attributed to. ``priority`` is a plain CharField *without* model
+    # ``choices`` on purpose — the scale is configurable per
+    # ``(item_type, preset)`` through the attribute definition (type=enum),
+    # validated there, not against a frozen DB vocabulary. Non-nullable by
+    # design (blank + empty default) so existing rows and the minimal preset
+    # keep working with an empty value.
+    owner = models.ForeignKey(
+        "persistence.Actor",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 3: attributed owner (internal user or external dummy).",
+    )
+    reporter = models.ForeignKey(
+        "persistence.Actor",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 3: person/team that reported the artifact.",
+    )
+    priority = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text=(
+            "Spec section 3: priority value. Deliberately no model-level "
+            "choices — the scale is defined per attribute definition "
+            "(type=enum, default low/medium/high/critical)."
+        ),
+    )
     custom_fields = models.JSONField(
         null=True,
         default=dict,
@@ -970,7 +1246,10 @@ class StakeholderNeed(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
@@ -1056,7 +1335,10 @@ class Requirement(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
@@ -1184,7 +1466,10 @@ class ArchitectureElement(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
@@ -1555,7 +1840,10 @@ class TestCase(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
@@ -1668,7 +1956,10 @@ class TestRun(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="test_runs"
@@ -2521,7 +2812,10 @@ class Adr(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
@@ -2626,7 +2920,14 @@ class Risk(TenantScopedModel):
     severity = models.CharField(
         max_length=16, choices=Severity.choices, default=Severity.LOW
     )
-    owner = models.CharField(max_length=255, blank=True)
+    # Attribut v3 WS7 (#940): the legacy free-text owner column is renamed to
+    # ``owner_name`` so it no longer shadows the Artifact-level ``owner`` Actor
+    # FK (Attribut v3 WS2, #936). ``db_column`` keeps the physical column, so
+    # this is a state-only rename (expand/contract): existing data is retained
+    # and the AWMS plan ``risk_owner_to_actor`` folds it onto the Actor carrier.
+    # The column is retired (dropped) in a later contract step once the
+    # migration has run in every tenant.
+    owner_name = models.CharField(max_length=255, blank=True, db_column="owner")
     # REQ-L1-029 (FMEA): proper User FK for risk assignment. Kept alongside the
     # legacy `owner` CharField (not a replacement) so existing rows and callers
     # relying on the free-text owner keep working — Expand phase of an
@@ -2654,7 +2955,10 @@ class Risk(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
@@ -2887,7 +3191,10 @@ class Issue(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
@@ -3125,6 +3432,9 @@ __all__ = [
     "User",
     "Role",
     "Workspace",
+    "Actor",
+    "AttributeMigrationRun",
+    "AttributeMigrationSnapshot",
     "Artifact",
     "Requirement",
     "RequirementType",

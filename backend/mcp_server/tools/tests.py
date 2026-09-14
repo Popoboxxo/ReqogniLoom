@@ -78,6 +78,12 @@ from mcp_server.tools.base import (
     validate_artifact_write,
     write_mcp_audit,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
 from persistence.models import TestCase, TestCaseType
 from traceability.types import LinkType
 
@@ -147,6 +153,8 @@ def _test_case_to_dict(
             result["test_type"] = model_test_type
         elif ":" in artifact_type:
             result["test_type"] = artifact_type.split(":", 1)[1]
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, tc)
     return result
 
 
@@ -235,6 +243,8 @@ class McpTestToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                     "linked_req_id": {
                         "type": "string",
                         "description": "Optional requirement UUID to create a 'verifies' TraceLink.",
@@ -287,6 +297,9 @@ class McpTestToolGroup(BaseToolGroup):
                                 "type": "string",
                                 "enum": sorted(_VALID_STATUSES),
                             },
+                            # Attribut v3 WS2 (#936): Artifact-level system
+                            # fields are applied through the gateway.
+                            **SYSTEM_FIELD_SCHEMA,
                         },
                     },
                 },
@@ -548,6 +561,10 @@ class McpTestToolGroup(BaseToolGroup):
                     test_type_value=model_test_type_value,
                     custom_fields=custom_fields,
                 )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "TestCase", tc, system_field_values(params), auth_context
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -612,6 +629,11 @@ class McpTestToolGroup(BaseToolGroup):
         """
         tc_id = require_uuid(params, "id")
         data: Dict[str, Any] = params.get("data") or {}
+        # Attribut v3 WS2 (#936): owner/reporter/priority live on the Artifact;
+        # the nested `data` object carries them for this group. Applied inside
+        # each branch's try block (below) so a rejected value maps to
+        # VALIDATION_ERROR instead of the dispatcher's blanket INTERNAL_ERROR.
+        system_values = system_field_values(data)
 
         # Handle execution_status update path
         status = data.get("status") or data.get("execution_status")
@@ -645,6 +667,7 @@ class McpTestToolGroup(BaseToolGroup):
                         execution_status=status,
                         ctx=auth_context,
                     )
+                apply_system_fields("TestCase", tc, system_values, auth_context)
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             except ValidationError as exc:
@@ -663,6 +686,7 @@ class McpTestToolGroup(BaseToolGroup):
                     for name in ("title", "description", "steps", "test_type", "custom_fields")
                     if name in data
                 }
+                changed_fields.update(system_values)
                 definition_error = validate_artifact_write(
                     auth_context,
                     "TestCase",
@@ -694,6 +718,7 @@ class McpTestToolGroup(BaseToolGroup):
                         steps=data.get("steps"),
                         **optional_kwargs,
                     )
+                apply_system_fields("TestCase", tc, system_values, auth_context)
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             except ValidationError as exc:

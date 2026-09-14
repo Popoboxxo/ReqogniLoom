@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { resolveLocaleKey } from "./i18n-test-helpers";
@@ -40,19 +42,26 @@ vi.mock("../api/users", () => ({
   usersApi: { list: vi.fn() },
 }));
 
+// Attribut v3 WS2 (#936): the `actor` field renderer reads the workspace-member
+// directory through `api/actors`.
+vi.mock("../api/actors", () => ({
+  actorsApi: { list: vi.fn() },
+}));
+
 vi.mock("../components/WorkflowStatusEditor", () => ({
   WorkflowStatusEditor: () => <div data-testid="workflow-status-editor" />,
 }));
 
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { usersApi } from "../api/users";
+import { actorsApi } from "../api/actors";
 import {
   ArtifactForm,
   fieldErrorsFromException,
   groupIntoSections,
   parseFieldErrors,
 } from "../components/shared/ArtifactForm";
-import type { AttributeSpec, SectionSpec } from "../api/attribute-definitions";
+import type { AttributeSpec, LayoutToken, SectionSpec } from "../api/attribute-definitions";
 
 function spec(over: Partial<AttributeSpec>): AttributeSpec {
   return {
@@ -83,7 +92,11 @@ function section(over: Partial<SectionSpec>): SectionSpec {
   return { name: "general", order: 0, visible: true, layout: "full", ...over };
 }
 
-function mockDefinition(attributes: AttributeSpec[], sections: SectionSpec[] = []): void {
+function mockDefinition(
+  attributes: AttributeSpec[],
+  sections: SectionSpec[] = [],
+  sectionFlow?: LayoutToken[]
+): void {
   vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
     item_type: "Risk",
     preset: "standard",
@@ -92,6 +105,7 @@ function mockDefinition(attributes: AttributeSpec[], sections: SectionSpec[] = [
     attributes,
     origins: {},
     sections,
+    ...(sectionFlow !== undefined ? { section_flow: sectionFlow } : {}),
   });
 }
 
@@ -818,5 +832,358 @@ describe("ArtifactForm user directory", () => {
         screen.queryByTestId("artifact-field-owner_user-directory-unavailable")
       ).not.toBeInTheDocument()
     );
+  });
+});
+
+// Attribut v3 WS2 (#936): the definition-driven renderer maps the new `actor`
+// type onto `ActorPicker` (single/multiple by the attribute's `multiple`), the
+// `priority` enum onto `EnumSelect`, and keeps a locked `editable="system"`
+// field non-editable.
+describe("ArtifactForm field mapping (WS2 #936)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+    vi.mocked(actorsApi.list).mockReset();
+    vi.mocked(actorsApi.list).mockResolvedValue([
+      { id: "u-1", name: "Alice Admin", email: "alice@example.com" },
+    ]);
+  });
+
+  it("maps an actor attribute onto the ActorPicker combobox instead of a text input", async () => {
+    mockDefinition([spec({ name: "owner", type: "actor" })]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ owner: { kind: "user", id: "u-1" } }}
+        onSave={vi.fn()}
+      />
+    );
+    expect(await screen.findByRole("combobox")).toBeInTheDocument();
+    // The generic TextField must NOT have rendered the value.
+    expect(screen.queryByDisplayValue("u-1")).not.toBeInTheDocument();
+  });
+
+  it("renders a multiple actor attribute as a chip list", async () => {
+    mockDefinition([spec({ name: "deciders", type: "actor", multiple: true })]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{
+          deciders: { multiple: true, items: [{ kind: "user", id: "u-1" }] },
+        }}
+        onSave={vi.fn()}
+      />
+    );
+    const chip = await screen.findByTestId("artifact-field-deciders-chip");
+    expect(chip).toHaveTextContent("Alice Admin");
+  });
+
+  it("maps the priority enum onto a select with the low|medium|high|critical scale", async () => {
+    mockDefinition([
+      spec({
+        name: "priority",
+        type: "enum",
+        options: [
+          { value: "low", label_de: "Niedrig", label_en: "Low" },
+          { value: "medium", label_de: "Mittel", label_en: "Medium" },
+          { value: "high", label_de: "Hoch", label_en: "High" },
+          { value: "critical", label_de: "Kritisch", label_en: "Critical" },
+        ],
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ priority: "high" }}
+        onSave={vi.fn()}
+      />
+    );
+    const control = await screen.findByTestId("artifact-field-priority");
+    expect(control.tagName).toBe("SELECT");
+    expect(control).toHaveValue("high");
+    expect(
+      Array.from(control.querySelectorAll("option")).map((o) => o.value)
+    ).toEqual(["", "low", "medium", "high", "critical"]);
+  });
+
+  it("renders the locked system id field as static text, never an editable input", async () => {
+    mockDefinition([
+      spec({
+        name: "id",
+        type: "text",
+        editable: "system",
+        locked: true,
+        visible: true,
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ id: "00000000-0000-0000-0000-000000000123" }}
+        onSave={vi.fn()}
+      />
+    );
+    const field = await screen.findByTestId("artifact-field-id");
+    // A locked `editable: "system"` attribute is the Artifact's own identity:
+    // shown as text, never typed over (reveal/copy/mask: WS3 #937).
+    expect(field.tagName).toBe("SPAN");
+    expect(field).toHaveTextContent("00000000-0000-0000-0000-000000000123");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("ArtifactForm display properties (WS3 #937)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+  });
+
+  it("renders an attribute without special display properties exactly as before", async () => {
+    mockDefinition([spec({ name: "title" })]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    // The ordinary control stays, and no RevealValue affordances appear.
+    expect(await screen.findByTestId("artifact-field-title")).toHaveValue("T");
+    expect(screen.queryByTestId("artifact-field-title-copy")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("artifact-field-title-reveal")).not.toBeInTheDocument();
+  });
+
+  it("applies display_format=mono to an editable text field", async () => {
+    mockDefinition([spec({ name: "title", display_format: "mono" })]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    const control = await screen.findByTestId("artifact-field-title");
+    // `.control` plus the mono modifier — the visual-only property.
+    expect(control.classList.length).toBeGreaterThan(1);
+  });
+
+  it("renders a configured read-only list field through RevealValue as chips", async () => {
+    mockDefinition([
+      spec({
+        name: "tags",
+        type: "multi-enum",
+        options: [
+          { value: "a", label_de: "Alpha", label_en: "Alpha" },
+          { value: "b", label_de: "Beta", label_en: "Beta" },
+        ],
+        display_format: "chips",
+        copyable: true,
+        mask: "short",
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        mode="read"
+        initialValues={{ tags: ["a", "b"] }}
+        onSave={vi.fn()}
+      />
+    );
+    expect(await screen.findByTestId("artifact-field-tags-chips")).toBeInTheDocument();
+    expect(screen.getAllByTestId("artifact-field-tags-chip")).toHaveLength(2);
+    expect(screen.getByTestId("artifact-field-tags-copy")).toBeInTheDocument();
+    // The editable multi-enum control is not rendered in the display path.
+    expect(screen.queryByTestId("artifact-field-tags-option-a")).not.toBeInTheDocument();
+  });
+
+  it("drives the system id field from reveal=click + mask=short + copyable", async () => {
+    const user = userEvent.setup();
+    const uuid = "12345678-1234-4abc-8def-1234567890ab";
+    mockDefinition([
+      spec({
+        name: "uid",
+        type: "text",
+        editable: "system",
+        visible: true,
+        reveal: "click",
+        mask: "short",
+        copyable: true,
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Requirement"
+        artifactId="r-1"
+        initialValues={{ uid: uuid }}
+        onSave={vi.fn()}
+      />
+    );
+    // Hidden until revealed.
+    const reveal = await screen.findByTestId("artifact-field-uid-reveal");
+    expect(screen.queryByTestId("artifact-field-uid-value")).not.toBeInTheDocument();
+
+    await user.click(reveal);
+    const shown = screen.getByTestId("artifact-field-uid-value");
+    // mask="short": 8 chars + ellipsis, not the full UUID.
+    expect(shown).toHaveTextContent("12345678…");
+    expect(shown).not.toHaveTextContent(uuid);
+    // copyable is offered independently of the mask.
+    expect(screen.getByTestId("artifact-field-uid-copy")).toBeInTheDocument();
+  });
+});
+
+
+describe("ArtifactForm layout engine (WS4 #938)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+  });
+
+  it("defaults every section and field to full span when no flow is stored", async () => {
+    mockDefinition([
+      spec({ name: "title", section: "general", order: 0 }),
+      spec({ name: "description", type: "textarea", section: "general", order: 1 }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-title");
+    expect(screen.getByTestId("artifact-section-general")).toHaveAttribute("data-columns", "12");
+    expect(screen.getByTestId("artifact-field-cell-title")).toHaveAttribute("data-columns", "12");
+    expect(screen.getByTestId("artifact-field-cell-description")).toHaveAttribute(
+      "data-columns",
+      "12"
+    );
+    // No flow => no spacers at all (the pre-WS4 rendering).
+    expect(screen.queryByTestId(/^artifact-section-spacer-/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/^artifact-field-spacer-/)).not.toBeInTheDocument();
+  });
+
+  it("orders sections and spacers by the stored section_flow", async () => {
+    mockDefinition(
+      [
+        spec({ name: "title", section: "general", order: 0 }),
+        spec({ name: "uid", section: "change_control", order: 0 }),
+      ],
+      [
+        section({ name: "general", order: 0 }),
+        section({ name: "change_control", order: 1 }),
+      ],
+      [
+        { kind: "section", name: "change_control" },
+        { kind: "spacer", size: "md" },
+        { kind: "section", name: "general" },
+      ]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-title");
+    const grid = screen.getByTestId("artifact-sections-grid");
+    expect(
+      Array.from(grid.children).map((child) => child.getAttribute("data-testid"))
+    ).toEqual([
+      "artifact-section-change_control",
+      "artifact-section-spacer-1",
+      "artifact-section-general",
+    ]);
+    expect(screen.getByTestId("artifact-section-spacer-1")).toHaveAttribute(
+      "data-columns",
+      "2"
+    );
+  });
+
+  it("maps attribute spans and spacers from the stored attribute_flow", async () => {
+    mockDefinition(
+      [
+        spec({ name: "a", section: "general", order: 0 }),
+        spec({ name: "b", section: "general", order: 1 }),
+        spec({ name: "c", section: "general", order: 2 }),
+      ],
+      [
+        section({
+          name: "general",
+          attribute_flow: [
+            { kind: "attribute", name: "b", span: "half" },
+            { kind: "spacer", size: "sm" },
+            { kind: "attribute", name: "a", span: "quarter" },
+          ],
+        }),
+      ]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ a: "A", b: "B", c: "C" }}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-a");
+    const body = screen.getByTestId("artifact-section-body-general");
+    expect(
+      Array.from(body.children).map((child) => child.getAttribute("data-testid"))
+    ).toEqual([
+      "artifact-field-cell-b",
+      "artifact-field-spacer-general-1",
+      "artifact-field-cell-a",
+      "artifact-field-cell-c",
+    ]);
+    expect(screen.getByTestId("artifact-field-cell-b")).toHaveAttribute("data-columns", "6");
+    expect(screen.getByTestId("artifact-field-cell-a")).toHaveAttribute("data-columns", "3");
+    expect(screen.getByTestId("artifact-field-spacer-general-1")).toHaveAttribute(
+      "data-columns",
+      "1"
+    );
+    // Unpositioned attribute keeps full width (additive derivation).
+    expect(screen.getByTestId("artifact-field-cell-c")).toHaveAttribute("data-columns", "12");
+  });
+
+  it("maps a half section onto the 12-column grid", async () => {
+    mockDefinition(
+      [spec({ name: "a", section: "left", order: 0 })],
+      [section({ name: "left", order: 0, layout: "half" })]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{}}
+        onSave={vi.fn()}
+      />
+    );
+    await screen.findByTestId("artifact-field-a");
+    expect(screen.getByTestId("artifact-section-left")).toHaveAttribute("data-columns", "6");
+  });
+
+  it("collapses the grid to one column and hides spacers below the md breakpoint (CSS contract)", () => {
+    const css = readFileSync(
+      join(__dirname, "..", "components", "shared", "ArtifactForm", "ArtifactForm.module.css"),
+      "utf-8"
+    );
+    expect(css).toContain("grid-template-columns: repeat(12, 1fr)");
+    expect(css).toContain("@media (max-width: 768px)");
+    expect(css).toContain("grid-column: 1 / -1;");
+    expect(css).toMatch(/\.spacerToken\s*\{\s*display:\s*none;/);
   });
 });

@@ -411,7 +411,7 @@ Phase 3 & 4 will cover:
 ## 9. Known Limitations & Future Work
 
 1. **CTE Depth Limit:** PostgreSQL CTE supports ~100 hierarchy levels safely
-2. **uid Auto-Generation:** Currently read-only; backend does not auto-generate (frontend responsibility or future feature)
+2. **uid is an external import key:** read-only to clients; nothing auto-generates it (Attribut v3 WS2 #936). The Artifact UUID `id` is the sole identity — no `REQ-NNN` number-circle.
 3. **TraceLink.link_type Enum:** No constraint enforcement; 'allocated-to' is free text for now
 4. **Service Layer:** New parameters should be explicitly documented in service docstrings
 5. **AttributeVisibilityConfig UI:** No admin UI implemented yet; CRUD via API only

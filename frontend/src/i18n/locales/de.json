@@ -1721,9 +1721,17 @@
     }
   },
   "artifactId": {
-    "copyHint": "Bezeichner kopieren",
+    "term": "Bezeichner"
+  },
+  "revealValue": {
+    "copy": "Wert kopieren",
+    "copyLabel": "{{label}} kopieren",
+    "copyHint": "Zum Kopieren klicken oder doppelklicken",
     "copied": "Kopiert",
-    "copyLabel": "Bezeichner {{id}} kopieren"
+    "show": "Wert anzeigen",
+    "hide": "Wert verbergen",
+    "revealed": "Wert angezeigt",
+    "revealHint": "Zum Anzeigen klicken oder {{shortcut}} drücken"
   },
   "pageHeader": {
     "more": "Weitere Aktionen",
@@ -2097,6 +2105,14 @@
     "deleteTitle": "Artefakt löschen",
     "unsupportedWidget": "Dieses Feld verwendet ein nicht unterstütztes Widget ({{widget}}). Die einzelnen Felder werden stattdessen direkt angezeigt.",
     "userDirectoryUnavailable": "Benutzerliste nicht verfügbar — nur Tenant-Administratoren dürfen sie lesen.",
+    "actorSearchPlaceholder": "Personen suchen…",
+    "actorLoading": "Personen werden geladen…",
+    "actorDirectoryUnavailable": "Mitgliederliste nicht verfügbar — derzeit können keine neuen Personen ausgewählt werden.",
+    "actorEmpty": "Keine Personen verfügbar.",
+    "actorNoMatches": "Kein Treffer für „{{query}}“.",
+    "actorCreateExternal": "„{{name}}“ als externe Person anlegen",
+    "actorRemove": "{{name}} entfernen",
+    "systemValueUnavailable": "Kein Wert",
     "changeReason": "Änderungsgrund",
     "changeReasonRequired": "Bitte einen Änderungsgrund angeben."
   },
@@ -2131,6 +2147,7 @@
       "date": "Datum",
       "reference": "Referenz",
       "user": "Nutzer",
+      "actor": "Person / Team",
       "widget": "Widget"
     },
     "addAttribute": "+ Attribut hinzufügen",
@@ -2156,6 +2173,29 @@
         "overwrite": "Überschreiben (bestehendes Attribut ersetzen)",
         "rename": "Umbenennen (als neues Attribut mit Suffix importieren)"
       }
+    },
+    "catalog": {
+      "addButton": "Aus Katalog hinzufügen",
+      "dialogTitle": "Aus Katalog hinzufügen",
+      "itemTypeHint": "Vorlagen für {{itemType}}",
+      "searchLabel": "Suche",
+      "searchPlaceholder": "Nach Name suchen…",
+      "includeDeprecated": "Veraltete anzeigen",
+      "loading": "Katalog wird geladen…",
+      "empty": "Keine passenden Katalog-Einträge gefunden.",
+      "error": "Katalog konnte nicht geladen werden",
+      "noCategory": "Ohne Kategorie",
+      "deprecatedBadge": "Veraltet",
+      "entriesLabel": "Katalog-Einträge",
+      "selectHint": "Wähle eine Vorlage aus.",
+      "onCollisionLabel": "Bei Namenskonflikt",
+      "onCollision": {
+        "skip": "Überspringen (bestehendes Attribut behalten)",
+        "overwrite": "Überschreiben (bestehendes Attribut ersetzen)",
+        "rename": "Umbenennen (als neues Attribut mit Suffix hinzufügen)"
+      },
+      "add": "Hinzufügen",
+      "added": "Attribut \"{{name}}\" aus dem Katalog hinzugefügt."
     },
     "deleteAttribute": {
       "action": "Attribut löschen",
@@ -2215,6 +2255,24 @@
     "moveSectionDown": "Sektion nach unten",
     "reset": "Auf Standard zurücksetzen",
     "resetConfirm": "Workspace-Anpassungen verwerfen und den globalen Standard übernehmen?",
-    "propagated": "{{count}} Workspace(s) aktualisiert"
+    "propagated": "{{count}} Workspace(s) aktualisiert",
+    "layout": {
+      "title": "Layout",
+      "sectionFlow": "Sektions-Layout",
+      "spacerSize": "Abstandsgröße",
+      "addSpacer": "Abstand hinzufügen",
+      "span": "Breite",
+      "span_full": "Ganz (12)",
+      "span_half": "Halb (6)",
+      "span_quarter": "Viertel (3)",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "remove": "Entfernen",
+      "spacer": {
+        "sm": "Klein (1 Spalte)",
+        "md": "Mittel (2 Spalten)",
+        "lg": "Groß (4 Spalten)"
+      }
+    }
   }
 }

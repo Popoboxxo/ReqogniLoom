@@ -146,6 +146,13 @@ class AuditEntry(TenantScopedModel):
     OP_AI_DECOMPOSE = "ai.decompose"
     OP_AI_VALIDATE = "ai.validate"
     OP_AI_CHECK_CONSISTENCY = "ai.check_consistency"
+    # AWMS (Epic #934 WS7, #940): a value migration is its own auditable
+    # operation, per changed artifact (spec §6). Two distinct namespaces rather
+    # than reusing "update"/"transition": an audit query for "what did the
+    # migration change" must not be drowned by ordinary edits, and a rollback
+    # is a first-class repair action. Both fit the varchar(32) ``op`` column.
+    OP_ATTRIBUTE_MIGRATION_APPLY = "attribute_migration.apply"
+    OP_ATTRIBUTE_MIGRATION_ROLLBACK = "attribute_migration.rollback"
     # #626: DLQ event replay has no REST pendant (it is admin/ops machinery
     # over a DomainEventDLQ row, not a CRUD op on a business entity), so it
     # gets its own namespace — same reasoning as the ``ai.*`` family above.
@@ -217,6 +224,8 @@ class AuditEntry(TenantScopedModel):
         (OP_AI_DECOMPOSE, "AI Decompose"),
         (OP_AI_VALIDATE, "AI Validate"),
         (OP_AI_CHECK_CONSISTENCY, "AI Consistency Check"),
+        (OP_ATTRIBUTE_MIGRATION_APPLY, "Attribute Migration Apply"),
+        (OP_ATTRIBUTE_MIGRATION_ROLLBACK, "Attribute Migration Rollback"),
         (OP_EVENTS_REPLAY, "Events Replay"),
     ]
 

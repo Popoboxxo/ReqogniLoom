@@ -6,7 +6,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from application.base import NotFoundError, OptimisticLockError
+from application.base import NotFoundError, OptimisticLockError, ValidationError
+from application.artifact_attribute_gateway import artifact_system_fields
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -15,6 +16,13 @@ from mcp_server.tools.base import (
     resolve_engine_status,
     resolve_status_map,
     validate_artifact_write,
+)
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_NAMES,
+    SYSTEM_FIELD_SCHEMA,
+    apply_system_fields,
+    system_field_values,
+    system_fields_enabled,
 )
 from workflow.state_reader import STATUS_TRACKED_ITEM_TYPES
 
@@ -258,6 +266,14 @@ class GenericCrudToolGroup(BaseToolGroup):
         }
         update_required = ["id"] + update_required
 
+        # Attribut v3 WS2 (#936): advertise the Artifact-level system fields for
+        # the item types whose transports carry them, so a client sees them up
+        # front and the handler can persist them.
+        self._system_fields_enabled = system_fields_enabled(self._item_type)
+        if self._system_fields_on:
+            create_props.update(SYSTEM_FIELD_SCHEMA)
+            update_props.update(SYSTEM_FIELD_SCHEMA)
+
         # Instance-level JSON schemas (prefix is only known at construction).
         self._TOOL_SCHEMAS = [
             {
@@ -416,8 +432,31 @@ class GenericCrudToolGroup(BaseToolGroup):
                 custom_fields = getattr(artifact, "custom_fields", None)
             if isinstance(custom_fields, dict):
                 data["custom_fields"] = self._jsonify(custom_fields)
+            # Attribut v3 WS2 (#936): Artifact-level system fields in actor wire
+            # form, mirroring the REST DTO builders.
+            if self._system_fields_on:
+                data.update(artifact_system_fields(obj))
             return data
         return {"id": str(getattr(obj, "id", ""))}
+
+    @property
+    def _system_fields_on(self) -> bool:
+        """Whether this group carries the Artifact-level system fields.
+
+        ``getattr`` guarded because unit tests build a group via ``__new__`` and
+        set attributes by hand, bypassing ``__init__``.
+        """
+        return bool(getattr(self, "_system_fields_enabled", False))
+
+    def _system_field_values(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the Artifact-level system-field values present in *params*.
+
+        Empty for item types whose transports do not carry them, so ``Risk``'s
+        legacy free-text ``owner`` keeps flowing to ``RiskService`` unchanged.
+        """
+        if not self._system_fields_on:
+            return {}
+        return system_field_values(params)
 
     def _handle_read(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
@@ -429,7 +468,13 @@ class GenericCrudToolGroup(BaseToolGroup):
 
     def _handle_create(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
-        kwargs = {k: v for k, v in params.items() if k != "workspace_id"}
+        split_names = SYSTEM_FIELD_NAMES if self._system_fields_on else ()
+        kwargs = {
+            k: v
+            for k, v in params.items()
+            if k not in ("workspace_id", *split_names)
+        }
+        system_values = self._system_field_values(params)
         # Ledger gap #1 / issue #881: the same central gate the REST ViewSets
         # already run (mirrors AdrViewSet.create et al.).
         definition_error = validate_artifact_write(
@@ -439,6 +484,12 @@ class GenericCrudToolGroup(BaseToolGroup):
             return definition_error
         try:
             obj = self._create_method(ctx=auth_context, workspace_id=workspace_id, **kwargs)
+            try:
+                apply_system_fields(self._item_type, obj, system_values, auth_context)
+            except ValidationError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
+            except NotFoundError as exc:
+                return ToolResult.error("NOT_FOUND", str(exc))
             return ToolResult.ok({"data": self._to_dict(obj)})
         except TypeError as exc:
             # #268: a required field missing from `params` (e.g. `description`
@@ -456,7 +507,13 @@ class GenericCrudToolGroup(BaseToolGroup):
 
     def _handle_update(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
-        kwargs = {k: v for k, v in params.items() if k != "id"}
+        split_names = SYSTEM_FIELD_NAMES if self._system_fields_on else ()
+        kwargs = {
+            k: v
+            for k, v in params.items()
+            if k not in ("id", *split_names)
+        }
+        system_values = self._system_field_values(params)
         # #83 Bug 2: `status` is a workflow-managed field for every entity
         # this generic group serves (Adr, Risk, Issue, GlossaryTerm, ...) —
         # it can only move through `{prefix}.outdate` / `{prefix}.reactivate`
@@ -487,12 +544,25 @@ class GenericCrudToolGroup(BaseToolGroup):
             # bare ``except Exception`` below exactly as it did before this
             # validation call was added.
             workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
+            # Attribut v3 WS2 (#936): owner/reporter/priority are Artifact-level
+            # and never reach the wrapped update method, but the definition gate
+            # must see them so an unresolvable actor is rejected before the call.
             definition_error = validate_artifact_write(
-                auth_context, self._item_type, workspace_id, dict(kwargs), {"__exists__": True}
+                auth_context,
+                self._item_type,
+                workspace_id,
+                {**kwargs, **system_values},
+                {"__exists__": True},
             )
             if definition_error is not None:
                 return definition_error
             obj = self._update_method(ctx=auth_context, **{self._update_id_param: obj_id}, **kwargs)
+            try:
+                apply_system_fields(self._item_type, obj, system_values, auth_context)
+            except ValidationError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
+            except NotFoundError as exc:
+                return ToolResult.error("NOT_FOUND", str(exc))
             return ToolResult.ok({"data": self._to_dict(obj)})
         except OptimisticLockError as exc:
             # SYSTEMAUDIT_2026-08-29 (REST finding 1): the wrapped services now

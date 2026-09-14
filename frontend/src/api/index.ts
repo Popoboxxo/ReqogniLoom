@@ -84,6 +84,18 @@ export type {
 } from "./metrics";
 
 export { attributeDefinitionsApi } from "./attribute-definitions";
+export { attributeCatalogApi } from "./attributeCatalog";
+export type {
+  AddToDefinitionInput,
+  AddToDefinitionResult,
+  AttributeCatalogDocument,
+  AttributeCatalogEntry,
+  CatalogEntryInput,
+  CatalogEntryDocument,
+  CatalogImportResult,
+  CatalogListFilters,
+  CatalogLocalizedText,
+} from "./attributeCatalog";
 export type {
   AttributeSpec,
   AttributeType,

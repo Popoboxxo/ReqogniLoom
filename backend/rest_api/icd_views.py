@@ -47,6 +47,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from application.artifact_attribute_gateway import artifact_system_fields
 from application.artifact_diff_service import (
     ArtifactDiffService,
     creation_baseline_entry,
@@ -181,6 +182,53 @@ def _client_message(exc: Exception, context: str) -> str | None:
     return None
 
 
+def _icd_status(icd: Icd, status_map: dict[str, str] | None = None) -> str:
+    """Resolve the wire-level ``status`` of *icd* from the workflow engine.
+
+    Epic #934 WS1: ``status`` is a visible system attribute on the bootstrapped
+    Icd definition, but the REST read projection (``_icd_to_dict``/``retrieve``)
+    omitted it. Mirrors :func:`rest_api.mixins.workflow_state.WorkflowStateSerializerMixin.get_status`
+    and :func:`mcp_server.tools.base.resolve_engine_status`: the workflow engine
+    is the single source of truth, and ``Icd``'s fixed ``icd_default`` preset
+    initial state is the fallback for a row the engine does not track.
+
+    Pass a pre-batched *status_map* (:func:`_icd_status_map`) for list-shaped
+    responses so a page of N ICDs costs a constant number of queries instead of
+    N (the same batching rule the REST status mixin follows).
+    """
+    from persistence.tenancy import TenantContextNotSetError
+    from workflow import state_reader
+
+    if status_map is not None:
+        state = status_map.get(str(icd.id))
+    else:
+        try:
+            state = state_reader.current_state("Icd", icd.id)
+        except TenantContextNotSetError:
+            state = None
+    return state or state_reader.initial_state("Icd")
+
+
+def _icd_status_map(icds: list[Icd]) -> dict[str, str]:
+    """Batch-resolve the wire ``status`` of every ICD in *icds* (one query set).
+
+    Thin wrapper over ``workflow.state_reader.current_states``: like
+    ``rest_api.mixins.workflow_state``, a list endpoint must not degrade into
+    one engine lookup per row. An empty page or a missing ``TenantContext``
+    resolves to no entries, so every ICD falls back to its preset initial
+    state via :func:`_icd_status`.
+    """
+    if not icds:
+        return {}
+    from persistence.tenancy import TenantContextNotSetError
+    from workflow import state_reader
+
+    try:
+        return state_reader.current_states("Icd", [icd.id for icd in icds])
+    except TenantContextNotSetError:
+        return {}
+
+
 class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """REST ViewSet for ICD CRUD operations.
 
@@ -252,17 +300,23 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return {}
         return getattr(artifact, "custom_fields", None) or {}
 
-    def _icd_to_dict(self, icd: Icd) -> dict[str, Any]:
+    def _icd_to_dict(
+        self, icd: Icd, *, status_map: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         return {
             "id": str(icd.id),
             "name": icd.name,
             "workspace_id": str(icd.workspace_id),
             "source_element_id": str(icd.source_element_id),
             "target_element_id": str(icd.target_element_id),
+            # Epic #934 WS1: the visible ``status`` system attribute.
+            "status": _icd_status(icd, status_map),
             "custom_fields": self._icd_custom_fields(icd),
             # Task 28c-2: was the current IcdVersion's UUID; that row no longer
             # exists, so this is the revision number instead.
             "current_revision": icd.current_revision,
+            # Attribut v3 WS2 (#936): Artifact-level system fields, actor form.
+            **artifact_system_fields(icd),
             "created_at": icd.created_at.isoformat() if icd.created_at else None,
         }
 
@@ -376,7 +430,10 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
             )
-            serialized = [self._icd_to_dict(icd) for icd in icds]
+            status_map = _icd_status_map(icds)
+            serialized = [
+                self._icd_to_dict(icd, status_map=status_map) for icd in icds
+            ]
             return self._paginate(request, serialized)
         except Exception:
             return _internal_error(lang, "list")
@@ -438,6 +495,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 custom_fields=custom_fields,
             )
             result = create_icd(dto)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            self._apply_artifact_system_fields(request, "Icd", result.icd, ctx)
             return Response(
                 {
                     "id": str(result.icd.id),
@@ -446,8 +505,15 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     "source_element_id": str(result.icd.source_element_id),
                     "target_element_id": str(result.icd.target_element_id),
                     "version": result.current_version.version_number if result.current_version else 1,
+                    # Epic #934 WS1: ``status`` is a visible system attribute;
+                    # list/retrieve and every MCP icd.* response already carry
+                    # it, so create must too (parity -- resolve it exactly like
+                    # retrieve does).
+                    "status": _icd_status(result.icd),
                     # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
                     "custom_fields": self._icd_custom_fields(result.icd),
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **artifact_system_fields(result.icd),
                     "created_at": result.icd.created_at.isoformat() if result.icd.created_at else None,
                 },
                 status=status.HTTP_201_CREATED,
@@ -492,8 +558,12 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "preconditions": icd.preconditions or [],
                 "postconditions": icd.postconditions or [],
                 "invariants": icd.invariants or [],
+                # Epic #934 WS1: the visible ``status`` system attribute.
+                "status": _icd_status(icd),
                 # REQ-L2-AS-037 / Epic #934 WS1: extended attributes.
                 "custom_fields": self._icd_custom_fields(icd),
+                # Attribut v3 WS2 (#936): Artifact-level system fields.
+                **artifact_system_fields(icd),
                 "created_at": icd.created_at.isoformat() if icd.created_at else None,
             })
         except Icd.DoesNotExist:
@@ -537,13 +607,21 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 custom_fields=request.data.get("custom_fields"),
             )
             result = update_icd(icd_id=UUID(pk), payload=dto, tenant_id=ctx.tenant_id)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            self._apply_artifact_system_fields(request, "Icd", result.icd, ctx)
             return Response({
                 "id": str(result.icd.id),
                 "name": result.icd.name,
                 "version": result.current_version.version_number if result.current_version else 1,
                 "direction": result.current_version.direction if result.current_version else None,
+                # Epic #934 WS1: keep ``status`` on the update response too --
+                # list/retrieve and every MCP icd.* response carry it, so a
+                # write round-trip must not drop it.
+                "status": _icd_status(result.icd),
                 # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
                 "custom_fields": self._icd_custom_fields(result.icd),
+                # Attribut v3 WS2 (#936): Artifact-level system fields.
+                **artifact_system_fields(result.icd),
             })
         except Icd.DoesNotExist:
             return Response(
