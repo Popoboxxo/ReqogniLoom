@@ -28,6 +28,7 @@ from attribute_definitions.plans import (
 )
 from auth_tenancy.context import AuthContext, AuthMethod
 from persistence.models import (
+    Actor,
     Artifact,
     AttributeMigrationSnapshot,
     ChangeRequest,
@@ -376,6 +377,23 @@ class TestRiskOwnerToActor:
         service.apply(admin_ctx, self._plan())
         second = service.apply(admin_ctx, self._plan())
         assert second["summary"]["changed"] == 0
+
+    def test_dry_run_creates_no_actors(
+        self, service, admin_ctx, tenant, workspace
+    ) -> None:
+        """Actor resolution must be write-path only (§6, no data loss)."""
+        artifact = _artifact(tenant, workspace, "Risk")
+        Risk.objects.create(
+            tenant_id=tenant.id,
+            artifact=artifact,
+            workspace_id=workspace.id,
+            title="risk",
+            owner_name="Alice",
+        )
+        report = service.dry_run(admin_ctx, self._plan())
+        assert report["status"] == "planned"
+        assert _reload(artifact).owner is None
+        assert not Actor.objects.filter(display_name="Alice").exists()
 
     def test_rollback_clears_owner_and_reporter(
         self, service, admin_ctx, tenant, workspace, user
