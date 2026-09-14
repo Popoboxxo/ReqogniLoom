@@ -514,8 +514,15 @@ export function ArtifactForm({
                     specByName,
                     disabled:
                       isReadOnly ||
-                      fieldEntry.attribute.editable !== true ||
-                      saving,
+                      saving ||
+                      // A workflow-owned attribute is editable through the
+                      // WorkflowStatusEditor's own transition menu, not through
+                      // the generic editable-control path — `editable ===
+                      // "workflow"` must therefore NOT count as "not editable"
+                      // here, or the status editor renders without its trigger
+                      // (E2E: workflow-transition-trigger missing).
+                      (fieldEntry.attribute.editable !== true &&
+                        fieldEntry.attribute.editable !== "workflow"),
                     // Distinct from `disabled`: a save in flight must not switch
                     // a configured field from its editable control to the
                     // read-only display (that would flash the value format).
