@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 200,
+  "tool_count": 206,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1524,6 +1524,125 @@
           "item_type",
           "workspace_id",
           "attributes"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.apply",
+      "prefix": "attribute_migration",
+      "is_write": true,
+      "description": "Execute an AWMS plan: snapshot, migrate values, audit (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "description": "Declarative AWMS plan: {id, description, scope{item_type, preset, workspace}, mode, options, steps:[{op, ...}]}."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.dry_run",
+      "prefix": "attribute_migration",
+      "is_write": true,
+      "description": "Plan a migration against real data and return the full change report without modifying artifacts (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "description": "Declarative AWMS plan: {id, description, scope{item_type, preset, workspace}, mode, options, steps:[{op, ...}]}."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.get_run",
+      "prefix": "attribute_migration",
+      "is_write": false,
+      "description": "Return one AWMS run including its stored report (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Run UUID."
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.list_runs",
+      "prefix": "attribute_migration",
+      "is_write": false,
+      "description": "List AWMS runs of the tenant, newest first (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "dry_run",
+              "apply"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "attribute_migration.plan",
+      "prefix": "attribute_migration",
+      "is_write": false,
+      "description": "Validate an AWMS plan document and return its normalized form + SHA-256 hash. No database write.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "description": "Declarative AWMS plan: {id, description, scope{item_type, preset, workspace}, mode, options, steps:[{op, ...}]}."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "attribute_migration.rollback",
+      "prefix": "attribute_migration",
+      "is_write": true,
+      "description": "Restore every artifact of a previous apply run (admin-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Run UUID."
+          }
+        },
+        "required": [
+          "run_id"
         ]
       }
     },
