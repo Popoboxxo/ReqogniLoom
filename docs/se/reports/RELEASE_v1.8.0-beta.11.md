@@ -1,7 +1,7 @@
 ---
 type: STRATEGY
 scope: Release v1.8.0-beta.11
-status: done
+status: review
 date: 2026-09-14
 author_agent: release
 ---
@@ -69,14 +69,35 @@ bestätigte Merge-Liste vergeben.
 
 ## 5. Test- und Gate-Status
 
+### 5.1 Maßgebliches Test-Gate: CI auf `f12949e2`
+
+Gemäß User-Entscheidung **„Option A"** gilt **CI-Grün auf `f12949e2`**
+(PR #945) als maßgebliches Test-Gate: **26/26 Checks grün**, u. a.
+`set-1`…`set-4` (Backend-Matrix), `frontend-test`, `e2e (1..4)`, `lint`,
+`agent-templates-test`, `requirements-drift-check` und `hermes-plugin-test`.
+
+### 5.2 Lokaler Test-Gate-Lauf (ergänzend, nicht maßgeblich)
+
+| Prüfung | Ergebnis |
+|---------|----------|
+| Backend-Volllauf (`backend-test`, pytest) | **7973 passed, 11 skipped, 0 failed, 4 setup-errors** — Exit 1, Gesamtdauer ~26 min |
+| Frontend-Volllauf (`frontend-test`, vitest) | **1851 passed / 1 failed (1852)**, 220 Files — Exit 1; Fehler = `Test timed out in 5000ms` |
+| `pytest docs/agent-templates dist` | **15 passed** |
+| Hermes-Plugin `npm test` | **71 passed** (6 Files) |
+
+Die zwei lokalen Reds (4 Backend-Fixture-Setup-Errors, 1 Frontend-Flake-Timeout)
+sind belegt **nicht-produktbezogen** und blockieren den Release gemäß Option A
+nicht; Details, Root-Causes und Folge-Fix-Vorschläge in Abschnitt 9
+(KI-1/KI-2).
+
+### 5.3 Nachgelagerte Gates
+
 | Prüfung | Status |
 |---------|--------|
-| `pytest docs/agent-templates dist -q` | siehe Abschnitt „Verifikation“ in der Übergabe (lokal ausgeführt) |
-| Hermes-Plugin `npm test` | lokal ausgeführt (sofern `node_modules` vorhanden), sonst CI |
-| Backend-/Frontend-Volllauf, `make build` | **nachgelagert** (nicht Teil dieses Durchlaufs) |
-| `pre-release-check.sh` (Pre-Release-Gates) | **nachgelagert** (bewusst nicht ausgeführt) |
-| Docker-Image-/Trivy-Gate (Extension §1b) | **nachgelagert** (CI `docker-publish`) |
-| Tag-Push + GitHub-Release (Extension §3 Step 2) | **nachgelagert** |
+| `make build` | in diesem Durchlauf beauftragt (Option A), im Verlauf nachgelagert |
+| `pre-release-check.sh` (Pre-Release-Gates) | in diesem Durchlauf beauftragt, im Verlauf nachgelagert |
+| Docker-Image-/Trivy-Gate (Extension §1b) | CI `docker-publish` |
+| Tag-Push + GitHub-Release (Extension §3 Step 2) | in diesem Durchlauf beauftragt, im Verlauf nachgelagert |
 
 ## 6. Dokumentierte Konvention-Abweichungen
 
@@ -119,8 +140,61 @@ bestätigte Merge-Liste vergeben.
 
 ## 8. Offene Folge-Schritte
 
-1. Pre-Release-Gates (`pre-release-check.sh`) — separat.
-2. `make build` / Backend- + Frontend-Volllauf — separat.
-3. Commit wurde in diesem Durchlauf erstellt; **Push und Tag** verbleiben beim
-   `git`-Agenten.
-4. GitHub-Release `v1.8.0-beta.11` mit `--prerelease` (Extension §3 Step 2).
+Gemäß User-Entscheidung „Option A" sind die nachgelagerten Schritte in diesem
+Durchlauf **beauftragt** (nicht mehr „separat"):
+
+1. Backend-/Frontend-Volllauf — **erfolgt** (Ergebnisse in Abschnitt 5.2).
+2. `make build` — beauftragt, im Verlauf dieses Durchlaufs nachgelagert.
+3. Pre-Release-Gates (`pre-release-check.sh`) — beauftragt, nachgelagert.
+4. Tag-Push + GitHub-Release `v1.8.0-beta.11` mit `--prerelease`
+   (Extension §3 Step 2) — beauftragt, verbleibt beim `git`-Agenten.
+5. Dieser Bericht wird nach Abschluss **nicht erneut angefasst**.
+
+## 9. Known Issues (lokales Test-Gate)
+
+Beide Befunde sind **nicht-produktbezogen** (User-Entscheidung „Option A"); das
+maßgebliche Gate (CI auf `f12949e2`, 26/26 grün) ist davon unberührt. Sie werden
+hier inkl. Root-Cause, Evidenz und vorgeschlagenem Folge-Fix dokumentiert.
+
+### KI-1 — Backend: 4 Fixture-Setup-Errors in `mcp_server/tests/test_mcp_api_key_roles.py`
+
+- **Klasse:** `TestMcpApiKeyRolePropagation`
+- **Symptom:** `AssertionError: Seeded 'Demo Workspace' not found — is
+  bootstrap_admin/seed_demo loaded?`
+- **Root Cause (verifiziert):** Der Endpoint `GET /api/v1/workspaces/` ist
+  paginiert (`StandardPagination`, `page_size 25`, `max_page_size 100`) und
+  serverseitig nach `-modified_at` sortiert. Im `demo`-Tenant liegen 153
+  Workspaces, davon 152 frische E2E-Reste (`e2e-isolated-*`,
+  `e2e-visual-regression-*`). `Demo Workspace` (`6d20f0b9-…`) hat
+  `modified_at = 2026-09-10` ⇒ **Rang 152 von 153**. Die Fixture
+  `seeded_workspace_id` (Zeilen ~250–264) liest nur `results` **von Seite 1**
+  ⇒ Name nie gefunden. Die Assertion-Meldung ist irreführend; das Seeding ist
+  intakt (Admin im Tenant `demo`, `UserRole(role='admin')` in
+  `Demo Workspace` vorhanden, Workspace nicht soft-deleted).
+- **Einordnung:** **kein Produktdefekt.** Der Test ist
+  `pytest.mark.integration` und in CI explizit geskippt
+  (`skipif(CI or GITHUB_ACTIONS)`); der Modul-Docstring nennt ihn ausdrücklich
+  „must not run unattended in the normal unit suite". Er lief lokal nur, weil
+  der Dev-Stack erreichbar war.
+- **Vorgeschlagener Folge-Fix (C1):** Fixture auf paginierte Suche umstellen
+  (alle Seiten via `next` bzw. `page_size=100` durchlaufen, bis
+  `name == "Demo Workspace"` gefunden ist; DRF-404 auf Out-of-range-Seiten
+  abfangen). Betrifft nur `backend/mcp_server/tests/test_mcp_api_key_roles.py`.
+- **Reinigungsoption (separat, nicht Teil dieses Releases):** die
+  E2E-Rest-Workspaces per `cleanup_e2e_artifacts` entfernen (DB-mutierend,
+  braucht explizite Freigabe).
+
+### KI-2 — Frontend: Flake-Timeout in `src/test/design-tokens.test.ts`
+
+- **Symptom:** `Error: Test timed out in 5000ms` in einem der beiden
+  Dateisystem-Scan-Tests („every var(--token) reference …" bzw. „every
+  structural inline-style exemption …") — **kein** Assertion-/Token-Mismatch.
+- **Root Cause (verifiziert, nicht-deterministisch):** Beide Scan-Tests laufen
+  isoliert in ~2,7 s gegen ein 5-s-Budget; unter Volllast (220 Test-Files
+  parallel) kippt jeweils einer darüber. Im Re-Run schlug ein **anderer** der
+  beiden Tests fehl ⇒ load-induzierter Timeout, kein Token-Defekt. Isolierter
+  Lauf: 6/6 grün, Exit 0.
+- **Einordnung:** **kein Produktdefekt**; CI auf `f12949e2` war für
+  `frontend-test` grün.
+- **Vorgeschlagener Folge-Fix (C2):** per-File `testTimeout` erhöhen oder die
+  beiden Scan-Tests in ein serialisiertes/non-parallel Projekt verschieben.
