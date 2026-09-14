@@ -122,6 +122,13 @@ from rest_api.attribute_catalog_views import (
     AttributeCatalogListView,
     AttributeCatalogSearchView,
 )
+from rest_api.attribute_migration_views import (
+    AttributeMigrationApplyView,
+    AttributeMigrationPlanView,
+    AttributeMigrationRollbackView,
+    AttributeMigrationRunDetailView,
+    AttributeMigrationRunListView,
+)
 from rest_api.global_default_views import (
     EnforcementFlipView,
     EnforcementStatusView,
@@ -550,6 +557,39 @@ urlpatterns = [
         "attribute-catalog/<uuid:entry_id>/",
         AttributeCatalogDetailView.as_view(),
         name="attribute-catalog-detail",
+    ),
+    # -- AWMS value migrations (WS7 #940, spec section 7) — tenant-wide admin
+    # tooling. `plan/` previews (dry run), `apply/` executes; the run resource
+    # is read-only plus one rollback action.
+    path(
+        "attribute-migration/plan/",
+        AttributeMigrationPlanView.as_view(),
+        name="attribute-migration-plan",
+    ),
+    path(
+        "attribute-migration/apply/",
+        AttributeMigrationApplyView.as_view(),
+        name="attribute-migration-apply",
+    ),
+    path(
+        "attribute-migration/runs/",
+        AttributeMigrationRunListView.as_view(),
+        name="attribute-migration-run-list",
+    ),
+    path(
+        "attribute-migration/runs/<uuid:run_id>/rollback/",
+        AttributeMigrationRollbackView.as_view(),
+        name="attribute-migration-rollback",
+    ),
+    path(
+        "attribute-migration/runs/<uuid:run_id>/",
+        AttributeMigrationRunDetailView.as_view(),
+        name="attribute-migration-run-detail",
+    ),
+    path(
+        "attribute-migration/",
+        AttributeMigrationApplyView.as_view(),
+        name="attribute-migration-apply-alias",
     ),
     # -- Attribute definitions (spec section 5) — tenant-wide global defaults
     # plus per-workspace materialized overrides. The reset route precedes the

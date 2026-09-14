@@ -910,6 +910,115 @@ class AttributeCatalogEntry(TenantScopedModel):
         return self.name
 
 
+class AttributeMigrationRun(TenantScopedModel):
+    """One AWMS run — a dry-run preview or a real value migration (spec §6).
+
+    Attribut v3 WS7 (#940). A *plan* is the declarative input; a *run* is the
+    auditable output: which plan (``plan_id`` + ``plan_hash``), in which mode,
+    with what counts and report. The run row is written for **both** modes:
+    ``dry_run`` records ``status="planned"`` with the full preview so the
+    operator (and an agent) can compare previews over time; only ``apply``
+    additionally writes snapshots and mutates artifacts.
+
+    ``plan_hash`` is the SHA-256 of the normalized plan (spec §6): a changed
+    plan carrying the same ``plan_id`` is detectable instead of silently
+    superseding an already-applied run.
+
+    ``snapshot_reference`` lists the ids of the :class:`AttributeMigrationSnapshot`
+    rows this run created — the rollback index. The snapshots themselves are a
+    separate table because one run touches many artifacts.
+
+    RLS: ships its own policy migration (``persistence/0091_...``) — the
+    coverage guard in ``persistence/tests/test_rls_coverage.py`` requires one
+    per new ``TenantScopedModel``.
+    """
+
+    MODE_DRY_RUN = "dry_run"
+    MODE_APPLY = "apply"
+    MODE_CHOICES = [
+        (MODE_DRY_RUN, "Dry run"),
+        (MODE_APPLY, "Apply"),
+    ]
+
+    STATUS_PLANNED = "planned"
+    STATUS_APPLIED = "applied"
+    STATUS_PARTIAL = "partial"
+    STATUS_FAILED = "failed"
+    STATUS_ROLLED_BACK = "rolled_back"
+    STATUS_CHOICES = [
+        (STATUS_PLANNED, "Planned (dry run)"),
+        (STATUS_APPLIED, "Applied"),
+        (STATUS_PARTIAL, "Partially applied"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_ROLLED_BACK, "Rolled back"),
+    ]
+
+    plan_id = models.CharField(max_length=128)
+    plan_hash = models.CharField(max_length=64)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PLANNED
+    )
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    actor_type = models.CharField(max_length=16, default="user")
+    actor_label = models.CharField(max_length=255, blank=True, default="")
+    #: Aggregate counters (steps/changed/skipped/failed) — duplicated out of
+    #: ``report_json`` so a run list can be rendered without parsing the report.
+    counts = models.JSONField(default=dict, blank=True)
+    report_json = models.JSONField(default=dict, blank=True)
+    #: Snapshot row ids created by an ``apply`` run (the rollback index).
+    snapshot_reference = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "pl_attribute_migration_run"
+        indexes = [
+            models.Index(fields=["tenant", "plan_id"], name="idx_amr_tnt_plan"),
+            models.Index(fields=["tenant", "started_at"], name="idx_amr_tnt_started"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AttributeMigrationRun({self.plan_id}:{self.status})"
+
+
+class AttributeMigrationSnapshot(TenantScopedModel):
+    """Before-image of one artifact touched by an AWMS ``apply`` run (spec §6).
+
+    One row per ``(run, artifact)``. :attr:`custom_fields` is the artifact's
+    complete ``custom_fields`` map *before* the run; :attr:`model_fields` maps
+    each touched model-field name to its before-value. Rollback restores both.
+
+    ``model_fields`` stores only the fields the plan referenced — a full row
+    image would be needless exposure for a bulk migration. A field the snapshot
+    does not mention is never touched by rollback either.
+    """
+
+    run = models.ForeignKey(
+        "persistence.AttributeMigrationRun",
+        on_delete=models.CASCADE,
+        related_name="snapshots",
+    )
+    artifact_id = models.UUIDField(db_index=True)
+    workspace_id = models.UUIDField(null=True, blank=True)
+    custom_fields = models.JSONField(null=True, blank=True)
+    model_fields = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "pl_attribute_migration_snapshot"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "artifact_id"],
+                name="uq_attr_mig_snapshot_run_artifact",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "run"], name="idx_ams_tnt_run"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AttributeMigrationSnapshot({self.artifact_id})"
+
+
 class Artifact(TenantScopedModel):
     """Generic hierarchical artifact (ADR-05, REQ-L1-001).
 
@@ -3317,6 +3426,8 @@ __all__ = [
     "Role",
     "Workspace",
     "Actor",
+    "AttributeMigrationRun",
+    "AttributeMigrationSnapshot",
     "Artifact",
     "Requirement",
     "RequirementType",

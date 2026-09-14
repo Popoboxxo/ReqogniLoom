@@ -198,6 +198,12 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "attribute_catalog.deprecate",
     "attribute_catalog.add_to_definition",
     "attribute_catalog.import",
+    # Attribut v3 WS7 (#940): AWMS value migrations. apply/rollback mutate
+    # artifacts; dry_run writes the run row but no artifact/definition
+    # (still fail-closed write so a Viewer key cannot drive a migration).
+    "attribute_migration.apply",
+    "attribute_migration.rollback",
+    "attribute_migration.dry_run",
 )
 
 # ---------------------------------------------------------------------------
@@ -315,6 +321,13 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "attribute_catalog.list",
         "attribute_catalog.search",
         "attribute_catalog.export",
+        # Attribut v3 WS7 (#940): attribute_migration.plan is a pure schema
+        # validation + hash and list_runs/get_run are plain run-history reads.
+        # apply/rollback/dry_run stay fail-closed WRITE-gated (see
+        # _WRITE_TOOL_PREFIXES above).
+        "attribute_migration.plan",
+        "attribute_migration.list_runs",
+        "attribute_migration.get_run",
     }
 )
 
@@ -579,6 +592,7 @@ class ToolRegistry:
         from mcp_server.tools.link_type import LinkTypeToolGroup
         from mcp_server.tools.attribute_definition import AttributeDefinitionToolGroup
         from mcp_server.tools.attribute_catalog import AttributeCatalogToolGroup
+        from mcp_server.tools.attribute_migration import AttributeMigrationToolGroup
         from mcp_server.tools.icd import IcdToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
@@ -653,6 +667,10 @@ class ToolRegistry:
             # search/export are read-exempt; the five mutating tools are
             # fail-closed write-gated and the service re-asserts admin.
             "attribute_catalog": AttributeCatalogToolGroup(),
+            # Attribut v3 WS7 (#940, spec section 7): AWMS value migrations.
+            # plan/list_runs/get_run are read-exempt; dry_run/apply/rollback are
+            # fail-closed write-gated and the service re-asserts admin.
+            "attribute_migration": AttributeMigrationToolGroup(),
             # Epic #934 WS1: ICD CRUD parity on MCP (previously REST-only).
             # Writes run the shared validate_artifact_write gate.
             "icd": IcdToolGroup(),
