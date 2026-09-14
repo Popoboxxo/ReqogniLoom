@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.11] — 2026-09-14
+
+### Added
+- **Attribute System v3 — Transport Parity & Gateway Seam (WS1):** REST and MCP `custom_fields` write/read parity for the wired artifact types, an `icd` MCP tool group behind the new `ArtifactAttributeGateway`, artifact-type discovery and section coverage, plus a REST/MCP transport contract-matrix ratchet that pins the behaviour (PRs #943, #945; #935)
+- **Attribute System v3 — Identity & System Fields (WS2):** New `Actor` entity and `ActorService` with a gateway adapter; `owner`, `reporter` and `priority` wired as system fields across the remaining artifact types (Adr, Issue, CR, …); new `ActorPicker` and system-field rendering; `uid` degraded to an import key while `id` is exposed as a system field (PR #945; #936)
+- **Attribute System v3 — Display Engine (WS3):** Display properties (`copyable`/`reveal`/`mask`/`format`) added to the attribute schema, a `RevealValue` wrapper and a generalized `ArtifactId`, plus id display-property backfill and mask/a11y fixes (PR #945; #937)
+- **Attribute System v3 — Layout Engine (WS4):** A 12-column layout flow schema with a matching renderer/editor, and a defined empty-vs-absent contract for flows (PR #945; #938)
+- **Attribute System v3 — Central Attribute Catalog (WS5):** A central attribute-catalog backend and UI entry, with capped catalog text fields and length validation (PR #945; #942)
+- **Attribute System v3 — AWMS Value Migration (WS7):** A migration engine and interfaces plus the first AWMS migration plans, including pinned dry-run actor safety (PR #945; #940)
+- **Attribute System v3 — Specification & ADR-004:** The attribute usability contract, the v3 specification with 3-stage matrix, the ADR-004 carrier model, and documentation of staged system-field visibility (PRs #931, #943, #945; #934)
+
+### Fixed
+- **Attribute v3 Hardening:** The workflow-status editor stays interactive under `workflow-editable`, malformed workspace preset blobs are normalized to a valid tier, the Risk `owner_name` PATCH and the AWMS actor fallback are corrected, catalog text fields are capped/validated, and N+1 status resolution on list paths is avoided (PR #945)
+- **Preset `mandatory_fields` Scoped per Item Type:** Mandatory fields are now resolved per workspace/item-type definition instead of a flat workspace list, fixing the beta.10 QA finding where 22 preset mandatory fields silently matched no attribute (#912) (PR #943)
+- **B1 API-Contract & B4 Embedding Bugfix Bundle:** `test_type` is accepted again in the TestCase create contract (#864), the trace-link picker is de-duplicated by artifact id (#832), `artifact.search` relevance scores are normalized to [0,1] (#827), the embedding dimension is environment-configurable (#826), missing embeddings are generated lazily for similar-search (#847), Celery-beat liveness is reported via heartbeat (#822), and the Honcho embedding config/health probe is parametrized (#911) (PR #933)
+- **E2E Visual-Regression Stability:** Visual-regression snapshots are stabilized against CI drift (PR #910)
+
+### Changed
+- **Attribute System v3 — Staged Rollout (WS6):** The 3-stage attribute matrix is rolled out (priority and MoSCoW retained for the Need type only), with the staged system-field visibility documented (PR #945; #939)
+- **MCP Tool Manifests Regenerated:** Regenerated for the system-field schemas, the `attribute_migration` tools and the Risk system fields (PRs #943, #945)
+- **Test Infrastructure & CI:** Backend-test timeout raised for cold set-3 MCP installs, non-prod throttle rates pinned in test settings, the attribute-definitions suite added to the backend test matrix, and backend fixtures mounted into the frontend-test job (PRs #933, #943)
+- **Frontend Package Version Synchronized:** `frontend/package.json` and `frontend/package-lock.json` now track the repository `VERSION`; both had stayed at `1.0.0` through earlier betas despite the distribution versioning rule requiring exact agreement
+
 ## [1.8.0-beta.10] — 2026-09-11
 
 ### Added
