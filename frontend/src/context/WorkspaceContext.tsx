@@ -64,10 +64,11 @@ import i18next from "i18next";
 function normalizePreset(ws: Workspace): Workspace {
   const raw = ws.preset as unknown;
   if (typeof raw === "object" && raw !== null) {
-    if ("name" in raw) {
-      return { ...ws, preset: (raw as { name: string }).name as WorkspacePreset };
+    const blob = raw as Record<string, unknown>;
+    if (typeof blob.name === "string") {
+      return { ...ws, preset: blob.name as WorkspacePreset };
     }
-    if ("tier" in raw) {
+    if (typeof blob.tier === "string") {
       const p = raw as { tier: string; language?: string; terminology_profile?: string; decomposition_link_type?: string };
       return {
         ...ws,
@@ -77,6 +78,11 @@ function normalizePreset(ws: Workspace): Workspace {
         decomposition_link_type: ws.decomposition_link_type ?? p.decomposition_link_type,
       };
     }
+    // Malformed/empty preset blob (e.g. `{}` from a workspace created without
+    // a preset): fall back to a valid tier. Without this a single bad row
+    // crashed the whole dashboard, because `WorkspaceCard` renders
+    // `workspace.preset` as a React child and an object is not a valid child.
+    return { ...ws, preset: "standard" };
   }
   return ws;
 }
