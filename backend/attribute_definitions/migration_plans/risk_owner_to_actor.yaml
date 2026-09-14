@@ -1,0 +1,41 @@
+# AWMS first-plan set (Matrix §6 / Spec §8): Legacy-Owner -> Actor.
+# Risk.owner wurde in WS7 (#940) zu Risk.owner_name umbenannt (gleiche DB-Spalte),
+# damit der Artifact.owner-FK nicht mehr schattiert wird. Dieser Plan faltet
+# owner_user (User-FK, hat Vorrang) und owner_name (Freitext) auf den Actor-
+# Traeger; created_by_name wandert auf reporter.
+version: 1
+id: 2026-09-risk-owner-to-actor
+description: >-
+  Risk-Legacy-Owner auf den Artifact-Actor-Traeger migrieren: owner_user bzw.
+  owner_name -> owner, created_by_name -> reporter. Nur leere Ziele.
+scope:
+  tenant: current
+  item_type: Risk
+  preset: [minimal, standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: migrate_value
+    from: {source: model_field, name: owner_user}
+    to: {target: model_field, name: owner}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: to_actor
+  - op: migrate_value
+    from: {source: model_field, name: owner_name}
+    to: {target: model_field, name: owner}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: to_actor
+  - op: migrate_value
+    from: {source: model_field, name: created_by_name}
+    to: {target: model_field, name: reporter}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: to_actor
+  - op: verify
+    assertions: ["failed == 0"]

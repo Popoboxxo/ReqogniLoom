@@ -97,7 +97,9 @@ UNSUPPORTED_OPS: dict[str, str] = {
     ),
     "derive_entity": (
         "entity creation is spec §10 step 8 (bewusst zuletzt, braucht "
-        "Rollback); it is not part of the AWMS engine"
+        "Rollback) and depends on the target entity existing; the Goal -> "
+        "Measure plan (spec §8.3) is therefore blocked on #393 (Measure "
+        "entity, Epic #934 non-goal) and ships as a documented draft"
     ),
     "rollback": (
         "rollback targets a run, not a plan; use the CLI --rollback <run_id> "

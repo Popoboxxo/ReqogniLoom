@@ -111,8 +111,8 @@ def test_system_field_visibility_follows_the_transport_rollout_gate() -> None:
     A field is flipped visible/writable only for the types whose REST **and**
     MCP transports carry it; the rest keep the hidden, read-only carrier so the
     contract matrix (#934 WS0) never demands a round-trip no transport can
-    satisfy. ``Risk`` is excluded because its legacy free-text ``owner`` column
-    still owns the ``owner`` keyword there.
+    satisfy. WS7 (#940) added ``Risk`` to the gate after renaming its legacy
+    free-text ``owner`` column to ``owner_name``.
     """
     for item_type in BOOTSTRAP_ITEM_TYPES:
         by_name = {

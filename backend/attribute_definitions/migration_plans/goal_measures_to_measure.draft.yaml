@@ -1,0 +1,37 @@
+# AWMS first-plan set (Spec §8.3): Goal-Messgroessen -> Measure-ENTITAET.
+#
+# BLOCKED / NICHT AUSFUEHRBAR: dieser Plan ist ein dokumentierter Entwurf.
+# Er braucht die Operation `derive_entity` (Spec §10 Schritt 8), die die Engine
+# bewusst nicht anbietet, weil Entitaets-Erzeugung am risikoreichsten ist und
+# von der Existenz der Zielentitaet abhaengt. Die `Measure`-Entitaet ist ein
+# Epic-#934-Non-Goal (#393), existiert also im Datenmodell nicht.
+#
+# `normalize_plan` lehnt diesen Plan mit genau dieser Begruendung ab; der Test
+# test_migration_plans.py::test_goal_measure_plan_is_blocked_on_393 haelt die
+# Abhaengigkeit fest. Die Interim-Attribute `measure_name`/`target_value`/`unit`/
+# `threshold` bleiben bis dahin der Traeger (WS6 #939, Matrix §8).
+version: 1
+id: 2026-09-goal-measures-to-measure
+description: >-
+  Goal-Interim-Attribute (measure_name/target_value/unit/threshold) in
+  Measure-Zeilen ueberfuehren. Blockiert auf #393 (Measure-Entitaet) und die
+  AWMS-Operation derive_entity (Spec §10 Schritt 8).
+scope:
+  tenant: current
+  item_type: Goal
+  preset: [standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: derive_entity
+    entity: Measure
+    from: {source: custom_field, name: measure_name}
+    fields:
+      target_value: {source: custom_field, name: target_value}
+      unit: {source: custom_field, name: unit}
+      threshold: {source: custom_field, name: threshold}
+    only_if: "source_has_text"

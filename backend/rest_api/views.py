@@ -4507,7 +4507,10 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
         "rpn": getattr(risk, "rpn", risk.risk_score),
         "severity": getattr(risk, "severity", "low"),
         "category": getattr(risk, "category", "technical"),
-        "owner": getattr(risk, "owner", ""),
+        # Attribut v3 WS7 (#940): legacy free-text owner column, renamed to
+        # owner_name so the Artifact-level owner Actor FK (below) is no longer
+        # shadowed. Kept readable for clients that still edit the free text.
+        "owner_name": getattr(risk, "owner_name", ""),
         "owner_user_id": str(risk.owner_user_id) if getattr(risk, "owner_user_id", None) else None,
         "owner_user_display": getattr(risk.owner_user, "email", None) if getattr(risk, "owner_user_id", None) else None,
         "detection": getattr(risk, "detection", 5),
@@ -4515,6 +4518,9 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
         "uid": getattr(risk, "uid", None),
         "status": getattr(risk, "status", "Identified"),
         "custom_fields": _artifact_custom_fields(risk),
+        # Attribut v3 WS2/WS7 (#936/#940): Artifact-level system fields, actor
+        # wire form. Risk is wired now that the legacy column no longer shadows.
+        **artifact_system_fields(risk),
         "version": risk.version,
         "created_at": risk.created_at,
         "updated_at": risk.updated_at,
@@ -5527,7 +5533,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 ctx=ctx,
                 description=data.get("description", ""),
                 category=data.get("category", "technical"),
-                owner=data.get("owner", ""),
+                owner=data.get("owner_name", ""),
                 mitigation_strategy=data.get("mitigation_strategy", ""),
                 # Datenmodell-Konsolidierung Phase 1: a new Risk always starts
                 # at the workflow definition's initial_state. RiskSerializer.status
@@ -5540,6 +5546,10 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 owner_user_id=data.get("owner_user_id"),
                 custom_fields=data.get("custom_fields"),
             )
+            # Attribut v3 WS7 (#940): Risk is now inside the system-field
+            # rollout gate, so owner/reporter/priority route through the shared
+            # gateway like every other wired type.
+            self._apply_artifact_system_fields(request, "Risk", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -5595,6 +5605,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 expected_version=data.get("expected_version"),
                 **extra_kwargs,
             )
+            self._apply_artifact_system_fields(request, "Risk", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:

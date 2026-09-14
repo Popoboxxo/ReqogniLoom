@@ -1520,6 +1520,7 @@ class AdrSerializer(
 class RiskSerializer(
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
     ExpectedVersionSerializerMixin,
     PresetAwareSerializerMixin,
     serializers.Serializer,
@@ -1550,8 +1551,12 @@ class RiskSerializer(
         choices=["technical", "operational", "organizational", "business"],
         default="technical",
     )
-    # #104: matches Risk.owner model field (CharField(max_length=255)).
-    owner = serializers.CharField(allow_blank=True, default="", max_length=255)
+    # Attribut v3 WS7 (#940): the legacy free-text owner column was renamed to
+    # ``owner_name`` (same DB column) so the Artifact-level ``owner`` Actor FK
+    # — declared by ArtifactSystemFieldsSerializerMixin — is no longer shadowed
+    # at the type model. The AWMS plan risk_owner_to_actor folds this value onto
+    # the Actor carrier.
+    owner_name = serializers.CharField(allow_blank=True, default="", max_length=255)
     # REQ-L1-029 (FMEA): structured User FK for risk assignment, kept alongside
     # the legacy free-text `owner` field.
     owner_user_id = serializers.UUIDField(allow_null=True, required=False)

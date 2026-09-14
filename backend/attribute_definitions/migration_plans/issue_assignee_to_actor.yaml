@@ -1,0 +1,33 @@
+# AWMS first-plan set (Matrix §7 / Spec §8): Issue-Legacy-Zuweisung -> Actor.
+# Issue.assignee_id ist eine User-UUID; sie wandert auf den Artifact.owner-
+# Traeger. created_by_name wird zum reporter.
+version: 1
+id: 2026-09-issue-assignee-to-actor
+description: >-
+  Issue-Legacy-Zuweisung migrieren: assignee_id -> owner, created_by_name ->
+  reporter. Nur leere Ziele.
+scope:
+  tenant: current
+  item_type: Issue
+  preset: [minimal, standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: migrate_value
+    from: {source: model_field, name: assignee_id}
+    to: {target: model_field, name: owner}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: to_actor
+  - op: migrate_value
+    from: {source: model_field, name: created_by_name}
+    to: {target: model_field, name: reporter}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: to_actor
+  - op: verify
+    assertions: ["failed == 0"]

@@ -395,15 +395,18 @@ class TestFreeTextSizeLimits:
         assert not ser.is_valid()
         assert "consequences" in ser.errors
 
-    def test_risk_owner_oversized_rejected(self) -> None:
+    def test_risk_owner_name_oversized_rejected(self) -> None:
+        # Attribut v3 WS7 (#940): the legacy free-text Risk.owner column was
+        # renamed to owner_name (same DB column) so the Artifact-level owner
+        # Actor FK is no longer shadowed. The length guard moved with it.
         data = {
             "workspace_id": str(uuid.uuid4()),
             "title": "Test Risk",
-            "owner": "A" * 256,
+            "owner_name": "A" * 256,
         }
         ser = RiskSerializer(data=data)
         assert not ser.is_valid()
-        assert "owner" in ser.errors
+        assert "owner_name" in ser.errors
 
     def test_risk_mitigation_strategy_oversized_rejected(self) -> None:
         data = {

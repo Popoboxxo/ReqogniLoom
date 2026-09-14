@@ -170,14 +170,14 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
 #:
 #: ``Risk.owner`` (Attribut v3 WS2, #936) joins ``severity`` here: it is the
 #: legacy free-text owner column the spec retires in favour of the
-#: Artifact-level ``owner`` Actor FK (spec sections 3/10, folded via AWMS in
-#: WS7). Keeping it introspected would collide head-on with the artifact-level
-#: ``owner`` attribute (duplicate name -> AttributeSchemaError during
-#: normalize), and it has no serializer field to write through when aliased.
-#: The column itself stays (expand/contract — no big-bang removal); only its
-#: attribute representation yields to the new system field.
+#: Artifact-level ``owner`` Actor FK (spec sections 3/10). WS7 (#940) renamed
+#: the column to ``Risk.owner_name`` (same DB column) and folds it onto the
+#: Actor carrier via AWMS; the renamed column stays out of the introspected
+#: definition so it cannot collide with the artifact-level ``owner`` attribute
+#: (duplicate name -> AttributeSchemaError during normalize). The physical
+#: column is dropped in a later contract step.
 PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
-    "Risk": frozenset({"severity", "owner"}),
+    "Risk": frozenset({"severity", "owner_name"}),
 }
 
 #: Attributes an interview must elicit ON TOP of the ``title``/``description``
@@ -454,12 +454,11 @@ def synthetic_status_attribute() -> dict[str, Any]:
 #:
 #: WS2 part B2 (#936) wired the remaining transport paths, so the canonical
 #: set now lives in ``attribute_definitions.schema`` (Django-free, importable
-#: by the MCP helpers that mirror it) and is imported above. Still hidden:
-#:
-#: * ``Risk`` — its legacy free-text ``owner`` column still owns the ``owner``
-#:   keyword on ``RiskService``; the AWMS migration (WS7, #940) retires it
-#:   first, and until then a visible ``owner`` attribute would collide with the
-#:   introspected legacy column (see ``PER_ITEM_TYPE_EXCLUDED_FIELDS``).
+#: by the MCP helpers that mirror it) and is imported above. WS7 (#940) added
+#: ``Risk``: its legacy free-text ``owner`` column was renamed to ``owner_name``
+#: (same DB column), so the Artifact-level ``owner`` FK is no longer shadowed
+#: and the introspected legacy column (see ``PER_ITEM_TYPE_EXCLUDED_FIELDS``)
+#: no longer collides with it.
 
 #: The names that the rollout gate above may flip.
 _GATED_SYSTEM_FIELD_NAMES: frozenset[str] = frozenset(

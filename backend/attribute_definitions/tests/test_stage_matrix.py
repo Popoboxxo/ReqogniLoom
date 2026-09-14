@@ -139,11 +139,12 @@ def test_priority_is_stage_scoped_enum() -> None:
         # Matrix section 0: priority is ``-`` at stage 1, ``P`` from stage 2.
         assert minimal["visible"] is False, item_type
         assert minimal["stage_mandatory"] is False, item_type
-        enabled = item_type != "Risk"  # WS2 rollout gate keeps Risk hidden
-        assert standard["visible"] is enabled, item_type
-        assert extended["visible"] is enabled, item_type
-        assert standard["stage_mandatory"] is enabled, item_type
-        assert extended["stage_mandatory"] is enabled, item_type
+        # WS7 (#940) resolved the WS2 Risk deferral: every item type is in the
+        # transport rollout gate now.
+        assert standard["visible"] is True, item_type
+        assert extended["visible"] is True, item_type
+        assert standard["stage_mandatory"] is True, item_type
+        assert extended["stage_mandatory"] is True, item_type
 
 
 def test_priority_scale_is_definition_configurable() -> None:

@@ -114,6 +114,12 @@ _STATUS_UNCHANGED = "unchanged"
 _STATUS_SKIPPED = "skipped"
 _STATUS_FAILED = "failed"
 
+#: Artifact-level FK fields whose value is an ``Actor`` rather than a scalar.
+#: The engine resolves them through ``ActorService`` (spec §8: legacy
+#: owner/created_by values move onto the Actor carrier) instead of writing the
+#: raw wire value into the FK column.
+_ARTIFACT_ACTOR_FIELDS: frozenset[str] = frozenset({"owner", "reporter"})
+
 _RUN_APPLY = "apply"
 _RUN_DRY_RUN = "dry_run"
 
@@ -599,6 +605,13 @@ class AttributeMigrationService(ServiceBase):
         if carrier == "type":
             return getattr(row, ref["name"])
         if carrier == "artifact":
+            if ref["name"] in _ARTIFACT_ACTOR_FIELDS:
+                # Report/compare in the actor wire form, not as an Actor row:
+                # that is what a plan writes and what keeps ``target_is_empty``
+                # and the idempotency check meaningful.
+                from application.artifact_attribute_gateway import artifact_system_fields
+
+                return artifact_system_fields(row.artifact).get(ref["name"])
             return getattr(row.artifact, ref["name"])
         return None
 
@@ -610,6 +623,48 @@ class AttributeMigrationService(ServiceBase):
         if carrier is not None:
             return getattr(artifact, name)
         return _EMPTY
+
+    def _resolve_actor_id(self, ctx: AuthContext, value: Any) -> Any:
+        """Resolve an actor wire value / legacy payload to an ``Actor`` id.
+
+        Spec §8 moves the legacy owner/assignee carriers onto the Artifact Actor
+        FKs. Plans therefore may name a raw value (``Risk.owner_name`` text,
+        ``Issue.assignee_id`` UUID, a ``User`` FK row) — this maps all of them
+        onto the same actor value form the transports use and resolves it via
+        :class:`~application.actor_service.ActorService`, so a name becomes a
+        reusable external actor and a user id becomes the tenant's actor row.
+
+        ``None``/empty clears the FK. Entity *creation* is limited to Actor
+        resolution here — the actor-only slice of spec §10 step 8 that the
+        first-plan set needs; general entity creation stays #393.
+        """
+        if value is None or value is _EMPTY or value is _REMOVE:
+            return None
+        from application.actor_service import ActorService
+        from persistence.errors import NotFoundError
+
+        actors = ActorService()
+        if isinstance(value, dict):
+            kind = value.get("kind")
+            if kind == "external":
+                return actors.get_or_create_external(ctx, value.get("name") or "").id
+            if kind == "user":
+                return actors.get_or_create_for_user(ctx, value.get("id")).id
+            reference = value.get("id")
+            if reference is None:
+                raise _StepAbort(f"unrecognized actor value {value!r}")
+            return actors.resolve_reference(ctx, reference).id
+        # A FK read (User/Actor instance) or a raw id/name.
+        reference = getattr(value, "pk", value)
+        text = str(reference).strip()
+        if not text:
+            return None
+        try:
+            return actors.resolve_reference(ctx, text).id
+        except (NotFoundError, ValueError):
+            # A dangling id or free text degrades to a reviewable external
+            # placeholder instead of aborting the run.
+            return actors.get_or_create_external(ctx, text).id
 
     # ------------------------------------------------------------------
     # Transforms
@@ -1305,8 +1360,14 @@ class AttributeMigrationService(ServiceBase):
                 model_before[name] = getattr(row, name)
                 type_updates[name] = None if value is _EMPTY else value
             elif carrier == "artifact":
-                model_before[name] = getattr(row.artifact, name)
-                artifact_updates[name] = None if value is _EMPTY else value
+                if name in _ARTIFACT_ACTOR_FIELDS:
+                    # Persist the resolved Actor id, never the raw wire value:
+                    # the column is a FK (spec section 4).
+                    model_before[name] = getattr(row.artifact, f"{name}_id")
+                    artifact_updates[f"{name}_id"] = self._resolve_actor_id(ctx, value)
+                else:
+                    model_before[name] = getattr(row.artifact, name)
+                    artifact_updates[name] = None if value is _EMPTY else value
             else:
                 raise _StepAbort(f"field '{name}' does not exist on {type(row).__name__}")
 
@@ -1401,6 +1462,10 @@ class AttributeMigrationService(ServiceBase):
             )
             if carrier == "type" and carrier_model is not None:
                 type_updates[name] = before
+            elif name in _ARTIFACT_ACTOR_FIELDS:
+                # The snapshot stored the FK id (see ``_persist``); restore it
+                # onto the ``<name>_id`` column.
+                artifact_updates[f"{name}_id"] = before
             else:
                 artifact_updates[name] = before
         custom_fields = snapshot.custom_fields
@@ -1537,7 +1602,33 @@ class AttributeMigrationService(ServiceBase):
         if link is None:
             return _EMPTY
         other = link.target if direction == "outgoing" else link.source
-        return self._read_artifact_field(other, source_attr)
+        return self._read_artifact_attribute(other, source_attr)
+
+    def _read_artifact_attribute(self, artifact: Any, name: str) -> Any:
+        """Read *name* off a linked Artifact, its type entity or custom_fields.
+
+        ``artifact_system_fields``/``Artifact`` only cover the cross-cutting
+        columns; ``priority``'s documented source (spec §8.2) is
+        ``StakeholderNeed.moscow_priority``, a *type-model* column. Resolving the
+        type entity here is what makes ``derive_from_link`` reach it.
+        """
+        custom = artifact.custom_fields or {}
+        if name in custom:
+            return custom[name]
+        carrier = self._field_carrier(type(artifact), name)
+        if carrier is not None:
+            return getattr(artifact, name)
+        try:
+            model = self._model_for(str(artifact.artifact_type))
+        except MigrationPlanError:
+            return _EMPTY
+        entity = model.objects.filter(artifact_id=artifact.id).first()
+        if entity is None:
+            return _EMPTY
+        carrier = self._field_carrier(type(entity), name)
+        if carrier == "type":
+            return getattr(entity, name)
+        return _EMPTY
 
     def _backfill_value(self, row: Any, step: dict[str, Any]) -> Any:
         strategy = step["value_strategy"]

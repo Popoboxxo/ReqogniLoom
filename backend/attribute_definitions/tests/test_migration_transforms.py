@@ -19,6 +19,7 @@ from attribute_definitions.migration_transforms import (
     join_values,
     link_derive,
     split_values,
+    to_actor,
     to_date,
     to_enum,
     to_number,
@@ -38,10 +39,42 @@ def test_default_registry_contains_the_spec_transforms() -> None:
         "to_number",
         "to_enum",
         "to_date",
+        "to_actor",
         "link_derive",
     }
     assert expected <= TRANSFORM_NAMES
     assert TRANSFORM_NAMES == DEFAULT_REGISTRY.names()
+
+
+class TestToActor:
+    """`to_actor` normalizes legacy owner/assignee values (spec §8)."""
+
+    def test_passthrough_of_actor_wire_form(self) -> None:
+        value = {"kind": "user", "id": "abc"}
+        assert to_actor(value, TransformContext()).value == value
+
+    def test_uuid_becomes_user_id(self) -> None:
+        uid = "6f1e1d2a-0000-4000-8000-000000000000"
+        out = to_actor(uid, TransformContext())
+        assert out.status == APPLIED
+        assert out.value == {"kind": "user", "id": uid}
+
+    def test_free_text_becomes_external_name(self) -> None:
+        out = to_actor("  Alice  ", TransformContext())
+        assert out.status == APPLIED
+        assert out.value == {"kind": "external", "name": "Alice"}
+
+    def test_instance_pk_becomes_user_id(self) -> None:
+        class _User:
+            pk = "11111111-1111-4111-8111-111111111111"
+
+        out = to_actor(_User(), TransformContext())
+        assert out.value == {"kind": "user", "id": _User.pk}
+
+    def test_empty_values_skip(self) -> None:
+        assert to_actor(None, TransformContext()).status == SKIPPED
+        assert to_actor("   ", TransformContext()).status == SKIPPED
+        assert to_actor({}, TransformContext()).status == SKIPPED
 
 
 def test_registry_rejects_unknown_name() -> None:

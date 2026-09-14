@@ -1,0 +1,29 @@
+# AWMS first-plan set (Matrix §2 / Spec §8): moscow_priority von der
+# StakeholderNeed-Modellspalte in das extended-Attribut (custom_fields) falten.
+# Expand-Schritt der Expand/Contract-Migration: die Spalte bleibt physisch
+# erhalten (Serializer/Service/ReqIF nutzen sie weiter), bis der Contract-Schritt
+# sie nach vollzogener Migration entfernt.
+version: 1
+id: 2026-09-stakeholder-need-moscow-priority-fold
+description: >-
+  StakeholderNeed.moscow_priority (Legacy-Modellspalte) nach custom_fields
+  spiegeln, damit das extended-Attribut dieselben Werte traegt.
+scope:
+  tenant: current
+  item_type: StakeholderNeed
+  preset: [minimal, standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: migrate_value
+    from: {source: model_field, name: moscow_priority}
+    to: {target: custom_field, name: moscow_priority}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: trim
+  - op: verify
+    assertions: ["failed == 0"]

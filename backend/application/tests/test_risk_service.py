@@ -133,7 +133,8 @@ def _make_risk(**kwargs):
     risk.impact = kwargs.get("impact", "high")
     risk.risk_score = kwargs.get("risk_score", 9)
     risk.severity = kwargs.get("severity", "high")
-    risk.owner = kwargs.get("owner", "")
+    # Attribut v3 WS7 (#940): Risk.owner -> Risk.owner_name (same DB column).
+    risk.owner_name = kwargs.get("owner", "")
     risk.mitigation_strategy = kwargs.get("mitigation_strategy", "")
     risk.status = kwargs.get("status", "Identified")
     risk.version = kwargs.get("version", 1)

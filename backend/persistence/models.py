@@ -2920,7 +2920,14 @@ class Risk(TenantScopedModel):
     severity = models.CharField(
         max_length=16, choices=Severity.choices, default=Severity.LOW
     )
-    owner = models.CharField(max_length=255, blank=True)
+    # Attribut v3 WS7 (#940): the legacy free-text owner column is renamed to
+    # ``owner_name`` so it no longer shadows the Artifact-level ``owner`` Actor
+    # FK (Attribut v3 WS2, #936). ``db_column`` keeps the physical column, so
+    # this is a state-only rename (expand/contract): existing data is retained
+    # and the AWMS plan ``risk_owner_to_actor`` folds it onto the Actor carrier.
+    # The column is retired (dropped) in a later contract step once the
+    # migration has run in every tenant.
+    owner_name = models.CharField(max_length=255, blank=True, db_column="owner")
     # REQ-L1-029 (FMEA): proper User FK for risk assignment. Kept alongside the
     # legacy `owner` CharField (not a replacement) so existing rows and callers
     # relying on the free-text owner keep working — Expand phase of an

@@ -166,14 +166,15 @@ def test_definition_exposes_actor_type_for_owner_after_bootstrap(env) -> None:
     assert by_name["priority"]["visible"] is True
 
 
-def test_risk_keeps_owner_hidden_until_awms_migration(env) -> None:
-    """Risk stays outside the rollout gate: its legacy ``owner`` column wins.
+def test_risk_system_fields_are_wired_after_awms_flip(env) -> None:
+    """Risk joined the rollout gate (WS7, #940): its system fields are wired.
 
-    Attribut v3 WS2 (#936) deliberately leaves Risk on ``visible=false``: its
-    legacy free-text ``Risk.owner`` CharField still shadows the Artifact-level
-    ``owner`` Actor FK whenever a Risk instance is accessed, so the two cannot
-    be wired cleanly until the AWMS migration (WS7, #940) retires the column.
-    The carrier itself already exists on the Artifact row.
+    WS2 (#936) deliberately left Risk on ``visible=false`` because its legacy
+    free-text ``Risk.owner`` CharField shadowed the Artifact-level ``owner``
+    Actor FK. WS7 resolves the deferral: the legacy column is renamed to
+    ``owner_name`` (same DB column) and folded onto the Actor carrier by the
+    AWMS plan ``risk_owner_to_actor``, so Risk now behaves like every other
+    wired type. ``owner_name`` stays out of the introspected definition.
     """
     from attribute_definitions.schema import stored_attributes
     from attribute_definitions.workspace_definition_store import (
@@ -186,13 +187,16 @@ def test_risk_keeps_owner_hidden_until_awms_migration(env) -> None:
     )
     by_name = {a["name"]: a for a in stored_attributes(row.definition_json)}
 
-    assert by_name["owner"]["visible"] is False
-    assert by_name["owner"]["editable"] is False
+    assert by_name["owner"]["visible"] is True
+    assert by_name["owner"]["editable"] is True
     assert by_name["owner"]["type"] == "actor"
-    assert by_name["reporter"]["visible"] is False
-    assert by_name["priority"]["visible"] is False
+    assert by_name["reporter"]["visible"] is True
+    assert by_name["priority"]["visible"] is True
+    # The legacy column is not exposed as an attribute any more.
+    assert "owner_name" not in by_name
     # The carrier still exists on the Artifact row.
     assert Artifact._meta.get_field("owner") is not None
+    assert Artifact._meta.get_field("reporter") is not None
 
 
 def test_system_fields_round_trip_for_every_wired_type() -> None:
@@ -202,8 +206,7 @@ def test_system_fields_round_trip_for_every_wired_type() -> None:
     ``ToolRegistry.dispatch_request`` + ``reqlo_*`` API key) but asserts the
     three system fields explicitly per item type, so a regression names the
     exact transport/type instead of only failing the aggregate ratchet.
-    ``Risk`` is excluded on purpose: WS2 leaves it hidden until the AWMS
-    migration (WS7, #940) retires its legacy ``owner`` column.
+    ``Risk`` is included since WS7 (#940) resolved the WS2 deferral.
     """
     from attribute_definitions.schema import SYSTEM_FIELDS_ENABLED_ITEM_TYPES
     from attribute_definitions.tests.test_transport_contract_matrix import (
@@ -225,7 +228,7 @@ def test_system_fields_round_trip_for_every_wired_type() -> None:
         priority = "high"
 
         failures: list[str] = []
-        for item_type in sorted(SYSTEM_FIELDS_ENABLED_ITEM_TYPES - {"Risk"}):
+        for item_type in sorted(SYSTEM_FIELDS_ENABLED_ITEM_TYPES):
             spec = _SPECS[item_type]
             for transport in (
                 _RestTransport(env.rest_client),

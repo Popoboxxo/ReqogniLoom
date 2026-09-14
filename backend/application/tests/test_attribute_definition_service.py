@@ -954,14 +954,21 @@ def test_import_definition_without_a_sections_key_leaves_them_untouched(
 def test_import_definition_rejects_a_name_shadowing_a_model_field(
     service, admin_ctx, seeded
 ) -> None:
-    """M2: 'owner' is a real ``persistence.Risk`` column — ``create_global``
-    refuses it, so import must too (spec section 6)."""
+    """M2: 'owner_name' is a real ``persistence.Risk`` column — ``create_global``
+    refuses it, so import must too (spec section 6).
+
+    Attribut v3 WS7 (#940): the legacy Risk.owner column was renamed to
+    owner_name (same DB column), so that is the model field the definition may
+    not shadow any more.
+    """
     with pytest.raises(AttributeSchemaError) as exc:
         service.import_definition(
             admin_ctx, "Risk",
             {
                 "schema_version": 1,
-                "attributes": [{"name": "owner", "kind": "extended", "type": "text"}],
+                "attributes": [
+                    {"name": "owner_name", "kind": "extended", "type": "text"}
+                ],
             },
             preset="standard",
         )

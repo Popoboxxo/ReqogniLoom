@@ -37,16 +37,17 @@ PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")
 
 #: Item types whose REST **and** MCP transports carry the Artifact-level
 #: system fields (``owner``/``reporter``/``priority``) today (Attribut v3 WS2,
-#: #936). The bootstrap command flips those attributes to
-#: ``visible=True``/``editable=True`` **only** for these types; every other
+#: #936; Risk added in WS7, #940). The bootstrap command flips those attributes
+#: to ``visible=True``/``editable=True`` **only** for these types; every other
 #: type keeps the hidden, non-editable carrier so the contract matrix (#934
 #: WS0) never demands a write/read round-trip no transport can satisfy.
 #:
-#: Deliberately absent:
-#: * ``Risk`` — its legacy free-text ``owner`` column still shadows the
-#:   artifact-level ``owner`` FK and owns the ``owner`` keyword on
-#:   ``RiskService``; the AWMS migration (WS7, #940) retires it first.
-#: * ``MainGoal`` is not an ``ITEM_TYPES`` member (no attribute definition).
+#: WS7 (#940) resolved the WS2 deferral for ``Risk``: its legacy free-text
+#: ``owner`` column (``RiskService``/``RiskSerializer``) was renamed to
+#: ``owner_name`` (same DB column) so it no longer shadows the Artifact-level
+#: ``owner`` Actor FK, and the REST/MCP transports now carry the system fields
+#: for Risk too. ``MainGoal`` stays absent — it is not an ``ITEM_TYPES`` member
+#: (no attribute definition).
 #:
 #: Lives here (Django-free) rather than in the management command so both the
 #: bootstrap and the MCP transport helpers can import the one list without
@@ -58,6 +59,7 @@ SYSTEM_FIELDS_ENABLED_ITEM_TYPES: frozenset[str] = frozenset(
         "ArchitectureElement",
         "TestCase",
         "Adr",
+        "Risk",
         "Issue",
         "Goal",
         "Icd",

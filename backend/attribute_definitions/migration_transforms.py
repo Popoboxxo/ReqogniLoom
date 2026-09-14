@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Callable
+from uuid import UUID
 
 #: Transform status vocabulary (spec §5): a transform must say which it did.
 APPLIED = "applied"
@@ -241,6 +242,50 @@ def to_date(value: Any, ctx: TransformContext) -> TransformOutcome:
         return TransformOutcome(FAILED, value, f"cannot parse {value!r} as date")
 
 
+def to_actor(value: Any, ctx: TransformContext) -> TransformOutcome:
+    """Normalize a legacy owner/assignee value to actor wire form (spec §8).
+
+    ``Risk.owner``/``Issue.assignee_id``/``ChangeRequest.requestor_id`` and the
+    ``created_by_name`` columns are the pre-Actor carriers (matrix §0/§6/§7/§11).
+    The write adapter and the DB-free validator both speak the actor value form
+    of spec section 4, so a migration plan converts a legacy value here rather
+    than handing a raw string/UUID to the FK write.
+
+    Recognised inputs (never touching the ORM — Django-free contract):
+
+    * an already-formed ``{"kind": ...}`` mapping -> returned unchanged;
+    * a ``User``/``Actor`` instance (an FK read) -> ``{"kind": "user", "id": pk}``;
+    * a UUID (str or :class:`uuid.UUID`) -> ``{"kind": "user", "id": <uuid>}``;
+    * anything else non-empty -> ``{"kind": "external", "name": <text>}``.
+
+    A UUID that no longer resolves to a User is *not* decided here: the engine's
+    actor resolver falls back to an external actor named after the raw text, so
+    a dangling id degrades to a reviewable external placeholder instead of
+    aborting the whole migration.
+    """
+    if value is None:
+        return TransformOutcome(SKIPPED, value, "empty actor source")
+    if isinstance(value, dict):
+        if not value.get("kind"):
+            return TransformOutcome(SKIPPED, value, "actor mapping without 'kind'")
+        return TransformOutcome(APPLIED, dict(value), "already in actor form")
+    # A type model's FK read yields a User (for owner_user) or an Actor (for an
+    # actor target); both expose ``pk``.
+    pk = getattr(value, "pk", None)
+    if pk is not None:
+        return TransformOutcome(APPLIED, {"kind": "user", "id": str(pk)}, "instance")
+    text = value.strip() if isinstance(value, str) else str(value).strip()
+    if not text:
+        return TransformOutcome(SKIPPED, value, "empty actor source")
+    try:
+        UUID(text)
+    except (ValueError, AttributeError, TypeError):
+        return TransformOutcome(
+            APPLIED, {"kind": "external", "name": text}, "external name"
+        )
+    return TransformOutcome(APPLIED, {"kind": "user", "id": text}, "user id")
+
+
 def link_derive(value: Any, ctx: TransformContext) -> TransformOutcome:
     """Pull a value over a TraceLink chain (spec §5, ``derive_from_link``).
 
@@ -266,6 +311,7 @@ def build_default_registry() -> TransformRegistry:
     registry.register("to_number", to_number)
     registry.register("to_enum", to_enum)
     registry.register("to_date", to_date)
+    registry.register("to_actor", to_actor)
     registry.register("link_derive", link_derive)
     return registry
 
@@ -299,6 +345,7 @@ __all__ = [
     "join_values",
     "link_derive",
     "split_values",
+    "to_actor",
     "to_date",
     "to_enum",
     "to_number",
