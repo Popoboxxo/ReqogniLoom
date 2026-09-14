@@ -1,7 +1,7 @@
 ---
 type: STRATEGY
 scope: Release v1.8.0-beta.11
-status: review
+status: done
 date: 2026-09-14
 author_agent: release
 ---
@@ -10,12 +10,13 @@ author_agent: release
 
 ## 1. Release-Ziel
 
-Vorbereitung des Beta-Release `v1.8.0-beta.11` auf dem Branch
-`chore/release-v1.8.0-beta.11`. Dieser Bericht dokumentiert ausschließlich die
-**Vorbereitungsphase** (Versionierung, Changelog, Release-Bericht, Neubau der
-generierten Manifeste, ein Commit). Tag, Push, `make build` und die
-Pre-Release-Gates sind ausdrücklich **nachgelagerte, separate Schritte** und
-nicht Bestandteil dieses Durchlaufs.
+Release des Beta-Release `v1.8.0-beta.11` (Vorbereitung auf dem Branch
+`chore/release-v1.8.0-beta.11`, Abschluss auf `main`). Dieser Bericht
+dokumentiert die **Vorbereitungsphase** (Versionierung, Changelog,
+Release-Bericht, Neubau der generierten Manifeste, ein Commit) **und** den
+**Abschluss** (gestempelter Build, Pre-Release-Gates inkl. Abweichung,
+FF-Merge, Tag, GitHub-Pre-Release, CI-Gates auf dem Tag-Commit). Das Release
+ist **abgeschlossen und verifiziert** (siehe Abschnitte 5 und 10).
 
 - **Version:** `1.8.0-beta.11`
 - **Tag (geplant):** `v1.8.0-beta.11`
@@ -94,10 +95,61 @@ nicht; Details, Root-Causes und Folge-Fix-Vorschläge in Abschnitt 9
 
 | Prüfung | Status |
 |---------|--------|
-| `make build` | in diesem Durchlauf beauftragt (Option A), im Verlauf nachgelagert |
-| `pre-release-check.sh` (Pre-Release-Gates) | in diesem Durchlauf beauftragt, im Verlauf nachgelagert |
-| Docker-Image-/Trivy-Gate (Extension §1b) | CI `docker-publish` |
-| Tag-Push + GitHub-Release (Extension §3 Step 2) | in diesem Durchlauf beauftragt, im Verlauf nachgelagert |
+| Gestempelter Build (`APP_VERSION=1.8.0-beta.11`, `GIT_COMMIT_SHA=884e65b6…`, `BUILD_TIME=2026-09-14T15:35:17Z`) | **erfolgreich** (verifiziert via `docker image inspect .Config.Env`; siehe §10.1) |
+| `pre-release-check.sh` (Pre-Release-Gates) | **Exit 1 — Abweichung**; kein Gate real geprüft (Host-/Deployment-Defekt, siehe §5.4) |
+| Docker-Image-/Trivy-Gate (Extension §1b) | **PASS** in CI `docker-publish` (Run `34866205914`) |
+| Tag-Push + GitHub-Release (Extension §3 Step 2) | **erfolgt** (annotierter Tag + Pre-Release; siehe §10.2/§10.3) |
+
+### 5.4 Gate-Abweichung (Pre-Release-Gates)
+
+Der Pre-Release-Gate-Dispatcher wurde ausgeführt und **mit Exit 1 abgebrochen**.
+Nach Einordnung durch den User (**keine** substanzielle Beanstandung, sondern
+Host-/Deployment-Defekt) wurde das Release gemäß User-Entscheidung **Option C′**
+fortgesetzt; die Abweichung wird hier vollständig dokumentiert.
+
+**Symptom** — `bash .claude/hooks/pre-release-check.sh` → Exit 1:
+
+```
+.claude/hooks/pre-release-check.sh: line 45: set: pipefail: invalid option name
+.claude/hooks/pre-release-check.sh: line 48: cd: $'/mnt/c/Repositories/ai-native-reqflow-POC\r': No such file or directory
+```
+
+**Root Cause:** Die sync-deployten Hook-Skripte sind **CRLF**-kodiert
+(`.claude/hooks/**`, byte-identisch auch `.agents/hooks/**`). Das `\r` hängt
+sich an `PROJECT_ROOT` → `cd` scheitert in Zeile 48, **bevor** die
+Gate-Schleife überhaupt beginnt. Ursache der CRLF-Kodierung: `.claude/hooks/**`
+ist **gitignored** (`.gitignore:26`), daher greift `.gitattributes`
+(`*.sh text eol=lf`) nicht — die Regel gilt nur für **getrackte** Dateien. Das
+Deployment (agent-meta `sync.py`) schreibt auf Windows CRLF.
+
+**Wirkung:** **Kein Gate hat real geprüft.** Zusätzlich self-skippen alle drei
+Gates substanziell:
+
+- `artifact-freshness` — keine `.agent-meta/generated-artifacts.yaml` vorhanden.
+- `docker-image-scan` — kein `Dockerfile` im Repo-Root, kein `trivy`.
+- `action-pin-validation` — `gh` fehlt im WSL-`bash`-PATH.
+
+Der Dispatcher scheitert dabei **fail-closed** — es gibt keinen stillen Bypass.
+
+**Substanzielle Nachholung:** Die Gate-Logik von `action-pin-validation` wurde
+im Host-Kontext mit authentifiziertem `gh 2.100.0` ausgeführt → **10/10 Pins
+vorhanden (PASS)**. Zusätzlich wurde die Regex-Blindstelle geprüft:
+`github/codeql-action/upload-sarif@v4` wird von der Gate-Regex nie extrahiert
+(Subpath) → manuell verifiziert, Tag existiert (Exit 0). Der Defekt ist in
+Issue **#949** dokumentiert.
+
+**Integritätsprüfung:** Nach LF-Normalisierung stimmen die Gate-Hashes exakt
+mit `.sha256-checksums` überein; im CRLF-Working-Tree greift der Check
+konservativ falsch (`no checksum entry`).
+
+**Einordnung/Entscheidung:** Kein substanzieller Gate-Befund, sondern
+Host-/Deployment-Defekt → Release gemäß User-Entscheidung **Option C′**
+fortgesetzt. Fix: Issue **#948** (upstream agent-meta: Hook-Skripte beim
+Deployment LF-erzwingen + CRLF-Guard).
+
+**Das substanzielle CVE-Gate** läuft in `docker-publish.yml` (Trivy,
+`severity CRITICAL,HIGH`, `exit-code: '1'`, `ignore-unfixed: true`) **vor** dem
+GHCR-Push — und hat bestanden (siehe §10.4).
 
 ## 6. Dokumentierte Konvention-Abweichungen
 
@@ -138,17 +190,27 @@ nicht; Details, Root-Causes und Folge-Fix-Vorschläge in Abschnitt 9
   `integrations/hermes-plugin/reqogniloom/package.json`,
   `integrations/hermes-plugin/reqogniloom/hermes-plugin.json`
 
-## 8. Offene Folge-Schritte
+## 8. Folge-Arbeiten (nach dem Release)
 
-Gemäß User-Entscheidung „Option A" sind die nachgelagerten Schritte in diesem
-Durchlauf **beauftragt** (nicht mehr „separat"):
+Das Release `v1.8.0-beta.11` ist **abgeschlossen und verifiziert** (siehe
+Abschnitt 10). Alle zuvor beauftragten nachgelagerten Schritte sind erledigt:
 
 1. Backend-/Frontend-Volllauf — **erfolgt** (Ergebnisse in Abschnitt 5.2).
-2. `make build` — beauftragt, im Verlauf dieses Durchlaufs nachgelagert.
-3. Pre-Release-Gates (`pre-release-check.sh`) — beauftragt, nachgelagert.
-4. Tag-Push + GitHub-Release `v1.8.0-beta.11` mit `--prerelease`
-   (Extension §3 Step 2) — beauftragt, verbleibt beim `git`-Agenten.
-5. Dieser Bericht wird nach Abschluss **nicht erneut angefasst**.
+2. Gestempelter Build — **erfolgreich** (Abschnitt 10.1).
+3. Pre-Release-Gates (`pre-release-check.sh`) — **ausgeführt, Abweichung**
+   (Host-/Deployment-Defekt, Abschnitt 5.4).
+4. Tag-Push + GitHub-Pre-Release `v1.8.0-beta.11` — **erfolgt**
+   (Abschnitte 10.2/10.3).
+
+**Offene Folge-Arbeiten:**
+
+- **#948** — CRLF-Hook-Deployment (upstream agent-meta: Hook-Skripte beim
+  Deployment LF-erzwingen + CRLF-Guard).
+- **#949** — Gate-Regex: Subpath-Pins (`github/codeql-action/upload-sarif@v4`)
+  werden nicht extrahiert.
+- **Optional:** Branch-Cleanup `chore/release-v1.8.0-beta.11` (vollständig
+  gemergt → Löschkandidat, **nur nach expliziter Freigabe**).
+- **Optional:** Test-Härtung **C1**/**C2** aus KI-1/KI-2 (Abschnitt 9).
 
 ## 9. Known Issues (lokales Test-Gate)
 
@@ -198,3 +260,57 @@ hier inkl. Root-Cause, Evidenz und vorgeschlagenem Folge-Fix dokumentiert.
   `frontend-test` grün.
 - **Vorgeschlagener Folge-Fix (C2):** per-File `testTimeout` erhöhen oder die
   beiden Scan-Tests in ein serialisiertes/non-parallel Projekt verschieben.
+
+## 10. Release-Ergebnis
+
+Das Release ist **abgeschlossen und verifiziert**. Alle Angaben wurden auf dem
+Tag-Commit `884e65b6` (`884e65b6ab9e7a4a503426593b97a96a69d2f90f`) geprüft.
+
+### 10.1 Build (gestempelt)
+
+- **`APP_VERSION`** = `1.8.0-beta.11`
+- **`GIT_COMMIT_SHA`** = `884e65b6ab9e7a4a503426593b97a96a69d2f90f`
+- **`BUILD_TIME`** = `2026-09-14T15:35:17Z`
+- Verifiziert via `docker image inspect .Config.Env`.
+
+**Hinweis zum Build-Weg:** `make build` bzw. `bash scripts/build.sh` ist auf
+diesem Host **nicht lauffähig** (kein `make`; WSL-`bash` ohne
+Docker-Integration) → äquivalenter **gestempelter Compose-Build** über
+`deploy/docker-compose.yml` + `deploy/docker-compose.override.yml` mit den drei
+`--build-arg`-Werten. `deploy/docker-compose.yml` hat **keine
+`build:`-Sektionen** (nur Registry-`image:`); die Build-Kontexte stammen aus
+dem Overlay.
+
+### 10.2 Merge und Tag
+
+- **FF-Merge:** `chore/release-v1.8.0-beta.11` → `main` per **Fast-Forward**
+  (`f12949e2..884e65b6`), **kein** Merge-Commit; `main` gepusht.
+- **Tag:** annotiert `v1.8.0-beta.11`, Tag-Objekt
+  `263140f045817eaad40c80d18224b3c10f7ceda7` → Commit
+  `884e65b6ab9e7a4a503426593b97a96a69d2f90f`, gepusht (in `ls-remote`
+  vorhanden, inkl. Peel `^{}`).
+
+### 10.3 GitHub-Release
+
+- **Pre-Release** `v1.8.0-beta.11` erstellt (Titel = bare Tag,
+  `isPrerelease: true`, `isDraft: false`; Notes = CHANGELOG-Abschnitt
+  `[1.8.0-beta.11]`, `--verify-tag` → Tag unverändert).
+- **URL:** https://github.com/Popoboxxo/ReqogniLoom/releases/tag/v1.8.0-beta.11
+
+### 10.4 CI-Gates auf `884e65b6`
+
+| Workflow | Run | Ergebnis |
+|----------|-----|----------|
+| `docker-publish` | `34866205914` | **success** (≈8 min; beide Matrix-Jobs `backend`+`frontend` grün, **Trivy-Gate bestanden**, GHCR-Push erfolgt) |
+| „CI Pipeline" | `34866189148` | **success** |
+| „Playwright E2E Tests" | `34866189110` | **success** |
+
+- GHCR-Tags `1.8.0-beta.11` für `reqogniloom-backend` und
+  `reqogniloom-frontend` vorhanden; `latest` bewusst **nicht** verschoben =
+  korrektes Prerelease-Verhalten.
+
+### 10.5 Operativer Hinweis
+
+Der Auto-Release-Hook (`auto-github-release.sh`, PostToolUse/Bash,
+Claude-Code-Hook) lief in dieser Runtime **nicht** → das GitHub-Release musste
+manuell per `gh release create` angelegt werden.
