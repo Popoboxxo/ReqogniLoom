@@ -238,6 +238,12 @@ class AttributeMigrationService(ServiceBase):
     ) -> None:
         self._registry = registry or DEFAULT_REGISTRY
         self._definitions = definitions or AttributeDefinitionService()
+        #: Per-run toggle from ``plan["options"]["audit"]`` (spec §3): when
+        #: false the per-artifact ``AuditEntry`` is suppressed. ``_execute``
+        #: sets it for the plan it runs; the default keeps a direct helper call
+        #: safe. Every call site constructs a fresh service instance (no
+        #: long-lived sharing), so this per-run state cannot leak across plans.
+        self._audit_artifacts = True
 
     # ------------------------------------------------------------------
     # Public API
@@ -427,6 +433,10 @@ class AttributeMigrationService(ServiceBase):
         steps: list[dict[str, Any]] = []
         snapshot_ids: list[str] = []
         abort = bool(plan["options"].get("abort_on_error", True))
+        # Consume the ``audit`` plan option (WS6/WS7 review #939/#940
+        # Medium/Low 4): the run's own create/rollback entries are always
+        # written; this only controls the per-changed-artifact ``AuditEntry``.
+        self._audit_artifacts = bool(plan["options"].get("audit", True))
         try:
             for index, step in enumerate(plan["steps"]):
                 if step["op"] == OP_VERIFY:
@@ -634,36 +644,58 @@ class AttributeMigrationService(ServiceBase):
         :class:`~application.actor_service.ActorService`, so a name becomes a
         reusable external actor and a user id becomes the tenant's actor row.
 
-        ``None``/empty clears the FK. Entity *creation* is limited to Actor
-        resolution here — the actor-only slice of spec §10 step 8 that the
-        first-plan set needs; general entity creation stays #393.
+        ``None``/empty clears the FK. An id that no longer resolves to a
+        ``User``/``Actor`` (dangling UUID, UUID-shaped legacy text) degrades to
+        a reviewable external actor named after the raw value — never aborting
+        the run (spec §8). Entity *creation* is limited to Actor resolution
+        here — the actor-only slice of spec §10 step 8 that the first-plan set
+        needs; general entity creation stays #393.
         """
         if value is None or value is _EMPTY or value is _REMOVE:
             return None
         from application.actor_service import ActorService
-        from persistence.errors import NotFoundError
 
         actors = ActorService()
         if isinstance(value, dict):
             kind = value.get("kind")
             if kind == "external":
                 return actors.get_or_create_external(ctx, value.get("name") or "").id
-            if kind == "user":
-                return actors.get_or_create_for_user(ctx, value.get("id")).id
             reference = value.get("id")
             if reference is None:
                 raise _StepAbort(f"unrecognized actor value {value!r}")
-            return actors.resolve_reference(ctx, reference).id
+            text = str(reference).strip()
+            if not text:
+                raise _StepAbort(f"actor value {value!r} has an empty id")
+            # Covers ``kind == "user"`` and any other kind carrying an id.
+            # WS6/WS7 review (#939/#940) Medium 3: a dangling UUID (deleted
+            # user) or UUID-shaped legacy text degrades to a reviewable
+            # external placeholder instead of raising ``NotFoundError`` and
+            # aborting the whole run under ``abort_on_error`` — the contract
+            # ``migration_transforms.to_actor`` documents. Previously only the
+            # non-dict branch below degraded; the dict branch went straight
+            # through ``get_or_create_for_user`` and aborted.
+            return self._resolve_actor_or_placeholder(actors, ctx, text)
         # A FK read (User/Actor instance) or a raw id/name.
         reference = getattr(value, "pk", value)
         text = str(reference).strip()
         if not text:
             return None
+        return self._resolve_actor_or_placeholder(actors, ctx, text)
+
+    def _resolve_actor_or_placeholder(
+        self, actors: Any, ctx: AuthContext, text: str
+    ) -> Any:
+        """Resolve *text* to an actor id, degrading to an external placeholder.
+
+        A dangling id or free text becomes a reviewable external actor named
+        after the raw value instead of aborting the migration (spec §8,
+        ``to_actor`` docstring).
+        """
+        from persistence.errors import NotFoundError
+
         try:
             return actors.resolve_reference(ctx, text).id
         except (NotFoundError, ValueError):
-            # A dangling id or free text degrades to a reviewable external
-            # placeholder instead of aborting the run.
             return actors.get_or_create_external(ctx, text).id
 
     # ------------------------------------------------------------------
@@ -1424,17 +1456,18 @@ class AttributeMigrationService(ServiceBase):
                 self._assert_locked(updated, row)
                 row.version += 1
 
-            self._audit(
-                ctx,
-                operation=AuditEntry.OP_ATTRIBUTE_MIGRATION_APPLY,
-                entity_type="Artifact",
-                entity_id=row.artifact_id,
-                details={
-                    "run_id": str(run.id),
-                    "plan_id": run.plan_id,
-                    "fields": sorted(changes),
-                },
-            )
+            if self._audit_artifacts:
+                self._audit(
+                    ctx,
+                    operation=AuditEntry.OP_ATTRIBUTE_MIGRATION_APPLY,
+                    entity_type="Artifact",
+                    entity_id=row.artifact_id,
+                    details={
+                        "run_id": str(run.id),
+                        "plan_id": run.plan_id,
+                        "fields": sorted(changes),
+                    },
+                )
 
     @staticmethod
     def _assert_locked(updated_rows: int, row: Any) -> None:

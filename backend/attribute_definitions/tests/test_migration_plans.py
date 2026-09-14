@@ -450,6 +450,34 @@ class TestIssueAssigneeToActor:
         second = service.apply(admin_ctx, self._plan())
         assert second["summary"]["changed"] == 0
 
+    def test_dangling_assignee_uuid_degrades_to_external_placeholder(
+        self, service, admin_ctx, tenant, workspace
+    ) -> None:
+        """WS6/WS7 review (#939/#940) Medium 3: a deleted user id must not abort.
+
+        ``to_actor`` turns the UUID into ``{"kind": "user", "id": ...}``; the
+        engine's resolver used to call ``get_or_create_for_user`` and raise
+        ``NotFoundError``, aborting the whole run under ``abort_on_error``. It
+        now degrades to a reviewable external placeholder named after the id.
+        """
+        missing = uuid.uuid4()
+        artifact = _artifact(tenant, workspace, "Issue")
+        Issue.objects.create(
+            tenant_id=tenant.id,
+            artifact=artifact,
+            workspace_id=workspace.id,
+            title="issue",
+            assignee_id=missing,
+        )
+
+        report = service.apply(admin_ctx, self._plan())
+
+        assert report["status"] == "applied", report
+        owner = _reload(artifact).owner
+        assert owner is not None
+        assert owner.kind == "external"
+        assert owner.display_name == str(missing)
+
 
 class TestChangeRequestRequestorToReporter:
     def _plan(self):

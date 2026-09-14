@@ -51,9 +51,9 @@ scope:
   workspace: "*"            # "*" = alle, oder explizite UUID-Liste
 mode: dry_run               # dry_run (Default) | apply
 options:
-  idempotent: true          # erneuter Lauf ändert nichts
+  idempotent: true          # Pflichtwert: true (idempotent by construction, s. unten)
   abort_on_error: true      # ein Fehler bricht die ganze Migration ab
-  audit: true               # AuditEntry je geändertem Artefakt
+  audit: true               # AuditEntry je geändertem Artefakt (false = nur diese unterdrücken)
 
 steps:
   # L1 — Definition anlegen
@@ -102,6 +102,14 @@ steps:
 
 **Modus-Regel:** Ohne `mode: apply` läuft immer `dry_run`. Der Report ist identisch aufgebaut, nur ohne
 Schreiboperation.
+
+**Options-Regeln:** Kein Optionsschlüssel ist inert (WS6/WS7-Review #939/#940):
+`idempotent` ist eine strukturelle Eigenschaft, kein Schalter — der Engine meldet ein bereits
+identisches Ziel als `unchanged`/`skipped` und schreibt es nie neu, und die Pläne sichern Re-Runs
+mit `only_if` ab. `idempotent: false` hat keine definierte Semantik und wird mit einer
+Plan-Validierungsfehlermeldung abgelehnt (kein Force-Rewrite-Pfad).
+`audit: false` unterdrückt den `AuditEntry` **je geändertem Artefakt**; die Audit-Einträge des
+Laufs selbst (`create`/`rollback`) bleiben immer erhalten.
 
 ---
 

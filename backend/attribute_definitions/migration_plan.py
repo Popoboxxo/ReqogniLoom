@@ -697,9 +697,27 @@ def normalize_plan(payload: Any) -> dict[str, Any]:
     unknown_options = sorted(set(raw_options) - _OPTION_KEYS)
     if unknown_options:
         errors.append(f"plan.options: unknown key(s): {', '.join(unknown_options)}")
+    # WS6/WS7 review (#939/#940) Medium/Low 4: every key in the closed
+    # ``options`` schema must be consumed, never inert.
+    #
+    # ``idempotent`` is a structural property, not a knob: ``_stage`` reports an
+    # unchanged target as ``unchanged`` and never rewrites it, and the shipped
+    # plans guard re-runs with ``only_if``. A non-idempotent run (force-rewrite
+    # equal values, bump every version) has no documented semantics and would
+    # only make the destructive path noisier, so ``false`` is rejected with an
+    # explanation instead of being silently ignored.
+    if raw_options.get("idempotent", True) is not True:
+        errors.append(
+            "plan.options.idempotent must be true: the engine is idempotent by "
+            "construction (unchanged targets are skipped; 'only_if' guards "
+            "re-runs), a non-idempotent run is not supported"
+        )
     options = {
-        "idempotent": bool(raw_options.get("idempotent", True)),
+        "idempotent": True,
         "abort_on_error": bool(raw_options.get("abort_on_error", True)),
+        # ``audit`` is consumed by the engine: false suppresses the per-artifact
+        # ``AuditEntry`` (spec §3/§6) while the run's own create/rollback audit
+        # entries always remain.
         "audit": bool(raw_options.get("audit", True)),
     }
 

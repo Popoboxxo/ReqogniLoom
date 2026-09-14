@@ -190,6 +190,24 @@ class TestApply:
         # the type row's own PK.
         assert str(entries.first().entity_id) == str(requirements[0].artifact_id)
 
+    def test_audit_false_suppresses_per_artifact_entries_only(
+        self, service, admin_ctx, requirements
+    ) -> None:
+        """WS6/WS7 review (#939/#940) Medium/Low 4: ``options.audit`` is consumed.
+
+        ``audit: false`` suppresses the per-changed-artifact ``AuditEntry``
+        (spec §3/§6) while the run's own creation audit always remains.
+        """
+        report = service.apply(admin_ctx, _plan(options={"audit": False}))
+        assert report["status"] == "applied"
+        assert report["summary"]["changed"] == 1
+        assert not AuditEntry.objects.filter(
+            op=AuditEntry.OP_ATTRIBUTE_MIGRATION_APPLY, entity_type="Artifact"
+        ).exists()
+        assert AuditEntry.objects.filter(
+            entity_type="AttributeMigrationRun"
+        ).exists()
+
     def test_apply_is_idempotent(self, service, admin_ctx, requirements) -> None:
         service.apply(admin_ctx, _plan())
         second = service.apply(admin_ctx, _plan())

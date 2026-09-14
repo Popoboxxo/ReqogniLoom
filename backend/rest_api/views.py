@@ -5595,7 +5595,16 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 probability=data.get("probability"),
                 impact=data.get("impact"),
                 category=data.get("category"),
-                owner=data.get("owner"),
+                # WS6/WS7 review (#939/#940) Blocker 1: ``RiskService`` writes
+                # this argument into the free-text ``Risk.owner_name`` column
+                # (``risk_service.update_risk``: ``risk.owner_name = owner``).
+                # The serializer's ``owner`` key is the *Actor* wire value from
+                # ``ArtifactSystemFieldsSerializerMixin`` and must never reach
+                # the CharField — passing it persisted ``str(dict)`` and dropped
+                # the client's real ``owner_name``. The Actor value is applied
+                # separately by ``_apply_artifact_system_fields`` below, exactly
+                # like the create path.
+                owner=data.get("owner_name"),
                 mitigation_strategy=data.get("mitigation_strategy"),
                 change_reason=data.get("change_reason"),
                 detection=data.get("detection"),

@@ -46,6 +46,24 @@ class TestDefaults:
         assert step["mode"] == "copy"
         assert step["transform"] is None
 
+
+class TestOptions:
+    """WS6/WS7 review (#939/#940) Medium/Low 4: no inert options contract."""
+
+    def test_idempotent_false_is_rejected_as_unsupported(self) -> None:
+        with pytest.raises(MigrationPlanError) as exc:
+            normalize_plan(_plan(options={"idempotent": False}))
+        message = "; ".join(exc.value.errors)
+        assert "idempotent" in message
+        assert "true" in message
+
+    def test_audit_false_is_accepted_and_normalized(self) -> None:
+        plan = normalize_plan(_plan(options={"audit": False}))
+        assert plan["options"]["audit"] is False
+        assert plan["options"]["idempotent"] is True
+        assert plan["options"]["abort_on_error"] is True
+
+
     def test_scope_preset_string_is_normalized_to_a_list(self) -> None:
         plan = normalize_plan(_plan(scope={"item_type": "Risk", "preset": "extended"}))
         assert plan["scope"]["preset"] == ["extended"]
