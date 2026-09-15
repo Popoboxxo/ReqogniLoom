@@ -34,12 +34,6 @@ export interface TriLabelOverviewDialogProps {
 // content-specific styles remain here.
 // ---------------------------------------------------------------------------
 
-const footerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "var(--space-2)",
-};
-
 const hintStyle: CSSProperties = {
   fontSize: "var(--font-size-sm)",
   color: "var(--color-text-muted)",
@@ -73,18 +67,6 @@ const typeCellStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const primaryButtonStyle: CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-sm)",
-  padding: "var(--space-2) var(--space-4)",
-  cursor: "pointer",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  fontFamily: "inherit",
-};
-
 /**
  * Admin-only, read-only Tri-Label overview — full DE/EN
  * downstream/upstream/neutral table for all 14 LinkType values. No edit
@@ -105,16 +87,18 @@ export function TriLabelOverviewDialog({
       size="lg"
       testId="tri-label-overview-dialog"
       footer={
-        <div style={footerStyle}>
+        <>
+          {/* issue #954: shared `.btn-*` footer button instead of a local
+              inline style, matching the other admin dialogs. */}
           <button
             type="button"
+            className="btn-primary"
             data-testid="tri-label-overview-done"
             onClick={onClose}
-            style={primaryButtonStyle}
           >
             {t("common.close", "Close")}
           </button>
-        </div>
+        </>
       }
     >
       <p style={hintStyle}>

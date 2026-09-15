@@ -427,8 +427,16 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // inline `style={{...}}` literal in `shared/ArtifactId.tsx` is gone (-1), and
 // the WS2 actor-field landing closed one more elsewhere. Re-measured on the
 // tree: 844. Baseline lowered to the measured value per the ratchet rule above.
+//
+// Issue #954 (admin create dialogs onto the design system): -8. The hand-
+// styled footer buttons of `CreateWorkspaceModal.tsx`, `SystemHealthDialog.tsx`
+// and `TriLabelOverviewDialog.tsx`, the unstyled attribute-create buttons, and
+// the workspace-admin triggers/delete-dialog buttons moved onto the shared
+// `.btn-*` classes (height/radius now come from --btn-h-md/--radius-btn). Only
+// buttons were touched; the remaining inline literals in those files (form
+// fields, layout wrappers) are unchanged. Re-measured fresh: 836, matching.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 844;
+const STYLE_BRACE_BASELINE = 836;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

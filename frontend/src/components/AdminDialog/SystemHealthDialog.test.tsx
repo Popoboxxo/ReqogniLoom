@@ -160,3 +160,28 @@ describe("SystemHealthDialog — 'unknown' status explanation (#706)", () => {
     expect(screen.queryByTestId("system-health-unknown-hint-database")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Issue #954 — the admin dialog footer buttons were hand-styled inline while
+ * every entity dialog used the shared `.btn-*` classes. They now use the same
+ * classes, so their height/radius come from the button metric tokens.
+ */
+describe("SystemHealthDialog — design-system buttons (issue #954)", () => {
+  it("renders its footer buttons with the shared .btn-* classes", async () => {
+    vi.mocked(adminOpsModule.adminOpsApi.getSystemHealth).mockResolvedValue(mockSnapshot);
+    vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
+      app_version: "1.0.0",
+      commit_short: "abcdef1",
+    });
+
+    render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
+
+    const refresh = await screen.findByTestId("system-health-refresh");
+    const done = screen.getByTestId("system-health-done");
+
+    expect(refresh).toHaveClass("btn-secondary");
+    expect(done).toHaveClass("btn-primary");
+    expect(refresh.getAttribute("style")).toBeNull();
+    expect(done.getAttribute("style")).toBeNull();
+  });
+});

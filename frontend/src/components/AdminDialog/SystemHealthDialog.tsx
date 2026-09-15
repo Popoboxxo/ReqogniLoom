@@ -69,12 +69,6 @@ const versionLineStyle: CSSProperties = {
   color: "var(--color-text-muted)",
 };
 
-const footerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "var(--space-2)",
-};
-
 const sectionHeadingStyle: CSSProperties = {
   fontSize: "var(--font-size-sm)",
   fontWeight: 600,
@@ -91,29 +85,6 @@ const componentRowStyle: CSSProperties = {
   padding: "var(--space-2) var(--space-3)",
   border: "1px solid var(--color-border)",
   borderRadius: "var(--radius-md)",
-};
-
-const secondaryButtonStyle: CSSProperties = {
-  background: "transparent",
-  color: "var(--color-text)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-sm)",
-  padding: "var(--space-2) var(--space-4)",
-  cursor: "pointer",
-  fontSize: "var(--font-size-sm)",
-  fontFamily: "inherit",
-};
-
-const primaryButtonStyle: CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-sm)",
-  padding: "var(--space-2) var(--space-4)",
-  cursor: "pointer",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  fontFamily: "inherit",
 };
 
 /**
@@ -204,25 +175,28 @@ export function SystemHealthDialog({
       size="md"
       testId="system-health-dialog"
       footer={
-        <div style={footerStyle}>
+        <>
+          {/* issue #954: admin-dialog footer buttons now come from the shared
+              `.btn-*` system instead of a local inline style, so they match
+              every entity dialog's buttons (height/radius via tokens). */}
           <button
             type="button"
+            className="btn-secondary"
             data-testid="system-health-refresh"
             onClick={() => void load()}
             disabled={isLoading}
-            style={{ ...secondaryButtonStyle, opacity: isLoading ? 0.6 : 1 }}
           >
             {isLoading ? "…" : t("systemHealth.refresh", "Refresh")}
           </button>
           <button
             type="button"
+            className="btn-primary"
             data-testid="system-health-done"
             onClick={onClose}
-            style={primaryButtonStyle}
           >
             {t("common.close", "Close")}
           </button>
-        </div>
+        </>
       }
     >
       <div style={bodyStyle}>

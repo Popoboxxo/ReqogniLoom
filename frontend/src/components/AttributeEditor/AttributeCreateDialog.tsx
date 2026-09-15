@@ -113,8 +113,13 @@ export function AttributeCreateDialog({
       closeOnBackdropClick={!submitting}
       footer={
         <>
+          {/* issue #954: these had no class at all, so they fell back to the
+              browser default button box — a different height and radius from
+              every other create dialog. Same canonical classes as the
+              User/Requirement/Workspace create dialogs. */}
           <button
             type="button"
+            className="btn-secondary"
             data-testid="attribute-create-dialog-cancel"
             onClick={onClose}
             disabled={submitting}
@@ -123,6 +128,7 @@ export function AttributeCreateDialog({
           </button>
           <button
             type="button"
+            className="btn-primary"
             data-testid="attribute-create-dialog-submit"
             onClick={() => void handleSubmit()}
             disabled={submitting}

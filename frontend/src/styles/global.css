@@ -92,13 +92,21 @@ input, select, textarea {
    Unified button system (UI standards) — used across all editor masks.
    NeedForm/RequirementForm/ArchitectureForm and the trace-link panels all
    reference these classes so every dialog gets the same look & feel.
+
+   Height and radius come from the shared button tokens (issue #954): every
+   `.btn-*` button is the same 36px tall and uses the same 6px radius, so the
+   admin dialogs (Workspace, Attribute, SystemHealth, ...) cannot drift away
+   from the entity dialogs by re-deriving their own padding/radius inline.
+   `min-height` (not `height`) keeps a button with a taller glyph or an icon
+   from clipping; `box-sizing: border-box` is global.
 --------------------------------------------------------------------------- */
 .btn-primary,
 .btn-secondary,
 .btn-danger,
 .btn-ghost {
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-btn);
   padding: var(--space-2) var(--space-4);
+  min-height: var(--btn-h-md);
   font-size: var(--font-size-sm);
   font-weight: 600;
   border: 1px solid transparent;
@@ -120,11 +128,15 @@ input, select, textarea {
  * class's own radius/hover rather than duplicating a second implementation,
  * since `.btn-primary` is already the single canonical primary-button style
  * for the whole app (see NOTE below) — fixing it here fixes every call
- * site, including all 6 list-page headers, in one place. */
+ * site, including all 6 list-page headers, in one place.
+ *
+ * Issue #954: the radius now comes from the shared `--radius-btn` token on
+ * the base `.btn-*` rule above, so primary and secondary buttons finally
+ * agree (they used to be 6px vs 12px). Only the fill/hover stay specific to
+ * the primary variant here. */
 .btn-primary {
   background: var(--color-primary);
   color: var(--color-on-primary);
-  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.15));
 }
 .btn-primary:hover:not(:disabled) {
