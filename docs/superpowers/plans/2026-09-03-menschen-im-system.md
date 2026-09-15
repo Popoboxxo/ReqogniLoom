@@ -1,5 +1,22 @@
 # Menschen im System Implementation Plan
 
+> ## ⚠️ SUPERSEDED IN PART (2026-09-15) — read before using this plan
+>
+> The **owner/assignment half** of this plan is **cancelled**: it was overtaken by the merged
+> Attribut-System v3 (epic #934, WS2 #936, WS7 #940), which moved attribution onto a single central
+> `Artifact.owner` / `Artifact.reporter` pair of `Actor` FKs (`backend/persistence/models.py:1096-1111`),
+> and by the AWMS migration plans
+> (`backend/attribute_definitions/migration_plans/{risk_owner_to_actor,issue_assignee_to_actor}.yaml`).
+> The physical drop of `Risk.owner_name` / `Issue.assignee_id` is an AWMS-owned contract step.
+>
+> **Only the collaboration half (Comments + Notifications) is re-scoped and still to be implemented.**
+> It lives in [2026-09-03-menschen-im-system-collaboration.md](2026-09-03-menschen-im-system-collaboration.md),
+> which carries the current file paths, migration prefixes and the today-valid write seam for the
+> `assigned` trigger. Where this document and the re-scope differ, the re-scope wins.
+>
+> Superseded tasks: 1–6, 12, 13, 14, 21, 26. Adopted: 7, 8, 9, 10, 15, 16, 17, 18, 19, 20, 22, 23,
+> 24, 25. The original text below is kept unmodified for historical reference.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every one of the 10 artifact types a real `owner` and `assignee` User reference, add a generic `Comment` entity on `persistence.Artifact`, and add a `Notification` entity with four triggers, so that requirements work becomes communicable inside the tool.
