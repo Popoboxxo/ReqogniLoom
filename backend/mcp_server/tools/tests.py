@@ -143,10 +143,11 @@ def _test_case_to_dict(
     }
     if hasattr(tc, "artifact") and tc.artifact:
         result["workspace_id"] = str(tc.artifact.workspace_id)
-        # `test_type` is the real lowercase ``TestCaseType`` model column
-        # (migration 0041) and is what the resolved definition exposes. Fall
-        # back to the legacy TitleCase artifact tag only when the column is
-        # unset (e.g. pre-0041 rows), so the definition's value round-trips.
+        # `test_type` is the canonical lowercase ``TestCaseType`` column
+        # (migration 0041) and is what the resolved definition exposes. The
+        # fallback reads the deprecated "TestCase:<Type>" artifact tag, which
+        # only pre-0093 rows still carry (#816) — kept so old rows keep
+        # round-tripping a value instead of reporting NULL.
         model_test_type = getattr(tc, "test_type", None)
         artifact_type = tc.artifact.artifact_type or ""
         if isinstance(model_test_type, str) and model_test_type:
@@ -519,10 +520,12 @@ class McpTestToolGroup(BaseToolGroup):
         """
         title = require_param(params, "title")
         workspace_id = require_uuid(params, "workspace_id")
-        # Epic #934 WS1: `test_type` is the real lowercase model column the
-        # resolved definition exposes, while the legacy TitleCase `type` tag
-        # feeds `artifact.artifact_type`. Route by value so both spellings keep
-        # working and the definition's own enum value is no longer rejected.
+        # Epic #934 WS1 / #816: `test_type` is the canonical (lowercase)
+        # ``TestCase.test_type`` column value the resolved definition exposes,
+        # while the legacy TitleCase `type` alias is accepted by the same
+        # service parameter and folded onto canonical form there. Route by
+        # value so both spellings keep working and the definition's own enum
+        # value is no longer rejected.
         legacy_test_type = "Unit"
         model_test_type_value: Optional[str] = None
         raw_test_type = params.get("test_type")
@@ -547,6 +550,14 @@ class McpTestToolGroup(BaseToolGroup):
         if definition_error is not None:
             return definition_error
 
+        # #953: only forward the deprecated `test_type_value` alias when the
+        # caller actually named a canonical column value. Passing an explicit
+        # ``None`` would mean "leave the column NULL" and would suppress the
+        # documented default (issue #953) for every plain test.create call.
+        create_kwargs: Dict[str, Any] = {}
+        if model_test_type_value is not None:
+            create_kwargs["test_type_value"] = model_test_type_value
+
         try:
             # Codeberg #313: suppress create_test_case's single internal
             # _audit() call for the same entity — write_mcp_audit below is
@@ -558,8 +569,8 @@ class McpTestToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     description=description,
                     test_type=legacy_test_type,
-                    test_type_value=model_test_type_value,
                     custom_fields=custom_fields,
+                    **create_kwargs,
                 )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             apply_system_fields(

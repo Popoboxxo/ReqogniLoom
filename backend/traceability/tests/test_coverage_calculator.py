@@ -100,6 +100,39 @@ class TestCoverageCalculation:
         assert report.percentage == 100.0
         assert report.uncovered == []
 
+    def test_typless_test_case_with_legacy_subtype_tag_still_counts(
+        self, calc, tenant_a, workspace_a
+    ):
+        """#953: a `verifies` link counts, whatever the test case's type says.
+
+        Reported from QA: a requirement was shown as "kein Test" although a
+        `verifies` link existed. The test case had been created through the UI
+        with `test_type = NULL`, and legacy rows additionally carry their type
+        as the deprecated `"TestCase:<Type>"` artifact_type tag. Neither may
+        influence coverage — the link is what counts.
+        """
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-typless")
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-typless")
+            tc.test_type = None
+            tc.save(update_fields=["test_type"])
+            # Pre-#816 row shape: the type lives in the artifact_type tag.
+            tc_art.artifact_type = "TestCase:unit"
+            tc_art.save(update_fields=["artifact_type"])
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
+
+            report = calc.coverage(workspace_a.id)
+            data = calc.get_coverage_data(workspace_a.id)
+
+        assert report.total == 1
+        assert report.covered == 1
+        assert report.percentage == 100.0
+        assert report.uncovered == []
+
+        # The VCRM path applies the same TestCase-type filter and must list it.
+        entry = next(e for e in data.entries if e.requirement_id == str(req.id))
+        assert [tc_row["id"] for tc_row in entry.test_cases] == [str(tc_art.id)]
+
     def test_percentage_one_decimal_place(self, calc, tenant_a, workspace_a):
         """Percentage is rounded to 1 decimal place (ADR-L3-TE3-02)."""
         with active_tenant(tenant_a):

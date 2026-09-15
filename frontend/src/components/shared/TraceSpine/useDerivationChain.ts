@@ -65,6 +65,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { tracelinksApi, type ImpactNode } from "../../../api/tracelinks";
 import { traceabilityApi, type ResolvedArtifact } from "../../../api/traceability";
 import { extractErrorMessage } from "../../../api/client";
+import { normalizeArtifactType } from "../../../utils/traceEndpoints";
 import type { ArchitectureElement, UUID } from "../../../types";
 
 export const ARTIFACT_TYPE_NEED = "StakeholderNeed";
@@ -148,7 +149,7 @@ function typeRank(artifactType: string): number {
 
 function normalizeType(artifactType: string): string {
   // Backend allows sub-typing via "TestCase:unit" (normalize_artifact_type).
-  return (artifactType || "").split(":", 1)[0];
+  return normalizeArtifactType(artifactType);
 }
 
 function stationKey(artifactType: string, level: number | null): string {

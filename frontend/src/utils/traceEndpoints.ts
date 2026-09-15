@@ -77,9 +77,25 @@ export const HIERARCHY_LINK_TYPES: readonly LinkType[] = [
 /** Link types that constitute verification coverage (TestCase -> artifact). */
 export const VERIFICATION_LINK_TYPES: readonly LinkType[] = ["verifies"];
 
+/** Backend `artifact_type` of a test case (sub-type tags stripped). */
+export const ARTIFACT_TYPE_TEST_CASE = "TestCase";
+
 /** Shorten a UUID for display: `9c706550-…` -> `9c706550…`. */
 export function formatShortId(id: UUID): string {
   return `${id.slice(0, SHORT_ID_LENGTH)}…`;
+}
+
+/**
+ * Strip a sub-type tag from a backend `artifact_type`: `"TestCase:unit"` ->
+ * `"TestCase"` (#816, mirrors `link_types.catalog.normalize_artifact_type`).
+ *
+ * Legacy TestCase rows carry their test type as an `artifact_type` suffix and
+ * this is what `TraceLink.source_type`/`target_type` report for them. Every
+ * comparison against a plain artifact type ("is this endpoint a TestCase?")
+ * has to normalise first, or it silently misses those rows.
+ */
+export function normalizeArtifactType(artifactType: string | null | undefined): string {
+  return (artifactType || "").split(":", 1)[0];
 }
 
 /** Read one side of a link as a {@link TraceEndpoint}. */
@@ -166,12 +182,21 @@ export function hierarchyRelation(
  * SE semantics put the TestCase on the source side (`TestCase verifies
  * Requirement`), but links authored the other way round are tolerated: the
  * endpoint that is *not* the TestCase counts as verified.
+ *
+ * #953: the type comparison goes through {@link normalizeArtifactType},
+ * because a TestCase endpoint can be reported as `"TestCase:unit"` (legacy
+ * artifact_type tag, #816). Comparing against the bare `"TestCase"` made those
+ * links count for the *wrong* endpoint — the requirement was never marked
+ * verified and the UI claimed "kein Test" although a `verifies` link existed.
+ * A link's existence is what counts; the test type is irrelevant for coverage.
  */
 export function collectVerifiedArtifactIds(links: readonly TraceLink[]): Set<UUID> {
   const verified = new Set<UUID>();
   for (const link of links) {
     if (!VERIFICATION_LINK_TYPES.includes(link.link_type as LinkType)) continue;
-    verified.add(link.source_type === "TestCase" ? link.target_id : link.source_id);
+    const sourceIsTestCase =
+      normalizeArtifactType(link.source_type) === ARTIFACT_TYPE_TEST_CASE;
+    verified.add(sourceIsTestCase ? link.target_id : link.source_id);
   }
   return verified;
 }

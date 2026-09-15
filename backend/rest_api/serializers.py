@@ -1070,13 +1070,13 @@ class TestCaseSerializer(
     # `choices` -> "enum" branch), so the definition-driven
     # TestCaseArtifactForm renders it as a select and PATCHes it back. This
     # serializer never declared it, so the unknown-key guard 400'd
-    # every save the moment a user touched the field. Unrelated to
-    # `TestService.create_test_case`'s legacy `test_type` parameter, which is a
-    # separate mechanism (Title-Case values tagged onto
-    # `artifact.artifact_type`, never touching this column) — consolidation is
-    # #816. On create (issue #864) this field is forwarded as the distinct
-    # `test_type_value` service parameter, so it sets the real column without
-    # ever colliding with that legacy parameter.
+    # every save the moment a user touched the field.
+    #
+    # #816: this field is now the ONLY representation of a test case's type —
+    # the deprecated Title-case value tagged onto `artifact.artifact_type` is
+    # gone (migration 0093). Create forwards the value as the service's
+    # `test_type_value` alias, which takes precedence over the service's
+    # `unit` default and keeps `null` meaning "unspecified" (#953).
     test_type = serializers.ChoiceField(
         choices=TestCaseType.choices, required=False, allow_null=True
     )

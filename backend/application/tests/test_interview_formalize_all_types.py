@@ -138,13 +138,13 @@ def _assert_artifact_and_workflow_state(ctx, workspace, artifact_type, result) -
     entity_id = result["resulting_artifact_ids"][0]
     TenantContext.set_tenant(ctx.tenant_id)
     try:
-        # TestCase is the one type whose Artifact.artifact_type is stored as
-        # a compound "TestCase:<test_type>" value (TestService.create_test_case,
-        # REQ-L2-AS-005 -- deliberate, tags the test type for differentiation);
-        # the interview never sets test_type, so the service default "Unit"
-        # applies. Every other in-scope type stores the bare name. An explicit
-        # two-value `__in` rather than `__startswith`, which would also match
-        # an unrelated longer type name.
+        # Every in-scope type stores the bare artifact_type name. TestCase
+        # used to be the exception (a compound "TestCase:<test_type>" tag,
+        # TestService.create_test_case); #816 removed that, so the plain name
+        # is what is asserted here. The legacy compound value stays accepted
+        # via the explicit two-value `__in` rather than `__startswith`, which
+        # would also match an unrelated longer type name — this keeps the
+        # assertion green for rows created before migration 0093.
         artifacts = list(
             Artifact.objects.filter(
                 workspace_id=workspace.id,

@@ -21,6 +21,7 @@ import {
   type LinkTypeDefinition,
   type WorkspaceLinkType,
 } from "../api/link-types";
+import { normalizeArtifactType as sharedNormalizeArtifactType } from "../utils/traceEndpoints";
 import { useWorkspace } from "./WorkspaceContext";
 
 type Lang = "de" | "en";
@@ -42,7 +43,7 @@ const LinkTypeContext = createContext<LinkTypeContextValue | undefined>(undefine
 
 /** `"TestCase:unit"` -> `"TestCase"`, mirroring the backend normalizer. */
 function normalizeArtifactType(artifactType: string): string {
-  return artifactType.split(":", 1)[0] ?? "";
+  return sharedNormalizeArtifactType(artifactType);
 }
 
 export function LinkTypeProvider({ children }: { children: ReactNode }) {

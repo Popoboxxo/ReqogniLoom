@@ -1,13 +1,17 @@
 """Cross-type versioning audit — every artifact type must version cleanly.
 
 Follow-up to GH-737. That issue was a *single-type* symptom of a *systemic*
-risk: ``TestService.create_test_case`` tags ``Artifact.artifact_type`` with a
-sub-type suffix (``"TestCase:Unit"``), while
+risk: ``TestService.create_test_case`` used to tag ``Artifact.artifact_type``
+with a sub-type suffix (``"TestCase:Unit"``), while
 ``ArtifactDiffService._ENTITY_FIELDS`` / ``_ENTITY_MODELS`` key on the plain
 type name. The un-normalised lookup silently degraded ``/versions/`` to "only
 the creation baseline exists" and made ``/diff/`` raise ``NotFoundError`` — all
 while the ``version`` counter itself kept incrementing correctly, so nothing
 looked broken from the write side.
+
+#816 removed that writer (the test type lives only in ``TestCase.test_type``
+now), but the normalisation stays for pre-0093 rows — the TestCase test below
+therefore exercises it with a deliberately re-tagged legacy row.
 
 This module is the regression net for the whole artifact-type surface rather
 than for TestCase alone. For every type that has a create *and* an update path
@@ -331,12 +335,17 @@ def test_testcase_versions_and_diff_survive_the_subtype_suffix(
 ) -> None:
     """GH-737 root cause, asserted at its source rather than at its symptom.
 
-    ``TestService.create_test_case`` writes ``Artifact.artifact_type =
-    "TestCase:<test_type>"``. It is the only create service in the codebase
-    that tags the column with a sub-type suffix, and the version/diff lookup
-    tables key on the plain name — so the suffix has to be normalised away
-    before the lookup. This pins both halves: the tag really is written, and
-    the endpoints still resolve through it.
+    ``ArtifactDiffService`` normalises a sub-type suffix away before keying into
+    its lookup tables. #816 removed the only writer of that suffix
+    (``TestService.create_test_case`` now stores the plain ``"TestCase"`` type),
+    so the test pins both halves of the current contract:
+
+      * a freshly created TestCase carries the plain type, and
+      * a *legacy* row that still carries ``"TestCase:Unit"`` keeps resolving
+        through ``/versions/`` and ``/diff/``.
+
+    The legacy half is what keeps ``normalize_artifact_type()`` in place — it
+    is reachable for any pre-0093 row still in the database.
     """
     created = client.post(
         "/api/v1/testcases/",
@@ -350,15 +359,15 @@ def test_testcase_versions_and_diff_survive_the_subtype_suffix(
     try:
         from persistence.models import TestCase
 
-        artifact_type = TestCase.objects.get(id=tc_id).artifact.artifact_type
+        artifact = TestCase.objects.get(id=tc_id).artifact
+        assert artifact.artifact_type == "TestCase", (
+            "#816: TestService must not tag a sub-type suffix any more"
+        )
+        # Simulate a pre-0093 row: the type used to live in the artifact_type.
+        artifact.artifact_type = "TestCase:Unit"
+        artifact.save(update_fields=["artifact_type"])
     finally:
         TenantContext.clear_tenant()
-
-    assert ":" in artifact_type, (
-        "TestService no longer tags a sub-type suffix — if that is intentional, "
-        "this test and the normalisation in ArtifactDiffService can go."
-    )
-    assert normalize_artifact_type(artifact_type) in _ENTITY_FIELDS
 
     patched = client.patch(
         f"/api/v1/testcases/{tc_id}/", {"description": "suffix-safe"}, format="json"

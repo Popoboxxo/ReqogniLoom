@@ -11,6 +11,14 @@ Manages TestCase entities with:
     not cascade-deleted, so reactivate() restores them intact)
   - Coverage calculation delegation to TraceabilityEngine
 
+Test-type representation (#816, #953): ``TestCase.test_type`` — the
+first-class lowercase ``TestCaseType`` column — is the single source of
+truth. The deprecated ``"TestCase:<Type>"`` ``Artifact.artifact_type`` prefix
+is no longer written here and was stripped from existing rows by migration
+``persistence/0093``; the plain ``"TestCase"`` artifact type is what every
+reader (link-type catalog, artifact diff, traceability, frontend) expects.
+The historical Title-case vocabulary is accepted on input as an alias only.
+
 Interfaces consumed:
   IF-AS-INT-011     DomainEventBus → TestCaseCreated/Updated/Deleted (Outbox)
   IF-AS-EXT-OUT-003 traceability.services.coverage (for coverage calculation)
@@ -54,14 +62,68 @@ _UNSET = object()
 # Allowed execution status values (REQ-L2-AS-005)
 VALID_EXECUTION_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
 
-# Allowed test types (REQ-L2-AS-005)
-VALID_TEST_TYPES = frozenset({"Unit", "Integration", "System", "Acceptance"})
+# ---------------------------------------------------------------------------
+# Canonical test-type representation (#816)
+# ---------------------------------------------------------------------------
+# ``TestCase.test_type`` (first-class model column, migration 0041,
+# ``persistence.models.TestCaseType``: lowercase) is the SINGLE source of
+# truth for a test case's type. The deprecated alternative representation — a
+# Title-case "TestCase:<Type>" tag on ``Artifact.artifact_type`` — is no
+# longer written by any code path, and migration 0093 strips it from existing
+# rows.
+#
+# The historical Title-case vocabulary ("Unit", "Integration", "System", ...)
+# is still *accepted on input* as a deprecated alias, because it differs from
+# the canonical values only in case (``normalize_test_type`` below folds it
+# onto the canonical value). ``"Acceptance"`` has no canonical counterpart in
+# ``TestCaseType`` and is therefore retired — see the create/update/list
+# contract in ``TestService``.
+VALID_TEST_TYPES = frozenset(value for value, _label in TestCaseType.choices)
 
-# Values of the real ``TestCase.test_type`` model column (B6a, migration 0041,
-# ``persistence.models.TestCaseType``: lowercase). Deliberately distinct from
-# ``VALID_TEST_TYPES`` above, which guards the unrelated legacy ``test_type``
-# parameter that only tags ``artifact.artifact_type``.
-VALID_TEST_TYPE_VALUES = frozenset(value for value, _label in TestCaseType.choices)
+#: Deprecated alias of :data:`VALID_TEST_TYPES` (#816). Kept so existing
+#: importers of the old constant name keep working; both names now denote the
+#: canonical lowercase vocabulary.
+VALID_TEST_TYPE_VALUES = VALID_TEST_TYPES
+
+#: Default applied when a caller does not name a test type (documented default
+#: of the REST/MCP create contracts, issue #953).
+DEFAULT_TEST_TYPE = TestCaseType.UNIT
+
+
+def normalize_test_type(value: object) -> Optional[str]:
+    """Return the canonical ``TestCaseType`` value for *value* (#816, #953).
+
+    Accepts the canonical lowercase values and the deprecated Title-case
+    legacy vocabulary (``Unit``/``Integration``/``System``/``Inspection``/
+    ``Analysis``/``Demonstration``) — the two differ only in case. ``None``
+    stays ``None`` (the column documents NULL as "type not derivable").
+
+    Raises:
+        ValidationError: *value* is neither ``None`` nor a known test type.
+            The message names the valid values (no exception text from an
+            inner failure is ever forwarded).
+    """
+    if value is None:
+        return None
+    candidate = str(value).strip().lower()
+    if candidate in VALID_TEST_TYPES:
+        return candidate
+    raise ValidationError(
+        f"Invalid test_type '{value}'. Valid: {sorted(VALID_TEST_TYPES)}"
+    )
+
+
+def canonical_test_type_or_none(value: object) -> Optional[str]:
+    """Lenient variant of :func:`normalize_test_type` for bulk import.
+
+    The CSV importer must not abort a whole batch because one cell carries a
+    retired alias (e.g. the pre-#816 ``"Acceptance"``); such a cell is dropped
+    so the column keeps its documented NULL value instead.
+    """
+    try:
+        return normalize_test_type(value)
+    except ValidationError:
+        return None
 
 
 class TestService(ServiceBase):
@@ -82,35 +144,37 @@ class TestService(ServiceBase):
         title: str,
         ctx: AuthContext,
         description: str = "",
-        test_type: str = "Unit",
+        test_type: str = DEFAULT_TEST_TYPE,
         steps: Optional[list] = None,
         uid: Optional[str] = None,
         custom_fields: Optional[dict] = None,
-        test_type_value: str | None = None,
+        test_type_value: object = _UNSET,
     ) -> TestCase:
         """Create a TestCase with initial WorkflowState.
 
         REQ-L2-AS-005: creates TestCase with test_type and initial WorkflowState.
 
-        ``test_type`` (legacy, Title-case) only tags ``artifact.artifact_type``.
-        ``test_type_value`` is the real ``TestCase.test_type`` model column
-        (B6a, lowercase ``TestCaseType`` values, migration 0041) and is what the
-        REST create payload exposes as ``test_type``; the two live side by side
-        deliberately (issue #864 — consolidating the legacy parameter is #816).
+        Canonical test-type contract (#816, #953):
+
+        * ``test_type`` is the **canonical** value written to the
+          ``TestCase.test_type`` column (lowercase ``TestCaseType``). It
+          accepts the deprecated Title-case legacy vocabulary as an alias
+          (:func:`normalize_test_type`) and defaults to ``"unit"`` — the
+          documented default of the REST/MCP create contracts.
+        * ``test_type_value`` is the deprecated alias of the same column, kept
+          for the REST create path (which maps its nullable ``test_type``
+          serializer field here). It takes precedence when supplied —
+          *including* an explicit ``None``, which the REST contract uses for
+          "no type given".
+        * ``Artifact.artifact_type`` is always the plain ``"TestCase"``; the
+          old ``"TestCase:<Type>"`` sub-type tag is no longer written.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        if test_type not in VALID_TEST_TYPES:
-            raise ValidationError(
-                f"Invalid test_type '{test_type}'. Valid: {sorted(VALID_TEST_TYPES)}"
-            )
-
-        if test_type_value is not None and test_type_value not in VALID_TEST_TYPE_VALUES:
-            raise ValidationError(
-                f"Invalid test_type_value '{test_type_value}'. "
-                f"Valid: {sorted(VALID_TEST_TYPE_VALUES)}"
-            )
+        canonical_test_type = normalize_test_type(
+            test_type if test_type_value is _UNSET else test_type_value
+        )
 
         # Tenant and Workspace are imported at module level to allow test mocking.
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
@@ -135,12 +199,8 @@ class TestService(ServiceBase):
             description=description,
             steps=steps or [],
             uid=uid,
-            test_type=test_type_value,
+            test_type=canonical_test_type,
         )
-        # Store test_type in description metadata (no dedicated field in schema)
-        # We tag the artifact_type with test_type for differentiation
-        artifact.artifact_type = f"TestCase:{test_type}"
-        artifact.save(update_fields=["artifact_type"])
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
         # appends a revision. create_test_case takes no change_reason.
@@ -170,7 +230,11 @@ class TestService(ServiceBase):
                 entity_id=test_case.id,
                 workspace_id=workspace_id,
                 # artifact_id: additive, for context_graph.projector (Issue #377).
-                payload={"title": title, "test_type": test_type, "artifact_id": str(artifact.id)},
+                payload={
+                    "title": title,
+                    "test_type": canonical_test_type,
+                    "artifact_id": str(artifact.id),
+                },
             )
         )
         return test_case
@@ -229,8 +293,11 @@ class TestService(ServiceBase):
         # distinguishes "field omitted" from an explicit `null` sent to clear
         # the value — a plain `is not None` check swallowed the clear-to-null
         # PATCH silently (200 OK, DB unchanged).
+        # #816: values are folded onto the canonical lowercase vocabulary on
+        # the write path, so a legacy Title-case "System" can no longer land
+        # in the column (None still clears it).
         if test_type is not _UNSET:
-            test_case.test_type = test_type
+            test_case.test_type = normalize_test_type(test_type)
 
         # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
         # outside the TestCase snapshot and has to be compared separately.
@@ -390,6 +457,11 @@ class TestService(ServiceBase):
 
         REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
+
+        #816: *test_type* filters the canonical ``TestCase.test_type`` column
+        and accepts the deprecated Title-case legacy vocabulary as an alias
+        (:func:`normalize_test_type`) — it used to filter on the
+        ``"TestCase:<Type>"`` ``artifact_type`` tag, which no longer exists.
         """
         self._set_tenant_context(ctx)
         qs = TestCase.objects.select_related("artifact").filter(
@@ -406,7 +478,7 @@ class TestService(ServiceBase):
                 id__in=outdated_item_ids("TestCase", tenant_id=ctx.tenant_id)
             )
         if test_type is not None:
-            qs = qs.filter(artifact__artifact_type=f"TestCase:{test_type}")
+            qs = qs.filter(test_type=normalize_test_type(test_type))
         if search:
             qs = qs.filter(
                 Q(title__icontains=search)
@@ -450,4 +522,8 @@ __all__ = [
     "TestService",
     "VALID_EXECUTION_STATUSES",
     "VALID_TEST_TYPES",
+    "VALID_TEST_TYPE_VALUES",
+    "DEFAULT_TEST_TYPE",
+    "normalize_test_type",
+    "canonical_test_type_or_none",
 ]

@@ -2335,14 +2335,14 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
         data = ser.validated_data
-        # Issue #864: `create_test_case()` carries two independent test-type
-        # concepts — the legacy `test_type` parameter (Title-case values tagged
-        # onto `artifact.artifact_type`, also used by the MCP test.create path)
-        # and the real `TestCase.test_type` model column (lowercase
-        # `TestCaseType` values, migration 0041). The serializer field below
-        # maps to the latter; it is forwarded as `test_type_value` so the
-        # legacy parameter stays untouched (consolidation is #816). `None`
-        # (field omitted or explicitly null) leaves the column NULL.
+        # #816/#953: `create_test_case()` has exactly one test-type
+        # representation — the canonical `TestCase.test_type` column (lowercase
+        # `TestCaseType` values). The serializer field below maps onto it and
+        # is forwarded as `test_type_value`, which the service treats as the
+        # deprecated alias of its `test_type` parameter. `None` (field omitted
+        # or explicitly null) keeps the column NULL: the REST create contract
+        # stays "omitted means unspecified", and the UI dialog preselects the
+        # documented `unit` default instead (#953).
         try:
             ctx = get_auth_context(request)
             definition_error = self._validate_attribute_definition(
