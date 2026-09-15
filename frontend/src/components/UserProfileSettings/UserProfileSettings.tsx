@@ -14,6 +14,7 @@
 import { useTranslation } from "react-i18next";
 import { ApiKeysSection } from "./ApiKeysSection";
 import { MemorySection } from "./MemorySection";
+import { NotificationsSection } from "./NotificationsSection";
 import { ProfileSection } from "./ProfileSection";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
@@ -96,6 +97,10 @@ export default function UserProfileSettings(): JSX.Element {
       <ApiKeysSection />
 
       <MemorySection />
+
+      {/* User-global section: keep it contiguous with the three above and
+          before the workspace-scoped visibility block below. */}
+      <NotificationsSection />
 
       {activeWorkspace && (
         <section style={{
