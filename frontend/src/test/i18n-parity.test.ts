@@ -147,6 +147,13 @@ function collectReferencedKeys(dir: string): Set<string> {
 // locale files (mirroring `_other`) purely to keep this ratchet accurate.
 // The measured count had already drifted down to 138 since the 145 baseline
 // was set (unrelated fixes); this change's 3-key fix brings it to 135.
+//
+// Deliberately NOT lowered by Task 25 (comments./notifications.* keys): the
+// notification-preferences work (Task 29 component, Task 30 keys) lands in a
+// parallel change and adds `notificationPreferences.*` references before the
+// keys exist, so lowering the ceiling now would flip this suite red again and
+// force a raise — which this ratchet forbids. Task 30 lowers it to the final
+// measured value once those keys are in place.
 const MISSING_KEY_BASELINE = 135;
 
 describe("i18n code-to-locale coverage (#619)", () => {

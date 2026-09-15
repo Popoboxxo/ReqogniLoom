@@ -1387,6 +1387,29 @@
     "deleteConfirm": "Delete ALL of your own memory entries? This removes everything the AI has remembered about you and cannot be undone.",
     "error": "Memory could not be loaded or deleted."
   },
+  "comments": {
+    "ariaLabel": "Comments",
+    "heading": "Comments",
+    "empty": "No comments yet.",
+    "placeholder": "Write a comment…",
+    "inputLabel": "New comment",
+    "submit": "Comment",
+    "resolve": "Resolve",
+    "delete": "Delete",
+    "deleteTitle": "Delete comment",
+    "deleteMessage": "This cannot be undone.",
+    "unknownAuthor": "Unknown",
+    "loadFailed": "Could not load comments.",
+    "createFailed": "Could not save the comment.",
+    "resolveFailed": "Could not resolve the comment.",
+    "deleteFailed": "Could not delete the comment."
+  },
+  "notifications": {
+    "ariaLabel": "Notifications",
+    "label": "Notifications",
+    "empty": "Nothing new.",
+    "markAllRead": "Mark all as read"
+  },
   "users": {
     "newUser": "New User"
   },

@@ -1387,6 +1387,29 @@
     "deleteConfirm": "Alle deine eigenen Memory-Einträge löschen? Dies entfernt alles, was die KI sich über dich gemerkt hat, und kann nicht rückgängig gemacht werden.",
     "error": "Memory konnte nicht geladen oder gelöscht werden."
   },
+  "comments": {
+    "ariaLabel": "Kommentare",
+    "heading": "Kommentare",
+    "empty": "Noch keine Kommentare.",
+    "placeholder": "Kommentar schreiben …",
+    "inputLabel": "Neuer Kommentar",
+    "submit": "Kommentieren",
+    "resolve": "Erledigen",
+    "delete": "Löschen",
+    "deleteTitle": "Kommentar löschen",
+    "deleteMessage": "Das lässt sich nicht rückgängig machen.",
+    "unknownAuthor": "Unbekannt",
+    "loadFailed": "Kommentare konnten nicht geladen werden.",
+    "createFailed": "Kommentar konnte nicht gespeichert werden.",
+    "resolveFailed": "Kommentar konnte nicht erledigt werden.",
+    "deleteFailed": "Kommentar konnte nicht gelöscht werden."
+  },
+  "notifications": {
+    "ariaLabel": "Benachrichtigungen",
+    "label": "Benachrichtigungen",
+    "empty": "Nichts Neues.",
+    "markAllRead": "Alle als gelesen markieren"
+  },
   "users": {
     "newUser": "Neuer Nutzer"
   },
