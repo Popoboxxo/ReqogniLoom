@@ -194,6 +194,13 @@ class ApiKeyViewSet(ViewSet):
           400 — unknown request field (#916)
           400 — max active keys reached
           401 — not authenticated
+          403 — read-scoped key (#917)
+
+        Order (#917): the scope gate is a DRF permission check, so it runs
+        before this view body and before the key-limit validation below. A
+        read-scoped key therefore always gets 403 ``read-only``, never the 400
+        "max active keys" — see ``RbacPermission`` (the ``required_operation =
+        Operation.READ`` above is an RBAC exemption and does not lower it).
         """
         # Unknown-field rejection (#916), same contract as the serializer-level
         # ``UnknownFieldRejectionMixin`` (#851): name the offending key instead of

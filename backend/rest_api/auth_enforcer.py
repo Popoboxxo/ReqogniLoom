@@ -77,21 +77,36 @@ class RbacPermission(permissions.BasePermission):
             # No authenticated context — DRF authentication class returns 401 first.
             return False
 
-        operation = operation_for_method(request.method)
+        # The operation the HTTP method itself performs. Fail-closed: any method
+        # that is not recognised as safe counts as a write.
+        method_operation = operation_for_method(request.method)
 
-        # Check for workflow-approval action (view may declare required_operation).
+        # RBAC matrix operation: a view may declare ``required_operation`` to
+        # raise it (workflow approval) or to LOWER it for a self-service action
+        # (``ApiKeyViewSet`` declares READ so a Viewer can manage their own
+        # keys, #716).
         required_operation: Operation | None = getattr(
             view, "required_operation", None
         )
-        if required_operation is not None:
-            operation = required_operation
+        operation = (
+            required_operation if required_operation is not None else method_operation
+        )
 
         # E2.1: the API key's coarse scope is an independent, fail-closed gate
-        # ABOVE the RBAC matrix. Placed before decide_access so no
-        # shadow-permission path can widen it back. Shared with
-        # ``HasOperationPermission`` and the MCP dispatcher so the two REST
-        # permission classes cannot drift apart (security review B1).
-        scope_error = scope_denial_reason(auth_context.scope, operation)
+        # ABOVE the RBAC matrix — and above every RBAC exemption. Placed before
+        # decide_access so no shadow-permission path can widen it back.
+        # ``required_operation`` may lower the *matrix* requirement, but it must
+        # never lower the *capability* gate, so both operations are evaluated and
+        # either may deny: the gate can only ever narrow. (#917: feeding only
+        # ``required_operation`` into the gate let the READ declaration of
+        # ``ApiKeyViewSet`` make a POST look like a read, so a read-scoped key
+        # reached the view body and hit the key-count limit instead of this
+        # denial.) The check itself is shared with ``HasOperationPermission``
+        # and the MCP dispatcher so the semantics cannot drift apart
+        # (security review B1).
+        scope_error = scope_denial_reason(
+            auth_context.scope, method_operation
+        ) or scope_denial_reason(auth_context.scope, operation)
         if scope_error:
             raise exceptions.PermissionDenied(detail=scope_error)
 
