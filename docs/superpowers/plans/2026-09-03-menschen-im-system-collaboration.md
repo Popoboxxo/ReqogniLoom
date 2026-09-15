@@ -44,7 +44,7 @@ The deliberate boundary of OD-1's scope extension. Do not widen it without a new
 - **No e-mail, no WebSocket/SSE push, no webhooks, no Celery delivery task.** The preference only
   gates *which in-app `Notification` rows get created* for a user. The "no real-time push" constraint
   in §6 is unchanged.
-- **No per-workspace preference.** One row per user (per tenant), applied across every workspace the
+- **No per-workspace preference.** One row per user, applied across every tenant and workspace the
   user belongs to — that is what "user-global" means here. A per-workspace variant would need its own
   decision; it is not a free extension of Task 26.
 - **No notification history, archive, digest, or per-artifact mute.** If a trigger is off, the row is
@@ -528,32 +528,29 @@ with a test asserting both locales and the absence of flat dotted keys.
 preference recording which of the four notification triggers the user has switched **off**.
 
 **Model — append to `backend/auth_tenancy/models.py`, directly after `UserWorkspacePreference`
-(`:423-463`):**
+(`:423-463`). Extend the existing import at `:31` to `from persistence.models import AuditableModel,
+TenantScopedModel`:**
 
 ```python
-class UserNotificationPreference(TenantScopedModel):
+class UserNotificationPreference(AuditableModel):
     """Per-user opt-out from in-app notification triggers (OD-1, 2026-09-15).
 
-    One row per (tenant, user) — deliberately NOT per workspace. A missing row,
-    or a kind absent from ``disabled_triggers``, means the trigger is ENABLED:
-    opting out is the deviation, not opting in.
+    One row per user, across every tenant and workspace — ``User`` is itself an
+    ``AuditableModel`` without tenant scoping (`persistence/models.py:463`), so
+    the preference follows the same global identity. A missing row, or a kind
+    absent from ``disabled_triggers``, means the trigger is ENABLED: opting out
+    is the deviation, not opting in.
     """
 
-    user = models.ForeignKey(
+    user = models.OneToOneField(
         "persistence.User",
         on_delete=models.CASCADE,
-        related_name="notification_preferences",
+        related_name="notification_preference",
     )
     disabled_triggers = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = "at_user_notification_preference"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "user"],
-                name="uq_usernotifpref_tenant_user",
-            ),
-        ]
 ```
 
 - **JSON list of disabled trigger keys, not four boolean columns** (assumption A2, §9): it mirrors the
@@ -561,43 +558,41 @@ class UserNotificationPreference(TenantScopedModel):
   stable if a fifth trigger kind is ever introduced. `Notification.KIND_CHOICES` (Task 7) remains the
   **only** definition of the trigger vocabulary — this model must not restate it, and the value
   validation lives in Task 28's serializer.
-- **No `user`-only index.** Every lookup runs under an active tenant, so the `(tenant, user)` unique
-  constraint is already the access path. `UserWorkspacePreference`'s extra `(user, workspace)` index
-  exists because its lookups are workspace-driven; this one's are not.
-- Do not redeclare `id` / `created_at` / `modified_at` — inherited from `TenantScopedModel`
-  (`persistence/models.py:408-427`).
+- **The `OneToOneField` is the uniqueness *and* the access path.** No separate unique constraint or
+  index is needed; every lookup is "the preference row of this user". Do not add a `tenant` field — a
+  user-global preference is intentionally not tenant-scoped.
+- Do not redeclare `id` / `created_at` / `modified_at` — inherited from `AuditableModel`
+  (`persistence/models.py:341-407`).
 - **Do not put this model in `application/models.py`.** It is a user preference, not a collaboration
   entity; `auth_tenancy` already owns `UserWorkspacePreference`, and a new app-level table there does
   not drag `application` into a new migration chain.
 
-**Two migrations, both in this task:**
+**One migration, in this task:**
 
-1. `backend/auth_tenancy/migrations/0014_user_notification_preference.py` — generated:
-   ```
-   docker compose -f deploy/docker-compose.yml --project-directory . exec backend \
-     python manage.py makemigrations auth_tenancy --name user_notification_preference
-   ```
-   Re-check the prefix first: `ls backend/auth_tenancy/migrations/ | tail -2` — `0013_apikey_agent_identity.py`
-   is the current last file, but §6 says re-verify before every `makemigrations`.
-2. `backend/auth_tenancy/migrations/0015_user_notification_preference_rls.py` — hand-written `RunSQL`,
-   copying the shape of `auth_tenancy/0011_rls_policies.py:87-98` with
-   `_TENANT_TABLES = ["at_user_notification_preference"]`, and dependencies on
-   `("auth_tenancy", "0014_user_notification_preference")` **plus**
-   `("persistence", "0003_rls_policies")` — the same ordering parity `0011` declares at `:115-119`.
+`backend/auth_tenancy/migrations/0014_user_notification_preference.py` — generated:
+```
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend \
+  python manage.py makemigrations auth_tenancy --name user_notification_preference
+```
+Re-check the prefix first: `ls backend/auth_tenancy/migrations/ | tail -2` — `0013_apikey_agent_identity.py`
+is the current last file, but §6 says re-verify before every `makemigrations`.
 
-   **This migration is not optional.** `persistence/tests/test_rls_coverage.py:147-163` diffs every
-   `CREATE POLICY ... ON <table>` in the migration graph against the `db_table` of every concrete
-   `TenantScopedModel`, and `:189-223` re-asserts it against `pg_policies` + `relforcerowsecurity` on
-   the live schema. Without it the build fails at the moment the model is added. Do **not** add the
-   table to `RLS_EXEMPT_TABLES` (`:51-87`) — that escape hatch is reserved for tables with a proven
-   tenant-context-free access path, and this one has none.
+**There is deliberately no RLS migration.** `UserNotificationPreference` is not a `TenantScopedModel`,
+so it is outside `persistence/tests/test_rls_coverage.py`'s coverage by construction
+(`_tenant_scoped_tables()` filters `issubclass(model, TenantScopedModel)`, `:133-139`, `:147-163`) and
+because it holds no tenant-owned data. Do **not** add it to `RLS_EXEMPT_TABLES` (`:51-87`): that
+allowlist is asserted to contain tenant-scoped tables only
+(`test_rls_exemptions_are_still_tenant_scoped_tables`, `:166-183`), so a non-tenant-scoped entry would
+fail the build. The table is accessed exclusively as "the current user's own row" (Task 28), never by
+tenant.
 
 **Verification:** `auth_tenancy/tests/test_notification_preference_model.py` (4 cases):
 (a) `disabled_triggers` defaults to `[]` and survives a save/refresh round-trip;
-(b) the `(tenant, user)` constraint rejects a second row for the same pair (assert `IntegrityError`
-inside `transaction.atomic()`);
-(c) two users in one tenant each get their own row;
-(d) the same `user_id` in a second tenant gets its own row — this is what "per tenant" means (§9, A1).
+(b) a second row for the same `user` is rejected (the `OneToOneField` uniqueness; assert
+`IntegrityError` inside `transaction.atomic()`);
+(c) two users each get their own row;
+(d) the same user reading the row in a different tenant/workspace context still sees the **same**
+single row — this is what "user-global" means (§9, A1).
 Plus `persistence/tests/test_rls_coverage.py` green and
 `docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py migrate`
 returning cleanly.
@@ -951,16 +946,16 @@ Adopted from Plan #6, corrected where the tree has moved.
 **Corrected / added for today:**
 
 - **Migration prefixes:** `persistence/0093`, `application/0025`, `application/0026`. **Added by the
-  OD-1 amendment:** `auth_tenancy/0014` (the preference model) and `auth_tenancy/0015` (its RLS
-  policy). (`icd/0014` is the next free icd prefix but this re-scope touches no icd migration.)
-  Before each `makemigrations`, run `ls backend/<app>/migrations/ | tail -3` and use the next free
-  prefix — the numbers above are the state at 2026-09-15, not a guarantee.
+  OD-1 amendment:** `auth_tenancy/0014` (the preference model, one migration, no RLS — it is not a
+  `TenantScopedModel`, see §9 A1). (`icd/0014` is the next free icd prefix but this re-scope touches no
+  icd migration.) Before each `makemigrations`, run `ls backend/<app>/migrations/ | tail -3` and use
+  the next free prefix — the numbers above are the state at 2026-09-15, not a guarantee.
 - **A new `TenantScopedModel` must ship its own `CREATE POLICY` migration.** The coverage guard
   (`persistence/tests/test_rls_coverage.py:147-163`) diffs the migration graph off disk against every
   concrete `TenantScopedModel` and fails the build otherwise; `:189-223` re-checks the live schema.
   `RLS_EXEMPT_TABLES` (`:51-87`) is reserved for tables with a proven tenant-context-free access path,
-  each entry documenting that path in its value string — the preference table has no such path, so it
-  must carry the standard policy.
+  and is itself asserted to list tenant-scoped tables only (`:166-183`). The preference table is
+  **not** a `TenantScopedModel`, so it needs neither a policy nor an exemption entry.
 - **The preference filter lives in exactly one place:** `create_notifications`
   (`application/notification_service.py`, Task 10), delegating to
   `NotificationPreferenceService.apply_preferences` (Task 27). Producers hand over a *candidate* list;
@@ -1057,7 +1052,7 @@ Sequence: **7 → 8 → 9 → 26 → 27 → 10 → 15 → 16 → 17 → 18 → 1
 | 23 | `CommentPanel` | 22 | `CommentPanel.test.tsx` (8) + `RightSidebar.test.tsx` green |
 | 24 | `NotificationBell` | 22 | `NotificationBell.test.tsx` (9) + `NavigationShell` green |
 | 25 | i18n keys de/en | 23, 24 | `frontend/src/i18n/locales.test.ts` green |
-| 26 | `UserNotificationPreference` + model migration + RLS migration | — | `auth_tenancy/tests/test_notification_preference_model.py` (4), `persistence/tests/test_rls_coverage.py` green |
+| 26 | `UserNotificationPreference` + model migration (no RLS) | — | `auth_tenancy/tests/test_notification_preference_model.py` (4), `persistence/tests/test_rls_coverage.py` green |
 | 27 | `NotificationPreferenceService` + `apply_preferences` filter | 7, 26 | `application/tests/test_notification_preference_service.py` (7) |
 | 28 | Self-service REST `users/me/notification-preferences/` | 27 | `rest_api/tests/test_notification_preference_views.py` (6), `test_architecture.py` green, ORM grep = 0 |
 | 29 | `NotificationsSection` in the user profile | 28 | `NotificationsSection.test.tsx` (7) + `UserProfileSettings/` suite green |
@@ -1086,13 +1081,13 @@ original heading and OD numbering so inbound references (`§9 OD-1`, `§5 OD-1`)
   Attribut v3, and it is changeable later by extending the producer — no schema change, no migration.
 - **Scope extension (the reason this amendment exists):** notification delivery becomes configurable
   **in the user's own profile**.
-  - **User-global** preference — one row per user per tenant, **not** workspace-bound; it applies to
-    every workspace the user belongs to.
+  - **User-global** preference — one row per user across all tenants, **not** workspace-bound; it
+    applies to every workspace the user belongs to.
   - **Four switches**, one per trigger: `assigned`, `comment_added`, `transition_pending`,
     `suspect_flagged`.
   - **Opt-out.** All four default to **on**; the stored value is the set of *disabled* triggers, so a
     missing row or a missing entry means "enabled". **Nothing changes for any existing user.**
-  - Implemented by **Task 26** (model + RLS migration), **27** (filter + preference service),
+  - Implemented by **Task 26** (model migration, no RLS), **27** (filter + preference service),
     **28** (self-service REST), **29** (profile UI), **30** (i18n).
   - **Where the filter sits:** inside `create_notifications`, once, for all four producers — **not**
     in the individual producers. Task 27 therefore lands **before Task 10**, the earliest producer, so
@@ -1120,13 +1115,14 @@ if it turns out to hide real work. No new work.
 
 ### Assumptions (recorded, not open)
 
-**A1 — "User-global" means per `(tenant, user)`, not across tenants.** Every table in this codebase is
-a `TenantScopedModel` behind RLS, and the direct precedent (`UserWorkspacePreference`) is tenant-scoped
-too. `UserNotificationPreference` therefore carries `UniqueConstraint(tenant, user)`: a user who
-belongs to two tenants has one preference per tenant. If the requirement is genuinely one row per user
-*regardless* of tenant, that is a different model — no RLS policy, `UniqueConstraint(user)`, and an
-entry in `persistence/tests/test_rls_coverage.py::RLS_EXEMPT_TABLES` with its blocking access path —
-and it must be raised **before** Task 26, not after.
+**A1 — "User-global" means one row per user, across all tenants (resolved 2026-09-15).** The user
+explicitly chose a user-global preference applying to all workspaces. `User` is itself an
+`AuditableModel` without tenant scoping (`persistence/models.py:463`), so
+`UserNotificationPreference(AuditableModel)` with a `OneToOneField(user)` is the faithful model: no
+`tenant` field, **no RLS policy**, and **not** in `RLS_EXEMPT_TABLES` (that allowlist is asserted to
+contain tenant-scoped tables only, `:166-183`). Access is always "the current user's own row" (Task 28),
+which is what keeps a non-RLS table safe here. An earlier draft made it per-`(tenant, user)`; that was
+rejected as contradicting the "all workspaces" requirement.
 
 **A2 — A JSON list of disabled triggers, not four boolean columns.** It mirrors the
 `optional_artifact_visibility` JSONField one class above, stores only the deviations, and needs no
@@ -1202,7 +1198,7 @@ exact command or an explicit decision/assumption ID and a stated fallback:
   plan's line reference predates the current tree.
 - Task 18 — the "only non-test caller" claim must be re-verified by grep, with the fallback named.
 - Task 26 — the migration prefix is re-checked with `ls backend/auth_tenancy/migrations/ | tail -2`
-  even though `0014`/`0015` were read off the tree on 2026-09-15.
+  even though `0014` was read off the tree on 2026-09-15.
 - §9 — OD-1…OD-4 are **resolved**; A1–A3 are recorded assumptions with inline fallbacks; OD-5 is the
   one remaining open (editorial) item, and it names the alternative numbering explicitly.
 
