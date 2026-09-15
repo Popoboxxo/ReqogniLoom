@@ -221,6 +221,74 @@ def notify_transition_pending(
         return 0
 
 
+def _load_artifact(artifact_id: UUID):
+    """Fetch an Artifact with its owner-bearing relations. Isolated for patching."""
+    from persistence.models import Artifact
+
+    return (
+        Artifact.objects.filter(pk=artifact_id)
+        .select_related("owner", "reporter")
+        .first()
+    )
+
+
+def _recipient_user_ids_for_artifact(artifact: Any) -> list[UUID]:
+    """Return the user ids to notify for *artifact*. Isolated so tests can patch it.
+
+    The rule itself — owner + reporter, internal actors only, external
+    placeholders dropped (OD-4) — lives in
+    ``application.comment_service.notify_user_ids_for_artifact``. The import is
+    lazy on purpose: ``comment_service`` already imports this module, so a
+    module-level import would be a cycle. Same patch-seam convention as
+    ``_load_artifact`` / ``_get_definition``.
+    """
+    from application.comment_service import notify_user_ids_for_artifact
+
+    return notify_user_ids_for_artifact(artifact)
+
+
+def notify_suspect_flagged(
+    *,
+    artifact_id: UUID,
+    tenant_id: UUID,
+    actor_user_id: Optional[UUID] = None,
+) -> int:
+    """Notify an artifact's owner and reporter that it was flagged suspect.
+
+    Called by the suspect propagation
+    (``TraceLinkService.propagate_suspect_status``) right after it stamps the
+    links that actually caused a flag (spec §5.2). Recipients come from
+    ``notify_user_ids_for_artifact`` (Task 15) — owner + reporter, internal
+    actors only, so an externally owned artifact produces no notification at all
+    (OD-4). The per-user preference filter runs inside ``create_notifications``
+    (OD-1); a producer-local check would be a second, divergence-prone filter.
+
+    The generic ``Artifact`` carries no human title of its own (the title lives
+    on the type-specific row), so the message falls back to the id rather than
+    let an ``AttributeError`` silence the whole fan-out.
+
+    Never raises: a notification must not break the propagation that triggered
+    it.
+    """
+    try:
+        artifact = _load_artifact(artifact_id)
+        if artifact is None:
+            return 0
+
+        artifact_label = getattr(artifact, "title", None) or str(artifact.pk)
+        return create_notifications(
+            user_ids=_recipient_user_ids_for_artifact(artifact),
+            kind=Notification.KIND_SUSPECT_FLAGGED,
+            message=f"{artifact_label} was flagged suspect by an upstream change",
+            artifact_id=artifact_id,
+            tenant_id=tenant_id,
+            exclude_user_id=actor_user_id,
+        )
+    except Exception:
+        logger.exception("notify_suspect_flagged failed for artifact %s", artifact_id)
+        return 0
+
+
 class NotificationService(ServiceBase):
     """Read side of the notification center."""
 
@@ -270,5 +338,6 @@ __all__ = [
     "NotificationService",
     "create_notifications",
     "notify_assigned",
+    "notify_suspect_flagged",
     "notify_transition_pending",
 ]

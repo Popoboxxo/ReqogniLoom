@@ -1444,6 +1444,23 @@ class TraceLinkService(ServiceBase):
                 suspect_source_change=audit_entry_id,
             )
 
+        # Menschen-im-System spec §5.2: freshly flagged artifacts notify their
+        # owner and reporter. `newly_flagged_ids` — not `fired` — is the ground
+        # truth for "was actually flagged"; notifying off `fired` would raise
+        # false notifications for far ends that are non-flaggable or were
+        # already suspect. Best-effort: the producer never raises, and the local
+        # import avoids a module-load cycle (notification_service imports from
+        # application, comment_service imports notification_service).
+        if newly_flagged_ids and ctx is not None:
+            from application.notification_service import notify_suspect_flagged
+
+            for flagged_artifact_id in newly_flagged_ids:
+                notify_suspect_flagged(
+                    artifact_id=flagged_artifact_id,
+                    tenant_id=ctx.tenant_id,
+                    actor_user_id=ctx.user_id,
+                )
+
         logger.info(
             "Suspect propagation from %s: %d artifact(s) flagged; "
             "%d of %d matching link(s) stamped.",
