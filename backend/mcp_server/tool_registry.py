@@ -204,6 +204,12 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "attribute_migration.apply",
     "attribute_migration.rollback",
     "attribute_migration.dry_run",
+    # Menschen-im-System spec §4: comment.create/comment.resolve mutate the
+    # artifact's comment thread. comment.list is read-only (see
+    # _READ_ONLY_TOOL_NAMES below); comment.delete is deliberately not an MCP
+    # tool at all -- spec §4 keeps deletion author-or-admin only.
+    "comment.create",
+    "comment.resolve",
 )
 
 # ---------------------------------------------------------------------------
@@ -328,6 +334,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "attribute_migration.plan",
         "attribute_migration.list_runs",
         "attribute_migration.get_run",
+        # Menschen-im-System spec §4: comment.list is a plain read over the
+        # artifact's comments (CommentService.list_for_artifact asserts no
+        # write permission; the REST ArtifactCommentsView GET is equally
+        # ungated). comment.create/comment.resolve stay fail-closed
+        # WRITE-gated via _WRITE_TOOL_PREFIXES above.
+        "comment.list",
     }
 )
 
@@ -594,6 +606,7 @@ class ToolRegistry:
         from mcp_server.tools.attribute_catalog import AttributeCatalogToolGroup
         from mcp_server.tools.attribute_migration import AttributeMigrationToolGroup
         from mcp_server.tools.icd import IcdToolGroup
+        from mcp_server.tools.comment import CommentToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -674,6 +687,11 @@ class ToolRegistry:
             # Epic #934 WS1: ICD CRUD parity on MCP (previously REST-only).
             # Writes run the shared validate_artifact_write gate.
             "icd": IcdToolGroup(),
+            # Menschen-im-System spec §4: comments are the one collaboration
+            # feature agents do use (notifications deliberately have no group).
+            # comment.list is read-exempt below; create/resolve stay
+            # write-gated (the service re-asserts write permission too).
+            "comment": CommentToolGroup(),
         })
 
     def list_tools(
