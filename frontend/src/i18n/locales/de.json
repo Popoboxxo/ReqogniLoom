@@ -1410,6 +1410,16 @@
     "empty": "Nichts Neues.",
     "markAllRead": "Alle als gelesen markieren"
   },
+  "notificationPreferences": {
+    "title": "Benachrichtigungen",
+    "hint": "Wähle, bei welchen Ereignissen du eine Benachrichtigung erhältst. Die Einstellungen gelten nur für dich und lassen sich jederzeit ändern.",
+    "assigned": "Ein Artefakt wird mir zugewiesen",
+    "comment_added": "Jemand kommentiert meine Artefakte",
+    "transition_pending": "Ein Workflow-Übergang wartet auf mich",
+    "suspect_flagged": "Eines meiner Artefakte wurde als verdächtig markiert",
+    "error": "Benachrichtigungseinstellungen konnten nicht gespeichert werden.",
+    "loading": "Laden..."
+  },
   "users": {
     "newUser": "Neuer Nutzer"
   },

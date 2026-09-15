@@ -1410,6 +1410,16 @@
     "empty": "Nothing new.",
     "markAllRead": "Mark all as read"
   },
+  "notificationPreferences": {
+    "title": "Notifications",
+    "hint": "Choose which events send you a notification. The switches are yours alone and can be changed at any time.",
+    "assigned": "An artifact is assigned to me",
+    "comment_added": "Someone comments on my artifacts",
+    "transition_pending": "A workflow transition awaits me",
+    "suspect_flagged": "One of my artifacts was flagged suspect",
+    "error": "Notification preferences could not be saved.",
+    "loading": "Loading..."
+  },
   "users": {
     "newUser": "New User"
   },
