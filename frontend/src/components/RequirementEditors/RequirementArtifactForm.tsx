@@ -27,9 +27,10 @@
 
 import { useMemo } from "react";
 
+import type { AttributeSpec } from "../../api/attribute-definitions";
 import { requirementsApi } from "../../api/requirements";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import type { Requirement } from "../../types";
+import { REQ_CATEGORY_OPTIONS, type Requirement } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 
 /**
@@ -73,6 +74,23 @@ const READ_ONLY_KEYS = new Set([
   "suspect",
   "atomicity_warning",
 ]);
+
+/**
+ * Issue #889: keep the detail form's `category` on the same enum the create
+ * dialog and the list filter use.
+ *
+ * `Requirement.category` is a `CharField(max_length=64, blank=True)` with no
+ * Django `choices`, so introspection produces `type: "text"` with empty
+ * `options` and the form rendered a free-text input. A value typed there was
+ * unfindable through the list filter, which only recognizes `REQ_CATEGORIES`.
+ * The override promotes exactly that one attribute to the shared enum; every
+ * other attribute keeps the server's definition untouched. Module-level so the
+ * object identity stays stable across renders (see `ArtifactFormProps
+ * .attributeOverrides`).
+ */
+const REQUIREMENT_ATTRIBUTE_OVERRIDES: Record<string, Partial<AttributeSpec>> = {
+  category: { type: "enum", options: REQ_CATEGORY_OPTIONS },
+};
 
 export function requirementToFormValues(
   requirement: Requirement
@@ -125,6 +143,7 @@ export function RequirementArtifactForm({
       itemType="Requirement"
       artifactId={requirement.id}
       initialValues={initialValues}
+      attributeOverrides={REQUIREMENT_ATTRIBUTE_OVERRIDES}
       workflowArtifactType="requirement"
       requiresChangeReason={activeWorkspace?.preset === "extended"}
       onDirtyChange={onDirtyChange}

@@ -814,6 +814,27 @@ export const REQ_CATEGORIES = [
 
 export type ReqCategory = typeof REQ_CATEGORIES[number];
 
+/**
+ * The same six values as `AttributeOption[]` — the shape the definition-driven
+ * form's `EnumSelect` consumes (issue #889).
+ *
+ * `Requirement.category` is a `CharField(blank=True)` with no Django `choices`,
+ * so the introspected attribute definition declares it as free text while the
+ * create dialog (`REQ_CATEGORIES`) and the list filter only recognize these
+ * values. Deriving the option list from `REQ_CATEGORIES` — rather than writing
+ * a second literal — is what keeps create, edit and filter on ONE source.
+ * Labels default to the value, exactly as the create dialog renders them.
+ */
+export const REQ_CATEGORY_OPTIONS: {
+  value: string;
+  label_de: string;
+  label_en: string;
+}[] = REQ_CATEGORIES.map((value) => ({
+  value,
+  label_de: value,
+  label_en: value,
+}));
+
 // ---------------------------------------------------------------------------
 // TestRun (REQ-L2-AS-030)
 // ---------------------------------------------------------------------------

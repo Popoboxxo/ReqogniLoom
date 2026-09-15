@@ -5,6 +5,7 @@ export type {
   FormSection,
 } from "./ArtifactForm";
 export { fieldErrorsFromException, parseFieldErrors } from "./field-errors";
+export { stripNonEditableValues } from "./payload";
 export { useArtifactDefinition } from "./useArtifactDefinition";
 export { resolveWidget, WIDGET_FIELD_CONTRACTS, WIDGET_REGISTRY } from "./widget-registry";
 export type { WidgetComponent, WidgetProps } from "./widget-registry";

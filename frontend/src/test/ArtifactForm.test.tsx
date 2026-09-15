@@ -60,6 +60,7 @@ import {
   fieldErrorsFromException,
   groupIntoSections,
   parseFieldErrors,
+  stripNonEditableValues,
 } from "../components/shared/ArtifactForm";
 import type { AttributeSpec, LayoutToken, SectionSpec } from "../api/attribute-definitions";
 
@@ -197,6 +198,124 @@ describe("groupIntoSections", () => {
       spec({ name: "b", section: "x", audience: "expert" }),
     ]);
     expect(all.audience).toBe("expert");
+  });
+});
+
+// Issue #886: `editable: false` is a payload contract, not a rendering hint.
+// The backend rejects an UPDATE carrying such a value ("is not editable and
+// must not be sent in an update payload", field_validation.py) — the disabled
+// control alone is not enough, the field must be OMITTED. Create is
+// deliberately exempt (same backend docstring): a `required` + `editable: false`
+// attribute would otherwise be unsatisfiable by any caller.
+describe("stripNonEditableValues", () => {
+  const attrs: AttributeSpec[] = [
+    spec({ name: "title" }),
+    spec({ name: "frozen", editable: false }),
+    spec({ name: "frozen_ext", kind: "extended", editable: false }),
+    spec({ name: "auto", editable: "system" }),
+  ];
+
+  it("omits editable:false (core and extended) and system on update", () => {
+    const out = stripNonEditableValues(
+      {
+        title: "T",
+        frozen: "x",
+        auto: "id-1",
+        custom_fields: { frozen_ext: "y", kept: "z" },
+      },
+      attrs,
+      "update"
+    );
+    expect(out).toEqual({ title: "T", custom_fields: { kept: "z" } });
+  });
+
+  it("keeps editable:false on create but still omits system", () => {
+    const out = stripNonEditableValues(
+      { title: "T", frozen: "x", auto: "id-1", custom_fields: { frozen_ext: "y" } },
+      attrs,
+      "create"
+    );
+    expect(out).toEqual({
+      title: "T",
+      frozen: "x",
+      custom_fields: { frozen_ext: "y" },
+    });
+  });
+
+  it("returns the same object when nothing is stripped", () => {
+    const values = { title: "T" };
+    expect(
+      stripNonEditableValues(values, [spec({ name: "title" })], "update")
+    ).toBe(values);
+  });
+});
+
+describe("ArtifactForm non-editable payload contract (#886)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+  });
+
+  it("omits an editable:false attribute from the update payload", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([spec({ name: "title" }), spec({ name: "frozen", editable: false })]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T", frozen: "old" }}
+        onSave={onSave}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("artifact-form-save"));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const payload = onSave.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("frozen");
+    expect(payload.title).toBe("T");
+  });
+
+  it("keeps an editable:false attribute in the create payload", async () => {
+    // Create is exempt from the update-only rejection: dropping the value
+    // would make a `required` + `editable:false` attribute unsatisfiable.
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({ name: "title" }),
+      spec({ name: "frozen", required: true, editable: false }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "T", frozen: "initial" }}
+        onSave={onSave}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("artifact-form-save"));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ frozen: "initial" });
+  });
+
+  it("omits an editable:false extended attribute from custom_fields on update", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({ name: "title" }),
+      spec({ name: "frozen_ext", kind: "extended", editable: false, section: "custom" }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{
+          title: "T",
+          custom_fields: { frozen_ext: "locked", kept: "yes" },
+        }}
+        onSave={onSave}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("artifact-form-save"));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0].custom_fields).toEqual({ kept: "yes" });
   });
 });
 
