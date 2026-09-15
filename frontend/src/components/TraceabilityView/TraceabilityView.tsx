@@ -965,6 +965,10 @@ export default function TraceabilityView(): JSX.Element {
         count={{ shown: state.links.length, total: state.links.length }}
         primaryAction={{
           label: t("traceability.create"),
+          // #797: "+ New Trace Link", like every sibling list route — this
+          // primary action was the only one rendering without the gesture
+          // marker its own empty-state CTA already used.
+          prefixWithPlus: true,
           onClick: () => setShowCreateDialog(true),
           disabled: !activeWorkspace,
           testId: "tracelink-create-btn",

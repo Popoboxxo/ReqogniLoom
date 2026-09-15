@@ -365,7 +365,13 @@ export default function GoalsPage(): JSX.Element {
           disabled: Boolean(form),
           testId: "create-goal-btn",
         }}
-        secondaryActions={[interviewCta]}
+        // #797: the guided-interview start is a second *create path*, not a
+        // variant of the primary one — as a visible secondary button it made
+        // this route show two create buttons where Glossary/ICD/Diagram show
+        // one. Secondary actions belong in the overflow menu (ch. 12.1), so
+        // it moved there: same action, same `interview-start-cta` testid,
+        // exactly one visible create CTA per route.
+        overflowActions={[interviewCta]}
       />
       <div className={styles.splitHost}>
         <SplitView

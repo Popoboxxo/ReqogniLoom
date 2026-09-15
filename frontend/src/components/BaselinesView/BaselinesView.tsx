@@ -441,6 +441,7 @@ export default function BaselinesView(): JSX.Element {
             actions={[
               {
                 label: t("baselines.create"),
+                prefixWithPlus: true,
                 onClick: () => setShowForm(true),
                 testId: "baselines-empty-create",
               },

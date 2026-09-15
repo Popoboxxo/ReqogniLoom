@@ -595,7 +595,7 @@ export default function ArchitectureEditors(): JSX.Element {
               'Architecture elements map system, subsystems and components onto the V-model hierarchy.',
             )}
             actions={[
-              { label: t('arch.newElement', 'New Architecture Element'), onClick: () => setShowCreateForm(true), testId: 'arch-tree-empty-create' },
+              { label: t('arch.newElement', 'New Architecture Element'), prefixWithPlus: true, onClick: () => setShowCreateForm(true), testId: 'arch-tree-empty-create' },
             ]}
           />
         ) : archTreeNodes.length === 0 ? (
@@ -857,8 +857,14 @@ export default function ArchitectureEditors(): JSX.Element {
           disabled: showCreateForm,
           testId: "create-arch-btn",
         }}
-        secondaryActions={[interviewCta]}
+        // #797: the guided-interview start is a second *create path*, not a
+        // variant of the primary one — as a visible secondary button it made
+        // this route show two create buttons where Glossary/ICD/Diagram show
+        // one. Secondary actions belong in the overflow menu (ch. 12.1), so
+        // it moved there: same action, same `interview-start-cta` testid,
+        // exactly one visible create CTA per route.
         overflowActions={[
+          interviewCta,
           {
             label: t("archDecompose.trigger", "KI-Zerlegung"),
             onClick: () => setShowDecomposePanel(true),

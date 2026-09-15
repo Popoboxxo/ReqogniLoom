@@ -94,7 +94,7 @@ export function IcdList({ items, selectedId, onSelect, onCreateNew }: IcdListPro
             "icds.emptyDescription",
             "Interface Control Documents capture the contract between two architecture elements.",
           )}
-          actions={[{ label: t("icds.create", "New ICD"), onClick: onCreateNew, testId: "icd-list-empty-create" }]}
+          actions={[{ label: t("icds.create", "New ICD"), prefixWithPlus: true, onClick: onCreateNew, testId: "icd-list-empty-create" }]}
         />
       ) : visible.length === 0 ? (
         <EmptyState variant="no-match" testId="icd-list-no-match" onResetFilters={resetFilters} />

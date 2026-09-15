@@ -415,6 +415,10 @@ export const RequirementList: React.FC<RequirementListProps> = ({
               ? [
                   {
                     label: t('requirements.newRequirement'),
+                    // #797: the same label shape the header's primary create
+                    // action uses ("+ {Entity}") — a second wording for the
+                    // same action on the same screen was the defect.
+                    prefixWithPlus: true,
                     onClick: onCreateNew,
                     testId: 'req-list-empty-create',
                   },

@@ -176,6 +176,23 @@ describe("DiagramView (REQ-053 smoke tests)", () => {
     });
   });
 
+  it("[REQ-053][#797] labels the create action '+ New Diagram' in header and empty state alike", async () => {
+    // #797: with an empty list the header CTA and the empty-state CTA are on
+    // screen at the same time, and used to read "+ New Diagram" and
+    // "New Diagram" — the same action under two labels. Both carry the
+    // gesture marker now (`prefixWithPlus` on the same `diagrams.create` key).
+    vi.mocked(diagramsModule.diagramsApi.list).mockResolvedValue({ results: [] } as any);
+
+    renderDiagramView();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("diagrams-empty")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("create-diagram-btn")).toHaveTextContent("+ New Diagram");
+    expect(screen.getByTestId("diagram-list-empty-create")).toHaveTextContent("+ New Diagram");
+  });
+
   it("[Task 5.1] renders exactly one <h1> and a ListToolbar with search input", async () => {
     vi.mocked(diagramsModule.diagramsApi.list).mockResolvedValue({
       results: MOCK_DIAGRAMS,

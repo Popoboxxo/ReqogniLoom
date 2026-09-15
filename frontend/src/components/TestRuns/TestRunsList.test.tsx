@@ -106,6 +106,31 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     ).toBeInTheDocument();
   });
 
+  it("[#797] labels the header and empty-state create triggers with the '+' gesture", async () => {
+    // This file's i18n mock resolves t(key) to the key itself, so the
+    // assertion pins the *shape* ("+ " + label), which is what #797 unified:
+    // the header trigger used to flip to "Cancel" while the form was open,
+    // making Test Runs the one route whose primary create action could not
+    // read "+ {Entity}".
+    vi.mocked(testRunsModule.testRunsApi.listAll).mockResolvedValue([] as any);
+    const user = userEvent.setup();
+
+    renderList();
+
+    const header = await screen.findByTestId("testrun-create-btn");
+    expect(header).toHaveTextContent("+ testRuns.create");
+    expect(screen.getByTestId("testrun-list-empty-create")).toHaveTextContent(
+      "+ testRuns.create",
+    );
+
+    // The trigger stays put (disabled) instead of becoming a second, wrongly
+    // labelled "cancel" affordance; the form owns cancelling itself.
+    await user.click(header);
+    expect(screen.getByTestId("testrun-create-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("testrun-create-cancel-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("testrun-create-btn")).toBeDisabled();
+  });
+
   it("shows empty state when no test runs exist", async () => {
     vi.mocked(testRunsModule.testRunsApi.listAll).mockResolvedValue([] as any);
 

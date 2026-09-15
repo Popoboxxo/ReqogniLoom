@@ -423,7 +423,7 @@ export default function GlossaryView(): JSX.Element {
           testId="glossary-empty"
           title={t("glossary.emptyTitle", "Noch keine Begriffe")}
           description={t("glossary.emptyDescription", "Glossarbegriffe halten Definitionen, Synonyme und Abkürzungen konsistent.")}
-          actions={[{ label: t("glossary.addTerm"), onClick: openCreateForm, testId: "glossary-empty-create" }]}
+          actions={[{ label: t("glossary.addTerm"), prefixWithPlus: true, onClick: openCreateForm, testId: "glossary-empty-create" }]}
         />
       ) : filteredTerms.length === 0 ? (
         // ch. 13.3: "there is something, just not under this filter" — only a

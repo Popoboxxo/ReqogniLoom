@@ -1,6 +1,7 @@
 /**
- * `useInterviewStartCta` — the shared "create it in a guided dialog" CTA that
- * sits next to the primary action in every artifact route's <PageHeader>.
+ * `useInterviewStartCta` — the shared "create it via the guided interview"
+ * action that every interview-capable artifact route puts into its
+ * <PageHeader> **overflow menu** (`overflowActions`).
  *
  * req_id: REQ-L2-RF-030 (generic reusable frontend components)
  *
@@ -13,6 +14,14 @@
  * drift in quoting and formatting) had to be made eight times. Centralising
  * the object keeps the CTA identical across routes by construction — which is
  * the point of the shared page header in the first place.
+ *
+ * #797: returning it was never enough to make the routes consistent — as a
+ * `secondaryActions` entry it rendered as a visible button *next to* the
+ * route's primary create action, so the seven interview-capable routes showed
+ * two create buttons while Glossary/ICD/Test Runs/Diagrams showed one. A
+ * guided interview is a second, rarer *create path*, not a variant of the
+ * primary one, so it now belongs in the overflow menu (UI concept ch. 12.1:
+ * "Genau eine Primäraktion … Sekundäraktionen ins Überlaufmenü").
  *
  * The `artifactType` is typed against INTERVIEW_ARTIFACT_TYPES rather than
  * `string`: an interview can only be started for a type the interview engine
@@ -29,7 +38,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import type { PageHeaderAction } from "./PageHeader";
 
 /**
- * Builds the `secondaryActions` entry that starts a guided interview for
+ * Builds the `overflowActions` entry that starts a guided interview for
  * `artifactType`.
  *
  * @param artifactType - Artifact type the interview should produce.
