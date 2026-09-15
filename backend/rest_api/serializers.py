@@ -2078,11 +2078,18 @@ class CommentSerializer(serializers.Serializer):
 
     Read-only apart from ``text`` — comments are never edited, only created,
     resolved and deleted.
+
+    ``text`` is user-authored prose and therefore guarded free text (#820): it
+    was a plain ``CharField``, so markup in a comment was accepted while the
+    very same string was a ``400`` on ``Requirement.title`` — the inconsistency
+    class #820 reported. ``ArtifactCommentsView`` runs this serializer, and
+    ``CommentService.create_comment`` re-checks the same rule for the MCP tool
+    group, which never touches DRF.
     """
 
     id = serializers.UUIDField(read_only=True)
     artifact_id = serializers.UUIDField(read_only=True)
-    text = serializers.CharField(max_length=10000)
+    text = SanitizedCharField(max_length=10000)
     author_id = serializers.UUIDField(read_only=True, allow_null=True)
     author_display = serializers.SerializerMethodField()
     resolved = serializers.BooleanField(read_only=True)

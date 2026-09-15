@@ -599,7 +599,13 @@ class TestWorkspaceNameHardening:
     ORM, bypassing WorkspaceSerializer's SanitizedCharField/max_length
     entirely. Regression coverage for the resulting DoS (#56: oversized input
     reaching the DB unchecked) and stored-XSS (#57: unescaped script markup
-    persisted verbatim) gaps."""
+    persisted verbatim) gaps.
+
+    #820: both gaps are closed the *same* way — the value is rejected. The
+    markup case used to be solved by ``strip_tags``, which silently rewrote
+    ``<script>alert(1)</script>`` to ``alert(1)`` while the REST serializer
+    rejected the identical payload, i.e. one policy per write path. Both paths
+    now share :mod:`persistence.free_text`."""
 
     def test_create_workspace_rejects_oversized_name(self):
         """A name longer than the DB column (255) must raise ValidationError,
@@ -612,17 +618,54 @@ class TestWorkspaceNameHardening:
         with pytest.raises(ValidationError):
             svc.create_workspace(ctx, name=oversized)
 
-    def test_create_workspace_strips_script_tags_from_name(self):
-        """A <script> payload in name must be stored as inert text (#57)."""
+    def test_create_workspace_rejects_script_tags_in_name(self):
+        """A <script> payload in name must be rejected, not rewritten (#57/#820).
+
+        Pre-#820 this stored ``alert(1)`` (tags stripped) while
+        ``POST /api/v1/workspaces/`` rejected the same value with a 400.
+        """
         tenant, user = _create_tenant_and_user()
         ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
         svc = WorkspaceService()
 
         with patch("application.workspace_service.ServiceBase._audit"):
-            ws = svc.create_workspace(ctx, name="<script>alert(1)</script>")
+            with pytest.raises(ValidationError):
+                svc.create_workspace(ctx, name="<script>alert(1)</script>")
 
-        assert "<script>" not in ws.name
-        assert "alert(1)" in ws.name
+        assert not Workspace.unscoped.filter(
+            tenant=tenant, name__contains="alert(1)"
+        ).exists()
+
+    def test_create_workspace_keeps_sql_shaped_name_verbatim(self):
+        """SQL-looking *text* is data, not an attack (#820).
+
+        The ORM parameterises every query, so this string is a bind literal and
+        must round-trip byte-identically instead of being rejected as "looks
+        like SQL".
+        """
+        tenant, user = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+        hostile = "'; DROP TABLE users; --"
+
+        with patch("application.workspace_service.ServiceBase._audit"):
+            ws = svc.create_workspace(ctx, name=hostile)
+
+        assert ws.name == hostile
+        assert (
+            Workspace.unscoped.filter(tenant=tenant, name=hostile).count() == 1
+        )
+
+    def test_create_workspace_rejects_oversized_name_after_markup_check(self):
+        """Markup wins the message race, but neither case reaches the DB."""
+        tenant, _ = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id)
+        svc = WorkspaceService()
+
+        with pytest.raises(ValidationError) as excinfo:
+            svc.create_workspace(ctx, name="<b>" + "x" * 400)
+
+        assert "disallowed content" in str(excinfo.value)
 
     def test_update_metadata_rejects_oversized_name(self):
         tenant, user = _create_tenant_and_user()
@@ -634,15 +677,15 @@ class TestWorkspaceNameHardening:
         with pytest.raises(ValidationError):
             svc.update_metadata(ctx, workspace.id, name=oversized)
 
-    def test_update_metadata_strips_script_tags_from_name(self):
+    def test_update_metadata_rejects_script_tags_from_name(self):
+        """#820: reject instead of stripping — and leave the stored name alone."""
         tenant, user = _create_tenant_and_user()
-        workspace = _create_workspace(tenant)
+        workspace = _create_workspace(tenant, name="Untouched Workspace")
         ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
         svc = WorkspaceService()
 
-        updated = svc.update_metadata(
-            ctx, workspace.id, name="<script>alert(1)</script>"
-        )
+        with pytest.raises(ValidationError):
+            svc.update_metadata(ctx, workspace.id, name="<script>alert(1)</script>")
 
-        assert "<script>" not in updated.name
-        assert "alert(1)" in updated.name
+        workspace.refresh_from_db()
+        assert workspace.name == "Untouched Workspace"

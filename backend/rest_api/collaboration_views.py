@@ -51,7 +51,16 @@ def _method_not_allowed(request: Request, message: str) -> Response:
 
 
 class ArtifactCommentsView(APIView):
-    """``/api/v1/artifacts/<artifact_id>/comments/`` — list and create."""
+    """``/api/v1/artifacts/<artifact_id>/comments/`` — list and create.
+
+    ``artifact_id`` arrives as a :class:`uuid.UUID` (the route in
+    ``rest_api/urls.py`` uses Django's ``<uuid:...>`` path converter), so the
+    two handlers coerce with ``UUID(str(...))``. ``UUID(uuid_obj)`` raises
+    ``AttributeError``, which the outer ``except Exception`` turned into an
+    unhandled 500 on *every* real request to this endpoint (the unit tests
+    called the view with a plain string through ``APIRequestFactory``, so the
+    gap was invisible); found while adding the #820 comment regression tests.
+    """
 
     def get(self, request: Request, artifact_id: str, **kwargs: Any) -> Response:
         """List an artifact's comments, oldest first."""
@@ -60,7 +69,7 @@ class ArtifactCommentsView(APIView):
             ctx = get_auth_context(request)
             include_resolved = request.query_params.get("include_resolved", "true").lower() != "false"
             rows = CommentService().list_for_artifact(
-                UUID(artifact_id), ctx, include_resolved=include_resolved
+                UUID(str(artifact_id)), ctx, include_resolved=include_resolved
             )
             return Response(CommentSerializer(rows, many=True).data)
         except Exception as exc:
@@ -83,7 +92,7 @@ class ArtifactCommentsView(APIView):
         try:
             ctx = get_auth_context(request)
             comment = CommentService().create_comment(
-                artifact_id=UUID(artifact_id),
+                artifact_id=UUID(str(artifact_id)),
                 text=serializer.validated_data["text"],
                 ctx=ctx,
             )

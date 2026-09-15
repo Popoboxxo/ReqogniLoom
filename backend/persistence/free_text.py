@@ -1,6 +1,7 @@
-"""Free-text content rules — HTML markup and script-capable URI schemes.
+"""Free-text policy — the one sanitization rule set for user-authored prose.
 
-This is the *detection core* behind the #269 free-text guard. It lives in the
+This is the *detection core* behind the #269 free-text guard and the canonical
+statement of the project's sanitization policy (GitHub #820). It lives in the
 persistence layer (Layer 0) and has **no DRF dependency**, mirroring
 :mod:`persistence.custom_fields` and :mod:`persistence.role_permissions`, so
 that write paths which never touch a serializer can apply the very same rules:
@@ -11,28 +12,53 @@ that write paths which never touch a serializer can apply the very same rules:
 * ``persistence.custom_fields.validate_custom_fields`` calls it directly, which
   is what closes the ``Artifact.custom_fields`` stored-XSS surface on *all*
   write paths (REST, MCP, service calls, ReqIF import) rather than REST only.
+* Layer-2 services that write straight to the ORM (``ArtifactService``,
+  ``AttributeCatalogService``, ``CommentService``, ``WorkspaceService``) call
+  it so MCP and service calls get exactly the REST behaviour.
 
-Two rule families are enforced:
+Policy
+======
 
-``HTML markup``
-    Any value whose ``strip_tags`` result differs from the input is rejected.
-    That is deliberately stricter than "reject known-dangerous tags": an
-    allow-list of safe tags invites bypasses, and the API stores plain text
-    everywhere (no field is rendered as HTML by design).
+Free-text fields hold **plain text**. Three statements decide every case:
 
-``Dangerous URI schemes``
-    ``javascript:``, ``vbscript:`` and ``data:text/html`` are rejected even
-    though they contain no markup: the frontend renders Markdown descriptions
-    via ``MarkdownPreview``, which turns ``[x](javascript:alert(1))`` into a
-    real ``<a href>``. Matching is done on an *unescaped, control-character
-    stripped* copy so ``&#106;avascript:`` and ``java\\tscript:`` cannot slip
-    through.
+1. *Markup is rejected, never stripped.* Any value whose ``strip_tags`` result
+   differs from the input is a ``400``. That is deliberately stricter than
+   "reject known-dangerous tags": an allow-list of safe tags invites bypasses,
+   and the API stores plain text everywhere (no field is rendered as HTML by
+   design).
+2. *Script-capable URI schemes are rejected.* ``javascript:``, ``vbscript:``
+   and ``data:text/html`` are rejected even though they contain no markup: the
+   frontend renders Markdown descriptions via ``MarkdownPreview``, which turns
+   ``[x](javascript:alert(1))`` into a real ``<a href>``. Matching is done on
+   an *unescaped, control-character stripped* copy so ``&#106;avascript:`` and
+   ``java\\tscript:`` cannot slip through.
+3. *Everything else is data and is accepted verbatim.* SQL/keyword-shaped text
+   (``'; DROP TABLE users; --`` — the #820 repro), quotes, ``&``, a bare ``<``
+   (as in ``a < b``), German umlauts and Markdown survive the round-trip
+   byte-identically. There is no "looks like SQL" filter and there must not be
+   one: the ORM parameterises every query, so such a string is always a bind
+   literal that cannot break out of a statement, and nothing in the stack
+   renders a stored value as SQL. Filtering it would be security theatre that
+   destroys legitimate prose — a requirement quoting a hostile-looking string
+   is exactly the kind of content this tool manages. #820's SQLi-accepted /
+   XSS-rejected asymmetry is therefore **intended**: rules 1-2 close a real
+   sink (markup), a SQL blacklist would close none.
+
+Scope
+-----
+
+User-authored *narrative* fields (title, description, comment text, workspace
+name, glossary term/definition, ``custom_fields`` values, ...). Machine-
+generated diagnostic text (e.g. ``TestRunResult.message``, which carries raw
+tracebacks containing ``<module>`` / ``<lambda>``) and machine-readable tokens
+(ids, enums, UUIDs, link types) are deliberately **not** enrolled — rule 1
+would reject real data there.
 
 Trade-off (documented deliberately): prose that legitimately contains
 tag-shaped text (``if <input> is empty``) or the literal token ``javascript:``
 is a ``400`` instead of being silently mangled. Rejecting is the safer and more
 honest of the two — the caller keeps its data and gets an actionable message,
-whereas silent stripping destroyed it.
+whereas silent stripping destroyed it (#269).
 """
 from __future__ import annotations
 
@@ -96,7 +122,13 @@ def _normalize_for_scheme_check(value: str) -> str:
 
 
 def _find_scalar_violation(value: str) -> str | None:
-    """Apply both rule families to a single string."""
+    """Apply both rule families to a single string.
+
+    Rules 1-2 only. Rule 3 ("everything else is data") shows up here as the
+    absence of any further check: a SQL fragment, a shell one-liner, prose with
+    quotes/``&``/umlauts or Markdown falls through and is returned untouched by
+    the caller — see the module docstring for why no SQL blacklist exists.
+    """
     if not value:
         return None
 
