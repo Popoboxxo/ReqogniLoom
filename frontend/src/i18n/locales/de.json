@@ -158,6 +158,10 @@
       "neutral": "Neutral (DE / EN)"
     }
   },
+  "workspace": {
+    "selectFirst": "Zuerst einen Workspace auswählen.",
+    "selectPrompt": "Workspace auswählen, um fortzufahren."
+  },
   "workspaceCreate": {
     "button": "Workspace erstellen",
     "title": "Neuen Workspace erstellen",
@@ -429,6 +433,7 @@
     "impactDepth": "Tiefe",
     "impactHint": "Wähle ein Artefakt und öffne die vollständige Impact-Analyse (interaktiver Baum, beide Richtungen).",
     "requirementsGroup": "Anforderungen",
+    "testCasesGroup": "Testfälle",
     "architectureGroup": "Architekturelemente",
     "other": "Weitere Links",
     "allLinkTypes": "Alle Verknüpfungstypen",
@@ -1103,6 +1108,11 @@
       "validation_error": "Validierungsfehler",
       "rollback": "Zurückgerollt"
     }
+  },
+  "export": {
+    "download": "Exportieren",
+    "downloadReqif": "ReqIF exportieren",
+    "downloading": "Exportiere..."
   },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",

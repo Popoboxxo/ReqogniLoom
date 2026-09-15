@@ -158,6 +158,10 @@
       "neutral": "Neutral (DE / EN)"
     }
   },
+  "workspace": {
+    "selectFirst": "Select a workspace first.",
+    "selectPrompt": "Select a workspace to continue."
+  },
   "workspaceCreate": {
     "button": "Create workspace",
     "title": "Create new workspace",
@@ -429,6 +433,7 @@
     "impactDepth": "Depth",
     "impactHint": "Select an artifact and open the full impact analysis (interactive tree, both directions).",
     "requirementsGroup": "Requirements",
+    "testCasesGroup": "Test Cases",
     "architectureGroup": "Architecture Elements",
     "other": "Other Links",
     "allLinkTypes": "All link types",
@@ -1103,6 +1108,11 @@
       "validation_error": "Validation error",
       "rollback": "Rolled back"
     }
+  },
+  "export": {
+    "download": "Export",
+    "downloadReqif": "Export ReqIF",
+    "downloading": "Exporting..."
   },
   "icds": {
     "title": "Interface Control Documents",
