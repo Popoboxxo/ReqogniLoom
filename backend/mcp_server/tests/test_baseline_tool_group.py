@@ -291,4 +291,164 @@ class TestBaselineToolGroupRoundtrip:
         assert result.error_code == "PERMISSION_DENIED"
 
 
+# ---------------------------------------------------------------------------
+# Per-blocker waivers (GH-821)
+# ---------------------------------------------------------------------------
+
+
+def _broken_extended_workspace_ctx(name: str):
+    """Tenant + extended Workspace + admin ctx, with one real TRACE-P1 blocker."""
+    from persistence.models import Artifact, Requirement, Tenant, User, Workspace
+
+    tenant = Tenant.objects.create(name=name, slug=name)
+    user = User.objects.create(
+        username=f"{name}-user", email=f"{name}@example.com", tenant=tenant
+    )
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(
+            tenant=tenant, name=f"{name}-ws", preset={"name": "extended"}
+        )
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="requirement"
+        )
+        Requirement.objects.create(
+            tenant=tenant, artifact=artifact, title="Orphan requirement"
+        )
+    finally:
+        TenantContext.clear_tenant()
+    ctx = AuthContext(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        active_roles=("admin",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name=name,
+    )
+    return tenant, workspace, ctx
+
+
+class TestBaselineToolGroupWaivers:
+    """GH-821: ``baseline.create`` is the per-finding waiver surface for agents.
+
+    No parallel MCP tool was added — the existing create tool carries
+    ``waived_findings``, so an agent that hit ``SE_AUDITOR_BLOCKED`` can accept
+    individual findings the same way it creates the baseline.
+    """
+
+    @staticmethod
+    def _reported_findings(workspace, ctx):
+        from application.audit_service import AuditService
+        from traceability.audit import AuditScope
+
+        findings = AuditService().blocking_findings(
+            workspace.id, ctx, scopes=[AuditScope("project")]
+        )
+        assert findings, "expected the real auditor to report blockers"
+        return findings
+
+    def test_waived_findings_create_the_baseline(self):
+        tenant, workspace, ctx = _broken_extended_workspace_ctx("baseline-mcp-waive")
+        group = BaselineToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            findings = self._reported_findings(workspace, ctx)
+            result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "scope": "project",
+                    "name": "gh821-mcp-waived",
+                    "waived_findings": [
+                        {
+                            "rule_id": finding.rule_id,
+                            "artifact_ids": list(finding.artifact_ids),
+                            "reason": (
+                                f"Accepted deviation for {finding.rule_id} via the "
+                                "MCP surface."
+                            ),
+                        }
+                        for finding in findings
+                    ],
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+
+            from baseline.models import BaselineGateWaiver
+
+            rows = BaselineGateWaiver.unscoped.filter(workspace_id=workspace.id)
+            row_count = rows.count()
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is True, result.message
+        assert "baseline_id" in result.data
+        assert row_count == len(findings)
+
+    def test_malformed_waiver_payload_is_a_validation_error(self):
+        """A bad payload must not surface as an internal error (no leakage)."""
+        tenant, workspace, ctx = _broken_extended_workspace_ctx("baseline-mcp-badwaive")
+        group = BaselineToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "scope": "project",
+                    "name": "gh821-mcp-bad",
+                    "waived_findings": "TRACE-P1",
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "waived_findings" in result.message
+        assert "internal error" not in result.message
+
+    def test_editor_waiver_is_denied(self):
+        tenant, workspace, ctx = _broken_extended_workspace_ctx("baseline-mcp-waive-rbac")
+        editor_ctx = AuthContext(
+            user_id=ctx.user_id,
+            tenant_id=ctx.tenant_id,
+            active_roles=("editor",),
+            auth_method="test",
+            api_key_id=None,
+            tenant_name=ctx.tenant_name,
+        )
+        group = BaselineToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            findings = self._reported_findings(workspace, editor_ctx)
+            result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "scope": "project",
+                    "name": "gh821-mcp-editor",
+                    "waived_findings": [
+                        {
+                            "rule_id": finding.rule_id,
+                            "artifact_ids": list(finding.artifact_ids),
+                            "reason": "Editor attempt at accepting a deviation.",
+                        }
+                        for finding in findings
+                    ],
+                },
+                auth_context=editor_ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+
+
+
 __all__: list[str] = []

@@ -10,7 +10,9 @@ Proves the regression axes of the #912 fix:
 * a non-Requirement item type no longer reports the Requirement-shaped preset
   ``mandatory_fields`` as unmatched;
 * Requirement keeps the legacy preset list folded in (backwards compatibility),
-  deduplicated against the definition's own names.
+  deduplicated against the definition's own names;
+* the bootstrap hygiene check is silent for every built-in (item type, preset)
+  pair (#912 follow-up): it only reports a policy name that nothing consumes.
 """
 from __future__ import annotations
 
@@ -275,5 +277,9 @@ def test_unmatched_mandatory_fields_is_scoped_to_requirement() -> None:
         "ChangeRequest",
     ):
         assert unmatched_mandatory_fields(item_type, "extended") == []
-    # Requirement's legacy list still contains names that are not attributes.
-    assert unmatched_mandatory_fields("Requirement", "extended")
+    # #912 follow-up: Requirement's legacy names are all consumed — matched to
+    # an attribute, aliased to a column (``classification`` -> ``type``) or
+    # evaluated by rule 5/7 (``change_reason`` / ``traceability_target``) — so
+    # the migrate-time hygiene check is silent for the built-in presets.
+    for preset in ("minimal", "standard", "extended"):
+        assert unmatched_mandatory_fields("Requirement", preset) == [], preset

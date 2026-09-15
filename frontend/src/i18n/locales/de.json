@@ -544,7 +544,7 @@
     "deleteConfirmTitle": "Baseline löschen?",
     "deleteConfirm": "Diese Baseline wirklich löschen?",
     "overrideLabel": "Ausnahmebegründung (SE-Auditor)",
-    "overrideHint": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Sind sie eine akzeptierte Abweichung, können Admin oder Approver die Baseline trotzdem erstellen. Die Begründung wird im Audit-Log und auf der Baseline festgehalten (mindestens 10 Zeichen).",
+    "overrideHint": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Sind sie eine akzeptierte Abweichung, können Admin oder Approver die Baseline trotzdem erstellen. Die Begründung wird im Audit-Log und auf der Baseline festgehalten (mindestens 15 Zeichen und vier Wörter).",
     "overrideSubmit": "Baseline mit Ausnahme erstellen",
     "overrideNoPermission": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Nur Admin oder Approver können die Baseline trotzdem erstellen — wende dich an eine berechtigte Person, oder behebe die gemeldeten Findings.",
     "compare": "Vergleichen",

@@ -61,7 +61,7 @@ the SE-Auditor (lever 2, at baseline build) is the backstop.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Iterable, Optional
 from uuid import UUID
 
 from attribute_definitions.schema import AttributeSchemaError
@@ -600,6 +600,71 @@ def check_verifies_link(
     )
 
 
+def policy_fields_without_consumer(
+    policy_fields: Iterable[str],
+    *,
+    item_type: str,
+    attribute_names: Iterable[str],
+    model_field_names: Iterable[str],
+) -> list[str]:
+    """Return the preset ``mandatory_fields`` entries that mean nothing here.
+
+    GitHub #912 follow-up: ``bootstrap_attribute_definitions`` warns about
+    preset ``mandatory_fields`` names it could not match to an *attribute*. For
+    Requirement that check was a permanent false positive — ``classification``
+    resolves to the ``type`` column (``_FIELD_ALIASES``), ``change_reason`` is
+    satisfied by the transition request (``_REQUEST_LEVEL_FIELDS``) and
+    ``traceability_target`` is the Extended-tier lever for rule 7
+    (``_GRAPH_LEVEL_FIELDS``) — yet the migrate log claimed all three were
+    "ignored". The warning has to be scoped to what is actually *in force*, and
+    this module is where that knowledge exists, so it is exposed here instead of
+    being re-derived (badly) next to the introspector.
+
+    A policy name is consumed when any of the following holds:
+
+      * it names one of the item type's attributes (a definition-scoped
+        ``required`` flag, see :mod:`attribute_definitions.mandatory_fields`);
+      * it aliases a column on the entity's model (``_FIELD_ALIASES``);
+      * it is a request-/graph-level field this module evaluates
+        (``change_reason`` / ``traceability_target``).
+
+    Everything else is dead configuration: rule 5 can never observe it, so the
+    requirement it was meant to express is not enforced anywhere.
+
+    Ordering is irrelevant to the caller (a set difference is what it wants),
+    so the result is sorted and de-duplicated.
+
+    Args:
+        policy_fields: The raw ``mandatory_fields`` list (policy names).
+        item_type: Entity type the policy would apply to. Types rule 5 skips
+            entirely (unknown to :data:`_ENTITY_MODELS`, or exempt in
+            :data:`_APPROVAL_GATE_EXEMPT_TYPES`) consume *nothing*; the caller
+            decides whether the policy is meant to apply there at all.
+        attribute_names: Attribute names present in the item type's stored
+            definition.
+        model_field_names: Field names on the entity's model.
+
+    Returns:
+        Sorted list of policy names with no consumer for *item_type*.
+    """
+    if item_type in _APPROVAL_GATE_EXEMPT_TYPES or item_type not in _ENTITY_MODELS:
+        return sorted(set(policy_fields))
+
+    attributes = set(attribute_names)
+    columns = set(model_field_names)
+    dead: list[str] = []
+    for policy_field in policy_fields:
+        if policy_field in _REQUEST_LEVEL_FIELDS or policy_field in _GRAPH_LEVEL_FIELDS:
+            continue
+        if policy_field in attributes:
+            continue
+        candidates = _FIELD_ALIASES.get(policy_field, (policy_field,))
+        if any(candidate in columns for candidate in candidates):
+            continue
+        dead.append(policy_field)
+    return sorted(set(dead))
+
+
 __all__ = [
     "EC_MANDATORY_FIELDS_MISSING",
     "EC_VERIFICATION_EVIDENCE_MISSING",
@@ -609,4 +674,5 @@ __all__ = [
     "check_verifies_link",
     "is_approval_transition",
     "is_verification_transition",
+    "policy_fields_without_consumer",
 ]

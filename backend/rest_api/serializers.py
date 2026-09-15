@@ -1302,6 +1302,46 @@ class BaselineDeltaEntrySerializer(serializers.Serializer):
     state = serializers.JSONField(read_only=True, allow_null=True)
 
 
+class BlockerWaiverSerializer(serializers.Serializer):
+    """One per-finding SE-Auditor waiver on the baseline create payload (GH-821).
+
+    Mirrors ``baseline.waivers.BlockerWaiverRequest``: the caller names the
+    finding (``rule_id`` + ``artifact_ids`` exactly as the audit report returned
+    them) and justifies accepting *that* deviation. ``reason`` is mandatory —
+    an unexplained suppression is not a governance record, and the facade
+    rejects a placeholder here as well (see
+    ``application.baseline_facade._validate_gate_reason``).
+
+    The scope of a finding is deliberately NOT accepted from the client: the
+    waiver is matched against the findings the auditor actually reported, and
+    the stored scope is taken from the matched finding. A client cannot
+    mis-attribute a waiver.
+    """
+
+    rule_id = serializers.CharField(
+        max_length=64,
+        help_text="SE-Auditor rule being waived, e.g. 'TRACE-P1'.",
+    )
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        allow_empty=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Artifacts the finding concerns, as returned by the audit report "
+            "(empty for graph-level findings)."
+        ),
+    )
+    reason = SanitizedCharField(
+        max_length=2000,
+        allow_blank=False,
+        help_text=(
+            "Mandatory justification for accepting this single deviation; "
+            "recorded on the waiver and in the audit log."
+        ),
+    )
+
+
 class BaselineSerializer(
     UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
 ):
@@ -1338,6 +1378,21 @@ class BaselineSerializer(
             "reports blocking findings (error code SE_AUDITOR_BLOCKED). "
             "Requires the 'admin' or 'approver' role; recorded in the audit "
             "log and appended to the baseline description."
+        ),
+    )
+    # GH-821: per-finding waivers. The coarse override above accepts *all*
+    # remaining findings at once; this accepts individual ones, each with its
+    # own reason, and persists them so a later build does not have to re-state
+    # them. Same RBAC gate as override_reason.
+    waived_findings = BlockerWaiverSerializer(
+        many=True,
+        write_only=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Per-finding waivers for blocking SE-Auditor findings "
+            "(error code SE_AUDITOR_BLOCKED). Each entry accepts one reported "
+            "finding; findings that remain unwaived still block the baseline."
         ),
     )
     version = serializers.IntegerField(

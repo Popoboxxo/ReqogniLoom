@@ -544,7 +544,7 @@
     "deleteConfirmTitle": "Delete baseline?",
     "deleteConfirm": "Really delete this baseline?",
     "overrideLabel": "Override justification (SE-Auditor)",
-    "overrideHint": "The SE-Auditor reports blocking findings for this workspace. If they are an accepted deviation, an Admin or Approver can create the baseline anyway. The justification is recorded in the audit log and on the baseline (at least 10 characters).",
+    "overrideHint": "The SE-Auditor reports blocking findings for this workspace. If they are an accepted deviation, an Admin or Approver can create the baseline anyway. The justification is recorded in the audit log and on the baseline (at least 15 characters and four words).",
     "overrideSubmit": "Create baseline with override",
     "overrideNoPermission": "The SE-Auditor reports blocking findings for this workspace. Only an Admin or Approver can create the baseline anyway — ask someone with that role, or resolve the reported findings.",
     "compare": "Compare",

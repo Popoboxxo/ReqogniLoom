@@ -3410,14 +3410,23 @@ class BaselineViewSet(BaseEntityViewSet):
         takes precedence over a body-supplied ``workspace_id`` so the
         workspace-scoped route works even if the client omits the field.
 
-        SE-Auditor gate (GH-490/GH-513): creation is refused with HTTP 400 and
-        error code ``SE_AUDITOR_BLOCKED`` while the workspace has BLOCKER-level
-        audit findings in the requested scope. A caller holding the ``admin``
-        or ``approver`` role can override that verdict by repeating the request
-        with a written ``override_reason``; the waiver is then recorded in the
-        audit log and appended to the baseline description. A ``400`` with the
-        plain ``VALIDATION_ERROR`` code from the same gate means the auditor
-        itself could not be evaluated — that case is *not* overridable.
+        SE-Auditor gate (GH-490/GH-513/GH-821): creation is refused with HTTP 400
+        and error code ``SE_AUDITOR_BLOCKED`` while the workspace has BLOCKER-level
+        audit findings in the requested scope. Two documented exits exist, both
+        requiring the ``admin`` or ``approver`` role and both recorded in the
+        audit log:
+
+          * ``waived_findings`` — per-finding waivers
+            (``[{rule_id, artifact_ids, reason}]``, GH-821). Each one accepts a
+            single reported finding with its own mandatory justification and is
+            persisted, so the next baseline build does not have to re-state it.
+            Findings that remain unwaived still block.
+          * ``override_reason`` — one written justification that waives every
+            remaining finding at once (GH-513).
+
+        A ``400`` with the plain ``VALIDATION_ERROR`` code from the same gate
+        means the auditor itself could not be evaluated — that case is *not*
+        overridable.
         """
         workspace_pk = kwargs.get("workspace_pk")
         self._check_preset(request, workspace_id=workspace_pk)
@@ -3450,6 +3459,12 @@ class BaselineViewSet(BaseEntityViewSet):
             override_reason = data.get("override_reason")
             if override_reason and str(override_reason).strip():
                 create_kwargs["override_reason"] = str(override_reason)
+            # GH-821: per-finding waivers. Already shape-validated by
+            # BaselineSerializer (BlockerWaiverSerializer); the facade re-checks
+            # the same shape so the MCP path cannot bypass it.
+            waived_findings = data.get("waived_findings") or []
+            if waived_findings:
+                create_kwargs["waived_findings"] = list(waived_findings)
             # document scope requires a root artifact; artifact_id is the
             # view-facing name, the facade/service expect document_id.
             artifact_id = data.get("artifact_id")
