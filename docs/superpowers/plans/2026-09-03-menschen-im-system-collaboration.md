@@ -522,7 +522,7 @@ with a test asserting both locales and the absence of flat dotted keys.
 
 ---
 
-### Task 26 — `UserNotificationPreference` model + both migrations
+### Task 26 — `UserNotificationPreference` model + one migration
 
 **Original goal:** none — **new scope** from the OD-1 amendment (2026-09-15). One user-global opt-out
 preference recording which of the four notification triggers the user has switched **off**.
@@ -635,6 +635,11 @@ self-service endpoint (Task 28) needs.
     `update_or_create`'s create fallback goes through `QuerySet.create()` and bypasses
     `TenantManager.create()`'s auto-inject — the exact trap
     `PreferenceService.get_or_create_preference` documents (`auth_tenancy/services/preference_service.py:77-86`).
+  > **⚠️ Umsetzungshinweis (2026-09-15):** Der `tenant_id`-Lookup oben ist beim
+  > Umsetzen **nicht** zu übernehmen. `UserNotificationPreference` ist bewusst
+  > **nicht tenant-scoped** (kein `tenant`-Feld, siehe Task 26) — die
+  > Implementierung nutzt korrekt **`user_id`** als alleinigen Lookup
+  > (`update_or_create(user_id=..., defaults={...})`).
   - Raise `ValidationError` for an unknown kind or a non-bool value; the view (Task 28) maps it to 400.
 - **Layer direction:** `application/` → `auth_tenancy.models` is already an established import
   (`application/memory_admin_service.py:37` imports `UserRole`), so no layer guard is tripped. The
