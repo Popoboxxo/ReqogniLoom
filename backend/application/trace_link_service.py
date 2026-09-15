@@ -1444,6 +1444,23 @@ class TraceLinkService(ServiceBase):
                 suspect_source_change=audit_entry_id,
             )
 
+        # Menschen-im-System spec §5.2: freshly flagged artifacts notify their
+        # owner and reporter. `newly_flagged_ids` — not `fired` — is the ground
+        # truth for "was actually flagged"; notifying off `fired` would raise
+        # false notifications for far ends that are non-flaggable or were
+        # already suspect. Best-effort: the producer never raises, and the local
+        # import avoids a module-load cycle (notification_service imports from
+        # application, comment_service imports notification_service).
+        if newly_flagged_ids and ctx is not None:
+            from application.notification_service import notify_suspect_flagged
+
+            for flagged_artifact_id in newly_flagged_ids:
+                notify_suspect_flagged(
+                    artifact_id=flagged_artifact_id,
+                    tenant_id=ctx.tenant_id,
+                    actor_user_id=ctx.user_id,
+                )
+
         logger.info(
             "Suspect propagation from %s: %d artifact(s) flagged; "
             "%d of %d matching link(s) stamped.",
@@ -1455,9 +1472,30 @@ class TraceLinkService(ServiceBase):
         return flagged
 
 
+def resolve_artifact_id_or_none(entity_id: UUID) -> Optional[UUID]:
+    """Best-effort business-entity id -> Artifact id, ``None`` on a miss.
+
+    Menschen-im-System spec §5: notifications reference the generic Artifact,
+    but their producers (workflow engine, the ten update services) hold
+    business-entity ids. Reuses ``TraceLinkService.resolve_entity_to_artifact_id``
+    — the public wrapper added by fix #264 — instead of adding a twelfth place
+    that has to learn about every new artifact type; reaching into the private
+    ``_resolve_artifact_id`` is exactly what #264 fixed (the recurring root
+    cause of #237 / #264 / #407).
+
+    Returns None instead of raising: a missing Artifact must never break the
+    mutation that triggered the notification.
+    """
+    try:
+        return TraceLinkService().resolve_entity_to_artifact_id(entity_id)
+    except NotFoundError:
+        return None
+
+
 __all__ = [
     "TraceLinkService",
     "SimilarTraceLinkDTO",
     "VALID_LINK_TYPES",
     "MANUAL_LINK_TYPES",
+    "resolve_artifact_id_or_none",
 ]

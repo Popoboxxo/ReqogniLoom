@@ -1387,6 +1387,39 @@
     "deleteConfirm": "Alle deine eigenen Memory-Einträge löschen? Dies entfernt alles, was die KI sich über dich gemerkt hat, und kann nicht rückgängig gemacht werden.",
     "error": "Memory konnte nicht geladen oder gelöscht werden."
   },
+  "comments": {
+    "ariaLabel": "Kommentare",
+    "heading": "Kommentare",
+    "empty": "Noch keine Kommentare.",
+    "placeholder": "Kommentar schreiben …",
+    "inputLabel": "Neuer Kommentar",
+    "submit": "Kommentieren",
+    "resolve": "Erledigen",
+    "delete": "Löschen",
+    "deleteTitle": "Kommentar löschen",
+    "deleteMessage": "Das lässt sich nicht rückgängig machen.",
+    "unknownAuthor": "Unbekannt",
+    "loadFailed": "Kommentare konnten nicht geladen werden.",
+    "createFailed": "Kommentar konnte nicht gespeichert werden.",
+    "resolveFailed": "Kommentar konnte nicht erledigt werden.",
+    "deleteFailed": "Kommentar konnte nicht gelöscht werden."
+  },
+  "notifications": {
+    "ariaLabel": "Benachrichtigungen",
+    "label": "Benachrichtigungen",
+    "empty": "Nichts Neues.",
+    "markAllRead": "Alle als gelesen markieren"
+  },
+  "notificationPreferences": {
+    "title": "Benachrichtigungen",
+    "hint": "Wähle, bei welchen Ereignissen du eine Benachrichtigung erhältst. Die Einstellungen gelten nur für dich und lassen sich jederzeit ändern.",
+    "assigned": "Ein Artefakt wird mir zugewiesen",
+    "comment_added": "Jemand kommentiert meine Artefakte",
+    "transition_pending": "Ein Workflow-Übergang wartet auf mich",
+    "suspect_flagged": "Eines meiner Artefakte wurde als verdächtig markiert",
+    "error": "Benachrichtigungseinstellungen konnten nicht gespeichert werden.",
+    "loading": "Laden..."
+  },
   "users": {
     "newUser": "Neuer Nutzer"
   },

@@ -77,6 +77,11 @@ from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.auth_views import LoginView, LogoutView, MeView, RefreshView
+from rest_api.collaboration_views import (
+    ArtifactCommentsView,
+    CommentViewSet,
+    NotificationViewSet,
+)
 from rest_api.diagram_canvas_views import (
     CanvasStrokeView,
     MermaidPreviewView,
@@ -86,6 +91,7 @@ from rest_api.diagram_views import DiagramViewSet
 from rest_api.icd_views import IcdViewSet
 from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
+from rest_api.notification_preference_views import NotificationPreferenceView
 from rest_api.preference_views import UserPreferenceView
 from rest_api.user_management_views import UserViewSet
 from rest_api.prompt_variable_views import (
@@ -217,6 +223,12 @@ router.register(r"icds", IcdViewSet, basename="icd")
 router.register(r"metrics", MetricsViewSet, basename="metrics")
 router.register(r"glossary", GlossaryTermViewSet, basename="glossary")
 router.register(r"interviews", InterviewViewSet, basename="interview")
+# Comments (Menschen-im-System spec §4) — detail actions resolve/ and the
+# default destroy; list/create hang off the artifact-nested route below.
+router.register(r"comments", CommentViewSet, basename="comment")
+# Notifications (Menschen-im-System spec §5) — the caller's own feed; no MCP
+# counterpart by design.
+router.register(r"notifications", NotificationViewSet, basename="notification")
 
 # ---------------------------------------------------------------------------
 # URL patterns
@@ -395,6 +407,14 @@ urlpatterns = [
         "users/me/preferences/",
         UserPreferenceView.as_view(),
         name="user-preferences",
+    ),
+    # Notification delivery preferences (OD-1, 2026-09-15) — the caller's own
+    # opt-out switches over the four notification triggers. Same self-service
+    # shape as users/me/preferences/ directly above.
+    path(
+        "users/me/notification-preferences/",
+        NotificationPreferenceView.as_view(),
+        name="user-notification-preferences",
     ),
     # Theme Presets — the caller's own theme choice (GET/PUT).
     # NOTE: must precede any other users/me/ pattern that could shadow it.
@@ -817,6 +837,14 @@ urlpatterns = [
         "consistency-status/<str:task_id>/",
         ConsistencyStatusView.as_view(),
         name="api-v1-consistency-status",
+    ),
+    # Artifact comments (Menschen-im-System spec §4) — nested sub-resource,
+    # must precede router.urls so the artifacts/<pk>/ detail route cannot
+    # shadow it.
+    path(
+        "artifacts/<uuid:artifact_id>/comments/",
+        ArtifactCommentsView.as_view(),
+        name="api-v1-artifact-comments",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

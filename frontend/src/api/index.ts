@@ -113,3 +113,11 @@ export type {
 // §4.0 / §4.5 — DiffPanel and ArtifactDiff use it as the type contract).
 // ---------------------------------------------------------------------------
 export type { ArtifactKind } from "../components/shared/ArtifactInspector/types";
+
+// ---------------------------------------------------------------------------
+// Menschen-im-System spec §4/§5 — artifact comments and the notification feed.
+// ---------------------------------------------------------------------------
+export { commentsApi } from "./comments";
+export type { Comment, ListCommentsOptions } from "./comments";
+export { NOTIFICATION_FEED_LIMIT, notificationsApi } from "./notifications";
+export type { Notification, NotificationFeed, NotificationKind } from "./notifications";

@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 206,
+  "tool_count": 209,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2045,6 +2045,69 @@
           "id"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "comment.create",
+      "prefix": "comment",
+      "is_write": true,
+      "description": "Add a comment to an artifact.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "description": "UUID of the artifact."
+          },
+          "text": {
+            "type": "string",
+            "description": "Comment body."
+          }
+        },
+        "required": [
+          "artifact_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "comment.list",
+      "prefix": "comment",
+      "is_write": false,
+      "description": "List the comments on an artifact, oldest first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "description": "UUID of the artifact."
+          },
+          "include_resolved": {
+            "type": "boolean",
+            "description": "Include resolved comments (default true)."
+          }
+        },
+        "required": [
+          "artifact_id"
+        ]
+      }
+    },
+    {
+      "name": "comment.resolve",
+      "prefix": "comment",
+      "is_write": true,
+      "description": "Mark a comment as resolved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the comment."
+          }
+        },
+        "required": [
+          "id"
+        ]
       }
     },
     {

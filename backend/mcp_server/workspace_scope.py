@@ -110,6 +110,10 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     ),
     "baseline.get": (("id", "baseline"),),
     "change_request.read": (("id", "change_request"),),
+    # Menschen-im-System spec §4: comment.list names its target artifact, so the
+    # gate resolves the owning workspace from it. Without this entry the tool is
+    # a read tool with no enforced scoping and the coverage ratchet fails.
+    "comment.list": (("artifact_id", "artifact"),),
     # entity_type selects the model inside the handler; probing all four
     # candidates here keeps that dispatch table from being duplicated.
     "context.change_impact": (
@@ -166,6 +170,11 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     "change_request.outdate": (("id", "change_request"),),
     "change_request.reactivate": (("id", "change_request"),),
     "change_request.update": (("id", "change_request"),),
+    # Menschen-im-System spec §4: comment.create names the artifact it comments
+    # on, so the same seam scopes it. comment.resolve takes a *comment* id, for
+    # which application.workspace_lookup has no ENTITY_SPECS key yet — it stays
+    # gated by the caller's role union as before.
+    "comment.create": (("artifact_id", "artifact"),),
     "context.related": _artifact_or_domain("artifact_id"),
     "diagram.outdate": (("id", "diagram"),),
     "diagram.reactivate": (("id", "diagram"),),

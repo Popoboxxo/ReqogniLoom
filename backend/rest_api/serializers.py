@@ -2073,6 +2073,40 @@ class UserProfileSerializer(serializers.Serializer):
         return instance
 
 
+class CommentSerializer(serializers.Serializer):
+    """Wire format for application.models.Comment (Menschen-im-System spec §4).
+
+    Read-only apart from ``text`` — comments are never edited, only created,
+    resolved and deleted.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    artifact_id = serializers.UUIDField(read_only=True)
+    text = serializers.CharField(max_length=10000)
+    author_id = serializers.UUIDField(read_only=True, allow_null=True)
+    author_display = serializers.SerializerMethodField()
+    resolved = serializers.BooleanField(read_only=True)
+    resolved_by_id = serializers.UUIDField(read_only=True, allow_null=True)
+    resolved_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+    def get_author_display(self, obj) -> str | None:
+        """Return the author's username, or None when the user was deleted."""
+        author = getattr(obj, "author", None)
+        return getattr(author, "username", None) if author is not None else None
+
+
+class NotificationSerializer(serializers.Serializer):
+    """Wire format for application.models.Notification (spec §5). Read-only."""
+
+    id = serializers.UUIDField(read_only=True)
+    kind = serializers.CharField(read_only=True)
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    message = serializers.CharField(read_only=True)
+    read = serializers.BooleanField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+
 __all__ = [
     "ArtifactSerializer",
     "StakeholderNeedSerializer",
@@ -2097,6 +2131,8 @@ __all__ = [
     "TestRunResultBulkSerializer",
     "GlossaryTermSerializer",
     "UserProfileSerializer",
+    "CommentSerializer",
+    "NotificationSerializer",
     "StandardPagination",
     "TraceLinkPagination",
     "PresetAwareSerializerMixin",

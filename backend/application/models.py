@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.conf import settings
 from django.db import models
 
 # Datenmodell-Konsolidierung Phase 2 (spec section 3): these seven domain models
@@ -36,6 +37,7 @@ from persistence.models import (
     Issue,
     MainGoal,
     Risk,
+    TenantScopedModel,
 )
 
 
@@ -228,6 +230,106 @@ class WebhookDeliveryLog(models.Model):
         return f"WebhookDelivery:{self.subscription_id}:{self.event_type}:{self.attempt}"
 
 
+class Comment(TenantScopedModel):
+    """A human comment on any artifact (Menschen-im-System spec §4).
+
+    Hangs on the generic ``persistence.Artifact`` rather than on a specialized
+    table, so it works for all ten artifact types with no per-type branch —
+    including Diagram/Icd/GlossaryTerm once the Datenmodell-Konsolidierung spec
+    has given them their Artifact backing.
+
+    Comments are **not editable**: create, resolve, delete. That is why there is
+    no change history here — ``author``/``resolved_by``/``resolved_at`` already
+    answer "who did what" (spec §3.3).
+
+    ``id``, ``created_at``, ``created_by``, ``modified_at``, ``modified_by`` and
+    ``version`` are inherited from ``AuditableModel`` via ``TenantScopedModel``.
+    """
+
+    artifact = models.ForeignKey(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="comments",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+    )
+    text = models.TextField()
+    resolved = models.BooleanField(default=False)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "as_comment"
+        indexes = [
+            models.Index(fields=["artifact", "created_at"], name="idx_comment_artifact_ts"),
+        ]
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"Comment:{self.pk}:{self.text[:40]}"
+
+
+class Notification(TenantScopedModel):
+    """A pending human-facing signal (Menschen-im-System spec §5).
+
+    Exactly four kinds, no more — the spec's scope boundary is explicit. There
+    is no real-time push: the frontend fetches this table once when the
+    NavigationShell mounts.
+
+    ``artifact`` is nullable because the workflow trigger resolves it
+    best-effort from a business-entity id and must never fail the transition it
+    is reacting to.
+    """
+
+    KIND_TRANSITION_PENDING = "transition_pending"
+    KIND_SUSPECT_FLAGGED = "suspect_flagged"
+    KIND_ASSIGNED = "assigned"
+    KIND_COMMENT_ADDED = "comment_added"
+
+    KIND_CHOICES = [
+        (KIND_TRANSITION_PENDING, "Transition Pending"),
+        (KIND_SUSPECT_FLAGGED, "Suspect Flagged"),
+        (KIND_ASSIGNED, "Assigned"),
+        (KIND_COMMENT_ADDED, "Comment Added"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    kind = models.CharField(max_length=32, choices=KIND_CHOICES)
+    artifact = models.ForeignKey(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    message = models.TextField()
+    read = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "as_notification"
+        indexes = [
+            models.Index(fields=["user", "read", "created_at"], name="idx_notif_user_read_ts"),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Notification:{self.pk}:{self.kind}"
+
+
 __all__ = [
     "DomainEventOutbox",
     "DomainEventDLQ",
@@ -240,4 +342,6 @@ __all__ = [
     "ChangeRequestAffectedItem",
     "Goal",
     "MainGoal",
+    "Comment",
+    "Notification",
 ]

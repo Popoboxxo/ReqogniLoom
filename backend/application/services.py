@@ -187,6 +187,12 @@ from application.reqif_import_service import (  # noqa: F401,E402
 # ---------------------------------------------------------------------------
 from application.artifact_version_service import ArtifactVersionService  # noqa: F401,E402
 
+# ---------------------------------------------------------------------------
+# Menschen-im-System — collaboration: comments + notifications (§4/§5)
+# ---------------------------------------------------------------------------
+from application.comment_service import CommentService  # noqa: F401,E402
+from application.notification_service import NotificationService  # noqa: F401,E402
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -265,4 +271,7 @@ __all__ = [
     "ReqifEntityReport",
     # Datenmodell-Konsolidierung Phase 5 — ArtifactVersionService
     "ArtifactVersionService",
+    # Menschen-im-System — collaboration (§4/§5)
+    "CommentService",
+    "NotificationService",
 ]

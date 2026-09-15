@@ -22,6 +22,9 @@ export type { DiffPanelProps } from "./DiffPanel";
 export { TracePanel } from "./TracePanel";
 export type { TracePanelProps } from "./TracePanel";
 
+export { CommentPanel } from "./CommentPanel";
+export type { CommentPanelProps } from "./CommentPanel";
+
 export { DIFF_SUPPORTED_KINDS } from "./types";
 export type {
   ArtifactKind,

@@ -76,6 +76,7 @@ References:
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
@@ -86,6 +87,8 @@ from attribute_definitions.schema import resolve_attribute_span
 
 if TYPE_CHECKING:
     from application.attribute_definition_service import AttributeDefinitionService
+
+logger = logging.getLogger(__name__)
 
 
 class AttributeCarrier(str, Enum):
@@ -671,6 +674,13 @@ class ArtifactAttributeGateway:
             if not any(target is seen for seen in targets):
                 targets.append(target)
 
+        # Capture the pre-write owner before the assignment loop so the
+        # post-write comparison needs no extra read: the backing Artifact holds
+        # ``owner_id`` directly (spec section 3). This is a plain attribute read
+        # — an unrelated attribute write adds zero queries.
+        owner_holder = self._custom_fields_owner(artifact)
+        previous_owner_id = getattr(owner_holder, "owner_id", None)
+
         for name, value in values.core.items():
             attribute = by_name.get(name)
             if attribute is None or attribute["kind"] != "core":
@@ -709,6 +719,31 @@ class ArtifactAttributeGateway:
 
         for target in targets:
             self._persist(target)
+
+        # Menschen-im-System spec §5: an owner *change* produces an `assigned`
+        # notification. The cheap ``owner_id`` comparison runs on every write;
+        # the Actor FK (``owner_holder.owner``) is only loaded when the owner
+        # actually changed, so an unrelated attribute write adds no query. The
+        # call sits after the persist loop — not at the ``setattr`` — so a
+        # failing ``_persist`` can never notify an assignment that never landed.
+        if getattr(owner_holder, "owner_id", None) != previous_owner_id:
+            try:
+                # Lazy import: this module must stay importable without a
+                # configured Django app registry (see the class docstring).
+                from application.notification_service import notify_assigned
+
+                notify_assigned(
+                    ctx=ctx,
+                    artifact_id=getattr(owner_holder, "id", None),
+                    owner=getattr(owner_holder, "owner", None),
+                    previous_owner_id=previous_owner_id,
+                )
+            except Exception:
+                logger.exception(
+                    "ArtifactAttributeGateway.write: assigned notification "
+                    "failed for artifact %s",
+                    getattr(owner_holder, "id", None),
+                )
 
         return self.read(ctx, item_type, artifact)
 

@@ -147,7 +147,17 @@ function collectReferencedKeys(dir: string): Set<string> {
 // locale files (mirroring `_other`) purely to keep this ratchet accurate.
 // The measured count had already drifted down to 138 since the 145 baseline
 // was set (unrelated fixes); this change's 3-key fix brings it to 135.
-const MISSING_KEY_BASELINE = 135;
+//
+// Lowered to 123 (Task 30, OD-1): the `notificationPreferences.*` namespace —
+// referenced by Task 29's NotificationsSection component but absent from both
+// locale files — is now defined in de.json and en.json (8 keys: title, hint,
+// assigned, comment_added, transition_pending, suspect_flagged, error,
+// loading). The measured count was 131 immediately before this change (123
+// baseline drift + those 8 keys); with the keys in place it is 123. Task 25
+// deliberately left the ceiling at 135 rather than lowering it into a red
+// suite, deferring the raise-free reduction to this change (see the Task 25
+// commit).
+const MISSING_KEY_BASELINE = 123;
 
 describe("i18n code-to-locale coverage (#619)", () => {
   it("does not reference more undefined translation keys than the frozen baseline", () => {

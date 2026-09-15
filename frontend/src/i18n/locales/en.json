@@ -1387,6 +1387,39 @@
     "deleteConfirm": "Delete ALL of your own memory entries? This removes everything the AI has remembered about you and cannot be undone.",
     "error": "Memory could not be loaded or deleted."
   },
+  "comments": {
+    "ariaLabel": "Comments",
+    "heading": "Comments",
+    "empty": "No comments yet.",
+    "placeholder": "Write a comment…",
+    "inputLabel": "New comment",
+    "submit": "Comment",
+    "resolve": "Resolve",
+    "delete": "Delete",
+    "deleteTitle": "Delete comment",
+    "deleteMessage": "This cannot be undone.",
+    "unknownAuthor": "Unknown",
+    "loadFailed": "Could not load comments.",
+    "createFailed": "Could not save the comment.",
+    "resolveFailed": "Could not resolve the comment.",
+    "deleteFailed": "Could not delete the comment."
+  },
+  "notifications": {
+    "ariaLabel": "Notifications",
+    "label": "Notifications",
+    "empty": "Nothing new.",
+    "markAllRead": "Mark all as read"
+  },
+  "notificationPreferences": {
+    "title": "Notifications",
+    "hint": "Choose which events send you a notification. The switches are yours alone and can be changed at any time.",
+    "assigned": "An artifact is assigned to me",
+    "comment_added": "Someone comments on my artifacts",
+    "transition_pending": "A workflow transition awaits me",
+    "suspect_flagged": "One of my artifacts was flagged suspect",
+    "error": "Notification preferences could not be saved.",
+    "loading": "Loading..."
+  },
   "users": {
     "newUser": "New User"
   },
