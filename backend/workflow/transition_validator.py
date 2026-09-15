@@ -35,6 +35,8 @@ from .precondition_rules import (
     check_mandatory_fields,
     check_verification_evidence,
     check_verifies_link,
+    is_approval_transition,
+    is_verification_transition,
 )
 from .signature_gate import CredentialVerificationRequest, SignatureGateVerifier
 
@@ -76,7 +78,19 @@ class ValidationRequest:
         tenant_id:     Active tenant UUID (for scoped queries).
         actor_type:    "user" or "agent" (AuthContext.actor_type). Drives
                        rule 0 -- an agent may never move an item out of the
-                       "proposed" state.
+                       "proposed" state, nor escalate beyond the human
+                       confirmation gate an artifact it authored (GH-913).
+        agent_label:   Display name of the calling agent (AuthContext.
+                       agent_label); empty for humans. Part of the caller's
+                       identity string for the rule-0 authorship check --
+                       the same value :func:`workflow.services.
+                       initialize_workflow_states` records for the proposal.
+        proposal_author: Identity string of the actor that authored the
+                       item's proposal ("" when the item was not proposed).
+                       Resolved by the caller from the append-only
+                       ``-> "proposed"`` history entry, which survives the
+                       human confirmation -- that is what lets rule 0 keep
+                       applying after the item left the ``proposed`` state.
         change_reason: Optional non-empty string; required when the transition
                        has requires_change_reason=True.
         credential:    Optional password or TOTP token string for SignatureGate
@@ -93,6 +107,8 @@ class ValidationRequest:
     user_roles: tuple[str, ...]
     tenant_id: UUID
     actor_type: str = "user"
+    agent_label: str = ""
+    proposal_author: str = ""
     change_reason: str = ""
     credential: str = ""
     timestamp: Optional[datetime] = None
@@ -168,6 +184,8 @@ class TransitionValidator:
     """Four-rule sequential gateway for workflow state transitions (COMP-WE-002).
 
     Rules (executed in order, fail-fast):
+      0. Agent guard: an agent may neither confirm/discard its own proposal
+         nor approve/verify an artifact it proposed (GH-913).
       1. Transition exists in the active WorkflowDefinition.
       2. Requesting user has an allowed role.
       3. change_reason is present when required.
@@ -267,7 +285,8 @@ class TransitionValidator:
         """
         ws_str = str(request.workspace_id)
 
-        # ---- Rule 0: an agent never confirms its own proposal (spec §4.3) ---
+        # ---- Rule 0: an agent never confirms or approves its own proposal ----
+        # (spec §4.3, GH-913)
         # Checked here, not via allowed_roles, so a workspace admin who
         # accidentally grants an agent-held role on the proposed-> transitions
         # cannot switch the control off. Runs before the definition load
@@ -275,15 +294,44 @@ class TransitionValidator:
         # rule that could pass first.
         from .definition_store import PROPOSED_STATE
 
-        if request.actor_type == "agent" and request.current_state == PROPOSED_STATE:
-            return ValidationResult(
-                valid=False,
-                error_code=EC_AGENT_SELF_CONFIRM,
-                error_message=(
-                    "An AI agent may not confirm or discard a proposal. "
-                    "A human principal must perform this transition."
-                ),
-            )
+        if request.actor_type == "agent":
+            if request.current_state == PROPOSED_STATE:
+                return ValidationResult(
+                    valid=False,
+                    error_code=EC_AGENT_SELF_CONFIRM,
+                    error_message=(
+                        "An AI agent may not confirm or discard a proposal. "
+                        "A human principal must perform this transition."
+                    ),
+                )
+            # GH-913: tying the guard to the state name alone left the gate
+            # open for good. Once a human confirmed the proposal the item is an
+            # ordinary artifact, so the *same* agent that wrote it could walk
+            # it to "approved"/"verified" itself — the exact self-approval the
+            # release note promises cannot happen. The gate therefore hangs on
+            # the author, not on the state: as long as the item's proposal was
+            # authored by the calling agent, the escalation transitions stay
+            # closed to it, whatever state the human confirmation left behind.
+            # A human principal (actor_type != "agent") is never affected, and
+            # an agent escalating an item it did not propose is not either.
+            if (
+                request.proposal_author
+                and (
+                    is_approval_transition(request.target_state)
+                    or is_verification_transition(request.target_state)
+                )
+                and request.proposal_author
+                == (request.agent_label or str(request.user_id))
+            ):
+                return ValidationResult(
+                    valid=False,
+                    error_code=EC_AGENT_SELF_CONFIRM,
+                    error_message=(
+                        "An AI agent may not approve or verify an artifact it "
+                        "proposed. A human principal must perform this "
+                        "transition."
+                    ),
+                )
 
         # ---- Load WorkflowDefinition (IF-WE-INT-001) -------------------------
         definition = self._load_definition(ws_str, request.item_type)

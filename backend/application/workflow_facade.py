@@ -790,12 +790,20 @@ class WorkflowFacade(ServiceBase):
 def _remap_workflow_exc(exc: Exception) -> None:
     """Re-raise workflow-domain exceptions as application-layer exceptions."""
     from workflow.services import WorkflowTransitionError
-    from workflow.transition_validator import EC_ROLE_NOT_ALLOWED
+    from workflow.transition_validator import (
+        EC_AGENT_SELF_CONFIRM,
+        EC_ROLE_NOT_ALLOWED,
+    )
 
     from application.base import ValidationError, PermissionDeniedError
 
     if isinstance(exc, WorkflowTransitionError):
-        if exc.error_code in (EC_ROLE_NOT_ALLOWED,):
+        if exc.error_code in (EC_ROLE_NOT_ALLOWED, EC_AGENT_SELF_CONFIRM):
+            # GH-913: the agent self-confirm/self-approve guard is a policy
+            # denial, not a malformed request. It already shares its error code
+            # with the role gate, and it must answer 403 PERMISSION_DENIED like
+            # every other "an AI agent may not ..." denial (see GH-914 for the
+            # trace-link sibling) instead of a 400 that reads like bad input.
             raise PermissionDeniedError(exc.error_message) from exc
         raise ValidationError(exc.error_message) from exc
     raise exc

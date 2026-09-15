@@ -42,17 +42,27 @@ def _definition() -> WorkflowDefinitionDTO:
     )
 
 
-def _request(actor_type: str, current: str, target: str) -> ValidationRequest:
+def _request(
+    actor_type: str,
+    current: str,
+    target: str,
+    *,
+    user_id=None,
+    agent_label: str = "",
+    proposal_author: str = "",
+) -> ValidationRequest:
     return ValidationRequest(
         item_id=uuid4(),
         workspace_id=WS,
         item_type="Requirement",
         current_state=current,
         target_state=target,
-        user_id=uuid4(),
+        user_id=user_id or uuid4(),
         user_roles=("admin",),
         tenant_id=uuid4(),
         actor_type=actor_type,
+        agent_label=agent_label,
+        proposal_author=proposal_author,
     )
 
 
@@ -82,6 +92,100 @@ def test_human_can_leave_proposed():
 
 def test_agent_may_still_transition_elsewhere():
     assert _validate(_request("agent", "draft", "approved")).valid is True
+
+
+# --- GH-913: the guard must not hang on the state name -----------------------
+# Tying Rule 0 to ``current_state == "proposed"`` left the gate open for good:
+# once a human confirmed the proposal the same agent could walk the artifact to
+# "approved"/"verified" itself — the self-approval the release note promises
+# cannot happen. The gate now hangs on the proposal's *author*.
+
+
+def test_agent_cannot_approve_its_own_proposal_after_confirmation():
+    result = _validate(
+        _request(
+            "agent",
+            "draft",
+            "approved",
+            agent_label="Hermes QA Bot",
+            proposal_author="Hermes QA Bot",
+        )
+    )
+    assert result.valid is False
+    assert result.error_code == EC_AGENT_SELF_CONFIRM
+    assert "may not approve or verify" in result.error_message
+
+
+def test_agent_cannot_verify_its_own_proposal():
+    result = _validate(
+        _request(
+            "agent",
+            "implemented",
+            "verified",
+            agent_label="Hermes QA Bot",
+            proposal_author="Hermes QA Bot",
+        )
+    )
+    assert result.valid is False
+    assert result.error_code == EC_AGENT_SELF_CONFIRM
+
+
+def test_agent_identity_falls_back_to_user_id_without_a_label():
+    """No agent_label on either side: the recorded user id is the identity."""
+    shared_user = uuid4()
+    result = _validate(
+        _request(
+            "agent",
+            "draft",
+            "approved",
+            user_id=shared_user,
+            proposal_author=str(shared_user),
+        )
+    )
+    assert result.valid is False
+    assert result.error_code == EC_AGENT_SELF_CONFIRM
+
+
+def test_agent_can_approve_an_item_it_did_not_propose():
+    """A different principal's artifact is not self-approval."""
+    assert (
+        _validate(
+            _request(
+                "agent",
+                "draft",
+                "approved",
+                agent_label="QA Bot",
+                proposal_author="Hermes QA Bot",
+            )
+        ).valid
+        is True
+    )
+
+
+def test_agent_may_approve_an_item_without_a_proposal():
+    """Legacy/never-proposed artifacts have no author to match — no block."""
+    assert (
+        _validate(
+            _request("agent", "draft", "approved", agent_label="QA Bot")
+        ).valid
+        is True
+    )
+
+
+def test_human_can_approve_a_proposal():
+    """The human principal the guard exists for is never blocked."""
+    assert (
+        _validate(
+            _request(
+                "user",
+                "draft",
+                "approved",
+                agent_label="",
+                proposal_author="Hermes QA Bot",
+            )
+        ).valid
+        is True
+    )
 
 
 def _outdate_ctx(actor_type: str):
