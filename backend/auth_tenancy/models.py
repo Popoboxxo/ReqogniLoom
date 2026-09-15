@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from django.db import models
 
-from persistence.models import TenantScopedModel
+from persistence.models import AuditableModel, TenantScopedModel
 
 # Allowed role names (COMP-AT-002 RBAC matrix). ``approver`` is gated to the
 # Extended preset by PresetPolicyValidator, not by the schema.
@@ -461,6 +461,27 @@ class UserWorkspacePreference(TenantScopedModel):
         return (
             f"UserWorkspacePreference({self.user_id}, ws={self.workspace_id})"
         )
+
+
+class UserNotificationPreference(AuditableModel):
+    """Per-user opt-out from in-app notification triggers (OD-1, 2026-09-15).
+
+    One row per user, across every tenant and workspace — ``User`` is itself an
+    ``AuditableModel`` without tenant scoping (`persistence/models.py:463`), so
+    the preference follows the same global identity. A missing row, or a kind
+    absent from ``disabled_triggers``, means the trigger is ENABLED: opting out
+    is the deviation, not opting in.
+    """
+
+    user = models.OneToOneField(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="notification_preference",
+    )
+    disabled_triggers = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "at_user_notification_preference"
 
 
 # ---------------------------------------------------------------------------
