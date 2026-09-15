@@ -2096,6 +2096,17 @@ class CommentSerializer(serializers.Serializer):
         return getattr(author, "username", None) if author is not None else None
 
 
+class NotificationSerializer(serializers.Serializer):
+    """Wire format for application.models.Notification (spec §5). Read-only."""
+
+    id = serializers.UUIDField(read_only=True)
+    kind = serializers.CharField(read_only=True)
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    message = serializers.CharField(read_only=True)
+    read = serializers.BooleanField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+
 __all__ = [
     "ArtifactSerializer",
     "StakeholderNeedSerializer",
@@ -2121,6 +2132,7 @@ __all__ = [
     "GlossaryTermSerializer",
     "UserProfileSerializer",
     "CommentSerializer",
+    "NotificationSerializer",
     "StandardPagination",
     "TraceLinkPagination",
     "PresetAwareSerializerMixin",

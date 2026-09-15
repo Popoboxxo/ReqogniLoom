@@ -77,7 +77,11 @@ from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.auth_views import LoginView, LogoutView, MeView, RefreshView
-from rest_api.collaboration_views import ArtifactCommentsView, CommentViewSet
+from rest_api.collaboration_views import (
+    ArtifactCommentsView,
+    CommentViewSet,
+    NotificationViewSet,
+)
 from rest_api.diagram_canvas_views import (
     CanvasStrokeView,
     MermaidPreviewView,
@@ -221,6 +225,9 @@ router.register(r"interviews", InterviewViewSet, basename="interview")
 # Comments (Menschen-im-System spec §4) — detail actions resolve/ and the
 # default destroy; list/create hang off the artifact-nested route below.
 router.register(r"comments", CommentViewSet, basename="comment")
+# Notifications (Menschen-im-System spec §5) — the caller's own feed; no MCP
+# counterpart by design.
+router.register(r"notifications", NotificationViewSet, basename="notification")
 
 # ---------------------------------------------------------------------------
 # URL patterns
