@@ -37,6 +37,22 @@ from auth_tenancy.services import Operation
 from auth_tenancy.services.authentication import AuthenticationService
 from rest_api.serializers import build_error_response
 
+#: Request keys ``POST /api/v1/api-keys/`` understands. Everything else is a
+#: typo or a stale field name and is rejected (#916) instead of being dropped by
+#: ``request.data.get(...)`` while the request still answers 201. ``agent_identity``
+#: was the dangerous case: it does not exist (``principal_type`` + ``agent_label``
+#: are the real fields), so the key silently became a ``user`` principal.
+_ALLOWED_CREATE_FIELDS = frozenset(
+    {
+        "agent_label",
+        "expires_at",
+        "name",
+        "principal_type",
+        "scope",
+        "workspace_ids",
+    }
+)
+
 
 class ApiKeyViewSet(ViewSet):
     """REST ViewSet for API key lifecycle management.
@@ -175,9 +191,34 @@ class ApiKeyViewSet(ViewSet):
 
         Errors:
           400 — name missing or empty
+          400 — unknown request field (#916)
           400 — max active keys reached
           401 — not authenticated
         """
+        # Unknown-field rejection (#916), same contract as the serializer-level
+        # ``UnknownFieldRejectionMixin`` (#851): name the offending key instead of
+        # silently ignoring it. This view predates the serializer family, so it
+        # carries the check itself.
+        if isinstance(request.data, dict):
+            unknown = sorted(set(request.data) - _ALLOWED_CREATE_FIELDS)
+            if unknown:
+                summary = (
+                    f"Unknown field '{unknown[0]}'."
+                    if len(unknown) == 1
+                    else "Unknown fields: " + ", ".join(f"'{f}'" for f in unknown)
+                )
+                return Response(
+                    build_error_response(
+                        code="VALIDATION_ERROR",
+                        message=summary,
+                        details=[
+                            {"field": field, "errors": [f"Unknown field '{field}'."]}
+                            for field in unknown
+                        ],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         user_id = self._get_user_id(request)
         tenant_id = self._get_tenant_id(request)
         if user_id is None or tenant_id is None:

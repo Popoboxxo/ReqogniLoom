@@ -392,14 +392,25 @@ class TestRequirementStatusSingleSource:
     def test_partial_update_rejects_status(self) -> None:
         """A client-sent `status` is rejected with a clear 400 (QA-123) instead
         of silently succeeding — a prior 200-with-silent-ignore misled callers
-        into believing their status change had applied."""
+        into believing their status change had applied.
+
+        #915: ``_current_status`` no longer reads the persistence row (the
+        ``status`` column was dropped, Datenmodell-Konsolidierung Task 12) but
+        resolves the state from ``workflow.state_reader``, so this unit test
+        stubs it as well to stay service-mock-only — it pins the *guard*. The
+        engine resolution itself is covered end to end by
+        ``test_readonly_and_unknown_field_rejection_915_916.py``.
+        """
         data = {"title": "Updated", "status": "approved"}
         factory = APIRequestFactory()
         req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
         req.auth_context = _make_auth_context()
         view = RequirementViewSet.as_view({"patch": "partial_update"})
         svc_mock = self._svc_mock(status="draft")
-        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+        with (
+            patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock),
+            patch.object(RequirementViewSet, "_current_status", return_value="draft"),
+        ):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 400
         assert "transitions" in response.data["error"]["message"]

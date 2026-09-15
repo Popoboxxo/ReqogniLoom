@@ -870,8 +870,13 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         req = self._svc().get_requirement(UUID(pk), ctx)
         return req.id, req.artifact.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_requirement(UUID(pk), ctx), "status", None)
+    # #915: no ``_current_status`` override here. ``get_requirement`` returns the
+    # persistence row, and the denormalized ``status`` column was dropped
+    # (Datenmodell-Konsolidierung Task 12) — reading it returned ``None`` for
+    # every requirement, so a changed ``status`` on PATCH was accepted and
+    # ignored instead of refused. The shared
+    # ``WorkflowTransitionsMixin._current_status`` resolves the state through
+    # ``workflow.state_reader``, the same source GET uses.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_requirement(item_id, ctx)
@@ -2271,8 +2276,9 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_test_case(UUID(pk), ctx)
         return item.id, item.artifact.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_test_case(UUID(pk), ctx), "status", None)
+    # #915: like RequirementViewSet, TestCase has no denormalized ``status``
+    # column anymore (Datenmodell-Konsolidierung Task 12); the shared
+    # ``WorkflowTransitionsMixin._current_status`` resolves it from the engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_test_case(item_id, ctx)
@@ -5160,8 +5166,8 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_adr(UUID(pk), ctx)
         return item.id, item.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_adr(UUID(pk), ctx), "status", None)
+    # #915: ADR has no denormalized ``status`` column (Task 12); the shared
+    # ``_current_status`` resolves the state from the workflow engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_adr(item_id, ctx)
@@ -5464,8 +5470,8 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_risk(UUID(pk), ctx)
         return item.id, item.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_risk(UUID(pk), ctx), "status", None)
+    # #915: Risk has no denormalized ``status`` column (Task 12); the shared
+    # ``_current_status`` resolves the state from the workflow engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_risk(item_id, ctx)
@@ -6343,8 +6349,8 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_issue(UUID(pk), ctx)
         return item.id, item.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_issue(UUID(pk), ctx), "status", None)
+    # #915: Issue has no denormalized ``status`` column (Task 12); the shared
+    # ``_current_status`` resolves the state from the workflow engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_issue(item_id, ctx)
@@ -6619,8 +6625,8 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_change_request(UUID(pk), ctx)
         return item.id, item.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_change_request(UUID(pk), ctx), "status", None)
+    # #915: ChangeRequest has no denormalized ``status`` column (Task 12); the
+    # shared ``_current_status`` resolves the state from the workflow engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_change_request(item_id, ctx)
