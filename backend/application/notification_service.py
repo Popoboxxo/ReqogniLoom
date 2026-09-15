@@ -20,6 +20,7 @@ from persistence.errors import NotFoundError
 from application.base import ServiceBase
 from application.models import Notification
 from application.notification_preference_service import NotificationPreferenceService
+from application.trace_link_service import resolve_artifact_id_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,85 @@ def notify_assigned(
         return 0
 
 
+def _get_definition(workspace_id: UUID, item_type: str):
+    """Return the active WorkflowDefinitionDTO. Isolated so tests can patch it."""
+    from workflow.definition_store import WorkflowDefinitionStore
+
+    return WorkflowDefinitionStore().get_definition(workspace_id, item_type)
+
+
+def _user_ids_with_roles(*, workspace_id: UUID, roles: Iterable[str]) -> list[UUID]:
+    """Return the ids of every non-suspended user holding one of *roles* here.
+
+    Workspace-scoped by design: a role is granted per workspace
+    (``auth_tenancy.UserRole``), so a global role lookup would notify people
+    who cannot act on this item at all.
+    """
+    from auth_tenancy.models import UserRole
+
+    return list(
+        UserRole.objects.filter(
+            workspace_id=workspace_id,
+            role__in=list(roles),
+            suspended_at__isnull=True,
+        )
+        .values_list("user_id", flat=True)
+        .distinct()
+    )
+
+
+def notify_transition_pending(
+    *,
+    item_id: UUID,
+    item_type: str,
+    workspace_id: UUID,
+    new_state: str,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+) -> int:
+    """Notify everyone who may act on the item's *next* transition (spec §5.1).
+
+    Role broadcast, not person-scoped routing — personalised assignment per
+    transition is explicitly Q2.5 scope (spec §6). Covers the KI-Vorschlag
+    ``proposed`` state with no special case: ``proposed -> draft`` and
+    ``proposed -> rejected`` are ordinary role-gated transitions.
+
+    Never raises: a notification must not break the transition it reacts to.
+    """
+    try:
+        definition = _get_definition(workspace_id, item_type)
+    except Exception:
+        logger.warning(
+            "notify_transition_pending: no workflow definition for workspace=%s type=%s",
+            workspace_id,
+            item_type,
+            exc_info=True,
+        )
+        return 0
+
+    roles: set[str] = set()
+    for transition in definition.transitions:
+        if transition.from_state == new_state:
+            roles.update(transition.allowed_roles or ())
+
+    if not roles:
+        return 0
+
+    try:
+        user_ids = _user_ids_with_roles(workspace_id=workspace_id, roles=roles)
+        return create_notifications(
+            user_ids=user_ids,
+            kind=Notification.KIND_TRANSITION_PENDING,
+            message=f"{item_type} is in state '{new_state}' and awaits your action",
+            artifact_id=resolve_artifact_id_or_none(item_id),
+            tenant_id=tenant_id,
+            exclude_user_id=actor_user_id,
+        )
+    except Exception:
+        logger.exception("notify_transition_pending failed for item %s", item_id)
+        return 0
+
+
 class NotificationService(ServiceBase):
     """Read side of the notification center."""
 
@@ -190,4 +270,5 @@ __all__ = [
     "NotificationService",
     "create_notifications",
     "notify_assigned",
+    "notify_transition_pending",
 ]

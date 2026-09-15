@@ -290,6 +290,22 @@ def transition(
         change_reason=change_reason,
     )
 
+    # Menschen-im-System spec §5.1: the single seam for transition_pending.
+    # This is the only non-test caller of perform_transition, so hooking here
+    # covers every transition — including `proposed -> draft`/`-> rejected`
+    # from the KI-Vorschlag-als-Zustand spec, which need no special case.
+    # Local import: the workflow engine must not import Layer 2 at module load.
+    from application.notification_service import notify_transition_pending
+
+    notify_transition_pending(
+        item_id=item_id_uuid,
+        item_type=item_type,
+        workspace_id=workspace_uuid,
+        new_state=outcome.new_state,
+        tenant_id=ctx.tenant_id,
+        actor_user_id=ctx.user_id,
+    )
+
     return TransitionResult(
         item_id=item_id_uuid,
         previous_state=outcome.previous_state,
