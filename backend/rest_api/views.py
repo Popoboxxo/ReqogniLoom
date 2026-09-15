@@ -91,6 +91,11 @@ from application.requirement_bundle_service import (
     RequirementBundleQueryService,
     describe_attribute_schema,
 )
+# GH-914: the trace-link proposal guard raises a service-local exception, like
+# BundleDepthExceededError above — imported from its own module rather than
+# re-exported through application.services (which only carries the shared
+# persistence-layer exceptions).
+from application.trace_link_service import AgentSelfConfirmError
 from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
@@ -164,6 +169,13 @@ _EXC_TO_HTTP: dict[type, int] = {
     # 500 branch below. 403, matching the established convention for this
     # exact exception (see presets/tests/test_gate_tenant_guard.py).
     CrossTenantWorkspaceError: status.HTTP_403_FORBIDDEN,
+    # GH-914: an agent that tries to confirm or discard its *own* proposal is a
+    # policy denial, not a server fault. The guard itself works (the service
+    # raises AgentSelfConfirmError), but the exception had no entry here, so
+    # the exact-type lookup below degraded it to the generic 500 fallback —
+    # indistinguishable from a real defect to every client. 403, matching the
+    # established convention for this class of denial.
+    AgentSelfConfirmError: status.HTTP_403_FORBIDDEN,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
 }
@@ -175,6 +187,11 @@ _EXC_TO_CODE: dict[type, str] = {
     BaselineGateBlockedError: "SE_AUDITOR_BLOCKED",
     PermissionDeniedError: "PERMISSION_DENIED",
     CrossTenantWorkspaceError: "PERMISSION_DENIED",
+    # GH-914: same 403 code as every other policy denial. Registering the type
+    # here is also what forwards the service's own message ("An AI agent may
+    # not confirm a proposed trace link.") to the client — a static domain
+    # sentence with no internals, exactly like PermissionDeniedError.
+    AgentSelfConfirmError: "PERMISSION_DENIED",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
 }

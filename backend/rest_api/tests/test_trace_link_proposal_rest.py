@@ -17,6 +17,10 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, ApiKey, UserRole
+from auth_tenancy.services.authentication import (
+    generate_api_key_plaintext,
+    hash_api_key,
+)
 from link_types.workspace_store import provision_workspace_link_types
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, TraceLink, User, Workspace
@@ -47,15 +51,25 @@ def tl_env(db):
         UserRole.objects.create(
             tenant=tenant, user=admin, workspace=workspace, role=ROLE_ADMIN
         )
+        plaintext = generate_api_key_plaintext()
         key = ApiKey.objects.create(
             tenant=tenant,
             user=admin,
             name="m2-bot",
-            key_hash="sha256p1:m2",
+            key_hash=hash_api_key(plaintext),
             principal_type="agent",
             agent_label="Claude Code",
         )
-        yield {"tenant": tenant, "workspace": workspace, "admin": admin, "key": key}
+        # GH-914: the plaintext is what lets a test authenticate AS the agent
+        # (``Authorization: Bearer reqlo_...``) instead of only impersonating
+        # its key row in the ``proposed_by`` column.
+        yield {
+            "tenant": tenant,
+            "workspace": workspace,
+            "admin": admin,
+            "key": key,
+            "agent_key": plaintext,
+        }
     finally:
         clear_request_tenant()
 
@@ -69,6 +83,13 @@ def _client(tl_env: dict) -> APIClient:
     )
     assert resp.status_code == 200, resp.content
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.json()['token']}")
+    return client
+
+
+def _agent_client(tl_env: dict) -> APIClient:
+    """An API client authenticated as the agent key itself (GH-914)."""
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tl_env['agent_key']}")
     return client
 
 
@@ -179,3 +200,50 @@ def test_confirm_unknown_link_is_404(tl_env):
     client = _client(tl_env)
     resp = client.post(f"/api/v1/trace-links/{uuid.uuid4()}/confirm/")
     assert resp.status_code == 404, resp.content
+
+
+# ---------------------------------------------------------------------------
+# GH-914: the agent self-confirm guard fired correctly in the service, but
+# ``AgentSelfConfirmError`` had no entry in the view layer's exception→status
+# map, so the exact-type lookup degraded it to the generic 500 handler. An
+# agent could then not tell "policy says no" apart from "the server is broken".
+# ---------------------------------------------------------------------------
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_agent_confirm_is_403_not_500(tl_env):
+    """An agent is refused with 403 — and the proposal survives untouched."""
+    client = _agent_client(tl_env)
+    link = _proposed_link(client, tl_env)
+
+    resp = client.post(f"/api/v1/trace-links/{link['id']}/confirm/")
+    assert resp.status_code == 403, resp.content
+    body = resp.json()["error"]
+    assert body["code"] == "PERMISSION_DENIED"
+    # GH-914: a clear, user-facing sentence, not the generic internal message.
+    assert "may not" in body["message"]
+    assert "internal error" not in body["message"].lower()
+
+    set_request_tenant(tl_env["tenant"].id)
+    try:
+        assert TraceLink.objects.get(id=link["id"]).is_proposal is True
+    finally:
+        clear_request_tenant()
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_agent_discard_is_403_not_500(tl_env):
+    """Same guard, same status on the discard path."""
+    client = _agent_client(tl_env)
+    link = _proposed_link(client, tl_env)
+
+    resp = client.post(f"/api/v1/trace-links/{link['id']}/discard/")
+    assert resp.status_code == 403, resp.content
+    body = resp.json()["error"]
+    assert body["code"] == "PERMISSION_DENIED"
+    assert "may not" in body["message"]
+    assert "internal error" not in body["message"].lower()
+
+    assert TraceLink.unscoped.filter(id=link["id"]).exists()
