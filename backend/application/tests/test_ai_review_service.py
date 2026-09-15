@@ -449,3 +449,106 @@ class TestReviewHandlesProviderTimeout:
             AiReviewService().review(workspace.id, ctx, tier="extended")
 
         assert "did not answer" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# #951 — the failure message must be stable, actionable and secret-free
+# ---------------------------------------------------------------------------
+
+#: Text shaped like the provider failures the issue reports (a 429 with an SDK
+#: error string). It must never reach the client verbatim.
+_RAW_PROVIDER_ERROR = (
+    "GoUsageLimitError: 429 rate limit exceeded for key sk-live-951-secret "
+    "(request-id req_abc123) at https://opencode.ai/zen/go/v1/chat/completions"
+)
+
+#: How `llm_adapter.resilient_transport` delivers a real timeout to the
+#: service: the terminal failure is wrapped and the reason text is preserved.
+_WRAPPED_TIMEOUT_ERROR = (
+    "LLM provider 'opencode_go' call failed (timeout): TimeoutError: operation "
+    "on 'llm:opencode_go' exceeded 180.0s timeout"
+)
+
+
+def _raise_from_provider(error: BaseException, provider_name: str = "opencode_go"):
+    """Return a get_provider replacement whose complete() raises *error*."""
+
+    class _FailingProvider:
+        PROVIDER_NAME = provider_name
+
+        def complete(self, prompt, *, purpose="", context=None, timeout=None):
+            raise error
+
+    return lambda *args, **kwargs: _FailingProvider()
+
+
+class TestReviewProviderFailureMessage:
+    """Issue #951: a failed provider call must be diagnosable and leak nothing.
+
+    The pre-#951 message interpolated the raw provider exception and named
+    ``settings.LLM_PROVIDER`` — the *environment* default, not the provider the
+    effective config actually selected — and always described the failure as a
+    timeout. Operators and agents got "provider 'mock' did not answer within
+    180s (Missing credentials ...)" for a credential error against
+    'opencode_go'.
+    """
+
+    def _review(self, tenant, workspace, ctx, monkeypatch, error, provider_name):
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider",
+            _raise_from_provider(error, provider_name),
+        )
+
+        with _active(tenant), pytest.raises(AiReviewResponseError) as exc_info:
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+        return str(exc_info.value)
+
+    def test_rate_limit_message_names_effective_provider_and_hides_raw_text(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        message = self._review(
+            tenant,
+            workspace,
+            ctx,
+            monkeypatch,
+            RuntimeError(_RAW_PROVIDER_ERROR),
+            "opencode_go",
+        )
+
+        # The provider that was actually called — `settings.LLM_PROVIDER` is
+        # 'mock' in the test environment, which is the misreport from #951.
+        assert "opencode_go" in message
+        assert "provider 'mock'" not in message
+        # CWE-209: no SDK internals, endpoint or credential material.
+        assert _RAW_PROVIDER_ERROR not in message
+        assert "sk-live-951-secret" not in message
+        assert "GoUsageLimitError" not in message
+        assert "chat/completions" not in message
+        # A non-timeout failure must not be described as one.
+        assert "did not answer" not in message
+        # ... but it must still be actionable.
+        assert "Check the provider configuration and credentials" in message
+
+    def test_wrapped_timeout_keeps_the_timeout_guidance_without_the_reason_text(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        from llm_adapter.resilient_transport import LlmTransportError
+
+        message = self._review(
+            tenant,
+            workspace,
+            ctx,
+            monkeypatch,
+            LlmTransportError(_WRAPPED_TIMEOUT_ERROR),
+            "opencode_go",
+        )
+
+        # #342's actionable timeout guidance survives the #951 change ...
+        assert "did not answer" in message
+        assert "LLM_LONG_RUNNING_TIMEOUT" in message
+        # ... without the raw transport reason text.
+        assert _WRAPPED_TIMEOUT_ERROR not in message
+        assert "operation on 'llm:opencode_go'" not in message

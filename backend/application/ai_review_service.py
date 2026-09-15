@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import UUID
@@ -69,6 +70,52 @@ AI_REVIEW_PROMPT_TEMPLATE = (
 # Prompt purpose name — must stay in the workspace-wide set of
 # ``llm_adapter.timeouts.WORKSPACE_WIDE_PURPOSES`` (issue #342).
 _AI_REVIEW_PURPOSE = "audit_ai_review"
+
+
+def _is_timeout_failure(error: BaseException) -> bool:
+    """Return True when *error* is, or wraps, a provider timeout (issue #951).
+
+    The timeout case gets its own message because the timeout budget is then
+    the actionable fact (see :func:`_failure_message`).
+    """
+    if isinstance(error, (TimeoutError, socket.timeout)):
+        return True
+    # A real outbound call fails inside ``llm_adapter.resilient_transport``,
+    # which wraps the terminal failure in an ``LlmTransportError`` and
+    # deliberately preserves the reason text ("Carries the final error text
+    # (including any HTTP status token) so the CapabilityRouter's message-based
+    # categorisation still applies"). The resilience taxonomy's own
+    # ``TimeoutError`` is *not* a ``builtins.TimeoutError`` subclass, so that
+    # reason text is the only timeout signal that survives the wrapper.
+    return "timeout" in str(error).lower()
+
+
+def _failure_message(provider_name: str, error: BaseException, timeout: float) -> str:
+    """Build the client-facing ``AiReviewResponseError`` message (issue #951).
+
+    The raw provider exception is deliberately NOT interpolated: SDK errors
+    routinely carry endpoint details, request/response fragments or credential
+    hints, and this message travels to the MCP client and the REST caller
+    (CWE-209). The full detail is logged by the caller instead, and the caller
+    gets a stable, actionable sentence naming the provider that actually
+    answered the call — the pre-#951 message named ``settings.LLM_PROVIDER``
+    (the *environment* default), which can differ from the effective provider
+    when a tenant's persisted ``LlmSettings`` row overrides it, and described
+    every failure as a timeout so a credential/429 error read as "did not
+    answer within 180s".
+    """
+    if _is_timeout_failure(error):
+        return (
+            f"The LLM provider '{provider_name}' did not answer the ai_review "
+            f"request within {timeout:.0f}s. Narrow the request "
+            "(scope=document) or raise LLM_LONG_RUNNING_TIMEOUT."
+        )
+    return (
+        f"The LLM provider '{provider_name}' failed to answer the ai_review "
+        "request. Check the provider configuration and credentials (LLM "
+        "settings), or switch to the credential-free mock provider "
+        "(LLM_PROVIDER=mock); the provider error is in the server log."
+    )
 
 
 class AiReviewResponseError(RuntimeError):
@@ -364,6 +411,14 @@ class AiReviewService(ServiceBase):
             provider = MockLlmProvider()
             provider_name = "mock"
             degraded = True
+        else:
+            # #951: ``settings.LLM_PROVIDER`` is only the *environment*
+            # default. A tenant's persisted ``LlmSettings`` row wins over it
+            # (``llm_adapter.providers._apply_db_settings``), so the env value
+            # can name a provider that was never called — the reported failure
+            # said "provider 'mock'" while the call actually went to
+            # 'opencode_go'. Report the provider that is really in use.
+            provider_name = getattr(provider, "PROVIDER_NAME", provider_name)
 
         if not degraded and is_over_daily_limit():
             audit_logger.log_llm_call(
@@ -393,6 +448,10 @@ class AiReviewService(ServiceBase):
                 provider_name,
                 timeout,
                 error,
+                # #951: the raw provider detail is the diagnostic — keep it in
+                # the log (this is what the issue's "nicht diagnostizierbar"
+                # complaint was about) and out of the client-facing message.
+                exc_info=True,
             )
             if not degraded:
                 audit_logger.log_llm_call(
@@ -404,10 +463,7 @@ class AiReviewService(ServiceBase):
                     error=str(error),
                 )
             raise AiReviewResponseError(
-                f"The LLM provider '{provider_name}' did not answer the "
-                f"ai_review request within {timeout:.0f}s ({error}). "
-                "Narrow the request (scope=document) or raise "
-                "LLM_LONG_RUNNING_TIMEOUT."
+                _failure_message(provider_name, error, timeout)
             ) from error
 
         if not degraded:
