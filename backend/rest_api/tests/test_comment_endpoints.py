@@ -138,6 +138,49 @@ def test_destroy_returns_204(factory):
     assert response.status_code == 204
 
 
+def test_collection_list_returns_405_not_500(factory):
+    """``GET /api/v1/comments/`` is router-registered but unimplemented.
+
+    Before the fix it reached ``BaseEntityViewSet.list`` and crashed with an
+    HTML 500 (NotImplementedError). It must answer a clean 405 instead.
+    """
+    request = _authed(factory.get("/api/v1/comments/"))
+
+    response = CommentViewSet.as_view({"get": "list"})(request)
+
+    assert response.status_code == 405
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_collection_create_returns_405_not_500(factory):
+    """``POST /api/v1/comments/`` must 405: comments are created per artifact."""
+    request = _authed(factory.post("/api/v1/comments/", {"text": "hi"}, format="json"))
+
+    response = CommentViewSet.as_view({"post": "create"})(request)
+
+    assert response.status_code == 405
+
+
+def test_detail_retrieve_returns_405_not_500(factory):
+    """``GET /api/v1/comments/<pk>/`` must 405, not crash the base stub."""
+    comment_id = uuid.uuid4()
+    request = _authed(factory.get(f"/api/v1/comments/{comment_id}/"))
+
+    response = CommentViewSet.as_view({"get": "retrieve"})(request, pk=str(comment_id))
+
+    assert response.status_code == 405
+
+
+def test_detail_partial_update_returns_405_not_500(factory):
+    """``PATCH /api/v1/comments/<pk>/`` must 405: comments are immutable."""
+    comment_id = uuid.uuid4()
+    request = _authed(factory.patch(f"/api/v1/comments/{comment_id}/", {}, format="json"))
+
+    response = CommentViewSet.as_view({"patch": "partial_update"})(request, pk=str(comment_id))
+
+    assert response.status_code == 405
+
+
 def test_module_contains_no_orm_access():
     """rest_api ORM ratchet: views delegate to Layer 2 (ADR-01)."""
     from pathlib import Path
