@@ -169,7 +169,7 @@ Plan #6 Task 7 Step 1 — still valid verbatim.
   (`:71-74`) — the ordering guarantee is what makes the policy land after the base RLS extension.
 
 **Verification:** `application/tests/test_collaboration_rls.py` (4 cases) from Plan #6 Task 8 Step 1,
-plus `docker compose ... exec backend python manage.py migrate` returning cleanly.
+plus `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . run --rm migrate python manage.py migrate` returning cleanly.
 
 **Depends on:** Task 7.
 
@@ -594,7 +594,7 @@ tenant.
 (d) the same user reading the row in a different tenant/workspace context still sees the **same**
 single row — this is what "user-global" means (§9, A1).
 Plus `persistence/tests/test_rls_coverage.py` green and
-`docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py migrate`
+`docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . run --rm migrate python manage.py migrate`
 returning cleanly.
 
 **Depends on:** —
@@ -1005,9 +1005,19 @@ Migrations (the DB **owner** role, not the least-privilege app role, is required
 migrations — the compose test/backend service already uses `DB_USER=reqogniloom`):
 
 ```bash
+# makemigrations is local codegen (no DDL); the app container is fine for it.
 docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py makemigrations <app> --name <name>
-docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py migrate
+# `migrate` applies DDL and data migrations and must NOT run through `exec backend`
+# (that is the least-privilege application role). Run the one-shot `migrate`
+# service, which runs as the DB owner role, together with the deploy override:
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . run --rm migrate python manage.py migrate
 ```
+
+> **Corrected 2026-09-15 (Chunk 1 finding).** The previous
+> `exec backend python manage.py migrate` line was wrong: `exec` runs the command in the
+> long-lived `backend` container under the least-privilege application DB role, which cannot
+> apply DDL/data migrations. Use the `run --rm migrate` form above. The same correction was
+> applied to Task 8's and Task 26's verification commands.
 
 MCP manifest regeneration (required after Task 17):
 
