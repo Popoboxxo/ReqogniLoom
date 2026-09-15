@@ -28,6 +28,12 @@ vi.mock("./DiffPanel", () => ({
 vi.mock("./TracePanel", () => ({
   TracePanel: () => <div data-testid="stub-trace-panel" />,
 }));
+// CommentPanel is stubbed for the same isolation reason as the three panels
+// above: the shell test exercises layout/collapse only, and the real panel
+// would fetch comments from the API.
+vi.mock("./CommentPanel", () => ({
+  CommentPanel: () => <div data-testid="stub-comment-panel" />,
+}));
 // InterviewProvenanceBadge is NOT mocked -- it renders for real inside
 // RightSidebar (Task 10 mount point). Default to no provenance so every
 // pre-existing test in this file, which never renders inside a Router,

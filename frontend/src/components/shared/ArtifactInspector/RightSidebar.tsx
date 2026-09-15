@@ -32,6 +32,7 @@ import { InterviewProvenanceBadge } from "../InterviewProvenanceBadge";
 import { VersionPanel } from "./VersionPanel";
 import { DiffPanel } from "./DiffPanel";
 import { TracePanel } from "./TracePanel";
+import { CommentPanel } from "./CommentPanel";
 import type { ArtifactKind, VersionRef } from "./types";
 import styles from "./RightSidebar.module.css";
 
@@ -471,6 +472,7 @@ export function RightSidebar({
               rightVersion={diffRight}
             />
             {!hideTraceLinks && <TracePanel kind={kind} artifactId={artifactId} />}
+            <CommentPanel kind={kind} artifactId={String(artifactId)} />
           </div>
           {renderResizeHandle()}
         </>
