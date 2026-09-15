@@ -25,6 +25,7 @@ import { searchApi, type SearchHit } from "../../api/search";
 import { versionApi, type VersionInfo } from "../../api/version";
 import { workspacesApi } from "../../api/workspaces";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
+import { NotificationBell } from "./NotificationBell";
 import type { Workspace } from "../../types";
 import styles from "./SidebarNavigation.module.css";
 
@@ -749,6 +750,7 @@ export function SidebarNavigation(): JSX.Element {
         >
           {mode === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
         </button>
+        <NotificationBell />
         {/* Personal Access Tokens — workspace-independent, always reachable (REQ-L2-RF-027) */}
         <button
           data-testid="nav-profile"
