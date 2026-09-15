@@ -504,10 +504,18 @@ export default function ArchitectureEditors(): JSX.Element {
             border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
           }}
         >
-          <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
+          {/* #955: the input carried no id/name/aria-label and this label had
+              no `htmlFor`, so the field had no accessible name — only a
+              placeholder. Mirrors the description field's `htmlFor`/`id` pair
+              right below. */}
+          <label
+            htmlFor="arch-new-title"
+            style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}
+          >
             {t('editor.title', 'Title')}
           </label>
           <input
+            id="arch-new-title"
             data-testid="arch-new-title-input"
             ref={newTitleInputRef}
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus

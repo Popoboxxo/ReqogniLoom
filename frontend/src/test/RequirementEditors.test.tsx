@@ -1081,3 +1081,49 @@ describe("RequirementEditors — role-gated write controls (R2/T1)", () => {
     });
   });
 });
+
+/**
+ * Issue #955 — the requirement create dialog is modal (`aria-modal="true"`)
+ * but was measured with `aria-label: null`. The shared <Dialog> primitive
+ * derives the accessible name from its `title` prop via `aria-labelledby`,
+ * so the call site has to pass a real, translated title.
+ */
+describe("RequirementEditors — create dialog accessible name (issue #955)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("exposes the create dialog under its translated title", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+
+    expect(screen.getByTestId("req-new-dialog")).toHaveAccessibleName(
+      /new requirement|neue anforderung/i
+    );
+  });
+});

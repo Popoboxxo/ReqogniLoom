@@ -211,3 +211,31 @@ describe("UserManagement", () => {
     expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Issue #955 — the create-user dialog is modal (`aria-modal="true"`) but was
+ * measured with `aria-label: null`. The shared <Dialog> primitive derives the
+ * accessible name from its `title` prop via `aria-labelledby`, so the call
+ * site has to pass a real, translated title.
+ */
+describe("UserManagement — create dialog accessible name (issue #955)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(usersApi.list).mockResolvedValue(USERS);
+    mockAuth(true);
+  });
+
+  it("exposes the create-user dialog under its translated title", async () => {
+    render(<UserManagement />);
+    await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("user-management-create-btn"));
+
+    expect(
+      screen.getByTestId("user-management-create-dialog")
+    ).toHaveAccessibleName(
+      resolveLocaleKey("settings.userManagement.createUser") ?? ""
+    );
+  });
+});

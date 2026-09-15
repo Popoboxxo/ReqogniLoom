@@ -89,6 +89,18 @@ describe("InterviewWidget", () => {
     expect(screen.queryByTestId("interview-widget-panel")).not.toBeInTheDocument();
   });
 
+  // Issue #955: the FAB renders nothing but the 💬 glyph, so its accessible
+  // name has to come from an explicit label — the emoji alone is announced as
+  // a generic speech balloon.
+  it("gives the icon-only toggle a translated accessible name", () => {
+    renderWidget();
+    const toggle = screen.getByTestId("interview-widget-toggle");
+    expect(toggle).toHaveAccessibleName(
+      /open interview assistant|interview-assistent öffnen/i
+    );
+    expect(toggle.querySelector('[aria-hidden="true"]')).not.toBeNull();
+  });
+
   // Issue #679: direct `window.localStorage` access threw an unhandled
   // TypeError/SecurityError in storage-restricted environments (private
   // browsing, third-party-cookie lockouts, some JSDOM setups) and froze the

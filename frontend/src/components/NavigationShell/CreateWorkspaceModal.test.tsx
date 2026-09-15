@@ -155,3 +155,21 @@ describe("CreateWorkspaceModal — field-level validation error visibility (BUG-
     });
   });
 });
+
+/**
+ * Issue #955 — the workspace-create dialog is modal (`aria-modal="true"`) but
+ * was measured with `aria-label: null`. The shared <Dialog> primitive derives
+ * the accessible name from its `title` prop via `aria-labelledby`, so the call
+ * site has to pass a real, translated title.
+ */
+describe("CreateWorkspaceModal — accessible name (issue #955)", () => {
+  it("exposes the dialog under its translated title", async () => {
+    await i18n.changeLanguage("de");
+
+    render(<CreateWorkspaceModal isOpen={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    expect(screen.getByTestId("create-workspace-modal")).toHaveAccessibleName(
+      i18n.t("workspaceCreate.title")
+    );
+  });
+});
