@@ -1455,9 +1455,30 @@ class TraceLinkService(ServiceBase):
         return flagged
 
 
+def resolve_artifact_id_or_none(entity_id: UUID) -> Optional[UUID]:
+    """Best-effort business-entity id -> Artifact id, ``None`` on a miss.
+
+    Menschen-im-System spec §5: notifications reference the generic Artifact,
+    but their producers (workflow engine, the ten update services) hold
+    business-entity ids. Reuses ``TraceLinkService.resolve_entity_to_artifact_id``
+    — the public wrapper added by fix #264 — instead of adding a twelfth place
+    that has to learn about every new artifact type; reaching into the private
+    ``_resolve_artifact_id`` is exactly what #264 fixed (the recurring root
+    cause of #237 / #264 / #407).
+
+    Returns None instead of raising: a missing Artifact must never break the
+    mutation that triggered the notification.
+    """
+    try:
+        return TraceLinkService().resolve_entity_to_artifact_id(entity_id)
+    except NotFoundError:
+        return None
+
+
 __all__ = [
     "TraceLinkService",
     "SimilarTraceLinkDTO",
     "VALID_LINK_TYPES",
     "MANUAL_LINK_TYPES",
+    "resolve_artifact_id_or_none",
 ]
