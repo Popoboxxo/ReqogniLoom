@@ -91,6 +91,7 @@ from rest_api.diagram_views import DiagramViewSet
 from rest_api.icd_views import IcdViewSet
 from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
+from rest_api.notification_preference_views import NotificationPreferenceView
 from rest_api.preference_views import UserPreferenceView
 from rest_api.user_management_views import UserViewSet
 from rest_api.prompt_variable_views import (
@@ -406,6 +407,14 @@ urlpatterns = [
         "users/me/preferences/",
         UserPreferenceView.as_view(),
         name="user-preferences",
+    ),
+    # Notification delivery preferences (OD-1, 2026-09-15) — the caller's own
+    # opt-out switches over the four notification triggers. Same self-service
+    # shape as users/me/preferences/ directly above.
+    path(
+        "users/me/notification-preferences/",
+        NotificationPreferenceView.as_view(),
+        name="user-notification-preferences",
     ),
     # Theme Presets — the caller's own theme choice (GET/PUT).
     # NOTE: must precede any other users/me/ pattern that could shadow it.
