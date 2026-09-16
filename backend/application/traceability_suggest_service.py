@@ -692,7 +692,7 @@ class TraceabilitySuggestService(ServiceBase):
                 )
             raise SuggestLinksResponseError(
                 f"The LLM provider '{provider_name}' did not answer the "
-                f"suggest_links request within {timeout:.0f}s ({error}). "
+                f"suggest_links request within {timeout:.0f}s. "
                 "Narrow the request (scope=document) or raise "
                 "LLM_LONG_RUNNING_TIMEOUT."
             ) from error

@@ -390,11 +390,20 @@ export const apiClient = {
     });
   },
 
-  patch<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
+  patch<T>(
+    path: string,
+    body: unknown,
+    timeoutMs?: number,
+    headers?: Record<string, string>
+  ): Promise<T> {
     return apiFetch<T>(path, {
       method: "PATCH",
       body: JSON.stringify(body),
       timeoutMs,
+      // GH-868: callers use this for the ``If-Match`` precondition header (see
+      // requirementsApi.update). Omitted → the request is byte-identical to
+      // before, so no existing caller changes behaviour.
+      ...(headers ? { headers } : {}),
     });
   },
 

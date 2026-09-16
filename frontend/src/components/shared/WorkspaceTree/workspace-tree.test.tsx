@@ -26,6 +26,8 @@ import {
 import userEvent from '@testing-library/user-event';
 import { WorkspaceTree } from './workspace-tree';
 import type { WorkspaceTreeNode, WorkspaceTreeProps } from './workspace-tree';
+import { WorkspaceTreeStateProvider } from '../../../context/WorkspaceTreeStateContext';
+import styles from './workspace-tree.module.css';
 
 // Issue #676: WorkspaceTree resolves its own label defaults through i18n now,
 // so `t` has to exist. Echoing the key back (repo-wide test convention, cf.
@@ -306,6 +308,40 @@ describe('WorkspaceTree — hidden-selection marker (#668)', () => {
     );
   });
 
+  // Issue #668: the marker is a *visual* cue, not just the machine-readable
+  // data attribute — it has to come from the design system (a CSS-module class
+  // on a token), not from inline chrome the selected row also owns.
+  it('applies the design-system highlight class to the collapsed ancestor', async () => {
+    await renderWithCollapsedSelectedParent();
+
+    const row = screen.getByTestId('workspace-tree-node-child1');
+    expect(row).toHaveClass(styles.treeRow);
+    expect(row).toHaveClass(styles.treeRowHasActiveDescendant);
+    // "contains the selection" must never read as "is the selection".
+    expect(row).not.toHaveClass(styles.treeRowSelected);
+  });
+
+  it('uses the solid selected class for the selected row itself', async () => {
+    renderTree({ nodes: TREE_NODES, selectedId: 'grandchild' });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+    });
+
+    const selected = screen.getByTestId('workspace-tree-node-grandchild');
+    expect(selected).toHaveClass(styles.treeRowSelected);
+    expect(selected).not.toHaveClass(styles.treeRowHasActiveDescendant);
+  });
+
+  it('gives a plain row the hoverable class, not a selection class', () => {
+    renderTree({ nodes: TREE_NODES, selectedId: 'grandchild' });
+
+    const plain = screen.getByTestId('workspace-tree-node-child2');
+    expect(plain).toHaveClass(styles.treeRow);
+    expect(plain).toHaveClass(styles.treeRowHoverable);
+    expect(plain).not.toHaveClass(styles.treeRowSelected);
+    expect(plain).not.toHaveClass(styles.treeRowHasActiveDescendant);
+  });
+
   it('does not mark an expanded ancestor — the selection is visible there', async () => {
     renderTree({ nodes: TREE_NODES, selectedId: 'grandchild' });
     await waitFor(() => {
@@ -337,6 +373,91 @@ describe('WorkspaceTree — hidden-selection marker (#668)', () => {
     expect(
       screen.getByTestId('workspace-tree-node-child1'),
     ).not.toHaveAttribute('data-contains-selection');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #665 — expand state survives an unmount (sidebar section switch)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — persisted expand state (#665)', () => {
+  /**
+   * Mirrors the real topology: the provider lives above the routed pages and
+   * stays mounted while the section's tree unmounts/re-mounts.
+   */
+  function TreeHarness({
+    show,
+    stateKey,
+  }: {
+    show: boolean;
+    stateKey?: string;
+  }): JSX.Element {
+    return (
+      <WorkspaceTreeStateProvider>
+        {show && (
+          <WorkspaceTree
+            nodes={TREE_NODES}
+            onSelect={vi.fn()}
+            showSearch={false}
+            stateKey={stateKey}
+          />
+        )}
+      </WorkspaceTreeStateProvider>
+    );
+  }
+
+  it('remembers an opened branch across unmount/remount', async () => {
+    const { rerender } = render(<TreeHarness show stateKey="requirements" />);
+    // Only roots auto-expand, so open a second level by hand.
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+    expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+
+    rerender(<TreeHarness show={false} stateKey="requirements" />);
+    rerender(<TreeHarness show stateKey="requirements" />);
+
+    // A remount without the store would fall back to roots-only and hide the
+    // grandchild again — the exact reset a section switch used to cause.
+    expect(screen.getByTestId('workspace-tree-node-child1')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+  });
+
+  it('restores an explicitly collapsed root instead of re-expanding it', async () => {
+    const { rerender } = render(<TreeHarness show stateKey="requirements" />);
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-root'));
+
+    rerender(<TreeHarness show={false} stateKey="requirements" />);
+    rerender(<TreeHarness show stateKey="requirements" />);
+
+    expect(screen.getByTestId('workspace-tree-node-root')).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.queryByTestId('workspace-tree-node-child1')).not.toBeInTheDocument();
+  });
+
+  it('keeps separate expand state per stateKey', async () => {
+    const { rerender } = render(<TreeHarness show stateKey="requirements" />);
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+    expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+
+    // Section switch: the tree unmounts, then mounts under another key. It
+    // starts from its own (empty) snapshot, not the requirements one.
+    rerender(<TreeHarness show={false} stateKey="requirements" />);
+    rerender(<TreeHarness show stateKey="architecture" />);
+    expect(screen.queryByTestId('workspace-tree-node-grandchild')).not.toBeInTheDocument();
+  });
+
+  it('does not persist anything without a stateKey', async () => {
+    const { rerender } = render(<TreeHarness show />);
+    await userEvent.click(screen.getByTestId('workspace-tree-toggle-child1'));
+    expect(screen.getByTestId('workspace-tree-node-grandchild')).toBeInTheDocument();
+
+    rerender(<TreeHarness show={false} />);
+    rerender(<TreeHarness show />);
+    expect(screen.queryByTestId('workspace-tree-node-grandchild')).not.toBeInTheDocument();
   });
 });
 
@@ -415,6 +536,13 @@ describe('WorkspaceTree — hierarchical expand/collapse', () => {
 // ---------------------------------------------------------------------------
 
 describe('WorkspaceTree — internal search', () => {
+  // Issue #666: the built-in search is opt-in now — a caller that already has
+  // search (ListToolbar, the sidebar) cannot accidentally show a third field.
+  it('does not render the search box by default', () => {
+    render(<WorkspaceTree nodes={FLAT_NODES} onSelect={vi.fn()} />);
+    expect(screen.queryByTestId('workspace-tree-search')).not.toBeInTheDocument();
+  });
+
   it('renders search box when showSearch=true', () => {
     render(<WorkspaceTree nodes={FLAT_NODES} onSelect={vi.fn()} showSearch={true} />);
     expect(screen.getByTestId('workspace-tree-search')).toBeInTheDocument();

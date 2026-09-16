@@ -102,6 +102,10 @@ from auth_tenancy.context import AuthContext, AuthMethod
 
 **Passwort-Login:**
 - `POST /api/v1/auth/login/` → JWT + httpOnly-Cookie `reqflow_access` (REQ-052)
+- Der `token` im Response-Body ist seit #696 **deprecated** (nur für E2E-/API-Tooling;
+  die SPA nutzt ausschließlich das Cookie). Per `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False`
+  (Default `True` = unverändertes Verhalten) lässt er sich abschalten; solange er
+  ausgeliefert wird, trägt die Response den Header `Deprecation: true` (RFC 9745).
 - `manage.py seed_demo` erstellt Admin-Account
 
 **Test-Coverage:** 115+ Tests (auth, RBAC, tenant-isolation, JWT, Rollen-Resolution)

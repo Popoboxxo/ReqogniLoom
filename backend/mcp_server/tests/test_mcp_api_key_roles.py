@@ -151,10 +151,30 @@ def _get_bearer_token() -> str:
     return token
 
 
+def _error_message(data: dict) -> str:
+    """Return the message of the project's error envelope.
+
+    REQ-L2-RA-009 standardises every REST error body as
+    ``{"error": {"code": ..., "message": ..., "details": [...]}}``
+    (``rest_api.serializers.build_error_response``). Reading ``message`` off
+    the top level — as ``_create_api_key`` used to — always yields ``""``, so
+    the 400 that names the active-key limit was never recognised and the
+    revoke-and-retry never fired.
+    """
+    error = data.get("error")
+    return error.get("message", "") if isinstance(error, dict) else ""
+
+
 def _revoke_all_active_keys(bearer: str) -> None:
     """Revoke all non-revoked API keys for the authenticated user.
 
     Call this when the 10-key limit is reached to free slots.
+
+    Every revoke is verified, because a silently failed one leaves the key
+    active: the caller's retry would then fail with the very same limit error
+    and hide the real cause. A per-request status assertion catches a rejected
+    revoke, and the final re-list catches a 204 that did not actually free the
+    slot.
     """
     list_status, list_data = _http_request(
         f"{REST_URL}/api-keys/",
@@ -164,11 +184,32 @@ def _revoke_all_active_keys(bearer: str) -> None:
     keys = list_data if isinstance(list_data, list) else []
     active_keys = [k for k in keys if not k.get("revoked", True)]
     for key in active_keys:
-        _http_request(
+        revoke_status, revoke_data = _http_request(
             f"{REST_URL}/api-keys/{key['id']}/",
             method="DELETE",
             headers={"Authorization": f"Bearer {bearer}"},
         )
+        assert revoke_status in (200, 204), (
+            f"Revoking API key {key.get('name')!r} failed: "
+            f"{revoke_status} {revoke_data}"
+        )
+
+    # A revoke that answers success but leaves the key active would make the
+    # retry in _create_api_key fail with a misleading limit error.
+    verify_status, verify_data = _http_request(
+        f"{REST_URL}/api-keys/",
+        headers={"Authorization": f"Bearer {bearer}"},
+    )
+    assert verify_status == 200, f"List API keys after revoke failed: {verify_status}"
+    still_active = [
+        k
+        for k in (verify_data if isinstance(verify_data, list) else [])
+        if not k.get("revoked", True)
+    ]
+    assert not still_active, (
+        f"{len(still_active)} API key(s) still active after revoking "
+        f"{len(active_keys)}: {[k.get('name') for k in still_active]}"
+    )
 
 
 def _create_api_key(bearer: str, name: str) -> str:
@@ -182,7 +223,7 @@ def _create_api_key(bearer: str, name: str) -> str:
         headers={"Authorization": f"Bearer {bearer}"},
         data={"name": name},
     )
-    if status == 400 and "maximum" in str(data.get("message", "")):
+    if status == 400 and "maximum" in _error_message(data):
         # Key limit reached — revoke all active keys to free slots
         _revoke_all_active_keys(bearer)
         # Retry creation

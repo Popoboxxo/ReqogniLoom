@@ -171,3 +171,38 @@ class TestDocumentedQueryParameters:
         assert params["q"]["required"] is True
         assert params["workspace_id"]["required"] is True
         assert {"type", "page", "limit"}.issubset(set(params))
+
+
+# ---------------------------------------------------------------------------
+# #696 — the login body token is deprecated and must say so
+# ---------------------------------------------------------------------------
+
+
+class TestLoginBodyTokenDeprecation:
+    """#696 (review C-3): clients must be able to discover the deprecation.
+
+    The `token` field of the login response body stays for API/CI tooling, but
+    an undocumented deprecation is invisible to generated clients — they would
+    keep wiring it into JavaScript and re-open the XSS vector REQ-052 closed.
+    """
+
+    LOGIN_PATH = "/api/v1/auth/login/"
+
+    def test_login_documents_deprecation_and_the_opt_out_flag(
+        self, openapi_schema: dict
+    ) -> None:
+        post = openapi_schema["paths"][self.LOGIN_PATH]["post"]
+        description = post.get("description", "")
+
+        assert "DEPRECATED" in description
+        assert "AUTH_LOGIN_INCLUDE_BODY_TOKEN" in description
+
+    def test_login_documents_the_cookie_as_the_supported_path(
+        self, openapi_schema: dict
+    ) -> None:
+        post = openapi_schema["paths"][self.LOGIN_PATH]["post"]
+        description = post.get("description", "")
+
+        assert "reqogniloom_access" in description
+        # The 401 contract (REQ-L3-AT001-004) stays documented.
+        assert "401" in post.get("responses", {})

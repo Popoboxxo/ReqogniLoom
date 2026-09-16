@@ -28,6 +28,7 @@ import { ListToolbar } from '../shared/ListToolbar';
 import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import { ArtifactRow } from '../shared/ArtifactRow';
+import type { ArtifactRowAttribute } from '../shared/ArtifactRow';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { EmptyState } from '../shared/EmptyState';
 import { Requirement, RequirementType, UUID } from '../../types';
@@ -91,11 +92,19 @@ function reqLevelPrefix(level?: number | null): string {
  *   (issue #169 — "SR" abbreviation without legend).
  * @param levelLabel - Spelled-out label for `req.level` (e.g. from
  *   `t('reqLevel.L1')`), appended to the tooltip (issue #394).
+ * @param typeShort - Concise, *evident* badge text for `req.type` (issue
+ *   #807, e.g. "System" instead of the cryptic "SR"). Falls back to the
+ *   legacy abbreviation when not supplied.
  */
-function reqToNode(req: Requirement, typeLabel?: string, levelLabel?: string): WorkspaceTreeNode {
+function reqToNode(
+  req: Requirement,
+  typeLabel?: string,
+  levelLabel?: string,
+  typeShort?: string,
+): WorkspaceTreeNode {
   const badge = req.type
     ? {
-        text: reqLevelPrefix(req.level) + getTypeBadgeAbbreviation(req.type),
+        text: reqLevelPrefix(req.level) + (typeShort ?? getTypeBadgeAbbreviation(req.type)),
         bg: getTypeColor(req.type),
         color: getTypeTextColor(req.type),
         title: levelLabel ? `${levelLabel} · ${typeLabel ?? ''}` : typeLabel,
@@ -107,6 +116,12 @@ function reqToNode(req: Requirement, typeLabel?: string, levelLabel?: string): W
     parentId: req.parent_id ?? null,
     badge,
   };
+}
+
+/** Local date (no time) for the row's "Last updated" attribute (issue #804). */
+function formatUpdatedAt(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString();
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +246,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           req,
           req.type ? t(`reqType.${req.type}`) : undefined,
           req.level != null ? t(`reqLevel.L${req.level}`) : undefined,
+          req.type ? t(`reqTypeShort.${req.type}`) : undefined,
         ),
       ),
     [visibleRequirements, t],
@@ -439,17 +455,56 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           selectedId={selectedId}
           onSelect={onSelect}
           showSearch={false}
+          // Issue #665: remember which branches were open so a sidebar section
+          // switch (which unmounts this tree) does not reset it.
+          stateKey="requirements"
           virtualize
-          // Task 3.1: <ArtifactRow>'s two-line id/title layout is taller
-          // than WorkspaceTree's default single-line row estimate (34px);
-          // override it so virtualized rows (>100 items, REQ-091) don't
-          // overlap.
-          virtualRowHeight={64}
+          // Task 3.1: <ArtifactRow>'s multi-line layout (title, labelled
+          // identifier, SE-attribute line — issue #804) is taller than
+          // WorkspaceTree's default single-line row estimate (34px); override
+          // it so virtualized rows (>100 items, REQ-091) don't overlap.
+          virtualRowHeight={88}
           emptyLabel={t('editor.empty')}
           noMatchesLabel={t('editor.noMatches')}
           renderRow={(node, { isSelected }) => {
             const req = reqById.get(node.id);
             if (!req) return null;
+            // Issue #807: a concise, self-explaining type label ("System")
+            // instead of the cryptic abbreviation ("SR"); the spelled-out
+            // `reqType.*` text stays the tooltip/aria-label.
+            const typeShort = req.type ? t(`reqTypeShort.${req.type}`) : undefined;
+            // Issue #804: the SE classification a reviewer compares at a
+            // glance. Built from fields the list payload already carries —
+            // trace-link counts are not part of it, so they are not shown
+            // rather than faked.
+            const attributes: ArtifactRowAttribute[] = [
+              {
+                label: t('editor.category'),
+                value: req.category
+                  ? t(`categories.${req.category}`, { defaultValue: req.category })
+                  : null,
+              },
+              {
+                label: t('editor.level'),
+                value: req.level != null ? t(`reqLevel.L${req.level}`) : null,
+              },
+              {
+                label: t('editor.verificationMethod'),
+                value: req.verification_method
+                  ? t(`verificationMethod.${req.verification_method}`, {
+                      defaultValue: req.verification_method,
+                    })
+                  : null,
+              },
+              {
+                label: t('editor.complexityFibonacci'),
+                value: req.complexity_fibonacci ?? null,
+              },
+              {
+                label: t('editor.sortUpdatedDesc'),
+                value: req.updated_at ? formatUpdatedAt(req.updated_at) : null,
+              },
+            ];
             return (
               <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 'var(--space-1)' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -458,7 +513,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     idFallback={req.id.slice(0, 8)}
                     levelLabel={
                       req.type
-                        ? reqLevelPrefix(req.level) + getTypeBadgeAbbreviation(req.type)
+                        ? reqLevelPrefix(req.level) + (typeShort ?? getTypeBadgeAbbreviation(req.type))
                         : undefined
                     }
                     levelTitle={
@@ -472,6 +527,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     status={req.status}
                     statusLabel={getWorkflowStatusLabel(req.status)}
                     version={req.version}
+                    attributes={attributes}
                     selected={isSelected}
                     testId={`req-row-${req.id}`}
                   />

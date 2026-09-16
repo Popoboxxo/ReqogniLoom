@@ -567,6 +567,33 @@ class TestCapabilityRouterSyncExecution:
         assert result["error"]["code"] == "LLM_PROVIDER_ERROR"
         assert "rate limit" in result["error"]["message"].lower()
 
+    def test_unclassified_provider_error_never_echoes_the_exception(self):
+        """#697 (CWE-209): only *classified* failures get a specific message.
+
+        An unrecognised provider/plumbing exception used to be forwarded
+        verbatim as ``error.message`` — including SDK internals and connection
+        details. It is now logged/audited and replaced by a static message,
+        while the classified branches above keep their actionable text.
+        """
+        from llm_adapter.router import CapabilityRouter
+        from llm_adapter.audit_logger import LlmAuditLogger
+
+        sensitive = (
+            "OperationalError: could not connect to server: "
+            "host=db.internal user=reqogniloom_app password=***"
+        )
+        audit = MagicMock(spec=LlmAuditLogger)
+        router = CapabilityRouter(enabled_capabilities={"validate_artifact"}, audit_logger=audit)
+
+        with patch("llm_adapter.router.get_provider", side_effect=RuntimeError(sensitive)):
+            result = router.execute_capability("validate_artifact", artifact_id="x")
+
+        assert result["error"]["code"] == "LLM_PROVIDER_ERROR"
+        assert result["error"]["message"] == "The LLM provider reported an error."
+        assert sensitive not in str(result)
+        # The operator still gets the cause: the audit call keeps the raw text.
+        assert sensitive in str(audit.log_llm_call.call_args)
+
 
 class TestCapabilityRouterAsyncDispatch:
     """REQ-L2-LA-008, REQ-L3-LA003-001: async routing."""

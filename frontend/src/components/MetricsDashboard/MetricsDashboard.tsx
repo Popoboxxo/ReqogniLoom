@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { metricsApi, type MetricsResult } from "../../api/metrics";
 import { PageHeader } from "../shared/PageHeader";
+import styles from "./MetricsDashboard.module.css";
 
 // ---------------------------------------------------------------------------
 // Tile model
@@ -679,24 +680,13 @@ export default function MetricsDashboard(): JSX.Element {
       ) : isLoading && !metrics ? (
         <p data-testid="metrics-loading">{t("loading", "Loading...")}</p>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            // GESAMTTEST_BERICHT_2026-08-21.md §6 "SE-Metrics orphaned grid
-            // row": with `1fr` tracks, `auto-fit` collapses the unused
-            // column tracks on a partially-filled last row and stretches
-            // the remaining item(s) to fill the freed space — at widths
-            // that fit exactly 4 of the 5 TILES per row, the 5th tile alone
-            // on row 2 stretched to the FULL row width instead of matching
-            // row 1's card size. Capping the track max width keeps every
-            // card the same size regardless of row fill, and
-            // `justify-content: center` centers a short last row instead of
-            // leaving it pinned to the left with a large empty gap.
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 320px))",
-            justifyContent: "center",
-            gap: "var(--space-4)",
-          }}
-        >
+        /* #809/#806: the tile grid's responsive column contract (1/3/5
+           columns — never a lone tile on a short row, always a full-width
+           row) lives in MetricsDashboard.module.css. An inline capped
+           `repeat(auto-fit, minmax(260px, 320px))` template left the fifth
+           tile alone on a second row at the viewport widths that fit exactly
+           four tracks. */
+        <div className={styles.tileGrid} data-testid="metrics-tile-grid">
           {TILES.map((spec) => (
             <MetricTile
               key={spec.name}
@@ -714,6 +704,7 @@ export default function MetricsDashboard(): JSX.Element {
 
       {metrics && (
         <div
+          data-testid="metrics-scope-footer"
           style={{
             marginTop: "var(--space-6)",
             padding: "var(--space-3) var(--space-4)",

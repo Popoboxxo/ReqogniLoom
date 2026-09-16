@@ -88,7 +88,7 @@
     "languageSessionOnly": "Language changed for your view only. Ask a workspace admin to change it for everyone.",
     "languageSaveFailed": "Could not save the workspace language. Your view was updated, but the change was not saved.",
     "interviews": "Interviews",
-    "searchPlaceholder": "Search...",
+    "searchPlaceholder": "Search all artifacts …",
     "optionalArtifacts": "Optional Artifacts",
     "searching": "Searching...",
     "mainNavigation": "Main navigation",
@@ -982,11 +982,26 @@
     "SWReq": "Software Requirement (SWReq)",
     "HWReq": "Hardware Requirement (HWReq)"
   },
+  "reqTypeShort": {
+    "StReq": "Stakeholder",
+    "SyReq": "System",
+    "UseCase": "Use Case",
+    "FeatureReq": "Feature",
+    "SWReq": "Software",
+    "HWReq": "Hardware"
+  },
   "reqLevel": {
     "L1": "L1 System",
     "L2": "L2 Subsystem",
     "L3": "L3 Component",
     "L4": "L4 Presentation"
+  },
+  "verificationMethod": {
+    "Test": "Test",
+    "Review": "Review",
+    "Analysis": "Analysis",
+    "Inspection": "Inspection",
+    "Demonstration": "Demonstration"
   },
   "testRuns": {
     "create": "New Test Run",
@@ -1767,7 +1782,8 @@
     }
   },
   "artifactId": {
-    "term": "identifier"
+    "term": "identifier",
+    "shortLabel": "ID"
   },
   "revealValue": {
     "copy": "Copy value",
@@ -2163,9 +2179,15 @@
     "changeReasonRequired": "Please provide a change reason."
   },
   "sections": {
+    "identification": "Identification",
+    "content": "Content",
     "general": "General",
     "classification": "Classification",
+    "attribution": "Attribution",
+    "verification": "Verification",
+    "traceability": "Traceability",
     "change_control": "Change control",
+    "type_specific": "Type-specific",
     "custom": "Custom fields"
   },
   "attributes": {

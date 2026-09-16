@@ -1,6 +1,7 @@
 """
 MCP Tool Group for Stakeholder Needs.
 """
+import logging
 from typing import Any, Dict, Optional
 
 from application.ai_derivation_service import AiDerivationService
@@ -28,6 +29,8 @@ from mcp_server.tools.system_fields import (
     apply_system_fields,
     system_field_values,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _need_to_dict(n: Any) -> dict:
@@ -394,8 +397,10 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 "incoming_traces": [{"source": str(t.entity_id), "type": t.link_type} for t in incoming],
                 "outgoing_traces": [{"target": str(t.entity_id), "type": t.link_type} for t in outgoing],
             })
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("needs.get_traces failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_derive(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
@@ -446,8 +451,10 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 ctx=auth_context,
                 reason=reason,
             )
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("needs.outdate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,
@@ -488,8 +495,10 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
             )
         except ValueError as exc:
             return ToolResult.error("INVALID_STATE", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("needs.reactivate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,

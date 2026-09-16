@@ -35,6 +35,7 @@ from auth_tenancy.models import (
     ROLE_EDITOR,
 )
 from auth_tenancy.services import (
+    NO_RULE_REASON,
     ItemPermissionService,
     PermissionCache,
 )
@@ -300,6 +301,36 @@ def test_list_permissions_requires_admin_role(editor_ctx, tenant_a, user_a, work
 
 
 # ---------------------------------------------------------------------------
+# PermissionDecision — structured rule discriminator (#722)
+# ---------------------------------------------------------------------------
+
+
+def test_permission_decision_defaults_to_rule_backed():
+    """A decision built without the flag counts as rule-backed.
+
+    Fail-closed direction: unknown origin is treated as "an item rule spoke",
+    which can only further restrict a combined answer, never broaden it.
+    """
+    decision = PermissionDecision(level=ITEM_PERMISSION_READ, reason="ad hoc")
+
+    assert decision.has_explicit_rule is True
+
+
+def test_permission_decision_flag_is_independent_of_reason_text():
+    """``reason`` is display text; the flag carries the decision (#722)."""
+    silent = PermissionDecision(
+        level="deny", reason=NO_RULE_REASON, has_explicit_rule=False
+    )
+    rule_backed = PermissionDecision(
+        level="deny", reason=NO_RULE_REASON, has_explicit_rule=True
+    )
+
+    assert silent.has_explicit_rule is not rule_backed.has_explicit_rule
+    assert silent.level == rule_backed.level
+    assert silent.reason == rule_backed.reason
+
+
+# ---------------------------------------------------------------------------
 # Integration tests — DB-backed, exercise the full service surface
 # ---------------------------------------------------------------------------
 
@@ -415,6 +446,9 @@ def test_check_permission_no_rule_returns_deny(
         )
     assert decision.level == "deny"
     assert decision.is_allowed is False
+    # Closed-world default: no rule row was evaluated (#722).
+    assert decision.has_explicit_rule is False
+    assert decision.reason == NO_RULE_REASON
 
 
 @pytest.mark.django_db
@@ -447,6 +481,7 @@ def test_check_permission_artifact_rule_overrides_workspace_default(
         )
     assert decision.level == ITEM_PERMISSION_WRITE
     assert "artifact-scoped" in decision.reason
+    assert decision.has_explicit_rule is True
 
 
 @pytest.mark.django_db
@@ -471,6 +506,7 @@ def test_check_permission_workspace_default_fallback(
         )
     assert decision.level == ITEM_PERMISSION_READ
     assert "workspace-wide" in decision.reason
+    assert decision.has_explicit_rule is True
 
 
 @pytest.mark.django_db
@@ -495,6 +531,44 @@ def test_check_permission_explicit_deny(
         )
     assert decision.level == "deny"
     assert decision.is_allowed is False
+    # Explicit deny is rule-backed, unlike the closed-world default that
+    # shares the same ``level`` (#722).
+    assert decision.has_explicit_rule is True
+
+
+@pytest.mark.django_db
+def test_check_permission_discriminator_is_structural_not_textual(
+    admin_ctx, tenant_a, user_a, workspace_a, artifact_a
+):
+    """#722 Finding 1: ``has_explicit_rule`` — not the ``reason`` text —
+    separates "no rule applies" from "an explicit rule denies", even though
+    both decisions share ``level='deny'``."""
+    svc = ItemPermissionService()
+    with active_tenant(tenant_a):
+        no_rule = svc.check_permission(
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=artifact_a.id,
+        )
+        svc.grant_permission(
+            admin_ctx,
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=artifact_a.id,
+            level=ITEM_PERMISSION_NONE,
+            granted_by_user_id=user_a.id,
+        )
+        explicit_deny = svc.check_permission(
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=artifact_a.id,
+        )
+
+    assert no_rule.level == explicit_deny.level == "deny"
+    assert no_rule.has_explicit_rule is False
+    assert explicit_deny.has_explicit_rule is True
+    assert no_rule.reason == NO_RULE_REASON
+    assert explicit_deny.reason != NO_RULE_REASON
 
 
 @pytest.mark.django_db

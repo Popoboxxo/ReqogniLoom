@@ -47,6 +47,24 @@
   min-width: 0;
 }
 
+/* Issue #807: the visible "ID" label in front of the short identifier, so a
+   hash never reads as the artifact's name. */
+.idGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.idLabel {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
 .meta {
   display: flex;
   align-items: center;
@@ -54,10 +72,43 @@
 }
 
 .title {
+  flex: 1;
+  min-width: 0;
   font-size: var(--font-size-lg);
   line-height: var(--leading-tight);
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Issue #804: compact SE-attribute line. A single, clipped line (rather than
+   a wrapping one) keeps the row height bounded for the virtualized lists that
+   estimate it — see the component docstring. */
+.attributes {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.attribute {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+}
+
+.attributeLabel {
+  color: var(--color-text-muted);
+}
+
+.attributeValue {
+  font-weight: var(--weight-medium);
 }

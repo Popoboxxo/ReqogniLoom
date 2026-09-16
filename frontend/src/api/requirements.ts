@@ -162,11 +162,32 @@ export const requirementsApi = {
   // fixed Pick declared), not a fixed compile-time-known set — the backend's
   // own per-field 400s remain the actual validation authority (see
   // `RequirementViewSet.partial_update` / `_validate_patch_payload`).
+  //
+  // GH-868 / bundle #923: `expectedVersion` is the `version` the caller last
+  // read (the detail GET's `requirement.version`). It is sent as the
+  // `If-Match` precondition, so the backend compares it inside its row-locked
+  // transaction and answers `412 PRECONDITION_FAILED` when another session
+  // changed the requirement in the meantime — a lost update becomes a visible
+  // failure instead of a silent overwrite. Omitting it keeps last-writer-wins.
+  //
+  // The tag is `"<version>"` because that is exactly the `ETag` the backend
+  // issues (`rest_api.mixins.etag.compute_etag`), so no extra GET (and no
+  // CORS-exposed response header) is needed to obtain it. Should that format
+  // ever drift, the failure direction is a 412 and a lost save — never a
+  // silent overwrite.
   update(
     id: UUID,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
+    expectedVersion?: number
   ): Promise<Requirement> {
-    return apiClient.patch<Requirement>(`/requirements/${id}/`, data);
+    return apiClient.patch<Requirement>(
+      `/requirements/${id}/`,
+      data,
+      undefined,
+      expectedVersion !== undefined
+        ? { "If-Match": `"${expectedVersion}"` }
+        : undefined
+    );
   },
 
   /** REQ-143: GET the current workflow state and allowed next transitions. */

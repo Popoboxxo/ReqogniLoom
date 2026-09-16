@@ -218,7 +218,7 @@ class TestBaselineAuditGateWiring:
         mock_audit.assert_not_called()
         mock_build.assert_not_called()
 
-    def test_auditor_malfunction_fails_closed(self):
+    def test_auditor_malfunction_fails_closed(self, caplog):
         """GH-400: an internal auditor error must BLOCK the build, not open the gate.
 
         Regression test for the fail-open bug: the gate used to catch any
@@ -226,6 +226,10 @@ class TestBaselineAuditGateWiring:
         log it, and let the baseline build proceed as if the audit had come
         back clean. A security/compliance gate must fail closed when its own
         evaluation is unreliable.
+
+        #697 (CWE-209): failing closed must not mean handing the caller the
+        auditor's raw exception text — that message travels in the HTTP 400
+        body. The stable reason reaches the client; the cause reaches the log.
         """
         facade = BaselineFacade()
         ctx = _make_ctx()
@@ -243,13 +247,19 @@ class TestBaselineAuditGateWiring:
             patch("baseline.services.build") as mock_build,
             patch("application.baseline_facade.ServiceBase._audit"),
             patch("application.baseline_facade.ServiceBase._emit_event"),
+            caplog.at_level("ERROR"),
         ):
             with pytest.raises(ValidationError) as exc_info:
                 facade.create_baseline(
                     scope="project", workspace_id=WS_ID, name="v1", ctx=ctx
                 )
 
-        assert "engine exploded" in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "could not be evaluated due to an internal error" in message
+        assert "engine exploded" not in message
+        assert "RuntimeError" not in message
+        # The operator still gets the cause.
+        assert "engine exploded" in caplog.text
         mock_build.assert_not_called()
 
     def test_warnings_do_not_block(self):

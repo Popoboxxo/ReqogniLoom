@@ -256,4 +256,29 @@ describe("MetricsDashboard", () => {
       expect(refreshBtn.textContent).toBe("Refresh");
     });
   });
+
+  // ---------------------------------------------------------------------
+  // #809/#806: the five tiles must render as children of the single,
+  // CSS-Module-owned responsive grid — not into an inline, fixed-column
+  // template (which laid the fifth tile out alone on a second row). The
+  // column contract itself is asserted in
+  // `src/test/responsive-card-grids.test.ts`.
+  // ---------------------------------------------------------------------
+  describe("KPI grid layout (#809)", () => {
+    it("renders all five tiles into one class-based grid container without inline layout", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metric-tile-coverage");
+      const tiles = screen.getAllByTestId(/^metric-tile-/);
+      expect(tiles).toHaveLength(5);
+
+      const grid = tiles[0].parentElement;
+      expect(grid).not.toBeNull();
+      expect(tiles.every((tile) => tile.parentElement === grid)).toBe(true);
+      // Layout is owned by MetricsDashboard.module.css (`.tileGrid`), so the
+      // container must carry that class and no inline grid template.
+      expect(grid!.className).not.toBe("");
+      expect(grid!.getAttribute("style")).toBeNull();
+    });
+  });
 });

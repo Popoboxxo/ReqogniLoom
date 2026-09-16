@@ -631,8 +631,10 @@ class RequirementsToolGroup(BaseToolGroup):
                 ctx=auth_context,
                 reason=reason,
             )
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("requirement.outdate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,
@@ -677,8 +679,10 @@ class RequirementsToolGroup(BaseToolGroup):
             )
         except ValueError as exc:
             return ToolResult.error("INVALID_STATE", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("requirement.reactivate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,
@@ -825,8 +829,10 @@ class RequirementsToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("requirement.check_consistency failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,
@@ -867,8 +873,10 @@ class RequirementsToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("requirement.check_consistency_status failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         return ToolResult.ok(result)
 
@@ -907,8 +915,10 @@ class RequirementsToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("requirement.validate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,

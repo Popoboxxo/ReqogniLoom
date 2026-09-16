@@ -28,13 +28,14 @@
  * instead of firing blind on mount.
  */
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { BrowserRouter, useNavigate } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./queries/queryClient";
 import { readCookie } from "./api/client";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
+import { WorkspaceTreeStateProvider } from "./context/WorkspaceTreeStateContext";
 import { LinkTypeProvider } from "./context/LinkTypeContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { NavigationShell } from "./components/NavigationShell/NavigationShell";
@@ -84,6 +85,30 @@ export function CsrfCookieWarning(): JSX.Element | null {
 }
 
 // ---------------------------------------------------------------------------
+// Issue #665 — tree-state store, scoped per workspace
+//
+// `WorkspaceTree`'s expand state is remembered by section (see
+// `WorkspaceTreeStateContext`) so switching sidebar sections no longer resets
+// the in-page tree. Keying the provider on the active workspace discards that
+// memory when the workspace changes instead of carrying one workspace's tree
+// layout into another.
+// ---------------------------------------------------------------------------
+
+function WorkspaceScopedTreeState({
+  children,
+}: {
+  children: ReactNode;
+}): JSX.Element {
+  const { activeWorkspace } = useWorkspace();
+
+  return (
+    <WorkspaceTreeStateProvider key={activeWorkspace?.id ?? "none"}>
+      {children}
+    </WorkspaceTreeStateProvider>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Inner wrapper — needs Router context to call useNavigate
 // ---------------------------------------------------------------------------
 
@@ -102,9 +127,11 @@ function AppInner(): JSX.Element {
       <CsrfCookieWarning />
       <ThemeProvider>
         <WorkspaceProvider>
-          <LinkTypeProvider>
-            <NavigationShell />
-          </LinkTypeProvider>
+          <WorkspaceScopedTreeState>
+            <LinkTypeProvider>
+              <NavigationShell />
+            </LinkTypeProvider>
+          </WorkspaceScopedTreeState>
         </WorkspaceProvider>
       </ThemeProvider>
     </AuthProvider>

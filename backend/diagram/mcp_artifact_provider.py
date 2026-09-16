@@ -22,8 +22,11 @@ REQ-L3-MAP-001 acceptance criteria:
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -213,11 +216,15 @@ class McpArtifactProvider:
 
         try:
             result = self._manager.get_diagram(parsed_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             # Translate any manager-layer exception into a standardised MCP error.
+            # #697 (CWE-209): the cause is logged, not echoed — `Diagram.DoesNotExist`
+            # and a driver error are indistinguishable to the caller, and only the
+            # former has a message that is safe to surface.
+            logger.exception("Diagram artifact provider: get_diagram failed for %s", parsed_id)
             return _error_response(
                 str(diagram_id),
-                f"Diagram '{diagram_id}' not found or inaccessible: {exc}",
+                f"Diagram '{diagram_id}' not found or inaccessible.",
             )
 
         # result is a DiagramResult dataclass (see manager.py)

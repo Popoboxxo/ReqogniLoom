@@ -19,6 +19,18 @@
  * Rendered through a portal into `document.body` so no ancestor
  * `overflow`, `transform` or `z-index` (SplitView panels, sticky headers)
  * can clip it.
+ *
+ * Issue #874 — smartphone presentation. There is deliberately no separate
+ * `ResponsiveDialog` component: the transform from centred modal to bottom
+ * sheet below 640px is a *presentation* of the same panel, so it lives in
+ * this primitive's stylesheet and every one of the ~28 call sites benefits
+ * from one change instead of each dialog opting in. The only markup the sheet
+ * adds is the decorative drag handle below (which is also what carries the
+ * swipe-to-dismiss gesture); ARIA, focus order and the portal target are
+ * byte-for-byte the same as the desktop dialog, so #955/#873 behaviour is not
+ * affected at any viewport width. See docs/UI_KONZEPT.md §16.3 for the two
+ * deliberate deviations from the issue's wording (no `ResponsiveDialog.tsx`
+ * file, 44px instead of 48px touch targets).
  */
 
 import {
@@ -33,6 +45,7 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useFocusTrap } from "./use-focus-trap";
+import { useSheetViewport, useSwipeToDismiss } from "./use-sheet-gestures";
 import styles from "./Dialog.module.css";
 
 export interface DialogProps {
@@ -84,6 +97,18 @@ export function Dialog({
     initialFocusRef,
   });
 
+  // Issue #874: the bottom sheet's two JS half-parts. The viewport mirror is
+  // unconditional (it is a no-op above the sheet breakpoint and where
+  // `visualViewport` does not exist); the swipe is tied to the dialog's
+  // dismissibility so a dialog that sets `closeOnBackdropClick={false}` — e.g.
+  // a delete confirmation with a mutation in flight — cannot be swiped away
+  // either.
+  useSheetViewport(panelRef);
+  const swipeHandlers = useSwipeToDismiss({
+    onDismiss: onClose,
+    enabled: closeOnBackdropClick,
+  });
+
   // While a modal is open the page behind it must not scroll away under
   // the scrim. The previous value is restored so nested dialogs and views
   // that already locked scrolling are not disturbed.
@@ -127,6 +152,18 @@ export function Dialog({
         data-testid={testId}
         tabIndex={-1}
       >
+        {/* Issue #874: the bottom-sheet grabber. `display: none` above the
+            640px breakpoint, so it is invisible on desktop/tablet; where it
+            is visible it is a pure affordance — `aria-hidden` keeps it out of
+            the accessibility tree and it carries no `tabIndex`, so the focus
+            trap's first Tab stop is unchanged (`#800`). */}
+        <div
+          className={styles.handle}
+          data-testid={`${testId}-handle`}
+          aria-hidden="true"
+          {...swipeHandlers}
+        />
+
         <div className={styles.header}>
           <h2 id={titleId} className={styles.title}>
             {title}

@@ -104,6 +104,17 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "A conflict occurred with existing data.",
         "de": "Es ist ein Konflikt mit vorhandenen Daten aufgetreten.",
     },
+    # GH-868/GH-923: a failed ``If-Match`` precondition (stale ETag). Kept
+    # distinct from CONFLICT so a client can tell the two optimistic-locking
+    # mechanisms apart: 412 PRECONDITION_FAILED = the ``If-Match`` header lost,
+    # 409 CONFLICT = the legacy ``expected_version`` body field lost.
+    "PRECONDITION_FAILED": {
+        "en": "The resource changed since it was last read; re-read it and retry.",
+        "de": (
+            "Die Ressource wurde seit dem letzten Lesen geändert; lesen Sie sie "
+            "erneut und wiederholen Sie den Vorgang."
+        ),
+    },
     "PRESET_FIELD_REQUIRED": {
         "en": "This field is required by the active workspace preset.",
         "de": "Dieses Feld ist durch das aktive Workspace-Preset erforderlich.",

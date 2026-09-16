@@ -88,20 +88,20 @@ describe("AuthContext session restore (REQ-052)", () => {
 
   it("never writes the access token to sessionStorage on login", async () => {
     const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        if (url.endsWith("/auth/me/")) {
-          return { ok: false, status: 401, json: async () => ({}) } as Response;
-        }
-        // /auth/login/
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ token: "secret-jwt", user: MOCK_USER, tenant_id: "t-1", roles: ["admin"] }),
-        } as Response;
-      }) as typeof fetch
-    );
+    let loginOptions: RequestInit | undefined;
+    const fetchSpy = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/auth/login/")) loginOptions = options;
+      if (url.endsWith("/auth/me/")) {
+        return { ok: false, status: 401, json: async () => ({}) } as Response;
+      }
+      // /auth/login/
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ token: "secret-jwt", user: MOCK_USER, tenant_id: "t-1", roles: ["admin"] }),
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
 
     let loginFn: ((c: { username: string; password: string }) => Promise<void>) | null = null;
     function LoginCapture(): JSX.Element {
@@ -122,6 +122,55 @@ describe("AuthContext session restore (REQ-052)", () => {
       ([key, value]) => key === "reqflow_token" || String(value).includes("secret-jwt")
     );
     expect(tokenWrites).toEqual([]);
+
+    // The credential travels as an httpOnly cookie, not through JS state.
+    expect(loginOptions?.credentials).toBe("same-origin");
+  });
+
+  it("authenticates when the login response body carries no token (#696)", async () => {
+    // Post-deprecation shape: the httpOnly cookie carries the credential and
+    // the body has no `token` field at all. The SPA must still log in.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/auth/me/")) {
+          // Never settles: the mount-time session restore must not race the
+          // login assertion (it would otherwise resolve to anonymous).
+          return new Promise<Response>(() => undefined);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            user: MOCK_USER,
+            tenant_id: "t-1",
+            roles: ["admin"],
+            is_tenant_admin: true,
+          }),
+        } as Response);
+      }) as unknown as typeof fetch
+    );
+
+    let loginFn: ((c: { username: string; password: string }) => Promise<void>) | null = null;
+    function LoginCapture(): JSX.Element {
+      loginFn = useAuth().login;
+      return <StatusProbe />;
+    }
+    render(
+      <AuthProvider>
+        <LoginCapture />
+      </AuthProvider>
+    );
+
+    await vi.waitFor(() => expect(loginFn).not.toBeNull());
+    await expect(
+      loginFn!({ username: "tester", password: "pw" })
+    ).resolves.toBeUndefined();
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("status").textContent).toBe("authenticated");
+    });
+    expect(screen.getByTestId("username").textContent).toBe("tester");
   });
 });
 

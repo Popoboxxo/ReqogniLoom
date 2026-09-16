@@ -36,6 +36,33 @@ The chosen balance, and why:
   and it is NOT cleared by a successful login — otherwise one valid account
   would be enough to reset the spray budget.
 
+**Finding 3 (GitHub #944) — the ceilings are runtime-configurable.** Every rate
+below is resolved through :func:`admin_ops.rate_limits.resolve_rate`, so an
+admin can change a limit without a redeploy:
+
+    tenant override  >  global override  >  settings/env  >  disabled
+
+``DynamicRateThrottle`` re-reads the rate on every request (not at class
+definition time), which is what makes that possible.
+
+**Failure policy — fail-open on a cache outage.** The counters live in the
+default cache (Redis in production). If that cache is unreachable the throttle
+cannot count, and this module deliberately lets the request through rather than
+raising or denying:
+
+* the throttle is a DoS *mitigation*, not an authorization boundary —
+  authentication, RBAC and API-key scoping are enforced independently and are
+  unaffected by a cache outage;
+* the cache is also what backs sessions and the rest of the framework, so a
+  Redis outage is already an availability incident. Turning it into a hard
+  API-wide 503 (fail-closed) would make the outage strictly worse, and would
+  brick local development and the test suite whenever Redis hiccups.
+
+The window is logged at WARNING on every refused-cache access, and the residual
+risk is explicit: for as long as the cache is down, rate limits are not
+enforced. The same policy governs ``mcp_server.throttling``, which delegates to
+the classes here.
+
 All rates are configurable via environment variables (see
 ``settings.REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']``); an empty value disables
 the corresponding throttle.
@@ -43,12 +70,18 @@ the corresponding throttle.
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+import logging
+from typing import Any, Optional
+from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
 from rest_framework.request import Request
 from rest_framework.settings import api_settings
 from rest_framework.throttling import SimpleRateThrottle
+
+from auth_tenancy.context import AuthMethod
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AuthContextAnonRateThrottle",
@@ -80,10 +113,20 @@ class DynamicRateThrottle(SimpleRateThrottle):
 
     Reading ``api_settings`` inside ``get_rate`` costs one dict lookup per
     request and removes the import-order dependency entirely.
+
+    Since #944 ``get_rate`` only describes the *settings* layer. The effective
+    rate is applied per request by :meth:`_refresh_rate`, which layers the
+    runtime overrides on top; ``allow_request`` calls it before delegating, so
+    a limit changed through the admin API takes effect on the very next
+    request.
     """
 
     def get_rate(self) -> str | None:
-        """Current rate for ``self.scope``, honouring live settings changes."""
+        """Current *settings* rate for ``self.scope``, honouring live overrides.
+
+        This is precedence layer 3 only — the runtime layers are applied in
+        :meth:`_refresh_rate`, which is what callers should rely on.
+        """
         scope = getattr(self, "scope", None)
         if not scope:
             raise ImproperlyConfigured(
@@ -96,20 +139,86 @@ class DynamicRateThrottle(SimpleRateThrottle):
                 f"No throttle rate set for '{scope}' in DEFAULT_THROTTLE_RATES."
             ) from exc
 
+    def _refresh_rate(self, request: Any) -> None:
+        """Apply the *effective* rate (runtime override > settings) for this request.
 
-def _auth_user_id(request: Any) -> str | None:
-    """Identity of the caller, or ``None`` when the request is anonymous.
+        ``SimpleRateThrottle.__init__`` resolves the rate before the request is
+        available, so ``self.rate`` there is always the settings layer. This
+        method is the request-aware second pass; ``num_requests``/``duration``
+        are re-parsed together with it so the three never disagree.
+
+        Never raises: :func:`admin_ops.rate_limits.resolve_rate` already
+        degrades to the settings value on any lookup failure, and a throttle
+        must not be the thing that turns a cache blip into a 500.
+        """
+        scope = getattr(self, "scope", None)
+        if not scope:
+            return
+        from admin_ops.rate_limits import resolve_rate
+
+        rate = resolve_rate(scope, tenant_id=_tenant_id(request), default=self.rate)
+        if rate != self.rate:
+            self.rate = rate
+            self.num_requests, self.duration = self.parse_rate(rate)
+
+    def allow_request(self, request: Any, view: Any) -> bool:
+        """Resolve the effective rate, then count — fail-open if the cache is down."""
+        self._refresh_rate(request)
+        try:
+            return super().allow_request(request, view)
+        except Exception:  # noqa: BLE001 - documented fail-open policy, see module docstring
+            logger.warning(
+                "rate limiting cache unavailable for scope %r; allowing request "
+                "(fail-open) — limits are NOT enforced until the cache recovers",
+                getattr(self, "scope", None),
+                exc_info=True,
+            )
+            return True
+
+
+def _tenant_id(request: Any) -> Optional[UUID]:
+    """Tenant of the request, or ``None`` when it has no auth context.
+
+    Anonymous REST requests (schema, health, login, refresh) and every MCP
+    request reach the throttle without a tenant; they simply start at the
+    global-override layer instead of the tenant one.
+    """
+    ctx = getattr(request, "auth_context", None)
+    tenant_id = getattr(ctx, "tenant_id", None)
+    return tenant_id if isinstance(tenant_id, UUID) else None
+
+
+def _auth_identity(request: Any) -> str | None:
+    """Rate-limit bucket identity of the caller, or ``None`` when anonymous.
+
+    Identification order, per #944: **API key > authenticated user > IP** (the
+    IP fallback lives in :class:`AuthContextAnonRateThrottle`).
+
+    API keys come first on purpose. A key is the credential the caller actually
+    presented, and one user may hand out several of them (a CI key and an agent
+    key); keying those on the owning user would silently merge their budgets, so
+    one noisy script could exhaust the interactive client's allowance — the same
+    defect class #269 finding 2 describes for the login endpoint. It also makes
+    per-key ceilings observable, which is what the MCP side already does.
 
     Sourced from ``request.auth_context`` (set by ``AuthTenancyAuthentication``)
     rather than from ``request.user``, which is a bare ``UUID`` here.
     """
     ctx = getattr(request, "auth_context", None)
+    if ctx is None:
+        return None
+
+    if getattr(ctx, "auth_method", None) == AuthMethod.API_KEY:
+        api_key_id = getattr(ctx, "api_key_id", None)
+        if api_key_id is not None:
+            return f"key:{api_key_id}"
+
     user_id = getattr(ctx, "user_id", None)
-    return str(user_id) if user_id is not None else None
+    return f"user:{user_id}" if user_id is not None else None
 
 
 class AuthContextUserRateThrottle(DynamicRateThrottle):
-    """Per-user cap for every authenticated endpoint (#269 finding 1).
+    """Per-caller cap for every authenticated endpoint (#269 finding 1).
 
     Returns ``None`` (= not applicable) for anonymous requests so
     :class:`AuthContextAnonRateThrottle` handles those; the two are listed
@@ -120,10 +229,10 @@ class AuthContextUserRateThrottle(DynamicRateThrottle):
     scope = "user"
 
     def get_cache_key(self, request: Request, view: Any) -> str | None:
-        user_id = _auth_user_id(request)
-        if user_id is None:
+        ident = _auth_identity(request)
+        if ident is None:
             return None
-        return self.cache_format % {"scope": self.scope, "ident": user_id}
+        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 class AuthContextAnonRateThrottle(DynamicRateThrottle):
@@ -139,7 +248,7 @@ class AuthContextAnonRateThrottle(DynamicRateThrottle):
     scope = "anon"
 
     def get_cache_key(self, request: Request, view: Any) -> str | None:
-        if _auth_user_id(request) is not None:
+        if _auth_identity(request) is not None:
             return None
         return self.cache_format % {
             "scope": self.scope,
@@ -160,6 +269,7 @@ class _FailureCountingThrottle(DynamicRateThrottle):
 
     def allow_request(self, request: Request, view: Any) -> bool:
         """Deny when the bucket for this request's key is already full."""
+        self._refresh_rate(request)
         if self.rate is None:
             return True
 
@@ -167,39 +277,84 @@ class _FailureCountingThrottle(DynamicRateThrottle):
         if self.key is None:
             return True
 
-        self.history = self._recent_history(self.key)
+        history = self._recent_history(self.key)
+        if history is None:
+            # Cache unavailable - fail open (see the module docstring).
+            return True
+        self.history = history
         self.now = self.timer()
         if len(self.history) >= self.num_requests:
             return self.throttle_failure()
         # NOTE: deliberately no throttle_success() — see the class docstring.
         return True
 
-    def _recent_history(self, key: str) -> list[float]:
-        """Cached timestamps for *key*, minus the ones outside the window."""
-        history = list(self.cache.get(key, []))
+    def _recent_history(self, key: str) -> list[float] | None:
+        """Cached timestamps for *key*, minus the ones outside the window.
+
+        Returns ``None`` when the cache could not be read at all, which every
+        caller treats as "fail open" — see the module docstring for why letting
+        the request through is the safer default for this project. It is worth
+        distinguishing from ``[]``: an empty history means "no failures
+        recorded", which with a ``0/min`` rate is already a refusal, whereas an
+        unreadable history must never be.
+        """
+        try:
+            history = list(self.cache.get(key, []))
+        except Exception:  # noqa: BLE001 - documented fail-open policy
+            logger.warning(
+                "rate limiting cache unavailable for scope %r; cannot read "
+                "failure bucket (fail-open)",
+                getattr(self, "scope", None),
+                exc_info=True,
+            )
+            return None
         now = self.timer()
         while history and history[-1] <= now - self.duration:
             history.pop()
         return history
 
+    def _cache_set(self, key: str, history: list[float]) -> None:
+        """Best-effort counter write — a cache outage must not 500 a login."""
+        try:
+            self.cache.set(key, history, self.duration)
+        except Exception:  # noqa: BLE001 - documented fail-open policy
+            logger.warning(
+                "rate limiting cache unavailable for scope %r; failed attempt "
+                "not counted (fail-open)",
+                getattr(self, "scope", None),
+                exc_info=True,
+            )
+
     def record_failure(self, request: Request, view: Any = None) -> None:
         """Charge one failed attempt against this request's bucket."""
+        self._refresh_rate(request)
         if self.rate is None:
             return
         key = self.get_cache_key(request, view)
         if key is None:
             return
         history = self._recent_history(key)
+        if history is None:
+            return
         history.insert(0, self.timer())
-        self.cache.set(key, history, self.duration)
+        self._cache_set(key, history)
 
     def reset(self, request: Request, view: Any = None) -> None:
         """Clear this request's bucket (called after a successful login)."""
+        self._refresh_rate(request)
         if self.rate is None:
             return
         key = self.get_cache_key(request, view)
         if key is not None:
-            self.cache.delete(key)
+            try:
+                self.cache.delete(key)
+            except Exception:  # noqa: BLE001 - documented fail-open policy
+                logger.warning(
+                    "rate limiting cache unavailable; could not clear bucket "
+                    "for scope %r",
+                    getattr(self, "scope", None),
+                    exc_info=True,
+                )
 
     def wait(self) -> float | None:
         """Seconds until the oldest recorded failure leaves the window."""

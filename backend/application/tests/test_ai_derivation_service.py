@@ -321,6 +321,111 @@ def test_suggest_architecture_already_assigned_is_validation_error(
         AiDerivationService().suggest_architecture_for_requirement(auth_context, req.id)
 
 
+def test_suggest_architecture_accepts_offered_element_objects(
+    auth_context, workspace, monkeypatch
+):
+    """Issue #825: an answer echoing the offered element object is not empty.
+
+    A real provider frequently returns the whole architecture-element object
+    from the prompt instead of a bare id string. That answer must still yield
+    the element's id instead of an empty ``suggested_arch_element_ids``.
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Object answer req", ctx=auth_context
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Login Component", ctx=auth_context
+    )
+    provider = _CaptureProvider(
+        json.dumps([{"id": str(arch.id), "name": "Login Component"}])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().suggest_architecture_for_requirement(
+        auth_context, req.id
+    )
+
+    assert result["suggested_arch_element_ids"] == [str(arch.id)]
+    assert result["is_mock_fallback"] is False
+
+
+def test_suggest_architecture_matches_ids_case_insensitively(
+    auth_context, workspace, monkeypatch
+):
+    """Issue #825: UUID case must not decide whether a suggestion is kept.
+
+    A UUID is case-insensitive, so a provider answer normalised to upper case
+    still references an element the prompt offered -- it must not be dropped
+    into an empty suggestion list.
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Upper case req", ctx=auth_context
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Login Component", ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps([str(arch.id).upper()]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().suggest_architecture_for_requirement(
+        auth_context, req.id
+    )
+
+    assert result["suggested_arch_element_ids"] == [str(arch.id)]
+
+
+def test_suggest_architecture_unusable_answer_is_visible_error(
+    auth_context, workspace, monkeypatch
+):
+    """Issue #825: an answer referencing no offered element must not look empty.
+
+    Mirrors the ``_usable_entries`` principle (issue #311) for the id-list
+    flow: a non-empty provider answer that extracts no offered id used to be
+    silently filtered down to ``suggested_arch_element_ids: []``, which is
+    indistinguishable from "the model proposed nothing" and was reported as
+    this issue. It has to surface as an error instead.
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Unusable answer req", ctx=auth_context
+    )
+    ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Login Component", ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps(["Login Component"]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError) as exc_info:
+        AiDerivationService().suggest_architecture_for_requirement(auth_context, req.id)
+
+    # The provider payload itself must never be echoed back.
+    assert "Login Component" not in str(exc_info.value)
+
+
+def test_suggest_architecture_empty_answer_stays_legal(
+    auth_context, workspace, monkeypatch
+):
+    """An empty provider array is still a legal "no candidate" answer (#311/#825).
+
+    Pins the boundary of the guard above: only a *non-empty* unusable answer is
+    an error, so "the model legitimately proposed nothing" keeps returning an
+    empty suggestion list rather than raising.
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="No candidate req", ctx=auth_context
+    )
+    ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Login Component", ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().suggest_architecture_for_requirement(
+        auth_context, req.id
+    )
+
+    assert result == {"suggested_arch_element_ids": [], "is_mock_fallback": False}
+
+
 # ---------------------------------------------------------------------------
 # Flow 3 — decompose a requirement to the next level
 # ---------------------------------------------------------------------------

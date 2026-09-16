@@ -7,6 +7,7 @@ import { resolveArtifactRefs, type ArtifactRef } from "../../api/artifactRefs";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { CreateTraceLinkDialog } from "./CreateTraceLinkDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Badge } from "./Badge";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { extractErrorMessage } from "../../api/client";
 
@@ -19,19 +20,11 @@ interface TraceLinkPanelProps {
 }
 
 /**
- * UI-P3: badge marking a link whose far endpoint was soft-deleted. Such links
- * are retained by the backend on purpose (audit trail), so they keep arriving
- * from `GET /tracelinks/` and previously rendered as ordinary, live links.
- * Named constant rather than an inline literal — see `src/test/ui-ratchet.test.ts`.
+ * Inline counter next to a section heading. Issue #675: it is a plain
+ * `info` badge from the shared `<Badge>`; only the leading gap is local.
  */
-const outdatedBadgeStyle: CSSProperties = {
-  fontSize: "0.7rem",
-  background: "var(--color-badge-neutral-bg)",
-  color: "var(--color-badge-neutral-text)",
-  padding: "2px 6px",
-  borderRadius: "var(--radius-full)",
-  fontWeight: 600,
-  whiteSpace: "nowrap",
+const INLINE_COUNT_BADGE_STYLE: CSSProperties = {
+  marginLeft: "var(--space-1)",
 };
 
 /** Muted, struck-through label for a soft-deleted endpoint. */
@@ -213,16 +206,20 @@ export function TraceLinkPanel({
             <span data-testid={`trace-link-label-${trace.id}`} style={outdatedLabelStyle}>
               {label}
             </span>
-            <span
-              data-testid={`trace-link-outdated-badge-${trace.id}`}
-              style={outdatedBadgeStyle}
+            {/* UI-P3: badge marking a link whose far endpoint was soft-deleted.
+                Such links are retained by the backend on purpose (audit trail).
+                Issue #675: rendered as the shared neutral `<Badge>` instead of
+                a local pill so its geometry/colour cannot drift. */}
+            <Badge
+              variant="neutral"
+              testId={`trace-link-outdated-badge-${trace.id}`}
               title={t(
                 "tracelinks.outdatedHint",
                 "Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten."
               )}
             >
               {t("tracelinks.outdated", "Gelöscht")}
-            </span>
+            </Badge>
           </>
         ) : route ? (
           <button
@@ -352,7 +349,7 @@ export function TraceLinkPanel({
           {/* Upstream / Incoming */}
           <div>
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.upstream", "Incoming")} {liveUpstreamCount > 0 && <span data-testid="trace-link-upstream-count" style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{liveUpstreamCount}</span>}
+              {t("tracelinks.upstream", "Incoming")} {liveUpstreamCount > 0 && <Badge variant="info" testId="trace-link-upstream-count" style={INLINE_COUNT_BADGE_STYLE}>{liveUpstreamCount}</Badge>}
             </h4>
             {upstream.length === 0 && (
               <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>
@@ -367,7 +364,7 @@ export function TraceLinkPanel({
           {/* Downstream / Outgoing */}
           <div>
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.downstream", "Outgoing")} {liveDownstreamCount > 0 && <span data-testid="trace-link-downstream-count" style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{liveDownstreamCount}</span>}
+              {t("tracelinks.downstream", "Outgoing")} {liveDownstreamCount > 0 && <Badge variant="info" testId="trace-link-downstream-count" style={INLINE_COUNT_BADGE_STYLE}>{liveDownstreamCount}</Badge>}
             </h4>
             {downstream.length === 0 && (
               <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>

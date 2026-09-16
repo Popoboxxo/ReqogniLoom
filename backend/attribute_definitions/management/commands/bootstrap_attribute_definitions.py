@@ -57,6 +57,14 @@ from attribute_definitions.stage_matrix import (
     OWNER_MANDATORY_STAGES,
     PRESET_STAGE,
     PRIORITY_MANDATORY_STAGES,
+    SEC_ATTRIBUTION,
+    SEC_CHANGE,
+    SEC_CLASSIFICATION,
+    SEC_CONTENT,
+    SEC_IDENTIFICATION,
+    SEC_TRACEABILITY,
+    SEC_TYPE_SPECIFIC,
+    SEC_VERIFICATION,
     apply_stage_overrides,
     build_stage_attributes,
 )
@@ -204,15 +212,59 @@ PER_ITEM_TYPE_AI_ELICIT_FIELDS: dict[str, frozenset[str]] = {
 #: accepts and every artifact needs.
 SHARED_AI_ELICIT_FIELDS: frozenset[str] = frozenset({"title", "description"})
 
+#: The canonical SE section ("Gruppe") vocabulary every bootstrapped item type
+#: is grouped by — ``docs/se/attribut/attribut-modell-3-stufen.md`` §5.2 and
+#: ``docs/se/attribut/attribut-detailtabellen.md`` §14.1. GitHub #803: the
+#: earlier three-way split (``general``/``classification``/``change_control``)
+#: left every SE-relevant core field — title, description, acceptance criteria,
+#: verification method — in the ``general`` catch-all, so the Requirement form
+#: rendered "two sections, then six loose fields". The names are the SAME ones
+#: the stage matrix already uses for its new attributes (``stage_matrix.SEC_*``),
+#: so core and extended attributes of one item type now share one vocabulary.
+IDENTIFICATION_FIELDS: frozenset[str] = frozenset({"uid", "title", "name", "term"})
+CONTENT_FIELDS: frozenset[str] = frozenset({"description", "acceptance_criteria"})
+ATTRIBUTION_FIELDS: frozenset[str] = frozenset({"owner", "reporter"})
+VERIFICATION_FIELDS: frozenset[str] = frozenset({"verification_method"})
+
 CLASSIFICATION_FIELDS: frozenset[str] = frozenset(
     {
         "category", "type", "level", "test_type", "element_type", "severity_level",
-        "moscow_priority", "complexity_fibonacci", "verification_method",
+        "moscow_priority", "complexity_fibonacci",
         "probability", "impact", "detection",
     }
 )
 
-CHANGE_CONTROL_FIELDS: frozenset[str] = frozenset({"uid", "suspect", "baseline_id"})
+#: ``uid`` moved to :data:`IDENTIFICATION_FIELDS` (matrix Requirement row:
+#: uid is an identity, not a change-control field). ``suspect``/``baseline_id``
+#: stay here — they are change-control state, not identity.
+CHANGE_CONTROL_FIELDS: frozenset[str] = frozenset({"suspect", "baseline_id"})
+
+#: Section order a bootstrapped definition materializes in (spec §5.2): the
+#: SE cascade reads identity -> content -> classification -> justification ->
+#: proof -> traceability -> change control. ``general`` is the documented
+#: fallback bucket for anything the mapping above does not name and is sorted
+#: after the canonical groups; a section name outside this list (an admin's own
+#: section) keeps its first-appearance position behind them. GitHub #803: the
+#: sections list used to materialize in **alphabetical** first-appearance order,
+#: which put ``attribution``/``change_control`` before ``title``'s group.
+SECTION_ORDER: tuple[str, ...] = (
+    SEC_IDENTIFICATION,
+    SEC_CONTENT,
+    SEC_CLASSIFICATION,
+    SEC_ATTRIBUTION,
+    SEC_VERIFICATION,
+    SEC_TRACEABILITY,
+    SEC_CHANGE,
+    SEC_TYPE_SPECIFIC,
+    "general",
+)
+
+_SECTION_INDEX: dict[str, int] = {name: index for index, name in enumerate(SECTION_ORDER)}
+
+
+def section_order_index(section: str) -> int:
+    """Sort key for a section name: canonical order, unknown names last."""
+    return _SECTION_INDEX.get(section, len(SECTION_ORDER))
 
 #: Model fields that are real, visible, serializer-declared columns (so they
 #: must NOT be excluded like ``created_by_name``) but are declared
@@ -243,7 +295,7 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
             "type": "widget",
             "widget_key": "risk_matrix_rpz",
             "fields": ["probability", "impact", "detection"],
-            "section": "classification",
+            "section": SEC_CLASSIFICATION,
             "order": 10,
             "label": {"de": "Risikomatrix", "en": "Risk matrix"},
         },
@@ -255,7 +307,7 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
             "type": "widget",
             "widget_key": "markdown_tab_group",
             "fields": ["description", "context", "consequences"],
-            "section": "general",
+            "section": SEC_CONTENT,
             "order": 10,
             "label": {"de": "Entscheidung", "en": "Decision"},
         },
@@ -267,7 +319,7 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
             "type": "widget",
             "widget_key": "steps_editor",
             "fields": ["steps_data"],
-            "section": "general",
+            "section": SEC_CONTENT,
             "order": 20,
             "label": {"de": "Testschritte", "en": "Test steps"},
         },
@@ -314,7 +366,7 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
             "type": "widget",
             "widget_key": "markdown_tab_group",
             "fields": ["description"],
-            "section": "general",
+            "section": SEC_CONTENT,
             "order": 2,
             "label": {"de": "Beschreibung", "en": "Description"},
         },
@@ -333,7 +385,7 @@ WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
             "type": "widget",
             "widget_key": "markdown_tab_group",
             "fields": ["description"],
-            "section": "general",
+            "section": SEC_CONTENT,
             "order": 2,
             "label": {"de": "Beschreibung", "en": "Description"},
         },
@@ -404,7 +456,9 @@ def synthetic_status_attribute() -> dict[str, Any]:
             "visible": True,
             "locked": True,
             "editable": "workflow",
-            "section": "general",
+            # Matrix section 0: ``status`` is grouped with the classification
+            # attributes, not in the ``general`` catch-all (#803).
+            "section": SEC_CLASSIFICATION,
             "order": -100,
             "label": {"de": "Status", "en": "Status"},
             "export": True,
@@ -481,7 +535,7 @@ ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
         "copyable": True,
         "mask": "short",
         "required": False,
-        "section": "general",
+        "section": SEC_IDENTIFICATION,
         "order": -300,
         "label": {"de": "ID", "en": "ID"},
     },
@@ -494,7 +548,7 @@ ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
         "editable": False,
         "visible": False,
         "required": False,
-        "section": "general",
+        "section": SEC_ATTRIBUTION,
         "order": -290,
         "label": {"de": "Owner", "en": "Owner"},
     },
@@ -507,7 +561,7 @@ ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
         "editable": False,
         "visible": False,
         "required": False,
-        "section": "general",
+        "section": SEC_ATTRIBUTION,
         "order": -280,
         "label": {"de": "Reporter", "en": "Reporter"},
     },
@@ -524,7 +578,7 @@ ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
         "editable": False,
         "visible": False,
         "required": False,
-        "section": "classification",
+        "section": SEC_CLASSIFICATION,
         "order": -300,
         "label": {"de": "Priorität", "en": "Priority"},
     },
@@ -579,10 +633,26 @@ def _options_from_choices(field: models.Field) -> list[dict[str, str]]:
 
 
 def _section_for(name: str) -> str:
+    """The canonical SE section for a model-backed core attribute (GitHub #803).
+
+    One shared name -> group mapping for every item type (the "Gruppe" column
+    of ``docs/se/attribut/attribut-matrix-3-stufen.md``), not per-entity markup:
+    the renderer already groups by the definition's ``section``, so fixing the
+    mapping here groups every artifact form at once. Unmapped names keep the
+    documented ``general`` fallback.
+    """
+    if name in IDENTIFICATION_FIELDS:
+        return SEC_IDENTIFICATION
+    if name in CONTENT_FIELDS:
+        return SEC_CONTENT
     if name in CLASSIFICATION_FIELDS:
-        return "classification"
+        return SEC_CLASSIFICATION
+    if name in ATTRIBUTION_FIELDS:
+        return SEC_ATTRIBUTION
+    if name in VERIFICATION_FIELDS:
+        return SEC_VERIFICATION
     if name in CHANGE_CONTROL_FIELDS:
-        return "change_control"
+        return SEC_CHANGE
     return "general"
 
 
@@ -727,7 +797,13 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     # the matrix's own stage-requiredness rides on ``stage_mandatory`` (also
     # not a create gate, see attribute_definitions.stage_matrix).
 
-    attributes.sort(key=lambda a: (a["section"], a["order"], a["name"]))
+    # GitHub #803: sorted by the canonical SE section order, not
+    # alphabetically — ``materialize_sections`` (below, in ``handle``) derives
+    # the section list from first appearance, so this sort is what makes the
+    # stored definition render identity -> content -> classification -> ... .
+    attributes.sort(
+        key=lambda a: (section_order_index(a["section"]), a["order"], a["name"])
+    )
     return attributes
 
 
@@ -921,7 +997,7 @@ class Command(BaseCommand):
         if not additions:
             return False
         stored.extend(additions)
-        stored.sort(key=lambda a: (a["section"], a["order"], a["name"]))
+        stored.sort(key=lambda a: (section_order_index(a["section"]), a["order"], a["name"]))
         # Epic #934 WS6 (#939): keep the seeded ``sections`` list consistent with
         # the (possibly grown) attribute set. Existing sections keep their
         # admin-configured order/visibility/layout; a section a newly synced

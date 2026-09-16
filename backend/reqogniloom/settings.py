@@ -152,6 +152,13 @@ CORS_ALLOWED_ORIGINS: list[str] = config(
     cast=Csv(),
 )
 
+# GH-868: an ``ETag`` is only usable by a browser when the header is exposed to
+# cross-origin scripts; without this entry a direct :8001 API call from the SPA
+# origin can *send* ``If-Match`` but never *read* the tag it should echo back.
+# (Same-origin deployments — including the Vite dev proxy that fronts /api — do
+# not need it, but relying on that would make the feature work by accident.)
+CORS_EXPOSE_HEADERS: list[str] = ["ETag"]
+
 # ---------------------------------------------------------------------------
 # CSRF (REQ-138)
 # ---------------------------------------------------------------------------
@@ -622,6 +629,24 @@ AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=3600, cast=in
 # access cookie expires mid-session, instead of hard-logging the user out.
 AUTH_JWT_REFRESH_TTL_SECONDS: int = config(
     "AUTH_JWT_REFRESH_TTL_SECONDS", default=2592000, cast=int
+)
+
+# #696 (review finding C-3) — DEPRECATION flag for the login response body token.
+#
+# The login response used to be the only way to obtain a credential, so it still
+# returns `token` for the E2E login helper and API/CI tooling. The browser SPA
+# never reads it: it authenticates via the httpOnly access cookie (REQ-052).
+# Any *new* JS caller that persists the body token would re-open exactly the
+# XSS token-theft vector REQ-052 closed, so the field is deprecated.
+#
+# Default True = today's behaviour (no breaking change for existing tooling).
+# Set AUTH_LOGIN_INCLUDE_BODY_TOKEN=False to omit the field; cookie auth and
+# every other client are unaffected. Recommended follow-up: flip this default
+# once the known in-repo consumers (e2e/helpers/auth.ts,
+# e2e/helpers/preconditions.ts) and external API clients have migrated, i.e.
+# after a deprecation window.
+AUTH_LOGIN_INCLUDE_BODY_TOKEN: bool = config(
+    "AUTH_LOGIN_INCLUDE_BODY_TOKEN", default=True, cast=bool
 )
 
 # SA-32 (SYSTEMAUDIT-2026-08-27 §4.6 F7) — refresh-token rotation now detects

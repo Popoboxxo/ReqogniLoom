@@ -1185,8 +1185,10 @@ class McpTestToolGroup(BaseToolGroup):
                 ctx=auth_context,
                 reason=reason,
             )
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("testcase.outdate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,
@@ -1228,8 +1230,10 @@ class McpTestToolGroup(BaseToolGroup):
             )
         except ValueError as exc:
             return ToolResult.error("INVALID_STATE", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("testcase.reactivate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,

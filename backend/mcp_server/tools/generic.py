@@ -1,5 +1,6 @@
 """Generic MCP Tool Group for standard CRUD entities."""
 import inspect
+import logging
 import re
 import uuid
 from datetime import date, datetime
@@ -25,6 +26,8 @@ from mcp_server.tools.system_fields import (
     system_fields_enabled,
 )
 from workflow.state_reader import STATUS_TRACKED_ITEM_TYPES
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -502,8 +505,10 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.error(
                 "VALIDATION_ERROR", f"Missing or invalid field for {self.prefix}.create: {exc}"
             )
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("%s.create failed", self.prefix)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_update(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
@@ -581,16 +586,20 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.error(
                 "VALIDATION_ERROR", f"Invalid field for {self.prefix}.update: {exc}"
             )
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("%s.update failed", self.prefix)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_delete(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         try:
             self._delete_method(ctx=auth_context, **{self._delete_id_param: obj_id})
             return ToolResult.ok({"status": "deleted"})
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("%s.delete failed", self.prefix)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _resolve_workspace_id(self, *, obj_id: uuid.UUID, auth_context: AuthContext) -> uuid.UUID:
         """Fetch the entity and read its ``workspace_id`` — the same
@@ -616,8 +625,10 @@ class GenericCrudToolGroup(BaseToolGroup):
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("%s.outdate failed", self.prefix)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"id": str(obj_id), "status": "outdated"})
 
     def _handle_reactivate(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
@@ -636,8 +647,10 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValueError as exc:
             return ToolResult.error("INVALID_STATE", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("%s.reactivate failed", self.prefix)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"id": str(obj_id), "status": result.new_state})
 
     def _handle_query(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
@@ -657,5 +670,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.ok({
                 "items": [self._to_dict(r, status_map=status_map) for r in results]
             })
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("%s.query failed", self.prefix)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")

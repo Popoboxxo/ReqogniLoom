@@ -11,9 +11,30 @@
  * rule (ch. 3.3) without losing information in the version timeline.
  */
 
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 
-import { BADGE_BASE_STYLE } from "../../utils/badgeBase";
+import { Badge } from "./Badge";
+
+/**
+ * Everything this badge adds on top of the shared `neutral` variant. Hoisted
+ * (rather than an inline object at the call site) so the geometry/colour
+ * contract stays in `<Badge>` and the ui-ratchet count stays flat.
+ *
+ * `fontWeight` is semantic here, not decoration: current vs. superseded is
+ * carried by weight and emphasis instead of hue (this file's header), which
+ * is why it overrides the shared base's `--weight-semibold`.
+ */
+const versionBadgeStyle = (isCurrent: boolean): CSSProperties => ({
+  marginLeft: "var(--space-2)",
+  border: `1px solid ${isCurrent ? "var(--color-border-hover)" : "transparent"}`,
+  opacity: isCurrent ? 1 : 0.7,
+  fontFamily: "var(--font-mono)",
+  fontWeight: isCurrent ? "var(--weight-semibold)" : "var(--weight-regular)",
+  fontVariantNumeric: "tabular-nums",
+  letterSpacing: "var(--tracking-normal)",
+  verticalAlign: "middle",
+});
 
 interface VersionBadgeProps {
   version: number | string;
@@ -36,28 +57,14 @@ export function VersionBadge({
   if (hideWhenFirst && Number(version) <= 1) return null;
 
   return (
-    <span
-      data-testid="version-badge"
-      style={{
-        ...BADGE_BASE_STYLE,
-        marginLeft: "var(--space-2)",
-        background: "var(--color-badge-neutral-bg)",
-        border: `1px solid ${isCurrent ? "var(--color-border-hover)" : "transparent"}`,
-        color: "var(--color-badge-neutral-text)",
-        opacity: isCurrent ? 1 : 0.7,
-        fontFamily: "var(--font-mono)",
-        // Overrides the shared base on purpose: the current/superseded
-        // distinction is carried by weight instead of hue (see the file
-        // header), so weight is semantic here, not decoration.
-        fontWeight: isCurrent ? "var(--weight-semibold)" : "var(--weight-regular)",
-        fontVariantNumeric: "tabular-nums",
-        letterSpacing: "var(--tracking-normal)",
-        verticalAlign: "middle",
-      }}
+    <Badge
+      variant="neutral"
+      testId="version-badge"
       title={isCurrent ? t("icds.current", "Current Version") : t("icds.superseded", "Superseded Version")}
+      style={versionBadgeStyle(isCurrent)}
     >
       v{version}
-    </span>
+    </Badge>
   );
 }
 

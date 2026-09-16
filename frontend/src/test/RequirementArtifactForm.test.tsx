@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -177,6 +177,69 @@ describe("RequirementArtifactForm", () => {
     ).toBeInTheDocument();
   });
 
+  // GitHub #803: the Requirement detail form used to show its SE attributes as
+  // two sections followed by a loose field list. The grouping is
+  // definition-driven — `ArtifactForm` renders one labelled section per
+  // `attribute.section` — so this mounts the canonical section layout the
+  // bootstrap command emits (identification/content/classification/
+  // verification/traceability, in that order) and asserts every group is
+  // labelled in the active language and owns its own fields.
+  it("renders the SE attributes in labelled, ordered sections (#803)", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [
+        attr({ name: "title", required: true, section: "identification", order: 1 }),
+        attr({ name: "uid", section: "identification", order: 2, editable: false }),
+        attr({ name: "description", type: "textarea", section: "content", order: 1 }),
+        attr({ name: "acceptance_criteria", type: "textarea", section: "content", order: 2 }),
+        attr({
+          name: "category", type: "enum", section: "classification", order: 1,
+          options: [{ value: "functional", label_de: "Funktional", label_en: "Functional" }],
+        }),
+        attr({
+          name: "verification_method", type: "enum", section: "verification", order: 1,
+          options: [{ value: "test", label_de: "Test", label_en: "Test" }],
+        }),
+        attr({ name: "origin_link", section: "traceability", order: 1 }),
+      ],
+    } as never);
+
+    render(
+      <RequirementArtifactForm
+        requirement={REQUIREMENT}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+
+    // Labelled groups, in the definition's canonical order — not raw section
+    // keys ("attribution", "verification") and not one flat field list.
+    const toggles = await screen.findAllByTestId(/^artifact-section-toggle-/);
+    expect(toggles.map((toggle) => toggle.textContent?.trim())).toEqual([
+      "Identifikation",
+      "Inhalt",
+      "Klassifikation",
+      "Verifikation",
+      "Traceability",
+    ]);
+
+    const inSection = (section: string, field: string): HTMLElement =>
+      within(screen.getByTestId(`artifact-section-body-${section}`)).getByTestId(
+        `artifact-field-${field}`
+      );
+
+    expect(inSection("identification", "title")).toBeInTheDocument();
+    expect(inSection("identification", "uid")).toBeInTheDocument();
+    expect(inSection("content", "description")).toBeInTheDocument();
+    expect(inSection("content", "acceptance_criteria")).toBeInTheDocument();
+    expect(inSection("classification", "category")).toBeInTheDocument();
+    expect(inSection("verification", "verification_method")).toBeInTheDocument();
+    expect(inSection("traceability", "origin_link")).toBeInTheDocument();
+  });
+
   // Issue #889: `Requirement.category` has no Django `choices`, so the
   // introspected definition declares it as `type: "text"` — the detail form
   // used to render a free-text input while the create dialog and the list
@@ -237,7 +300,10 @@ describe("RequirementArtifactForm", () => {
     await waitFor(() =>
       expect(requirementsApi.update).toHaveBeenCalledWith(
         "req-1",
-        expect.objectContaining({ category: "api" })
+        expect.objectContaining({ category: "api" }),
+        // GH-868: the save now carries the last-read version as the If-Match
+        // precondition (`requirement.version`, fixture value 7).
+        7
       )
     );
   });
@@ -291,7 +357,9 @@ describe("RequirementArtifactForm", () => {
     await waitFor(() =>
       expect(requirementsApi.update).toHaveBeenCalledWith(
         "req-1",
-        expect.objectContaining({ change_reason: "clarified wording" })
+        expect.objectContaining({ change_reason: "clarified wording" }),
+        // GH-868: If-Match precondition (see the note on the category test).
+        7
       )
     );
   });

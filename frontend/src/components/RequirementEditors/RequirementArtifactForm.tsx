@@ -150,7 +150,16 @@ export function RequirementArtifactForm({
       onSave={async (values) => {
         const patch = formValuesToRequirementPatch(values);
         patch.custom_fields = customFields ?? requirement.custom_fields ?? {};
-        await requirementsApi.update(requirement.id, patch);
+        // GH-868 / bundle #923: make the write conditional on the revision the
+        // form was opened with. `requirement` comes from the detail GET, so its
+        // `version` is the tag the server issued for this exact state; a
+        // concurrent edit now surfaces as a 412 the caller can report instead
+        // of a silent lost update.
+        await requirementsApi.update(
+          requirement.id,
+          patch,
+          requirement.version
+        );
         onSaved();
       }}
       onDelete={async (changeReason) => {

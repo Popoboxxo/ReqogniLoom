@@ -93,6 +93,11 @@ from application.base import ServiceBase
 
 logger = logging.getLogger(__name__)
 
+#: Static per-row failure message (#697, CWE-209). The migration report is
+#: returned verbatim in the HTTP 200 body, so the raw exception text — which on
+#: this path is a driver/ORM error — must not travel in it; the cause is logged.
+_INTERNAL_FAILURE_MESSAGE = "An internal error occurred while applying this change."
+
 #: `item_type` -> ordered `(app_label, model_name)` candidates. Mirrors the
 #: bootstrap command's mapping; `Icd` lives in its own app.
 _ITEM_MODEL_CANDIDATES: dict[str, tuple[tuple[str, str], ...]] = {
@@ -1054,8 +1059,12 @@ class AttributeMigrationService(ServiceBase):
                 )
                 outcome["counts"]["changed"] += 1
                 self._append_sample(outcome, record)
-            except Exception as exc:  # noqa: BLE001 - one bad target must not kill the run
-                self._record_failure(outcome, None, field, str(exc))
+            except Exception:  # noqa: BLE001 - one bad target must not kill the run
+                # #697 (CWE-209): log the cause, report a static message.
+                logger.exception(
+                    "AttributeMigration: define_attribute failed for %s", field
+                )
+                self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
         return outcome
 
     def _step_rename_attribute(
@@ -1133,8 +1142,10 @@ class AttributeMigrationService(ServiceBase):
                 self._save_definition(ctx, item_type, target, updated)
                 outcome["counts"]["changed"] += 1
                 self._append_sample(outcome, record)
-            except Exception as exc:  # noqa: BLE001
-                self._record_failure(outcome, None, field, str(exc))
+            except Exception:  # noqa: BLE001
+                # #697 (CWE-209): log the cause, report a static message.
+                logger.exception("AttributeMigration: rename/type change failed for %s", field)
+                self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
 
         # L2: rewrite the value keys on the artifacts themselves.
         if action == "rename" and source_ref["kind"] == REF_CUSTOM_FIELD:
@@ -1193,8 +1204,10 @@ class AttributeMigrationService(ServiceBase):
                 )
                 outcome["counts"]["changed"] += 1
                 self._append_sample(outcome, record)
-            except Exception as exc:  # noqa: BLE001
-                self._record_failure(outcome, None, field, str(exc))
+            except Exception:  # noqa: BLE001
+                # #697 (CWE-209): log the cause, report a static message.
+                logger.exception("AttributeMigration: drop_change_request failed for %s", field)
+                self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
 
         ref = {"kind": REF_CUSTOM_FIELD, "name": name}
         for row in self._rows(item_type, [w["id"] for w in workspaces]):
@@ -1239,8 +1252,12 @@ class AttributeMigrationService(ServiceBase):
                 try:
                     self._definitions.reset_workspace(ctx, item_type, workspace["id"])
                     outcome["counts"]["changed"] += 1
-                except Exception as exc:  # noqa: BLE001
-                    self._record_failure(outcome, None, field, str(exc))
+                except Exception:  # noqa: BLE001
+                    # #697 (CWE-209): log the cause, report a static message.
+                    logger.exception(
+                        "AttributeMigration: reset_workspace failed for %s", field
+                    )
+                    self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
         return outcome
 
     # ------------------------------------------------------------------
@@ -1336,11 +1353,15 @@ class AttributeMigrationService(ServiceBase):
         if write:
             try:
                 self._persist(ctx, run, row, batch.changes, snapshot_ids)
-            except Exception as exc:  # noqa: BLE001 - one failed row must not kill the run
+            except Exception:  # noqa: BLE001 - one failed row must not kill the run
                 # The whole artifact write is atomic (see _persist): nothing of
                 # this batch was left behind, so report the row as failed.
+                # #697 (CWE-209): log the cause, report a static message.
+                logger.exception(
+                    "AttributeMigration: persist failed for %s", batch.staged[0][0]
+                )
                 self._record_failure(
-                    outcome, row, batch.staged[0][0], str(exc)
+                    outcome, row, batch.staged[0][0], _INTERNAL_FAILURE_MESSAGE
                 )
                 return
             reason = "applied"

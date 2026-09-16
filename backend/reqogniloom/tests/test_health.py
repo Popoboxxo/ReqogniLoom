@@ -102,6 +102,115 @@ class TestHealthWorkflowWarning:
         assert response.status_code == 503
         assert body["status"] == "degraded"
 
+    def test_database_error_detail_is_static_and_the_cause_is_logged(
+        self, monkeypatch, caplog
+    ) -> None:
+        """#697 (CWE-209): ``/health/`` is reachable without authentication.
+
+        A psycopg error's ``str()`` carries host, port, user and DSN fragments,
+        so the probe's ``checks.database`` must be a static marker — the real
+        cause belongs in the log. The probe decision (503 / degraded) is
+        unchanged.
+        """
+        import reqogniloom.health as health_module
+
+        sensitive = (
+            "OperationalError: could not connect to server: "
+            "host=db.internal user=reqogniloom_app password=***"
+        )
+
+        def _boom():
+            raise RuntimeError(sensitive)
+
+        monkeypatch.setattr(health_module.connection, "ensure_connection", _boom)
+
+        client = Client()
+        with caplog.at_level("WARNING"):
+            response = client.get("/health/")
+        body = response.json()
+
+        assert response.status_code == 503
+        assert body["status"] == "degraded"
+        assert body["checks"]["database"] == "error"
+        assert sensitive not in str(body)
+        assert sensitive in caplog.text
+
+
+@pytest.mark.django_db
+class TestHealthMemoryProbe:
+    """``/health/`` surfaces a broken memory/embedding backend (#911).
+
+    The shipped defect: Honcho's embedding base URL pointed at an unreachable
+    host, every memory write failed, and ``/health/`` still reported ``ok``.
+    The public endpoint now runs the active backend's bounded ``health_check()``
+    (the real embedding probe) and degrades on failure.
+    """
+
+    def _patch_backend(self, monkeypatch, backend) -> None:
+        monkeypatch.setattr("memory.backends.get_memory_backend", lambda: backend)
+
+    def test_healthy_memory_backend_reports_ok(self, monkeypatch) -> None:
+        class _Backend:
+            @staticmethod
+            def health_check():
+                return True, "reachable"
+
+        self._patch_backend(monkeypatch, _Backend())
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert body["status"] == "ok"
+        assert body["checks"]["memory_backend"] == "ok"
+
+    def test_broken_memory_backend_degrades_without_leaking_detail(
+        self, monkeypatch, caplog
+    ) -> None:
+        sensitive = (
+            "HTTPConnectionPool(host=embed.invalid, port=11434): "
+            "Max retries exceeded with url: /embeddings"
+        )
+
+        class _Backend:
+            @staticmethod
+            def health_check():
+                return False, sensitive
+
+        self._patch_backend(monkeypatch, _Backend())
+
+        with caplog.at_level("WARNING"):
+            response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 503
+        assert body["status"] == "degraded"
+        assert body["checks"]["memory_backend"] == "error"
+        assert sensitive not in str(body)
+        assert sensitive in caplog.text
+
+    def test_memory_probe_exception_degrades_without_leaking_detail(
+        self, monkeypatch, caplog
+    ) -> None:
+        sensitive = "OperationalError: host=embed.invalid user=mem"
+
+        class _Backend:
+            @staticmethod
+            def health_check():
+                raise RuntimeError(sensitive)
+
+        self._patch_backend(monkeypatch, _Backend())
+
+        with caplog.at_level("WARNING"):
+            response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 503
+        assert body["status"] == "degraded"
+        assert body["checks"]["memory_backend"] == "error"
+        assert sensitive not in str(body)
+        assert sensitive in caplog.text
+
 
 @pytest.mark.django_db
 def test_health_reports_csrf_cookie_configuration():

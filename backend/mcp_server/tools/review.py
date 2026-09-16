@@ -21,6 +21,7 @@ state machine, no new state_meta flags. Reuses:
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
 from auth_tenancy.context import AuthContext
@@ -36,6 +37,8 @@ from mcp_server.tools.base import (
     require_uuid,
     write_mcp_audit,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewToolGroup(BaseToolGroup):
@@ -214,8 +217,10 @@ class ReviewToolGroup(BaseToolGroup):
             )
         except WorkflowItemNotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
-        except Exception as exc:  # noqa: BLE001 -- surface as a structured error
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("review.reject failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,

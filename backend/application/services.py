@@ -193,6 +193,14 @@ from application.artifact_version_service import ArtifactVersionService  # noqa:
 from application.comment_service import CommentService  # noqa: F401,E402
 from application.notification_service import NotificationService  # noqa: F401,E402
 
+# ---------------------------------------------------------------------------
+# COMP-AS-022 — EffectivePermissionService (ADR-01, issue #722)
+# ---------------------------------------------------------------------------
+from application.effective_permission_service import (  # noqa: F401,E402
+    EffectivePermission,
+    EffectivePermissionService,
+)
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -274,4 +282,7 @@ __all__ = [
     # Menschen-im-System — collaboration (§4/§5)
     "CommentService",
     "NotificationService",
+    # COMP-AS-022 — effective permission resolution (ADR-01, #722)
+    "EffectivePermissionService",
+    "EffectivePermission",
 ]

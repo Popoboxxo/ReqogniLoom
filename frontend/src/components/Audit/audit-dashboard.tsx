@@ -71,6 +71,7 @@ import { artifactsApi } from "../../api/artifacts";
 import { extractErrorMessage } from "../../api/client";
 import { UnprocessableEntityError } from "../../api/errors";
 import type { Artifact } from "../../types";
+import { Badge } from "../shared/Badge";
 import { PageHeader } from "../shared/PageHeader";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { primaryTarget, useFindingTargets } from "./use-finding-targets";
@@ -507,21 +508,23 @@ export function AuditDashboard(): JSX.Element {
         </button>
       </div>
 
-      {/* Counts + tier */}
+      {/* Counts + tier. Issue #675: rendered through the shared <Badge> with
+          its canonical variant semantics (blockers = danger, warnings =
+          warning, totals/tier = neutral) instead of a local colour map. */}
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginBottom: "var(--space-4)", flexWrap: "wrap" }}>
-        <span data-testid="audit-count-total" style={countBadgeStyle("neutral")}>
+        <Badge variant="neutral" testId="audit-count-total">
           {t("audit.counts.total", "Findings")}: {counts.total}
-        </span>
-        <span data-testid="audit-count-blockers" style={countBadgeStyle("danger")}>
+        </Badge>
+        <Badge variant="danger" testId="audit-count-blockers">
           {t("audit.counts.blockers", "Blockers")}: {counts.blockers}
-        </span>
-        <span data-testid="audit-count-warnings" style={countBadgeStyle("warning")}>
+        </Badge>
+        <Badge variant="warning" testId="audit-count-warnings">
           {t("audit.counts.warnings", "Warnings")}: {counts.warnings}
-        </span>
+        </Badge>
         {tier && (
-          <span data-testid="audit-tier" style={countBadgeStyle("neutral")}>
+          <Badge variant="neutral" testId="audit-tier">
             {t("audit.tier", "Rigor tier")}: {tier}
-          </span>
+          </Badge>
         )}
       </div>
 
@@ -676,14 +679,14 @@ function FindingGroup({
         <span style={{ fontFamily: "monospace", fontWeight: 700, color: "var(--color-text)" }}>{ruleId}</span>
         <div style={{ display: "flex", gap: "var(--space-2)" }}>
           {blockers > 0 && (
-            <span style={countBadgeStyle("danger")}>
+            <Badge variant="danger">
               {t("audit.counts.blockers", "Blockers")}: {blockers}
-            </span>
+            </Badge>
           )}
           {warnings > 0 && (
-            <span style={countBadgeStyle("warning")}>
+            <Badge variant="warning">
               {t("audit.counts.warnings", "Warnings")}: {warnings}
-            </span>
+            </Badge>
           )}
         </div>
       </header>
@@ -739,12 +742,12 @@ function FindingRow({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
-        <span
-          data-testid={`audit-finding-severity-${finding.index}`}
-          style={countBadgeStyle(finding.severity === "blocker" ? "danger" : "warning")}
+        <Badge
+          variant={finding.severity === "blocker" ? "danger" : "warning"}
+          testId={`audit-finding-severity-${finding.index}`}
         >
           {t(`audit.severity.${finding.severity}`, finding.severity)}
-        </span>
+        </Badge>
         <span style={{ color: "var(--color-text)", fontSize: "var(--font-size-sm)" }}>{finding.message}</span>
       </div>
 
@@ -757,21 +760,15 @@ function FindingRow({
             {t("audit.artifacts", "Affected artifacts")}:
           </span>
           {finding.artifact_ids.map((id) => (
-            <span
+            <Badge
               key={id}
-              data-testid={`audit-finding-artifact-${finding.index}-${id}`}
+              variant="neutral"
+              testId={`audit-finding-artifact-${finding.index}-${id}`}
               title={id}
-              style={{
-                fontFamily: "monospace",
-                fontSize: "var(--font-size-xs)",
-                background: "var(--color-badge-neutral-bg)",
-                color: "var(--color-badge-neutral-text)",
-                padding: "1px 6px",
-                borderRadius: "var(--radius-full)",
-              }}
+              style={ARTIFACT_ID_BADGE_STYLE}
             >
               {id.slice(0, 8)}…
-            </span>
+            </Badge>
           ))}
         </div>
       )}
@@ -867,29 +864,13 @@ function refreshButtonStyle(isLoading: boolean): CSSProperties {
   };
 }
 
-function countBadgeStyle(kind: "danger" | "warning" | "neutral"): CSSProperties {
-  const bg =
-    kind === "danger"
-      ? "var(--color-badge-danger-bg)"
-      : kind === "warning"
-      ? "var(--color-badge-warning-bg)"
-      : "var(--color-badge-neutral-bg)";
-  const fg =
-    kind === "danger"
-      ? "var(--color-badge-danger-text)"
-      : kind === "warning"
-      ? "var(--color-badge-warning-text)"
-      : "var(--color-badge-neutral-text)";
-  return {
-    display: "inline-block",
-    padding: "2px var(--space-3)",
-    borderRadius: "var(--radius-full)",
-    background: bg,
-    color: fg,
-    fontSize: "var(--font-size-xs)",
-    fontWeight: 600,
-  };
-}
+/**
+ * Issue #675: the only thing the affected-artifact chips add to the shared
+ * `neutral` badge is monospace, so short hex ids align while scanning.
+ */
+const ARTIFACT_ID_BADGE_STYLE: CSSProperties = {
+  fontFamily: "var(--font-mono)",
+};
 
 const adoptButtonStyle = (isPending: boolean): CSSProperties => ({
   padding: "var(--space-1) var(--space-3)",

@@ -452,8 +452,55 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // `GlossaryView.tsx` contributes 0 (it already styled through its CSS module).
 // Re-measured on the tree: 818. Baseline lowered to the measured value per the
 // ratchet rule above.
+//
+// Issue #874 (bottom-sheet dialogs on smartphones) contributes exactly 0:
+// the sheet is pure CSS in `Dialog.module.css`, the grabber is a
+// `className`, and the two new hooks write custom properties through the
+// CSSOM (`element.style.setProperty`) rather than through any `style={{`
+// literal, which this pattern does not match.
+//
+// Badge consistency wave (#675): -6, from the clean `HEAD` value of 818 to 812.
+// `git show HEAD:<file>` over every non-test `.tsx` under `components/` counts
+// exactly 818, so the constant this wave inherited was accurate, not slack —
+// which is also why both assertions below (`<=` and `===`) were green at HEAD.
+// The delta was taken per file the way the P1/P2 entries above prescribe
+// (`git diff -U0 -- <file> | grep '^[+-].*style={{'`) rather than off the
+// shared tree, because a concurrent responsive-grid/Dialog wave is live in the
+// same working tree:
+//   -1 `shared/LevelBadge.tsx`     — the neutral badge `<span style={{...}}>`
+//        became `<Badge variant="neutral" style={LEVEL_BADGE_OVERRIDES}>`; only
+//        the semantic extras (wide tracking, hairline border) stay local.
+//   -1 `shared/VersionBadge.tsx`   — same, with the current/superseded weight
+//        override hoisted into `versionBadgeStyle(isCurrent)`.
+//   -1 `shared/WorkspaceTree/workspace-tree.tsx` — the last hand-built badge
+//        (`node.badge`, spreading `BADGE_BASE_STYLE` plus caller colours) is
+//        now `<Badge variant="neutral" style={typeBadgeStyle(...)}>`. Its ramp
+//        is a *type* channel, not a state, so it is not one of the five
+//        variants — but the badge around it is no longer bespoke.
+//   -2 `shared/TraceLinkPanel.tsx` — the two inline upstream/downstream count
+//        pills (private `0.8rem`/`--radius-full` geometry plus a hand-copied
+//        info colour pair) are now `<Badge variant="info">`.
+//   -1 `Audit/audit-dashboard.tsx` — the affected-artifact id chip, likewise.
+//    0 `components/shared/Badge.tsx` (new) — it merges base + variant through a
+//        hoisted `const mergedStyle` and a `style={mergedStyle}` attribute, and
+//        its docstring deliberately avoids writing the counted pattern, so the
+//        new component adds no literal of its own.
+//    0 `shared/StatusBadge.tsx` — it had no literal before or after; it now
+//        delegates to `<Badge>` like the other two.
+// The audit count/severity pills this wave migrated were already hoisted
+// constants, so they contribute 0 here — the part of #675 they carry is the
+// removal of a private variant→colour map, not a literal. #874 (bottom-sheet
+// dialogs) contributes 0 as well; see the entry above.
+//
+// The *measured* value on this shared working tree is 811, not 812, because the
+// concurrent responsive-grid wave above is carrying one further unstaged
+// `style={{` removal in `MetricsDashboard.tsx` (a whole-file CSS-module
+// migration, unrelated to badges). Per this file's rule for concurrently
+// landing changes (see the P1/P2 and Task 23/24 entries above) the measured
+// value is adopted here; if that wave is reverted rather than landed, this
+// constant has to be re-measured — the badge wave's own isolated value is 812.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 818;
+const STYLE_BRACE_BASELINE = 811;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

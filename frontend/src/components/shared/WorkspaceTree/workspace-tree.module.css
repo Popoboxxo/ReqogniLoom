@@ -10,12 +10,43 @@
 }
 
 /*
+ * Row chrome — selection and the issue #668 collapsed-ancestor marker.
+ *
+ * These moved out of the row's inline `style={{...}}` on purpose: an inline
+ * `background`/`border-left` beats a class, so the marker's tint (needed only
+ * for the ancestor case) could not be expressed as a token class while the
+ * base chrome stayed inline. Colour now always comes from a token, and the
+ * three states are mutually exclusive classes.
+ */
+.treeRow {
+  border-left: 3px solid transparent;
+  transition: background var(--transition-fast);
+}
+
+.treeRowHoverable:hover {
+  background: var(--color-surface-raised);
+}
+
+.treeRowSelected {
+  background: var(--color-card-active-bg);
+  border-left: 3px solid var(--color-primary);
+}
+
+/*
+ * Issue #668: a *collapsed* ancestor that hides the current selection.
+ * Dashed left accent plus a faint primary tint — "the selection is in here",
+ * deliberately distinct from the solid accent of the selected row itself.
+ */
+.treeRowHasActiveDescendant {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border-left: 3px dashed var(--color-primary);
+}
+
+/*
  * Drag & drop reparenting (user decision 2026-08-15).
  *
- * The row <li> sets background and border-left inline (selection chrome), and
- * an inline rule beats a class — so the drag affordances deliberately use
- * properties the inline styles do not touch: outline for the drop target,
- * opacity for the row in flight.
+ * The drag affordances deliberately use properties the row chrome above does
+ * not touch: outline for the drop target, opacity for the row in flight.
  */
 .dropTarget {
   outline: 2px dashed var(--color-primary);

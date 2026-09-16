@@ -9,7 +9,9 @@
  * the XSS token-theft vector. Consequently:
  * - On mount the session is restored by calling GET /auth/me/ (not storage).
  *   A "restoring" status prevents a login-flash on reload.
- * - On login the server sets the cookie; the body token is ignored.
+ * - On login the server sets the cookie; the body token is ignored — the field
+ *   is deprecated server-side (#696) and not declared in `LoginResponse`, so
+ *   the SPA cannot depend on it.
  * - On logout the server clears the cookie via POST /auth/logout/.
  * - On 401/403 the API client clears state and the caller redirects to /login.
  */
@@ -54,8 +56,17 @@ export interface LoginCredentials {
   password: string;
 }
 
+/**
+ * Shape returned by POST /api/v1/auth/login/ — identity only.
+ *
+ * The backend additionally returns a `token` field for API/CI tooling. That
+ * field is DEPRECATED (#696), can be switched off server-side with
+ * `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False`, and is deliberately NOT declared here
+ * so TypeScript rejects any attempt to read or persist it — storing it in JS
+ * would re-open the XSS token-theft vector REQ-052 closed. The SPA
+ * authenticates through the httpOnly cookie the login response sets.
+ */
 export interface LoginResponse {
-  token: string;
   user: AuthUser;
   tenant_id: string;
   roles: string[];
@@ -207,7 +218,8 @@ export function AuthProvider({
 
       const data: LoginResponse = await response.json();
       // The token is delivered as an httpOnly cookie by the server; the body
-      // token is ignored here (Phase-1 backward-compat only, REQ-052).
+      // token is DEPRECATED (#696) and deliberately not declared on
+      // `LoginResponse` — identity is all this flow needs.
       applyIdentity({
         user: data.user,
         tenant_id: data.tenant_id ?? null,
