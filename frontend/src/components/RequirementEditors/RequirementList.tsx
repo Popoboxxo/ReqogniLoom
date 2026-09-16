@@ -439,6 +439,9 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           selectedId={selectedId}
           onSelect={onSelect}
           showSearch={false}
+          // Issue #665: remember which branches were open so a sidebar section
+          // switch (which unmounts this tree) does not reset it.
+          stateKey="requirements"
           virtualize
           // Task 3.1: <ArtifactRow>'s two-line id/title layout is taller
           // than WorkspaceTree's default single-line row estimate (34px);

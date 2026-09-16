@@ -37,6 +37,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { LevelBadge } from '../LevelBadge';
 import { BADGE_BASE_STYLE } from '../../../utils/badgeBase';
+import { useWorkspaceTreeState } from '../../../context/WorkspaceTreeStateContext';
 import { collectAncestorIds, collectSelfAndDescendantIds } from './tree-hierarchy';
 import styles from './workspace-tree.module.css';
 
@@ -161,8 +162,12 @@ export interface WorkspaceTreeProps {
   showLevelBadge?: boolean;
   /**
    * Render a built-in debounced search box above the tree.
-   * Set to false when the parent view already provides search (via ListToolbar).
-   * Default: true.
+   *
+   * Default: false. Issue #666 was three simultaneously visible search fields
+   * (sidebar global search + this one + `ListToolbar`) with no way to tell
+   * their scopes apart; every real caller already opted out, so the default is
+   * now "off" and a consumer that genuinely wants a tree-scoped search has to
+   * ask for it explicitly.
    */
   showSearch?: boolean;
   /**
@@ -233,6 +238,14 @@ export interface WorkspaceTreeProps {
    * root (L0)") pass it here; otherwise the translated default applies.
    */
   rootDropzoneLabel?: string;
+  /**
+   * Issue #665: opt-in persistence of this tree's expand/collapse state, keyed
+   * by `stateKey` in the nearest `WorkspaceTreeStateProvider`. Section routes
+   * each mount their own tree, so without this a sidebar section switch reset
+   * the tree to its auto-expanded roots. Omit it (default) to keep the tree's
+   * state local to the instance — the behaviour of every existing caller.
+   */
+  stateKey?: string;
   'data-testid'?: string;
 }
 
@@ -331,7 +344,7 @@ export function WorkspaceTree({
   onSelect,
   onAddChild,
   showLevelBadge = false,
-  showSearch = true,
+  showSearch = false,
   searchPlaceholder,
   emptyLabel,
   noMatchesLabel,
@@ -340,6 +353,7 @@ export function WorkspaceTree({
   virtualRowHeight,
   onReparent,
   rootDropzoneLabel,
+  stateKey,
   'data-testid': testId = 'workspace-tree',
   onToggle,
 }: WorkspaceTreeProps): JSX.Element {
@@ -362,7 +376,18 @@ export function WorkspaceTree({
     [t],
   );
 
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Issue #665: persisted expand state for `stateKey`, if a caller opted in via
+  // <WorkspaceTreeStateProvider>. Outside a provider this is a no-op store, so
+  // the restore below finds nothing and behaviour is unchanged.
+  const { getExpanded, setExpanded: persistExpanded } = useWorkspaceTreeState();
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set((stateKey ? getExpanded(stateKey) : null) ?? []),
+  );
+  // Whether a snapshot (even an empty one — the user collapsed every root)
+  // existed at mount. Distinguishes "restore this" from "auto-expand roots".
+  const restoredStateRef = useRef(
+    stateKey !== undefined && getExpanded(stateKey) !== null,
+  );
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -370,12 +395,23 @@ export function WorkspaceTree({
 
   const tree = useMemo(() => buildInternalTree(nodes), [nodes]);
 
-  // Auto-expand root nodes on first data load (design doc §7 step 1).
+  // Auto-expand root nodes on first data load (design doc §7 step 1), unless
+  // issue #665 restored a persisted expand state for this `stateKey` — that is
+  // the whole point of the store, so it wins over the default.
   useEffect(() => {
     if (didInitRef.current || tree.length === 0) return;
     didInitRef.current = true;
+    if (restoredStateRef.current) return;
     setExpanded(new Set(tree.map((n) => n.node.id)));
   }, [tree]);
+
+  // Issue #665: mirror every expand/collapse — user-driven or auto-reveal —
+  // back into the store, so the next mount of `stateKey` restores it. No-op
+  // without a provider or a `stateKey`.
+  useEffect(() => {
+    if (stateKey === undefined) return;
+    persistExpanded(stateKey, [...expanded]);
+  }, [stateKey, expanded, persistExpanded]);
 
   // -------------------------------------------------------------------
   // Issue #665 — reveal a selection that was made outside this tree.
@@ -1052,17 +1088,27 @@ function TreeRow({
 
   const isDragging = dragProps?.draggingId === node.id;
   const isDropTarget = Boolean(dragProps) && dragProps!.dropTargetId === node.id;
-  // Highlight lives in the CSS module, not inline: the <li>'s inline styles
-  // already own background/border-left, and an inline rule would win over a
-  // class. `outline`/`opacity` are untouched inline, so the class applies.
-  const dragClassName =
+  // Row chrome (background + left accent) is class-based, not inline — the
+  // collapsed-ancestor tint below needs a class that is not beaten by an inline
+  // `background`, and colour stays token-driven either way.
+  //
+  // Hover only applies to the default row: a `renderRow` override (e.g.
+  // <ArtifactRow>) owns its own hover state, and a selected/ancestor row keeps
+  // its own chrome instead of flashing the neutral hover background.
+  const rowClassName =
     [
+      styles.treeRow,
       depth > 0 ? styles.treeLine : '',
+      !hasCustomRow && !isSelected && !containsSelection
+        ? styles.treeRowHoverable
+        : '',
+      !hasCustomRow && isSelected ? styles.treeRowSelected : '',
+      containsSelection ? styles.treeRowHasActiveDescendant : '',
       isDropTarget ? styles.dropTarget : '',
       isDragging ? styles.dragging : '',
     ]
       .filter(Boolean)
-      .join(' ') || undefined;
+      .join(' ');
 
   return (
     <li
@@ -1076,7 +1122,7 @@ function TreeRow({
       // so E2E/unit tests can assert the marker without reading colours.
       data-contains-selection={containsSelection ? 'true' : undefined}
       title={containsSelection ? labels.containsSelection : undefined}
-      className={dragClassName}
+      className={rowClassName}
       draggable={dragProps ? true : undefined}
       data-dragging={isDragging ? 'true' : undefined}
       data-drop-target={isDropTarget ? 'true' : undefined}
@@ -1118,47 +1164,10 @@ function TreeRow({
         borderRadius: 'var(--radius-sm)',
         cursor: 'pointer',
         userSelect: 'none',
-        background: !hasCustomRow && isSelected ? 'var(--color-card-active-bg)' : 'transparent',
-        // Issue #668: the same 3px left accent the selected row uses, but
-        // dashed — "the selection is *inside* here" rather than "this is it".
-        // Reusing the accent slot keeps the marker free of layout cost (no
-        // extra glyph, no row reflow) and puts it exactly where the eye
-        // already looks for selection state.
-        //
-        // Unlike the solid selected accent this is NOT suppressed for
-        // `hasCustomRow`: a custom row renderer (<ArtifactRow>) owns its own
-        // *selected* chrome, but it only ever sees one artifact and cannot
-        // know that a descendant is selected — that is tree structure, which
-        // only TreeRow has.
-        borderLeft: containsSelection
-          ? '3px dashed var(--color-primary)'
-          : !hasCustomRow && isSelected
-            ? '3px solid var(--color-primary)'
-            : '3px solid transparent',
         color: 'var(--color-text)',
-        transition: 'background var(--transition-fast)',
         boxSizing: 'border-box',
         ...rowStyle,
       }}
-      onMouseEnter={
-        hasCustomRow
-          ? undefined
-          : (e) => {
-              if (!isSelected) {
-                (e.currentTarget as HTMLLIElement).style.background =
-                  'var(--color-surface-raised)';
-              }
-            }
-      }
-      onMouseLeave={
-        hasCustomRow
-          ? undefined
-          : (e) => {
-              if (!isSelected) {
-                (e.currentTarget as HTMLLIElement).style.background = 'transparent';
-              }
-            }
-      }
     >
       {/* Expand / collapse toggle — rotate 90° when expanded (design doc §6) */}
       {hasChildren ? (

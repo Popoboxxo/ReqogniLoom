@@ -507,8 +507,11 @@ export function SidebarNavigation(): JSX.Element {
       <div ref={searchRef} className={styles.searchWrapper}>
         <input
           type="search"
-          placeholder={t("nav.searchPlaceholder", "Suchen...")}
-          aria-label={t("nav.searchPlaceholder", "Suchen...")}
+          // Issue #666: this is the project-wide search, so the label names its
+          // scope ("all artifacts") instead of the generic "Suchen..." that was
+          // indistinguishable from the section's own list filter right below.
+          placeholder={t("nav.searchPlaceholder")}
+          aria-label={t("nav.searchPlaceholder")}
           data-testid="global-search"
           value={searchQuery}
           onChange={handleSearchChange}

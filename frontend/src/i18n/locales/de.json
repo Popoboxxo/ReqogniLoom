@@ -88,7 +88,7 @@
     "languageSessionOnly": "Sprache nur für deine Ansicht geändert. Nur ein Workspace-Admin kann sie für alle ändern.",
     "languageSaveFailed": "Die Workspace-Sprache konnte nicht gespeichert werden. Deine Ansicht wurde geändert, die Änderung wurde aber nicht gesichert.",
     "interviews": "Interviews",
-    "searchPlaceholder": "Suchen...",
+    "searchPlaceholder": "Alle Artefakte durchsuchen …",
     "optionalArtifacts": "Optional-Artefakte",
     "searching": "Suche läuft...",
     "mainNavigation": "Hauptnavigation",

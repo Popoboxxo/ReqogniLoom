@@ -618,6 +618,9 @@ export default function ArchitectureEditors(): JSX.Element {
             rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
             showLevelBadge={true}
             showSearch={false}
+            // Issue #665: remember which branches were open so a sidebar
+            // section switch (which unmounts this tree) does not reset it.
+            stateKey="architecture"
             virtualize
           />
         )}
