@@ -4,6 +4,11 @@
  * Every value comes from styles/tokens.css (ch. 8.4: dialogs sit on the
  * raised surface). The backdrop is the only place with a literal colour,
  * because a scrim is a shade of the viewport rather than a themed surface.
+ *
+ * Issue #874 adds the mobile half of the primitive: below 640px the same
+ * panel is presented as a bottom sheet. That is a presentation change only —
+ * no state, no markup contract and no ARIA attribute depends on it, so the
+ * desktop/tablet dialog and its call sites are untouched.
  */
 
 .overlay {
@@ -36,6 +41,29 @@
    focus itself — a dialog without any control — that has to be visible. */
 .panel:focus-visible {
   box-shadow: var(--shadow-card), 0 0 0 2px var(--color-focus);
+}
+
+/* Bottom-sheet drag handle (issue #874). Hidden above the sheet breakpoint:
+   it is a touch affordance with no meaning on a centred desktop modal.
+   Deliberately decorative — it is `aria-hidden` and not focusable; Escape,
+   the close button and a backdrop click stay the operable dismissals, so the
+   keyboard/AT contract of ch. 12.8 is unchanged. */
+.handle {
+  display: none;
+  flex: none;
+  width: var(--sheet-handle-width);
+  height: var(--sheet-handle-height);
+  margin: 0 auto;
+  border-radius: var(--radius-full);
+  background: var(--color-border-hover);
+  /* A downward drag is a gesture, not a scroll: without this the browser
+     would claim the touch and scroll the (already scroll-locked) page. */
+  touch-action: none;
+  cursor: grab;
+}
+
+.handle:active {
+  cursor: grabbing;
 }
 
 .sm {
@@ -120,16 +148,41 @@
   border-top: 1px solid var(--color-border);
 }
 
-/* Below --bp-sm the dialog uses the full width and drops the outer gutter,
-   so long legends stay readable on a phone. */
+/* Below 640px the dialog becomes a bottom sheet (issue #874) instead of a
+   centred modal: anchored to the bottom edge, full width, only its top
+   corners rounded, and height-capped so it never leaves the 360-428px
+   smartphone viewport. Every rule here is scoped to the query — the
+   desktop/tablet presentation above is untouched.
+   The 640px value is inherited from this stylesheet's pre-#874 mobile rule
+   and is *not* one of the two documented `--bp-*` layout breakpoints; see
+   the exception entry in docs/UI_KONZEPT.md §16.3. */
 @media (max-width: 640px) {
   .overlay {
-    padding: var(--space-2);
-    align-items: flex-start;
+    /* Flush with the bottom edge: no outer gutter, and the flex line moves
+       to the end so the panel sits *at* the bottom instead of being centred. */
+    padding: 0;
+    align-items: flex-end;
   }
 
   .panel {
-    max-height: 92vh;
+    /* `dvh` tracks the collapsing mobile browser chrome; the second term is
+       the live `visualViewport.height` written by `useSheetViewport()` while
+       the on-screen keyboard shrinks the visible area (issue #874, DoD 3). */
+    max-height: min(var(--sheet-max-height), var(--sheet-viewport-height));
+    /* Lifts the sheet clear of the keyboard — 0 unless `visualViewport`
+       actually reports a visible area smaller than the layout viewport. */
+    margin-bottom: var(--sheet-keyboard-inset);
+    /* Rounded top edge only — the sheet is flush with the screen bottom. */
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-bottom: none;
+    /* Home-indicator / notch inset, so the footer's buttons stay tappable.
+       `env()` resolves to 0 on any device without a safe area. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .handle {
+    display: block;
+    margin: var(--space-2) auto var(--space-1);
   }
 
   .header,
@@ -138,5 +191,28 @@
   .footer {
     padding-left: var(--space-4);
     padding-right: var(--space-4);
+  }
+
+  /* The body is the sheet's only scrolling region: handle, header and footer
+     stay pinned while a long form scrolls. `min-height: 0` overrides the flex
+     item's content-based automatic minimum size — without it a long body
+     would grow the panel past `max-height` instead of scrolling inside it. */
+  .content {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  /* Touch targets (issue #874, DoD 2) for the sheet's own controls. They grow
+     to `--btn-h-lg` (44px), the largest documented button metric, rather than
+     a 48px literal: the token scale has no 48px rung and inventing one here
+     would be exactly the hardcoded size the conventions forbid — see
+     docs/UI_KONZEPT.md §16.3. */
+  .close {
+    width: var(--btn-h-lg);
+    height: var(--btn-h-lg);
+  }
+
+  .footer button {
+    min-height: var(--btn-h-lg);
   }
 }

@@ -13,8 +13,10 @@
  * usable outside <Dialog>.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { useRef, useState } from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -392,5 +394,287 @@ describe("useFocusTrap", () => {
     ]);
 
     container.remove();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bottom sheet on smartphones — issue #874
+// ---------------------------------------------------------------------------
+//
+// The sheet *shape* is CSS only, so it is asserted against the stylesheet's
+// source the same way `src/test/ui-ratchet.test.ts` asserts its structural
+// rules: jsdom applies no stylesheets, so there is no rendered geometry to
+// query here, but the contract that matters — "below 640px this moves to the
+// bottom, above it nothing changes" — is exactly a difference between two
+// text regions of one file. The JavaScript half (gesture + viewport mirror)
+// is exercised normally, through the DOM.
+
+const DIALOG_CSS = readFileSync(join(__dirname, "Dialog.module.css"), "utf-8");
+const TOKENS_CSS = readFileSync(
+  join(__dirname, "..", "..", "..", "styles", "tokens.css"),
+  "utf-8",
+);
+
+/** The one query that switches the primitive from modal to bottom sheet. */
+const SHEET_QUERY = "@media (max-width: 640px) {";
+const [MODAL_CSS, SHEET_CSS] = DIALOG_CSS.split(SHEET_QUERY);
+
+/**
+ * jsdom ships no `PointerEvent` (hence no `clientY` on the event testing-library
+ * would synthesise), so pointer gestures are only testable with a minimal
+ * MouseEvent-backed stand-in — `MouseEvent` is what carries the coordinates.
+ */
+interface PointerEventInitLike extends MouseEventInit {
+  pointerId?: number;
+  pointerType?: string;
+}
+
+class TestPointerEvent
+  extends MouseEvent
+  implements Pick<PointerEvent, "pointerId" | "pointerType">
+{
+  readonly pointerId: number;
+  readonly pointerType: string;
+
+  constructor(type: string, init: PointerEventInitLike = {}) {
+    super(type, init);
+    this.pointerId = init.pointerId ?? 1;
+    this.pointerType = init.pointerType ?? "touch";
+  }
+}
+
+/** Drag the grabber from `from` through `waypoints` and release. */
+function dragHandle(
+  handle: HTMLElement,
+  from: number,
+  ...waypoints: number[]
+): void {
+  fireEvent.pointerDown(handle, { clientY: from, pointerId: 1 });
+  for (const clientY of waypoints) {
+    fireEvent.pointerMove(handle, { clientY, pointerId: 1 });
+  }
+  fireEvent.pointerUp(handle, {
+    clientY: waypoints[waypoints.length - 1] ?? from,
+    pointerId: 1,
+  });
+}
+
+interface VisualViewportStub {
+  height: number;
+  addEventListener: (type: string, listener: () => void) => void;
+  removeEventListener: (type: string, listener: () => void) => void;
+}
+
+/** Installs a `window.visualViewport` stand-in and returns its listener count. */
+function installVisualViewport(height: number, innerHeight: number) {
+  const listeners = new Set<() => void>();
+  const viewport: VisualViewportStub = {
+    height,
+    addEventListener: (_type, listener) => {
+      listeners.add(listener);
+    },
+    removeEventListener: (_type, listener) => {
+      listeners.delete(listener);
+    },
+  };
+  Object.defineProperty(window, "visualViewport", {
+    value: viewport,
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    value: innerHeight,
+    configurable: true,
+    writable: true,
+  });
+  return {
+    listeners,
+    resize: (nextHeight: number): void => {
+      viewport.height = nextHeight;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+describe("<Dialog> — bottom sheet on smartphones (issue #874)", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "PointerEvent", {
+      value: TestPointerEvent,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "PointerEvent");
+    Reflect.deleteProperty(window, "visualViewport");
+  });
+
+  it("keeps the centred modal above the sheet breakpoint", () => {
+    // The split is only meaningful while the stylesheet has exactly one sheet
+    // query; a second one would silently move rules between the two halves.
+    expect(SHEET_CSS).toBeTruthy();
+    expect(MODAL_CSS).toContain("align-items: center");
+    expect(MODAL_CSS).toContain("border-radius: var(--radius-lg);");
+    // ...and nothing in the modal half may anchor to the bottom or reserve
+    // keyboard space.
+    expect(MODAL_CSS).not.toContain("align-items: flex-end");
+    expect(MODAL_CSS).not.toContain("--sheet-keyboard-inset");
+    expect(MODAL_CSS).toMatch(/\.handle\s*\{[^}]*display: none/);
+  });
+
+  it("anchors the panel to the bottom edge, full-bleed and top-rounded", () => {
+    expect(SHEET_CSS).toContain("align-items: flex-end");
+    expect(SHEET_CSS).toContain("padding: 0;");
+    expect(SHEET_CSS).toContain(
+      "border-radius: var(--radius-lg) var(--radius-lg) 0 0;",
+    );
+    expect(SHEET_CSS).toMatch(/\.handle\s*\{[^}]*display: block/);
+  });
+
+  it("caps the sheet at 90dvh of the live visual viewport and scrolls its body", () => {
+    // 90dvh cap (DoD 1) + the visualViewport height (DoD 3), whichever is
+    // smaller, and the keyboard inset pushing the sheet up.
+    expect(SHEET_CSS).toContain(
+      "max-height: min(var(--sheet-max-height), var(--sheet-viewport-height));",
+    );
+    expect(SHEET_CSS).toContain("margin-bottom: var(--sheet-keyboard-inset);");
+    // Safe-area padding keeps the footer's buttons off the home indicator.
+    expect(SHEET_CSS).toContain("env(safe-area-inset-bottom, 0px)");
+    // The content is the single scrolling region: pinned header/footer above
+    // and below it, and `min-height: 0` so a long body scrolls instead of
+    // stretching the panel.
+    expect(SHEET_CSS).toMatch(/\.content\s*\{[^}]*flex: 1 1 auto;/);
+    expect(SHEET_CSS).toMatch(/\.content\s*\{[^}]*min-height: 0;/);
+  });
+
+  it("sizes the sheet from tokens instead of hardcoded values", () => {
+    // 40x4px grabber per the issue's DoD, 90dvh cap, plus the two runtime
+    // defaults the CSS falls back to when `visualViewport` is unavailable.
+    expect(TOKENS_CSS).toContain("--sheet-handle-width: 40px;");
+    expect(TOKENS_CSS).toContain("--sheet-handle-height: 4px;");
+    expect(TOKENS_CSS).toContain("--sheet-max-height: 90dvh;");
+    expect(TOKENS_CSS).toContain("--sheet-viewport-height: 100dvh;");
+    expect(TOKENS_CSS).toContain("--sheet-keyboard-inset: 0px;");
+  });
+
+  it("renders the grabber as a decorative, non-focusable affordance", async () => {
+    const user = userEvent.setup();
+    render(<DialogHost />);
+    await user.click(screen.getByTestId("trigger"));
+
+    const handle = screen.getByTestId("dialog-handle");
+    expect(handle).toHaveAttribute("aria-hidden", "true");
+    expect(handle).not.toHaveAttribute("tabindex");
+    expect(handle.className).toContain("handle");
+    // #800/#954 contract: the extra element must not become the focus target.
+    expect(document.activeElement).toBe(screen.getByTestId("inner-first"));
+  });
+
+  it("dismisses the sheet when the handle is dragged down past the threshold", async () => {
+    const user = userEvent.setup();
+    render(<DialogHost />);
+    await user.click(screen.getByTestId("trigger"));
+
+    dragHandle(screen.getByTestId("dialog-handle"), 100, 164);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the sheet open on a short drag", async () => {
+    const user = userEvent.setup();
+    render(<DialogHost />);
+    await user.click(screen.getByTestId("trigger"));
+
+    dragHandle(screen.getByTestId("dialog-handle"), 100, 130);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("evaluates the drag on release, so pulling the sheet back up keeps it open", async () => {
+    const user = userEvent.setup();
+    render(<DialogHost />);
+    await user.click(screen.getByTestId("trigger"));
+
+    // Down past the threshold, then back up before letting go.
+    dragHandle(screen.getByTestId("dialog-handle"), 100, 220, 110);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("ignores an upward drag", async () => {
+    const user = userEvent.setup();
+    render(<DialogHost />);
+    await user.click(screen.getByTestId("trigger"));
+
+    dragHandle(screen.getByTestId("dialog-handle"), 200, 40);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("does not let a swipe dismiss a dialog that must not be dismissed", async () => {
+    const user = userEvent.setup();
+    render(<DialogHost closeOnBackdropClick={false} />);
+    await user.click(screen.getByTestId("trigger"));
+
+    dragHandle(screen.getByTestId("dialog-handle"), 100, 400);
+
+    // Same dismissibility decision as Escape and the backdrop (#800/UI-24).
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("publishes the visual viewport as CSS custom properties (keyboard compensation)", () => {
+    const viewport = installVisualViewport(500, 800);
+
+    render(
+      <Dialog title="Titel" onClose={vi.fn()}>
+        <button type="button">Knopf</button>
+      </Dialog>,
+    );
+
+    const panel = screen.getByTestId("dialog");
+    expect(panel.style.getPropertyValue("--sheet-viewport-height")).toBe(
+      "500px",
+    );
+    // 800px layout viewport - 500px visible = a 300px keyboard.
+    expect(panel.style.getPropertyValue("--sheet-keyboard-inset")).toBe("300px");
+
+    viewport.resize(620);
+    expect(panel.style.getPropertyValue("--sheet-viewport-height")).toBe(
+      "620px",
+    );
+    expect(panel.style.getPropertyValue("--sheet-keyboard-inset")).toBe("180px");
+  });
+
+  it("drops the viewport properties and its listener on unmount", () => {
+    const viewport = installVisualViewport(500, 800);
+
+    const { unmount } = render(
+      <Dialog title="Titel" onClose={vi.fn()}>
+        <button type="button">Knopf</button>
+      </Dialog>,
+    );
+    const panel = screen.getByTestId("dialog");
+    expect(viewport.listeners.size).toBe(1);
+
+    unmount();
+
+    expect(viewport.listeners.size).toBe(0);
+    expect(panel.style.getPropertyValue("--sheet-viewport-height")).toBe("");
+    expect(panel.style.getPropertyValue("--sheet-keyboard-inset")).toBe("");
+  });
+
+  it("stays a no-op where visualViewport does not exist", () => {
+    expect(window.visualViewport).toBeUndefined();
+
+    render(
+      <Dialog title="Titel" onClose={vi.fn()}>
+        <button type="button">Knopf</button>
+      </Dialog>,
+    );
+
+    const panel = screen.getByTestId("dialog");
+    expect(panel.style.getPropertyValue("--sheet-viewport-height")).toBe("");
+    expect(panel.style.getPropertyValue("--sheet-keyboard-inset")).toBe("");
   });
 });

@@ -827,6 +827,28 @@
   --detail-min: 520px;
 
   /*
+   * Mobile bottom-sheet metrics (issue #874, UI concept ch. 12.8). Below the
+   * shared `<Dialog>` primitive's 640px breakpoint the centred modal becomes a
+   * bottom sheet; these are the only numbers that sheet shape needs, so they
+   * live here instead of as literals inside `Dialog.module.css` (project
+   * convention: no hardcoded sizes in components).
+   *
+   * `--sheet-viewport-height` / `--sheet-keyboard-inset` are *runtime* values,
+   * not design decisions: `useSheetViewport()` overwrites them per panel from
+   * `window.visualViewport` while a dialog is open. The defaults below are what
+   * applies when the API is unavailable (desktop, jsdom, older Safari) — the
+   * sheet then falls back to plain `dvh` sizing.
+   *
+   * The grabber is 40x4px per the issue's DoD; `--sheet-max-height: 90dvh`
+   * keeps the sheet clear of the mobile browser chrome.
+   */
+  --sheet-handle-width: 40px;
+  --sheet-handle-height: 4px;
+  --sheet-max-height: 90dvh;
+  --sheet-viewport-height: 100dvh;
+  --sheet-keyboard-inset: 0px;
+
+  /*
    * Layout breakpoints (issue #160, UI concept ch. 6.3). CSS custom
    * properties cannot be referenced inside `@media` conditions (no browser
    * support), so these are the documented single source of truth — every
@@ -835,9 +857,12 @@
    *   --bp-lg: 1024px  (sidebar collapses to an off-canvas drawer,
    *                     trace spine turns horizontal)
    *   --bp-md:  768px  (split-view stacks to a single column)
+   *   --bp-xl: 1600px  (SE-metrics KPI row fits five tiles side by side,
+   *                     #809; below it the five tiles lay out 3+2)
    */
   --bp-md: 768px;
   --bp-lg: 1024px;
+  --bp-xl: 1600px;
 }
 
 /* ==========================================================================
