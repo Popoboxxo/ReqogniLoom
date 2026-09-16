@@ -207,6 +207,11 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
     const dialog = await screen.findByTestId("tc-create-dialog");
     expect(dialog).toHaveAttribute("role", "dialog");
     expect(dialog).toHaveAttribute("aria-modal", "true");
+    // #873: the create form is the shared portal <Dialog>, not the removed
+    // inline accordion — it portals into document.body and the focus trap
+    // lands inside the panel (here on the title field via initialFocusRef).
+    expect(screen.getByTestId("tc-create-dialog-overlay").parentElement).toBe(document.body);
+    expect(dialog.contains(document.activeElement)).toBe(true);
     // Dialog title repeats the button's label (ch. 12.8).
     expect(screen.getByRole("heading", { name: "New Test Case" })).toBeInTheDocument();
 
