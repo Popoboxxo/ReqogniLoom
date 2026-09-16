@@ -8,13 +8,16 @@
  * - RiskForm/IssueForm/TestCaseForm copy-pasted a neutral-gray inline style
  * - RequirementForm/NeedForm/ArchitectureForm showed no status badge at all
  *
- * Uses the same `getStatusBadgeStyle` token mapping already relied on by
- * every List component (AdrList, IssueList, NeedList, RiskList,
- * TestCaseList) so a given status renders identically in list and detail
- * views.
+ * Renders through the shared, token-based `<Badge>` (issue #675), so its
+ * geometry is identical to `<VersionBadge>`/`<LevelBadge>` and its colour
+ * comes from the single `getBadgeVariantStyle` variant map already relied on
+ * by every List component (AdrList, IssueList, NeedList, RiskList,
+ * TestCaseList) — a given status therefore renders identically in list and
+ * detail views.
  */
 
-import { getStatusBadgeStyle, type BadgeVariant } from "../../utils/statusBadge";
+import { resolveBadgeVariant, type BadgeVariant } from "../../utils/statusBadge";
+import { Badge } from "./Badge";
 
 interface StatusBadgeProps {
   status: string;
@@ -37,8 +40,8 @@ export function StatusBadge({
   testId = "status-badge",
 }: StatusBadgeProps): JSX.Element {
   return (
-    <span data-testid={testId} style={getStatusBadgeStyle(status, badgeVariant)}>
+    <Badge variant={resolveBadgeVariant(status, badgeVariant)} testId={testId}>
       {label ?? status}
-    </span>
+    </Badge>
   );
 }

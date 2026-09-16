@@ -140,6 +140,38 @@ export const resolveBadgeVariant = (
   return STATUS_VARIANT_MAP[status.toLowerCase().trim()] ?? 'neutral';
 };
 
+const colorsFor = (variant?: BadgeVariant | null): { bg: string; color: string } =>
+  (variant ? VARIANT_COLORS[variant] : undefined) ?? VARIANT_COLORS.neutral;
+
+/**
+ * The **single** variant → token mapping every badge in the app renders
+ * through (issue #675). `<Badge>` is the only consumer component; the
+ * migrated call sites (audit count/severity/artifact chips, the trace-link
+ * counters and outdated marker, the workspace-tree type badge) and
+ * `getStatusBadgeStyle` all delegate here instead of re-deriving
+ * `--color-badge-*-bg` / `-text` pairs locally.
+ *
+ * Semantic contract — the *same state* must resolve to the *same* variant
+ * everywhere, and the variant alone decides the colour channel (UI concept
+ * ch. 8.1, "colour belongs to state"). See `STATUS_VARIANT_MAP` above for the
+ * state→variant half of that contract:
+ *
+ * | variant   | meaning                              | states (see STATUS_VARIANT_MAP) |
+ * |-----------|--------------------------------------|---------------------------------|
+ * | `success` | approved / verified / done           | approved, active, done, passed, resolved, implemented, verified, mitigated, freigegeben |
+ * | `info`    | in progress / needs a look, not a problem | proposed, review, in_review, in_progress, monitored, submitted, under_review, ready |
+ * | `warning` | recoverable / needs attention        | suspect, partial, outdated, archived, archiviert, blocked, skipped |
+ * | `danger`  | rejected / failed / gone             | rejected, deprecated, failed, wontfix, superseded |
+ * | `neutral` | not started / informational          | draft, entwurf, open, identified, accepted, closed, not_run, *unknown* |
+ *
+ * Geometry (box model, radius, font size) is NOT variant-specific — it comes
+ * from `BADGE_BASE_STYLE` so every variant is the same physical size.
+ */
+export const getBadgeVariantStyle = (variant?: BadgeVariant | null): CSSProperties => {
+  const colors = colorsFor(variant);
+  return { ...BADGE_BASE, background: colors.bg, color: colors.color };
+};
+
 /**
  * Returns the inline style for a status badge based on its raw status string.
  * Unknown statuses fall back to the neutral variant.
@@ -147,10 +179,7 @@ export const resolveBadgeVariant = (
 export const getStatusBadgeStyle = (
   status: string,
   badgeVariant?: BadgeVariant | null,
-): CSSProperties => {
-  const colors = VARIANT_COLORS[resolveBadgeVariant(status, badgeVariant)];
-  return { ...BADGE_BASE, background: colors.bg, color: colors.color };
-};
+): CSSProperties => getBadgeVariantStyle(resolveBadgeVariant(status, badgeVariant));
 
 /** Background style for the currently selected/active card in a list. */
 export const ACTIVE_CARD_STYLE: CSSProperties = {

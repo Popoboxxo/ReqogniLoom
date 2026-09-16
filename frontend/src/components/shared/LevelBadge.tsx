@@ -17,9 +17,29 @@
  * `ui-ratchet` suite freezes that count at 1. `WorkspaceTree` used to carry
  * its own colour-ramped copy — see the note there for why the colour went
  * away rather than moving in here.
+ *
+ * Renders through the shared `<Badge>` primitive (issue #675) with the
+ * `neutral` variant, so its box model and colour channel cannot drift from
+ * the status and version badges again; only the wide tracking and the
+ * hairline border remain local to this component.
  */
 
-import { BADGE_BASE_STYLE } from "../../utils/badgeBase";
+import type { CSSProperties } from "react";
+
+import { Badge } from "./Badge";
+
+/**
+ * The only part of this badge that is not the shared app-wide badge: `L0`
+ * style labels are all-caps short text and need the wide tracking to stay
+ * legible, plus a hairline border that distinguishes the neutral chip from
+ * the page background. Everything else (box model, radius, size, and the
+ * neutral colour pair) comes from `<Badge variant="neutral">`.
+ */
+const LEVEL_BADGE_OVERRIDES: CSSProperties = {
+  border: "1px solid var(--color-border)",
+  letterSpacing: "var(--tracking-wide)",
+  fontVariantNumeric: "tabular-nums",
+};
 
 export interface LevelBadgeProps {
   /** Tree depth. Rendered as `L{level}` when no explicit label is given. */
@@ -41,23 +61,14 @@ export function LevelBadge({
   if (!text) return null;
 
   return (
-    <span
-      data-testid={testId}
+    <Badge
+      variant="neutral"
+      testId={testId}
       title={title}
-      aria-label={title}
-      style={{
-        ...BADGE_BASE_STYLE,
-        border: "1px solid var(--color-border)",
-        background: "var(--color-badge-neutral-bg)",
-        color: "var(--color-badge-neutral-text)",
-        // Kept local (ch. 9): `L0`-style labels are all-caps short text, which
-        // needs the wide tracking to stay legible. Not part of the shared base
-        // because most badges render mixed-case words.
-        letterSpacing: "var(--tracking-wide)",
-        fontVariantNumeric: "tabular-nums",
-      }}
+      ariaLabel={title}
+      style={LEVEL_BADGE_OVERRIDES}
     >
       {text}
-    </span>
+    </Badge>
   );
 }

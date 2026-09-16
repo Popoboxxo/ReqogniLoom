@@ -35,8 +35,8 @@ import {
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
+import { Badge } from '../Badge';
 import { LevelBadge } from '../LevelBadge';
-import { BADGE_BASE_STYLE } from '../../../utils/badgeBase';
 import { useWorkspaceTreeState } from '../../../context/WorkspaceTreeStateContext';
 import { collectAncestorIds, collectSelfAndDescendantIds } from './tree-hierarchy';
 import styles from './workspace-tree.module.css';
@@ -111,6 +111,17 @@ const TYPE_BADGE_ABBREVIATION: Readonly<Record<string, string>> = {
 export function getTypeBadgeAbbreviation(type: string): string {
   return (TYPE_BADGE_ABBREVIATION as Record<string, string>)[type] ?? type;
 }
+
+/**
+ * Applies a caller-supplied type colour onto the shared `neutral` `<Badge>`
+ * (issue #675).
+ *
+ * A type ramp is not a state, so it cannot be expressed as one of the five
+ * semantic variants — but *how* the badge is built must not be re-implemented
+ * per call site either. Hoisted rather than written as an inline literal at
+ * the JSX site, per the `ui-ratchet` rule.
+ */
+const typeBadgeStyle = (bg: string, color: string): CSSProperties => ({ background: bg, color });
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -1232,23 +1243,20 @@ function TreeRow({
             {node.name}
           </span>
 
-          {/* Status / type badge (node.badge). Geometry from the shared badge
-              base (issue #675) so a tree row's badge matches the one an
-              <ArtifactRow> renders for the same artifact; only the colour,
-              which the caller supplies, stays local. */}
+          {/* Status / type badge (node.badge). Issue #675: rendered through the
+              shared <Badge>, so a tree row's badge is the same physical badge an
+              <ArtifactRow> renders for the same artifact. Only the colour — the
+              caller's type ramp — stays local, via `typeBadgeStyle`. */}
           {node.badge && (
-            <span
-              data-testid={`${testIdPrefix}-badge-${node.id}`}
+            <Badge
+              variant="neutral"
+              testId={`${testIdPrefix}-badge-${node.id}`}
               title={node.badge.title ?? node.badge.text}
-              aria-label={node.badge.title ?? node.badge.text}
-              style={{
-                ...BADGE_BASE_STYLE,
-                background: node.badge.bg,
-                color: node.badge.color,
-              }}
+              ariaLabel={node.badge.title ?? node.badge.text}
+              style={typeBadgeStyle(node.badge.bg, node.badge.color)}
             >
               {node.badge.text}
-            </span>
+            </Badge>
           )}
 
           {/* Level badge — the shared, neutral <LevelBadge> (issue #674).
