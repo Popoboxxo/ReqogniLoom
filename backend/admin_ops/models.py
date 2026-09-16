@@ -374,6 +374,112 @@ class TenantThemeDefault(TenantScopedModel):
         return f"TenantThemeDefault(tenant={self.tenant_id}, {self.palette_key}/{self.mode})"
 
 
+# ---------------------------------------------------------------------------
+# Runtime-configurable rate limits (GitHub #944)
+#
+# The REST/MCP throttle ceilings used to be operator-tunable only through
+# environment variables read once at process start. These two models add the
+# missing runtime layer, mirroring the memory-settings precedent
+# (``memory.models.SystemMemorySettings`` for a process-wide singleton,
+# ``WorkspaceMemorySettings`` for the scoped override):
+#
+# * :class:`SystemRateLimitOverride` — an optional deployment-wide default.
+# * :class:`RateLimitOverride` — the per-tenant override.
+#
+# Precedence at resolution time (``admin_ops.rate_limits.resolve_rate``):
+#
+#     tenant override  >  global override  >  settings/env  >  disabled
+#
+# A stored empty ``rate``/scope value means "explicitly disabled"; an absent
+# row means "no override, fall through". The distinction matters because an
+# operator must be able to turn a limit OFF at runtime without deleting data
+# that is also the documentation of what the limit used to be.
+# ---------------------------------------------------------------------------
+
+#: Singleton primary key of :class:`SystemRateLimitOverride` — mirrors
+#: ``memory.models.SYSTEM_MEMORY_SETTINGS_ID``.
+SYSTEM_RATE_LIMIT_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
+
+
+class SystemRateLimitOverride(AuditableModel):
+    """Deployment-wide runtime override of the throttle ceilings (GitHub #944).
+
+    Deliberately **not** a ``TenantScopedModel``: it is the *global* default an
+    operator sets once for the whole installation, and it is also the only
+    override the MCP transport can honour — ``mcp_server.throttling`` runs
+    *before* authentication on purpose (a throttle that fires after the
+    expensive work bounds nothing), so no tenant is known at that point.
+
+    Singleton enforced by ``save()`` always forcing the same primary key, the
+    same shape as ``SystemMemorySettings``. ``scopes`` maps a throttle scope
+    name (``"user"``, ``"mcp_key"``, ...) to a DRF ``"<count>/<period>"`` rate;
+    an empty string disables that scope. Unknown keys are ignored at resolution
+    time rather than rejected here, so a scope removed from the code later does
+    not make the row unreadable.
+    """
+
+    scopes = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Throttle scope -> DRF rate string, e.g. {'user': '600/min'}. "
+            "An empty string disables that scope deployment-wide."
+        ),
+    )
+
+    class Meta:
+        db_table = "admin_ops_system_rate_limit_override"
+
+    def save(self, *args, **kwargs) -> None:
+        self.pk = SYSTEM_RATE_LIMIT_ID
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"SystemRateLimitOverride({len(self.scopes or {})} scopes)"
+
+
+class RateLimitOverride(TenantScopedModel):
+    """Per-tenant runtime override of a single throttle scope (GitHub #944).
+
+    One row per ``(tenant, scope)`` — enforced by the unique constraint below,
+    not by application logic alone. Writers always go through
+    :class:`~admin_ops.services.rate_limit_service.RateLimitService`, which
+    uses ``update_or_create`` so an edit overwrites instead of duplicating.
+
+    ``rate`` follows DRF's ``"<count>/<period>"`` syntax. An **empty** value is
+    a deliberate "this scope is unlimited for this tenant", which is a
+    different statement from "no row exists" (→ fall back to the global
+    override, then to settings) — hence ``blank=True`` rather than a nullable
+    column: the row's existence is the override, the value is the limit.
+    """
+
+    scope = models.CharField(
+        max_length=32,
+        help_text="Throttle scope name, e.g. 'user', 'mcp_key'.",
+    )
+    rate = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "DRF rate string ('600/min'). Empty = unlimited for this tenant. "
+            "Absent row = fall through to the global override / settings."
+        ),
+    )
+
+    class Meta:
+        db_table = "admin_ops_rate_limit_override"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "scope"],
+                name="uq_rate_limit_override_tenant_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"RateLimitOverride(tenant={self.tenant_id}, {self.scope}={self.rate!r})"
+
+
 __all__ = [
     "BackupMetadata",
     "BackupStatus",
@@ -385,6 +491,9 @@ __all__ = [
     "MODE_CHOICES",
     "MODE_DARK",
     "MODE_LIGHT",
+    "RateLimitOverride",
+    "SYSTEM_RATE_LIMIT_ID",
+    "SystemRateLimitOverride",
     "TOKEN_KEYS_VERSION",
     "TenantThemeDefault",
     "ThemePalette",

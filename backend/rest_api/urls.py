@@ -46,6 +46,7 @@ from auth_tenancy.rest_workspace_members import (
 )
 from admin_ops.banner_rest import GlobalBannerView, PublicLoginBannerView, WorkspaceBannerView
 from admin_ops.health_rest import SystemHealthView
+from admin_ops.rate_limit_rest import GlobalRateLimitsView, RateLimitsView
 from admin_ops.theme_rest import (
     TenantThemeDefaultView,
     ThemePaletteDetailView,
@@ -369,6 +370,21 @@ urlpatterns = [
         "admin/health/",
         SystemHealthView.as_view(),
         name="admin-health",
+    ),
+    # Runtime-configurable rate limits (GitHub #944).
+    # /admin/rate-limits/global/ -> deployment-wide default; System-Admin only.
+    # NOTE: registered before the tenant-scoped route so the more specific
+    # path is unambiguously matched first.
+    path(
+        "admin/rate-limits/global/",
+        GlobalRateLimitsView.as_view(),
+        name="admin-rate-limits-global",
+    ),
+    # /admin/rate-limits/ -> GET any user, PUT/DELETE System-Admin only.
+    path(
+        "admin/rate-limits/",
+        RateLimitsView.as_view(),
+        name="admin-rate-limits",
     ),
     # System & Workspace Banners.
     # /admin/banners/global/  -> GET/PUT, System-Admin only
