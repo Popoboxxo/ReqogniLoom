@@ -404,6 +404,38 @@ def _is_empty_completion(text: str) -> bool:
     return parsed in ([], {})
 
 
+#: Object keys a provider may use to echo an architecture-element id inside an
+#: entry of the ``sysreq_to_arch_assign`` suggestion array (issue #825). A
+#: model asked for "a JSON array of architecture element IDs from the provided
+#: list" frequently answers with the offered element *object* instead of a bare
+#: id string; the first recognised key wins.
+_ARCH_SUGGESTION_ID_KEYS: Tuple[str, ...] = (
+    "id",
+    "arch_element_id",
+    "architecture_element_id",
+    "element_id",
+)
+
+
+def _arch_suggestion_id_candidates(item: Any) -> Tuple[str, ...]:
+    """Return the id strings *item* may carry in a suggestion array (issue #825).
+
+    A provider answer is not obliged to be a bare id string: the
+    ``sysreq_to_arch_assign`` flow accepts both a string entry and an object
+    entry echoing one of ``_ARCH_SUGGESTION_ID_KEYS``. Anything else — prose,
+    numbers, nested structures — yields no candidate and is dropped by the
+    caller.
+    """
+    if isinstance(item, str):
+        return (item,)
+    if isinstance(item, dict):
+        for key in _ARCH_SUGGESTION_ID_KEYS:
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return (value,)
+    return ()
+
+
 def invalidate_derivation_cache(artifact_id: UUID | str | None) -> None:
     """Invalidate every cached LLM derivation for *artifact_id*.
 
@@ -557,7 +589,10 @@ class AiDerivationService(ServiceBase):
         Raises:
             NotFoundError: The requirement does not exist for this tenant.
             ValidationError: The requirement is already allocated.
-            LlmResponseError: The provider returned non-JSON content.
+            LlmResponseError: The provider returned non-JSON content, or an
+                array whose entries referenced no architecture element the
+                prompt had offered (issue #825: such an answer used to be
+                silently reduced to an empty suggestion list).
         """
         self._set_tenant_context(ctx)
 
@@ -582,7 +617,6 @@ class AiDerivationService(ServiceBase):
             }
             for ae in arch_elements
         ]
-        available_ids = {entry["id"] for entry in arch_payload}
 
         template = self._get_template_content(
             ctx, "sysreq_to_arch_assign", workspace_id=workspace_id
@@ -605,12 +639,42 @@ class AiDerivationService(ServiceBase):
         )
 
         # Keep only ids the LLM was actually offered (defensive against
-        # hallucinated identifiers).
-        result_ids = [
-            str(item)
-            for item in suggested
-            if isinstance(item, (str, int)) and str(item) in available_ids
-        ]
+        # hallucinated identifiers). The match is case-insensitive because a
+        # UUID is case-insensitive by definition and providers do normalise it
+        # (issue #825), and an object entry echoing the offered element is
+        # accepted too -- see _arch_suggestion_id_candidates. Comparing the
+        # raw entry against the canonical lowercase id silently dropped every
+        # such answer, which returned HTTP 200 with an empty
+        # suggested_arch_element_ids list even though the prompt had offered
+        # the very elements the model selected.
+        offered_by_key = {entry["id"].casefold(): entry["id"] for entry in arch_payload}
+        result_ids: List[str] = []
+        for item in suggested:
+            for candidate in _arch_suggestion_id_candidates(item):
+                canonical = offered_by_key.get(candidate.strip().casefold())
+                if canonical is not None and canonical not in result_ids:
+                    result_ids.append(canonical)
+                    break
+
+        if suggested and not result_ids:
+            # Same principle as _usable_entries (issue #311): a structurally
+            # unusable answer must fail visibly instead of masquerading as a
+            # legitimate "the model proposed nothing" preview. Never echoes the
+            # provider payload -- only how many entries were unusable.
+            raise LlmResponseError(
+                "The LLM response for 'sysreq_to_arch_assign' carried "
+                f"{len(suggested)} entries, but none of them referenced an "
+                "architecture element offered in the prompt -- no suggestion "
+                "could be extracted."
+            )
+        if not suggested and arch_payload:
+            logger.warning(
+                "LLM proposed no architecture element for requirement %s "
+                "although %d element(s) were offered (purpose=%s).",
+                requirement_id,
+                len(arch_payload),
+                "sysreq_to_arch_assign",
+            )
         return {
             "suggested_arch_element_ids": result_ids,
             "is_mock_fallback": is_mock_fallback,
