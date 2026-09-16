@@ -704,6 +704,7 @@ export default function MetricsDashboard(): JSX.Element {
 
       {metrics && (
         <div
+          data-testid="metrics-scope-footer"
           style={{
             marginTop: "var(--space-6)",
             padding: "var(--space-3) var(--space-4)",

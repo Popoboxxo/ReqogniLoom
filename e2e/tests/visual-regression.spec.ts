@@ -154,6 +154,12 @@ function volatileMasks(page: Page): Locator[] {
     page.locator('[data-testid="build-version-indicator"]'),
     page.locator('time'),
     page.locator('[data-testid="metric-last-update"]'),
+    // The /metrics scope footer prints "Timeframe: P30D · Workspace: <uuid>".
+    // The visual spec runs in an isolated workspace created fresh by this very
+    // run, so that UUID differs on every execution and can never match a
+    // committed baseline (the same class of volatility the dashboard's
+    // workspace-list mask handles).
+    page.locator('[data-testid="metrics-scope-footer"]'),
   ];
 }
 
