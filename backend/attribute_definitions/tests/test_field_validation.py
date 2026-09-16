@@ -308,7 +308,7 @@ def test_clearing_a_field_in_a_hidden_section_is_not_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
-# actor type (Attribut v3 WS2, spec section 4) — structure only, DB-free
+# actor type (Attribut v3 WS2, spec section 4) â€” structure only, DB-free
 # ---------------------------------------------------------------------------
 
 ACTOR_DEF = _attrs(

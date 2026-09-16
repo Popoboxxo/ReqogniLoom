@@ -30,6 +30,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     # gate methods so this Layer-2 facade keeps its light import graph.
     from traceability.audit import Finding
 
+    # GH-821: only the string annotations of `_apply_waivers` /
+    # `_coerce_waiver_requests` name this type; the runtime import stays local to
+    # `_coerce_waiver_requests` so the facade keeps its light import graph. Without
+    # this type-check-only alias the annotations reference an undefined name
+    # (ruff F821 in the CI gate `ruff check . --select=F821,F822`).
+    from baseline.waivers import BlockerWaiverRequest
+
 from auth_tenancy.context import AuthContext
 
 # Backward-compat alias used by tests that patch 'application.baseline_facade.TenantContext'
