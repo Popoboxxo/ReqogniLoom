@@ -377,4 +377,23 @@ describe("RequirementArtifactForm", () => {
     expect(await screen.findByTestId("artifact-form-error")).toBeInTheDocument();
     expect(requirementsApi.delete).not.toHaveBeenCalled();
   });
+
+  // GitHub #677 (the Requirement side of the reported a11y gap): a rejected
+  // save must be announced, not just drawn — the banner is an assertive live
+  // region on the Requirement form.
+  it("announces a failed save with an assertive live region (#677)", async () => {
+    vi.mocked(requirementsApi.update).mockRejectedValue(new Error("Server exploded"));
+    render(
+      <RequirementArtifactForm
+        requirement={REQUIREMENT}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("artifact-form-save"));
+    const banner = await screen.findByTestId("artifact-form-error");
+    expect(banner).toHaveTextContent("Server exploded");
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(banner).toHaveAttribute("aria-live", "assertive");
+  });
 });

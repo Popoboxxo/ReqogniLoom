@@ -631,6 +631,29 @@ describe("ArtifactForm", () => {
     );
   });
 
+  // GitHub #677: the shared save-error banner replaced the hand-written
+  // RequirementForm/TestCaseForm banners. A save that fails must be announced
+  // to screen-reader users — the banner is an assertive live region, not just
+  // a red paragraph that silently appears.
+  it("announces a failed save through an assertive live region (#677)", async () => {
+    mockDefinition([spec({ name: "title" })]);
+    const onSave = vi.fn().mockRejectedValue({
+      error: { code: "INTERNAL_SERVER_ERROR", message: "Internal server error", details: [] },
+    });
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={onSave}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("artifact-form-save"));
+    const banner = await screen.findByTestId("artifact-form-error");
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(banner).toHaveAttribute("aria-live", "assertive");
+  });
+
   it("offers delete behind ConfirmDialog only when onDelete is supplied", async () => {
     mockDefinition([spec({ name: "title" })]);
     const onDelete = vi.fn().mockResolvedValue(undefined);
@@ -684,7 +707,12 @@ describe("ArtifactForm", () => {
         onSave={vi.fn()}
       />
     );
-    expect(await screen.findByTestId("artifact-form-load-error")).toBeInTheDocument();
+    const banner = await screen.findByTestId("artifact-form-load-error");
+    expect(banner).toBeInTheDocument();
+    // GitHub #677: the banner appears dynamically, so it is an assertive live
+    // region — a screen reader user is told the form failed to load.
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(banner).toHaveAttribute("aria-live", "assertive");
   });
 });
 

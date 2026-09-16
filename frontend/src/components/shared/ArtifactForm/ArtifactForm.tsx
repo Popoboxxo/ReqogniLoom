@@ -475,9 +475,18 @@ export function ArtifactForm({
   if (loading) {
     return <div data-testid="artifact-form-loading" aria-busy="true" />;
   }
+  // GitHub #677: this banner is mounted dynamically (the definition loads
+  // asynchronously), so it is an assertive live region — `role="alert"` is the
+  // semantics, the explicit `aria-live` states the intent for readers and for
+  // the a11y regression tests.
   if (loadError || !definition) {
     return (
-      <div className={styles.errors} role="alert" data-testid="artifact-form-load-error">
+      <div
+        className={styles.errors}
+        role="alert"
+        aria-live="assertive"
+        data-testid="artifact-form-load-error"
+      >
         <AlertCircle aria-hidden="true" size={16} />
         {loadError ?? t("artifactForm.definitionUnavailable")}
       </div>
@@ -494,7 +503,17 @@ export function ArtifactForm({
       }}
     >
       {formError ? (
-        <div className={styles.errors} role="alert" data-testid="artifact-form-error">
+        // GitHub #677: a failed save (server error, or the client-side
+        // change-reason gate) must reach screen-reader users. The banner is
+        // inserted dynamically at the top of the form, so it is an assertive
+        // live region — otherwise the click on Save produces no audible
+        // feedback at all.
+        <div
+          className={styles.errors}
+          role="alert"
+          aria-live="assertive"
+          data-testid="artifact-form-error"
+        >
           {formError}
         </div>
       ) : null}

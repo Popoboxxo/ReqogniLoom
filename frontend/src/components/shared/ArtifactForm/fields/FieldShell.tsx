@@ -81,7 +81,15 @@ export function FieldShell({
         </span>
       ) : null}
       {errors?.length ? (
-        <span className={styles.errors} id={`${testId}-error`} role="alert">
+        // GitHub #677: server-side validation messages appear only after a
+        // rejected save, i.e. purely dynamically. Assertive live region so the
+        // reason a save was refused is announced instead of only turning red.
+        <span
+          className={styles.errors}
+          id={`${testId}-error`}
+          role="alert"
+          aria-live="assertive"
+        >
           {errors.join(", ")}
         </span>
       ) : null}
