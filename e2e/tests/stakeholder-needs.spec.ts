@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import {
   loginAsAdmin,
   getAuthToken,
+  getWorkspacePreset,
   setWorkspaceId,
   setWorkspacePreset,
   SEEDED_WORKSPACE_ID,
@@ -45,26 +46,62 @@ test.describe('[REQ-L0-002] Scalable SE depth — preset switcher', () => {
   });
 
   test('[REQ-L0-002] can switch preset to minimal and back to extended', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    await expect(page.locator('[data-testid="preset-selector"]')).toBeVisible({ timeout: 10000 });
+    // Deterministic precondition (issue #947): the downgrade confirm dialog
+    // only renders when the *persisted* preset ranks above "minimal"
+    // (UI-22 `requestPresetChange` -> `isDowngrade`). The seeded workspace's
+    // preset is tenant-wide shared state that earlier specs in this or any
+    // other file may already have left on minimal, in which case the minimal
+    // radio is checked, the click fires no onChange and the confirm button
+    // never appears — the test then failed with an opaque 15s click timeout.
+    // Re-establish the precondition explicitly instead of inheriting it.
+    await setWorkspacePreset('extended');
 
-    // Preset is radio buttons — click the minimal radio. Any switch to
-    // "minimal" ranks below standard/extended (UI-22 PRESET_RANK), so it is
-    // always a downgrade and the radio's onChange only opens a confirmation
-    // dialog instead of applying the change — the dialog must be confirmed
-    // before the preset (and therefore the radio's checked state) updates.
-    const minimalRadio = page.locator('[data-testid="preset-option-minimal"]');
-    await expect(minimalRadio).toBeVisible({ timeout: 6000 });
-    await minimalRadio.click();
-    await page.locator('[data-testid="preset-downgrade-confirm-confirm"]').click();
-    await page.waitForLoadState('networkidle');
-    await expect(minimalRadio).toBeChecked({ timeout: 5000 });
+    try {
+      await page.goto(`${FRONTEND_URL}/workspace-settings`);
+      await expect(page.locator('[data-testid="preset-selector"]')).toBeVisible({ timeout: 10000 });
 
-    // Switch back to extended
-    const extendedRadio = page.locator('[data-testid="preset-option-extended"]');
-    await extendedRadio.click();
-    await page.waitForLoadState('networkidle');
-    await expect(extendedRadio).toBeChecked({ timeout: 5000 });
+      const minimalRadio = page.locator('[data-testid="preset-option-minimal"]');
+      const extendedRadio = page.locator('[data-testid="preset-option-extended"]');
+      // Wait until the UI reflects the preset we just established: clicking
+      // while the WorkspaceContext still holds the placeholder preset would
+      // take the "not a downgrade" path and skip the dialog entirely.
+      await expect(extendedRadio).toBeChecked({ timeout: 10000 });
+
+      // Preset is radio buttons — click the minimal radio. Any switch to
+      // "minimal" ranks below standard/extended (UI-22 PRESET_RANK), so it is
+      // always a downgrade and the radio's onChange only opens a confirmation
+      // dialog instead of applying the change — the dialog must be confirmed
+      // before the preset (and therefore the radio's checked state) updates.
+      await expect(minimalRadio).toBeVisible({ timeout: 6000 });
+      await minimalRadio.click();
+
+      // Wait explicitly for the dialog (not for a fixed timeout), then confirm.
+      const dialog = page.locator('[data-testid="preset-downgrade-confirm"]');
+      await expect(dialog).toBeVisible({ timeout: 10000 });
+      await dialog.locator('[data-testid="preset-downgrade-confirm-confirm"]').click();
+
+      // Assert the *state change*, not just "the click did not throw": dialog
+      // closed, radio checked, and the backend actually persisted the tier.
+      await expect(dialog).not.toBeVisible({ timeout: 10000 });
+      await expect(minimalRadio).toBeChecked({ timeout: 10000 });
+      const token = await getAuthToken();
+      await expect
+        .poll(() => getWorkspacePreset(token), { timeout: 10000, message: 'preset should be persisted as minimal' })
+        .toBe('minimal');
+
+      // Switch back to extended — an upgrade, so it applies without confirmation.
+      await extendedRadio.click();
+      await expect(extendedRadio).toBeChecked({ timeout: 10000 });
+      await expect
+        .poll(() => getWorkspacePreset(token), { timeout: 10000, message: 'preset should be persisted as extended' })
+        .toBe('extended');
+    } finally {
+      // Never leak this tenant-wide mutation into other specs/files: the active
+      // preset gates /api/v1/baselines/ and the change-reason/workflow
+      // requirements review-workflow.spec.ts and this file's REQ-L0-012 smoke
+      // test depend on.
+      await setWorkspacePreset('extended');
+    }
   });
 });
 
@@ -100,13 +137,24 @@ test.describe('[REQ-L0-003] Traceability — create TraceLink via UI', () => {
     await expect(sourceList).toBeVisible({ timeout: 6000 });
     await expect(targetList).toBeVisible({ timeout: 6000 });
 
+    // The pickers fetch six artifact listings asynchronously after the dialog
+    // opens. Counting the entry buttons right after the list container became
+    // visible raced that fetch: it yielded 0 entries on a fully seeded
+    // workspace (255 requirements), and the `test.skip` below then turned the
+    // race into a green "no artifacts seeded" skip — i.e. the test verified
+    // nothing while reporting success (issue #947). Wait for the first entry
+    // explicitly instead, and fail — not skip — when the picker stays empty.
+    const sourceEntry = sourceList
+      .locator('button[data-testid^="create-trace-link-source-element-"]')
+      .first();
+    const targetEntry = targetList
+      .locator('button[data-testid^="create-trace-link-target-element-"]')
+      .first();
+    await expect(sourceEntry).toBeVisible({ timeout: 10000 });
+    await expect(targetEntry).toBeVisible({ timeout: 10000 });
+
     const sourceEntries = await sourceList.locator('button[data-testid^="create-trace-link-source-element-"]').count();
     const targetEntries = await targetList.locator('button[data-testid^="create-trace-link-target-element-"]').count();
-
-    if (sourceEntries === 0 || targetEntries === 0) {
-      // No artifacts seeded — graceful skip
-      test.skip(true, 'Dropdowns empty — no artifacts seeded for this workspace');
-    }
     expect(sourceEntries).toBeGreaterThan(0);
     expect(targetEntries).toBeGreaterThan(0);
   });
@@ -314,6 +362,12 @@ test.describe('[REQ-L0-010] Terminology flexibility', () => {
 // ---------------------------------------------------------------------------
 test.describe('[REQ-L0-011] Audit trail', () => {
   test.beforeEach(async ({ page }) => {
+    // Deterministic precondition (issue #947): the change-reason input is gated
+    // on the extended preset (`RequirementArtifactForm`: `requiresChangeReason=
+    // {activeWorkspace?.preset === "extended"}`). Relying on whatever preset a
+    // previous spec left behind made the field's absence indistinguishable from
+    // the feature being broken — the test then skipped itself green.
+    await setWorkspacePreset('extended');
     await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
     await loginAsAdmin(page);
   });
@@ -327,13 +381,10 @@ test.describe('[REQ-L0-011] Audit trail', () => {
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 
+    // The precondition above guarantees the extended preset, so the field must
+    // be there — a missing field is a regression, not a skip.
     const changeReasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
-    const found = await changeReasonInput.count();
-    if (found === 0) {
-      test.skip(true, 'change_reason field not present — may require extended preset');
-      return;
-    }
-    await expect(changeReasonInput).toBeVisible({ timeout: 5000 });
+    await expect(changeReasonInput).toBeVisible({ timeout: 10000 });
     await changeReasonInput.fill('E2E audit trail test');
     await expect(changeReasonInput).toHaveValue('E2E audit trail test');
   });
