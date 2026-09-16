@@ -376,6 +376,29 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     expect(screen.getByTestId("audit-count-warnings").textContent).toContain("0");
   });
 
+  // ---- Failed run must never look like a clean run (GitHub #952) ----
+
+  // Defensive hardening for the reported UI false-negative (the API reported
+  // 24 blockers while the page showed "Findings: 0 · consistent"): the page
+  // must not decide "run succeeded" from the truthiness of an error *message*.
+  // An error carrying an empty message is reachable (the backend contract
+  // never validates it, and a transport failure can surface with none), and
+  // before this fix it fell straight through to the green empty state — a
+  // failed audit rendered as a successful, consistent trace graph.
+  it("renders the error banner instead of the empty state when a failed run has an empty message", async () => {
+    vi.mocked(auditApi.run).mockRejectedValue(new Error(""));
+
+    render(<AuditDashboard />);
+
+    const banner = await screen.findByTestId("audit-load-error");
+    // Non-empty fallback: the banner must still say something.
+    expect(banner.textContent?.trim()).toBe("Could not load audit findings.");
+    expect(screen.queryByTestId("audit-empty")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No findings — the trace graph is consistent for this scope.")
+    ).not.toBeInTheDocument();
+  });
+
   // ---- Adopt: success ----
 
   it("removes the finding and shows a success toast when Adopt succeeds", async () => {

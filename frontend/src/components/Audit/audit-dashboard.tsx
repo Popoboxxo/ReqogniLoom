@@ -78,10 +78,20 @@ interface ActionState {
   message?: string;
 }
 
-/** Extract a human-readable message from any error a fetch call can throw. */
-function resolveErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return extractErrorMessage(err);
+/**
+ * Extract a human-readable message from any error a fetch call can throw.
+ *
+ * GitHub #952: the result must NEVER be an empty/whitespace-only string. A
+ * failed audit run that carries no message (e.g. a network failure surfaced
+ * with `new Error("")`) used to leave `loadError` falsy, so the page fell
+ * straight through to the green "No findings — the trace graph is consistent"
+ * empty state — the UI reported a *successful* run for a run that failed. The
+ * `fallback` is the user-facing message used whenever the thrown error itself
+ * carries nothing.
+ */
+function resolveErrorMessage(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : extractErrorMessage(err);
+  return message.trim() ? message : fallback;
 }
 
 /** Defensive label for an /artifacts/ row — the payload exposes no title/name
@@ -184,11 +194,13 @@ export function AuditDashboard(): JSX.Element {
       setTotalWarningsAvailable(report.total_warnings_available);
       setActionState({});
     } catch (err) {
-      setLoadError(resolveErrorMessage(err));
+      setLoadError(
+        resolveErrorMessage(err, t("audit.loadError", "Could not load audit findings."))
+      );
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspace, scope, scopeArtifactId]);
+  }, [activeWorkspace, scope, scopeArtifactId, t]);
 
   useEffect(() => {
     void load();
@@ -239,7 +251,10 @@ export function AuditDashboard(): JSX.Element {
         } else {
           setActionState((prev) => ({
             ...prev,
-            [finding.index]: { status: "error", message: resolveErrorMessage(err) },
+            [finding.index]: {
+              status: "error",
+              message: resolveErrorMessage(err, t("audit.actionError")),
+            },
           }));
         }
       }
@@ -274,6 +289,12 @@ export function AuditDashboard(): JSX.Element {
   );
 
   // ---- Derived state ----
+  // GitHub #952: whether the last run FAILED is a flag, not "is the message
+  // non-empty". `resolveErrorMessage` guarantees a non-empty string, but the
+  // banner/empty-state decision must not depend on that guarantee alone: a
+  // failed run must never be able to render as the green "No findings" state.
+  const loadFailed = loadError !== null;
+
   const filteredFindings = useMemo(
     () =>
       severityFilter === "all"
@@ -468,15 +489,15 @@ export function AuditDashboard(): JSX.Element {
         </div>
       )}
 
-      {loadError && (
+      {loadFailed && (
         <div role="alert" data-testid="audit-load-error" style={errorBannerStyle}>
           {loadError}
         </div>
       )}
 
-      {isLoading && findings.length === 0 && !loadError ? (
+      {isLoading && findings.length === 0 && !loadFailed ? (
         <p data-testid="audit-loading">{t("audit.loading", "Loading...")}</p>
-      ) : !loadError && grouped.length === 0 ? (
+      ) : !loadFailed && grouped.length === 0 ? (
         <p data-testid="audit-empty" style={{ color: "var(--color-text-muted)" }}>
           {t("audit.empty", "No findings — the trace graph is consistent for this scope.")}
         </p>

@@ -1530,6 +1530,7 @@
     "refreshing": "Wird aktualisiert...",
     "loading": "Wird geladen...",
     "loadError": "Audit-Findings konnten nicht geladen werden.",
+    "actionError": "Die Aktion ist fehlgeschlagen. Bitte erneut versuchen.",
     "empty": "Keine Findings — der Trace-Graph ist für diesen Scope konsistent.",
     "noWorkspace": "Workspace auswählen, um den SE-Auditor auszuführen.",
     "severity": {
