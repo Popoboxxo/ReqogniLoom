@@ -237,7 +237,10 @@ describe("RequirementArtifactForm", () => {
     await waitFor(() =>
       expect(requirementsApi.update).toHaveBeenCalledWith(
         "req-1",
-        expect.objectContaining({ category: "api" })
+        expect.objectContaining({ category: "api" }),
+        // GH-868: the save now carries the last-read version as the If-Match
+        // precondition (`requirement.version`, fixture value 7).
+        7
       )
     );
   });
@@ -291,7 +294,9 @@ describe("RequirementArtifactForm", () => {
     await waitFor(() =>
       expect(requirementsApi.update).toHaveBeenCalledWith(
         "req-1",
-        expect.objectContaining({ change_reason: "clarified wording" })
+        expect.objectContaining({ change_reason: "clarified wording" }),
+        // GH-868: If-Match precondition (see the note on the category test).
+        7
       )
     );
   });

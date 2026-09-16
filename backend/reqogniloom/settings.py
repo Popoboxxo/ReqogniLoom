@@ -152,6 +152,13 @@ CORS_ALLOWED_ORIGINS: list[str] = config(
     cast=Csv(),
 )
 
+# GH-868: an ``ETag`` is only usable by a browser when the header is exposed to
+# cross-origin scripts; without this entry a direct :8001 API call from the SPA
+# origin can *send* ``If-Match`` but never *read* the tag it should echo back.
+# (Same-origin deployments — including the Vite dev proxy that fronts /api — do
+# not need it, but relying on that would make the feature work by accident.)
+CORS_EXPOSE_HEADERS: list[str] = ["ETag"]
+
 # ---------------------------------------------------------------------------
 # CSRF (REQ-138)
 # ---------------------------------------------------------------------------

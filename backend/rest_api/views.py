@@ -99,7 +99,11 @@ from application.trace_link_service import AgentSelfConfirmError
 from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.mixins import FreeTextSanitizationMixin, WorkflowTransitionsMixin
+from rest_api.mixins import (
+    ETagMixin,
+    FreeTextSanitizationMixin,
+    WorkflowTransitionsMixin,
+)
 from rest_api.not_found import ROUTE_NOT_FOUND_MESSAGE
 
 logger = logging.getLogger(__name__)
@@ -261,7 +265,9 @@ class UnknownDetailRoute(APIException):
     status_code = status.HTTP_404_NOT_FOUND
 
 
-class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.ViewSet):
+class BaseEntityViewSet(
+    ETagMixin, FreeTextSanitizationMixin, PresetGateMixin, viewsets.ViewSet
+):
     """Shared behaviour: error mapping, auth context, preset gate, pagination.
 
     Subclasses must implement list(), retrieve(), create(), partial_update(),
@@ -272,6 +278,12 @@ class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.Vie
     #269: ``FreeTextSanitizationMixin`` guards every write body here rather
     than in each subclass, because several subclasses read ``request.data``
     directly instead of running ``serializer_class`` (see the mixin docstring).
+
+    GH-868/GH-923: ``ETagMixin`` is inherited here so a subclass can opt into
+    ``ETag``/``If-Match`` support with one line per handler
+    (``self.with_etag(...)`` / ``self.resolve_expected_version(...)``). It emits
+    nothing by itself, so every ViewSet that does not call those helpers is
+    unchanged.
     """
 
     serializer_class: type | None = None
@@ -932,7 +944,12 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/requirements/{pk}/ — retrieve single requirement."""
+        """GET /api/v1/requirements/{pk}/ — retrieve single requirement.
+
+        GH-868: the response carries ``ETag: "<version>"``; send that value back
+        as ``If-Match`` on a PATCH to make the write conditional (412 when
+        stale). Additive header only — the body is unchanged.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -946,7 +963,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(RequirementSerializer(_dto_from_orm(item)).data)
+        return self.with_etag(Response(RequirementSerializer(_dto_from_orm(item)).data), item)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/requirements/ — create a requirement. Returns 201.
@@ -1004,6 +1021,12 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         REQ-L3-RF003-005: Accepts type-dependent fields (moscow_priority,
         complexity_fibonacci, verification_method).
+
+        GH-868: a stale ``If-Match`` is refused with 412 PRECONDITION_FAILED,
+        and the response carries the new ``ETag``. Both mechanisms are
+        available — the body's ``expected_version`` keeps answering 409 when no
+        ``If-Match`` is sent (see ``ETagMixin.resolve_expected_version`` for the
+        precedence when both are present).
         """
         lang = detect_lang(request)
         invalid = self._validate_patch_payload(
@@ -1066,18 +1089,31 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 type=data.get("type"),
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
-                expected_version=data.get("expected_version"),
+                #
+                # GH-868: an If-Match header takes precedence and resolves to
+                # that asserted version, so the standard HTTP precondition is
+                # enforced by the same in-transaction compare (and answers 412
+                # below rather than 409).
+                expected_version=self.resolve_expected_version(request, data),
                 # uid is read-only via REST: never forward from PATCH data
                 # (would overwrite stored uid with None). Set only via service/MCP.
                 **extra_kwargs,
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "Requirement", item, ctx)
+        except OptimisticLockError as exc:
+            # GH-868: a failed If-Match is a precondition failure (412); the
+            # body field keeps its existing 409 CONFLICT contract.
+            if self.uses_if_match(request):
+                return self.precondition_failed(request)
+            return _service_error_response(exc, lang)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(RequirementSerializer(_dto_from_orm(item)).data)
+        return self.with_etag(
+            Response(RequirementSerializer(_dto_from_orm(item)).data), item
+        )
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/requirements/{pk}/ — soft-delete a requirement. Returns 204.
@@ -2319,6 +2355,11 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/testcases/{pk}/ — retrieve a single test case.
+
+        GH-868: the response carries ``ETag: "<version>"``; send it back as
+        ``If-Match`` on a PATCH to make the write conditional (412 when stale).
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -2327,7 +2368,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except ValueError:
             return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
-        return Response(TestCaseSerializer(_test_to_dict(item)).data)
+        return self.with_etag(Response(TestCaseSerializer(_test_to_dict(item)).data), item)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -2401,6 +2442,12 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(TestCaseSerializer(response_data).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/testcases/{pk}/ — update a test case. Returns 200.
+
+        GH-868: a stale ``If-Match`` is refused with 412 PRECONDITION_FAILED and
+        the response carries the new ``ETag``; without an ``If-Match`` the body's
+        ``expected_version`` keeps answering 409 CONFLICT unchanged.
+        """
         lang = detect_lang(request)
         invalid = self._validate_patch_payload(
             request,
@@ -2441,22 +2488,29 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # lifecycle state via POST /api/v1/testcases/{id}/transitions/.
             # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
             # stale expected_version → OptimisticLockError → 409 CONFLICT.
+            # GH-868: an If-Match header takes precedence (see RequirementViewSet).
             item = self._svc().update_test_case(
                 test_case_id=UUID(pk),
                 ctx=ctx,
                 title=data.get("title"),
                 description=data.get("description"),
                 change_reason=data.get("change_reason"),
-                expected_version=data.get("expected_version"),
+                expected_version=self.resolve_expected_version(request, data),
                 **extra_kwargs,
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "TestCase", item, ctx)
+        except OptimisticLockError as exc:
+            # GH-868: a failed If-Match is a precondition failure (412); the
+            # body field keeps its existing 409 CONFLICT contract.
+            if self.uses_if_match(request):
+                return self.precondition_failed(request)
+            return _service_error_response(exc, lang)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(TestCaseSerializer(_test_to_dict(item)).data)
+        return self.with_etag(Response(TestCaseSerializer(_test_to_dict(item)).data), item)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/testcases/{pk}/ — soft-delete a test case. Returns 204.
@@ -3401,7 +3455,7 @@ class BaselineViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         self._check_preset(request, workspace_id=str(item.workspace_id))
-        return Response(BaselineSerializer(_baseline_to_dict(item)).data)
+        return self.with_etag(Response(BaselineSerializer(_baseline_to_dict(item)).data), item)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/baselines/ (flat) or /api/v1/workspaces/<workspace_id>/baselines/ (nested) — create baseline.
@@ -3615,6 +3669,25 @@ class BaselineViewSet(BaseEntityViewSet):
         return Response(BaselineDiffSerializer(payload).data)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/baselines/{pk}/ — always 405: baselines are immutable.
+
+        GH-868: the GET carries an ``ETag``, so a client can send it back as
+        ``If-Match``. That precondition is evaluated *before* the immutability
+        answer — a stale tag is a 412 (the resource changed under the client),
+        which is the standard ordering, while a current tag or no header at all
+        still gets the 405 below. The row is loaded only when the header is
+        present, and any load failure falls through to 405, so no existing
+        request changes status because of this branch.
+        """
+        if self.uses_if_match(request):
+            try:
+                current = self._svc().get_baseline(pk, get_auth_context(request))
+            except Exception:  # noqa: BLE001 — never let the probe change the 405
+                current = None
+            if current is not None:
+                failed = self.check_if_match(request, current)
+                if failed is not None:
+                    return failed
         # Baselines are immutable once created
         return Response(
             build_error_response("VALIDATION_ERROR", detect_lang(request), message="Baselines are immutable. Create a new baseline instead."),
