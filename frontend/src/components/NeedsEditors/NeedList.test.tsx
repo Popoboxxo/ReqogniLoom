@@ -99,3 +99,64 @@ describe("NeedList — title field has an accessible label and a localized place
     expect(titleInput.placeholder).toBe("z. B. Als Nutzer benötige ich ...");
   });
 });
+
+/**
+ * #802 — Need/Glossary used to create via an inline form while the other five
+ * entities used the shared <Dialog>. The create flow now renders through that
+ * primitive, so it gets a real `role="dialog"`, an overlay, a focus trap and
+ * Escape-to-close instead of sharing one DOM scope with the list's own
+ * search/status/sort controls.
+ */
+describe("NeedList — create form uses the shared Dialog (#802)", () => {
+  it("mounts the create form in a modal dialog labelled by the create action", () => {
+    renderList();
+
+    const dialog = screen.getByTestId("need-new-dialog");
+    expect(dialog).toHaveAttribute("role", "dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAccessibleName("Neuer Bedarf");
+    // The form itself (and its E2E testids) is unchanged.
+    expect(dialog).toContainElement(screen.getByTestId("need-create-form"));
+    expect(dialog).toContainElement(screen.getByTestId("need-new-title-input"));
+  });
+
+  it("portals the dialog out of the list/toolbar DOM scope", () => {
+    const { container } = renderList();
+
+    const overlay = screen.getByTestId("need-new-dialog-overlay");
+    expect(overlay.parentElement).toBe(document.body);
+    expect(container.contains(overlay)).toBe(false);
+  });
+
+  it("closes on Escape — the former inline form could not be dismissed this way", async () => {
+    const setShowCreateForm = vi.fn();
+    const user = userEvent.setup();
+    renderList({ setShowCreateForm });
+
+    await user.keyboard("{Escape}");
+
+    expect(setShowCreateForm).toHaveBeenCalledWith(false);
+  });
+
+  it("closes via the cancel button", async () => {
+    const setShowCreateForm = vi.fn();
+    const user = userEvent.setup();
+    renderList({ setShowCreateForm });
+
+    await user.click(screen.getByTestId("need-create-cancel-btn"));
+
+    expect(setShowCreateForm).toHaveBeenCalledWith(false);
+  });
+
+  it("moves the initial focus into the title field, not the dialog chrome", () => {
+    renderList();
+
+    expect(document.activeElement).toBe(screen.getByTestId("need-new-title-input"));
+  });
+
+  it("renders no dialog while the create form is closed", () => {
+    renderList({ showCreateForm: false });
+
+    expect(screen.queryByTestId("need-new-dialog")).not.toBeInTheDocument();
+  });
+});

@@ -19,7 +19,7 @@
  * existing entry, normalized via PATCH since GlossaryTerm has no dedicated
  * synonym-link field on the backend).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { glossaryApi } from "../../api/glossary";
@@ -32,6 +32,7 @@ import { EmptyState } from "../shared/EmptyState";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
+import { Dialog } from "../shared/Dialog";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { extractErrorMessage } from "../../api/client";
 import styles from "./GlossaryView.module.css";
@@ -91,6 +92,10 @@ export default function GlossaryView(): JSX.Element {
   // Form state
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // #802: the create form now lives inside the shared <Dialog>, which moves the
+  // initial focus itself — target the term field explicitly (the dialog's
+  // first tabbable element is its close button otherwise).
+  const termInputRef = useRef<HTMLInputElement | null>(null);
   const [formData, setFormData] = useState({
     term: "",
     definition: "",
@@ -231,6 +236,16 @@ export default function GlossaryView(): JSX.Element {
   const openCreateForm = () => {
     resetForm();
     setIsFormOpen(true);
+  };
+
+  /**
+   * Single close path for both the create dialog and the in-pane edit form
+   * (#802) — a failed save keeps the form open with the message visible (UI
+   * standards §12.11), so the error has to be cleared here, not on open only.
+   */
+  const closeForm = () => {
+    setIsFormOpen(false);
+    setFormError(null);
   };
 
   const resetForm = () => {
@@ -510,38 +525,90 @@ export default function GlossaryView(): JSX.Element {
   // ---------------------------------------------------------------------------
   // Right panel: create/edit form (relocated, unchanged behavior) OR
   // read-only detail (definition, synonyms, abbreviation, usages).
+  //
+  // #802: *creating* a term now happens in the shared <Dialog> primitive, like
+  // every other artifact route's create action (Requirement/ADR/Risk/Issue/
+  // TestCase) — same overlay, focus trap and Escape-to-close behaviour. Editing
+  // an existing term keeps the in-pane form (the edit surface of the other
+  // routes is their right-pane form too), which is why the fields below are
+  // rendered from one shared markup source instead of being duplicated.
   // ---------------------------------------------------------------------------
-  const detailPanel = isFormOpen ? (
+  const formFields = (
+    <div className={styles.formGrid}>
+      <div>
+        <label className={styles.fieldLabel} htmlFor="glossary-term-input">
+          {t("glossary.term")} *
+        </label>
+        <input id="glossary-term-input" required className={styles.input} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} ref={termInputRef} />
+      </div>
+      <div>
+        <label className={styles.fieldLabel} htmlFor="glossary-abbreviation-input">
+          {t("glossary.abbreviation")}
+        </label>
+        <input id="glossary-abbreviation-input" className={styles.input} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
+      </div>
+      <div className={styles.formGridFullRow}>
+        <label className={styles.fieldLabel} htmlFor="glossary-definition-input">
+          {t("glossary.definition")} *
+        </label>
+        <textarea id="glossary-definition-input" required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
+      </div>
+      <div className={styles.formGridFullRow}>
+        <label className={styles.fieldLabel} htmlFor="glossary-synonyms-input">
+          {t("glossary.synonyms")}
+        </label>
+        <input id="glossary-synonyms-input" className={styles.input} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
+      </div>
+    </div>
+  );
+
+  const formErrorBanner = formError ? (
+    <p role="alert" data-testid="glossary-form-error" className={styles.alert}>
+      {formError}
+    </p>
+  ) : null;
+
+  const formActions = (
+    <div className={styles.formActions}>
+      <button
+        type="button"
+        data-testid="glossary-form-cancel"
+        onClick={closeForm}
+        className={`${styles.btn} ${styles.btnOutline}`}
+      >
+        {t("actions.cancel", "Cancel")}
+      </button>
+      <button type="submit" data-testid="glossary-form-save" className={styles.btn}>
+        {t("actions.save", "Save")}
+      </button>
+    </div>
+  );
+
+  // #802: the create flow, rendered through the shared Dialog primitive. The
+  // term field takes the initial focus explicitly — the trap's first tabbable
+  // element would otherwise be the dialog's close button.
+  const createDialog =
+    isFormOpen && !editingId ? (
+      <Dialog
+        title={t("glossary.addTerm")}
+        onClose={closeForm}
+        testId="glossary-create-dialog"
+        initialFocusRef={termInputRef}
+      >
+        <form onSubmit={handleSubmit} data-testid="glossary-form">
+          {formFields}
+          {formErrorBanner}
+          {formActions}
+        </form>
+      </Dialog>
+    ) : null;
+
+  const detailPanel = isFormOpen && editingId ? (
     <form onSubmit={handleSubmit} data-testid="glossary-form">
       <h2 className={styles.formHeading}>
-        {editingId ? t("glossary.editTerm") : t("glossary.addTerm")}
+        {t("glossary.editTerm")}
       </h2>
-      <div className={styles.formGrid}>
-        <div>
-          <label className={styles.fieldLabel} htmlFor="glossary-term-input">
-            {t("glossary.term")} *
-          </label>
-          <input id="glossary-term-input" required className={styles.input} value={formData.term} onChange={(e) => setFormData({ ...formData, term: e.target.value })} disabled={!!editingId} />
-        </div>
-        <div>
-          <label className={styles.fieldLabel} htmlFor="glossary-abbreviation-input">
-            {t("glossary.abbreviation")}
-          </label>
-          <input id="glossary-abbreviation-input" className={styles.input} value={formData.abbreviation} onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })} />
-        </div>
-        <div className={styles.formGridFullRow}>
-          <label className={styles.fieldLabel} htmlFor="glossary-definition-input">
-            {t("glossary.definition")} *
-          </label>
-          <textarea id="glossary-definition-input" required rows={3} className={`${styles.input} ${styles.textareaResize}`} value={formData.definition} onChange={(e) => setFormData({ ...formData, definition: e.target.value })} />
-        </div>
-        <div className={styles.formGridFullRow}>
-          <label className={styles.fieldLabel} htmlFor="glossary-synonyms-input">
-            {t("glossary.synonyms")}
-          </label>
-          <input id="glossary-synonyms-input" className={styles.input} value={formData.synonyms} onChange={(e) => setFormData({ ...formData, synonyms: e.target.value })} />
-        </div>
-      </div>
+      {formFields}
 
       {/* REQ-173: WorkflowEngine-driven status editor. Only for existing
           entries — a term being created has no artifact ID yet. Since #831 the
@@ -589,28 +656,9 @@ export default function GlossaryView(): JSX.Element {
         </div>
       )}
 
-      {formError && (
-        <p role="alert" data-testid="glossary-form-error" className={styles.alert}>
-          {formError}
-        </p>
-      )}
+      {formErrorBanner}
 
-      <div className={styles.formActions}>
-        <button
-          type="button"
-          data-testid="glossary-form-cancel"
-          onClick={() => {
-            setIsFormOpen(false);
-            setFormError(null);
-          }}
-          className={`${styles.btn} ${styles.btnOutline}`}
-        >
-          {t("actions.cancel", "Cancel")}
-        </button>
-        <button type="submit" data-testid="glossary-form-save" className={styles.btn}>
-          {t("actions.save", "Save")}
-        </button>
-      </div>
+      {formActions}
     </form>
   ) : selectedTerm ? (
     <div data-testid="glossary-detail" className={styles.detail}>
@@ -708,6 +756,10 @@ export default function GlossaryView(): JSX.Element {
           testId: "create-glossary-term-btn",
         }}
       />
+
+      {/* #802: sibling of the SplitView — <Dialog> portals into document.body
+          itself, so the create form is not clipped by either pane. */}
+      {createDialog}
 
       <div className={styles.splitViewWrap}>
         <SplitView leftPanel={listPanel} rightPanel={detailPanel} initialLeftWidth={380} moduleType="glossary" />

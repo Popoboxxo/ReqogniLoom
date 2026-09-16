@@ -441,8 +441,19 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // pseudo-modal (the last two files still carrying hand-rolled overlay styling)
 // drops the project-wide inline `style={{` count. Re-measured on the tree: 824.
 // Baseline lowered to the measured value per the ratchet rule above.
+//
+// Bundle B5 #922/#802 (Need + Glossary create onto the shared Dialog): -6.
+// `NeedList.tsx`'s inline create form is gone: its hand-rolled label/input/
+// textarea/error/button literals moved onto the shared `fieldHints` classes
+// (`.createLabel`/`.createInput`/`.fieldError`) and the canonical
+// `btn-primary`/`btn-secondary` buttons, exactly like the other five dialog
+// create flows; only the (unchanged) flex action row inside the form keeps a
+// literal, because the E2E specs submit via `form button[type="submit"]`.
+// `GlossaryView.tsx` contributes 0 (it already styled through its CSS module).
+// Re-measured on the tree: 818. Baseline lowered to the measured value per the
+// ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 824;
+const STYLE_BRACE_BASELINE = 818;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
