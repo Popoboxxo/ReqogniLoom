@@ -33,6 +33,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from auth_tenancy.models import normalize_api_key_scope
 from auth_tenancy.services import Operation
 from auth_tenancy.services.authentication import AuthenticationService
 from rest_api.serializers import build_error_response
@@ -84,9 +85,37 @@ class ApiKeyViewSet(ViewSet):
     action, not a workspace-write action" precedent already used by
     ``UserPreferenceView``/``WorkspaceMembersView``/``UserViewSet`` for
     other self- or tenant-scoped endpoints.
+
+    Capability gate (#865): the ViewSet additionally declares
+    ``required_scope_operation`` so that the *API-key scope* tier for
+    create/revoke is ADMIN while the RBAC requirement stays READ. The two are
+    independent gates; see the property's docstring.
     """
 
     required_operation = Operation.READ
+
+    @property
+    def required_scope_operation(self) -> Operation | None:
+        """Capability gate for the key's own scope (#865): governance on mutations.
+
+        ``required_operation`` above is a deliberate RBAC exemption (#716): a
+        Viewer may manage *their own* keys. The capability gate is a separate
+        question, and here the answer is governance — creating or revoking an
+        API key is key management, and an API key may as well escalate itself:
+        an AUTHOR-tier key could otherwise POST ``{"scope": "admin"}`` and mint
+        a wider credential than itself (or revoke every key its owner holds).
+        Mutations therefore require the ADMIN tier; reads stay readable by any
+        tier.
+
+        Read via ``getattr(self, "request", None)`` because
+        ``RbacPermission``/``HasOperationPermission`` look this property up with
+        ``getattr(view, ..., None)``, which would swallow an ``AttributeError``
+        raised inside it and silently fail open.
+        """
+        request = getattr(self, "request", None)
+        if request is not None and request.method in ("POST", "DELETE", "PUT", "PATCH"):
+            return Operation.ASSIGN_ROLE
+        return None
 
     # Uses global DEFAULT_AUTHENTICATION_CLASSES (AuthTenancyAuthentication)
     # and DEFAULT_PERMISSION_CLASSES (RbacPermission) from settings; the
@@ -192,9 +221,12 @@ class ApiKeyViewSet(ViewSet):
         Errors:
           400 — name missing or empty
           400 — unknown request field (#916)
+          400 — unknown scope value (#865)
           400 — max active keys reached
           401 — not authenticated
           403 — read-scoped key (#917)
+          403 — AUTHOR-tier key (#865): creating a key is key management and
+                requires an ADMIN-scoped key, see ``required_scope_operation``
 
         Order (#917): the scope gate is a DRF permission check, so it runs
         before this view body and before the key-limit validation below. A
@@ -250,12 +282,19 @@ class ApiKeyViewSet(ViewSet):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        scope = request.data.get("scope", "write")
-        if scope not in ("read", "write"):
+        # #865: accept the canonical tiers (read_only/author/admin) plus the two
+        # legacy aliases (read/write), case-insensitively. Anything else is a
+        # typo, and a typo must not silently become the default scope.
+        raw_scope = request.data.get("scope", "write")
+        scope = normalize_api_key_scope(raw_scope)
+        if scope is None:
             return Response(
                 build_error_response(
                     code="VALIDATION_ERROR",
-                    message="Field 'scope' must be 'read' or 'write'.",
+                    message=(
+                        "Field 'scope' must be one of 'read_only', 'author', "
+                        "'admin' (or the legacy aliases 'read', 'write')."
+                    ),
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )

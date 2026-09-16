@@ -92,7 +92,7 @@ class RbacPermission(permissions.BasePermission):
             required_operation if required_operation is not None else method_operation
         )
 
-        # E2.1: the API key's coarse scope is an independent, fail-closed gate
+        # E2.1: the API key's capability tier is an independent, fail-closed gate
         # ABOVE the RBAC matrix — and above every RBAC exemption. Placed before
         # decide_access so no shadow-permission path can widen it back.
         # ``required_operation`` may lower the *matrix* requirement, but it must
@@ -101,12 +101,19 @@ class RbacPermission(permissions.BasePermission):
         # ``required_operation`` into the gate let the READ declaration of
         # ``ApiKeyViewSet`` make a POST look like a read, so a read-scoped key
         # reached the view body and hit the key-count limit instead of this
-        # denial.) The check itself is shared with ``HasOperationPermission``
-        # and the MCP dispatcher so the semantics cannot drift apart
-        # (security review B1).
+        # denial.) ``required_scope_operation`` is the explicit counterpart for
+        # the opposite case (#865): a view whose RBAC requirement is low on
+        # purpose (self-service) but whose capability requirement is governance.
+        # The check itself is shared with ``HasOperationPermission`` and the MCP
+        # dispatcher so the semantics cannot drift apart (security review B1).
+        scope_operation: Operation | None = getattr(
+            view, "required_scope_operation", None
+        )
         scope_error = scope_denial_reason(
             auth_context.scope, method_operation
         ) or scope_denial_reason(auth_context.scope, operation)
+        if scope_error is None and scope_operation is not None:
+            scope_error = scope_denial_reason(auth_context.scope, scope_operation)
         if scope_error:
             raise exceptions.PermissionDenied(detail=scope_error)
 

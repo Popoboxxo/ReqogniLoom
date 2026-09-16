@@ -671,10 +671,21 @@ class BaselineFacade(ServiceBase):
 
         Imported lazily for the same circular-import reason as
         ``ServiceBase._assert_write_permission``.
+
+        #865: an API key additionally has to carry the ADMIN capability tier.
+        Overriding or waiving the SE-Auditor gate is a governance act; an
+        AUTHOR-tier (content-writing) key — typically one handed to an agent
+        that reads untrusted input — must not be able to talk its way past the
+        gate. This is the shared choke point for REST
+        (``BaselineViewSet.create`` with ``override_reason``/``waived_findings``)
+        and MCP (``baseline.create``), so both adapters get the same rule. Keys
+        without a scope at all (JWT bearer sessions) are unaffected, and the
+        legacy ``write`` alias is the ADMIN tier, so pre-#865 keys keep working.
         """
         from auth_tenancy.services.authorization import (
             AuthorizationService,
             Operation,
+            scope_denial_reason,
         )
 
         decision = AuthorizationService().decide_access(
@@ -687,6 +698,15 @@ class BaselineFacade(ServiceBase):
                 "baseline gate requires approval authority ('admin' or "
                 "'approver'), user has "
                 f"{tuple(getattr(ctx, 'active_roles', ()) or ())}."
+            )
+
+        scope_error = scope_denial_reason(
+            getattr(ctx, "scope", None), Operation.WORKFLOW_APPROVAL
+        )
+        if scope_error:
+            raise PermissionDeniedError(
+                "Permission denied: overriding or waiving the SE-Auditor "
+                f"baseline gate is a governance operation. {scope_error}"
             )
 
     @staticmethod

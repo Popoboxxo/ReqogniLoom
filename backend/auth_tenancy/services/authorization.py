@@ -50,8 +50,122 @@ class Operation(str, Enum):
     ASSIGN_ROLE = "assign_role"
 
 
-#: Coarse API-key scope that forbids every non-READ operation.
+# ---------------------------------------------------------------------------
+# API-key capability scopes (GitHub #865)
+# ---------------------------------------------------------------------------
+#
+# An API key carries an ordered *capability tier*, not just a read/write bit.
+# A prompt-injected agent holding a low-privilege key must not reach
+# governance-relevant operations (baseline gate override/waiver, API-key
+# management, user/role management, disaster recovery) even when the key's
+# owner holds the matching RBAC role — the tier gate can only ever narrow the
+# matrix, never widen it.
+#
+#   tier 0  READ_ONLY   reads only
+#   tier 1  AUTHOR      reads + ordinary content writes (#865)
+#   tier 2  ADMIN       everything, incl. governance operations
+#
+# Legacy values stay aliases of the unchanged historical behaviour (#865:
+# existing keys keep working exactly as today):
+#
+#   "read"  == READ_ONLY  (tier 0) — unchanged
+#   "write" == ADMIN      (tier 2) — unchanged: a legacy ``write`` key reaches
+#                                     every operation its owner's roles allow,
+#                                     which is precisely today's semantics. It
+#                                     is therefore the *widest* tier, not
+#                                     AUTHOR; narrowing it would silently
+#                                     break every existing key.
+SCOPE_READ_ONLY = "read_only"
+SCOPE_AUTHOR = "author"
+SCOPE_ADMIN = "admin"
+
+#: Legacy alias names, still accepted (schema and API).
 READ_ONLY_SCOPE = "read"
+WRITE_SCOPE = "write"
+
+#: Canonical (and legacy) name -> capability tier, lower-cased.
+SCOPE_TIERS: dict[str, int] = {
+    SCOPE_READ_ONLY: 0,
+    READ_ONLY_SCOPE: 0,
+    SCOPE_AUTHOR: 1,
+    SCOPE_ADMIN: 2,
+    WRITE_SCOPE: 2,
+}
+
+#: Tier of a credential whose scope string is not recognised. Below every
+#: operation's requirement, so an unknown scope denies everything (fail-closed).
+_UNKNOWN_SCOPE_TIER = -1
+
+_TIER_READ = 0
+_TIER_AUTHOR = 1
+_TIER_ADMIN = 2
+
+#: Scope name a denial message points the caller at, per required tier.
+_TIER_SCOPE_NAMES: dict[int, str] = {
+    _TIER_READ: SCOPE_READ_ONLY,
+    _TIER_AUTHOR: SCOPE_AUTHOR,
+    _TIER_ADMIN: SCOPE_ADMIN,
+}
+
+#: Operations that touch governance-relevant state: workspace/preset config,
+#: role and item-permission assignments, workflow approvals (which include the
+#: baseline gate override/waiver, see ``BaselineFacade``) and admin_ops
+#: (backup/restore/health). An AUTHOR-tier key may never perform these.
+GOVERNANCE_OPERATIONS: frozenset[Operation] = frozenset(
+    {
+        Operation.WORKSPACE_CONFIG,
+        Operation.ASSIGN_ROLE,
+        Operation.WORKFLOW_APPROVAL,
+    }
+)
+
+#: Operation -> lowest capability tier allowed to perform it. Fail-closed for
+#: anything unlisted (see :func:`required_scope_tier`).
+_OPERATION_TIERS: dict[Operation, int] = {
+    Operation.READ: _TIER_READ,
+    Operation.WRITE: _TIER_AUTHOR,
+    Operation.WORKFLOW_TRANSITION: _TIER_AUTHOR,
+    Operation.WORKSPACE_CONFIG: _TIER_ADMIN,
+    Operation.ASSIGN_ROLE: _TIER_ADMIN,
+    Operation.WORKFLOW_APPROVAL: _TIER_ADMIN,
+}
+
+
+def scope_tier(scope: str | None) -> int | None:
+    """Return the capability tier of *scope*, or ``None`` when it has none.
+
+    ``None``/blank means "this credential carries no key scope" (a JWT bearer
+    session, or a duck-typed context that never had one), which is not the same
+    as an unknown scope: the former is exempt from the gate, the latter fails
+    closed.
+
+    Only *string* values are gated. A non-string is treated like an absent
+    scope rather than as an unknown name: every credential path produces a
+    string (``ApiKey.scope`` is a ``CharField``, ``AuthContext.scope`` defaults
+    to ``"write"``), so anything else is a mock/duck-typed context rather than a
+    key that could try to dodge the gate.
+
+    Unknown names return :data:`_UNKNOWN_SCOPE_TIER` (-1), below every
+    operation's requirement, so nothing is permitted for them.
+    """
+    if scope is None or not isinstance(scope, str) or not scope.strip():
+        return None
+    return SCOPE_TIERS.get(scope.strip().lower(), _UNKNOWN_SCOPE_TIER)
+
+
+def required_scope_tier(operation: Operation) -> int:
+    """Return the lowest capability tier that may perform *operation*.
+
+    Fail-closed: an operation missing from :data:`_OPERATION_TIERS` requires
+    the ADMIN tier rather than silently passing.
+    """
+    return _OPERATION_TIERS.get(operation, _TIER_ADMIN)
+
+
+def scope_allows(scope: str | None, operation: Operation) -> bool:
+    """Return whether *scope* permits *operation* (see scope_denial_reason)."""
+    return scope_denial_reason(scope, operation) is None
+
 
 #: HTTP method -> the operation it performs. Unknown/unlisted methods are
 #: treated as writes (fail-closed), which is why the lookups below default to
@@ -76,13 +190,14 @@ def operation_for_method(method: str) -> Operation:
 
 
 def scope_denial_reason(scope: str | None, operation: Operation) -> str | None:
-    """Return why the key's coarse ``scope`` forbids *operation*, else ``None``.
+    """Return why the key's ``scope`` forbids *operation*, else ``None``.
 
     The API key's scope is an independent, fail-closed gate that sits **above**
     the RBAC matrix and above every RBAC exemption: it can only ever narrow. A
-    read-scoped key is denied every non-READ operation no matter how privileged
+    read-only key is denied every non-READ operation no matter how privileged
     its owner is, whether the caller is bootstrapping a tenant, is a
-    tenant-admin, or holds the admin role outright.
+    tenant-admin, or holds the admin role outright; an AUTHOR key is denied
+    every governance operation (see :data:`GOVERNANCE_OPERATIONS`).
 
     This is the single implementation shared by all three enforcement points —
     :class:`rest_api.auth_enforcer.RbacPermission`,
@@ -91,18 +206,40 @@ def scope_denial_reason(scope: str | None, operation: Operation) -> str | None:
     between the REST and MCP adapters.
 
     Args:
-        scope: ``AuthContext.scope`` ("read", "write", or ``None`` for
-            credentials that carry no scope at all, e.g. JWT bearer tokens).
+        scope: ``AuthContext.scope`` ("read_only"/"author"/"admin", their legacy
+            aliases "read"/"write", or ``None`` for credentials that carry no
+            scope at all, e.g. JWT bearer tokens). Unrecognised names fail
+            closed: nothing is permitted for them.
         operation: The operation the caller is attempting.
 
     Returns:
         A human-readable denial reason, or ``None`` when the scope permits it.
     """
-    if scope != READ_ONLY_SCOPE or operation is Operation.READ:
+    tier = scope_tier(scope)
+    if tier is None:
+        # No scope on this credential (bearer session) — no key gate applies.
         return None
+
+    required = required_scope_tier(operation)
+    if tier >= required:
+        return None
+
+    if tier < _TIER_READ:
+        return (
+            f"API key scope '{scope}' is not recognised; this credential may "
+            f"perform no operation. Re-issue the key with scope "
+            f"'{SCOPE_READ_ONLY}', '{SCOPE_AUTHOR}' or '{SCOPE_ADMIN}'."
+        )
+    if tier < _TIER_AUTHOR:
+        return (
+            f"API key is read-only (scope='{scope}'); operation "
+            f"'{operation.value}' requires scope='{_TIER_SCOPE_NAMES[required]}' "
+            "or higher."
+        )
     return (
-        f"API key is read-only (scope='{READ_ONLY_SCOPE}'); operation "
-        f"'{operation.value}' requires scope='write'."
+        f"API key scope '{scope}' permits content authoring but not governance "
+        f"operations; operation '{operation.value}' requires scope="
+        f"'{_TIER_SCOPE_NAMES[required]}'."
     )
 
 
@@ -920,7 +1057,16 @@ __all__ = [
     "WorkspaceMember",
     "Operation",
     "PresetPolicyValidator",
+    "GOVERNANCE_OPERATIONS",
     "READ_ONLY_SCOPE",
+    "SCOPE_ADMIN",
+    "SCOPE_AUTHOR",
+    "SCOPE_READ_ONLY",
+    "SCOPE_TIERS",
+    "WRITE_SCOPE",
     "operation_for_method",
+    "required_scope_tier",
+    "scope_allows",
     "scope_denial_reason",
+    "scope_tier",
 ]
