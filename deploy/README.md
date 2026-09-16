@@ -26,6 +26,22 @@ curl http://localhost:8001/health/
 
 If `"csrf_cookie_secure_matches_auth"` is `"mismatch"` in the response, you must fix `.env` and restart the backend container.
 
+## Deprecated: bearer token in the login response body (#696)
+
+`POST /api/v1/auth/login/` still returns the JWT as a `token` field in the response
+body for API/CI tooling, and such a response is now marked `Deprecation: true`
+(RFC 9745). The browser SPA does **not** use that field — it authenticates with the
+httpOnly `reqogniloom_access` cookie (REQ-052). A JavaScript caller that stored the
+body token would re-open exactly the XSS vector REQ-052 closed, which is why the
+field is deprecated.
+
+- **Default:** `AUTH_LOGIN_INCLUDE_BODY_TOKEN=True` — unchanged behaviour, so
+  existing scripts keep working.
+- **Opt out:** set `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False` in `.env` to omit the field.
+  Cookie login, `/auth/refresh/`, `/auth/me/` and API-key callers are unaffected.
+- **Planned follow-up:** flip the default to `False` after a deprecation window,
+  once tooling has moved to the cookie flow (or to a login-free API key).
+
 ## Breaking Change: v1.8.0-beta.7+ Security Hardening & Frontend Permissions (#894)
 
 **If you upgraded from beta.6 and added a local override** (`docker-compose.override.yml` or custom `.env` / deployment script) with `user: root` or `tmpfs` entries for the frontend service: **remove those overrides now.**

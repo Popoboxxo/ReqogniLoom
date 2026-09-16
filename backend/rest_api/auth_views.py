@@ -14,6 +14,15 @@ The login response token is minted by
 round-trip through ``BearerTokenAuthentication`` (the same token can immediately
 authenticate subsequent requests).
 
+The supported credential transport is the httpOnly access cookie set by login
+(REQ-052). The ``token`` field in the login response *body* is DEPRECATED
+(#696, review finding C-3): it exists for the E2E login helper and API/CI
+tooling only, and any JavaScript caller that stores it would re-open the XSS
+token-theft vector REQ-052 closed. Deployments can omit it by setting
+``AUTH_LOGIN_INCLUDE_BODY_TOKEN=False`` (default ``True`` = unchanged
+behaviour). While the field is still emitted, the response carries
+``Deprecation: true`` (RFC 9745) so machine clients can detect it.
+
 Error shape: authentication failures use the standardised AuthAndTenancy error
 body (REQ-L3-AT001-004), which since the 2026-08-27 system audit (P1 item 13) is
 the same envelope as the rest of the REST surface (REQ-L2-RA-009)::
@@ -26,6 +35,8 @@ from typing import Any
 
 from django.conf import settings
 from django.middleware.csrf import get_token
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -47,6 +58,7 @@ from auth_tenancy.services import (
 )
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
+from rest_api.openapi import ErrorResponseSerializer
 from rest_api.serializers import UserProfileSerializer
 from rest_api.throttling import (
     LoginIpRateThrottle,
@@ -165,6 +177,35 @@ def _user_payload(user: Any, roles: tuple[str, ...]) -> dict[str, Any]:
     }
 
 
+def _login_response_body(
+    user: Any,
+    roles: tuple[str, ...],
+    token: str,
+    *,
+    include_body_token: bool,
+) -> dict[str, Any]:
+    """Identity payload for a successful login (#696).
+
+    ``token`` is only included while the deprecated body-token transport is
+    enabled (``settings.AUTH_LOGIN_INCLUDE_BODY_TOKEN``, default ``True``). The
+    httpOnly access cookie is the supported credential path, so omitting the
+    field costs the SPA nothing.
+    """
+    body: dict[str, Any] = {
+        "user": _user_payload(user, roles),
+        # Tenant isolation boundary, NOT the workspace_id required by CRUD
+        # endpoints — see the LoginView docstring (Codeberg #89).
+        "tenant_id": str(user.tenant_id) if user.tenant_id else None,
+        "roles": list(roles),
+        "is_tenant_admin": _resolve_is_tenant_admin(user.id, user.tenant_id),
+    }
+    if include_body_token:
+        # Kept first to match the pre-#696 field order (no semantic meaning,
+        # just keeps response diffs quiet for log-based consumers).
+        return {"token": token, **body}
+    return body
+
+
 class LoginView(APIView):
     """``POST /api/v1/auth/login/`` — password -> Bearer token (REQ-L1-010).
 
@@ -190,6 +231,61 @@ class LoginView(APIView):
     # ``rest_api.throttling`` for the (IP, username) vs. per-IP rationale.
     throttle_classes = [LoginRateThrottle, LoginIpRateThrottle]
 
+    @extend_schema(
+        summary="Password login — httpOnly cookie (deprecated body token)",
+        description=(
+            "Exchanges `{username, password}` for an authenticated session.\n\n"
+            "SUPPORTED: the credential is delivered as the httpOnly "
+            "`reqogniloom_access` cookie (plus the rotating `reqogniloom_refresh` "
+            "cookie) and a CSRF cookie (REQ-052). Browser clients must use this "
+            "path — the tokens are never readable from JavaScript.\n\n"
+            "DEPRECATED (#696): the `token` field in the response *body*. It is "
+            "still emitted by default for API/CI tooling, but a deployment can "
+            "omit it with `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False` and it will be "
+            "removed in a future release. Responses that still contain it carry "
+            "the `Deprecation: true` header (RFC 9745). New clients must not "
+            "persist it in JavaScript."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Login succeeded. `user`, `tenant_id`, `roles` and "
+                    "`is_tenant_admin` are always present; `token` is present "
+                    "only while the deprecated body-token transport is enabled."
+                ),
+                examples=[
+                    OpenApiExample(
+                        "SuccessWithDeprecatedBodyToken",
+                        value={
+                            "token": "<jwt — DEPRECATED, use the cookie>",
+                            "user": {
+                                "id": "…",
+                                "username": "admin",
+                                "email": "admin@example.com",
+                                "first_name": "",
+                                "last_name": "",
+                                "is_active": True,
+                                "tenant_id": "…",
+                                "roles": ["admin"],
+                            },
+                            "tenant_id": "…",
+                            "roles": ["admin"],
+                            "is_tenant_admin": True,
+                        },
+                        response_only=True,
+                    )
+                ],
+            ),
+            401: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "Invalid credentials — the standardised auth error envelope "
+                    "(REQ-L3-AT001-004)."
+                ),
+            ),
+        },
+    )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Validate credentials and return a token on success, 401 otherwise."""
         accept_language = request.META.get("HTTP_ACCEPT_LANGUAGE")
@@ -228,18 +324,17 @@ class LoginView(APIView):
         # Phase 1 (REQ-052): the token is ALSO returned in the body for backward
         # compatibility with the e2e login helper and API tooling; the browser
         # SPA ignores it and relies on the httpOnly cookie set below.
+        # #696: that field is DEPRECATED — opt-out via
+        # settings.AUTH_LOGIN_INCLUDE_BODY_TOKEN (default True, unchanged).
+        emit_token = bool(getattr(settings, "AUTH_LOGIN_INCLUDE_BODY_TOKEN", True))
         response = Response(
-            {
-                "token": token,
-                "user": _user_payload(user, roles),
-                # Tenant isolation boundary, NOT the workspace_id required by CRUD
-                # endpoints — see the class docstring (Codeberg #89).
-                "tenant_id": str(user.tenant_id) if user.tenant_id else None,
-                "roles": list(roles),
-                "is_tenant_admin": _resolve_is_tenant_admin(user.id, user.tenant_id),
-            },
+            _login_response_body(user, roles, token, include_body_token=emit_token),
             status=status.HTTP_200_OK,
         )
+        if emit_token:
+            # RFC 9745: machine-readable marker for the deprecated body field.
+            # Only meaningful while the field is actually present.
+            response["Deprecation"] = "true"
         _set_access_cookie(response, token)
         _set_refresh_cookie(response, refresh_token)
         # Force a CSRF cookie so the SPA can echo X-CSRFToken on cookie-authed

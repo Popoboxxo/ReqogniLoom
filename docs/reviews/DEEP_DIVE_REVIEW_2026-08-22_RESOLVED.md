@@ -1,6 +1,9 @@
 > **STATUS: RESOLVED** — findings addressed via `docs/superpowers/plans/2026-08-22-review-findings-remediation.md`
 > (Tasks 1-16), merged in PR(s) #<fill in after merge>. Deferred (not fixed, tracked separately):
 > - C-3 (bearer-token-in-login-response-body) — Task 9, filed as issue #696, not fixed inline.
+>   #696 (2026-09-16) adds the opt-out flag `AUTH_LOGIN_INCLUDE_BODY_TOKEN` (default `True` =
+>   unchanged) plus a `Deprecation: true` marker; the follow-up is flipping the default after a
+>   deprecation window.
 > - C-1 / D-3 (`str(exc)` info leaks in REST + MCP auth path) — fixed at the 14 highest-risk sites (Task 5);
 >   ~40 further `str(exc)`-in-500-handler sites remain (`icd_views.py`, `traceability_suggest_views.py`,
 >   `global_default_views.py`, `metrics_views.py`, `protocol_handler.py`, most of `mcp_server/tools/*.py`),
@@ -139,6 +142,11 @@ Backward-Compatibility für E2E/API-Tooling; SPA ignoriert ihn).
 **Begründung:** Solange nur Tools ihn nutzen, unkritisch — aber jeder künftige
 Aufrufer, der ihn in JS speichert, reaktiviert exakt den XSS-Vektor, den REQ-052
 geschlossen hat. Empfehlung: langfristig entfernen oder per Flag deaktivierbar machen.
+
+**Stand (#696):** Der Token ist im Body als **deprecated** markiert; die SPA deklariert
+das Feld nicht mehr in `LoginResponse` (TS verhindert Zugriff). Deployments können ihn
+per `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False` abbestellen (Default `True` = unverändert);
+solange er ausgeliefert wird, trägt die Response `Deprecation: true` (RFC 9745).
 
 ### C-4 ⚪ Öffentliche Schema-Endpunkte
 

@@ -624,6 +624,24 @@ AUTH_JWT_REFRESH_TTL_SECONDS: int = config(
     "AUTH_JWT_REFRESH_TTL_SECONDS", default=2592000, cast=int
 )
 
+# #696 (review finding C-3) — DEPRECATION flag for the login response body token.
+#
+# The login response used to be the only way to obtain a credential, so it still
+# returns `token` for the E2E login helper and API/CI tooling. The browser SPA
+# never reads it: it authenticates via the httpOnly access cookie (REQ-052).
+# Any *new* JS caller that persists the body token would re-open exactly the
+# XSS token-theft vector REQ-052 closed, so the field is deprecated.
+#
+# Default True = today's behaviour (no breaking change for existing tooling).
+# Set AUTH_LOGIN_INCLUDE_BODY_TOKEN=False to omit the field; cookie auth and
+# every other client are unaffected. Recommended follow-up: flip this default
+# once the known in-repo consumers (e2e/helpers/auth.ts,
+# e2e/helpers/preconditions.ts) and external API clients have migrated, i.e.
+# after a deprecation window.
+AUTH_LOGIN_INCLUDE_BODY_TOKEN: bool = config(
+    "AUTH_LOGIN_INCLUDE_BODY_TOKEN", default=True, cast=bool
+)
+
 # SA-32 (SYSTEMAUDIT-2026-08-27 §4.6 F7) — refresh-token rotation now detects
 # reuse: presenting an already-exchanged token revokes the whole session family.
 #
