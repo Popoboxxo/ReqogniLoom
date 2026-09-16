@@ -31,10 +31,14 @@ from application.attribute_definition_service import (
 from application.base import PermissionDeniedError
 from auth_tenancy.models import ROLE_ADMIN
 from presets.exceptions import CrossTenantWorkspaceError
-from rest_api.auth_enforcer import get_auth_context
+from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
 
+# #865 follow-up: every mutating view below is admin-only by *role* (see
+# ``_require_admin``) but declares the ADMIN-tier API-key scope through
+# ``AdminScopeRequiredMixin`` as well — the REST sibling of the
+# ``attribute_catalog`` MCP namespace. Reads are unchanged.
 def _require_admin(request: Request):
     """Return ``(ctx, lang)`` or a 403 Response when the caller is not admin."""
     lang = detect_lang(request)
@@ -97,7 +101,7 @@ def _handle_common(exc: Exception, lang: str) -> Response | None:
     return None
 
 
-class AttributeCatalogListView(APIView):
+class AttributeCatalogListView(AdminScopeRequiredMixin, APIView):
     """GET/POST /attribute-catalog/ — list or create catalog entries."""
 
     def get(self, request: Request) -> Response:
@@ -185,7 +189,7 @@ class AttributeCatalogExportView(APIView):
         return Response(document, status=status.HTTP_200_OK)
 
 
-class AttributeCatalogImportView(APIView):
+class AttributeCatalogImportView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-catalog/import/ — merge an exported document."""
 
     def post(self, request: Request) -> Response:
@@ -212,7 +216,7 @@ class AttributeCatalogImportView(APIView):
         return Response(summary, status=status.HTTP_200_OK)
 
 
-class AttributeCatalogDetailView(APIView):
+class AttributeCatalogDetailView(AdminScopeRequiredMixin, APIView):
     """GET/PUT/PATCH /attribute-catalog/{entry_id}/ — one catalog entry."""
 
     def get(self, request: Request, entry_id: UUID) -> Response:
@@ -258,7 +262,7 @@ class AttributeCatalogDetailView(APIView):
         return Response(entry, status=status.HTTP_200_OK)
 
 
-class AttributeCatalogDeprecateView(APIView):
+class AttributeCatalogDeprecateView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-catalog/{entry_id}/deprecate/ — set the deprecated flag."""
 
     def post(self, request: Request, entry_id: UUID) -> Response:
@@ -280,7 +284,7 @@ class AttributeCatalogDeprecateView(APIView):
         return Response(entry, status=status.HTTP_200_OK)
 
 
-class AttributeCatalogAddToDefinitionView(APIView):
+class AttributeCatalogAddToDefinitionView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-catalog/{entry_id}/add-to-definition/.
 
     Body: ``{item_type, preset | workspace_id, on_collision?}``. Copies the

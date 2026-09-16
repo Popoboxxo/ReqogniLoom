@@ -365,12 +365,23 @@ _READ_ONLY_TOOL_SUFFIXES: Tuple[str, ...] = (".read", ".query")
 # Classification is by namespace prefix and applies to WRITE tools only: every
 # read tool (``admin.backup_list``, ``user.list``, ``baseline.get``,
 # ``events.dlq_list``, ``workspace.get_context``, ``permissions.check``) stays
-# READ-tier, exactly as before. Tools whose authoritative check is a
-# *service-level* admin assertion rather than an admin-reserved operation
-# (``attribute_definition``, ``attribute_catalog``, ``attribute_migration``,
-# ``link_type``, ``prompt_template``, ``prompt_variable``) keep the AUTHOR
-# default here: that role check is unchanged, but the capability tier does not
-# yet narrow them.
+# READ-tier, exactly as before.
+#
+# Follow-up to #865 (security review of that change): six more namespaces are
+# ADMIN-tier here, closing the *drift hole* between the transports. Their tools
+# are protected on REST by ``rest_api.settings_views`` (LLM settings, prompt
+# templates, review policy, context-graph configuration) and, inside their
+# services, by an admin-role assertion — but an admin-*role* check does not
+# narrow an AUTHOR-tier key whose owner legitimately holds that role. Prompt
+# templates are the canonical persistent prompt-injection vector (REQ-043):
+# whoever controls their content controls every future LLM derivation, so an
+# AUTHOR key must not reach them, symmetrically on both transports.
+#   attribute_definition / attribute_catalog / attribute_migration — tenant-wide
+#     schema metadata; every write re-shapes what later derivations may emit,
+#   link_type   — the tenant-extensible trace-link catalog,
+#   prompt_template / prompt_variable — LLM prompt content and its variables.
+# The service-level admin re-checks stay in place unchanged; the tier gate can
+# only ever narrow further.
 #
 # This narrows the scope gate only for the new AUTHOR tier; the RBAC matrix and
 # the per-service admin re-checks remain untouched, and legacy ``write`` keys
@@ -385,6 +396,14 @@ _GOVERNANCE_TOOL_NAMESPACES: frozenset[str] = frozenset(
         "workspace",  # workspace lifecycle + config
         "events",  # dead-letter-queue replay
         "baseline",  # immutable baselines incl. gate override/waiver
+        # #865 follow-up: governance surfaces previously only author-tier
+        # because their protection was a service-internal admin-role check.
+        "prompt_template",  # LLM prompt content (REQ-043 injection vector)
+        "prompt_variable",  # variables substituted into prompt content
+        "link_type",  # tenant-extensible trace-link catalog
+        "attribute_definition",  # tenant-wide attribute schema
+        "attribute_catalog",  # attribute-schema catalog
+        "attribute_migration",  # attribute-schema migrations
     }
 )
 
@@ -1169,7 +1188,8 @@ class ToolRegistry:
         * read tools -> :attr:`Operation.READ` (any tier may read),
         * write tools in a governance namespace
           (:data:`_GOVERNANCE_TOOL_NAMESPACES`, e.g. ``user.create``,
-          ``admin.restore``, ``baseline.create``) ->
+          ``admin.restore``, ``baseline.create``, ``prompt_template.update``,
+          ``link_type.create``) ->
           :attr:`Operation.WORKSPACE_CONFIG`, i.e. the ADMIN tier,
         * every other write tool -> :attr:`Operation.WRITE` (AUTHOR tier).
         """

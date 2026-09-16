@@ -17,8 +17,13 @@ from rest_framework.views import APIView
 
 from application.link_type_facade import LinkTypeFacade
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
+from rest_api.auth_enforcer import AdminScopeRequiredMixin
 
 
+# #865 follow-up: every mutating view below declares the ADMIN-tier API-key
+# scope through ``AdminScopeRequiredMixin`` — the REST sibling of the
+# ``link_type`` MCP namespace (see ``application.link_type_facade`` for the
+# admin-role check that already guarded them). Reads are unchanged.
 def _facade() -> LinkTypeFacade:
     return LinkTypeFacade()
 
@@ -38,8 +43,14 @@ def _handle(func, *args, success: int = status.HTTP_200_OK, **kwargs) -> Respons
     return Response(payload, status=success)
 
 
-class LinkTypeDefaultsListView(APIView):
-    """GET/POST /api/v1/link-type-defaults/ — tenant-wide templates."""
+class LinkTypeDefaultsListView(AdminScopeRequiredMixin, APIView):
+    """GET/POST /api/v1/link-type-defaults/ — tenant-wide templates.
+
+    Capability gate (follow-up to #865): the POST requires the ADMIN-tier
+    API-key scope, mirroring the ``link_type`` MCP namespace (the catalog
+    defines which trace relations may be created at all). See
+    ``rest_api.auth_enforcer.AdminScopeRequiredMixin``.
+    """
 
     @extend_schema(tags=["link-types"])
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -63,7 +74,7 @@ class LinkTypeDefaultsListView(APIView):
         )
 
 
-class LinkTypeDefaultsDetailView(APIView):
+class LinkTypeDefaultsDetailView(AdminScopeRequiredMixin, APIView):
     """PUT/DELETE /api/v1/link-type-defaults/<key>/."""
 
     @extend_schema(tags=["link-types"])
@@ -86,7 +97,7 @@ class WorkspaceLinkTypeListView(APIView):
         return _handle(_facade().list_workspace, request.auth_context, workspace_id)
 
 
-class WorkspaceLinkTypeDetailView(APIView):
+class WorkspaceLinkTypeDetailView(AdminScopeRequiredMixin, APIView):
     """PUT /api/v1/workspaces/<uuid>/link-type-definitions/<key>/."""
 
     @extend_schema(tags=["link-types"])
@@ -108,7 +119,7 @@ class WorkspaceLinkTypeDetailView(APIView):
         )
 
 
-class WorkspaceLinkTypeResetView(APIView):
+class WorkspaceLinkTypeResetView(AdminScopeRequiredMixin, APIView):
     """POST /api/v1/workspaces/<uuid>/link-type-definitions/<key>/reset/."""
 
     @extend_schema(tags=["link-types"])

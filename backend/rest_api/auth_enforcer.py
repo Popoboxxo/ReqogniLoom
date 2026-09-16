@@ -151,7 +151,69 @@ def get_auth_context(request: Any) -> AuthContext:
     return ctx
 
 
+# ---------------------------------------------------------------------------
+# API-key capability tier for governance views (GitHub #865 + follow-up)
+# ---------------------------------------------------------------------------
+
+#: HTTP methods that mutate state — the complement of the safe methods
+#: :func:`auth_tenancy.services.authorization.operation_for_method` maps to READ.
+_UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+class AdminScopeRequiredMixin:
+    """Declare the ADMIN-tier API-key capability gate on a governance view (#865).
+
+    For views that are admin-only by *role* (an in-body
+    ``ctx.has_role(ROLE_ADMIN)`` check, a service-level admin assertion, or
+    both) but reach the caller's RBAC matrix unlowered. Such a view is fully
+    reachable by an AUTHOR-tier key whenever the key's *owner* legitimately
+    holds the Admin role: the role check passes, so only the capability tier can
+    narrow it. This mixin declares that narrowing.
+
+    It sets ``required_scope_operation`` — read by ``RbacPermission``,
+    ``HasOperationPermission`` and, as a backstop, the MCP dispatcher — to
+    :attr:`Operation.WORKSPACE_CONFIG`, the governance operation
+    :data:`auth_tenancy.services.authorization.GOVERNANCE_OPERATIONS` classifies
+    as the ADMIN tier. Every REST view using this mixin has an ADMIN-tier
+    counterpart on MCP (``mcp_server.tool_registry._GOVERNANCE_TOOL_NAMESPACES``),
+    so neither transport can serve as a hole for the other:
+
+    * ``settings_views`` — LLM settings, prompt templates, review policy,
+      context-graph configuration,
+    * ``prompt_variable_views``, ``link_type_views``,
+      ``attribute_definition_views``, ``attribute_catalog_views``,
+      ``attribute_migration_views`` — the REST siblings of the
+      ``prompt_variable`` / ``link_type`` / ``attribute_*`` MCP namespaces,
+    * ``api_key_views.ApiKeyViewSet`` keeps its own equivalent property (its
+      RBAC requirement is deliberately lowered for self-service, so it must
+      gate on the HTTP method rather than on ``required_operation``).
+
+    Prompt content is the canonical persistent prompt-injection vector
+    (REQ-043): whoever edits it steers every later LLM derivation.
+
+    Applied to mutations only: a GET adds no capability requirement and keeps
+    exactly its previous behaviour, so a READ_ONLY key owned by an admin can
+    still read everything it could read before. Legacy ``write`` keys are the
+    ADMIN tier and are therefore unaffected as well.
+    """
+
+    @property
+    def required_scope_operation(self) -> Operation | None:
+        """Return the ADMIN-tier operation for mutations, else ``None``.
+
+        Read through ``getattr(self, "request", None)`` because the permission
+        classes look this property up with ``getattr(view, ..., None)``, which
+        would swallow an ``AttributeError`` raised inside it and silently fail
+        open (same idiom as ``ApiKeyViewSet.required_scope_operation``).
+        """
+        request = getattr(self, "request", None)
+        if request is not None and request.method in _UNSAFE_METHODS:
+            return Operation.WORKSPACE_CONFIG
+        return None
+
+
 __all__ = [
+    "AdminScopeRequiredMixin",
     "BearerTokenAuthentication",
     "RbacPermission",
     "get_auth_context",

@@ -75,6 +75,13 @@ def _registry(scope: str, monkeypatch) -> tuple[ToolRegistry, _StubGroup, _StubG
         ("user.list", Operation.READ),
         ("workspace.get_context", Operation.READ),
         ("baseline.get", Operation.READ),
+        # Governance namespaces stay READ-tier for reads (follow-up to #865).
+        ("prompt_template.get", Operation.READ),
+        ("prompt_variable.list", Operation.READ),
+        ("link_type.list", Operation.READ),
+        ("attribute_definition.list", Operation.READ),
+        ("attribute_catalog.list", Operation.READ),
+        ("attribute_migration.list_runs", Operation.READ),
         ("requirement.create", Operation.WRITE),
         ("test.update", Operation.WRITE),
         ("test.run_create", Operation.WRITE),
@@ -85,11 +92,18 @@ def _registry(scope: str, monkeypatch) -> tuple[ToolRegistry, _StubGroup, _StubG
         ("workspace.delete", Operation.WORKSPACE_CONFIG),
         ("permissions.set_rule", Operation.WORKSPACE_CONFIG),
         ("events.dlq_replay", Operation.WORKSPACE_CONFIG),
-        # Service-level admin assertions (not admin-reserved operations) stay
-        # AUTHOR-tier — the role check is unchanged there.
-        ("link_type.create", Operation.WRITE),
-        ("attribute_migration.apply", Operation.WRITE),
-        ("prompt_template.update", Operation.WRITE),
+        # Follow-up to #865: governance *configuration* namespaces are ADMIN
+        # tier as well. Their earlier protection was a service-internal
+        # admin-role check, which does not narrow an AUTHOR-tier key whose owner
+        # legitimately holds that role — and prompt content is the persistent
+        # prompt-injection vector (REQ-043). Symmetry with
+        # ``rest_api.settings_views``, which declares the same tier on REST.
+        ("link_type.create", Operation.WORKSPACE_CONFIG),
+        ("attribute_migration.apply", Operation.WORKSPACE_CONFIG),
+        ("prompt_template.update", Operation.WORKSPACE_CONFIG),
+        ("prompt_variable.set", Operation.WORKSPACE_CONFIG),
+        ("attribute_definition.update", Operation.WORKSPACE_CONFIG),
+        ("attribute_catalog.update", Operation.WORKSPACE_CONFIG),
     ],
 )
 def test_required_scope_operation_classification(tool_name, expected) -> None:
