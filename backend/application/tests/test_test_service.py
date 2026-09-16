@@ -23,10 +23,14 @@ import pytest
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.test_service import (
+    DEFAULT_TEST_TYPE,
     TestService,
     VALID_EXECUTION_STATUSES,
     VALID_TEST_TYPES,
+    normalize_test_type,
 )
+from auth_tenancy.context import AuthContext
+from persistence.models import TestCase
 
 
 # ---------------------------------------------------------------------------
@@ -71,13 +75,51 @@ def _make_test_case(**kwargs):
 class TestConstants:
     """REQ-L2-AS-005: valid type/status sets."""
 
-    def test_valid_test_types_contains_expected(self):
-        """VALID_TEST_TYPES contains Unit, Integration, System, Acceptance."""
-        assert {"Unit", "Integration", "System", "Acceptance"}.issubset(VALID_TEST_TYPES)
+    def test_valid_test_types_is_the_canonical_vocabulary(self):
+        """#816: one vocabulary — the lowercase ``TestCaseType`` values.
+
+        The historical Title-case set ("Unit", "Integration", "System",
+        "Acceptance") was the second, competing representation; it is accepted
+        on input as an alias, but the constant no longer advertises it (and
+        "Acceptance" has no ``TestCaseType`` counterpart at all).
+        """
+        assert VALID_TEST_TYPES == {
+            "system",
+            "integration",
+            "unit",
+            "inspection",
+            "analysis",
+            "demonstration",
+        }
 
     def test_valid_execution_statuses_contains_expected(self):
         """VALID_EXECUTION_STATUSES contains Passed, Failed, Not Run."""
         assert {"Passed", "Failed", "Not Run"}.issubset(VALID_EXECUTION_STATUSES)
+
+
+class TestNormalizeTestType:
+    """#816: the canonical test-type read/write contract."""
+
+    def test_none_stays_none(self):
+        """NULL is the documented "type not derivable" value."""
+        assert normalize_test_type(None) is None
+
+    def test_canonical_value_is_returned_unchanged(self):
+        assert normalize_test_type("unit") == "unit"
+
+    def test_legacy_title_case_alias_is_folded_onto_canonical(self):
+        """The deprecated vocabulary differs only in case."""
+        assert normalize_test_type("Unit") == "unit"
+        assert normalize_test_type(" System ") == "system"
+
+    def test_retired_acceptance_value_is_rejected(self):
+        """``Acceptance`` never existed in ``TestCaseType`` — no silent drop."""
+        with pytest.raises(ValidationError, match="Invalid test_type"):
+            normalize_test_type("Acceptance")
+
+    def test_unknown_value_is_rejected_without_leaking_internals(self):
+        with pytest.raises(ValidationError, match="Invalid test_type"):
+            normalize_test_type("BogusType")
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +270,150 @@ class TestCreateTestCase:
         kw = mock_audit.call_args.kwargs
         assert kw["operation"] == "create"
         assert kw["entity_type"] == "TestCase"
+
+
+# ---------------------------------------------------------------------------
+# #816 / #953 — one canonical test_type representation, end to end
+# ---------------------------------------------------------------------------
+
+
+def _real_setup(name: str):
+    """Tenant + workspace + AuthContext for a real-DB TestService round-trip."""
+    from persistence.models import Tenant, User, Workspace as PersistenceWorkspace
+
+    tenant = Tenant.objects.create(name=name, slug=name)
+    user = User.objects.create(
+        username=f"{name}-user", email=f"{name}@example.com", tenant=tenant
+    )
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace = PersistenceWorkspace.objects.create(
+            tenant=tenant, name=f"{name}-ws"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    ctx = AuthContext(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        active_roles=("editor", "approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name=name,
+    )
+    return tenant, workspace, ctx
+
+
+@pytest.mark.django_db
+class TestCanonicalTestTypeContract:
+    """#816/#953: ``TestCase.test_type`` is the single representation.
+    ``Artifact.artifact_type`` stays the plain ``"TestCase"``; the write and
+    read paths share one vocabulary (canonical lowercase, legacy Title-case
+    accepted as an alias on input only).
+    """
+
+    def test_create_applies_the_documented_default_without_a_test_type(self):
+        """#953: an untyped create gets the documented default, not NULL."""
+        _tenant, workspace, ctx = _real_setup("ts-default-unit")
+        tc = TestService().create_test_case(
+            workspace_id=workspace.id, title="TC-default", ctx=ctx
+        )
+
+        assert tc.test_type == DEFAULT_TEST_TYPE == "unit"
+        assert tc.artifact.artifact_type == "TestCase", (
+            "the redundant 'TestCase:<Type>' artifact_type tag is gone (#816)"
+        )
+
+    def test_create_accepts_the_legacy_title_case_alias(self):
+        """The deprecated vocabulary is folded onto the canonical column."""
+        _tenant, workspace, ctx = _real_setup("ts-legacy-alias")
+        tc = TestService().create_test_case(
+            workspace_id=workspace.id, title="TC-alias", ctx=ctx, test_type="System"
+        )
+
+        assert tc.test_type == "system"
+
+    def test_create_honours_an_explicit_canonical_value(self):
+        _tenant, workspace, ctx = _real_setup("ts-explicit-canonical")
+        tc = TestService().create_test_case(
+            workspace_id=workspace.id,
+            title="TC-explicit",
+            ctx=ctx,
+            test_type_value="integration",
+        )
+
+        assert tc.test_type == "integration"
+
+    def test_explicit_none_alias_leaves_the_column_untyped(self):
+        """The REST create contract: an explicit ``None`` means "unspecified"."""
+        _tenant, workspace, ctx = _real_setup("ts-explicit-none")
+        tc = TestService().create_test_case(
+            workspace_id=workspace.id,
+            title="TC-null",
+            ctx=ctx,
+            test_type_value=None,
+        )
+
+        assert tc.test_type is None
+
+    def test_list_filters_the_canonical_column_with_either_vocabulary(self):
+        """Querying looks at the column, not at a derived artifact_type tag."""
+        _tenant, workspace, ctx = _real_setup("ts-list-filter")
+        svc = TestService()
+        svc.create_test_case(
+            workspace_id=workspace.id, title="unit-one", ctx=ctx, test_type="Unit"
+        )
+        svc.create_test_case(
+            workspace_id=workspace.id, title="system-one", ctx=ctx, test_type="system"
+        )
+
+        unit = [tc.title for tc in svc.list_test_cases(workspace.id, ctx, test_type="Unit")]
+        system = [
+            tc.title for tc in svc.list_test_cases(workspace.id, ctx, test_type="system")
+        ]
+
+        assert unit == ["unit-one"]
+        assert system == ["system-one"]
+
+    def test_update_normalises_the_legacy_vocabulary(self):
+        from persistence.tenancy import TenantContext
+
+        _tenant, workspace, ctx = _real_setup("ts-update-normalise")
+        svc = TestService()
+        tc = svc.create_test_case(
+            workspace_id=workspace.id, title="TC-update", ctx=ctx
+        )
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            svc.update_test_case(tc.id, ctx, test_type="Integration")
+        finally:
+            TenantContext.clear_tenant()
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            stored = TestCase.objects.get(id=tc.id).test_type
+        finally:
+            TenantContext.clear_tenant()
+        assert stored == "integration"
+
+    def test_update_rejects_an_unknown_test_type(self):
+        from persistence.tenancy import TenantContext
+
+        _tenant, workspace, ctx = _real_setup("ts-update-invalid")
+        svc = TestService()
+        tc = svc.create_test_case(
+            workspace_id=workspace.id, title="TC-bogus", ctx=ctx
+        )
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            with pytest.raises(ValidationError, match="Invalid test_type"):
+                svc.update_test_case(tc.id, ctx, test_type="BogusType")
+        finally:
+            TenantContext.clear_tenant()
 
 
 # ---------------------------------------------------------------------------

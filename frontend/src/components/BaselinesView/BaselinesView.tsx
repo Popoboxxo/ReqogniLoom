@@ -43,7 +43,12 @@ import { useBaselinesData } from "./useBaselinesData";
 // GH-513 / F5 (PR #554 review): mirrors the backend
 // `MIN_OVERRIDE_REASON_LENGTH` in `backend/application/baseline_facade.py`
 // so the two are not two independently-drifting magic numbers.
-const MIN_OVERRIDE_REASON_LENGTH = 10;
+//
+// GH-821 hardens the backend bar beyond length (>= 4 words, >= 3 distinct
+// words, not a copy of the rule ids). The textarea can only mirror the length
+// part; `baselines.overrideHint` states the content requirement, and the
+// backend remains the authority (its 400 is rendered verbatim).
+const MIN_OVERRIDE_REASON_LENGTH = 15;
 
 // Issue #48: mirrors `BaselineSerializer.name` (max_length=500) so the field
 // stops the user at the boundary instead of letting the request come back as
@@ -441,6 +446,7 @@ export default function BaselinesView(): JSX.Element {
             actions={[
               {
                 label: t("baselines.create"),
+                prefixWithPlus: true,
                 onClick: () => setShowForm(true),
                 testId: "baselines-empty-create",
               },

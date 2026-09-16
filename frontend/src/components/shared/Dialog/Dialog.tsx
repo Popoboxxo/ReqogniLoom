@@ -5,8 +5,8 @@
  * real dialog at all: nine call sites set `aria-modal="true"` on a plain
  * `<div>` *without* `role="dialog"` (which ARIA ignores, so screen readers
  * kept treating them as ordinary containers), and
- * `RequirementsList/ModalDialogBase.tsx` — despite the name — renders an
- * inline form with neither overlay nor focus handling.
+ * `RequirementsList/ModalDialogBase.tsx` — despite the name — used to render
+ * an inline form with neither overlay nor focus handling (removed in #873).
  *
  * The contract of ch. 12.8, in full:
  *   - `role="dialog"` **and** `aria-modal="true"` **and** `aria-labelledby`,

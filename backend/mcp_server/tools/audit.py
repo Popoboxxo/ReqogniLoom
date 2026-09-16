@@ -61,6 +61,10 @@ Error mapping (REQ-L2-MC-011):
   ValidationError /
   ValueError /
   ParameterError          -> VALIDATION_ERROR
+  AiReviewResponseError /
+  LlmResponseError        -> INTERNAL_ERROR (``audit.ai_review``; the provider
+                             failure / daily token budget must never fall
+                             through to the bare catch-all — issue #951)
 
 Parameters accepted by ``audit.query`` (all optional):
     actor         : user_id / agent_id string to filter on.
@@ -91,6 +95,7 @@ from typing import Any, Dict, List, Optional
 
 from auth_tenancy.context import AuthContext
 
+from application.ai_derivation_service import LlmResponseError
 from application.ai_review_service import AiReviewResponseError, AiReviewService
 from application.base import (
     NotFoundError,
@@ -533,6 +538,18 @@ class AuditToolGroup(BaseToolGroup):
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except AiReviewResponseError as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except LlmResponseError as exc:
+            # #951: the daily-token-budget failure (REQ-106) is raised by the
+            # service *before* the provider is called and was the one
+            # provider-adjacent failure this handler did not map. It therefore
+            # fell through to the generic catch-all in
+            # ``BaseToolGroup.execute_tool``, which replaces the documented,
+            # actionable budget message with a bare
+            # "An internal error occurred." — indistinguishable from a crash,
+            # which is exactly what the issue reports. Mapped exactly like the
+            # sibling LLM tool groups (``tools/ai_derivation.py``,
+            # ``tools/requirement_bundle.py``).
             return ToolResult.error("INTERNAL_ERROR", str(exc))
         except (ValidationError, ValueError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))

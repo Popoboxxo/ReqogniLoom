@@ -26,8 +26,8 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from django.db.models import QuerySet
 from django.utils import timezone
-from django.utils.html import strip_tags
 from auth_tenancy.models import ROLE_ADMIN, UserRole
+from persistence.free_text import find_free_text_violation
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -70,20 +70,31 @@ _LANGUAGE_MAX_LENGTH = 8
 _THEME_MAX_LENGTH = 32
 
 
-def _sanitize_and_cap(value: str, *, max_length: int, field_name: str) -> str:
-    """Strip HTML/script markup and enforce a max length (#56, #57, #80).
+def _validate_and_cap(value: str, *, max_length: int, field_name: str) -> str:
+    """Reject HTML/script-URI free text and enforce a max length (#56, #57, #80).
 
     Same write-path gap as above: free-text fields set directly on the model
     here are never routed through WorkspaceSerializer's ``SanitizedCharField``,
     so a ``<script>`` payload was previously stored verbatim (stored XSS for
     any non-React consumer, e.g. MCP responses / ReqIF export).
+
+    #820: this used to call ``strip_tags`` and persist the mutilated remainder,
+    which contradicted the single free-text policy documented in
+    :mod:`persistence.free_text` — the REST serializer, ``Artifact.custom_fields``
+    and ``AttributeCatalogService`` all *reject* markup, so the same payload was
+    a 400 on one write path and a silent rewrite on another. Rejecting here too
+    makes the policy uniform: markup is a ``ValidationError``, everything else
+    (including SQL-shaped prose such as ``'; DROP TABLE users; --``) passes
+    through byte-identically.
     """
-    cleaned = strip_tags(value)
-    if len(cleaned) > max_length:
+    violation = find_free_text_violation(value)
+    if violation is not None:
+        raise ValidationError(f"{field_name} {violation}")
+    if len(value) > max_length:
         raise ValidationError(
             f"{field_name} must not exceed {max_length} characters"
         )
-    return cleaned
+    return value
 
 
 def _assert_workspace_name_free(
@@ -182,7 +193,7 @@ class WorkspaceService(ServiceBase):
         name_clean = (name or "").strip()
         if not name_clean:
             raise ValidationError("name is required")
-        name_clean = _sanitize_and_cap(
+        name_clean = _validate_and_cap(
             name_clean, max_length=_NAME_MAX_LENGTH, field_name="name"
         )
 
@@ -210,19 +221,19 @@ class WorkspaceService(ServiceBase):
         # ``theme`` has no column: it lives on the preset blob, exactly as
         # update_metadata() stores it and _workspace_to_dict() reads it back.
         if theme is not None:
-            preset_blob["theme"] = _sanitize_and_cap(
+            preset_blob["theme"] = _validate_and_cap(
                 str(theme), max_length=_THEME_MAX_LENGTH, field_name="theme"
             )
 
         extra_columns: dict[str, Any] = {}
         if decomposition_link_type is not None:
-            extra_columns["decomposition_link_type"] = _sanitize_and_cap(
+            extra_columns["decomposition_link_type"] = _validate_and_cap(
                 str(decomposition_link_type),
                 max_length=_LINK_TYPE_MAX_LENGTH,
                 field_name="decomposition_link_type",
             )
         if default_link_type is not None:
-            extra_columns["default_link_type"] = _sanitize_and_cap(
+            extra_columns["default_link_type"] = _validate_and_cap(
                 str(default_link_type),
                 max_length=_LINK_TYPE_MAX_LENGTH,
                 field_name="default_link_type",
@@ -648,7 +659,7 @@ class WorkspaceService(ServiceBase):
             new_name = str(name or "").strip()
             if not new_name:
                 raise ValidationError("name must not be empty")
-            new_name = _sanitize_and_cap(
+            new_name = _validate_and_cap(
                 new_name, max_length=_NAME_MAX_LENGTH, field_name="name"
             )
             if new_name != ws.name:
@@ -659,7 +670,7 @@ class WorkspaceService(ServiceBase):
             update_fields.append("name")
 
         if language is not _UNSET:
-            clean_language = _sanitize_and_cap(
+            clean_language = _validate_and_cap(
                 str(language), max_length=_LANGUAGE_MAX_LENGTH, field_name="language"
             )
             preset_blob["language"] = clean_language
@@ -668,7 +679,7 @@ class WorkspaceService(ServiceBase):
                 update_fields.append("preset")
 
         if theme is not _UNSET:
-            clean_theme = _sanitize_and_cap(
+            clean_theme = _validate_and_cap(
                 str(theme), max_length=_THEME_MAX_LENGTH, field_name="theme"
             )
             preset_blob["theme"] = clean_theme
@@ -677,7 +688,7 @@ class WorkspaceService(ServiceBase):
                 update_fields.append("preset")
 
         if decomposition_link_type is not _UNSET:
-            ws.decomposition_link_type = _sanitize_and_cap(
+            ws.decomposition_link_type = _validate_and_cap(
                 str(decomposition_link_type),
                 max_length=_LINK_TYPE_MAX_LENGTH,
                 field_name="decomposition_link_type",
@@ -686,7 +697,7 @@ class WorkspaceService(ServiceBase):
                 update_fields.append("decomposition_link_type")
 
         if default_link_type is not _UNSET:
-            ws.default_link_type = _sanitize_and_cap(
+            ws.default_link_type = _validate_and_cap(
                 str(default_link_type),
                 max_length=_LINK_TYPE_MAX_LENGTH,
                 field_name="default_link_type",

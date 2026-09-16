@@ -37,10 +37,16 @@ from application.attribute_migration_service import (
 from application.base import PermissionDeniedError
 from attribute_definitions.migration_plan import MigrationPlanError
 from auth_tenancy.models import ROLE_ADMIN
-from rest_api.auth_enforcer import get_auth_context
+from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
 
+# #865 follow-up: the applying views below are admin-only by *role* (see
+# ``_require_admin``) but declare the ADMIN-tier API-key scope through
+# ``AdminScopeRequiredMixin`` as well — the REST sibling of the
+# ``attribute_migration.apply`` / ``.rollback`` MCP tools, so an AUTHOR-tier key
+# cannot run a schema migration through this transport. The read-only
+# ``plan``/``runs`` views keep their previous behaviour.
 def _require_admin(request: Request):
     """Return ``(ctx, lang)`` or a 403 Response when the caller is not admin."""
     lang = detect_lang(request)
@@ -105,7 +111,7 @@ class AttributeMigrationPlanView(APIView):
         return Response(report, status=status.HTTP_200_OK)
 
 
-class AttributeMigrationApplyView(APIView):
+class AttributeMigrationApplyView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-migration/apply/ — execute a plan for real."""
 
     def post(self, request: Request) -> Response:
@@ -163,7 +169,7 @@ class AttributeMigrationRunDetailView(APIView):
         return Response(run, status=status.HTTP_200_OK)
 
 
-class AttributeMigrationRollbackView(APIView):
+class AttributeMigrationRollbackView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-migration/runs/{run_id}/rollback/ — restore snapshots."""
 
     def post(self, request: Request, run_id: UUID) -> Response:

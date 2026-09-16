@@ -26,10 +26,15 @@ from application.attribute_definition_service import (
 )
 from auth_tenancy.models import ROLE_ADMIN
 from presets.exceptions import CrossTenantWorkspaceError
-from rest_api.auth_enforcer import get_auth_context
+from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
 
+# #865 follow-up: every mutating view below is admin-only by *role* (see
+# ``_require_admin``) but declares the ADMIN-tier API-key scope through
+# ``AdminScopeRequiredMixin`` as well — the REST sibling of the
+# ``attribute_definition`` MCP namespace, so an AUTHOR-tier key cannot reshape
+# the tenant-wide attribute schema through this transport. Reads are unchanged.
 def _require_admin(request: Request):
     """Return ``(ctx, lang)`` or a 403 Response when the caller is not admin."""
     lang = detect_lang(request)
@@ -123,7 +128,7 @@ class AttributeDefaultsListView(APIView):
         return Response({"definitions": definitions}, status=status.HTTP_200_OK)
 
 
-class AttributeDefaultsDetailView(APIView):
+class AttributeDefaultsDetailView(AdminScopeRequiredMixin, APIView):
     """GET/PUT /attribute-defaults/{item_type}/{preset}/ — one global default."""
 
     def get(self, request: Request, item_type: str, preset: str) -> Response:
@@ -197,7 +202,7 @@ class AttributeDefaultsDetailView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class WorkspaceAttributeDefinitionView(APIView):
+class WorkspaceAttributeDefinitionView(AdminScopeRequiredMixin, APIView):
     """GET/PUT /workspaces/{id}/attribute-definitions/{item_type}/.
 
     GET is open to every tenant member on purpose: applying the configuration to
@@ -313,7 +318,7 @@ class AttributeUsageView(APIView):
         return Response({"count": count}, status=status.HTTP_200_OK)
 
 
-class WorkspaceAttributeDefinitionResetView(APIView):
+class WorkspaceAttributeDefinitionResetView(AdminScopeRequiredMixin, APIView):
     """POST /workspaces/{id}/attribute-definitions/{item_type}/reset/."""
 
     def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:
@@ -355,7 +360,7 @@ class AttributeDefaultsExportView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class AttributeDefaultsImportView(APIView):
+class AttributeDefaultsImportView(AdminScopeRequiredMixin, APIView):
     """POST /attribute-defaults/{item_type}/{preset}/import/ (Task 10)."""
 
     def post(self, request: Request, item_type: str, preset: str) -> Response:
@@ -397,7 +402,7 @@ class WorkspaceAttributeDefinitionExportView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class WorkspaceAttributeDefinitionImportView(APIView):
+class WorkspaceAttributeDefinitionImportView(AdminScopeRequiredMixin, APIView):
     """POST /workspaces/{id}/attribute-definitions/{item_type}/import/ (Task 10)."""
 
     def post(self, request: Request, workspace_id: UUID, item_type: str) -> Response:

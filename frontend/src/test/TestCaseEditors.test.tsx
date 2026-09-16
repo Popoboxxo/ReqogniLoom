@@ -207,6 +207,11 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
     const dialog = await screen.findByTestId("tc-create-dialog");
     expect(dialog).toHaveAttribute("role", "dialog");
     expect(dialog).toHaveAttribute("aria-modal", "true");
+    // #873: the create form is the shared portal <Dialog>, not the removed
+    // inline accordion — it portals into document.body and the focus trap
+    // lands inside the panel (here on the title field via initialFocusRef).
+    expect(screen.getByTestId("tc-create-dialog-overlay").parentElement).toBe(document.body);
+    expect(dialog.contains(document.activeElement)).toBe(true);
     // Dialog title repeats the button's label (ch. 12.8).
     expect(screen.getByRole("heading", { name: "New Test Case" })).toBeInTheDocument();
 
@@ -217,6 +222,9 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
       expect(testcasesApi.create).toHaveBeenCalledWith({
         workspace_id: "ws-001",
         title: "Login fails with invalid password",
+        // #953: the dialog preselects the documented default, so an untouched
+        // form no longer stores test_type = null.
+        test_type: "unit",
       });
     });
   });
@@ -249,6 +257,61 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
           description: "Steps to reproduce...",
         })
       );
+    });
+  });
+
+  /**
+   * #953: the create dialog must preselect the documented default
+   * (REST/MCP schema: "Test type (default 'Unit')" -> canonical `unit`), so a
+   * user who never touches the select no longer stores `test_type = null` —
+   * which made the traceability coverage surface report "kein Test" for a
+   * requirement that did have a `verifies` link.
+   */
+  it("preselects the documented unit default in the create dialog (#953)", async () => {
+    vi.mocked(testcasesApi.create).mockResolvedValue({ ...TEST_CASE, id: "tc-new-default" });
+    renderEditor("/testcases");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-tc-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-tc-btn"));
+    await screen.findByTestId("tc-create-dialog");
+
+    const select = screen.getByTestId("tc-new-test-type-select") as HTMLSelectElement;
+    expect(select.value).toBe("unit");
+
+    await user.type(screen.getByTestId("tc-new-title-input"), "Login default");
+    await user.click(screen.getByTestId("tc-new-save-btn"));
+
+    await waitFor(() => {
+      expect(testcasesApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({ test_type: "unit" })
+      );
+    });
+  });
+
+  it("keeps 'Not specified' as an explicit choice that omits test_type (#953)", async () => {
+    vi.mocked(testcasesApi.create).mockResolvedValue({ ...TEST_CASE, id: "tc-new-none" });
+    renderEditor("/testcases");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-tc-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-tc-btn"));
+    await screen.findByTestId("tc-create-dialog");
+
+    await user.type(screen.getByTestId("tc-new-title-input"), "Login unspecified");
+    await user.selectOptions(screen.getByTestId("tc-new-test-type-select"), "");
+    await user.click(screen.getByTestId("tc-new-save-btn"));
+
+    await waitFor(() => {
+      const payload = vi.mocked(testcasesApi.create).mock.calls[0][0] as Record<string, unknown>;
+      expect(payload.title).toBe("Login unspecified");
+      expect(payload).not.toHaveProperty("test_type");
     });
   });
 

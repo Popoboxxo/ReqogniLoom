@@ -46,6 +46,7 @@ from auth_tenancy.services.authentication import AuthenticationService
 from auth_tenancy.services.authorization import (
     AuthorizationService,
     Operation,
+    scope_allows,
     scope_denial_reason,
 )
 
@@ -344,6 +345,67 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
 )
 
 _READ_ONLY_TOOL_SUFFIXES: Tuple[str, ...] = (".read", ".query")
+
+# ---------------------------------------------------------------------------
+# Governance tool namespaces (#865)
+#
+# The API-key capability tiers (see ``auth_tenancy.services.authorization``)
+# distinguish ordinary content writes (AUTHOR) from governance operations
+# (ADMIN). On the MCP surface the split follows the tool *namespace*, chosen so
+# that it mirrors the REST rule exactly: REST views that declare one of the
+# admin-/approver-reserved operations (``WORKSPACE_CONFIG``, ``ASSIGN_ROLE``,
+# ``WORKFLOW_APPROVAL``) are ADMIN-tier, and these are the namespaces whose
+# tools are gated by exactly those operations — admin_ops disaster recovery,
+# user/role management, item-permission rules, workspace lifecycle/preset
+# config, DLQ replay, and baselines (whose gate override/waiver is an
+# approval-authority act, see ``BaselineFacade``). Key management is the
+# seventh governance path named by the issue and lives on REST only
+# (``ApiKeyViewSet``); MCP exposes no key-management tool.
+#
+# Classification is by namespace prefix and applies to WRITE tools only: every
+# read tool (``admin.backup_list``, ``user.list``, ``baseline.get``,
+# ``events.dlq_list``, ``workspace.get_context``, ``permissions.check``) stays
+# READ-tier, exactly as before.
+#
+# Follow-up to #865 (security review of that change): six more namespaces are
+# ADMIN-tier here, closing the *drift hole* between the transports. Their tools
+# are protected on REST by ``rest_api.settings_views`` (LLM settings, prompt
+# templates, review policy, context-graph configuration) and, inside their
+# services, by an admin-role assertion — but an admin-*role* check does not
+# narrow an AUTHOR-tier key whose owner legitimately holds that role. Prompt
+# templates are the canonical persistent prompt-injection vector (REQ-043):
+# whoever controls their content controls every future LLM derivation, so an
+# AUTHOR key must not reach them, symmetrically on both transports.
+#   attribute_definition / attribute_catalog / attribute_migration — tenant-wide
+#     schema metadata; every write re-shapes what later derivations may emit,
+#   link_type   — the tenant-extensible trace-link catalog,
+#   prompt_template / prompt_variable — LLM prompt content and its variables.
+# The service-level admin re-checks stay in place unchanged; the tier gate can
+# only ever narrow further.
+#
+# This narrows the scope gate only for the new AUTHOR tier; the RBAC matrix and
+# the per-service admin re-checks remain untouched, and legacy ``write`` keys
+# (= ADMIN tier) are unaffected.
+# ---------------------------------------------------------------------------
+
+_GOVERNANCE_TOOL_NAMESPACES: frozenset[str] = frozenset(
+    {
+        "admin",  # admin_ops: backup / restore (instance-level)
+        "user",  # user + role management
+        "permissions",  # item-level permission rules
+        "workspace",  # workspace lifecycle + config
+        "events",  # dead-letter-queue replay
+        "baseline",  # immutable baselines incl. gate override/waiver
+        # #865 follow-up: governance surfaces previously only author-tier
+        # because their protection was a service-internal admin-role check.
+        "prompt_template",  # LLM prompt content (REQ-043 injection vector)
+        "prompt_variable",  # variables substituted into prompt content
+        "link_type",  # tenant-extensible trace-link catalog
+        "attribute_definition",  # tenant-wide attribute schema
+        "attribute_catalog",  # attribute-schema catalog
+        "attribute_migration",  # attribute-schema migrations
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Instance-level tools exempt from workspace-scoped role narrowing
@@ -704,6 +766,11 @@ class ToolRegistry:
         tools, so the advertised tool surface matches what the caller may
         actually execute. Preset feature gating stays an execution-time concern.
 
+        #865 adds the capability tier on top: a READ_ONLY-scoped key sees no
+        write tools at all and an AUTHOR-scoped key sees no governance tools
+        (``admin.*``, ``user.*``, ``baseline.create``, ...), matching the gate
+        :meth:`dispatch_request` applies.
+
         Args:
             api_key: Raw API key for validation.
             workspace_id: Optional workspace to resolve roles against. When
@@ -730,9 +797,17 @@ class ToolRegistry:
 
             roles = self._resolve_list_roles(auth_ctx, workspace_id)
             can_write = (
-                auth_ctx.scope != "read"
+                scope_allows(auth_ctx.scope, Operation.WRITE)
                 and self._authz_service.decide_access(roles, Operation.WRITE).allow
             )
+            # #865: a governance tool the key's scope can never execute must not
+            # be advertised either — same "advertised surface matches what the
+            # caller may actually execute" invariant as the WRITE filter below.
+            # Deliberately scope-only (not the RBAC matrix): role-based
+            # visibility stays exactly as it was, the tiers only narrow what the
+            # key itself was issued for. Legacy ``write`` keys are the ADMIN
+            # tier, so their tool list is unchanged.
+            can_govern = scope_allows(auth_ctx.scope, Operation.WORKSPACE_CONFIG)
 
             # Deduplicate by group object identity (REQ-129): several prefixes
             # intentionally share a single instance (e.g. "audit"/"events" →
@@ -763,6 +838,18 @@ class ToolRegistry:
                     for t in tools
                     if not self._is_write_tool(t.get("name", ""))
                     or self._is_tenant_admin_exempt(t.get("name", ""), auth_ctx)
+                ]
+            if not can_govern:
+                # AUTHOR-tier key: everything it may not execute is hidden,
+                # including the tenant-admin-elevated ``user.*`` tools — those
+                # are exempt from the *role* matrix, never from the capability
+                # tier (same rule dispatch_request applies above its own
+                # exemptions, security review B2).
+                tools = [
+                    t
+                    for t in tools
+                    if self._required_scope_operation(t.get("name", ""))
+                    is not Operation.WORKSPACE_CONFIG
                 ]
             return tools
         finally:
@@ -864,10 +951,17 @@ class ToolRegistry:
                 # the two RBAC exemptions, not inside ``_check_rbac`` which
                 # they skip. Scope and RBAC-exemption are orthogonal: being
                 # exempt from the *role* matrix (bootstrap, tenant-admin) must
-                # never exempt a caller from the coarse scope their key was
+                # never exempt a caller from the capability tier their key was
                 # issued with, or a read-scoped bootstrap/tenant-admin key
                 # could write freely.
-                scope_error = scope_denial_reason(gate_ctx.scope, Operation.WRITE)
+                #
+                # #865: the required tier depends on the tool — governance
+                # namespaces need the ADMIN tier, ordinary content writes only
+                # the AUTHOR tier (see ``_required_scope_operation``). Legacy
+                # ``write`` keys are the ADMIN tier and are unaffected.
+                scope_error = scope_denial_reason(
+                    gate_ctx.scope, self._required_scope_operation(tool_name)
+                )
                 if scope_error:
                     return ToolResult.error("PERMISSION_DENIED", scope_error)
 
@@ -876,7 +970,7 @@ class ToolRegistry:
                 ) and not self._is_tenant_admin_exempt(
                     tool_name, auth_ctx  # type: ignore[arg-type]
                 ):
-                    rbac_error = self._check_rbac(gate_ctx)
+                    rbac_error = self._check_rbac(gate_ctx, tool_name)
                     if rbac_error:
                         return ToolResult.error("PERMISSION_DENIED", rbac_error)
             elif scope_workspace_id is not None:
@@ -1083,6 +1177,29 @@ class ToolRegistry:
             return False
         return True
 
+    def _required_scope_operation(self, tool_name: str) -> Operation:
+        """Return the operation the key-scope gate must evaluate for *tool_name*.
+
+        Maps an MCP tool onto the same :class:`Operation` vocabulary the REST
+        adapters use, so one shared gate
+        (``auth_tenancy.services.authorization.scope_denial_reason``) decides
+        both transports (#865):
+
+        * read tools -> :attr:`Operation.READ` (any tier may read),
+        * write tools in a governance namespace
+          (:data:`_GOVERNANCE_TOOL_NAMESPACES`, e.g. ``user.create``,
+          ``admin.restore``, ``baseline.create``, ``prompt_template.update``,
+          ``link_type.create``) ->
+          :attr:`Operation.WORKSPACE_CONFIG`, i.e. the ADMIN tier,
+        * every other write tool -> :attr:`Operation.WRITE` (AUTHOR tier).
+        """
+        if not self._is_write_tool(tool_name):
+            return Operation.READ
+        namespace = tool_name.split(".", 1)[0]
+        if namespace in _GOVERNANCE_TOOL_NAMESPACES:
+            return Operation.WORKSPACE_CONFIG
+        return Operation.WRITE
+
     def _is_bootstrap_candidate(
         self, tool_name: str, params: Dict[str, Any], ctx: AuthContext
     ) -> bool:
@@ -1201,16 +1318,25 @@ class ToolRegistry:
             "or use a key without a workspace restriction."
         )
 
-    def _check_rbac(self, ctx: AuthContext) -> Optional[str]:
+    def _check_rbac(self, ctx: AuthContext, tool_name: Optional[str] = None) -> Optional[str]:
         """Return error message if write is not permitted, else None.
 
         REQ-L2-MC-007: Viewer-only role must not write.
+
+        ``tool_name`` is optional so the check stays callable standalone (as
+        several tests do); when supplied, the capability gate is evaluated for
+        that tool's tier, otherwise for a plain WRITE (#865).
         """
         # E2.1: read-only key. Independent of and above the RBAC matrix, same
         # rule as rest_api.auth_enforcer.RbacPermission. Kept here as well as
         # at the caller (which checks it before the RBAC exemptions, see B2)
         # so this method stays safe to call on its own.
-        scope_error = scope_denial_reason(ctx.scope, Operation.WRITE)
+        scope_error = scope_denial_reason(
+            ctx.scope,
+            self._required_scope_operation(tool_name)
+            if tool_name
+            else Operation.WRITE,
+        )
         if scope_error:
             return scope_error
 

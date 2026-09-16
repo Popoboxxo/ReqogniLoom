@@ -28,6 +28,26 @@ notably ``persistence.custom_fields.validate_custom_fields``, which guards
 ``Artifact.custom_fields`` for REST, MCP and ReqIF import alike. This module is
 the REST-facing wrapper and re-exports those symbols, so
 ``from rest_api.sanitization import find_free_text_violation`` keeps working.
+
+Policy (#820)
+=============
+
+:mod:`persistence.free_text` carries the canonical statement; in short:
+
+* markup -> ``400`` (rejected, never stripped), script-capable URI schemes ->
+  ``400``;
+* **everything else is plain data**. In particular a SQL-shaped string such as
+  ``'; DROP TABLE users; --`` is stored and returned byte-identically: the ORM
+  parameterises queries, so it can never break out of a statement, and drawing
+  a line at "looks like SQL" would reject legitimate prose after the fact. The
+  #820 report read that asymmetry (SQLi-looking value -> ``201``, XSS-looking
+  value -> ``400``) as a gap; it is the intended shape of the policy — the
+  ``400`` marks a value that would end up in a markup sink, and only rules 1-2
+  describe such a sink.
+
+Enrolment is the only consistency lever: a free-text field that is *not*
+declared with :class:`FreeTextFieldMarker` (or guarded by an explicit
+service-level call to :func:`find_free_text_violation`) silently opts out.
 """
 from __future__ import annotations
 

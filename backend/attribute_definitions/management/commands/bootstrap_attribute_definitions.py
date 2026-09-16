@@ -732,7 +732,7 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
 
 
 def unmatched_mandatory_fields(item_type: str, preset: str) -> list[str]:
-    """Legacy preset ``mandatory_fields`` entries with no matching attribute.
+    """Legacy preset ``mandatory_fields`` entries with no consumer.
 
     GitHub #912: preset ``mandatory_fields`` is Requirement-only. For the other
     ten item types the mandatory set is each definition's own ``required`` flags
@@ -741,11 +741,39 @@ def unmatched_mandatory_fields(item_type: str, preset: str) -> list[str]:
     (the 22-line migrate warning of issue #912). This hygiene check is therefore
     scoped to Requirement, where the legacy list is still folded into the
     approval gate.
+
+    GitHub #912 follow-up: matching the names against *attributes alone* was
+    still wrong for Requirement. ``classification`` is the policy name for the
+    ``type`` column, ``change_reason`` is satisfied by the transition request and
+    ``traceability_target`` is the Extended lever for rule 7
+    (``workflow.precondition_rules``) — none of them is an attribute, all three
+    are enforced, and the migrate log called them "ignored". The check therefore
+    delegates to :func:`workflow.precondition_rules.policy_fields_without_consumer`,
+    which knows which policy names actually have a consumer; only the ones that
+    do not are reported. For the built-in presets that is the empty set, so a
+    clean migrate is silent — while a genuinely dead entry (a renamed field, a
+    preset edit that forgot to follow) still warns.
     """
     if item_type != LEGACY_MANDATORY_FIELDS_ITEM_TYPE:
         return []
-    names = {a["name"] for a in introspect_core_attributes(item_type, preset)}
-    return sorted(set(PresetRegistry().get_preset_config(preset).mandatory_fields) - names)
+
+    # Lazy: keeps this management command importable without dragging the whole
+    # workflow package (and its persistence imports) into `bootstrap` for the
+    # common no-warning path.
+    from workflow.precondition_rules import policy_fields_without_consumer
+
+    attributes = introspect_core_attributes(item_type, preset)
+    model = _resolve_model(item_type)
+    return policy_fields_without_consumer(
+        PresetRegistry().get_preset_config(preset).mandatory_fields,
+        item_type=item_type,
+        attribute_names={a["name"] for a in attributes},
+        model_field_names={
+            field.name
+            for field in model._meta.get_fields()
+            if isinstance(field, models.Field)
+        },
+    )
 
 
 class Command(BaseCommand):
@@ -837,10 +865,16 @@ class Command(BaseCommand):
             for preset in PRESETS:
                 unmatched = unmatched_mandatory_fields(item_type, preset)
                 if unmatched:
+                    # #912: this is the *only* remaining legitimate case — a
+                    # policy name that neither an attribute, nor a model column
+                    # alias, nor a request-/graph-level rule consumes. It is a
+                    # configuration defect (the requirement it names is enforced
+                    # nowhere), not routine noise, so it keeps warning.
                     self.stdout.write(
                         self.style.WARNING(
                             f"{item_type}/{preset}: preset mandatory_fields name "
-                            f"{unmatched} with no matching attribute — ignored"
+                            f"{unmatched} has no consumer in the approval gate — "
+                            "not enforced anywhere"
                         )
                     )
 

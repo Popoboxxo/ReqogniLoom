@@ -230,3 +230,36 @@ describe("AttributeCreateDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Issue #954 — these two buttons previously had no class at all, so they fell
+ * back to the browser's default button box (a third, unstyled button system
+ * next to the `.btn-*` classes and the CSS-module buttons). They now use the
+ * shared design-system classes.
+ */
+describe("AttributeCreateDialog — design-system buttons (issue #954)", () => {
+  function renderDialog(): void {
+    render(
+      <AttributeCreateDialog
+        scope="global"
+        section="general"
+        existingNames={[]}
+        onCreate={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+  }
+
+  it("uses the shared .btn-* classes", () => {
+    renderDialog();
+
+    const cancel = screen.getByTestId("attribute-create-dialog-cancel");
+    const submit = screen.getByTestId("attribute-create-dialog-submit");
+
+    expect(cancel).toHaveClass("btn-secondary");
+    expect(submit).toHaveClass("btn-primary");
+    // No inline geometry — height/radius come from the tokens via the class.
+    expect(cancel.getAttribute("style")).toBeNull();
+    expect(submit.getAttribute("style")).toBeNull();
+  });
+});

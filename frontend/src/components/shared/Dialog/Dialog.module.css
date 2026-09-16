@@ -73,11 +73,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--space-8);
-  height: var(--space-8);
+  /* Icon-button square from the shared button scale (issue #954) — the same
+     32px as the former `--space-8`, now expressed as a button metric so the
+     dialog's close control and its text buttons come from one vocabulary. */
+  width: var(--btn-h-sm);
+  height: var(--btn-h-sm);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   color: var(--color-text-muted);
   font-size: var(--font-size-lg);
   line-height: 1;

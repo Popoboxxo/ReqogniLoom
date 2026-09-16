@@ -158,6 +158,10 @@
       "neutral": "Neutral (DE / EN)"
     }
   },
+  "workspace": {
+    "selectFirst": "Zuerst einen Workspace auswählen.",
+    "selectPrompt": "Workspace auswählen, um fortzufahren."
+  },
   "workspaceCreate": {
     "button": "Workspace erstellen",
     "title": "Neuen Workspace erstellen",
@@ -429,6 +433,7 @@
     "impactDepth": "Tiefe",
     "impactHint": "Wähle ein Artefakt und öffne die vollständige Impact-Analyse (interaktiver Baum, beide Richtungen).",
     "requirementsGroup": "Anforderungen",
+    "testCasesGroup": "Testfälle",
     "architectureGroup": "Architekturelemente",
     "other": "Weitere Links",
     "allLinkTypes": "Alle Verknüpfungstypen",
@@ -539,7 +544,7 @@
     "deleteConfirmTitle": "Baseline löschen?",
     "deleteConfirm": "Diese Baseline wirklich löschen?",
     "overrideLabel": "Ausnahmebegründung (SE-Auditor)",
-    "overrideHint": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Sind sie eine akzeptierte Abweichung, können Admin oder Approver die Baseline trotzdem erstellen. Die Begründung wird im Audit-Log und auf der Baseline festgehalten (mindestens 10 Zeichen).",
+    "overrideHint": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Sind sie eine akzeptierte Abweichung, können Admin oder Approver die Baseline trotzdem erstellen. Die Begründung wird im Audit-Log und auf der Baseline festgehalten (mindestens 15 Zeichen und vier Wörter).",
     "overrideSubmit": "Baseline mit Ausnahme erstellen",
     "overrideNoPermission": "Der SE-Auditor meldet blockierende Findings für diesen Workspace. Nur Admin oder Approver können die Baseline trotzdem erstellen — wende dich an eine berechtigte Person, oder behebe die gemeldeten Findings.",
     "compare": "Vergleichen",
@@ -1104,6 +1109,11 @@
       "rollback": "Zurückgerollt"
     }
   },
+  "export": {
+    "download": "Exportieren",
+    "downloadReqif": "ReqIF exportieren",
+    "downloading": "Exportiere..."
+  },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
     "summary_one": "{{count}} ICD",
@@ -1520,6 +1530,7 @@
     "refreshing": "Wird aktualisiert...",
     "loading": "Wird geladen...",
     "loadError": "Audit-Findings konnten nicht geladen werden.",
+    "actionError": "Die Aktion ist fehlgeschlagen. Bitte erneut versuchen.",
     "empty": "Keine Findings — der Trace-Graph ist für diesen Scope konsistent.",
     "noWorkspace": "Workspace auswählen, um den SE-Auditor auszuführen.",
     "severity": {
@@ -1537,7 +1548,9 @@
     "modifyHint": "Betroffenes Artefakt öffnen, um es manuell zu korrigieren.",
     "modifyNoTarget": "Dieses Finding verweist auf kein öffenbares Artefakt — korrigiere es über die oben gelisteten betroffenen Artefakte.",
     "actionLegend": "Übernehmen wendet die Korrektur an, die der Auditor automatisch abgeleitet hat. Anpassen öffnet das betroffene Artefakt zur manuellen Korrektur — Findings werden aus dem Trace-Graph neu berechnet und verschwinden, sobald das Artefakt korrigiert ist.",
-    "truncated": "{{shown}} von {{total}} Findings werden angezeigt — einige beheben und aktualisieren, um die restlichen zu sehen.",
+    "truncated": "{{shown}} von {{total}} Findings werden angezeigt — mit „Mehr laden“ werden die restlichen eingebunden.",
+    "loadMore": "Mehr Findings laden",
+    "loadingMore": "Weitere Findings werden geladen...",
     "pageSummary": "Automatisierte Regelprüfung für Requirements und Architektur, gruppiert nach Regel mit Blocker-/Warnungs-Einstufung."
   },
   "archDecompose": {

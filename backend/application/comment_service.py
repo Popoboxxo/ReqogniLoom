@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from auth_tenancy.context import AuthContext
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
+from persistence.free_text import find_free_text_violation
 from persistence.models import Artifact, Tenant
 from persistence.transactions import atomic_transaction
 
@@ -75,6 +76,14 @@ class CommentService(ServiceBase):
         not add a producer-local preference check here. Delivery is best-effort:
         a notification failure must never roll back the comment, hence the
         ``try/except`` around the fan-out (spec §6/A3).
+
+        ``text`` is free text and obeys the shared policy
+        (:mod:`persistence.free_text`, #820): markup / script-capable URIs are
+        rejected, everything else — quotes, ``&``, umlauts, a bare ``<``, or a
+        SQL-shaped string such as ``'; DROP TABLE users; --`` — is stored
+        byte-identically. The REST view already enforces this through
+        ``CommentSerializer``; the check is repeated here because the MCP
+        comment tool calls this service directly (#269 finding 4 pattern).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -82,6 +91,10 @@ class CommentService(ServiceBase):
         cleaned = (text or "").strip()
         if not cleaned:
             raise ValidationError("Comment text is required")
+
+        violation = find_free_text_violation(cleaned)
+        if violation is not None:
+            raise ValidationError(f"text {violation}")
 
         artifact = Artifact.objects.filter(pk=artifact_id).first()
         if artifact is None:

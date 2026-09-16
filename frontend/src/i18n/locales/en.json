@@ -158,6 +158,10 @@
       "neutral": "Neutral (DE / EN)"
     }
   },
+  "workspace": {
+    "selectFirst": "Select a workspace first.",
+    "selectPrompt": "Select a workspace to continue."
+  },
   "workspaceCreate": {
     "button": "Create workspace",
     "title": "Create new workspace",
@@ -429,6 +433,7 @@
     "impactDepth": "Depth",
     "impactHint": "Select an artifact and open the full impact analysis (interactive tree, both directions).",
     "requirementsGroup": "Requirements",
+    "testCasesGroup": "Test Cases",
     "architectureGroup": "Architecture Elements",
     "other": "Other Links",
     "allLinkTypes": "All link types",
@@ -539,7 +544,7 @@
     "deleteConfirmTitle": "Delete baseline?",
     "deleteConfirm": "Really delete this baseline?",
     "overrideLabel": "Override justification (SE-Auditor)",
-    "overrideHint": "The SE-Auditor reports blocking findings for this workspace. If they are an accepted deviation, an Admin or Approver can create the baseline anyway. The justification is recorded in the audit log and on the baseline (at least 10 characters).",
+    "overrideHint": "The SE-Auditor reports blocking findings for this workspace. If they are an accepted deviation, an Admin or Approver can create the baseline anyway. The justification is recorded in the audit log and on the baseline (at least 15 characters and four words).",
     "overrideSubmit": "Create baseline with override",
     "overrideNoPermission": "The SE-Auditor reports blocking findings for this workspace. Only an Admin or Approver can create the baseline anyway — ask someone with that role, or resolve the reported findings.",
     "compare": "Compare",
@@ -1104,6 +1109,11 @@
       "rollback": "Rolled back"
     }
   },
+  "export": {
+    "download": "Export",
+    "downloadReqif": "Export ReqIF",
+    "downloading": "Exporting..."
+  },
   "icds": {
     "title": "Interface Control Documents",
     "summary_one": "{{count}} ICD",
@@ -1520,6 +1530,7 @@
     "refreshing": "Refreshing...",
     "loading": "Loading...",
     "loadError": "Could not load audit findings.",
+    "actionError": "The action failed. Please retry.",
     "empty": "No findings — the trace graph is consistent for this scope.",
     "noWorkspace": "Select a workspace to run the SE-Auditor.",
     "severity": {
@@ -1537,7 +1548,9 @@
     "modifyHint": "Open the affected artifact to correct it manually.",
     "modifyNoTarget": "This finding references no artifact that can be opened — correct it via the affected artifacts listed above.",
     "actionLegend": "Adopt applies the correction the auditor derived automatically. Modify opens the affected artifact so you can correct it yourself — findings are recomputed from the trace graph, so they disappear once the artifact is fixed.",
-    "truncated": "Showing {{shown}} of {{total}} findings — resolve some and refresh to see the rest.",
+    "truncated": "Showing {{shown}} of {{total}} findings — “Load more” mounts the rest.",
+    "loadMore": "Load more findings",
+    "loadingMore": "Loading more findings...",
     "pageSummary": "Automated rule checks for requirements and architecture, grouped by rule with blocker/warning severity."
   },
   "archDecompose": {

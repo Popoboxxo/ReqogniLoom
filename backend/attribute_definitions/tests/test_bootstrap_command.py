@@ -270,13 +270,19 @@ def test_command_seeds_one_row_per_item_type_and_preset(tenant) -> None:
 def test_command_warns_about_mandatory_fields_only_for_requirement(tenant) -> None:
     """#912: the migrate-time warning fired for 10/11 item types (22 lines).
 
-    The legacy list is Requirement-only now, so no other item type may be
-    reported; Requirement keeps its hygiene finding. Attribut v3 WS2 (#936)
-    added the artifact-level ``priority`` attribute, which closes the
-    ``standard`` warning (its ``mandatory_fields`` ends in ``priority``); the
-    ``extended`` policy still names ``classification``/``traceability_target``/
-    ``change_reason``, which have no attribute on Requirement, so at least one
-    Requirement warning must still appear (proving the hygiene check is alive).
+    Two scoping passes are pinned here:
+
+    * the legacy list is Requirement-only, so no other item type may be
+      reported at all;
+    * even Requirement's list is fully *consumed* by the time this check runs —
+      ``priority`` is an artifact-level attribute (Attribut v3 WS2, #936),
+      ``classification`` aliases the ``type`` column, ``change_reason`` is
+      evaluated by rule 5 and ``traceability_target`` is rule 7's Extended
+      lever — so a clean migrate is silent. The pre-#912 output claimed all of
+      them were "ignored" while the approval gate enforced them.
+
+    The check is still alive for a genuinely dead entry; see
+    ``workflow/tests/test_policy_field_consumers.py``.
     """
     from io import StringIO
 
@@ -285,12 +291,9 @@ def test_command_warns_about_mandatory_fields_only_for_requirement(tenant) -> No
         "bootstrap_attribute_definitions", "--tenant", str(tenant.id), stdout=out
     )
     output = out.getvalue()
+    assert "mandatory_fields" not in output, output
     for item_type in BOOTSTRAP_ITEM_TYPES:
-        if item_type == "Requirement":
-            continue
         assert f"{item_type}/" not in output, output
-    assert "Requirement/standard" not in output, output
-    assert "Requirement/extended" in output, output
 
 
 @pytest.mark.django_db

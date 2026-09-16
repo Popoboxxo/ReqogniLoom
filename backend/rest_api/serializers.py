@@ -1070,13 +1070,13 @@ class TestCaseSerializer(
     # `choices` -> "enum" branch), so the definition-driven
     # TestCaseArtifactForm renders it as a select and PATCHes it back. This
     # serializer never declared it, so the unknown-key guard 400'd
-    # every save the moment a user touched the field. Unrelated to
-    # `TestService.create_test_case`'s legacy `test_type` parameter, which is a
-    # separate mechanism (Title-Case values tagged onto
-    # `artifact.artifact_type`, never touching this column) — consolidation is
-    # #816. On create (issue #864) this field is forwarded as the distinct
-    # `test_type_value` service parameter, so it sets the real column without
-    # ever colliding with that legacy parameter.
+    # every save the moment a user touched the field.
+    #
+    # #816: this field is now the ONLY representation of a test case's type —
+    # the deprecated Title-case value tagged onto `artifact.artifact_type` is
+    # gone (migration 0093). Create forwards the value as the service's
+    # `test_type_value` alias, which takes precedence over the service's
+    # `unit` default and keeps `null` meaning "unspecified" (#953).
     test_type = serializers.ChoiceField(
         choices=TestCaseType.choices, required=False, allow_null=True
     )
@@ -1302,6 +1302,46 @@ class BaselineDeltaEntrySerializer(serializers.Serializer):
     state = serializers.JSONField(read_only=True, allow_null=True)
 
 
+class BlockerWaiverSerializer(serializers.Serializer):
+    """One per-finding SE-Auditor waiver on the baseline create payload (GH-821).
+
+    Mirrors ``baseline.waivers.BlockerWaiverRequest``: the caller names the
+    finding (``rule_id`` + ``artifact_ids`` exactly as the audit report returned
+    them) and justifies accepting *that* deviation. ``reason`` is mandatory —
+    an unexplained suppression is not a governance record, and the facade
+    rejects a placeholder here as well (see
+    ``application.baseline_facade._validate_gate_reason``).
+
+    The scope of a finding is deliberately NOT accepted from the client: the
+    waiver is matched against the findings the auditor actually reported, and
+    the stored scope is taken from the matched finding. A client cannot
+    mis-attribute a waiver.
+    """
+
+    rule_id = serializers.CharField(
+        max_length=64,
+        help_text="SE-Auditor rule being waived, e.g. 'TRACE-P1'.",
+    )
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        allow_empty=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Artifacts the finding concerns, as returned by the audit report "
+            "(empty for graph-level findings)."
+        ),
+    )
+    reason = SanitizedCharField(
+        max_length=2000,
+        allow_blank=False,
+        help_text=(
+            "Mandatory justification for accepting this single deviation; "
+            "recorded on the waiver and in the audit log."
+        ),
+    )
+
+
 class BaselineSerializer(
     UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
 ):
@@ -1338,6 +1378,21 @@ class BaselineSerializer(
             "reports blocking findings (error code SE_AUDITOR_BLOCKED). "
             "Requires the 'admin' or 'approver' role; recorded in the audit "
             "log and appended to the baseline description."
+        ),
+    )
+    # GH-821: per-finding waivers. The coarse override above accepts *all*
+    # remaining findings at once; this accepts individual ones, each with its
+    # own reason, and persists them so a later build does not have to re-state
+    # them. Same RBAC gate as override_reason.
+    waived_findings = BlockerWaiverSerializer(
+        many=True,
+        write_only=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Per-finding waivers for blocking SE-Auditor findings "
+            "(error code SE_AUDITOR_BLOCKED). Each entry accepts one reported "
+            "finding; findings that remain unwaived still block the baseline."
         ),
     )
     version = serializers.IntegerField(
@@ -2078,11 +2133,18 @@ class CommentSerializer(serializers.Serializer):
 
     Read-only apart from ``text`` — comments are never edited, only created,
     resolved and deleted.
+
+    ``text`` is user-authored prose and therefore guarded free text (#820): it
+    was a plain ``CharField``, so markup in a comment was accepted while the
+    very same string was a ``400`` on ``Requirement.title`` — the inconsistency
+    class #820 reported. ``ArtifactCommentsView`` runs this serializer, and
+    ``CommentService.create_comment`` re-checks the same rule for the MCP tool
+    group, which never touches DRF.
     """
 
     id = serializers.UUIDField(read_only=True)
     artifact_id = serializers.UUIDField(read_only=True)
-    text = serializers.CharField(max_length=10000)
+    text = SanitizedCharField(max_length=10000)
     author_id = serializers.UUIDField(read_only=True, allow_null=True)
     author_display = serializers.SerializerMethodField()
     resolved = serializers.BooleanField(read_only=True)

@@ -17,6 +17,7 @@ import {
   hierarchyRelation,
   inferSelfArtifactId,
   neighborOf,
+  normalizeArtifactType,
 } from "./traceEndpoints";
 import type { TraceEndpoint } from "./traceEndpoints";
 import type { TraceLink } from "../types";
@@ -165,6 +166,21 @@ describe("hierarchyRelation", () => {
   });
 });
 
+describe("normalizeArtifactType", () => {
+  it("strips a backend sub-type tag (#816)", () => {
+    expect(normalizeArtifactType("TestCase:unit")).toBe("TestCase");
+    expect(normalizeArtifactType("TestCase:System")).toBe("TestCase");
+  });
+
+  it("passes plain and missing types through", () => {
+    expect(normalizeArtifactType("TestCase")).toBe("TestCase");
+    expect(normalizeArtifactType("Requirement")).toBe("Requirement");
+    expect(normalizeArtifactType("")).toBe("");
+    expect(normalizeArtifactType(null)).toBe("");
+    expect(normalizeArtifactType(undefined)).toBe("");
+  });
+});
+
 describe("collectVerifiedArtifactIds", () => {
   it("marks the verified artifact of a `verifies` link", () => {
     const verified = collectVerifiedArtifactIds([
@@ -182,6 +198,38 @@ describe("collectVerifiedArtifactIds", () => {
 
   it("ignores every other link type", () => {
     expect(collectVerifiedArtifactIds([link({ link_type: "allocated-to" })]).size).toBe(0);
+  });
+
+  /**
+   * #953: the backend reports a legacy TestCase endpoint as
+   * `"TestCase:unit"` (the deprecated artifact_type sub-type tag, #816). The
+   * old exact `=== "TestCase"` comparison then fell through to the *source*,
+   * so the requirement was never marked verified and the coverage surface
+   * claimed "kein Test" although a `verifies` link existed.
+   */
+  it("normalises a legacy sub-typed TestCase source (#953)", () => {
+    const verified = collectVerifiedArtifactIds([
+      link({
+        link_type: "verifies",
+        source_id: ART_TC,
+        source_type: "TestCase:unit",
+        target_id: ART_L1,
+      }),
+    ]);
+    expect([...verified]).toEqual([ART_L1]);
+  });
+
+  it("normalises a legacy sub-typed TestCase target (#953)", () => {
+    const verified = collectVerifiedArtifactIds([
+      link({
+        link_type: "verifies",
+        source_id: ART_L1,
+        source_type: "Requirement",
+        target_id: ART_TC,
+        target_type: "TestCase:System",
+      }),
+    ]);
+    expect([...verified]).toEqual([ART_L1]);
   });
 });
 

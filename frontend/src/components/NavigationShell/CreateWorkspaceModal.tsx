@@ -40,12 +40,6 @@ const bodyStyle: React.CSSProperties = {
   gap: "var(--space-3)",
 };
 
-const footerStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "var(--space-2)",
-};
-
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "var(--space-2) var(--space-3)",
@@ -164,7 +158,8 @@ export function CreateWorkspaceModal({
   // The submit/cancel buttons live in <Dialog>'s `footer` slot, which renders
   // as a sibling of the form below rather than inside it — `form` on both
   // buttons keeps Enter-to-submit and the button click wired to the same
-  // <form data-testid="create-workspace-form">.
+  // <form data-testid="create-workspace-form">. The footer slot already is
+  // the shared button bar (flex-end + gap), so no local wrapper is needed.
   const formId = "create-workspace-form";
 
   return (
@@ -175,48 +170,36 @@ export function CreateWorkspaceModal({
       testId="create-workspace-modal"
       initialFocusRef={nameInputRef}
       footer={
-        <div style={footerStyle}>
+        <>
+          {/* issue #954: these two buttons used to be the last hand-styled
+              hold-outs among the admin create dialogs — no `btn-*` class,
+              just inline colour/padding, so they rendered at a different
+              height and radius than the User/Requirement/Architecture create
+              dialogs. They now use the same canonical classes (which own
+              height/radius via --btn-h-md/--radius-btn). The `:disabled`
+              styling comes from the shared classes too, replacing the
+              per-button inline opacity. */}
           <button
             type="button"
+            className="btn-secondary"
             data-testid="create-workspace-cancel"
             onClick={handleClose}
             disabled={isCreating}
-            style={{
-              background: "transparent",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-sm)",
-              padding: "var(--space-2) var(--space-4)",
-              cursor: isCreating ? "not-allowed" : "pointer",
-              fontSize: "var(--font-size-sm)",
-              fontFamily: "inherit",
-            }}
           >
             {t("workspaceCreate.cancel") || "Cancel"}
           </button>
           <button
             type="submit"
             form={formId}
+            className="btn-primary"
             data-testid="new-workspace-submit"
             disabled={isCreating}
-            style={{
-              background: "var(--color-primary)",
-              color: "var(--color-on-primary)",
-              border: "none",
-              borderRadius: "var(--radius-sm)",
-              padding: "var(--space-2) var(--space-4)",
-              cursor: isCreating ? "not-allowed" : "pointer",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              fontFamily: "inherit",
-              opacity: isCreating ? 0.6 : 1,
-            }}
           >
             {isCreating
               ? t("workspaceCreate.creating")
               : t("workspaceCreate.submit")}
           </button>
-        </div>
+        </>
       }
     >
       <form id={formId} data-testid="create-workspace-form" onSubmit={handleSubmit} style={bodyStyle}>
@@ -311,7 +294,7 @@ export function CreateWorkspaceModal({
             data-testid="create-workspace-error"
             style={{
               color: "var(--color-danger)",
-              fontSize: "0.75rem",
+              fontSize: "var(--font-size-xs)",
             }}
           >
             {createError}

@@ -47,6 +47,17 @@
  *
  * The rigor tier (minimal/standard/extended) is resolved server-side from
  * the workspace's active preset — this dashboard only displays it.
+ *
+ * Bounded DOM / paging (#596)
+ * ---------------------------
+ * Mounting every returned finding at once measured ~480 KB of DOM text at
+ * 500 findings (GitHub #596). The dashboard therefore walks the backend's
+ * #622 `?limit=&offset=` window — one bounded page of findings is mounted,
+ * the rest is pulled in on demand through "Load more". `report.truncated`
+ * keeps its meaning per window ("more findings exist past this one"), the
+ * grouping-by-rule and the Adopt/Modify actions are unchanged, and the count
+ * badges keep showing the backend's true pre-window totals until every page
+ * has been loaded.
  */
 
 import type { CSSProperties } from "react";
@@ -71,6 +82,14 @@ import type { FindingTarget, FindingTargetMap } from "./use-finding-targets";
 
 const SCOPES: AuditScopeKind[] = ["project", "document", "global"];
 
+/**
+ * #596: findings per request. The DOM measurement in the issue (~480 KB of
+ * text at 500 findings) put the per-finding cost near 1 KB, so a page of 100
+ * keeps the mounted subtree around 100 KB regardless of how many findings the
+ * run produced. The backend caps the value at AuditService.MAX_REPORT_FINDINGS.
+ */
+const FINDINGS_PAGE_SIZE = 100;
+
 type ActionStatus = "idle" | "pending" | "error";
 
 interface ActionState {
@@ -78,10 +97,20 @@ interface ActionState {
   message?: string;
 }
 
-/** Extract a human-readable message from any error a fetch call can throw. */
-function resolveErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return extractErrorMessage(err);
+/**
+ * Extract a human-readable message from any error a fetch call can throw.
+ *
+ * GitHub #952: the result must NEVER be an empty/whitespace-only string. A
+ * failed audit run that carries no message (e.g. a network failure surfaced
+ * with `new Error("")`) used to leave `loadError` falsy, so the page fell
+ * straight through to the green "No findings — the trace graph is consistent"
+ * empty state — the UI reported a *successful* run for a run that failed. The
+ * `fallback` is the user-facing message used whenever the thrown error itself
+ * carries nothing.
+ */
+function resolveErrorMessage(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : extractErrorMessage(err);
+  return message.trim() ? message : fallback;
 }
 
 /** Defensive label for an /artifacts/ row — the payload exposes no title/name
@@ -110,17 +139,19 @@ export function AuditDashboard(): JSX.Element {
   const [findings, setFindings] = useState<AuditFinding[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // BUG-15: the backend caps very large result sets (AuditService.
-  // MAX_REPORT_FINDINGS) instead of paginating — grouping findings by rule
-  // id and computing live blocker/warning counts needs the whole capped set
-  // at once, so a page-based UI would fragment rule groups. Surface the cap
-  // as a visible banner instead of silently hiding findings.
-  const [truncated, setTruncated] = useState<boolean>(false);
+  // #596: the findings list is mounted in bounded windows instead of all at
+  // once. `hasMore` is the backend's per-window `truncated` flag ("more
+  // findings exist past this one"), `nextOffset` the start of the following
+  // window (`offset + len(findings)`, per the #622 contract).
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [nextOffset, setNextOffset] = useState<number>(0);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  // BUG-15: the backend also reports how many findings the run produced in
+  // total (pre-window), so the count badges can show the real numbers instead
+  // of only counting the (possibly partial) loaded `findings` array — a
+  // workspace with 4,440 real blockers must not show "100" with no indication
+  // that count is partial.
   const [totalFindingsAvailable, setTotalFindingsAvailable] = useState<number>(0);
-  // Code review M3: the true (pre-cap) blocker/warning totals, so the count
-  // badges can show the real numbers instead of only counting the (possibly
-  // capped) `findings` array — a workspace with 4,440 real blockers must not
-  // show "500" with no indication that count is partial.
   const [totalBlockersAvailable, setTotalBlockersAvailable] = useState<number>(0);
   const [totalWarningsAvailable, setTotalWarningsAvailable] = useState<number>(0);
 
@@ -165,6 +196,9 @@ export function AuditDashboard(): JSX.Element {
   }, [scope, scopeArtifactId, artifacts]);
 
   // ---- Run the SE-Auditor ----
+  // Always requests the first bounded window (#596) rather than the whole
+  // (BLOCKER-first capped) result set — a fresh run, a scope change or a
+  // refresh resets the list to page 1.
   const load = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
     if (scope === "document" && !scopeArtifactId) return;
@@ -175,25 +209,74 @@ export function AuditDashboard(): JSX.Element {
       const report = await auditApi.run(activeWorkspace.id, {
         scope,
         scopeArtifactId: scope === "document" ? scopeArtifactId : undefined,
+        limit: FINDINGS_PAGE_SIZE,
+        offset: 0,
       });
       setTier(report.tier);
       setFindings(report.findings);
-      setTruncated(report.truncated);
+      setHasMore(report.truncated);
+      setNextOffset(report.offset + report.findings.length);
       setTotalFindingsAvailable(report.total_findings_available);
       setTotalBlockersAvailable(report.total_blockers_available);
       setTotalWarningsAvailable(report.total_warnings_available);
       setActionState({});
     } catch (err) {
-      setLoadError(resolveErrorMessage(err));
+      setLoadError(
+        resolveErrorMessage(err, t("audit.loadError", "Could not load audit findings."))
+      );
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspace, scope, scopeArtifactId]);
+  }, [activeWorkspace, scope, scopeArtifactId, t]);
 
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id, scope, scopeArtifactId]);
+
+  /**
+   * #596: append the next window of findings. The backend's `index` is a
+   * finding's stable position in the *full* run (#622), so appending keeps
+   * React keys, `data-testid`s and the Adopt correlation unique; the seen-set
+   * filter is a safety net against a duplicate window (e.g. a double click
+   * that slipped past the in-flight guard).
+   */
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace || isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    setLoadError(null);
+    try {
+      const report = await auditApi.run(activeWorkspace.id, {
+        scope,
+        scopeArtifactId: scope === "document" ? scopeArtifactId : undefined,
+        limit: FINDINGS_PAGE_SIZE,
+        offset: nextOffset,
+      });
+      setFindings((prev) => {
+        const seen = new Set(prev.map((f) => f.index));
+        return [...prev, ...report.findings.filter((f) => !seen.has(f.index))];
+      });
+      setHasMore(report.truncated);
+      setNextOffset(report.offset + report.findings.length);
+    } catch (err) {
+      // The already-loaded findings stay readable (the error banner renders
+      // above them) — a failed "Load more" must not discard the page the
+      // user is working through.
+      setLoadError(
+        resolveErrorMessage(err, t("audit.loadError", "Could not load audit findings."))
+      );
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [
+    activeWorkspace,
+    scope,
+    scopeArtifactId,
+    isLoadingMore,
+    hasMore,
+    nextOffset,
+    t,
+  ]);
 
   // Auto-dismiss the success toast.
   useEffect(() => {
@@ -239,7 +322,10 @@ export function AuditDashboard(): JSX.Element {
         } else {
           setActionState((prev) => ({
             ...prev,
-            [finding.index]: { status: "error", message: resolveErrorMessage(err) },
+            [finding.index]: {
+              status: "error",
+              message: resolveErrorMessage(err, t("audit.actionError")),
+            },
           }));
         }
       }
@@ -274,6 +360,12 @@ export function AuditDashboard(): JSX.Element {
   );
 
   // ---- Derived state ----
+  // GitHub #952: whether the last run FAILED is a flag, not "is the message
+  // non-empty". `resolveErrorMessage` guarantees a non-empty string, but the
+  // banner/empty-state decision must not depend on that guarantee alone: a
+  // failed run must never be able to render as the green "No findings" state.
+  const loadFailed = loadError !== null;
+
   const filteredFindings = useMemo(
     () =>
       severityFilter === "all"
@@ -284,16 +376,17 @@ export function AuditDashboard(): JSX.Element {
 
   // Counts are recomputed from the live findings list (not the initial
   // report.counts) so the badges stay accurate after a finding is resolved —
-  // but only when the run was NOT truncated: the client-side `findings`
-  // array only ever holds the (possibly capped) returned subset, so counting
-  // it directly would silently show "500" as if it were the true total
-  // (code review M3). When truncated, show the backend's real pre-cap
-  // totals instead; these are a snapshot from the last full run_audit() call
-  // and do not shrink live as findings are Adopted, but that is preferable
-  // to a badge that understates the real number of open findings.
+  // but only once every window has been loaded: while `hasMore` is true the
+  // client-side `findings` array holds just the mounted pages, so counting it
+  // directly would silently show "100" as if it were the true total (code
+  // review M3, #596). While more findings exist, show the backend's real
+  // pre-window totals instead; those are a snapshot from the last full
+  // run_audit() call and do not shrink live as findings are Adopted, but that
+  // is preferable to a badge that understates the real number of open
+  // findings.
   const counts = useMemo(
     () =>
-      truncated
+      hasMore
         ? {
             total: totalFindingsAvailable,
             blockers: totalBlockersAvailable,
@@ -304,7 +397,7 @@ export function AuditDashboard(): JSX.Element {
             blockers: findings.filter((f) => f.severity === "blocker").length,
             warnings: findings.filter((f) => f.severity === "warning").length,
           },
-    [findings, truncated, totalFindingsAvailable, totalBlockersAvailable, totalWarningsAvailable]
+    [findings, hasMore, totalFindingsAvailable, totalBlockersAvailable, totalWarningsAvailable]
   );
 
   const grouped = useMemo(() => {
@@ -432,10 +525,10 @@ export function AuditDashboard(): JSX.Element {
         )}
       </div>
 
-      {/* BUG-15: the run produced more findings than the backend returns in
-          one response — say so explicitly instead of silently showing a
-          partial list that looks complete. */}
-      {truncated && (
+      {/* #596: more findings exist than the page currently mounts — say so
+          explicitly (with the real totals) instead of showing a partial list
+          that looks complete, and offer the next window below the list. */}
+      {hasMore && (
         <div
           role="status"
           data-testid="audit-truncated-banner"
@@ -443,7 +536,7 @@ export function AuditDashboard(): JSX.Element {
         >
           {t(
             "audit.truncated",
-            "Showing {{shown}} of {{total}} findings — resolve some and refresh to see the rest.",
+            "Showing {{shown}} of {{total}} findings — use “Load more” to mount the rest.",
             { shown: findings.length, total: totalFindingsAvailable },
           )}
         </div>
@@ -468,15 +561,15 @@ export function AuditDashboard(): JSX.Element {
         </div>
       )}
 
-      {loadError && (
+      {loadFailed && (
         <div role="alert" data-testid="audit-load-error" style={errorBannerStyle}>
           {loadError}
         </div>
       )}
 
-      {isLoading && findings.length === 0 && !loadError ? (
+      {isLoading && findings.length === 0 && !loadFailed ? (
         <p data-testid="audit-loading">{t("audit.loading", "Loading...")}</p>
-      ) : !loadError && grouped.length === 0 ? (
+      ) : !loadFailed && grouped.length === 0 ? (
         <p data-testid="audit-empty" style={{ color: "var(--color-text-muted)" }}>
           {t("audit.empty", "No findings — the trace graph is consistent for this scope.")}
         </p>
@@ -493,6 +586,27 @@ export function AuditDashboard(): JSX.Element {
               onModify={handleModify}
             />
           ))}
+        </div>
+      )}
+
+      {/* #596: next window of findings. Only rendered while more exist; each
+          click mounts one further bounded page instead of the whole run.
+          Deliberately not gated on `loadFailed`: a failed window must stay
+          retryable (Refresh would reset to page 1 and discard the loaded
+          pages). */}
+      {hasMore && (
+        <div style={loadMoreRowStyle}>
+          <button
+            type="button"
+            data-testid="audit-load-more-btn"
+            className="btn-secondary"
+            onClick={() => void loadMore()}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore
+              ? t("audit.loadingMore", "Loading more...")
+              : t("audit.loadMore", "Load more findings")}
+          </button>
         </div>
       )}
 
@@ -836,6 +950,13 @@ const truncatedBannerStyle: CSSProperties = {
   borderRadius: "var(--radius-md)",
   color: "var(--color-badge-warning-text)",
   fontSize: "var(--font-size-sm)",
+};
+
+/** #596: centres the "Load more" affordance under the findings list. */
+const loadMoreRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  marginTop: "var(--space-4)",
 };
 
 const errorBannerStyle: CSSProperties = {

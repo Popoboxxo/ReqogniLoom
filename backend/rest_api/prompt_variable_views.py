@@ -30,7 +30,7 @@ from rest_framework.views import APIView
 from application.base import NotFoundError, ValidationError
 from application.prompt_variable_service import PromptVariableService
 from auth_tenancy.models import ROLE_ADMIN
-from rest_api.auth_enforcer import get_auth_context
+from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
 
@@ -112,8 +112,14 @@ class PromptVariableListView(_PromptVariableAdminMixin, APIView):
         )
 
 
-class PromptVariableDetailView(_PromptVariableAdminMixin, APIView):
-    """PUT/DELETE /api/v1/prompt-variables/<name>/[?workspace_id=<uuid>]."""
+class PromptVariableDetailView(AdminScopeRequiredMixin, _PromptVariableAdminMixin, APIView):
+    """PUT/DELETE /api/v1/prompt-variables/<name>/[?workspace_id=<uuid>].
+
+    Capability gate (follow-up to #865): writes require the ADMIN-tier API-key
+    scope, mirroring the ``prompt_variable`` MCP namespace — the variable
+    content lands in the prompt text of every later LLM derivation (REQ-043).
+    See ``rest_api.auth_enforcer.AdminScopeRequiredMixin``.
+    """
 
     def put(self, request: Request, name: str, *args: Any, **kwargs: Any) -> Response:
         """Publish a new active version of ``name`` for the requested scope."""

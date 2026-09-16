@@ -420,7 +420,7 @@ class TestImportCsvWorkflowState:
             clear_request_tenant()
 
 
-# ---------- TestCase subtype tagging on CSV import (issue #768) ----------
+# ---------- TestCase test_type on CSV import (issue #768, #816) ----------
 
 
 _CSV_TEST_CASES_MIXED_TYPES = """\
@@ -432,12 +432,13 @@ Case Unit Two,Second unit case,Unit
 
 
 class TestImportCsvTestCaseSubtype:
-    """Regression for #768: CSV import must tag each TestCase row's backing
+    """Regression for #768, kept green through the #816 consolidation.
 
-    Artifact with its own row's ``test_type`` (``TestCase:{test_type}``), not
-    a single batch-wide value — otherwise ``TestService.list_test_cases``,
-    which filters on ``artifact__artifact_type=f"TestCase:{test_type}"``,
-    can never find the imported rows.
+    Each imported TestCase row must keep its *own* ``test_type``, not a single
+    batch-wide value — otherwise ``TestService.list_test_cases(test_type=...)``
+    can never find the imported rows. #816 moved that bookkeeping onto the
+    canonical ``TestCase.test_type`` column (the CSV value is folded onto the
+    lowercase vocabulary), so the backing Artifact is a plain ``"TestCase"``.
     """
 
     def _make_workspace(self):
@@ -488,6 +489,10 @@ class TestImportCsvTestCaseSubtype:
                 "Case Unit Two",
             }
             assert {tc.title for tc in system_cases} == {"Case System One"}
+            # #816: the type lives in the canonical column only — the backing
+            # artifact carries the plain type again.
+            assert {tc.test_type for tc in unit_cases} == {"unit"}
+            assert {tc.artifact.artifact_type for tc in unit_cases} == {"TestCase"}
         finally:
             clear_request_tenant()
 

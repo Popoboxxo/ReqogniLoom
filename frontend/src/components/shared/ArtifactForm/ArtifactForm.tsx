@@ -57,6 +57,7 @@ import {
   resolveDisplayProps,
   type ActorFieldValue,
 } from "./fields";
+import { stripNonEditableValues } from "./payload";
 import { useArtifactDefinition } from "./useArtifactDefinition";
 import { resolveWidget } from "./widget-registry";
 
@@ -92,6 +93,22 @@ export interface ArtifactFormProps {
    * Ignored in create mode (`artifactId === null`): there is no change to explain.
    */
   requiresChangeReason?: boolean;
+  /**
+   * Per-attribute overrides on top of the resolved definition (issue #889).
+   *
+   * A type adapter uses this to align a server-side definition that fell back
+   * to a plain field type with the enum its create dialog and list filter
+   * already use — the canonical case is `Requirement.category`, whose Django
+   * column carries no `choices`, so introspection declares `type: "text"` and
+   * the detail form rendered free text while create/list only recognize the six
+   * `REQ_CATEGORIES` values. Applied before rendering AND before the payload is
+   * built, so the control and the emitted value stay in sync.
+   *
+   * Callers pass a module-level constant so the object identity stays stable
+   * across renders (an inline literal would invalidate every definition-derived
+   * memo on each render).
+   */
+  attributeOverrides?: Record<string, Partial<AttributeSpec>>;
 }
 
 export interface FormSection {
@@ -171,9 +188,29 @@ export function ArtifactForm({
   mode = "edit",
   workflowArtifactType,
   requiresChangeReason = false,
+  attributeOverrides,
 }: ArtifactFormProps): JSX.Element {
   const { t, i18n } = useTranslation();
-  const { definition, loading, error: loadError } = useArtifactDefinition(itemType);
+  const { definition: resolvedDefinition, loading, error: loadError } =
+    useArtifactDefinition(itemType);
+
+  // Issue #889: apply the adapter's per-attribute overrides once, so rendering
+  // and payload building see the same definition. Kept out of the hook itself
+  // because the fetched definition is the server's contract and the override is
+  // a purely client-side rendering/validation decision.
+  const definition = useMemo(() => {
+    if (!resolvedDefinition || !attributeOverrides) return resolvedDefinition;
+    const names = Object.keys(attributeOverrides);
+    if (!names.length) return resolvedDefinition;
+    return {
+      ...resolvedDefinition,
+      attributes: resolvedDefinition.attributes.map((attribute) =>
+        attribute.name in attributeOverrides
+          ? { ...attribute, ...attributeOverrides[attribute.name] }
+          : attribute
+      ),
+    };
+  }, [resolvedDefinition, attributeOverrides]);
   const [values, setValues] = useState<ArtifactFormValues>(initialValues);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -376,9 +413,19 @@ export function ArtifactForm({
     setSaving(true);
     setFormError(null);
     setFieldErrors({});
+    // Issue #886: the backend's payload contract forbids sending a value for a
+    // non-editable attribute on an update (see `payload.ts`). Discriminating
+    // per attribute here — the one place EVERY adapter's `onSave` routes
+    // through — beats a static key list in each adapter, which cannot know
+    // about a dynamically-declared `editable: false` field.
+    const editableValues = stripNonEditableValues(
+      values,
+      definition?.attributes ?? [],
+      artifactId === null ? "create" : "update"
+    );
     const payload: ArtifactFormValues = changeReasonNeeded
-      ? { ...values, change_reason: changeReason.trim() }
-      : values;
+      ? { ...editableValues, change_reason: changeReason.trim() }
+      : editableValues;
     try {
       await onSave(payload);
       markClean(values);
@@ -391,7 +438,17 @@ export function ArtifactForm({
     } finally {
       setSaving(false);
     }
-  }, [changeReason, changeReasonMissing, changeReasonNeeded, markClean, onSave, t, values]);
+  }, [
+    artifactId,
+    changeReason,
+    changeReasonMissing,
+    changeReasonNeeded,
+    definition,
+    markClean,
+    onSave,
+    t,
+    values,
+  ]);
 
   const handleDelete = useCallback(async (): Promise<void> => {
     if (!onDelete) return;
@@ -418,9 +475,18 @@ export function ArtifactForm({
   if (loading) {
     return <div data-testid="artifact-form-loading" aria-busy="true" />;
   }
+  // GitHub #677: this banner is mounted dynamically (the definition loads
+  // asynchronously), so it is an assertive live region — `role="alert"` is the
+  // semantics, the explicit `aria-live` states the intent for readers and for
+  // the a11y regression tests.
   if (loadError || !definition) {
     return (
-      <div className={styles.errors} role="alert" data-testid="artifact-form-load-error">
+      <div
+        className={styles.errors}
+        role="alert"
+        aria-live="assertive"
+        data-testid="artifact-form-load-error"
+      >
         <AlertCircle aria-hidden="true" size={16} />
         {loadError ?? t("artifactForm.definitionUnavailable")}
       </div>
@@ -437,7 +503,17 @@ export function ArtifactForm({
       }}
     >
       {formError ? (
-        <div className={styles.errors} role="alert" data-testid="artifact-form-error">
+        // GitHub #677: a failed save (server error, or the client-side
+        // change-reason gate) must reach screen-reader users. The banner is
+        // inserted dynamically at the top of the form, so it is an assertive
+        // live region — otherwise the click on Save produces no audible
+        // feedback at all.
+        <div
+          className={styles.errors}
+          role="alert"
+          aria-live="assertive"
+          data-testid="artifact-form-error"
+        >
           {formError}
         </div>
       ) : null}

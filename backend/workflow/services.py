@@ -202,6 +202,31 @@ def _get_lifecycle() -> StateLifecycleManager:
     return _lifecycle_manager
 
 
+def _proposing_actor(item_state: WorkflowItemState) -> str:
+    """Return the identity that authored *item_state*'s proposal, or ``""``.
+
+    An agent-authored artifact records "who proposed this" in the append-only
+    genesis history entry written by
+    :meth:`StateLifecycleManager.initialize_workflow_states` (``from_state=""``,
+    ``to_state="proposed"``, ``transitioned_by=agent_label or user_id``). That
+    entry survives the human confirmation, which is exactly what makes it a
+    stable authorship signal after the artifact has left the ``proposed``
+    state (GH-913). Items that were never proposed have no such entry, and an
+    empty result must be read as "not agent-proposed" — the caller only uses
+    it to close the escalation gate for the agent that wrote the proposal.
+    """
+    from .definition_store import PROPOSED_STATE
+
+    entry = (
+        WorkflowHistoryEntry.objects.filter(
+            item_state=item_state, to_state=PROPOSED_STATE
+        )
+        .order_by("transitioned_at")
+        .first()
+    )
+    return entry.transitioned_by if entry is not None else ""
+
+
 # ---------------------------------------------------------------------------
 # Public facade functions
 # ---------------------------------------------------------------------------
@@ -256,6 +281,15 @@ def transition(
 
     current_state = item_state.current_state
 
+    # GH-913: an agent may not approve/verify an artifact it proposed, even
+    # after a human confirmed it out of the "proposed" state. The authorship
+    # signal lives in the proposal's genesis history entry, so it is resolved
+    # here (the validator itself stays free of persistence concerns) and only
+    # for agents -- a human transition never pays for the extra lookup.
+    proposal_author = (
+        _proposing_actor(item_state) if ctx.actor_type == "agent" else ""
+    )
+
     # Validate (COMP-WE-002)
     validator = _get_validator()
     req = ValidationRequest(
@@ -268,6 +302,8 @@ def transition(
         user_roles=ctx.active_roles,
         tenant_id=ctx.tenant_id,
         actor_type=ctx.actor_type,
+        agent_label=ctx.agent_label,
+        proposal_author=proposal_author,
         change_reason=change_reason,
         credential=credential,
     )

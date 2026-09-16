@@ -194,6 +194,66 @@ describe("design token existence (Task 7.1)", () => {
 });
 
 /**
+ * Shared button system (issue #954). The admin dialogs used to hand-roll their
+ * own button geometry inline, which produced nine distinct button heights
+ * (20-54px) and two radii (6px vs 12px) inside the same button family. The
+ * convergence point is the canonical `.btn-*` contract in `global.css`: every
+ * variant takes its height and radius from the shared button metric tokens,
+ * and no variant re-declares its own geometry (that is exactly how the
+ * primary/secondary radius drift crept in before).
+ */
+describe("shared button system tokens (#954)", () => {
+  const tokensCss = readFileSync(TOKENS_FILE, "utf-8");
+  const globalCss = readFileSync(join(SRC_DIR, "styles", "global.css"), "utf-8");
+
+  const BUTTON_METRIC_TOKENS = ["--btn-h-sm", "--btn-h-md", "--btn-h-lg", "--radius-btn"];
+
+  /**
+   * The shared base rule that carries the height/radius for every variant.
+   * Matched once and stripped before the per-variant scan below, because the
+   * `.btn-ghost` line inside this selector list would otherwise be picked up
+   * as a standalone rule.
+   */
+  const BASE_RULE =
+    /\.btn-primary,\s*\.btn-secondary,\s*\.btn-danger,\s*\.btn-ghost\s*\{[^}]*\}/g;
+
+  it("defines the button metric token scale", () => {
+    const defined = collectDefinedTokens(tokensCss);
+    const missing = BUTTON_METRIC_TOKENS.filter((name) => !defined.has(name));
+    expect(
+      missing,
+      `styles/tokens.css is missing button metric token(s): ${missing.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("routes the base .btn-* rule through the shared metric tokens", () => {
+    const base = new RegExp(BASE_RULE.source).exec(globalCss);
+    expect(
+      base,
+      "expected the base `.btn-primary, .btn-secondary, .btn-danger, .btn-ghost` rule in styles/global.css",
+    ).not.toBeNull();
+
+    const body = /^[^{]*\{([^}]*)\}$/.exec(base![0])![1];
+    expect(body).toContain("min-height: var(--btn-h-md)");
+    expect(body).toContain("border-radius: var(--radius-btn)");
+  });
+
+  it.each(["btn-primary", "btn-secondary", "btn-danger", "btn-ghost"])(
+    "the standalone .%s variant does not re-declare its own geometry",
+    (variant) => {
+      const withoutBase = globalCss.replace(new RegExp(BASE_RULE.source, "g"), "");
+      const rule = new RegExp(`^\\.${variant}\\s*\\{([^}]*)\\}`, "m").exec(withoutBase);
+      expect(rule, `expected a standalone .${variant} { ... } rule`).not.toBeNull();
+
+      // Height/radius/padding come from the shared base rule and the button
+      // metric tokens; a per-variant re-declaration is what let the nine
+      // heights diverge in the first place.
+      expect(rule![1]).not.toMatch(/border-radius|min-height|padding\s*:/);
+    },
+  );
+});
+
+/**
  * Per-theme key-set parity (multi-palette theming Phase 3, Task 2, issue
  * #568). The single generic scanner above only confirms every `var(--x)`
  * *reference* resolves to *some* declaration somewhere in the file — it does

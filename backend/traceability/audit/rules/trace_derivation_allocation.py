@@ -314,7 +314,7 @@ class RequirementOrphanCheckRule(Rule):
 
 # ---------------------------------------------------------------------------
 # TRACE-P2 — every Requirement (>= L1) is allocated to an ArchitectureElement.
-# Standard: WARNING. Extended: BLOCKER (severity_for_tier override).
+# WARNING at every tier the rule runs in (severity_for_tier override).
 # ---------------------------------------------------------------------------
 
 
@@ -325,9 +325,30 @@ class RequirementAllocatedToArchitectureRule(Rule):
     rule_id = TRACE_P2
 
     def severity_for_tier(self, tier: str) -> Severity:
-        """Extended is a hard BLOCKER; Standard downgrades to a WARNING."""
-        if tier == "extended":
-            return Severity.BLOCKER
+        """Always WARNING, at every tier that runs this rule (issue #581).
+
+        ``UMSETZUNGSPLAN_SYSENG_2.0.md`` §2.2 is the only row of the whole
+        Pflichtmatrix that carries a severity qualifier for its rule
+        ("Extended (Standard: Warnung statt Blocker)") — i.e. the plan itself
+        already classifies an unallocated Requirement as advisory and treats
+        the tier-dependent BLOCKER as the exception. The QS review of #581
+        showed what that exception costs in practice: every partially
+        allocated workspace reported a 100% blocker rate, zero warnings, and
+        an unpassable baseline gate (#490/#513/#821).
+
+        The rule semantics support the advisory reading. TRACE-P2 audits
+        *allocation coverage*: the Requirement itself is fully traced
+        upstream (that is TRACE-P1/P1b's BLOCKER territory) and the element
+        side stays a BLOCKER under TRACE-P3 (untraced architecture). A
+        Requirement that is merely not yet mapped onto an element is the
+        additive precursor of those two — not a broken trace.
+
+        Rejected alternative: keeping the extended-tier BLOCKER and only
+        relaxing it behind a settings override. That preserves exactly the
+        mis-calibration #581 reports for the rigor preset (extended) that
+        produces the real finding volumes, and would leave the default gate
+        unusable for every SE workspace.
+        """
         return Severity.WARNING
 
     def check(self, context: AuditContext) -> List[Finding]:

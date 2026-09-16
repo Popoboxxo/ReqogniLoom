@@ -34,6 +34,12 @@ export default defineConfig({
     toHaveScreenshot: { maxDiffPixelRatio: 0.04 },
   },
   testDir: './tests',
+  // Issue #947: verify the bootstrap preconditions once per run (stack up,
+  // `seed_demo` present, global attribute definitions bootstrapped) so a
+  // missing seed fails with one actionable message instead of cascading into
+  // dozens of "No global attribute definition ..." / navigation-timeout
+  // failures. See helpers/preconditions.ts.
+  globalSetup: './helpers/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

@@ -39,6 +39,15 @@ const TEST_TYPE_OPTIONS: readonly TestCaseType[] = [
   'demonstration',
 ];
 
+/**
+ * #953: the documented create default (REST/MCP schema: "Test type (default
+ * 'Unit')", canonical column value `unit`). The dialog preselects it so an
+ * untouched form no longer stores `test_type = null` — which used to make the
+ * traceability coverage surface look like the requirement had no test at all.
+ * The user can still pick "Not specified" explicitly.
+ */
+const DEFAULT_TEST_TYPE: TestCaseType = 'unit';
+
 export default function TestCaseEditors(): JSX.Element {
   const { t } = useTranslation();
   const { id: selectedId } = useParams<{ id?: string }>();
@@ -53,8 +62,9 @@ export default function TestCaseEditors(): JSX.Element {
   // testcasesApi.create() field the backend already accepts — it had no
   // editor in this create dialog.
   const [newDescription, setNewDescription] = useState('');
-  // #864: real `TestCase.test_type` column. Empty string = not specified.
-  const [newTestType, setNewTestType] = useState<TestCaseType | ''>('');
+  // #864: real `TestCase.test_type` column. #953: preselected to the
+  // documented default; empty string = "Not specified" (column left NULL).
+  const [newTestType, setNewTestType] = useState<TestCaseType | ''>(DEFAULT_TEST_TYPE);
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -98,7 +108,8 @@ export default function TestCaseEditors(): JSX.Element {
     setCreateError(null);
     setNewTitle('');
     setNewDescription('');
-    setNewTestType('');
+    // #953: every newly opened dialog starts on the documented default again.
+    setNewTestType(DEFAULT_TEST_TYPE);
     setShowCreateDialog(true);
   }, []);
 
@@ -255,7 +266,13 @@ export default function TestCaseEditors(): JSX.Element {
           onClick: openCreateDialog,
           testId: 'create-tc-btn',
         }}
-        secondaryActions={[interviewCta]}
+        // #797: the guided-interview start is a second *create path*, not a
+        // variant of the primary one — as a visible secondary button it made
+        // this route show two create buttons where Glossary/ICD/Diagram show
+        // one. Secondary actions belong in the overflow menu (ch. 12.1), so
+        // it moved there: same action, same `interview-start-cta` testid,
+        // exactly one visible create CTA per route.
+        overflowActions={[interviewCta]}
       />
 
       <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
@@ -399,7 +416,9 @@ export default function TestCaseEditors(): JSX.Element {
             />
 
             {/* #864: real `TestCase.test_type` column — the create contract
-                now accepts it. Optional; the empty option leaves it NULL. */}
+                accepts it. #953: preselected to the documented default
+                (`unit`); "Not specified" remains an explicit user choice that
+                leaves the column NULL. */}
             <label htmlFor="tc-new-test-type" className={fieldHints.createLabel}>
               {t('testcases.testType.label', 'Test Type')}
             </label>

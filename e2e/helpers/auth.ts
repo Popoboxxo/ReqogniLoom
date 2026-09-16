@@ -154,6 +154,55 @@ export async function setWorkspacePreset(preset: WorkspacePresetName): Promise<v
 }
 
 /**
+ * Read the *persisted* preset tier of a workspace via API.
+ *
+ * Companion to {@link setWorkspacePreset} for specs that must prove an actual
+ * state change instead of only that a click did not throw (issue #947): the
+ * seeded workspace's preset is tenant-wide shared state, so "the radio is
+ * checked" alone is a weaker claim than "the backend reports this tier".
+ *
+ * `GET /api/v1/workspaces/{id}/` returns `preset` either as a plain string
+ * ("extended") or as a blob ({"name": "extended", "tier": "extended", ...}),
+ * depending on whether the row was written through the preset endpoint or the
+ * generic update path — both shapes are normalized here, mirroring
+ * `frontend/src/context/WorkspaceContext.tsx::normalizePreset`.
+ *
+ * The caller passes the token so this can be used inside `expect.poll`
+ * without a fresh login per poll iteration (see
+ * stakeholder-needs.spec.ts REQ-L0-002).
+ */
+export async function getWorkspacePreset(
+  token: string,
+  workspaceId: string = SEEDED_WORKSPACE_ID
+): Promise<WorkspacePresetName> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  try {
+    const response = await ctx.get(`/api/v1/workspaces/${workspaceId}/`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok()) {
+      throw new Error(
+        `Failed to read workspace preset for '${workspaceId}': ${response.status()} ${await response.text()}`
+      );
+    }
+    const body = await response.json();
+    const raw = body.preset as unknown;
+    if (typeof raw === 'string') {
+      return raw as WorkspacePresetName;
+    }
+    if (raw && typeof raw === 'object') {
+      const blob = raw as { name?: string; tier?: string };
+      return (blob.name ?? blob.tier) as WorkspacePresetName;
+    }
+    throw new Error(
+      `Workspace '${workspaceId}' has no usable preset field: ${JSON.stringify(raw)}`
+    );
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Name markers that identify API keys created by the E2E test suite.
  * Only keys whose name contains one of these substrings are eligible for
  * automatic cleanup — real/manually-created keys are never touched.

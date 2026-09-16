@@ -114,6 +114,44 @@ class BaselineToolGroup(BaseToolGroup):
                             "Omit it to keep the default fail-closed behaviour."
                         ),
                     },
+                    "waived_findings": {
+                        "type": "array",
+                        "description": (
+                            "Per-finding waivers (GH-821): accept individual "
+                            "blocking findings instead of the whole verdict. "
+                            "Each entry is waived with its own mandatory reason, "
+                            "requires the 'admin' or 'approver' role, and is "
+                            "persisted so later baseline builds do not have to "
+                            "re-state it. Findings that remain unwaived still "
+                            "block the baseline."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "rule_id": {
+                                    "type": "string",
+                                    "description": "SE-Auditor rule being waived, e.g. 'TRACE-P1'.",
+                                },
+                                "artifact_ids": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": (
+                                        "Artifacts the finding concerns, as "
+                                        "returned by the SE-Auditor report "
+                                        "(empty for graph-level findings)."
+                                    ),
+                                },
+                                "reason": {
+                                    "type": "string",
+                                    "description": (
+                                        "Mandatory justification for accepting "
+                                        "this single deviation."
+                                    ),
+                                },
+                            },
+                            "required": ["rule_id", "reason"],
+                        },
+                    },
                 },
                 "required": ["workspace_id", "scope", "name"],
             },
@@ -175,6 +213,11 @@ class BaselineToolGroup(BaseToolGroup):
         description = params.get("description")
         document_id = optional_uuid(params, "document_id")
         override_reason = params.get("override_reason")
+        # GH-821: forwarded verbatim; ``BaselineFacade._coerce_waiver_requests``
+        # is the single normalisation point for both surfaces, so a malformed
+        # entry surfaces as a clean ValidationError below instead of an
+        # AttributeError/TypeError leaking out of the tool as a 500.
+        waived_findings = params.get("waived_findings") or None
 
         try:
             # Codeberg #313: suppress create_baseline's single internal
@@ -191,6 +234,7 @@ class BaselineToolGroup(BaseToolGroup):
                     override_reason=(
                         str(override_reason) if override_reason else None
                     ),
+                    waived_findings=waived_findings,
                 )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))

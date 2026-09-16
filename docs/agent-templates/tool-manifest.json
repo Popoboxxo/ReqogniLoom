@@ -1761,6 +1761,34 @@
           "override_reason": {
             "type": "string",
             "description": "Written justification for creating the baseline although the SE-Auditor reports blocking findings (GH-513). Requires the 'admin' or 'approver' role; recorded in the audit log and on the baseline. Omit it to keep the default fail-closed behaviour."
+          },
+          "waived_findings": {
+            "type": "array",
+            "description": "Per-finding waivers (GH-821): accept individual blocking findings instead of the whole verdict. Each entry is waived with its own mandatory reason, requires the 'admin' or 'approver' role, and is persisted so later baseline builds do not have to re-state it. Findings that remain unwaived still block the baseline.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule_id": {
+                  "type": "string",
+                  "description": "SE-Auditor rule being waived, e.g. 'TRACE-P1'."
+                },
+                "artifact_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Artifacts the finding concerns, as returned by the SE-Auditor report (empty for graph-level findings)."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Mandatory justification for accepting this single deviation."
+                }
+              },
+              "required": [
+                "rule_id",
+                "reason"
+              ]
+            }
           }
         },
         "required": [

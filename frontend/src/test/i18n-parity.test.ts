@@ -157,7 +157,17 @@ function collectReferencedKeys(dir: string): Set<string> {
 // deliberately left the ceiling at 135 rather than lowering it into a red
 // suite, deferring the raise-free reduction to this change (see the Task 25
 // commit).
-const MISSING_KEY_BASELINE = 123;
+// Lowered to 117 (#925): six `t("key")` calls with no inline default and no
+// entry in either locale file rendered their raw key into the UI (no
+// `fallbackLng` rescue, since the key is absent from both bundles):
+// `traceability.testCasesGroup` (trace-link target dropdown optgroup showed
+// the literal key), `export.download` / `export.downloadReqif` /
+// `export.downloading` (CSV/ReqIF export buttons and spinner) and
+// `workspace.selectFirst` / `workspace.selectPrompt` (empty-state prompts in
+// the glossary and test-run list). All six are now translated in de.json and
+// en.json (new `export` and `workspace` namespaces), so the measured count is
+// 123 - 6 = 117.
+const MISSING_KEY_BASELINE = 117;
 
 describe("i18n code-to-locale coverage (#619)", () => {
   it("does not reference more undefined translation keys than the frozen baseline", () => {

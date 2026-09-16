@@ -215,14 +215,22 @@ export function TestRunsList(): JSX.Element {
       {/* Test Runs are not a Spine artifact type (no derivation chain), but
           PageHeader/ListToolbar/EmptyState still apply (task 5.2). Unlike
           Baselines, creating a test run is the routine primary action, so it
-          stays a primary header button. */}
+          stays a primary header button.
+
+          #797: the label used to flip to "Cancel" while the create dialog was
+          open, which made this the one primary create action that could not
+          read "+ New Test Run". The three sibling routes that keep their form
+          open in the page all disable the trigger instead (Architecture,
+          Goals, Needs) and leave cancelling to the form's own Cancel button —
+          which this dialog already has (`testrun-create-cancel-btn`). */}
       <PageHeader
         title={t("nav.testRuns", "Test Runs")}
         summary={t("testRuns.summary", { count: items.length })}
         primaryAction={{
-          label: showCreateForm ? t("actions.cancel") : t("testRuns.create", "Create Run"),
-          onClick: () =>
-            showCreateForm ? handleCancelCreate() : setShowCreateForm(true),
+          label: t("testRuns.create", "Create Run"),
+          prefixWithPlus: true,
+          onClick: () => setShowCreateForm(true),
+          disabled: showCreateForm,
           testId: "testrun-create-btn",
         }}
       />
@@ -558,6 +566,7 @@ export function TestRunsList(): JSX.Element {
               actions={[
                 {
                   label: t("testRuns.create", "Create Run"),
+                  prefixWithPlus: true,
                   onClick: () => setShowCreateForm(true),
                   testId: "testrun-list-empty-create",
                 },

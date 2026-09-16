@@ -51,6 +51,7 @@ from application.export_service import (
     _PERSISTENCE_ENTITY_TYPES,
 )
 from application.reqif_import_service import _map_status
+from application.test_service import canonical_test_type_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -625,28 +626,34 @@ class ImportService(ServiceBase):
             created_at = identity.get("created_at")
             modified_at = identity.get("modified_at") or identity.get("updated_at")
 
-            # ---- TestCase subtype tag (#768) ----
-            # ``artifact_type_tag`` is a single value for the whole batch, but a
-            # TestCase CSV can carry different ``test_type`` values per row (as
-            # produced by ExportService and TestService.create_test_case, which
-            # tag the backing Artifact as "TestCase:{test_type}" — see
-            # test_service.list_test_cases' filter on that exact string). Using
-            # the batch-wide tag for every row would silently collapse all
-            # imported test cases onto one subtype (or none), making them
-            # unfindable via list_test_cases(test_type=...). Derive the tag from
-            # each row's own (already-parsed) ``test_type`` cell instead, falling
-            # back to the batch default for rows that omit the column.
-            row_artifact_type = artifact_type_tag
+            # ---- TestCase type normalisation (#816, #953) ----
+            # ``TestCase.test_type`` (first-class column) is the single
+            # representation of a test case's type; the backing Artifact is
+            # always the plain ``"TestCase"`` type. This block used to *also*
+            # tag each row's artifact with a ``"TestCase:{test_type}"``
+            # sub-type suffix per row (issue #768), which made the same fact
+            # live in two columns with two vocabularies. It now only folds the
+            # CSV cell onto the canonical lowercase vocabulary — the historical
+            # Title-case exports ("Unit", "System") keep importing, and a
+            # retired alias (e.g. "Acceptance", which has no ``TestCaseType``
+            # counterpart) is dropped rather than aborting the whole batch, so
+            # the column keeps its documented "NULL when not derivable" value.
             if entity_type == "TestCase":
-                row_test_type = content.get("test_type")
-                if row_test_type:
-                    row_artifact_type = f"TestCase:{row_test_type}"
+                raw_test_type = content.get("test_type")
+                if raw_test_type is not None:
+                    canonical_test_type = canonical_test_type_or_none(
+                        raw_test_type
+                    )
+                    if canonical_test_type is None:
+                        content.pop("test_type", None)
+                    else:
+                        content["test_type"] = canonical_test_type
 
             # ---- Backing Artifact (every entity type has one) ----
             artifact_kwargs: Dict[str, Any] = dict(
                 tenant=tenant,
                 workspace=workspace,
-                artifact_type=row_artifact_type,
+                artifact_type=artifact_type_tag,
             )
             if preserved_artifact_id is not None:
                 artifact_kwargs["id"] = preserved_artifact_id

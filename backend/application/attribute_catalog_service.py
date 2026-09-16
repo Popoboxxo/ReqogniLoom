@@ -76,8 +76,9 @@ def _normalize_text(value: Any, *, max_length: int, field_name: str) -> str:
     :mod:`persistence.free_text` core (the same rules the REST serializer seam
     and ``Artifact.custom_fields`` apply, so REST and MCP stay identical) and
     enforces *max_length* before the value can reach the database. Mirrors
-    ``application/workspace_service.py``'s ``_sanitize_and_cap`` (#56/#80), but
-    fails loudly with this service's error type instead of silently truncating.
+    ``application/workspace_service.py``'s ``_validate_and_cap`` (#56/#80/#820),
+    which now rejects instead of stripping, but raises this service's own
+    ``AttributeSchemaError`` so the caller maps it to a 400.
     """
     clean = "" if value is None else str(value)
     violation = find_free_text_violation(clean)

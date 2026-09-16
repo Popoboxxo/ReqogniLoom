@@ -91,6 +91,11 @@ from application.requirement_bundle_service import (
     RequirementBundleQueryService,
     describe_attribute_schema,
 )
+# GH-914: the trace-link proposal guard raises a service-local exception, like
+# BundleDepthExceededError above — imported from its own module rather than
+# re-exported through application.services (which only carries the shared
+# persistence-layer exceptions).
+from application.trace_link_service import AgentSelfConfirmError
 from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
@@ -164,6 +169,13 @@ _EXC_TO_HTTP: dict[type, int] = {
     # 500 branch below. 403, matching the established convention for this
     # exact exception (see presets/tests/test_gate_tenant_guard.py).
     CrossTenantWorkspaceError: status.HTTP_403_FORBIDDEN,
+    # GH-914: an agent that tries to confirm or discard its *own* proposal is a
+    # policy denial, not a server fault. The guard itself works (the service
+    # raises AgentSelfConfirmError), but the exception had no entry here, so
+    # the exact-type lookup below degraded it to the generic 500 fallback —
+    # indistinguishable from a real defect to every client. 403, matching the
+    # established convention for this class of denial.
+    AgentSelfConfirmError: status.HTTP_403_FORBIDDEN,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
 }
@@ -175,6 +187,11 @@ _EXC_TO_CODE: dict[type, str] = {
     BaselineGateBlockedError: "SE_AUDITOR_BLOCKED",
     PermissionDeniedError: "PERMISSION_DENIED",
     CrossTenantWorkspaceError: "PERMISSION_DENIED",
+    # GH-914: same 403 code as every other policy denial. Registering the type
+    # here is also what forwards the service's own message ("An AI agent may
+    # not confirm a proposed trace link.") to the client — a static domain
+    # sentence with no internals, exactly like PermissionDeniedError.
+    AgentSelfConfirmError: "PERMISSION_DENIED",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
 }
@@ -853,8 +870,13 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         req = self._svc().get_requirement(UUID(pk), ctx)
         return req.id, req.artifact.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_requirement(UUID(pk), ctx), "status", None)
+    # #915: no ``_current_status`` override here. ``get_requirement`` returns the
+    # persistence row, and the denormalized ``status`` column was dropped
+    # (Datenmodell-Konsolidierung Task 12) — reading it returned ``None`` for
+    # every requirement, so a changed ``status`` on PATCH was accepted and
+    # ignored instead of refused. The shared
+    # ``WorkflowTransitionsMixin._current_status`` resolves the state through
+    # ``workflow.state_reader``, the same source GET uses.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_requirement(item_id, ctx)
@@ -2254,8 +2276,9 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_test_case(UUID(pk), ctx)
         return item.id, item.artifact.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_test_case(UUID(pk), ctx), "status", None)
+    # #915: like RequirementViewSet, TestCase has no denormalized ``status``
+    # column anymore (Datenmodell-Konsolidierung Task 12); the shared
+    # ``WorkflowTransitionsMixin._current_status`` resolves it from the engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_test_case(item_id, ctx)
@@ -2312,14 +2335,14 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
         data = ser.validated_data
-        # Issue #864: `create_test_case()` carries two independent test-type
-        # concepts — the legacy `test_type` parameter (Title-case values tagged
-        # onto `artifact.artifact_type`, also used by the MCP test.create path)
-        # and the real `TestCase.test_type` model column (lowercase
-        # `TestCaseType` values, migration 0041). The serializer field below
-        # maps to the latter; it is forwarded as `test_type_value` so the
-        # legacy parameter stays untouched (consolidation is #816). `None`
-        # (field omitted or explicitly null) leaves the column NULL.
+        # #816/#953: `create_test_case()` has exactly one test-type
+        # representation — the canonical `TestCase.test_type` column (lowercase
+        # `TestCaseType` values). The serializer field below maps onto it and
+        # is forwarded as `test_type_value`, which the service treats as the
+        # deprecated alias of its `test_type` parameter. `None` (field omitted
+        # or explicitly null) keeps the column NULL: the REST create contract
+        # stays "omitted means unspecified", and the UI dialog preselects the
+        # documented `unit` default instead (#953).
         try:
             ctx = get_auth_context(request)
             definition_error = self._validate_attribute_definition(
@@ -3387,14 +3410,23 @@ class BaselineViewSet(BaseEntityViewSet):
         takes precedence over a body-supplied ``workspace_id`` so the
         workspace-scoped route works even if the client omits the field.
 
-        SE-Auditor gate (GH-490/GH-513): creation is refused with HTTP 400 and
-        error code ``SE_AUDITOR_BLOCKED`` while the workspace has BLOCKER-level
-        audit findings in the requested scope. A caller holding the ``admin``
-        or ``approver`` role can override that verdict by repeating the request
-        with a written ``override_reason``; the waiver is then recorded in the
-        audit log and appended to the baseline description. A ``400`` with the
-        plain ``VALIDATION_ERROR`` code from the same gate means the auditor
-        itself could not be evaluated — that case is *not* overridable.
+        SE-Auditor gate (GH-490/GH-513/GH-821): creation is refused with HTTP 400
+        and error code ``SE_AUDITOR_BLOCKED`` while the workspace has BLOCKER-level
+        audit findings in the requested scope. Two documented exits exist, both
+        requiring the ``admin`` or ``approver`` role and both recorded in the
+        audit log:
+
+          * ``waived_findings`` — per-finding waivers
+            (``[{rule_id, artifact_ids, reason}]``, GH-821). Each one accepts a
+            single reported finding with its own mandatory justification and is
+            persisted, so the next baseline build does not have to re-state it.
+            Findings that remain unwaived still block.
+          * ``override_reason`` — one written justification that waives every
+            remaining finding at once (GH-513).
+
+        A ``400`` with the plain ``VALIDATION_ERROR`` code from the same gate
+        means the auditor itself could not be evaluated — that case is *not*
+        overridable.
         """
         workspace_pk = kwargs.get("workspace_pk")
         self._check_preset(request, workspace_id=workspace_pk)
@@ -3427,6 +3459,12 @@ class BaselineViewSet(BaseEntityViewSet):
             override_reason = data.get("override_reason")
             if override_reason and str(override_reason).strip():
                 create_kwargs["override_reason"] = str(override_reason)
+            # GH-821: per-finding waivers. Already shape-validated by
+            # BaselineSerializer (BlockerWaiverSerializer); the facade re-checks
+            # the same shape so the MCP path cannot bypass it.
+            waived_findings = data.get("waived_findings") or []
+            if waived_findings:
+                create_kwargs["waived_findings"] = list(waived_findings)
             # document scope requires a root artifact; artifact_id is the
             # view-facing name, the facade/service expect document_id.
             artifact_id = data.get("artifact_id")
@@ -5143,8 +5181,8 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_adr(UUID(pk), ctx)
         return item.id, item.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_adr(UUID(pk), ctx), "status", None)
+    # #915: ADR has no denormalized ``status`` column (Task 12); the shared
+    # ``_current_status`` resolves the state from the workflow engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_adr(item_id, ctx)
@@ -5447,8 +5485,8 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_risk(UUID(pk), ctx)
         return item.id, item.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_risk(UUID(pk), ctx), "status", None)
+    # #915: Risk has no denormalized ``status`` column (Task 12); the shared
+    # ``_current_status`` resolves the state from the workflow engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_risk(item_id, ctx)
@@ -6326,8 +6364,8 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_issue(UUID(pk), ctx)
         return item.id, item.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_issue(UUID(pk), ctx), "status", None)
+    # #915: Issue has no denormalized ``status`` column (Task 12); the shared
+    # ``_current_status`` resolves the state from the workflow engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_issue(item_id, ctx)
@@ -6602,8 +6640,8 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_change_request(UUID(pk), ctx)
         return item.id, item.workspace_id
 
-    def _current_status(self, pk: str, ctx: Any) -> str | None:
-        return getattr(self._svc().get_change_request(UUID(pk), ctx), "status", None)
+    # #915: ChangeRequest has no denormalized ``status`` column (Task 12); the
+    # shared ``_current_status`` resolves the state from the workflow engine.
 
     def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
         updated = self._svc().get_change_request(item_id, ctx)

@@ -69,16 +69,44 @@ PRINCIPAL_TYPE_CHOICES = (
     (PRINCIPAL_TYPE_AGENT, "Agent"),
 )
 
-# Coarse capability scope of an API key (audit finding E2.1). ``read`` denies
-# every Operation.WRITE at the REST and MCP gates; ``write`` is the historical
-# behaviour and stays the default so existing keys are unaffected. The two
-# string values are consumed verbatim by the MCP-Modernisierung spec §6.1.
+# Capability scope of an API key (#865, audit finding E2.1). Ordered tiers:
+# ``read_only`` reads, ``author`` reads + ordinary content writes, ``admin``
+# everything including governance operations (baseline gate override/waiver,
+# key management, user/role management, admin_ops). The two legacy values are
+# kept and keep their exact historical meaning — ``read`` is the READ_ONLY
+# tier, ``write`` is the ADMIN tier (a legacy ``write`` key can still reach
+# every operation its owner's roles allow). See
+# ``auth_tenancy.services.authorization`` for the tier mapping and the gate.
+API_KEY_SCOPE_READ_ONLY = "read_only"
+API_KEY_SCOPE_AUTHOR = "author"
+API_KEY_SCOPE_ADMIN = "admin"
 API_KEY_SCOPE_READ = "read"
 API_KEY_SCOPE_WRITE = "write"
 API_KEY_SCOPE_CHOICES = (
-    (API_KEY_SCOPE_READ, "Read"),
-    (API_KEY_SCOPE_WRITE, "Write"),
+    (API_KEY_SCOPE_READ, "Read (legacy alias of read_only)"),
+    (API_KEY_SCOPE_WRITE, "Write (legacy alias of admin)"),
+    (API_KEY_SCOPE_READ_ONLY, "Read-only"),
+    (API_KEY_SCOPE_AUTHOR, "Author (content writes only)"),
+    (API_KEY_SCOPE_ADMIN, "Admin (all operations)"),
 )
+
+#: Every accepted scope name, lower-cased — canonical names plus the two
+#: legacy aliases. Anything else is rejected at the API boundary.
+API_KEY_SCOPE_NAMES: frozenset[str] = frozenset(
+    name for name, _label in API_KEY_SCOPE_CHOICES
+)
+
+
+def normalize_api_key_scope(value: object) -> str | None:
+    """Return the canonical scope name for *value*, or ``None`` if invalid.
+
+    Case-insensitive and whitespace-tolerant; legacy ``read``/``write`` are
+    returned unchanged so they keep behaving exactly as before (#865).
+    """
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().lower()
+    return candidate if candidate in API_KEY_SCOPE_NAMES else None
 
 
 class ApiKey(TenantScopedModel):
@@ -122,7 +150,8 @@ class ApiKey(TenantScopedModel):
     #: Human-readable agent name shown wherever the owning user's name would
     #: otherwise appear (provenance labels, audit trail, workflow history).
     agent_label = models.CharField(max_length=255, blank=True, default="")
-    #: Coarse capability gate, checked at the REST and MCP permission seams.
+    #: Capability scope of this key, checked at the REST and MCP permission
+    #: seams (#865). Default ``write`` = the legacy, widest (ADMIN) tier.
     scope = models.CharField(
         max_length=16, choices=API_KEY_SCOPE_CHOICES, default=API_KEY_SCOPE_WRITE
     )
@@ -732,4 +761,12 @@ __all__ = [
     "ITEM_PERMISSION_NONE",
     "ITEM_PERMISSION_LEVEL_CHOICES",
     "MAX_ACTIVE_API_KEYS_PER_USER",
+    "API_KEY_SCOPE_ADMIN",
+    "API_KEY_SCOPE_AUTHOR",
+    "API_KEY_SCOPE_CHOICES",
+    "API_KEY_SCOPE_NAMES",
+    "API_KEY_SCOPE_READ",
+    "API_KEY_SCOPE_READ_ONLY",
+    "API_KEY_SCOPE_WRITE",
+    "normalize_api_key_scope",
 ]

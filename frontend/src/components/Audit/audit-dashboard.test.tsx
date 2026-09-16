@@ -22,7 +22,7 @@ import { auditApi } from "../../api/audit";
 import { artifactsApi } from "../../api/artifacts";
 import { traceabilityApi } from "../../api/traceability";
 import { UnprocessableEntityError } from "../../api/errors";
-import type { AuditReport } from "../../api/audit";
+import type { AuditFinding, AuditReport } from "../../api/audit";
 import type { Artifact, PaginatedResponse } from "../../types";
 
 vi.mock("react-i18next", () => ({
@@ -70,6 +70,7 @@ const PROJECT_REPORT: AuditReport = {
   total_findings_available: 2,
   total_blockers_available: 1,
   total_warnings_available: 1,
+  offset: 0,
   findings: [
     {
       rule_id: "TRACE-P1",
@@ -125,6 +126,7 @@ const DANGLING_REPORT: AuditReport = {
   total_findings_available: 1,
   total_blockers_available: 1,
   total_warnings_available: 0,
+  offset: 0,
   findings: [
     {
       rule_id: "TRACE-P7",
@@ -155,13 +157,13 @@ const DOCUMENT_REPORT: AuditReport = {
   total_findings_available: 0,
   total_blockers_available: 0,
   total_warnings_available: 0,
+  offset: 0,
   findings: [],
 };
 
-// BUG-15: the backend caps the returned findings when a run produces more
-// than AuditService.MAX_REPORT_FINDINGS — reuse PROJECT_REPORT's 2 findings
-// as the "shown" subset of a much larger run. Mirrors the audit's 300-req
-// stress scenario: 4,440 real findings, all severity blocker.
+// BUG-15: reuse PROJECT_REPORT's 2 findings as the "shown" subset of a much
+// larger run. Mirrors the audit's 300-req stress scenario: 4,440 real
+// findings, all severity blocker.
 const TRUNCATED_REPORT: AuditReport = {
   ...PROJECT_REPORT,
   truncated: true,
@@ -169,6 +171,56 @@ const TRUNCATED_REPORT: AuditReport = {
   total_blockers_available: 4440,
   total_warnings_available: 0,
 };
+
+// ---------------------------------------------------------------------------
+// #596: paged findings (one bounded window per request, `?limit=&offset=`)
+// ---------------------------------------------------------------------------
+
+/** A single finding at the given position of a (logical) 250-finding run. */
+function findingAt(index: number): AuditFinding {
+  return {
+    rule_id: `TRACE-P${index % 3}`,
+    severity: index < 200 ? "blocker" : "warning",
+    message: `finding ${index}`,
+    artifact_ids: [],
+    scope: "project",
+    scope_artifact_id: null,
+    index,
+    remediation: {
+      rule_id: `TRACE-P${index % 3}`,
+      automatic: false,
+      reason: "Manual correction required.",
+      finding_artifact_ids: [],
+      action_kind: null,
+      params: {},
+    },
+  };
+}
+
+/** A window of `length` findings starting at `offset`, of a 250-finding run. */
+function windowReport(offset: number, length: number): AuditReport {
+  const total = 250;
+  const findings = Array.from({ length }, (_unused, i) => findingAt(offset + i));
+  const end = offset + findings.length;
+  return {
+    tier: "extended",
+    scope: "project",
+    scope_artifact_id: null,
+    counts: {
+      total: findings.length,
+      blockers: findings.filter((f) => f.severity === "blocker").length,
+      warnings: findings.filter((f) => f.severity === "warning").length,
+    },
+    // #622: with a `limit` this flag means "more findings exist past this
+    // window", not "the backend capped the result set".
+    truncated: end < total,
+    total_findings_available: total,
+    total_blockers_available: 200,
+    total_warnings_available: 50,
+    offset,
+    findings,
+  };
+}
 
 function setupDefaultMocks(): void {
   vi.mocked(auditApi.run).mockImplementation((_wsId, options) => {
@@ -376,6 +428,29 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     expect(screen.getByTestId("audit-count-warnings").textContent).toContain("0");
   });
 
+  // ---- Failed run must never look like a clean run (GitHub #952) ----
+
+  // Defensive hardening for the reported UI false-negative (the API reported
+  // 24 blockers while the page showed "Findings: 0 · consistent"): the page
+  // must not decide "run succeeded" from the truthiness of an error *message*.
+  // An error carrying an empty message is reachable (the backend contract
+  // never validates it, and a transport failure can surface with none), and
+  // before this fix it fell straight through to the green empty state — a
+  // failed audit rendered as a successful, consistent trace graph.
+  it("renders the error banner instead of the empty state when a failed run has an empty message", async () => {
+    vi.mocked(auditApi.run).mockRejectedValue(new Error(""));
+
+    render(<AuditDashboard />);
+
+    const banner = await screen.findByTestId("audit-load-error");
+    // Non-empty fallback: the banner must still say something.
+    expect(banner.textContent?.trim()).toBe("Could not load audit findings.");
+    expect(screen.queryByTestId("audit-empty")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No findings — the trace graph is consistent for this scope.")
+    ).not.toBeInTheDocument();
+  });
+
   // ---- Adopt: success ----
 
   it("removes the finding and shows a success toast when Adopt succeeds", async () => {
@@ -465,5 +540,110 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     });
 
     expect(await screen.findByTestId("audit-empty")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #596 — the findings list is mounted in bounded windows and can page past the
+// first one, instead of rendering the whole (480 KB at 500 findings) run.
+// ---------------------------------------------------------------------------
+
+describe("AuditDashboard — paged findings (#596)", () => {
+  /** Mocks `run` as a real #622-style windowed endpoint over a 250-finding run. */
+  function setupWindowedEndpoint(): void {
+    vi.mocked(auditApi.run).mockImplementation((_wsId, options) => {
+      const offset = options?.offset ?? 0;
+      const limit = options?.limit ?? 250;
+      return Promise.resolve(
+        windowReport(offset, Math.max(0, Math.min(limit, 250 - offset)))
+      );
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    setupWindowedEndpoint();
+  });
+
+  it("requests only the first window on load instead of the whole run", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-finding-0");
+
+    expect(auditApi.run).toHaveBeenCalledWith(
+      "ws-001",
+      expect.objectContaining({ limit: 100, offset: 0 })
+    );
+    // The DOM holds one window: findings 0..99, not all 250.
+    expect(screen.getByTestId("audit-finding-99")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-finding-100")).not.toBeInTheDocument();
+  });
+
+  it("shows the banner and the load-more control while more findings exist", async () => {
+    render(<AuditDashboard />);
+
+    const banner = await screen.findByTestId("audit-truncated-banner");
+    expect(banner.textContent).toContain("100");
+    expect(banner.textContent).toContain("250");
+    expect(screen.getByTestId("audit-load-more-btn")).toBeInTheDocument();
+  });
+
+  it("appends the next window and drops the control once every finding is mounted", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+
+    // Second window: 100..199, appended (the first window stays mounted).
+    expect(await screen.findByTestId("audit-finding-100")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-finding-0")).toBeInTheDocument();
+    expect(auditApi.run).toHaveBeenLastCalledWith(
+      "ws-001",
+      expect.objectContaining({ limit: 100, offset: 100 })
+    );
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+
+    // Third and last window: 200..249 — `truncated` is false now, so the
+    // banner and the button disappear again.
+    await waitFor(() => {
+      expect(screen.getByTestId("audit-finding-249")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("audit-load-more-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("audit-truncated-banner")).not.toBeInTheDocument();
+  });
+
+  it("keeps the true totals in the count badges until every window is loaded", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    // Only 100 of 250 findings are mounted, but the badges must not understate
+    // the run: they show the backend's pre-window totals (code review M3).
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("250");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("200");
+  });
+
+  it("keeps the loaded findings readable when loading the next window fails", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    vi.mocked(auditApi.run).mockRejectedValueOnce(new Error("network down"));
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+
+    const banner = await screen.findByTestId("audit-load-error");
+    expect(banner.textContent).toContain("network down");
+    // The page the user was working through is still there — a failed
+    // "Load more" must not discard it.
+    expect(screen.getByTestId("audit-finding-0")).toBeInTheDocument();
+    // ...and the failed window stays retryable (a Refresh would jump back to
+    // page 1 and throw the loaded pages away).
+    expect(screen.getByTestId("audit-load-more-btn")).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("audit-finding-100")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("audit-load-error")).not.toBeInTheDocument();
   });
 });

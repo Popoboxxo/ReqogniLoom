@@ -9,9 +9,10 @@
 > (`backend/attribute_definitions/migration_plans/{risk_owner_to_actor,issue_assignee_to_actor}.yaml`).
 > The physical drop of `Risk.owner_name` / `Issue.assignee_id` is an AWMS-owned contract step.
 >
-> **Only the collaboration half (Comments + Notifications) is re-scoped and still to be implemented.**
-> It lives in [2026-09-03-menschen-im-system-collaboration.md](2026-09-03-menschen-im-system-collaboration.md),
-> which carries the current file paths, migration prefixes and the today-valid write seam for the
+> **Only the collaboration half (Comments + Notifications) was re-scoped — it is now implemented and
+> its plan is archived at
+> [Archive/2026-09-03-menschen-im-system-collaboration.md](Archive/2026-09-03-menschen-im-system-collaboration.md)
+> (PR #956). It carries the current file paths, migration prefixes and the today-valid write seam for the
 > `assigned` trigger. Where this document and the re-scope differ, the re-scope wins.
 >
 > Superseded tasks: 1–6, 12, 13, 14, 21, 26. Adopted: 7, 8, 9, 10, 15, 16, 17, 18, 19, 20, 22, 23,

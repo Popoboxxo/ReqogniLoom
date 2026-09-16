@@ -427,8 +427,33 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // inline `style={{...}}` literal in `shared/ArtifactId.tsx` is gone (-1), and
 // the WS2 actor-field landing closed one more elsewhere. Re-measured on the
 // tree: 844. Baseline lowered to the measured value per the ratchet rule above.
+//
+// Issue #954 (admin create dialogs onto the design system): -8. The hand-
+// styled footer buttons of `CreateWorkspaceModal.tsx`, `SystemHealthDialog.tsx`
+// and `TriLabelOverviewDialog.tsx`, the unstyled attribute-create buttons, and
+// the workspace-admin triggers/delete-dialog buttons moved onto the shared
+// `.btn-*` classes (height/radius now come from --btn-h-md/--radius-btn). Only
+// buttons were touched; the remaining inline literals in those files (form
+// fields, layout wrappers) are unchanged. Re-measured fresh: 836, matching.
+//
+// Issue #873 (pseudo-modal migration): -12. Removing the dead legacy
+// `TestCases/TestcaseList.tsx` and the `RequirementsList/ModalDialogBase.tsx`
+// pseudo-modal (the last two files still carrying hand-rolled overlay styling)
+// drops the project-wide inline `style={{` count. Re-measured on the tree: 824.
+// Baseline lowered to the measured value per the ratchet rule above.
+//
+// Bundle B5 #922/#802 (Need + Glossary create onto the shared Dialog): -6.
+// `NeedList.tsx`'s inline create form is gone: its hand-rolled label/input/
+// textarea/error/button literals moved onto the shared `fieldHints` classes
+// (`.createLabel`/`.createInput`/`.fieldError`) and the canonical
+// `btn-primary`/`btn-secondary` buttons, exactly like the other five dialog
+// create flows; only the (unchanged) flex action row inside the form keeps a
+// literal, because the E2E specs submit via `form button[type="submit"]`.
+// `GlossaryView.tsx` contributes 0 (it already styled through its CSS module).
+// Re-measured on the tree: 818. Baseline lowered to the measured value per the
+// ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 844;
+const STYLE_BRACE_BASELINE = 818;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

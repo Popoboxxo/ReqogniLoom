@@ -321,7 +321,7 @@ class HasOperationPermission(permissions.BasePermission):
 
         operation: Operation | None = getattr(view, "required_operation", None)
 
-        # Security review B1: the API key's coarse scope is enforced here too,
+        # Security review B1: the API key's capability gate is enforced here too,
         # not only in the sibling ``rest_api.auth_enforcer.RbacPermission``.
         # ~25 views use this class INSTEAD of that one, so a read-scoped key
         # could write through every one of them. Two independent things had to
@@ -331,10 +331,19 @@ class HasOperationPermission(permissions.BasePermission):
         # enough" path a read-scoped key was abusing. The scope is derived
         # from the HTTP method in that case, since it is the only statement
         # about the request's intent available.
-        scope_error = scope_denial_reason(
-            auth_context.scope,
-            operation if operation is not None else operation_for_method(request.method),
+        #
+        # #865: all three terms are evaluated (method, declared RBAC operation,
+        # optional ``required_scope_operation``) and either may deny — the gate
+        # can only ever narrow, mirroring ``RbacPermission``.
+        method_operation = operation_for_method(request.method)
+        scope_operation: Operation | None = getattr(
+            view, "required_scope_operation", None
         )
+        scope_error = scope_denial_reason(
+            auth_context.scope, operation if operation is not None else method_operation
+        ) or scope_denial_reason(auth_context.scope, method_operation)
+        if scope_error is None and scope_operation is not None:
+            scope_error = scope_denial_reason(auth_context.scope, scope_operation)
         if scope_error:
             raise exceptions.PermissionDenied(detail=scope_error)
 

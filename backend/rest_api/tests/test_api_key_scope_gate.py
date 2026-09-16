@@ -55,6 +55,41 @@ def test_write_scope_allows_post():
     assert RbacPermission().has_permission(_request("POST", _ctx("write")), _View())
 
 
+# --- #917 -------------------------------------------------------------------
+# ``required_operation`` is an RBAC-matrix knob and may LOWER the requirement
+# for a self-service action: ``ApiKeyViewSet`` declares READ on a ViewSet whose
+# POST creates a key (#716) so a Viewer can manage their own keys. It must not
+# lower the API-key capability gate — before the fix the scope gate was fed that
+# READ declaration, so a read-scoped key's POST passed the gate and reached the
+# view body (where the per-user key limit answered 400 instead of this 403).
+
+
+def test_read_scope_denies_post_when_view_declares_read_operation():
+    view = _View()
+    view.required_operation = Operation.READ
+    with pytest.raises(exceptions.PermissionDenied) as exc:
+        RbacPermission().has_permission(_request("POST", _ctx("read")), view)
+    message = str(exc.value)
+    assert "read-only" in message.lower()
+    # The method-derived operation names the reason the caller must see.
+    assert "operation 'write'" in message
+
+
+def test_read_scope_allows_get_when_view_declares_read_operation():
+    """The stricter gate still permits the read the declaration was made for."""
+    view = _View()
+    view.required_operation = Operation.READ
+    assert RbacPermission().has_permission(_request("GET", _ctx("read")), view)
+
+
+def test_read_scope_denies_delete_when_view_declares_read_operation():
+    """Revoking a key is a write too (DELETE 204 path of the same ViewSet)."""
+    view = _View()
+    view.required_operation = Operation.READ
+    with pytest.raises(exceptions.PermissionDenied):
+        RbacPermission().has_permission(_request("DELETE", _ctx("read")), view)
+
+
 # --- Security review B1 -----------------------------------------------------
 # ~25 views use HasOperationPermission INSTEAD of RbacPermission. The scope gate
 # lived only in the latter, so those views let a read-scoped key write.

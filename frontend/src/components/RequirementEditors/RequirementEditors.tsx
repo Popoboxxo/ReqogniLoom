@@ -408,11 +408,18 @@ export default function RequirementEditors(): JSX.Element {
    * header was as narrow as the list panel (~520px) rather than the page
    * (~1160px) — the single most visible header divergence in the app.
    *
-   * PDF export and CSV import move into `overflowActions`: per this
-   * component's own contract they are rare actions, and keeping them as
-   * visible buttons would leave Requirements with three secondary buttons
-   * where every other route has exactly one. The interview CTA stays in
-   * `secondaryActions` so it sits in the same place on all seven routes.
+   * PDF export, CSV import and the guided-interview start move into
+   * `overflowActions`: per this component's own contract they are rare
+   * actions, and keeping them as visible buttons would leave Requirements
+   * with secondary buttons where every other route has exactly one.
+   *
+   * #797: the interview CTA used to sit in `secondaryActions` "so it sits in
+   * the same place on all seven routes" — but it never did: it was only ever
+   * mounted by the seven interview-capable routes, so Requirements showed two
+   * visible create buttons (`+ Neue Anforderung` next to it) while Glossary,
+   * ICD, Test Runs and Diagrams showed one. It is a second *create path*, not
+   * a variant of the primary one, so it belongs in the overflow menu with the
+   * other secondary actions (ch. 12.1).
    */
   const pageHeader = (
     <PageHeader
@@ -433,8 +440,8 @@ export default function RequirementEditors(): JSX.Element {
             }
           : undefined
       }
-      secondaryActions={[interviewCta]}
       overflowActions={[
+        interviewCta,
         {
           label: t('requirements.exportPdf', 'PDF-Export'),
           onClick: () => void handleExportPdf(),

@@ -493,13 +493,38 @@ class WorkflowTransitionsMixin:
     def _current_status(self, pk: str, ctx: Any) -> str | None:
         """Return the entity's current status, as the GET representation reports it.
 
-        Override in ViewSets whose serializer exposes ``status`` so
-        :meth:`_validate_patch_payload` can tell an unchanged status echo apart
-        from an actual status change (#263). Returning ``None`` means "cannot
-        determine" and makes the guard fall back to accepting-and-ignoring the
-        field, because losing the rest of the payload is the worse failure.
+        Resolved through :mod:`workflow.state_reader` — the single status
+        projection the artifact serializers themselves use
+        (``WorkflowStateSerializerMixin``), so the guard compares against the
+        same value the client just read via GET.
+
+        It used to be read off the persistence row
+        (``getattr(row, "status", None)``) in per-ViewSet overrides. That broke
+        silently once the denormalized ``status`` column was dropped
+        (Datenmodell-Konsolidierung Task 12): every lookup returned ``None``,
+        which this method documents as "cannot determine" and which therefore
+        made the ``status`` branch of :meth:`_validate_patch_payload` accept
+        *any* status change without applying it — #915's hollow 200. The
+        per-ViewSet copies are gone; this one implementation is the shared
+        source of truth.
+
+        Returns ``None`` only when the state genuinely cannot be read (or the
+        ViewSet forgot ``workflow_item_type``); callers then fall back to
+        accepting-and-ignoring the field, because losing the rest of the payload
+        is the worse failure.
         """
-        return None
+        if not self.workflow_item_type:
+            return None
+        try:
+            from workflow import state_reader
+
+            state = state_reader.current_state(self.workflow_item_type, UUID(pk))
+            # No ``WorkflowItemState`` row (e.g. a definition-less workspace)?
+            # Report the same fallback the serializer/GET uses, so a change
+            # away from it is still recognised as a change.
+            return state or state_reader.initial_state(self.workflow_item_type)
+        except Exception:  # noqa: BLE001 — never let a status probe break the PATCH
+            return None
 
     def _validate_patch_payload(
         self,

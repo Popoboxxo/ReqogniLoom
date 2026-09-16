@@ -157,6 +157,12 @@ class AuditEntry(TenantScopedModel):
     # over a DomainEventDLQ row, not a CRUD op on a business entity), so it
     # gets its own namespace — same reasoning as the ``ai.*`` family above.
     OP_EVENTS_REPLAY = "events.replay"
+    # #821: granting a per-blocker waiver on the SE-Auditor baseline gate is
+    # its own governed act, not an ordinary baseline create: the audit query
+    # "who accepted this deviation, when and why" must be answerable without
+    # reconstructing it from ``baseline.create`` details. Reuses the
+    # ``baseline.`` namespace of ``OP_BASELINE_CREATE`` above.
+    OP_BASELINE_WAIVER_CREATE = "baseline.waiver_create"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -227,6 +233,7 @@ class AuditEntry(TenantScopedModel):
         (OP_ATTRIBUTE_MIGRATION_APPLY, "Attribute Migration Apply"),
         (OP_ATTRIBUTE_MIGRATION_ROLLBACK, "Attribute Migration Rollback"),
         (OP_EVENTS_REPLAY, "Events Replay"),
+        (OP_BASELINE_WAIVER_CREATE, "Baseline Waiver Create"),
     ]
 
     SOURCE_REST = "rest"

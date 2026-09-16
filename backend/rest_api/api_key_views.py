@@ -33,9 +33,26 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from auth_tenancy.models import normalize_api_key_scope
 from auth_tenancy.services import Operation
 from auth_tenancy.services.authentication import AuthenticationService
 from rest_api.serializers import build_error_response
+
+#: Request keys ``POST /api/v1/api-keys/`` understands. Everything else is a
+#: typo or a stale field name and is rejected (#916) instead of being dropped by
+#: ``request.data.get(...)`` while the request still answers 201. ``agent_identity``
+#: was the dangerous case: it does not exist (``principal_type`` + ``agent_label``
+#: are the real fields), so the key silently became a ``user`` principal.
+_ALLOWED_CREATE_FIELDS = frozenset(
+    {
+        "agent_label",
+        "expires_at",
+        "name",
+        "principal_type",
+        "scope",
+        "workspace_ids",
+    }
+)
 
 
 class ApiKeyViewSet(ViewSet):
@@ -68,9 +85,37 @@ class ApiKeyViewSet(ViewSet):
     action, not a workspace-write action" precedent already used by
     ``UserPreferenceView``/``WorkspaceMembersView``/``UserViewSet`` for
     other self- or tenant-scoped endpoints.
+
+    Capability gate (#865): the ViewSet additionally declares
+    ``required_scope_operation`` so that the *API-key scope* tier for
+    create/revoke is ADMIN while the RBAC requirement stays READ. The two are
+    independent gates; see the property's docstring.
     """
 
     required_operation = Operation.READ
+
+    @property
+    def required_scope_operation(self) -> Operation | None:
+        """Capability gate for the key's own scope (#865): governance on mutations.
+
+        ``required_operation`` above is a deliberate RBAC exemption (#716): a
+        Viewer may manage *their own* keys. The capability gate is a separate
+        question, and here the answer is governance — creating or revoking an
+        API key is key management, and an API key may as well escalate itself:
+        an AUTHOR-tier key could otherwise POST ``{"scope": "admin"}`` and mint
+        a wider credential than itself (or revoke every key its owner holds).
+        Mutations therefore require the ADMIN tier; reads stay readable by any
+        tier.
+
+        Read via ``getattr(self, "request", None)`` because
+        ``RbacPermission``/``HasOperationPermission`` look this property up with
+        ``getattr(view, ..., None)``, which would swallow an ``AttributeError``
+        raised inside it and silently fail open.
+        """
+        request = getattr(self, "request", None)
+        if request is not None and request.method in ("POST", "DELETE", "PUT", "PATCH"):
+            return Operation.ASSIGN_ROLE
+        return None
 
     # Uses global DEFAULT_AUTHENTICATION_CLASSES (AuthTenancyAuthentication)
     # and DEFAULT_PERMISSION_CLASSES (RbacPermission) from settings; the
@@ -175,9 +220,44 @@ class ApiKeyViewSet(ViewSet):
 
         Errors:
           400 — name missing or empty
+          400 — unknown request field (#916)
+          400 — unknown scope value (#865)
           400 — max active keys reached
           401 — not authenticated
+          403 — read-scoped key (#917)
+          403 — AUTHOR-tier key (#865): creating a key is key management and
+                requires an ADMIN-scoped key, see ``required_scope_operation``
+
+        Order (#917): the scope gate is a DRF permission check, so it runs
+        before this view body and before the key-limit validation below. A
+        read-scoped key therefore always gets 403 ``read-only``, never the 400
+        "max active keys" — see ``RbacPermission`` (the ``required_operation =
+        Operation.READ`` above is an RBAC exemption and does not lower it).
         """
+        # Unknown-field rejection (#916), same contract as the serializer-level
+        # ``UnknownFieldRejectionMixin`` (#851): name the offending key instead of
+        # silently ignoring it. This view predates the serializer family, so it
+        # carries the check itself.
+        if isinstance(request.data, dict):
+            unknown = sorted(set(request.data) - _ALLOWED_CREATE_FIELDS)
+            if unknown:
+                summary = (
+                    f"Unknown field '{unknown[0]}'."
+                    if len(unknown) == 1
+                    else "Unknown fields: " + ", ".join(f"'{f}'" for f in unknown)
+                )
+                return Response(
+                    build_error_response(
+                        code="VALIDATION_ERROR",
+                        message=summary,
+                        details=[
+                            {"field": field, "errors": [f"Unknown field '{field}'."]}
+                            for field in unknown
+                        ],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         user_id = self._get_user_id(request)
         tenant_id = self._get_tenant_id(request)
         if user_id is None or tenant_id is None:
@@ -202,12 +282,19 @@ class ApiKeyViewSet(ViewSet):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        scope = request.data.get("scope", "write")
-        if scope not in ("read", "write"):
+        # #865: accept the canonical tiers (read_only/author/admin) plus the two
+        # legacy aliases (read/write), case-insensitively. Anything else is a
+        # typo, and a typo must not silently become the default scope.
+        raw_scope = request.data.get("scope", "write")
+        scope = normalize_api_key_scope(raw_scope)
+        if scope is None:
             return Response(
                 build_error_response(
                     code="VALIDATION_ERROR",
-                    message="Field 'scope' must be 'read' or 'write'.",
+                    message=(
+                        "Field 'scope' must be one of 'read_only', 'author', "
+                        "'admin' (or the legacy aliases 'read', 'write')."
+                    ),
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )

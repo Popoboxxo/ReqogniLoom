@@ -132,7 +132,7 @@ export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestC
             'testcases.emptyDescription',
             'Test cases verify requirements are met and record how the system was checked.',
           )}
-          actions={[{ label: t('testcases.newTestCase', 'New Test Case'), onClick: onCreateNew, testId: 'tc-list-empty-create' }]}
+          actions={[{ label: t('testcases.newTestCase', 'New Test Case'), prefixWithPlus: true, onClick: onCreateNew, testId: 'tc-list-empty-create' }]}
         />
       ) : visible.length === 0 ? (
         // ch. 13.3: "there is something, just not under this filter" — offer

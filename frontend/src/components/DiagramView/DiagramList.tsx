@@ -159,7 +159,11 @@ export function DiagramList({
             "diagrams.emptyDescription",
             "Diagrams visualize architecture, flows and state machines.",
           )}
-          actions={[{ label: t("diagrams.create", "New Diagram"), onClick: onCreateNew, testId: "diagram-list-empty-create" }]}
+          // #797: "+ New Diagram" in both places. This empty-state CTA and
+          // the <PageHeader> primary action are visible at the same time when
+          // the list is empty; rendering the same action as "+ New Diagram"
+          // and "New Diagram" was the reported "two labels" defect.
+          actions={[{ label: t("diagrams.create", "New Diagram"), prefixWithPlus: true, onClick: onCreateNew, testId: "diagram-list-empty-create" }]}
         />
       ) : visible.length === 0 ? (
         <EmptyState variant="no-match" testId="diagram-list-no-match" onResetFilters={resetFilters} />

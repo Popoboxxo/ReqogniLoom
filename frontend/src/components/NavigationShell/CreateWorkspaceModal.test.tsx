@@ -155,3 +155,62 @@ describe("CreateWorkspaceModal — field-level validation error visibility (BUG-
     });
   });
 });
+
+/**
+ * Issue #955 — the workspace-create dialog is modal (`aria-modal="true"`) but
+ * was measured with `aria-label: null`. The shared <Dialog> primitive derives
+ * the accessible name from its `title` prop via `aria-labelledby`, so the call
+ * site has to pass a real, translated title.
+ */
+describe("CreateWorkspaceModal — accessible name (issue #955)", () => {
+  it("exposes the dialog under its translated title", async () => {
+    await i18n.changeLanguage("de");
+
+    render(<CreateWorkspaceModal isOpen={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    expect(screen.getByTestId("create-workspace-modal")).toHaveAccessibleName(
+      i18n.t("workspaceCreate.title")
+    );
+  });
+});
+
+/**
+ * Issue #954 — the workspace-create dialog was the last admin create dialog
+ * still hand-styling its buttons inline (no `btn-*` class, just colour and
+ * padding literals), which is how the same dialog type ended up with two
+ * different button systems. It now uses the shared `.btn-*` classes, whose
+ * height/radius come from the button metric tokens.
+ */
+describe("CreateWorkspaceModal — design-system buttons (issue #954)", () => {
+  it("uses the shared .btn-* classes for cancel and submit", () => {
+    render(<CreateWorkspaceModal isOpen={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    expect(screen.getByTestId("create-workspace-cancel")).toHaveClass("btn-secondary");
+    expect(screen.getByTestId("new-workspace-submit")).toHaveClass("btn-primary");
+  });
+
+  it("carries no inline button geometry anymore", () => {
+    render(<CreateWorkspaceModal isOpen={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    for (const testId of ["create-workspace-cancel", "new-workspace-submit"]) {
+      expect(
+        screen.getByTestId(testId).getAttribute("style"),
+        `${testId} still carries an inline style`,
+      ).toBeNull();
+    }
+  });
+
+  it("keeps the submit button's disabled treatment through the shared class", async () => {
+    vi.mocked(workspacesApi.create).mockImplementation(() => new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<CreateWorkspaceModal isOpen={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await user.type(screen.getByTestId("new-workspace-name"), "In flight");
+    await user.click(screen.getByTestId("new-workspace-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("new-workspace-submit")).toBeDisabled();
+    });
+    expect(screen.getByTestId("new-workspace-submit")).toHaveClass("btn-primary");
+  });
+});

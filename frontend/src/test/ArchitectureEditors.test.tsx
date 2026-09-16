@@ -758,3 +758,62 @@ describe("ArchitectureEditors — drag & drop reparenting", () => {
     void i18n.changeLanguage(previousLanguage);
   });
 });
+
+/**
+ * Issue #955 — the create dialog is modal (`aria-modal="true"`) yet carried no
+ * accessible name, and its title input had neither an `id` nor an
+ * `aria-label`/`label[for]`, leaving the field nameless for screen readers
+ * (WCAG 4.1.2 / 3.3.2).
+ *
+ * The dialog name comes from the shared <Dialog> primitive (it wires the
+ * `title` prop to `aria-labelledby`); this block pins the arch call site to a
+ * translated title and to a real label association for the title field.
+ */
+describe("ArchitectureEditors — create dialog a11y (issue #955)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [MOCK_ELEMENT],
+      count: 1,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([MOCK_ELEMENT] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  async function openCreateDialog(): Promise<void> {
+    renderEditor();
+    await waitFor(() =>
+      expect(screen.getByTestId("create-arch-btn")).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByTestId("create-arch-btn"));
+  }
+
+  it("names the create dialog after its translated title", async () => {
+    await openCreateDialog();
+
+    expect(
+      screen.getByRole("dialog", { name: i18n.t("arch.newElementTitle") })
+    ).toBeInTheDocument();
+  });
+
+  it("associates the title label with the arch title input", async () => {
+    await openCreateDialog();
+
+    const input = screen.getByTestId("arch-new-title-input");
+    expect(input).toHaveAttribute("id", "arch-new-title");
+    expect(screen.getByLabelText(i18n.t("editor.title"))).toBe(input);
+  });
+});

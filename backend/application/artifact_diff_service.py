@@ -279,9 +279,10 @@ class ArtifactDiffService(ServiceBase):
         if artifact is None:
             raise NotFoundError(f"Artifact {artifact_id} not found")
 
-        # #737: TestCase tags Artifact.artifact_type with a sub-type suffix
-        # (e.g. "TestCase:Unit") for filtering elsewhere (TestService.list),
-        # but _ENTITY_FIELDS keys on the plain type name.
+        # #737 / #816: _ENTITY_FIELDS keys on the plain type name, while a
+        # pre-0093 TestCase row still carries its test type as the deprecated
+        # "TestCase:Unit" sub-type suffix. Normalising is therefore still
+        # required for legacy rows — no write path emits the suffix any more.
         entity_type = normalize_artifact_type(artifact.artifact_type)
 
         versions = ArtifactVersionService()

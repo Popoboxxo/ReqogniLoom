@@ -596,6 +596,20 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.ym
 CI (`.github/workflows/playwright.yml`) already runs this alongside `seed_demo` before every E2E
 job; it is only missing when seeding a local dev stack by hand.
 
+**Third prerequisite — global attribute definitions.** Every artifact editor renders its fields
+from the tenant's `GlobalAttributeDefinition` rows; without them a run fails with "No global
+attribute definition for `<ItemType>/<preset>`" on every editor spec (issue #947). `manage.py
+bootstrap_attribute_definitions` seeds them and `manage.py migrate` already invokes it via the
+REQ-188 `post_migrate` self-init, so a correctly migrated stack has them automatically — the
+command only has to be run by hand on a database that predates the attribute-definition
+migrations (or after restoring a stale dump).
+
+Playwright itself verifies all three prerequisites before the first test
+(`e2e/helpers/global-setup.ts` → `e2e/helpers/preconditions.ts`): frontend/backend reachability,
+the `seed_demo` workspace, and the attribute definitions. If one is missing, the run aborts
+immediately with the exact command to fix it instead of cascading into unrelated red specs.
+Nothing is seeded implicitly — the check only reports.
+
 > **Two more local-only pitfalls that read like app bugs but aren't** (found while triaging
 > docs/SYSTEMAUDIT_2026-08-18.md BUG-17/B-SRCH-001 — both traced back to these, not to the app):
 >

@@ -88,6 +88,35 @@ def test_create_comment_rejects_empty_text(ctx, artifact):
 
 
 @pytest.mark.django_db
+def test_create_comment_rejects_markup(ctx, artifact):
+    """#820: comment text obeys the shared free-text policy, not just REST.
+
+    The MCP comment tool calls the service directly and never runs
+    ``CommentSerializer``, so the rule is enforced here as well — the same
+    defense-in-depth shape ``ArtifactService.clean_free_text_field`` uses.
+    """
+    with pytest.raises(ValidationError) as excinfo:
+        CommentService().create_comment(
+            artifact_id=artifact.pk, text="<img src=x onerror=alert(1)>", ctx=ctx
+        )
+
+    assert "disallowed content" in str(excinfo.value)
+    assert not Comment.unscoped.filter(artifact=artifact).exists()
+
+
+@pytest.mark.django_db
+def test_create_comment_keeps_sql_shaped_text_verbatim(ctx, artifact):
+    """SQL-looking text is data: the ORM parameterises, so it round-trips."""
+    hostile = "'; DROP TABLE users; --"
+    with patch("application.comment_service.create_notifications"):
+        comment = CommentService().create_comment(
+            artifact_id=artifact.pk, text=f"Failed with {hostile}", ctx=ctx
+        )
+
+    assert comment.text == f"Failed with {hostile}"
+
+
+@pytest.mark.django_db
 def test_create_comment_notifies_the_artifact_recipients(ctx, artifact, bob):
     with patch(
         "application.comment_service.notify_user_ids_for_artifact",

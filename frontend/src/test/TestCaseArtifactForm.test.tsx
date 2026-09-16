@@ -142,4 +142,24 @@ describe("TestCaseArtifactForm", () => {
       )
     );
   });
+
+  // GitHub #677 (the TestCase side of the reported a11y gap): a rejected save
+  // must be announced, not just drawn — the banner is an assertive live region
+  // on the TestCase form.
+  it("announces a failed save with an assertive live region (#677)", async () => {
+    vi.mocked(testcasesApi.update).mockRejectedValue(new Error("Server exploded"));
+    render(
+      <TestCaseArtifactForm
+        testCase={TEST_CASE}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("artifact-form-save"));
+    const banner = await screen.findByTestId("artifact-form-error");
+    expect(banner).toHaveTextContent("Server exploded");
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(banner).toHaveAttribute("aria-live", "assertive");
+  });
 });
+

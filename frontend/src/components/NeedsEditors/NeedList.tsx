@@ -7,11 +7,12 @@
  * Search + status filter + sort remain in ListToolbar; WorkspaceTree
  * receives the already-filtered list and renders it as compact tree rows.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
 import { EmptyState } from '../shared/EmptyState';
+import { Dialog } from '../shared/Dialog';
 import { getStatusBadgeStyle } from '../../utils/statusBadge';
 import { WorkspaceTree } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
@@ -119,6 +120,11 @@ export function NeedList({
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortKey, setSortKey] = useState<NeedSortKey>('default');
+  // #802: the create form lives in the shared <Dialog> now, which moves the
+  // initial focus itself (the dialog's first tabbable element would otherwise
+  // be the close button) — so the title field is targeted explicitly instead
+  // of relying on `autoFocus`.
+  const newTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   const visibleNeeds = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -190,134 +196,116 @@ export function NeedList({
         // forwarded (below) for the empty-state's own create action.
       />
 
+      {/* #802: the create flow runs through the shared <Dialog> primitive,
+          exactly like the other five entity create flows (Requirement/ADR/
+          Risk/Issue/TestCase) — real `role="dialog"` + overlay + focus trap +
+          Escape-to-close, instead of an inline form wedged between the list
+          toolbar and the tree (where the list's own search/filter controls
+          shared one DOM scope with the form fields, see #802).
+          Form markup, validation, i18n keys and data-testids are unchanged. */}
       {showCreateForm && setShowCreateForm && setNewTitle && onSubmitCreate && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSubmitCreate();
-          }}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
-            padding: 'var(--space-3)',
-            marginBottom: 'var(--space-3)',
-            background: 'var(--color-surface-raised)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-          }}
+        <Dialog
+          title={t('needs.newNeed', 'Neuer Bedarf')}
+          onClose={() => setShowCreateForm(false)}
+          testId="need-new-dialog"
+          initialFocusRef={newTitleInputRef}
         >
-          <label
-            htmlFor="need-new-title"
-            style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}
-          >
-            {t('editor.title', 'Title')}
-          </label>
-          <input
-            id="need-new-title"
-            type="text"
-            data-testid="need-new-title-input"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            autoFocus
-            placeholder={t('editor.newNeedTitle')}
-            style={{
-              padding: 'var(--space-2) var(--space-3)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-sm)',
-              background: 'var(--color-surface)',
-              color: 'var(--color-text)',
+          <form
+            data-testid="need-create-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSubmitCreate();
             }}
-          />
+          >
+            <label htmlFor="need-new-title" className={fieldHints.createLabel}>
+              {t('editor.title', 'Title')}
+            </label>
+            <input
+              id="need-new-title"
+              type="text"
+              data-testid="need-new-title-input"
+              ref={newTitleInputRef}
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder={t('editor.newNeedTitle')}
+              className={fieldHints.createInput}
+            />
 
-          {/* BUG-11: description/category — ordinary
-              stakeholderNeedApi.create() fields the backend already accepts,
-              previously missing here. */}
-          {setNewDescription && (
-            <>
-              {/* F-05 (code review, 2026-08-19): every other one of the 6
-                  create-form fields added this round pairs label/input via
-                  htmlFor/id — this one was the odd one out. */}
-              <label htmlFor="need-new-description" className={fieldHints.createLabelInline}>
-                {t('editor.description', 'Description')}
-              </label>
-              <textarea
-                id="need-new-description"
-                data-testid="need-new-description-input"
-                value={newDescription || ''}
-                onChange={(e) => setNewDescription(e.target.value)}
-                rows={3}
-                className={fieldHints.createInput}
-              />
-            </>
-          )}
-          {setNewCategory && (
-            <>
-              <label htmlFor="need-new-category" className={fieldHints.createLabelInline}>
-                {t('editor.category', 'Category')}
-              </label>
-              <input
-                id="need-new-category"
-                type="text"
-                data-testid="need-new-category-input"
-                value={newCategory || ''}
-                onChange={(e) => setNewCategory(e.target.value)}
-                className={fieldHints.createInput}
-              />
-            </>
-          )}
+            {/* BUG-11: description/category — ordinary
+                stakeholderNeedApi.create() fields the backend already accepts,
+                previously missing here. */}
+            {setNewDescription && (
+              <>
+                {/* F-05 (code review, 2026-08-19): every other one of the 6
+                    create-form fields added this round pairs label/input via
+                    htmlFor/id — this one was the odd one out. */}
+                <label htmlFor="need-new-description" className={fieldHints.createLabel}>
+                  {t('editor.description', 'Description')}
+                </label>
+                <textarea
+                  id="need-new-description"
+                  data-testid="need-new-description-input"
+                  value={newDescription || ''}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  rows={3}
+                  className={fieldHints.createInput}
+                />
+              </>
+            )}
+            {setNewCategory && (
+              <>
+                <label htmlFor="need-new-category" className={fieldHints.createLabel}>
+                  {t('editor.category', 'Category')}
+                </label>
+                <input
+                  id="need-new-category"
+                  type="text"
+                  data-testid="need-new-category-input"
+                  value={newCategory || ''}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  className={fieldHints.createInput}
+                />
+              </>
+            )}
 
-          {createError && (
-            <p
-              role="alert"
-              style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}
-            >
-              {createError}
-            </p>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button
-              type="button"
-              data-testid="need-create-cancel-btn"
-              onClick={() => setShowCreateForm(false)}
-              style={{
-                background: 'transparent',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)',
-                cursor: 'pointer',
-              }}
-            >
-              {t('actions.cancel', 'Cancel')}
-            </button>
-            <button
-              type="submit"
-              data-testid="need-create-submit-btn"
-              // #678: distinct accessible name from the PageHeader's primary
-              // action and the empty-state's create action — those two open
-              // this form; this one submits it. All three can be visible at
-              // once (empty list + open form), and "Create"/"Erstellen" is
-              // generic enough to be worth disambiguating explicitly rather
-              // than relying on translation strings staying different.
-              aria-label={t('needs.submitCreateLabel', 'Bedarf jetzt erstellen')}
-              disabled={!(newTitle || '').trim()}
-              style={{
-                background: 'var(--color-primary)',
-                color: 'var(--color-on-primary)',
-                border: 'none',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)',
-                cursor: 'pointer',
-              }}
-            >
-              {t('actions.create', 'Erstellen')}
-            </button>
-          </div>
-        </form>
+            {/* BUG-08: the shared field-error styling (`fieldHints.fieldError`)
+                instead of a per-component inline literal. */}
+            {createError && (
+              <p role="alert" data-testid="need-create-error" className={fieldHints.fieldError}>
+                {createError}
+              </p>
+            )}
+            {/* The action row stays *inside* the <form>: the E2E specs submit
+                via `form button[type="submit"]` (create-need-verification,
+                needs-cross-boundary), which the Dialog `footer` slot would
+                break by rendering the button outside the form element. */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-4)' }}>
+              <button
+                type="button"
+                data-testid="need-create-cancel-btn"
+                onClick={() => setShowCreateForm(false)}
+                className="btn-secondary"
+              >
+                {t('actions.cancel', 'Cancel')}
+              </button>
+              <button
+                type="submit"
+                data-testid="need-create-submit-btn"
+                // #678: distinct accessible name from the PageHeader's primary
+                // action and the empty-state's create action — those two open
+                // this form; this one submits it. All three can be visible at
+                // once (empty list + open form), and "Create"/"Erstellen" is
+                // generic enough to be worth disambiguating explicitly rather
+                // than relying on translation strings staying different.
+                aria-label={t('needs.submitCreateLabel', 'Bedarf jetzt erstellen')}
+                disabled={!(newTitle || '').trim()}
+                className="btn-primary"
+              >
+                {t('actions.create', 'Erstellen')}
+              </button>
+            </div>
+          </form>
+        </Dialog>
       )}
 
       {/* #179: distinct empty vs. no-match states (ch. 13.3) instead of

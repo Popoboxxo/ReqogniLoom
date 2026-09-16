@@ -34,6 +34,7 @@ import {
   formValuesToRequirementPatch,
   requirementToFormValues,
 } from "../components/RequirementEditors/RequirementArtifactForm";
+import { REQ_CATEGORIES } from "../types";
 
 const workspace = { current: { id: "ws-1", preset: "standard" } };
 
@@ -176,6 +177,71 @@ describe("RequirementArtifactForm", () => {
     ).toBeInTheDocument();
   });
 
+  // Issue #889: `Requirement.category` has no Django `choices`, so the
+  // introspected definition declares it as `type: "text"` — the detail form
+  // used to render a free-text input while the create dialog and the list
+  // filter only recognize the six `REQ_CATEGORIES` values. The adapter now
+  // promotes that one attribute to the shared enum, so create and edit use the
+  // same options and only ever emit a canonical value.
+  it("renders category as the create dialog's enum, never free text", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [
+        attr({ name: "title", required: true }),
+        // The exact shape introspection produces today: text, no options.
+        attr({ name: "category", type: "text", section: "classification", order: 1 }),
+      ],
+    } as never);
+    render(
+      <RequirementArtifactForm
+        requirement={REQUIREMENT}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    const control = await screen.findByTestId("artifact-field-category");
+    expect(control.tagName).toBe("SELECT");
+    expect(
+      Array.from(control.querySelectorAll("option")).map((option) => option.value)
+    ).toEqual(["", ...REQ_CATEGORIES]);
+    expect(control).toHaveValue("functional");
+    // The old free-text control is gone.
+    expect(screen.getByTestId("artifact-field-category").tagName).not.toBe("INPUT");
+  });
+
+  it("saves a category chosen from the shared enum", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
+      item_type: "Requirement",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [
+        attr({ name: "title", required: true }),
+        attr({ name: "category", type: "text", section: "classification", order: 1 }),
+      ],
+    } as never);
+    vi.mocked(requirementsApi.update).mockResolvedValue(REQUIREMENT);
+    render(
+      <RequirementArtifactForm
+        requirement={REQUIREMENT}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    const control = await screen.findByTestId("artifact-field-category");
+    await userEvent.selectOptions(control, "api");
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
+    await waitFor(() =>
+      expect(requirementsApi.update).toHaveBeenCalledWith(
+        "req-1",
+        expect.objectContaining({ category: "api" })
+      )
+    );
+  });
+
   it("renders an editable=false attribute as disabled", async () => {
     render(
       <RequirementArtifactForm
@@ -310,5 +376,24 @@ describe("RequirementArtifactForm", () => {
     await userEvent.click(screen.getByTestId("artifact-form-delete-confirm"));
     expect(await screen.findByTestId("artifact-form-error")).toBeInTheDocument();
     expect(requirementsApi.delete).not.toHaveBeenCalled();
+  });
+
+  // GitHub #677 (the Requirement side of the reported a11y gap): a rejected
+  // save must be announced, not just drawn — the banner is an assertive live
+  // region on the Requirement form.
+  it("announces a failed save with an assertive live region (#677)", async () => {
+    vi.mocked(requirementsApi.update).mockRejectedValue(new Error("Server exploded"));
+    render(
+      <RequirementArtifactForm
+        requirement={REQUIREMENT}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("artifact-form-save"));
+    const banner = await screen.findByTestId("artifact-form-error");
+    expect(banner).toHaveTextContent("Server exploded");
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(banner).toHaveAttribute("aria-live", "assertive");
   });
 });

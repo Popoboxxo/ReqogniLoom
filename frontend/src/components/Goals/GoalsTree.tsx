@@ -274,6 +274,7 @@ export function GoalsTree({
               ? [
                   {
                     label: t("goals.newGoal", "Neues Ziel"),
+                    prefixWithPlus: true,
                     onClick: onCreateNew,
                     testId: "goals-empty-create",
                   },

@@ -187,7 +187,90 @@ class BaselineDeltaIndexEntry(models.Model):
         )
 
 
+class BaselineGateWaiver(TenantScopedModel):
+    """Per-blocker waiver for the SE-Auditor baseline gate (GH-821).
+
+    leaf_id: COMP-BL-003 (BaselineStore extension)
+    req_id:  REQ-L2-BL-001, REQ-L2-AL-001
+
+    The gate (``application.baseline_facade.BaselineFacade._enforce_audit_gate``)
+    only ever had an all-or-nothing exit: either every BLOCKER was resolved, or
+    a single ``override_reason`` waived the entire verdict. A workspace with 47
+    findings therefore had exactly one lever — accept all of them, with one
+    sentence of justification — while the findings themselves stayed
+    unwirtschaftbar (issue #821).
+
+    This row records the *per-finding* answer: one accepted deviation, for one
+    rule/artifact combination, with its own mandatory justification. Rows are
+    append-only governance records — the ``ChangeReason``/``AuditLog`` pair
+    around them is the authoritative trail, and the row is what makes the
+    decision durable, so a later baseline build does not have to re-state a
+    waiver that was already granted and argued for.
+
+    Identity is ``(workspace_id, finding_key)`` where ``finding_key`` is the
+    canonical ``rule_id|sorted(artifact_ids)`` rendering produced by
+    :func:`baseline.waivers.finding_key` — deliberately *not* an audit-run id,
+    because a finding has no stable id across runs: the same TRACE-P1 on the
+    same artifact is the same blocker tomorrow.
+    """
+
+    # Workspace scope (tenant-internal partition), mirroring BaselineSnapshot.
+    workspace_id = models.UUIDField(db_index=True)
+
+    #: Originating SE-Auditor rule (e.g. "TRACE-P1").
+    rule_id = models.CharField(max_length=64)
+
+    #: Canonical finding identity, see :func:`baseline.waivers.finding_key`.
+    finding_key = models.CharField(max_length=255)
+
+    #: Artifacts the waived finding concerns (empty for graph-level findings).
+    artifact_ids = models.JSONField(default=list, blank=True)
+
+    #: Baseline scope the finding was reported in ("document"|"project"|...).
+    scope = models.CharField(max_length=32, blank=True, default="")
+    scope_artifact_id = models.CharField(max_length=64, blank=True, default="")
+
+    #: Mandatory justification — a waiver without a stated reason is not a
+    #: governance record. Enforced here (non-blank) AND by the DB constraint
+    #: below, so no code path can persist an unexplained suppression.
+    reason = models.TextField()
+
+    # User *or* agent identifier that granted the waiver, stored as a string —
+    # same reason as ``BaselineSnapshot.created_by_ref``: an MCP agent has no
+    # ``persistence.User`` row, and a waiver must keep naming its author even
+    # if that user is later deleted (AuditableModel.created_by is SET_NULL).
+    granted_by = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        db_table = "bl_baseline_gate_waiver"
+        constraints = [
+            # One waiver per finding per workspace: re-sending the same waiver
+            # is idempotent instead of accumulating duplicate justification.
+            models.UniqueConstraint(
+                fields=["workspace_id", "finding_key"],
+                name="uq_baseline_waiver_ws_finding",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(reason=""),
+                name="ck_baseline_waiver_reason_not_blank",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["workspace_id", "rule_id"],
+                name="idx_baseline_waiver_ws_rule",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"BaselineGateWaiver(ws={self.workspace_id}, "
+            f"rule={self.rule_id}, key={self.finding_key})"
+        )
+
+
 __all__ = [
     "BaselineSnapshot",
     "BaselineDeltaIndexEntry",
+    "BaselineGateWaiver",
 ]

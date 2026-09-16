@@ -3,7 +3,7 @@ SysEng 2.0 SE-Auditor — TRACE-P1, TRACE-P1b, TRACE-P2, TRACE-P3 tests.
 
 UMSETZUNGSPLAN_SYSENG_2.0.md §2.2. Each rule gets at least one positive case
 (no finding) and one negative case (finding correctly raised). Also covers
-the TRACE-P2 tiered severity (WARNING at standard, BLOCKER at extended) and
+the TRACE-P2 calibrated severity (WARNING at every tier, issue #581) and
 the L4 out-of-scope exemption.
 
 These rules are NOT wired into ``rules/__init__.py`` yet (a later
@@ -216,7 +216,7 @@ class TestTraceP1b:
 
 
 # ---------------------------------------------------------------------------
-# TRACE-P2 — Requirement allocated-to an ArchitectureElement (tiered severity)
+# TRACE-P2 — Requirement allocated-to an ArchitectureElement (advisory severity)
 # ---------------------------------------------------------------------------
 
 
@@ -241,9 +241,14 @@ class TestTraceP2:
         assert len(findings) == 1
         assert str(req_art.id) in findings[0].artifact_ids
 
-    def test_severity_is_warning_at_standard_and_blocker_at_extended(
-        self, tenant_a, workspace_a
-    ):
+    def test_severity_is_warning_at_every_tier(self, tenant_a, workspace_a):
+        """#581: allocation coverage is advisory — never a BLOCKER.
+
+        The unallocated Requirement is a BLOCKER at extended through the
+        *other* rules (TRACE-P1/P1b: no derives-from), which is exactly the
+        distinction: a missing allocation is a coverage gap, a missing trace
+        is not. TRACE-P2 itself must not add to the blocker count at any tier.
+        """
         with active_tenant(tenant_a):
             _requirement(tenant_a, workspace_a, title="Unallocated")
 
@@ -252,12 +257,10 @@ class TestTraceP2:
 
         from traceability.audit.types import Severity
 
-        standard_findings = _findings(standard_result, TRACE_P2)
-        extended_findings = _findings(extended_result, TRACE_P2)
-        assert len(standard_findings) == 1
-        assert len(extended_findings) == 1
-        assert standard_findings[0].severity is Severity.WARNING
-        assert extended_findings[0].severity is Severity.BLOCKER
+        for result in (standard_result, extended_result):
+            findings = _findings(result, TRACE_P2)
+            assert len(findings) == 1
+            assert findings[0].severity is Severity.WARNING
 
 
 # ---------------------------------------------------------------------------

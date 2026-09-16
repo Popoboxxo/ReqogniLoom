@@ -29,7 +29,7 @@ from application.base import ValidationError
 from application.settings_service import SettingsService
 from auth_tenancy.models import ROLE_ADMIN
 from llm_adapter.url_guard import UnsafeOutboundUrlError, validate_outbound_url
-from rest_api.auth_enforcer import get_auth_context
+from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
 
@@ -108,8 +108,12 @@ class LlmSettingsSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 
-class LlmSettingsView(APIView):
-    """GET/PUT/PATCH /api/v1/llm-settings/ (REQ-L2-LLM-001). Admin-only."""
+class LlmSettingsView(AdminScopeRequiredMixin, APIView):
+    """GET/PUT/PATCH /api/v1/llm-settings/ (REQ-L2-LLM-001). Admin-only.
+
+    Capability gate (follow-up to #865): mutations additionally require the
+    ADMIN-tier API-key scope — see :class:`AdminScopeRequiredMixin`.
+    """
 
     def _forbidden(self, lang: str) -> Response:
         return Response(
@@ -203,7 +207,7 @@ class PromptTemplateSerializer(serializers.Serializer):
         return SettingsService.prompt_defaults()
 
 
-class PromptTemplateView(APIView):
+class PromptTemplateView(AdminScopeRequiredMixin, APIView):
     """GET/PUT/PATCH /api/v1/prompt-templates/ (REQ-L2-PT-001).
 
     Backward-compat facade over the versioned, named ``PromptTemplate`` model
@@ -217,6 +221,11 @@ class PromptTemplateView(APIView):
     ``SettingsService``'s module docstring for the full rationale. Admin
     role required to read or write, mirroring :class:`LlmSettingsView` —
     prompt templates steer AI derivation and are tenant-wide configuration.
+
+    Capability gate (follow-up to #865): writes additionally require the
+    ADMIN-tier API-key scope. Prompt content is the persistent
+    prompt-injection vector of REQ-043, so an AUTHOR key must never mutate it
+    — see :class:`AdminScopeRequiredMixin`.
     """
 
     def _forbidden(self, lang: str) -> Response:
@@ -284,12 +293,14 @@ class PromptTemplateView(APIView):
         return Response(PromptTemplateSerializer(obj).data)
 
 
-class PromptTemplateResetView(APIView):
+class PromptTemplateResetView(AdminScopeRequiredMixin, APIView):
     """POST /api/v1/prompt-templates/reset/ (REQ-L2-PT-001).
 
     Restore prompt content to the factory ``DEFAULT_*`` constants. Body may
     contain ``{"slot": "<name>"}`` to reset a single slot; without it, all
-    slots are reset. Admin role required.
+    slots are reset. Admin role required; writes additionally require the
+    ADMIN-tier API-key scope (follow-up to #865, see
+    :class:`AdminScopeRequiredMixin`).
     """
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -419,7 +430,7 @@ class PromptTemplateSlotListView(_PromptSlotAdminMixin, APIView):
         )
 
 
-class PromptTemplateSlotDetailView(_PromptSlotAdminMixin, APIView):
+class PromptTemplateSlotDetailView(AdminScopeRequiredMixin, _PromptSlotAdminMixin, APIView):
     """PUT/DELETE /api/v1/prompt-templates/slots/<name>/ (issue #119).
 
     PUT publishes a new active version of ``name`` for the requested scope
@@ -434,6 +445,9 @@ class PromptTemplateSlotDetailView(_PromptSlotAdminMixin, APIView):
     split-surface gap issue #119 is about.
 
     Admin role required.
+
+    Capability gate (follow-up to #865): PUT/DELETE additionally require the
+    ADMIN-tier API-key scope — see :class:`AdminScopeRequiredMixin`.
     """
 
     def put(self, request: Request, name: str, *args: Any, **kwargs: Any) -> Response:
@@ -518,13 +532,16 @@ class ReviewPolicySerializer(serializers.Serializer):
     min_confidence = serializers.FloatField(min_value=0.0, max_value=1.0)
 
 
-class ReviewPolicyView(APIView):
+class ReviewPolicyView(AdminScopeRequiredMixin, APIView):
     """GET/PUT /api/v1/workspaces/{workspace_id}/review-policy/ (REQ-L2-RV-001).
 
     Admin-only, mirroring :class:`LlmSettingsView`'s permission gate,
     response shape, and error-mapping idiom (``ValidationError`` -> 400,
     ``PermissionDeniedError`` -> 403 is not reachable here since the admin
     check happens before the service call, same as ``LlmSettingsView``).
+
+    Capability gate (follow-up to #865): the PUT additionally requires the
+    ADMIN-tier API-key scope — see :class:`AdminScopeRequiredMixin`.
     """
 
     def _forbidden(self, lang: str) -> Response:
@@ -604,13 +621,16 @@ class ContextGraphSettingsSerializer(serializers.Serializer):
     edge_count = serializers.IntegerField(read_only=True)
 
 
-class ContextGraphSettingsView(APIView):
+class ContextGraphSettingsView(AdminScopeRequiredMixin, APIView):
     """GET/PUT /api/v1/workspaces/{workspace_id}/context-graph-settings/
     (Issue #377, Task 9). Admin-only, mirrors :class:`ReviewPolicyView`.
 
     GET never creates a row (missing row = feature off, defaults apply —
     Global Constraints). PUT creates/updates it; enabling for the first time
     (or False -> True) triggers an async rebuild.
+
+    Capability gate (follow-up to #865): the PUT additionally requires the
+    ADMIN-tier API-key scope — see :class:`AdminScopeRequiredMixin`.
     """
 
     def _forbidden(self, lang: str) -> Response:
@@ -672,10 +692,14 @@ class ContextGraphSettingsView(APIView):
         return Response(ContextGraphSettingsSerializer(dto).data)
 
 
-class ContextGraphRebuildView(APIView):
+class ContextGraphRebuildView(AdminScopeRequiredMixin, APIView):
     """POST /api/v1/workspaces/{workspace_id}/context-graph-settings/rebuild/
     (Issue #377, Task 9's "Rebuild now" button). Admin-only. Async — 202,
-    not a synchronous rebuild in the request/response cycle."""
+    not a synchronous rebuild in the request/response cycle.
+
+    Capability gate (follow-up to #865): the POST requires the ADMIN-tier
+    API-key scope — see :class:`AdminScopeRequiredMixin`.
+    """
 
     def post(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
         from application import context_service

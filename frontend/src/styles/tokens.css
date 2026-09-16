@@ -797,6 +797,25 @@
   --radius-lg: 16px;
   --radius-full: 9999px;
 
+  /*
+   * Button metrics (issue #954) — the single height/radius vocabulary for the
+   * shared `.btn-*` system in `global.css`. Before these tokens every dialog
+   * re-derived its own button padding/radius inline, which produced nine
+   * different button heights (20-54px) and two radii (6px vs 12px) inside the
+   * same button family. Call sites now either use a `.btn-*` class (which
+   * reads `--btn-h-md` + `--radius-btn` directly) or, when they need a
+   * semantic colour the canonical classes do not provide, reference these
+   * tokens for the geometry instead of inventing padding.
+   *
+   * Like the `--palette-*` pool above, the size scale is declared in full
+   * (`sm`/`md`/`lg`) even where a level has no consumer yet — the scale
+   * documents the vocabulary, it is not a usage list.
+   */
+  --btn-h-sm: 32px;
+  --btn-h-md: 36px;
+  --btn-h-lg: 44px;
+  --radius-btn: var(--radius-sm);
+
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
