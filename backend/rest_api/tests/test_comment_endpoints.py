@@ -3,7 +3,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.urls import reverse
+from django.urls import resolve, reverse
 from rest_framework.test import APIRequestFactory
 
 from rest_api.collaboration_views import ArtifactCommentsView, CommentViewSet
@@ -189,3 +189,59 @@ def test_module_contains_no_orm_access():
 
     source = Path(module.__file__).read_text(encoding="utf-8")
     assert ".objects." not in source
+
+
+# ---------------------------------------------------------------------------
+# Router-bound UUID converter (#820 follow-up)
+# ---------------------------------------------------------------------------
+#
+# Every test above calls the view class directly with ``artifact_id=str(...)``
+# (or ``pk=str(...)``), so the ``<uuid:...>`` path converter was never
+# exercised. That is precisely how the ``UUID(uuid_obj)`` -> ``AttributeError``
+# -> 500 bug (fixed in 5ecc32e7) stayed invisible: production hands the view a
+# ``uuid.UUID``, the direct-call tests handed it a string. These two tests go
+# through the real URL pattern (``resolve`` binds the converter) so the view
+# receives what a live request delivers.
+
+
+def _routed(url: str):
+    """Return ``(view_callable, kwargs)`` for a real registered URL."""
+    match = resolve(url)
+    assert match.func.view_class is ArtifactCommentsView
+    return match.func, match.kwargs
+
+
+def test_routed_list_comments_binds_uuid_converter(factory):
+    artifact_id = uuid.uuid4()
+    url = reverse("api-v1-artifact-comments", kwargs={"artifact_id": artifact_id})
+    view, kwargs = _routed(url)
+
+    # The converter must hand a UUID (not a string) to the view.
+    assert isinstance(kwargs["artifact_id"], uuid.UUID)
+    assert kwargs["artifact_id"] == artifact_id
+
+    request = _authed(factory.get(url))
+    with patch("rest_api.collaboration_views.get_auth_context", return_value=MagicMock()), patch(
+        "rest_api.collaboration_views.CommentService"
+    ) as svc:
+        svc.return_value.list_for_artifact.return_value = [_comment_stub("hello")]
+        response = view(request, **kwargs)
+
+    assert response.status_code == 200
+    assert svc.return_value.list_for_artifact.call_args.args[0] == artifact_id
+
+
+def test_routed_create_comment_binds_uuid_converter(factory):
+    artifact_id = uuid.uuid4()
+    url = reverse("api-v1-artifact-comments", kwargs={"artifact_id": artifact_id})
+    view, kwargs = _routed(url)
+
+    request = _authed(factory.post(url, {"text": "hi"}, format="json"))
+    with patch("rest_api.collaboration_views.get_auth_context", return_value=MagicMock()), patch(
+        "rest_api.collaboration_views.CommentService"
+    ) as svc:
+        svc.return_value.create_comment.return_value = _comment_stub("hi")
+        response = view(request, **kwargs)
+
+    assert response.status_code == 201
+    assert svc.return_value.create_comment.call_args.kwargs["artifact_id"] == artifact_id
