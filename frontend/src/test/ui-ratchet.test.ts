@@ -435,8 +435,14 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // `.btn-*` classes (height/radius now come from --btn-h-md/--radius-btn). Only
 // buttons were touched; the remaining inline literals in those files (form
 // fields, layout wrappers) are unchanged. Re-measured fresh: 836, matching.
+//
+// Issue #873 (pseudo-modal migration): -12. Removing the dead legacy
+// `TestCases/TestcaseList.tsx` and the `RequirementsList/ModalDialogBase.tsx`
+// pseudo-modal (the last two files still carrying hand-rolled overlay styling)
+// drops the project-wide inline `style={{` count. Re-measured on the tree: 824.
+// Baseline lowered to the measured value per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 836;
+const STYLE_BRACE_BASELINE = 824;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
