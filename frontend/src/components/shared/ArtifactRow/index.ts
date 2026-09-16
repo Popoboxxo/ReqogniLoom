@@ -3,4 +3,4 @@
  */
 
 export { ArtifactRow } from "./ArtifactRow";
-export type { ArtifactRowProps } from "./ArtifactRow";
+export type { ArtifactRowProps, ArtifactRowAttribute } from "./ArtifactRow";

@@ -31,7 +31,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 describe("ArtifactRow", () => {
-  it("renders id and level on the top line, title on its own line below", () => {
+  it("leads with the title and shows the labelled identifier below (issue #807)", () => {
     render(
       <ArtifactRow
         id="SYS-REQ-001"
@@ -40,9 +40,56 @@ describe("ArtifactRow", () => {
         status="Freigegeben"
       />,
     );
-    expect(screen.getByTestId("artifact-row-id")).toHaveTextContent("SYS-REQ-001");
+    const title = screen.getByText("Hauptfunktion des Systems");
+    const id = screen.getByTestId("artifact-row-id");
+    // The title must come *before* the identifier in document order: the
+    // artifact's name leads, the short reference follows.
+    expect(
+      title.compareDocumentPosition(id) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(id).toHaveTextContent("SYS-REQ-001");
     expect(screen.getByTestId("artifact-row-level")).toHaveTextContent("L1");
-    expect(screen.getByText("Hauptfunktion des Systems")).toBeInTheDocument();
+    // Issue #807: the identifier is visibly labelled ("ID") so a short hash
+    // never reads as the artifact's name.
+    expect(screen.getByText("ID")).toBeInTheDocument();
+  });
+
+  it("omits the identifier label when idLabel is null (issue #807 opt-out)", () => {
+    render(<ArtifactRow id="X-1" title="Ohne Label" idLabel={null} />);
+    expect(screen.queryByText("ID")).not.toBeInTheDocument();
+    expect(screen.getByTestId("artifact-row-id")).toHaveTextContent("X-1");
+  });
+
+  it("renders provided SE attributes and skips empty ones (issue #804)", () => {
+    render(
+      <ArtifactRow
+        id="SYS-REQ-001"
+        title="Anforderung mit SE-Attributen"
+        attributes={[
+          { label: "Kategorie", value: "functional" },
+          { label: "V-Modell-Ebene", value: "L1 System" },
+          { label: "Verifikationsmethode", value: null },
+        ]}
+      />,
+    );
+    const attrs = screen.getByTestId("artifact-row-attributes");
+    expect(attrs).toHaveTextContent("Kategorie");
+    expect(attrs).toHaveTextContent("functional");
+    expect(attrs).toHaveTextContent("L1 System");
+    // The null-valued attribute is dropped, not rendered as an empty chip.
+    expect(attrs).not.toHaveTextContent("Verifikationsmethode");
+    expect(screen.getAllByTestId("artifact-row-attribute")).toHaveLength(2);
+  });
+
+  it("renders no attribute line when every value is empty (issue #804)", () => {
+    render(
+      <ArtifactRow
+        id="X-1"
+        title="Leer"
+        attributes={[{ label: "Kategorie", value: "" }]}
+      />,
+    );
+    expect(screen.queryByTestId("artifact-row-attributes")).not.toBeInTheDocument();
   });
 
   it("renders status via StatusBadge and hides version at v1", () => {

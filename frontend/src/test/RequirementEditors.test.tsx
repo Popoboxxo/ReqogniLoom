@@ -17,7 +17,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -26,7 +26,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // without the real i18next singleton initialised, `language` is `undefined`
 // and `.startsWith()` throws. Same import ArchitectureEditors.test.tsx
 // already relies on (Task 24).
-import "../i18n/index";
+import { i18n } from "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules
@@ -485,6 +485,55 @@ describe("RequirementEditors Task 3.1 (ArtifactRow / EmptyState)", () => {
     expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}-status`)).toHaveTextContent(
       getWorkflowStatusLabel(MOCK_REQUIREMENT.status)
     );
+  });
+
+  it("shows the SE attributes and a clear type label on the row (issues #804/#807)", async () => {
+    const seRequirement = {
+      ...MOCK_REQUIREMENT,
+      type: "SyReq" as const,
+      level: 1 as const,
+      verification_method: "Test" as const,
+      complexity_fibonacci: 5,
+    };
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [seRequirement],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([seRequirement] as any);
+
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`req-row-${seRequirement.id}`)).toBeInTheDocument();
+    });
+
+    // Issue #804: the row exposes the SE classification the list payload
+    // already carries — category, V-model level, verification and complexity.
+    const attrs = screen.getByTestId(`req-row-${seRequirement.id}-attributes`);
+    expect(attrs).toHaveTextContent(i18n.t("editor.category"));
+    expect(attrs).toHaveTextContent(i18n.t("editor.level"));
+    expect(attrs).toHaveTextContent("L1 System");
+    expect(attrs).toHaveTextContent(i18n.t("editor.verificationMethod"));
+    expect(attrs).toHaveTextContent(i18n.t("editor.complexityFibonacci"));
+    expect(attrs).toHaveTextContent("5");
+
+    // Issue #807: the type badge reads the evident short label ("System")
+    // instead of the cryptic "SR" abbreviation; the spelled-out type stays as
+    // the native tooltip.
+    const levelBadge = screen.getByTestId(`req-row-${seRequirement.id}-level`);
+    expect(levelBadge).toHaveTextContent("System");
+    expect(levelBadge).not.toHaveTextContent("SR");
+    expect(levelBadge.getAttribute("title")).toContain(i18n.t("reqType.SyReq"));
+
+    // Issue #807: the short id is a clearly-labelled secondary reference.
+    expect(screen.getByTestId(`req-row-${seRequirement.id}-id`)).toHaveTextContent(
+      seRequirement.id
+    );
+    expect(
+      within(screen.getByTestId(`req-row-${seRequirement.id}`)).getByText(
+        i18n.t("artifactId.shortLabel")
+      )
+    ).toBeInTheDocument();
   });
 
   it("shows the empty variant with a create action when there are no requirements at all", async () => {

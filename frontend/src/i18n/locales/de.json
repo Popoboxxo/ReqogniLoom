@@ -982,11 +982,26 @@
     "SWReq": "Software-Anforderung (SWReq)",
     "HWReq": "Hardware-Anforderung (HWReq)"
   },
+  "reqTypeShort": {
+    "StReq": "Stakeholder",
+    "SyReq": "System",
+    "UseCase": "Use Case",
+    "FeatureReq": "Feature",
+    "SWReq": "Software",
+    "HWReq": "Hardware"
+  },
   "reqLevel": {
     "L1": "L1 System",
     "L2": "L2 Subsystem",
     "L3": "L3 Komponente",
     "L4": "L4 Präsentation"
+  },
+  "verificationMethod": {
+    "Test": "Test",
+    "Review": "Review",
+    "Analysis": "Analyse",
+    "Inspection": "Inspektion",
+    "Demonstration": "Demonstration"
   },
   "testRuns": {
     "create": "Neuer Testlauf",
@@ -1767,7 +1782,8 @@
     }
   },
   "artifactId": {
-    "term": "Bezeichner"
+    "term": "Bezeichner",
+    "shortLabel": "ID"
   },
   "revealValue": {
     "copy": "Wert kopieren",
@@ -2163,9 +2179,15 @@
     "changeReasonRequired": "Bitte einen Änderungsgrund angeben."
   },
   "sections": {
+    "identification": "Identifikation",
+    "content": "Inhalt",
     "general": "Allgemein",
     "classification": "Klassifikation",
+    "attribution": "Attribution",
+    "verification": "Verifikation",
+    "traceability": "Traceability",
     "change_control": "Änderungskontrolle",
+    "type_specific": "Typspezifisch",
     "custom": "Eigene Felder"
   },
   "attributes": {
