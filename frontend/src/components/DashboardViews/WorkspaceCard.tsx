@@ -75,11 +75,17 @@ const NAME_TRUNCATE_STYLE: CSSProperties = {
 // unchanged while the accessibility tree no longer nests the two
 // interactive elements. Hoisted (not an inline object literal) — see the
 // ui-ratchet.test.ts frozen baseline note above.
+//
+// #806: the wrapper used to carry its own `minWidth: 260px` / `maxWidth:
+// 320px` / `flex: 1 1 260px` sizing, left over from the wrapping flex row the
+// grid replaced. A grid item's width is the track's, so those three were
+// either inert (`flex`) or actively wrong: the 320px cap kept a card from
+// ever using a wider track, which re-opened the empty-row gap #806 is about.
+// `minWidth: 0` is all that is left to fix — grid item sizing (and the
+// 300px floor) is owned by `DashboardViews.module.css`'s `.workspaceGrid`.
 const CARD_WRAPPER_STYLE: CSSProperties = {
   position: "relative",
-  minWidth: "260px",
-  maxWidth: "320px",
-  flex: "1 1 260px",
+  minWidth: 0,
 };
 
 // Sibling positioning for the preset/mode badge button — see

@@ -1,0 +1,27 @@
+/* Dashboard workspace card grid (COMP-RF-002) — layout contract for #806.
+   Layout only: every colour and size comes from styles/tokens.css. */
+
+.workspaceGrid {
+  display: grid;
+  /* `auto-fit` (not `auto-fill`): empty tracks collapse, so a short list
+     stretches its cards across the full content width instead of leaving the
+     rest of the row empty — the density problem reported in #806 (two
+     workspaces and a mostly empty page). On a tenant with many workspaces the
+     same rule packs the cards into as many ~300px columns as fit, which is
+     denser than the previous bare wrapping flex row.
+
+     `minmax(min(300px, 100%), 1fr)`: the `min()` guard keeps the template
+     valid when the container itself is narrower than one card (single column,
+     no horizontal overflow). 300px is the floor at which a card still fits
+     its title row (the preset badge reserves three `--space-8` of padding)
+     and its two statistic columns. */
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: var(--space-4);
+  /* L-03: the cards are individually bordered and the last row is usually
+     ragged, so the grid had no visible end — the page just stopped. A
+     hairline rule under a padded region closes it off, and matches the
+     bordered box the empty state renders in the same slot, so both states
+     read as one bounded area. */
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+}
