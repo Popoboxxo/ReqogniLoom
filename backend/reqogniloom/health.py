@@ -33,7 +33,12 @@ class HealthView(View):
             connection.ensure_connection()
             status["checks"]["database"] = "ok"
         except Exception as e:
-            status["checks"]["database"] = f"error: {str(e)}"
+            # #697 (CWE-209): /health/ is reachable without authentication, and
+            # a psycopg error's str() carries host, port, user and DSN
+            # fragments. The probe only reads the status code, so the client
+            # gets a static marker while the real cause goes to the log —
+            # same pattern as the workflow-definition check below.
+            status["checks"]["database"] = "error"
             status["status"] = "degraded"
             http_status = 503
             logger.warning("Health check: database degraded - %s", e)

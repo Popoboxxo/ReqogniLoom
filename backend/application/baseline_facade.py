@@ -438,9 +438,8 @@ class BaselineFacade(ServiceBase):
             )
             raise ValidationError(
                 "Baseline cannot be created: the SE-Auditor gate could not be "
-                "evaluated due to an internal error "
-                f"({type(exc).__name__}: {exc}). Baseline creation is blocked "
-                "until the SE-Auditor is operational again — this is a "
+                "evaluated due to an internal error. Baseline creation is "
+                "blocked until the SE-Auditor is operational again — this is a "
                 "fail-closed governance gate, not a best-effort check."
             ) from exc
 

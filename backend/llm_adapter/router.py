@@ -118,6 +118,11 @@ def _read_enabled_capabilities() -> Set[str]:
 # ---------------------------------------------------------------------------
 
 
+#: Canonical, non-identifying message for an unmapped provider failure
+#: (#697, CWE-209). The raw exception text is logged/audited instead.
+_GENERIC_PROVIDER_ERROR = "The LLM provider reported an error."
+
+
 def _not_configured_response(message: str = "LLM not configured") -> Dict[str, Any]:
     """Build a LLM_NOT_CONFIGURED error response dict."""
     return {"error": {"code": LLM_NOT_CONFIGURED, "message": message}}
@@ -316,8 +321,14 @@ class CapabilityRouter:
             return _provider_error_response("Request timed out")
 
         except Exception as exc:  # noqa: BLE001
-            # Categorise by message content (Rate limit, API error, generic)
+            # Categorise by message content (Rate limit, API error, generic).
+            #
+            # #697 (CWE-209): ``msg`` is only *classified* here. The raw text of
+            # an unmapped provider/plumbing exception can name hosts, DSNs or
+            # SDK internals, so it goes to the audit row and the log — never
+            # into the client-visible ``error.message``.
             msg = str(exc)
+            error_msg = _GENERIC_PROVIDER_ERROR
             if "429" in msg or "Rate limit" in msg.lower() or "rate limit" in msg.lower():
                 error_msg = "Rate limit exceeded"
             elif any(f"API error: {c}" in msg or f"{c}" in msg for c in ["500", "502", "503", "504"]):
@@ -326,10 +337,12 @@ class CapabilityRouter:
                     if code in msg:
                         error_msg = f"API error: {code}"
                         break
-                else:
-                    error_msg = msg
-            else:
-                error_msg = msg
+            logger.warning(
+                "LLM provider '%s' call for capability '%s' failed",
+                provider_name,
+                capability_name,
+                exc_info=exc,
+            )
 
             self._audit_logger.log_llm_call(
                 provider=provider_name,
@@ -339,7 +352,7 @@ class CapabilityRouter:
                 or kwargs.get("workspace_id"),
                 token_usage=None,
                 success=False,
-                error=error_msg,
+                error=msg,
             )
             return _provider_error_response(error_msg)
 
@@ -463,6 +476,13 @@ class CapabilityRouter:
             return {"task_id": result}
 
         except Exception as exc:  # noqa: BLE001
+            # #697 (CWE-209): the cause stays in the audit row and the log; the
+            # caller gets the canonical provider-error message.
+            logger.warning(
+                "Celery dispatch for capability '%s' failed",
+                capability_name,
+                exc_info=exc,
+            )
             self._audit_logger.log_llm_call(
                 provider="celery",
                 capability=capability_name,
@@ -473,7 +493,7 @@ class CapabilityRouter:
                 success=False,
                 error=str(exc),
             )
-            return _provider_error_response(str(exc))
+            return _provider_error_response(_GENERIC_PROVIDER_ERROR)
 
     # ------------------------------------------------------------------
     # Task status proxy

@@ -139,9 +139,10 @@ class LinkTypeToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
-        except Exception as exc:  # noqa: BLE001 — transport boundary
+        except Exception:  # noqa: BLE001 — transport boundary
             logger.exception("link_type tool failed")
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            # #697 (CWE-209): log the cause, answer with the masked message.
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_list(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str

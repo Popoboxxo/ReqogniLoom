@@ -102,6 +102,39 @@ class TestHealthWorkflowWarning:
         assert response.status_code == 503
         assert body["status"] == "degraded"
 
+    def test_database_error_detail_is_static_and_the_cause_is_logged(
+        self, monkeypatch, caplog
+    ) -> None:
+        """#697 (CWE-209): ``/health/`` is reachable without authentication.
+
+        A psycopg error's ``str()`` carries host, port, user and DSN fragments,
+        so the probe's ``checks.database`` must be a static marker — the real
+        cause belongs in the log. The probe decision (503 / degraded) is
+        unchanged.
+        """
+        import reqogniloom.health as health_module
+
+        sensitive = (
+            "OperationalError: could not connect to server: "
+            "host=db.internal user=reqogniloom_app password=***"
+        )
+
+        def _boom():
+            raise RuntimeError(sensitive)
+
+        monkeypatch.setattr(health_module.connection, "ensure_connection", _boom)
+
+        client = Client()
+        with caplog.at_level("WARNING"):
+            response = client.get("/health/")
+        body = response.json()
+
+        assert response.status_code == 503
+        assert body["status"] == "degraded"
+        assert body["checks"]["database"] == "error"
+        assert sensitive not in str(body)
+        assert sensitive in caplog.text
+
 
 @pytest.mark.django_db
 def test_health_reports_csrf_cookie_configuration():

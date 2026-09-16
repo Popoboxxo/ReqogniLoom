@@ -703,8 +703,12 @@ class ArchitectureToolGroup(BaseToolGroup):
                 ctx=auth_context,
                 reason=reason,
             )
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): str(exc) on an unmapped exception can carry SQL
+            # fragments, table names or driver details. Log the real cause,
+            # answer with the canonical masked message.
+            logger.exception("architecture.outdate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,
@@ -746,8 +750,10 @@ class ArchitectureToolGroup(BaseToolGroup):
             )
         except ValueError as exc:
             return ToolResult.error("INVALID_STATE", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("architecture.reactivate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,

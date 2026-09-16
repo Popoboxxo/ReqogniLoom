@@ -425,14 +425,19 @@ class ReqifImportService(ServiceBase):
                         {"identifier": so.identifier, "message": str(exc)}
                     )
                     continue
-                except Exception as exc:  # noqa: BLE001 — soft-fail per object
+                except Exception:  # noqa: BLE001 — soft-fail per object
                     logger.exception(
                         "ReqifImportService: unexpected error importing %s",
                         so.identifier,
                     )
                     report.skipped += 1
+                    # #697 (CWE-209): the report is part of the HTTP 200 body,
+                    # so the raw exception text must not travel in it.
                     report.errors.append(
-                        {"identifier": so.identifier, "message": str(exc)}
+                        {
+                            "identifier": so.identifier,
+                            "message": "An internal error occurred while importing this object.",
+                        }
                     )
                     continue
 
@@ -868,14 +873,19 @@ class ReqifImportService(ServiceBase):
                 relations_report.errors.append(
                     {"identifier": relation.identifier, "message": str(exc)}
                 )
-            except Exception as exc:  # noqa: BLE001 — soft-fail per relation
+            except Exception:  # noqa: BLE001 — soft-fail per relation
                 logger.exception(
                     "ReqifImportService: unexpected error importing relation %s",
                     relation.identifier,
                 )
                 relations_report.skipped += 1
+                # #697 (CWE-209): the report is part of the HTTP 200 body, so
+                # the raw exception text must not travel in it.
                 relations_report.errors.append(
-                    {"identifier": relation.identifier, "message": str(exc)}
+                    {
+                        "identifier": relation.identifier,
+                        "message": "An internal error occurred while importing this relation.",
+                    }
                 )
 
 

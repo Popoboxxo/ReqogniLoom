@@ -666,9 +666,11 @@ class CrossCuttingToolGroup(BaseToolGroup):
                         "direction": dir_val,
                     })
 
-        except Exception as exc:
+        except Exception:
             logger.exception("traceability.query failed for artifact=%s", artifact_id)
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            # #697 (CWE-209): the logged traceback is for the operator; the
+            # caller gets the canonical masked message.
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         return ToolResult.ok({
             "artifact_id": str(artifact_id),
@@ -885,9 +887,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception as exc:
+        except Exception:
             logger.exception("artifact.search failed for query=%r", query_str)
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            # #697 (CWE-209): mask the unmapped cause toward the caller.
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         return ToolResult.ok({
             "results": [
@@ -939,9 +942,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception as exc:
+        except Exception:
             logger.exception("artifact.get_tree failed for root=%s", root_id)
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            # #697 (CWE-209): mask the unmapped cause toward the caller.
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         return ToolResult.ok({
             "root_id": str(root_id),
