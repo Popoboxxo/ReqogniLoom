@@ -43,6 +43,34 @@ class HealthView(View):
             http_status = 503
             logger.warning("Health check: database degraded - %s", e)
 
+        # Memory / embedding probe (#911): a container can pass the database
+        # check while its memory backend cannot embed at all — the shipped
+        # defect was Honcho's embedding base URL (`HONCHO_EMBEDDING_BASE_URL`)
+        # resolving to an unreachable host, so every memory WRITE failed while
+        # `/health/` still reported "ok". The active backend's own bounded
+        # `health_check()` performs the real embedding probe (for
+        # `HonchoMemoryBackend` that is a single OpenAI-compatible
+        # `/embeddings` request; for the default pgvector backend a table
+        # reachability query). Only a static marker reaches the client: the
+        # detail can quote a host or DSN and `/health/` is reachable without
+        # authentication, so the real cause goes to the log — same CWE-209
+        # handling as the database check above. Skipped when the DB is down
+        # (the backend lookup reads the DB) and never allowed to raise.
+        if status["checks"]["database"] == "ok":
+            try:
+                from memory.backends import get_memory_backend
+
+                memory_ok, memory_detail = get_memory_backend().health_check()
+            except Exception as e:  # noqa: BLE001 - health check must never crash
+                memory_ok, memory_detail = False, e
+            status["checks"]["memory_backend"] = "ok" if memory_ok else "error"
+            if not memory_ok:
+                status["status"] = "degraded"
+                http_status = 503
+                logger.warning(
+                    "Health check: memory backend degraded - %s", memory_detail
+                )
+
         # CSRF-cookie security check: AUTH_COOKIE_SECURE must match CSRF_COOKIE_SECURE
         # to avoid CSRF failures in deployments without a TLS-terminating reverse proxy.
         csrf_matches = (
