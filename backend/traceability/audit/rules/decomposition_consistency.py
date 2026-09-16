@@ -58,6 +58,27 @@ Because their trigger conditions differ (a ``decomposes`` Requirement link vs.
 an ``allocated-to`` + ArchitectureElement-parent combination), a workspace can
 fail one without failing the other — see the two rules' respective negative
 tests in ``traceability/tests/test_trace_p4_p5_arch003.py``.
+
+--------------------------------------------------------------------------
+ARCH-003 granularity (issue #581): one finding per decomposition edge
+--------------------------------------------------------------------------
+ARCH-003 used to emit one finding per ``(child element, allocated Requirement)``
+pair. A single missing derivation *chain* therefore multiplied into as many
+findings as the child element carried Requirements — the QS instance reported
+683 ARCH-003 findings (68% of all blockers) from one AI-derived architecture,
+all describing the same defect: the decomposition edge carries no Requirement
+derivation. The rule now aggregates per architecture decomposition edge (each
+non-root element has exactly one parent, so this is also per child element),
+naming every violating Requirement inside that one finding. The finding count
+is thereby bounded by the number of architecture elements instead of the number
+of allocations, and one root cause yields one finding.
+
+``Finding.artifact_ids`` stays ``(requirement..., child element, parent
+element)``: the Requirements are still the finding's subject (the frontend's
+"Modify" target resolution relies on the subject being first), the aggregated
+finding simply lists all of them. The message names at most
+:data:`_MAX_LISTED_REQUIREMENTS` ids — the complete set always stays in
+``artifact_ids`` — so one finding's payload stays bounded.
 """
 from __future__ import annotations
 
@@ -73,6 +94,13 @@ from traceability.audit.registry import (
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
 from workflow import state_reader
+
+#: Upper bound on the Requirement ids ARCH-003 renders into one aggregated
+#: finding's message (issue #581). The complete set is always carried in
+#: ``Finding.artifact_ids``; the message only summarises it, so a single
+#: finding's JSON payload stays bounded regardless of how many Requirements a
+#: child element carries.
+_MAX_LISTED_REQUIREMENTS = 5
 
 
 def _l4_level() -> int:
@@ -304,29 +332,46 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
             if parent_id is None or parent_id not in elements:
                 continue  # root, or already an orphan (TRACE-P4's responsibility)
             parent_requirements = allocations_by_element.get(parent_id, set())
-            for req_child in allocations_by_element.get(child_id, ()):
-                if levels.get(req_child) == l4:
-                    continue
-                if not any(
+            # One finding per decomposition edge (#581) — see the module
+            # docstring's "ARCH-003 granularity" section. sorted() keeps the
+            # aggregated artifact_ids deterministic across runs.
+            violating = sorted(
+                req_child
+                for req_child in allocations_by_element.get(child_id, ())
+                if levels.get(req_child) != l4
+                and not any(
                     (req_child, req_parent) in derives_from
                     for req_parent in parent_requirements
-                ):
-                    findings.append(
-                        Finding(
-                            rule_id=self.rule_id,
-                            severity=Severity.BLOCKER,
-                            message=(
-                                f"[ARCH-003] Requirement {req_child} is allocated to "
-                                f"ArchitectureElement {child_id} (decomposed from "
-                                f"{parent_id}) but does not derive-from any "
-                                "Requirement allocated to the parent element — the "
-                                "architecture decomposition has no matching "
-                                "Requirement derivation on the new level."
-                            ),
-                            artifact_ids=(req_child, child_id, parent_id),
-                        )
-                    )
+                )
+            )
+            if not violating:
+                continue
+            findings.append(
+                Finding(
+                    rule_id=self.rule_id,
+                    severity=Severity.BLOCKER,
+                    message=self._message(child_id, parent_id, violating),
+                    artifact_ids=(*violating, child_id, parent_id),
+                )
+            )
         return findings
+
+    @staticmethod
+    def _message(
+        child_id: str, parent_id: str, violating: List[str]
+    ) -> str:
+        """Render the aggregated finding message for one decomposition edge."""
+        listed = ", ".join(violating[:_MAX_LISTED_REQUIREMENTS])
+        if len(violating) > _MAX_LISTED_REQUIREMENTS:
+            listed += f", … (+{len(violating) - _MAX_LISTED_REQUIREMENTS} more)"
+        return (
+            f"[ARCH-003] Architecture decomposition {parent_id} -> {child_id} "
+            f"has no matching Requirement derivation: {len(violating)} "
+            f"Requirement(s) allocated to {child_id} ({listed}) do not "
+            "derive-from any Requirement allocated to the parent element — "
+            "the architecture decomposition has no matching Requirement "
+            "derivation on the new level."
+        )
 
 
 __all__ = [
