@@ -160,6 +160,15 @@ function volatileMasks(page: Page): Locator[] {
     // committed baseline (the same class of volatility the dashboard's
     // workspace-list mask handles).
     page.locator('[data-testid="metrics-scope-footer"]'),
+    // The KPI tiles themselves print *computed* values ("Not calculated" vs a
+    // number, a red vs green status dot). Which state a workspace is in depends
+    // on whether the SE-metrics rollup has run by the time the screenshot is
+    // taken, which is not deterministic across runs (observed drift 0.05 and
+    // 0.08 two runs apart on the same commit). Mask the volatile values while
+    // the surrounding chrome (header, filter, refresh, sidebar) stays covered;
+    // the tile *layout* is regression-tested at unit level in
+    // src/test/responsive-card-grids.test.ts and MetricsDashboard.test.tsx.
+    page.locator('[data-testid="metrics-tile-grid"]'),
   ];
 }
 

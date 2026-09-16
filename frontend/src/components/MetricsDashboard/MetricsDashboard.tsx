@@ -686,7 +686,7 @@ export default function MetricsDashboard(): JSX.Element {
            `repeat(auto-fit, minmax(260px, 320px))` template left the fifth
            tile alone on a second row at the viewport widths that fit exactly
            four tracks. */
-        <div className={styles.tileGrid}>
+        <div className={styles.tileGrid} data-testid="metrics-tile-grid">
           {TILES.map((spec) => (
             <MetricTile
               key={spec.name}
