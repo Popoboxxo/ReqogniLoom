@@ -39,10 +39,16 @@ from application.notification_preference_service import (
 from auth_tenancy.rest import HasOperationPermission
 from persistence.errors import ValidationError
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.serializers import build_error_response, detect_lang
+from rest_api.serializers import (
+    UnknownFieldRejectionMixin,
+    build_error_response,
+    detect_lang,
+)
 
 
-class NotificationPreferenceUpdateSerializer(serializers.Serializer):
+class NotificationPreferenceUpdateSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
     """``{"preferences": {"<kind>": <bool>}}`` — a partial update.
 
     ``DictField`` keeps the keys free-form at field level so the vocabulary

@@ -30,7 +30,11 @@ from application.settings_service import SettingsService
 from auth_tenancy.models import ROLE_ADMIN
 from llm_adapter.url_guard import UnsafeOutboundUrlError, validate_outbound_url
 from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
-from rest_api.serializers import build_error_response, detect_lang
+from rest_api.serializers import (
+    UnknownFieldRejectionMixin,
+    build_error_response,
+    detect_lang,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -38,12 +42,15 @@ from rest_api.serializers import build_error_response, detect_lang
 # ---------------------------------------------------------------------------
 
 
-class LlmSettingsSerializer(serializers.Serializer):
+class LlmSettingsSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
     """Read/write serializer for :class:`LlmSettings` (REQ-L2-LLM-001).
 
     ``api_key`` is write-only: it is accepted on write but never serialized on
     read. Readers receive ``api_key_is_set`` instead, so the UI can render a
     "configured" indicator without ever exposing the secret.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
     """
 
     provider = serializers.ChoiceField(choices=SettingsService.provider_choices())
@@ -180,12 +187,17 @@ class LlmSettingsView(AdminScopeRequiredMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
-class PromptTemplateSerializer(serializers.Serializer):
+class PromptTemplateSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
     """Read/write serializer for :class:`PromptTemplate` (REQ-L2-PT-001).
 
     All three slot fields are readable and writable. ``defaults_dict`` is a
     read-only map of slot name -> factory default, so the UI can offer a
     "reset to default" affordance without hard-coding the prompt text.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
     """
 
     need_to_sysreq = serializers.CharField(
@@ -345,12 +357,17 @@ class PromptTemplateResetView(AdminScopeRequiredMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
-class PromptTemplateSlotWriteSerializer(serializers.Serializer):
+class PromptTemplateSlotWriteSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
     """Write serializer for a single prompt slot (issue #119).
 
     ``content`` is intentionally allowed to be blank and is not whitespace-
     trimmed: prompt bodies are significant whitespace and an admin may
     legitimately want to blank a slot out before rewriting it.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
     """
 
     content = serializers.CharField(allow_blank=True, trim_whitespace=False)
@@ -518,7 +535,7 @@ class PromptTemplateSlotDetailView(AdminScopeRequiredMixin, _PromptSlotAdminMixi
 # ---------------------------------------------------------------------------
 
 
-class ReviewPolicySerializer(serializers.Serializer):
+class ReviewPolicySerializer(UnknownFieldRejectionMixin, serializers.Serializer):
     """Read/write serializer for :class:`ReviewPolicy` (REQ-L2-RV-001).
 
     ``mode`` is restricted to :data:`REVIEW_POLICY_MODES` and
@@ -526,6 +543,9 @@ class ReviewPolicySerializer(serializers.Serializer):
     same validation ``SettingsService.update_review_policy`` also performs
     (defense-in-depth: the service must not depend on the REST layer having
     validated first, since it is also reachable from the MCP server).
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
     """
 
     mode = serializers.ChoiceField(choices=SettingsService.review_policy_modes())
@@ -606,8 +626,14 @@ class ReviewPolicyView(AdminScopeRequiredMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
-class ContextGraphSettingsSerializer(serializers.Serializer):
-    """Read/write serializer for context_service.ContextGraphSettingsDTO."""
+class ContextGraphSettingsSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Read/write serializer for context_service.ContextGraphSettingsDTO.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
+    """
 
     enabled = serializers.BooleanField()
     enabled_generators = serializers.ListField(

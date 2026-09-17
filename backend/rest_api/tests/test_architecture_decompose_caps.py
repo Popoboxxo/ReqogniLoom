@@ -18,14 +18,21 @@ def test_serializer_accepts_the_new_cap_names():
     assert ser.validated_data["max_depth"] == 2
 
 
-def test_serializer_ignores_the_removed_legacy_names():
+def test_serializer_rejects_the_removed_legacy_names():
+    """#851: the removed ``breadth``/``depth`` names are a 400, not a silent drop.
+
+    They used to be ignored (the request answered 200 and the caps fell back to
+    the workspace defaults), which meant a client still sending the pre-spec-§4
+    names had no way to tell its payload was discarded. With the uniform
+    unknown-field guard the request now names the stale keys instead.
+    """
     ser = GenerateDraftRequestSerializer(
         data={"element_id": _ELEMENT_ID, "breadth": 4, "depth": 2}
     )
 
-    assert ser.is_valid(), ser.errors
-    assert "max_breadth" not in ser.validated_data
-    assert "max_depth" not in ser.validated_data
+    assert not ser.is_valid()
+    assert ser.errors["breadth"] == ["Unknown field."]
+    assert ser.errors["depth"] == ["Unknown field."]
 
 
 def test_serializer_rejects_a_cap_below_one():

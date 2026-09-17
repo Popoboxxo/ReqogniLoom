@@ -37,10 +37,16 @@ from application.architecture_decompose_service import (
 )
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.serializers import build_error_response, detect_lang
+from rest_api.serializers import (
+    UnknownFieldRejectionMixin,
+    build_error_response,
+    detect_lang,
+)
 
 
-class GenerateDraftRequestSerializer(serializers.Serializer):
+class GenerateDraftRequestSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
     """Body of POST .../architecture/decompose/.
 
     Spec §4 (breaking change): the former ``breadth``/``depth`` target numbers
