@@ -12,7 +12,7 @@
  * the seven forms had, it never cuts one.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -109,6 +109,10 @@ export interface ArtifactFormProps {
    * memo on each render).
    */
   attributeOverrides?: Record<string, Partial<AttributeSpec>>;
+  /** Optional legacy create form, shown alongside the definition-load error. */
+  definitionFallback?: ReactNode;
+  /** Create-dialog cancel action; edit adapters may omit it. */
+  onCancel?: () => void;
 }
 
 export interface FormSection {
@@ -189,6 +193,8 @@ export function ArtifactForm({
   workflowArtifactType,
   requiresChangeReason = false,
   attributeOverrides,
+  definitionFallback,
+  onCancel,
 }: ArtifactFormProps): JSX.Element {
   const { t, i18n } = useTranslation();
   const { definition: resolvedDefinition, loading, error: loadError } =
@@ -282,8 +288,10 @@ export function ArtifactForm({
   }, [combinedDirty, onDirtyChange]);
 
   const visible = useMemo(
-    () => (definition?.attributes ?? []).filter((a) => a.visible),
-    [definition]
+    () => (definition?.attributes ?? []).filter(
+      (a) => a.visible && (artifactId !== null || a.editable === true)
+    ),
+    [definition, artifactId]
   );
 
   const specByName = useMemo(() => {
@@ -405,7 +413,17 @@ export function ArtifactForm({
     setValues((current) => writeValue(current, attribute, next));
   }, []);
 
+  // Create requiredness comes from the definition, not from edit-time gates.
+  // Check the value rather than truthiness: false and 0 are valid values.
+  const missingCreateValue = artifactId === null && (definition?.attributes ?? []).some((attribute) => {
+    if (!attribute.required || attribute.editable !== true || attribute.type === "widget") return false;
+    const value = readValue(values, attribute);
+    return value == null || (typeof value === "string" && !value.trim()) ||
+      (Array.isArray(value) && value.length === 0);
+  });
+
   const handleSave = useCallback(async (): Promise<void> => {
+    if (saving || missingCreateValue) return;
     if (changeReasonMissing) {
       setFormError(t("artifactForm.changeReasonRequired"));
       return;
@@ -446,6 +464,8 @@ export function ArtifactForm({
     definition,
     markClean,
     onSave,
+    saving,
+    missingCreateValue,
     t,
     values,
   ]);
@@ -481,15 +501,18 @@ export function ArtifactForm({
   // the a11y regression tests.
   if (loadError || !definition) {
     return (
-      <div
-        className={styles.errors}
-        role="alert"
-        aria-live="assertive"
-        data-testid="artifact-form-load-error"
-      >
-        <AlertCircle aria-hidden="true" size={16} />
-        {loadError ?? t("artifactForm.definitionUnavailable")}
-      </div>
+      <>
+        <div
+          className={styles.errors}
+          role="alert"
+          aria-live="assertive"
+          data-testid="artifact-form-load-error"
+        >
+          <AlertCircle aria-hidden="true" size={16} />
+          {loadError ?? t("artifactForm.definitionUnavailable")}
+        </div>
+        {definitionFallback}
+      </>
     );
   }
 
@@ -659,8 +682,13 @@ export function ArtifactForm({
               {t("actions.delete")}
             </button>
           ) : null}
-          <button type="submit" data-testid="artifact-form-save" disabled={saving}>
-            {saving ? t("actions.saving") : t("actions.save")}
+          {onCancel ? (
+            <button type="button" className="btn-secondary" data-testid="artifact-form-cancel" disabled={saving} onClick={onCancel}>
+              {t("actions.cancel")}
+            </button>
+          ) : null}
+          <button type="submit" className="btn-primary" data-testid="artifact-form-save" disabled={saving || missingCreateValue}>
+            {saving ? t("actions.saving") : t(artifactId === null ? "actions.create" : "actions.save")}
           </button>
         </div>
       ) : null}
