@@ -384,6 +384,41 @@ def test_export_workspace_returns_a_document(admin_client, workspace_fixture, se
 
 
 @pytest.mark.django_db
+def test_export_conflicted_workspace_definition_returns_409(
+    admin_client, tenant_fixture, workspace_fixture, seeded
+) -> None:
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    attributes = [TITLE, {"name": "legacy_note", "kind": "extended", "type": "text"}]
+    seeded.update(tenant_fixture.id, "Risk", "extended", attributes)
+    store = WorkspaceAttributeDefinitionStore()
+    store.resolve(tenant_fixture.id, workspace_fixture.id, "Risk", "extended")
+    store.update(tenant_fixture.id, workspace_fixture.id, "Risk", attributes)
+
+    response = admin_client.get(
+        f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/export/"
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": {
+            "code": "CONFLICT",
+            "message": (
+                "Customized definition 'Risk' uses preset 'extended', but workspace "
+                "requests 'standard'; target preset lacks: legacy_note. "
+                "Reconcile the customization or explicitly reset it."
+            ),
+            "details": [],
+        }
+    }
+    row = store.get(tenant_fixture.id, workspace_fixture.id, "Risk")
+    assert row.preset == "extended"
+    assert row.is_customized is True
+
+
+@pytest.mark.django_db
 def test_import_workspace_adds_a_new_attribute(admin_client, workspace_fixture, seeded) -> None:
     response = admin_client.post(
         f"/api/v1/workspaces/{workspace_fixture.id}/attribute-definitions/Risk/import/",

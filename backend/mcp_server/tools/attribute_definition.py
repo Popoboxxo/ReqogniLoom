@@ -550,6 +550,8 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
             document = self._get_service().export_definition(
                 auth_context, item_type, workspace_id=workspace_id
             )
+        except AttributeDefinitionConflictError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except AttributeDefinitionNotFound as exc:

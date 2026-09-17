@@ -805,6 +805,45 @@ def test_export_returns_the_document(group, ctx) -> None:
 
 
 @pytest.mark.django_db
+def test_export_conflicted_workspace_definition_is_actionable(group) -> None:
+    from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    tenant, workspace = _risk_workspace_with_definition()
+    attributes = [
+        {"name": "title", "kind": "core", "type": "text"},
+        {"name": "legacy_note", "kind": "extended", "type": "text"},
+    ]
+    GlobalAttributeDefinitionStore().initialize(
+        tenant.id, "Risk", "extended", attributes
+    )
+    store = WorkspaceAttributeDefinitionStore()
+    store.resolve(tenant.id, workspace.id, "Risk", "extended")
+    store.update(tenant.id, workspace.id, "Risk", attributes)
+
+    result = group.execute_tool(
+        tool_name="attribute_definition.export_workspace",
+        params={"item_type": "Risk", "workspace_id": str(workspace.id)},
+        auth_context=_admin_ctx(tenant),
+        api_key=VALID_API_KEY,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert result.message == (
+        "Customized definition 'Risk' uses preset 'extended', but workspace "
+        "requests 'standard'; target preset lacks: legacy_note. "
+        "Reconcile the customization or explicitly reset it."
+    )
+    assert result.details is None
+    row = store.get(tenant.id, workspace.id, "Risk")
+    assert row.preset == "extended"
+    assert row.is_customized is True
+
+
+@pytest.mark.django_db
 def test_export_workspace_maps_cross_tenant_to_permission_denied(group, ctx) -> None:
     from presets.exceptions import CrossTenantWorkspaceError
 
