@@ -36,7 +36,7 @@
 #      `get_session_auth_hash()` unconditionally (persistence/models.py).
 #      NOTE this is a real behaviour change, not just a shim — see the security
 #      note there: pre-existing admin sessions are invalidated once on rollout.
-Django>=6.1,<6.2
+Django>=6.1.1,<6.2
 # 3.17.2+ declares Django 5.2 support; the existing range already resolves
 # there, so no floor change is required.
 djangorestframework>=3.18.0,<4.0
