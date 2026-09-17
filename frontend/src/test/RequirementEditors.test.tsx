@@ -726,7 +726,9 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     );
     await user.click(screen.getByTestId("create-req-btn"));
 
-    expect(screen.getByTestId("artifact-form-save")).toBeDisabled();
+    // #583 create path: the dialog exposes the legacy automation selectors
+    // (req-new-title-input / req-new-save-btn) on the definition-driven form.
+    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
     expect(requirementsApi.create).not.toHaveBeenCalled();
   });
 
@@ -739,9 +741,9 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     );
     await user.click(screen.getByTestId("create-req-btn"));
     await screen.findByTestId("artifact-form");
-    await user.type(screen.getByTestId("artifact-field-title"), "   ");
+    await user.type(screen.getByTestId("req-new-title-input"), "   ");
 
-    expect(screen.getByTestId("artifact-form-save")).toBeDisabled();
+    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
 
     // Guard against a future regression that removes `disabled` but still
     // wires the click handler permissively: submitting the form directly
@@ -765,12 +767,12 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     );
     await user.click(screen.getByTestId("create-req-btn"));
     await screen.findByTestId("artifact-form");
-    expect(screen.getByTestId("artifact-form-save")).toBeDisabled();
+    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
 
-    await user.type(screen.getByTestId("artifact-field-title"), "Real title");
-    expect(screen.getByTestId("artifact-form-save")).toBeEnabled();
+    await user.type(screen.getByTestId("req-new-title-input"), "Real title");
+    expect(screen.getByTestId("req-new-save-btn")).toBeEnabled();
 
-    await user.click(screen.getByTestId("artifact-form-save"));
+    await user.click(screen.getByTestId("req-new-save-btn"));
 
     await waitFor(() => {
       expect(requirementsApi.create).toHaveBeenCalledWith(
@@ -958,7 +960,7 @@ describe("RequirementEditors — create form has description/category fields (BU
     await user.click(screen.getByTestId("create-req-btn"));
     await screen.findByTestId("artifact-form");
 
-    await user.type(screen.getByTestId("artifact-field-title"), "New Req");
+    await user.type(screen.getByTestId("req-new-title-input"), "New Req");
     await user.type(
       screen.getByTestId("artifact-field-description"),
       "Some description"
@@ -967,7 +969,7 @@ describe("RequirementEditors — create form has description/category fields (BU
       screen.getByTestId("artifact-field-category"),
       "functional"
     );
-    await user.click(screen.getByTestId("artifact-form-save"));
+    await user.click(screen.getByTestId("req-new-save-btn"));
 
     await waitFor(() =>
       expect(requirementsApi.create).toHaveBeenCalledWith(
@@ -1044,9 +1046,9 @@ describe("RequirementEditors — create form has description/category fields (BU
       // The extended attribute renders like any other definition field.
       expect(screen.getByTestId("artifact-field-sap_id")).toBeInTheDocument();
 
-      await user.type(screen.getByTestId("artifact-field-title"), "New Req");
+      await user.type(screen.getByTestId("req-new-title-input"), "New Req");
       await user.type(screen.getByTestId("artifact-field-sap_id"), "SAP-4711");
-      await user.click(screen.getByTestId("artifact-form-save"));
+      await user.click(screen.getByTestId("req-new-save-btn"));
 
       await waitFor(() =>
         expect(requirementsApi.create).toHaveBeenCalledWith(
@@ -1056,6 +1058,31 @@ describe("RequirementEditors — create form has description/category fields (BU
           })
         )
       );
+    });
+
+    it("exposes the legacy create automation selectors on the definition-driven path (testid contract)", async () => {
+      extendedDefinition();
+      const user = userEvent.setup();
+      renderEditor();
+
+      await waitFor(() =>
+        expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+      );
+      await user.click(screen.getByTestId("create-req-btn"));
+      await screen.findByTestId("artifact-form");
+
+      // E2E drives the create dialog through req-new-title-input /
+      // req-new-save-btn (wk-helpers.createRequirement et al.) — these must
+      // exist on the definition-driven path, not only on the fallback.
+      const title = screen.getByTestId("req-new-title-input");
+      expect(title.tagName).toBe("INPUT");
+      await user.type(title, "Contract title");
+      const save = screen.getByTestId("req-new-save-btn");
+      expect(save).toBeEnabled();
+      // Other fields keep their generic ids (only title/save are contract).
+      expect(screen.getByTestId("artifact-field-description")).toBeInTheDocument();
+      // The definition path must not ALSO render the legacy fallback form.
+      expect(screen.queryByTestId("create-req-form")).not.toBeInTheDocument();
     });
 
     it("does not render an editable:false field as an input", async () => {
@@ -1085,9 +1112,9 @@ describe("RequirementEditors — create form has description/category fields (BU
       await user.click(screen.getByTestId("create-req-btn"));
       await screen.findByTestId("artifact-form");
 
-      expect(screen.getByTestId("artifact-form-save")).toBeDisabled();
-      await user.type(screen.getByTestId("artifact-field-title"), "Only title");
-      expect(screen.getByTestId("artifact-form-save")).toBeEnabled();
+      expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+      await user.type(screen.getByTestId("req-new-title-input"), "Only title");
+      expect(screen.getByTestId("req-new-save-btn")).toBeEnabled();
     });
 
     it("falls back to the minimal dialog when the definition fails to load", async () => {
@@ -1165,7 +1192,7 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
     await user.click(screen.getByTestId("create-req-btn"));
     await screen.findByTestId("artifact-form");
 
-    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-title"));
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
   });
 
   it("tabs through the form fields before ever reaching the close button", async () => {
@@ -1181,8 +1208,8 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
     // Title has a value from the moment the dialog opens onward, so Save
     // becomes reachable as a real (non-disabled) Tab stop too — type it
     // first to exercise the *full* field order, not a truncated one.
-    await user.type(screen.getByTestId("artifact-field-title"), "New Req");
-    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-title"));
+    await user.type(screen.getByTestId("req-new-title-input"), "New Req");
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
 
     await user.tab();
     expect(document.activeElement).toBe(screen.getByTestId("artifact-field-description"));
@@ -1194,12 +1221,12 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
     expect(document.activeElement).toBe(screen.getByTestId("artifact-form-cancel"));
 
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("artifact-form-save"));
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-save-btn"));
 
     // Issue #800: the ×-close button must never be a Tab stop — Tab from
     // the last field wraps straight back to the first one, not through ×.
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-title"));
+    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
     expect(document.activeElement).not.toBe(screen.getByTestId("req-new-dialog-close"));
   });
 });

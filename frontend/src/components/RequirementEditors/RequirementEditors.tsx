@@ -509,6 +509,8 @@ export default function RequirementEditors(): JSX.Element {
           attributeOverrides={REQUIREMENT_ATTRIBUTE_OVERRIDES}
           onSave={handleDefinitionCreate}
           onCancel={handleCancelCreate}
+          fieldTestIds={{ title: 'req-new-title-input' }}
+          saveTestId="req-new-save-btn"
           definitionFallback={
         <form
           data-testid="create-req-form"

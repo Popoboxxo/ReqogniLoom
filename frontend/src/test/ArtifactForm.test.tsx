@@ -716,6 +716,315 @@ describe("ArtifactForm", () => {
   });
 });
 
+describe("ArtifactForm create required gate (issue #583)", () => {
+  beforeEach(() => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockReset();
+    vi.mocked(usersApi.list).mockReset();
+    vi.mocked(usersApi.list).mockResolvedValue([]);
+  });
+
+  // F1 (#583): the required gate must consider only fields the form actually
+  // renders in create mode. A hidden required attribute without a default is
+  // the server's own concern — a create payload omitting it is satisfied by
+  // the backend's own bootstrap contract (`required = not blank AND not
+  // has_default`), and blocking Create in the UI for a field the user cannot
+  // see or edit is a permanent, unexplained block.
+  it("does not let a hidden required attribute block Create (F1)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({ name: "title", required: true }),
+      spec({ name: "hidden_required", required: true, visible: false }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "Visible title" }}
+        onSave={onSave}
+      />
+    );
+    const save = await screen.findByTestId("artifact-form-save");
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ title: "Visible title" }))
+    );
+  });
+
+  it("does not let a hidden section's required attribute block Create (F1, section-level visibility)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition(
+      [
+        spec({ name: "title", required: true, section: "general" }),
+        spec({ name: "locked_in", required: true, section: "hidden_section" }),
+      ],
+      [section({ name: "general", order: 0 }), section({ name: "hidden_section", order: 1, visible: false })]
+    );
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "T" }}
+        onSave={onSave}
+      />
+    );
+    await screen.findByTestId("artifact-field-title");
+    expect(screen.getByTestId("artifact-form-save")).toBeEnabled();
+  });
+
+  it("still blocks Create for a visible required field without a value (gate stays strict for rendered fields)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({ name: "title", required: true }),
+      spec({ name: "note", required: true, type: "textarea" }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "T" }}
+        onSave={onSave}
+      />
+    );
+    const save = await screen.findByTestId("artifact-form-save");
+    expect(save).toBeDisabled();
+    await userEvent.type(screen.getByTestId("artifact-field-note"), "filled");
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ note: "filled" }))
+    );
+  });
+
+  it("does not let an invisible required attribute inside a resolvable widget block Create (F1, widget-bound fields)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({ name: "title", required: true }),
+      spec({
+        name: "risk_matrix",
+        type: "widget",
+        widget_key: "risk_matrix_rpz",
+        fields: ["probability", "impact", "detection"],
+        section: "classification",
+      }),
+      spec({ name: "probability", type: "enum", required: true, section: "classification", order: 4 }),
+      spec({ name: "impact", type: "enum", required: true, section: "classification", order: 5 }),
+      spec({ name: "detection", type: "number", section: "classification", order: 8 }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "T" }}
+        onSave={onSave}
+      />
+    );
+    const save = await screen.findByTestId("artifact-form-save");
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ title: "T" }))
+    );
+  });
+
+  // F2 (#583): a definition that loads successfully but carries no attributes
+  // is unusable in create mode — no title input, nothing for the focus trap.
+  // Treat it like a load failure so the legacy minimal fallback renders.
+  it("falls back when a create-mode definition loads with an empty attributes list (F2)", async () => {
+    mockDefinition([]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "" }}
+        onSave={vi.fn()}
+        definitionFallback={
+          <div data-testid="artifact-form-fallback">legacy minimal form</div>
+        }
+      />
+    );
+    const banner = await screen.findByTestId("artifact-form-load-error");
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(screen.getByTestId("artifact-form-fallback")).toBeInTheDocument();
+    expect(screen.queryByTestId("artifact-form")).not.toBeInTheDocument();
+  });
+
+  it("keeps rendering the definition form when a loaded definition has attributes (F2 negative)", async () => {
+    mockDefinition([spec({ name: "title", required: true })]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "" }}
+        onSave={vi.fn()}
+        definitionFallback={
+          <div data-testid="artifact-form-fallback">legacy minimal form</div>
+        }
+      />
+    );
+    expect(await screen.findByTestId("artifact-form")).toBeInTheDocument();
+    expect(screen.queryByTestId("artifact-form-fallback")).not.toBeInTheDocument();
+  });
+
+  // F3 (#583): a required enum's <select> has no empty option, so the browser
+  // shows the first option while the state stays unset — a single-option enum
+  // could never be "filled" and Create stayed blocked. Gate and UI must agree.
+  it("initializes a required enum in create mode with its first option (F3)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({ name: "title", required: true }),
+      spec({
+        name: "priority",
+        type: "enum",
+        required: true,
+        order: 2,
+        options: [
+          { value: "high", label_de: "Hoch", label_en: "High" },
+          { value: "low", label_de: "Niedrig", label_en: "Low" },
+        ],
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "T" }}
+        onSave={onSave}
+      />
+    );
+    const select = await screen.findByTestId("artifact-field-priority");
+    expect(select.tagName).toBe("SELECT");
+    // No empty option is rendered for a required select, so the browser
+    // displays the first option — the state must carry that same value.
+    expect(select).toHaveValue("high");
+    expect(screen.getByTestId("artifact-form-save")).toBeEnabled();
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "T", priority: "high" })
+      )
+    );
+  });
+
+  it("initializes a required extended enum through custom_fields (F3, extended kind)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({ name: "title", required: true }),
+      spec({
+        name: "severity",
+        kind: "extended",
+        type: "enum",
+        required: true,
+        section: "custom",
+        order: 2,
+        options: [{ value: "major", label_de: "Major", label_en: "Major" }],
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "T" }}
+        onSave={onSave}
+      />
+    );
+    await screen.findByTestId("artifact-field-severity");
+    expect(screen.getByTestId("artifact-form-save")).toBeEnabled();
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "T", custom_fields: { severity: "major" } })
+      )
+    );
+  });
+
+  it("does not override an explicit value of a required enum (F3 guard)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({ name: "title", required: true }),
+      spec({
+        name: "priority",
+        type: "enum",
+        required: true,
+        order: 2,
+        options: [
+          { value: "high", label_de: "Hoch", label_en: "High" },
+          { value: "low", label_de: "Niedrig", label_en: "Low" },
+        ],
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{ title: "T", priority: "low" }}
+        onSave={onSave}
+      />
+    );
+    expect(await screen.findByTestId("artifact-field-priority")).toHaveValue("low");
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "T", priority: "low" })
+      )
+    );
+  });
+
+  it("does not initialize a required enum in edit mode (F3 guard)", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    mockDefinition([
+      spec({
+        name: "priority",
+        type: "enum",
+        required: true,
+        options: [
+          { value: "high", label_de: "Hoch", label_en: "High" },
+          { value: "low", label_de: "Niedrig", label_en: "Low" },
+        ],
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ priority: null }}
+        onSave={onSave}
+      />
+    );
+    // EnumSelect renders no empty <option> for a required select, so jsdom
+    // normalizes the display to the first option — but the underlying state
+    // must stay unset in edit mode: the user chooses, no silent default.
+    await screen.findByTestId("artifact-field-priority");
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ priority: null }))
+    );
+  });
+
+  it("does not initialize an optional enum in create mode (F3 guard)", async () => {
+    mockDefinition([
+      spec({
+        name: "mood",
+        type: "enum",
+        required: false,
+        options: [{ value: "calm", label_de: "Ruhig", label_en: "Calm" }],
+      }),
+    ]);
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId={null}
+        initialValues={{}}
+        onSave={vi.fn()}
+      />
+    );
+    // EnumSelect renders the empty "None" option for an optional select and
+    // the state stays unset until the user picks one.
+    expect(await screen.findByTestId("artifact-field-mood")).toHaveValue("");
+  });
+});
+
 // F-4 (Task 25 fix round 1): `requiresChangeReason` had zero coverage in the
 // shared suite — every prior assertion lived only in `RequirementArtifactForm
 // .test.tsx`, which exercises the adapter, not the shared renderer's own

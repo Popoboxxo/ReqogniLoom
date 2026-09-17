@@ -113,6 +113,9 @@ export interface ArtifactFormProps {
   definitionFallback?: ReactNode;
   /** Create-dialog cancel action; edit adapters may omit it. */
   onCancel?: () => void;
+  /** Adapter-owned selectors for existing create-dialog automation. */
+  fieldTestIds?: Record<string, string>;
+  saveTestId?: string;
 }
 
 export interface FormSection {
@@ -195,6 +198,8 @@ export function ArtifactForm({
   attributeOverrides,
   definitionFallback,
   onCancel,
+  fieldTestIds,
+  saveTestId = "artifact-form-save",
 }: ArtifactFormProps): JSX.Element {
   const { t, i18n } = useTranslation();
   const { definition: resolvedDefinition, loading, error: loadError } =
@@ -284,12 +289,11 @@ export function ArtifactForm({
     if (artifactId !== null || mode === "read" || loading || !definition) return;
     if (focusedOnCreate.current) return;
     focusedOnCreate.current = true;
+    // Adapted selectors (fieldTestIds) rename the controls too — the focus
+    // contract is "first operable control", so select by element type, not by
+    // the default `artifact-field-` prefix.
     const first = formRef.current?.querySelector<HTMLElement>(
-      [
-        '[data-testid^="artifact-field-"] input:not(:disabled)',
-        '[data-testid^="artifact-field-"] select:not(:disabled)',
-        '[data-testid^="artifact-field-"] textarea:not(:disabled)',
-      ].join(", ")
+      "input:not(:disabled), select:not(:disabled), textarea:not(:disabled)"
     );
     first?.focus();
   }, [artifactId, definition, loading, mode]);
@@ -415,6 +419,36 @@ export function ArtifactForm({
     );
   }, [definition, groupedSections, sectionMeta]);
 
+  // Use the same section/attribute flows as the renderer. Hidden sections and
+  // empty flows cannot gate Create; widget-owned fields speak through their widget.
+  const renderedEditableAttributes = useMemo(() => {
+    const attributes = new Map<string, AttributeSpec>();
+    for (const entry of sectionEntries) {
+      if (entry.kind !== "section") continue;
+      for (const field of resolveAttributeFlow(sectionMeta.get(entry.section.name), entry.section.attributes)) {
+        if (field.kind !== "attribute") continue;
+        const attribute = field.attribute;
+        if (attribute.type === "widget") continue;
+        if (attribute.editable === true) {
+          attributes.set(attribute.name, attribute);
+        }
+      }
+    }
+    return [...attributes.values()];
+  }, [sectionEntries, sectionMeta]);
+
+  // A required select has no empty option: its displayed first option must
+  // also be the value used by validation and submission, including custom fields.
+  const formValues = useMemo(() => {
+    if (!isCreateMode) return values;
+    return renderedEditableAttributes.reduce((current, attribute) => {
+      const value = readValue(current, attribute);
+      if (attribute.type !== "enum" || !attribute.required || (value != null && value !== "")) return current;
+      const initial = attribute.default ?? attribute.options[0]?.value;
+      return initial == null ? current : writeValue(current, attribute, initial);
+    }, values);
+  }, [isCreateMode, renderedEditableAttributes, values]);
+
   const isSectionOpen = useCallback(
     (section: FormSection): boolean => {
       // In create mode sections never collapse: a required field hidden behind
@@ -447,10 +481,10 @@ export function ArtifactForm({
   // The bootstrap rule is `required = not blank AND not has_default`, so a
   // required attribute that declares a default is satisfiable without input —
   // the backend applies the default for a field the create payload omits.
-  const missingCreateValue = artifactId === null && (definition?.attributes ?? []).some((attribute) => {
+  const missingCreateValue = isCreateMode && renderedEditableAttributes.some((attribute) => {
     if (!attribute.required || attribute.editable !== true || attribute.type === "widget") return false;
     if (attribute.default != null) return false;
-    const value = readValue(values, attribute);
+    const value = readValue(formValues, attribute);
     return value == null || (typeof value === "string" && !value.trim()) ||
       (Array.isArray(value) && value.length === 0);
   });
@@ -470,7 +504,7 @@ export function ArtifactForm({
     // through — beats a static key list in each adapter, which cannot know
     // about a dynamically-declared `editable: false` field.
     const editableValues = stripNonEditableValues(
-      values,
+      formValues,
       definition?.attributes ?? [],
       artifactId === null ? "create" : "update"
     );
@@ -499,6 +533,7 @@ export function ArtifactForm({
     onSave,
     saving,
     missingCreateValue,
+    formValues,
     t,
     values,
   ]);
@@ -543,6 +578,27 @@ export function ArtifactForm({
         >
           <AlertCircle aria-hidden="true" size={16} />
           {loadError ?? t("artifactForm.definitionUnavailable")}
+        </div>
+        {definitionFallback}
+      </>
+    );
+  }
+
+  if (isCreateMode && definition.attributes.length === 0) {
+    // A definition that loads but carries no attributes leaves no operable
+    // control for the create dialog's focus trap (#800) — not even a title
+    // input. Treat it like a load failure so the adapter's minimal fallback
+    // (title/description/category) renders instead of an empty form.
+    return (
+      <>
+        <div
+          className={styles.errors}
+          role="alert"
+          aria-live="assertive"
+          data-testid="artifact-form-load-error"
+        >
+          <AlertCircle aria-hidden="true" size={16} />
+          {t("artifactForm.definitionUnavailable")}
         </div>
         {definitionFallback}
       </>
@@ -657,7 +713,7 @@ export function ArtifactForm({
                   }
                   const rendered = renderAttribute({
                     attribute: fieldEntry.attribute,
-                    values,
+                    values: formValues,
                     fieldErrors,
                     specByName,
                     disabled:
@@ -683,6 +739,10 @@ export function ArtifactForm({
                       widget: fieldEntry.attribute.widget_key ?? "",
                     }),
                     update,
+                    // The adapter's create-dialog automation selectors (#583):
+                    // E2E drives the definition-driven path through the same
+                    // legacy testids the fallback form has always exposed.
+                    testId: fieldTestIds?.[fieldEntry.attribute.name] ?? `artifact-field-${fieldEntry.attribute.name}`,
                   });
                   if (!rendered) return null;
                   return (
@@ -736,7 +796,7 @@ export function ArtifactForm({
               {t("actions.cancel")}
             </button>
           ) : null}
-          <button type="submit" className="btn-primary" data-testid="artifact-form-save" disabled={saving || missingCreateValue}>
+          <button type="submit" className="btn-primary" data-testid={saveTestId} disabled={saving || missingCreateValue}>
             {saving ? t("actions.saving") : t(artifactId === null ? "actions.create" : "actions.save")}
           </button>
         </div>
@@ -765,6 +825,8 @@ interface RenderArgs {
   fieldErrors: Record<string, string[]>;
   specByName: Map<string, AttributeSpec>;
   disabled: boolean;
+  /** `data-testid` for the control — defaults to `artifact-field-<name>`. */
+  testId: string;
   /**
    * `true` when the attribute is shown outside an editable context (read mode
    * or a non-editable policy) — the trigger for the generic display path.
@@ -788,6 +850,7 @@ function renderAttribute({
   fieldErrors,
   specByName,
   disabled,
+  testId,
   displayOnly,
   language,
   systemUnsetLabel,
@@ -796,7 +859,6 @@ function renderAttribute({
   unsupportedLabel,
   update,
 }: RenderArgs): JSX.Element | null {
-  const testId = `artifact-field-${attribute.name}`;
   const errors = fieldErrors[attribute.name];
 
   // Rule 3b (Attribut v3 WS2, #936): a `system` attribute is server-owned —
@@ -914,7 +976,6 @@ function renderAttribute({
   }
 
   const shared = {
-    key: attribute.name,
     attribute,
     disabled,
     errors,
@@ -925,34 +986,35 @@ function renderAttribute({
 
   switch (attribute.type) {
     case "textarea":
-      return <TextArea {...shared} value={value as string | null} onChange={onChange} />;
+      return <TextArea key={attribute.name} {...shared} value={value as string | null} onChange={onChange} />;
     case "number":
-      return <NumberField {...shared} value={value as number | null} onChange={onChange} />;
+      return <NumberField key={attribute.name} {...shared} value={value as number | null} onChange={onChange} />;
     case "boolean":
-      return <BooleanToggle {...shared} value={value as boolean | null} onChange={onChange} />;
+      return <BooleanToggle key={attribute.name} {...shared} value={value as boolean | null} onChange={onChange} />;
     case "enum":
-      return <EnumSelect {...shared} value={value as string | null} onChange={onChange} />;
+      return <EnumSelect key={attribute.name} {...shared} value={value as string | null} onChange={onChange} />;
     case "multi-enum":
-      return <MultiEnum {...shared} value={value as string[] | null} onChange={onChange} />;
+      return <MultiEnum key={attribute.name} {...shared} value={value as string[] | null} onChange={onChange} />;
     case "date":
-      return <DateField {...shared} value={value as string | null} onChange={onChange} />;
+      return <DateField key={attribute.name} {...shared} value={value as string | null} onChange={onChange} />;
     case "reference":
-      return <ReferencePicker {...shared} value={value as string | null} onChange={onChange} />;
+      return <ReferencePicker key={attribute.name} {...shared} value={value as string | null} onChange={onChange} />;
     case "user":
-      return <UserPicker {...shared} value={value as string | null} onChange={onChange} />;
+      return <UserPicker key={attribute.name} {...shared} value={value as string | null} onChange={onChange} />;
     case "actor":
       // Attribut v3 WS2 (#936): `multiple` selects between the single entry
-      // form (`{kind, id|name}`) and the `{multiple: true, items: [...]}`
-      // form; `allow_external` gates the "create as external person"
-      // affordance. Both are read from the attribute, never guessed here.
+      // form (`{kind, id|name}`) and the `{multiple: true, items: [...]}` form;
+      // `allow_external` gates the "create as external person" affordance.
+      // Both are read from the attribute, never guessed here.
       return (
         <ActorPicker
+          key={attribute.name}
           {...shared}
           value={value as ActorFieldValue}
           onChange={onChange}
         />
       );
     default:
-      return <TextField {...shared} value={value as string | null} onChange={onChange} />;
+      return <TextField key={attribute.name} {...shared} value={value as string | null} onChange={onChange} />;
   }
 }
