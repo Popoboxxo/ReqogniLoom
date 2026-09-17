@@ -43,7 +43,7 @@ djangorestframework>=3.18.0,<4.0
 drf-spectacular>=0.30.0,<1.0
 
 # Database
-psycopg2-binary>=2.9.12,<3.0
+psycopg2-binary>=2.9.13,<3.0
 
 # Vector similarity search (REQ-L2-VS-004) — pgvector Django integration
 # (VectorField, HnswIndex, CosineDistance). Requires the pgvector Postgres
