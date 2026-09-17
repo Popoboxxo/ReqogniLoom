@@ -223,7 +223,16 @@ const REQ_DEFINITION = {
   preset: "standard",
   is_customized: false,
   version: 1,
-  attributes: [reqAttr({ name: "title", type: "text", required: true, order: 1 })],
+  attributes: [
+    reqAttr({ name: "title", type: "text", required: true, order: 1 }),
+    // BUG-11 regression guard: the create dialog must offer description and
+    // category exactly like the edit form does (definition-driven). category
+    // stays `text` here on purpose — the introspected column has no choices,
+    // so the enum promotion is the adapter's REQUIREMENT_ATTRIBUTE_OVERRIDES
+    // job; this fixture exercises exactly that override path.
+    reqAttr({ name: "description", type: "textarea", order: 2 }),
+    reqAttr({ name: "category", type: "text", order: 3 }),
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -617,6 +626,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 
   it("renders the server's rejection reason when a create is refused", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(new Error("Unavailable"));
     vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
     const user = userEvent.setup();
     renderEditor();
@@ -625,10 +635,9 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
-    await user.type(
-      screen.getByTestId("req-new-title-input"),
-      "<script>alert(1)</script>"
-    );
+    // Definition failed to load → the minimal fallback dialog renders.
+    await screen.findByTestId("create-req-form");
+    await user.type(screen.getByTestId("req-new-title-input"), "<script>alert(1)</script>");
     await user.click(screen.getByTestId("req-new-save-btn"));
 
     const alert = await screen.findByTestId("req-create-error");
@@ -639,6 +648,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 
   it("keeps the create form (and the typed title) open after a refused create", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(new Error("Unavailable"));
     vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
     const user = userEvent.setup();
     renderEditor();
@@ -647,6 +657,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("create-req-form");
     await user.type(screen.getByTestId("req-new-title-input"), "<b>x</b>");
     await user.click(screen.getByTestId("req-new-save-btn"));
 
@@ -656,6 +667,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 
   it("clears the create error once the user starts correcting the title", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(new Error("Unavailable"));
     vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
     const user = userEvent.setup();
     renderEditor();
@@ -664,6 +676,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("create-req-form");
     await user.type(screen.getByTestId("req-new-title-input"), "<b>x</b>");
     await user.click(screen.getByTestId("req-new-save-btn"));
     await screen.findByTestId("req-create-error");
@@ -676,6 +689,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 
   it("falls back to localised copy when the rejection carries no message", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(new Error("Unavailable"));
     vi.mocked(requirementsApi.create).mockRejectedValueOnce({ weird: true });
     const user = userEvent.setup();
     renderEditor();
@@ -684,6 +698,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("create-req-form");
     await user.type(screen.getByTestId("req-new-title-input"), "Fine title");
     await user.click(screen.getByTestId("req-new-save-btn"));
 
@@ -711,6 +726,8 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     );
     await user.click(screen.getByTestId("create-req-btn"));
 
+    // #583 create path: the dialog exposes the legacy automation selectors
+    // (req-new-title-input / req-new-save-btn) on the definition-driven form.
     expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
     expect(requirementsApi.create).not.toHaveBeenCalled();
   });
@@ -723,6 +740,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
     await user.type(screen.getByTestId("req-new-title-input"), "   ");
 
     expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
@@ -730,7 +748,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     // Guard against a future regression that removes `disabled` but still
     // wires the click handler permissively: submitting the form directly
     // must still be a no-op.
-    const form = screen.getByTestId("create-req-form");
+    const form = screen.getByTestId("artifact-form");
     fireEvent.submit(form);
     expect(requirementsApi.create).not.toHaveBeenCalled();
   });
@@ -748,6 +766,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
     expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
 
     await user.type(screen.getByTestId("req-new-title-input"), "Real title");
@@ -939,14 +958,15 @@ describe("RequirementEditors — create form has description/category fields (BU
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
 
     await user.type(screen.getByTestId("req-new-title-input"), "New Req");
     await user.type(
-      screen.getByTestId("req-new-description-input"),
+      screen.getByTestId("artifact-field-description"),
       "Some description"
     );
     await user.selectOptions(
-      screen.getByTestId("req-new-category-select"),
+      screen.getByTestId("artifact-field-category"),
       "functional"
     );
     await user.click(screen.getByTestId("req-new-save-btn"));
@@ -960,6 +980,166 @@ describe("RequirementEditors — create form has description/category fields (BU
         })
       )
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // GAP #583 item 3 — the create dialog must be definition-driven, not a
+  // hand-written second renderer:
+  //   1. `kind: "extended"` attributes render and submit under `custom_fields`
+  //      (ArtifactForm's own read/write split, payload contract rule 3).
+  //   2. `editable: false` attributes (e.g. `uid`) render no editable input —
+  //      they are filtered from the create form entirely, because a create
+  //      payload must never carry them (`payload.ts` keeps them for create,
+  //      but the UI contract is: server-owned identity fields are not user
+  //      input).
+  //   3. Required-at-create comes from the definition (`required` + no
+  //      default): an empty required field disables Save.
+  // -------------------------------------------------------------------------
+
+  describe("definition-driven create dialog (#583)", () => {
+    function extendedDefinition(): void {
+      vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue({
+        item_type: "Requirement",
+        preset: "standard",
+        is_customized: false,
+        version: 1,
+        attributes: [
+          reqAttr({ name: "title", type: "text", required: true, order: 1 }),
+          reqAttr({ name: "description", type: "textarea", order: 2 }),
+          reqAttr({ name: "category", type: "enum", order: 3, options: [
+            { value: "functional", label_de: "Funktional", label_en: "Functional" },
+          ] }),
+          // The #583 core case: a tenant-added extended attribute.
+          reqAttr({
+            name: "sap_id", kind: "extended", type: "text", section: "custom", order: 4,
+          }),
+          // The read-only identity field the bootstrap marks editable=false.
+          reqAttr({
+            name: "uid", section: "identification", order: 5, editable: false,
+            audience: "expert",
+          }),
+        ],
+        origins: {},
+        sections: [
+          { name: "general", order: 0, visible: true, layout: "full" },
+          { name: "custom", order: 1, visible: true, layout: "full" },
+          { name: "identification", order: 2, visible: true, layout: "full" },
+        ],
+      } as never);
+    }
+
+    it("renders extended attributes and submits them under custom_fields", async () => {
+      extendedDefinition();
+      vi.mocked(requirementsApi.create).mockResolvedValueOnce({
+        ...MOCK_REQUIREMENT,
+        id: "req-new",
+      } as any);
+      const user = userEvent.setup();
+      renderEditor();
+
+      await waitFor(() =>
+        expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+      );
+      await user.click(screen.getByTestId("create-req-btn"));
+      await screen.findByTestId("artifact-form");
+
+      // The extended attribute renders like any other definition field.
+      expect(screen.getByTestId("artifact-field-sap_id")).toBeInTheDocument();
+
+      await user.type(screen.getByTestId("req-new-title-input"), "New Req");
+      await user.type(screen.getByTestId("artifact-field-sap_id"), "SAP-4711");
+      await user.click(screen.getByTestId("req-new-save-btn"));
+
+      await waitFor(() =>
+        expect(requirementsApi.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "New Req",
+            custom_fields: { sap_id: "SAP-4711" },
+          })
+        )
+      );
+    });
+
+    it("exposes the legacy create automation selectors on the definition-driven path (testid contract)", async () => {
+      extendedDefinition();
+      const user = userEvent.setup();
+      renderEditor();
+
+      await waitFor(() =>
+        expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+      );
+      await user.click(screen.getByTestId("create-req-btn"));
+      await screen.findByTestId("artifact-form");
+
+      // E2E drives the create dialog through req-new-title-input /
+      // req-new-save-btn (wk-helpers.createRequirement et al.) — these must
+      // exist on the definition-driven path, not only on the fallback.
+      const title = screen.getByTestId("req-new-title-input");
+      expect(title.tagName).toBe("INPUT");
+      await user.type(title, "Contract title");
+      const save = screen.getByTestId("req-new-save-btn");
+      expect(save).toBeEnabled();
+      // Other fields keep their generic ids (only title/save are contract).
+      expect(screen.getByTestId("artifact-field-description")).toBeInTheDocument();
+      // The definition path must not ALSO render the legacy fallback form.
+      expect(screen.queryByTestId("create-req-form")).not.toBeInTheDocument();
+    });
+
+    it("does not render an editable:false field as an input", async () => {
+      extendedDefinition();
+      const user = userEvent.setup();
+      renderEditor();
+
+      await waitFor(() =>
+        expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+      );
+      await user.click(screen.getByTestId("create-req-btn"));
+      await screen.findByTestId("artifact-form");
+
+      // The identity field is definition-locked; a create payload must not
+      // offer an editable control for it.
+      expect(screen.queryByTestId("artifact-field-uid")).not.toBeInTheDocument();
+    });
+
+    it("keeps the save button disabled until every required field has a value", async () => {
+      extendedDefinition();
+      const user = userEvent.setup();
+      renderEditor();
+
+      await waitFor(() =>
+        expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+      );
+      await user.click(screen.getByTestId("create-req-btn"));
+      await screen.findByTestId("artifact-form");
+
+      expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+      await user.type(screen.getByTestId("req-new-title-input"), "Only title");
+      expect(screen.getByTestId("req-new-save-btn")).toBeEnabled();
+    });
+
+    it("falls back to the minimal dialog when the definition fails to load", async () => {
+      vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(
+        new Error("Network down")
+      );
+      const user = userEvent.setup();
+      renderEditor();
+
+      await waitFor(() =>
+        expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+      );
+      await user.click(screen.getByTestId("create-req-btn"));
+
+      // The load error is announced, and the legacy minimal dialog renders.
+      const loadError = await screen.findByTestId("artifact-form-load-error");
+      expect(loadError).toHaveAttribute("role", "alert");
+      expect(screen.getByTestId("create-req-form")).toBeInTheDocument();
+      // The minimal dialog has exactly the three legacy fields — no
+      // definition-driven sections/fields anywhere in the dialog.
+      expect(screen.getByTestId("req-new-title-input")).toBeInTheDocument();
+      expect(screen.getByTestId("req-new-description-input")).toBeInTheDocument();
+      expect(screen.getByTestId("req-new-category-select")).toBeInTheDocument();
+      expect(screen.queryByTestId("artifact-form")).not.toBeInTheDocument();
+    });
   });
 });
 
@@ -1010,6 +1190,7 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
 
     expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
   });
@@ -1022,6 +1203,7 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
 
     // Title has a value from the moment the dialog opens onward, so Save
     // becomes reachable as a real (non-disabled) Tab stop too — type it
@@ -1030,13 +1212,13 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
     expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
 
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-description-input"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-description"));
 
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-category-select"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-category"));
 
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-cancel-btn"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-form-cancel"));
 
     await user.tab();
     expect(document.activeElement).toBe(screen.getByTestId("req-new-save-btn"));

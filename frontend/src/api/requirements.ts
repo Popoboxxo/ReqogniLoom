@@ -139,12 +139,12 @@ export const requirementsApi = {
     return apiClient.get<Requirement>(`/requirements/${id}/`);
   },
 
-  create(data: {
+  // Definition-driven create carries core attributes at the top level and
+  // extended attributes (including actor objects) in the custom_fields bag.
+  create(data: Record<string, unknown> & {
     workspace_id: UUID;
     title: string;
-    description?: string;
-    category?: string;
-    custom_fields?: Requirement["custom_fields"];
+    custom_fields?: Record<string, unknown>;
   }): Promise<Requirement> {
     return apiClient.post<Requirement>("/requirements/", data);
   },
