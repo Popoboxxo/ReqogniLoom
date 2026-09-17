@@ -61,6 +61,10 @@ Error mapping (REQ-L2-MC-011):
   ValidationError /
   ValueError /
   ParameterError          -> VALIDATION_ERROR
+  AiReviewResponseError /
+  LlmResponseError        -> INTERNAL_ERROR (``audit.ai_review``; the provider
+                             failure / daily token budget must never fall
+                             through to the bare catch-all — issue #951)
 
 Parameters accepted by ``audit.query`` (all optional):
     actor         : user_id / agent_id string to filter on.
@@ -91,6 +95,7 @@ from typing import Any, Dict, List, Optional
 
 from auth_tenancy.context import AuthContext
 
+from application.ai_derivation_service import LlmResponseError
 from application.ai_review_service import AiReviewResponseError, AiReviewService
 from application.base import (
     NotFoundError,
@@ -110,6 +115,7 @@ from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
+    mcp_audit_handoff,
     optional_uuid,
     require_uuid,
     write_mcp_audit,
@@ -285,13 +291,23 @@ class AuditToolGroup(BaseToolGroup):
         },
         {
             "name": "events.dlq_list",
-            "description": "List Domain-Event dead-letter-queue entries (admin-only, read).",
+            "description": "List Domain-Event dead-letter-queue entries for one workspace (admin-only, read).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the workspace to list DLQ entries for. "
+                            "Required — DomainEventDLQ has no tenant scoping of "
+                            "its own, and narrows the admin-role check to this "
+                            "workspace specifically."
+                        ),
+                    },
                     "event_type": {"type": "string", "description": "Optional event_type filter."},
                     "limit": {"type": "integer", "description": "Page size (1..1000, default 100)."},
                 },
+                "required": ["workspace_id"],
             },
         },
         {
@@ -304,8 +320,15 @@ class AuditToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "UUID of the original DomainEventDLQ.event_id.",
                     },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the workspace the event belongs to. "
+                            "Required — see events.dlq_list's description."
+                        ),
+                    },
                 },
-                "required": ["event_id"],
+                "required": ["event_id", "workspace_id"],
             },
         },
     ]
@@ -516,6 +539,18 @@ class AuditToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except AiReviewResponseError as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except LlmResponseError as exc:
+            # #951: the daily-token-budget failure (REQ-106) is raised by the
+            # service *before* the provider is called and was the one
+            # provider-adjacent failure this handler did not map. It therefore
+            # fell through to the generic catch-all in
+            # ``BaseToolGroup.execute_tool``, which replaces the documented,
+            # actionable budget message with a bare
+            # "An internal error occurred." — indistinguishable from a crash,
+            # which is exactly what the issue reports. Mapped exactly like the
+            # sibling LLM tool groups (``tools/ai_derivation.py``,
+            # ``tools/requirement_bundle.py``).
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
         except (ValidationError, ValueError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
@@ -528,8 +563,10 @@ class AuditToolGroup(BaseToolGroup):
     def _handle_dlq_list(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """events.dlq_list — list DLQ entries (admin-only).
+        """events.dlq_list — list DLQ entries for one workspace (admin-only).
 
+        Required params:
+            workspace_id : UUID of the target workspace.
         Optional params:
             event_type : filter on ``DomainEventDLQ.event_type``.
             limit      : 1..1000, default 100.
@@ -537,6 +574,8 @@ class AuditToolGroup(BaseToolGroup):
         denied = self._check_admin(auth_context)
         if denied is not None:
             return denied
+
+        workspace_id = require_uuid(params, "workspace_id")
 
         event_type = params.get("event_type")
         if event_type is not None and event_type != "":
@@ -565,7 +604,7 @@ class AuditToolGroup(BaseToolGroup):
 
         try:
             rows = self._dlq_service.list_dlq(
-                auth_context, event_type=event_type, limit=limit
+                auth_context, workspace_id=workspace_id, event_type=event_type, limit=limit
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -591,7 +630,8 @@ class AuditToolGroup(BaseToolGroup):
         """events.dlq_replay — replay a single DLQ event (admin-only, write).
 
         Required params:
-            event_id : UUID of the original ``DomainEventDLQ.event_id``.
+            event_id     : UUID of the original ``DomainEventDLQ.event_id``.
+            workspace_id : UUID of the workspace the event belongs to.
 
         The event is re-inserted into the outbox with a fresh retry
         budget. The MCP wrapper writes an additional audit entry so the
@@ -603,11 +643,16 @@ class AuditToolGroup(BaseToolGroup):
             return denied
 
         event_id = require_uuid(params, "event_id")
+        workspace_id = require_uuid(params, "workspace_id")
 
         try:
-            snapshot = self._dlq_service.replay_dlq_event(
-                auth_context, event_id=event_id
-            )
+            # Codeberg #313: suppress replay_dlq_event's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                snapshot = self._dlq_service.replay_dlq_event(
+                    auth_context, event_id=event_id, workspace_id=workspace_id
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -618,7 +663,10 @@ class AuditToolGroup(BaseToolGroup):
         # MCP-level audit (REQ-L2-MC-012): record the agent identity.
         write_mcp_audit(
             ctx=auth_context,
-            operation="replay",
+            # #626: new "events.replay" choice -- DLQ replay has no REST
+            # pendant to reuse (was the undeclared "replay", silently
+            # rejected by full_clean()).
+            operation="events.replay",
             entity_type="DomainEventDLQ",
             entity_id=event_id,
             tool_name="events.dlq_replay",

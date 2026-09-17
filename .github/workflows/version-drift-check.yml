@@ -1,0 +1,88 @@
+name: Version Drift Monitor (scheduled)
+
+# Lightweight monitoring check: detects when a deployed environment's reported
+# commit has fallen behind main, addressing issue #368.
+#
+# This is NOT a merge gate. It runs on a schedule and reports findings via
+# workflow failure/notifications only (non-blocking observability).
+#
+# To use this workflow:
+#
+# 1. Set up a GitHub Actions secret named DEPLOYED_VERSION_URL pointing to your
+#    deployed environment's /api/v1/version/ endpoint:
+#
+#      Settings -> Secrets and variables -> Actions -> New repository secret
+#      Name:  DEPLOYED_VERSION_URL
+#      Value: https://your-app.example.com/api/v1/version/
+#
+#    Or set DEPLOYED_VERSION_URL_STAGING, DEPLOYED_VERSION_URL_PRODUCTION, etc.
+#    for multiple environments. Copy the job and change the secret reference.
+#
+# 2. The workflow will fetch the deployed version, extract the commit_short,
+#    and compare it against origin/main. If the deployed commit is behind or
+#    not in the history, it fails (sends a notification).
+#
+# 3. Operators are responsible for redeploying when notified of drift.
+
+on:
+  schedule:
+    # Every day at 09:00 UTC
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      deployed_url:
+        description: 'Override DEPLOYED_VERSION_URL for this run (optional)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # This job should not block merges; allow failures to be reported but not
+    # stop the workflow from completing.
+    continue-on-error: false
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # Full history needed for git merge-base
+
+      - name: Determine deployed URL
+        id: url
+        run: |
+          # Priority: workflow_dispatch input > secret > empty (skip)
+          URL="${{ github.event.inputs.deployed_url }}"
+          if [[ -z "$URL" ]]; then
+            URL="${{ secrets.DEPLOYED_VERSION_URL }}"
+          fi
+
+          if [[ -z "$URL" ]]; then
+            echo "DEPLOYED_VERSION_URL not configured. Skipping check."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Check version drift
+        if: steps.url.outputs.skip == 'false'
+        env:
+          DEPLOYED_VERSION_URL: ${{ steps.url.outputs.url }}
+          TARGET_BRANCH: origin/main
+        run: |
+          chmod +x ./scripts/check-version-drift.sh
+          ./scripts/check-version-drift.sh
+
+      - name: Report skipped (no deployment URL configured)
+        if: steps.url.outputs.skip == 'true'
+        run: |
+          echo "Skipped: DEPLOYED_VERSION_URL secret not configured."
+          echo ""
+          echo "To enable version drift monitoring, set up a GitHub Actions secret:"
+          echo "  Settings -> Secrets and variables -> Actions"
+          echo "  Secret name: DEPLOYED_VERSION_URL"
+          echo "  Value: https://your-deployed-app.com/api/v1/version/"

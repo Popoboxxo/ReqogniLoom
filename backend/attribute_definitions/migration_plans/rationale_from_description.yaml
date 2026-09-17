@@ -1,0 +1,28 @@
+# AWMS first-plan set (spec docs/se/attribut/attribut-migrationssystematik.md §8.1)
+# Interview-erzeugte Requirement.rationale steckt heute in description
+# (interview_artifact_adapters.py: _PROTOCOL_FIELD_ALIASES {"rationale": "description"}).
+# Bewusst copy (kein move): erst nach Sichtprüfung kommt ein zweiter Plan.
+version: 1
+id: 2026-09-rationale-from-description
+description: >-
+  Interview-Begründungen aus Requirement.description in das rationale-Attribut
+  (custom_fields, WS6 #939) rekonstruieren. copy laesst die Beschreibung intakt.
+scope:
+  tenant: current
+  item_type: Requirement
+  preset: [standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: migrate_value
+    from: {source: model_field, name: description}
+    to: {target: custom_field, name: rationale}
+    mode: copy
+    only_if: "to_is_empty and source_has_text"
+    transform: extract_rationale
+  - op: verify
+    assertions: ["failed == 0"]

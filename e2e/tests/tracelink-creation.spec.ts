@@ -5,10 +5,11 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  createIsolatedWorkspace,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // "+ New" only opens an inline quick-create form; the full editor only
@@ -17,7 +18,18 @@ async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Eleme
   await page.locator('[data-testid="create-arch-btn"]').click();
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+}
+
+// [I5] A workspace tree may have exactly one root ArchitectureElement, and
+// seed_demo pre-seeds one for SEEDED_WORKSPACE_ID — so any "+ New" (root,
+// no parent_id) creation against it 400s. Re-point the page at a fresh,
+// element-free workspace right before navigating to /architecture, matching
+// the pattern already used by architecture.spec.ts / architecture-editor.spec.ts.
+async function useIsolatedArchWorkspace(page: Page): Promise<void> {
+  const token = await getAuthToken();
+  const workspaceId = await createIsolatedWorkspace(token);
+  await setWorkspaceId(page, workspaceId);
 }
 
 test.describe('[COMP-RF-006] TraceLink Creation', () => {
@@ -47,9 +59,9 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
     await page.locator('[data-testid="tracelink-create-btn"]').click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
 
-    // Global mode (no fixed sourceId on /traceability) shows a plain source <select>...
-    await expect(page.locator('[data-testid="create-trace-link-source-select"]')).toBeVisible({ timeout: 6000 });
-    // ...and the target is a searchable ElementPicker (list), not a <select>.
+    // #53 Bug 2: global mode (no fixed sourceId on /traceability) shows the
+    // same searchable ElementPicker (list) for both source and target.
+    await expect(page.locator('[data-testid="create-trace-link-source-list"]')).toBeVisible({ timeout: 6000 });
     await expect(page.locator('[data-testid="create-trace-link-target-list"]')).toBeVisible({ timeout: 6000 });
     await expect(page.locator('[data-testid="create-trace-link-type-select"]')).toBeVisible({ timeout: 6000 });
     await expect(page.locator('[data-testid="create-trace-link-submit"]')).toBeVisible({ timeout: 6000 });
@@ -58,34 +70,55 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // -------------------------------------------------------------------------
   // REQ-L2-RF-006 — Create TraceLink via UI full happy path
   // -------------------------------------------------------------------------
+  //
+  // BUG-09 (Systemaudit 2026-08-18, §4 / GH-53): this test used to run
+  // directly against the shared SEEDED_WORKSPACE_ID and pick the first two
+  // requirements it found there. CreateTraceLinkDialog's loadElements()
+  // eagerly fetches *all* artifacts of *all* six types (full pagination, no
+  // server-side search) before the source <select> shows any real option —
+  // against SEEDED_WORKSPACE_ID, which accumulates artifacts across every
+  // CI run with no equivalent of the API-key cleanup in
+  // e2e/helpers/auth.ts#revokeAllApiKeys (see its doc comment for the exact
+  // same accumulation pattern already observed and fixed for API keys),
+  // that full load could take long enough to blow the suite's fixed 60s
+  // per-test timeout (playwright.config.ts `timeout: 60000` — the reported
+  // "60s Timeout nach 116 Retries"). The dialog itself was never broken
+  // (verified via CreateTraceLinkDialog's own component test, which
+  // populates the source select correctly from mocked API data); the
+  // dropdown just never finished loading in time. Isolating this test's
+  // workspace — the same pattern useIsolatedArchWorkspace() already uses
+  // above — removes exposure to that unbounded, ever-growing shared
+  // fixture and makes the test's own two requirements the only ones the
+  // dialog has to load.
   test('[REQ-L2-RF-006] can create TraceLink via UI when artifacts exist', async ({ page, request }) => {
     const token = await getAuthToken();
+    const workspaceId = await createIsolatedWorkspace(token);
+    const authHeaders = { Authorization: `Bearer ${token}` };
 
-    // Check if there are artifacts to link
-    const reqResp = await request.get(`${BACKEND_URL}/api/v1/requirements/`, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: { workspace_id: SEEDED_WORKSPACE_ID },
-    });
-    const reqBody = await reqResp.json();
-    const reqs: { id: string }[] = Array.isArray(reqBody) ? reqBody : reqBody.results ?? [];
+    const createReq = async (title: string): Promise<string> => {
+      const resp = await request.post(`${BACKEND_URL}/api/v1/requirements/`, {
+        headers: authHeaders,
+        data: { workspace_id: workspaceId, title },
+      });
+      const body = await resp.json();
+      return body.id as string;
+    };
+    const sourceReqId = await createReq('E2E TraceLink Source');
+    const targetReqId = await createReq('E2E TraceLink Target');
 
-    if (reqs.length < 2) {
-      test.skip(true, 'Need at least 2 requirements to create a TraceLink — seed more data');
-      return;
-    }
-
+    await setWorkspaceId(page, workspaceId);
     await page.goto(`${FRONTEND_URL}/traceability`);
     await page.locator('[data-testid="tracelink-create-btn"]').click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
 
-    // Global mode (no fixed sourceId on /traceability): source is a plain
-    // <select> keyed by element id; target is a searchable ElementPicker
-    // whose entries are addressable directly by id via data-testid.
-    const sourceSelect = page.locator('[data-testid="create-trace-link-source-select"]');
-    await expect(sourceSelect).toBeVisible({ timeout: 6000 });
-    await sourceSelect.selectOption(reqs[0].id);
+    // #53 Bug 2: global mode (no fixed sourceId on /traceability) — source
+    // and target are both searchable ElementPickers whose entries are
+    // addressable directly by id via data-testid.
+    const sourceEl = page.locator(`[data-testid="create-trace-link-source-element-${sourceReqId}"]`);
+    await expect(sourceEl).toBeVisible({ timeout: 6000 });
+    await sourceEl.click();
 
-    const targetEl = page.locator(`[data-testid="create-trace-link-target-element-${reqs[1].id}"]`);
+    const targetEl = page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`);
     await expect(targetEl).toBeVisible({ timeout: 6000 });
     await targetEl.click();
 
@@ -116,13 +149,19 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-006] traceability page shows list or empty state', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/traceability`);
-    // Either list (when links exist) or empty placeholder must be visible
+    // Either list (when links exist) or empty placeholder must be visible.
+    // GH-692: under full-suite load (sequential workers, shared Postgres),
+    // the tracelinks aggregation endpoint has been observed taking >10s to
+    // respond, leaving the page stuck on "Laden..." past the old timeout —
+    // reproducible only under suite load, not in isolation. 30s matches
+    // this suite's existing convention for other suite-load-sensitive
+    // assertions (e.g. toothbrush-syseng.spec.ts).
     const list = page.locator('[data-testid="traceability-list"]');
     const empty = page.locator('[data-testid="traceability-empty"]');
     // Wait for one of them to appear
     await Promise.race([
-      expect(list).toBeVisible({ timeout: 10000 }).catch(() => null),
-      expect(empty).toBeVisible({ timeout: 10000 }).catch(() => null),
+      expect(list).toBeVisible({ timeout: 30000 }).catch(() => null),
+      expect(empty).toBeVisible({ timeout: 30000 }).catch(() => null),
     ]);
     const listVisible = await list.isVisible();
     const emptyVisible = await empty.isVisible();
@@ -133,6 +172,7 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // REQ-L2-RF-006 — Architecture TraceLink panel is visible in arch editor (Bug A2)
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-006] architecture editor shows arch-tracelink-panel (Bug A2)', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
@@ -147,13 +187,14 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // REQ-L2-RF-005 — Architecture editor shows element_type selector with 5 options (Bug A3)
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-005] architecture editor has element_type selector with correct testid and 5 options', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
-    // Bug A3: testid should be "arch-element-type-select" (not "arch-element-type").
+    // Bug A3: testid should be "artifact-field-element_type" (not "arch-element-type").
     // REQ-006/D5 later replaced the fixed 5-option <select> with a free-text
     // autocomplete input (types can be extended freely, no longer an enum).
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 6000 });
 
     await typeInput.fill('Layer');

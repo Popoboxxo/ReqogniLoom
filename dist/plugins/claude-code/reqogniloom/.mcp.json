@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "reqogniloom": {
+      "type": "sse",
+      "url": "${REQOGNILOOM_MCP_URL}/mcp/sse/",
+      "headers": {
+        "X-API-Key": "${REQOGNILOOM_API_KEY}"
+      }
+    }
+  }
+}

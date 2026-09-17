@@ -185,6 +185,80 @@ class TestExportCsv:
         assert result.media_type == "text/csv"
 
 
+# ---------- CSV formula/injection neutralisation (SA-31) ----------
+
+
+class TestCsvCellFormulaInjection:
+    """SA-31 (Systemaudit 2026-08-27 AP-6): a string cell starting with a
+    spreadsheet-formula trigger character must be neutralised with a leading
+    single quote, mirroring
+    ``application.requirement_bundle_formatters._csv_safe``."""
+
+    @pytest.mark.parametrize(
+        "malicious",
+        [
+            "=cmd|'/c calc'!A1",
+            "+1+1",
+            "-2+3",
+            "@SUM(A1:A2)",
+            "\t=HYPERLINK(\"http://evil\")",
+            "\r=1+1",
+        ],
+    )
+    def test_formula_trigger_prefixed_with_quote(self, malicious):
+        from application.export_service import _csv_cell
+
+        assert _csv_cell(malicious) == "'" + malicious
+
+    def test_plain_text_is_unchanged(self):
+        from application.export_service import _csv_cell
+
+        assert _csv_cell("Normal requirement title") == "Normal requirement title"
+
+    def test_non_string_values_are_unaffected(self):
+        from application.export_service import _csv_cell
+
+        assert _csv_cell(None) == ""
+        assert _csv_cell(True) == "true"
+        assert _csv_cell(False) == "false"
+        assert _csv_cell(["a", "b"]) == json.dumps(["a", "b"])
+        assert _csv_cell(42) == "42"
+
+    def test_export_csv_neutralises_malicious_title(self):
+        """End-to-end: a workspace-editor-authored title starting with '='
+        must not survive into the exported CSV as a live formula trigger."""
+        svc = ExportService()
+        ctx = _make_ctx()
+        malicious_rows = [
+            {
+                **_FAKE_ROWS[0],
+                "title": "=cmd|'/c calc'!A1",
+            }
+        ]
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "application.export_service.ExportService._fetch_entities",
+                return_value=malicious_rows,
+            ),
+            patch(
+                "application.export_service.ExportService._get_terminology_profile",
+                return_value="default",
+            ),
+        ):
+            result = svc.export_csv("Requirement", WS_ID, ctx)
+
+        non_comment = "\n".join(
+            l for l in result.content.splitlines() if not l.startswith("#")
+        )
+        reader = csv.DictReader(io.StringIO(non_comment))
+        rows = list(reader)
+        assert len(rows) == 1
+        assert rows[0]["title"] == "'=cmd|'/c calc'!A1"
+        assert not rows[0]["title"].startswith(("=", "+", "-", "@"))
+
+
 # ---------- Markdown export ----------
 
 
@@ -299,3 +373,62 @@ class TestExportPdf:
                     mock_gen.assert_called_once()
                     call_kwargs = mock_gen.call_args[1]
                     assert call_kwargs["layout"] == "traceability_matrix"
+
+
+# ---------- _fetch_entities status resolution (Datenmodell-Konsolidierung Phase 1) ----------
+
+
+class TestFetchEntitiesResolvesStatusFromEngine:
+    """C1: the export row's ``status`` column is no longer written by the
+    workflow engine — ``_fetch_entities`` must resolve it through
+    ``workflow.state_reader``, not ``getattr(obj, "status")``, or every
+    export (and the CSV round-trip back into ``ImportService``) would report
+    a permanently frozen creation-time value."""
+
+    def test_requirement_export_reports_the_engine_state_not_the_stale_column(self):
+        from persistence.tenancy import TenantContext
+        from workflow.lifecycle_manager import StateLifecycleManager
+        from workflow.services import create_default_workflow
+        from workflow.transition_validator import ValidationResult
+
+        from persistence.models import Artifact, Requirement, Tenant, Workspace
+
+        tenant = Tenant.objects.create(name="export-status-tenant", slug="export-status-tenant")
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(tenant=tenant, name="export-status-ws")
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            req = Requirement.objects.create(
+                tenant=tenant,
+                artifact=artifact,
+                workspace=workspace,
+                title="Export me",
+            )
+
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+            manager = StateLifecycleManager()
+            manager.initialize_workflow_states([req.id], "Requirement", workspace.id)
+            manager.perform_transition(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=workspace.id,
+                target_state="in_review",
+                transitioned_by="test",
+                validation_result=ValidationResult(valid=True),
+            )
+            # Task 12: the `status` column is dropped entirely -- there is no
+            # frozen creation-time column value left to also check.
+
+            rows = ExportService._fetch_entities("Requirement", workspace.id, None)
+        finally:
+            TenantContext.clear_tenant()
+
+        assert len(rows) == 1
+        assert rows[0]["status"] == "in_review"

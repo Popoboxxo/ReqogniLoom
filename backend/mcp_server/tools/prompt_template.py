@@ -3,74 +3,386 @@ MCP Tool Group for LLM prompt templates (REQ-L2-PT-001).
 
 leaf_id : COMP-MC-003..006
 req_id  : REQ-L2-PT-001 (tenant-scoped editable prompt templates),
-          REQ-L2-MC-009 (direct persistence access)
+          REQ-L2-MC-009 (direct persistence access),
+          REQ-L2-MC-012 (MCP audit trail for write tools)
 
-Exposes a single read tool:
-  prompt_template.get(slot: str) -> str
-    Return the current content of a prompt slot for the active tenant. If no
-    PromptTemplate row exists yet, the factory default for that slot is
-    returned, so callers always receive usable prompt content.
+Exposes four tools:
+  prompt_template.get(slot: str, workspace_id: str | None) -> str
+    Return the effective content for a template name ("slot"), most-specific
+    first: active workspace override -> active tenant-global row -> factory
+    default. The whole chain -- including the merged factory-default lookup
+    across every slot family (AI-derivation flows and
+    ``interview.protocol.*`` names) -- is delegated to
+    ``application.prompt_resolver.try_resolve_template_content`` (spec §3.3),
+    the single resolution path shared with ``AiDerivationService`` and
+    ``application.interview_protocol.get_protocol``. This tool group no
+    longer keeps its own merged factory-default table.
 
-Valid slots: need_to_sysreq | sysreq_to_arch_assign | sysreq_decompose_next_level
+  prompt_template.list(workspace_id: str | None) -> [templates]
+    Return every currently-active ``PromptTemplate`` row for the tenant
+    (optionally filtered to one workspace scope). Only real DB rows are
+    returned -- factory defaults are never synthesized into this list, since
+    a caller asking "what templates exist" should not be told a row exists
+    when it doesn't.
+
+  prompt_template.create(name, content, workspace_id: str | None) -> version
+  prompt_template.update(name, content, workspace_id: str | None) -> version
+    Publish a new active version of a template for a (tenant, workspace_id,
+    name) scope: whatever row was previously active for that exact scope is
+    deactivated and a new row at version = prior.version + 1 (or 1, if none
+    existed) is created and marked active. Both are audited write tools
+    (REQ-L2-MC-012) and are RBAC-gated as write operations
+    (``tool_registry._WRITE_TOOL_PREFIXES``).
+
+Naming-openness decision (Phase 4): the ``name`` a template is stored under
+used to be a closed 3-value enum (``PROMPT_TEMPLATE_DEFAULTS.keys()``); it is
+now open-ended, since ``.create()`` can introduce new names at runtime that a
+fixed enum could never anticipate. Consequently:
+  - The tool schema for ``slot``/``name`` no longer declares a JSON-Schema
+    ``enum`` -- it is a free string.
+  - ``_handle_get`` no longer treats an unrecognized name as a
+    VALIDATION_ERROR (that would incorrectly imply the *name itself* is
+    malformed). A name with no active DB row and no factory default now
+    returns NOT_FOUND -- it may simply be a template nobody has created yet.
+    VALIDATION_ERROR is reserved for genuinely malformed requests (e.g. a
+    missing required parameter).
+
+``.create()`` vs ``.update()`` decision: they are a deliberate **alias pair**,
+not semantically distinct operations. Both map to the same handler
+(``_handle_create_or_update``) and perform the identical "deactivate
+whatever is active for this scope, create the next version" operation
+regardless of whether a prior active row exists. Rationale:
+  - ``PromptTemplate`` rows are documented as "effectively immutable once
+    created -- a new prompt version is a new row, not an in-place update"
+    (see the model's own class docstring). Under that model there is no
+    real distinction between "the first version of a template" and "the
+    Nth version of a template" -- both are just "publish a new active
+    version for this scope."
+  - Gating ``.create()`` to reject existing names (and ``.update()`` to
+    reject missing ones) would add verb-based friction for no real safety
+    benefit here: unlike e.g. a REST resource where PUT-vs-POST semantics
+    guard against accidental overwrites of *unrelated* data, a "new version"
+    here never destroys the old content -- the prior version is deactivated,
+    not deleted, and remains in the table for audit/rollback purposes. So
+    the failure mode a strict split would prevent (a client accidentally
+    calling the "wrong" verb) has no real cost to guard against.
+  - It matches this task's own reference implementation sketch, which
+    performs the version bump unconditionally in a single handler.
 """
+from __future__ import annotations
+
 from typing import Any, Dict
 
-from auth_tenancy.context import AuthContext
-from persistence.models import PROMPT_TEMPLATE_DEFAULTS, PromptTemplate
+from django.db import IntegrityError
 
-from mcp_server.tools.base import BaseToolGroup, ToolResult, require_param
+from application.interview_protocol import (
+    ProtocolValidationError,
+    parse_protocol_yaml,
+)
+from application.prompt_resolver import try_resolve_template_content
+from application.prompt_slots import get_prompt_slots
+from application.prompt_template_versioning import (
+    get_active_template,
+    list_active_templates,
+    publish_new_version,
+)
+from auth_tenancy.context import AuthContext
+from persistence.models import PromptTemplate
+
+from mcp_server.tools.base import (
+    BaseToolGroup,
+    ToolResult,
+    optional_uuid,
+    require_param,
+    write_mcp_audit,
+)
+
+
+def _template_to_dict(row: PromptTemplate) -> Dict[str, Any]:
+    return {
+        "name": row.name,
+        "workspace_id": str(row.workspace_id) if row.workspace_id else None,
+        "version": row.version,
+        "is_active": row.is_active,
+        "content": row.content,
+    }
 
 
 class PromptTemplateToolGroup(BaseToolGroup):
-    """Prompt template tool group (read-only slot retrieval)."""
+    """Prompt template tool group (read + write, tenant-scoped)."""
 
     _TOOL_MAP = {
         "prompt_template.get": "_handle_get",
+        "prompt_template.list": "_handle_list",
+        "prompt_template.create": "_handle_create_or_update",
+        "prompt_template.update": "_handle_create_or_update",
     }
 
     _TOOL_SCHEMAS = [
         {
             "name": "prompt_template.get",
             "description": (
-                "Return the current LLM prompt content for a given slot "
-                "(need_to_sysreq | sysreq_to_arch_assign | "
-                "sysreq_decompose_next_level) for the active tenant."
+                "Return the effective LLM prompt content for a given template "
+                "name, for the active tenant (and, if workspace_id is given, "
+                "that workspace's override if one exists). Falls back to the "
+                "factory default for any of the 7 known derivation-flow "
+                "template names (need_to_sysreq | sysreq_to_arch_assign | "
+                "sysreq_decompose_next_level | testcase_derive | "
+                "architecture_to_risk | workspace_to_glossary | "
+                "decision_to_adr) or an interview.protocol.<ArtifactType> "
+                "name when no row has been created."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "slot": {
                         "type": "string",
-                        "enum": list(PROMPT_TEMPLATE_DEFAULTS.keys()),
-                        "description": "Prompt slot name.",
-                    }
+                        "description": (
+                            "Template name (open-ended -- any name created via "
+                            "prompt_template.create is valid, not just the "
+                            "factory-default slots)."
+                        ),
+                    },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional workspace scope to check for an override "
+                            "before falling back to the tenant-global template."
+                        ),
+                    },
                 },
                 "required": ["slot"],
             },
-        }
+        },
+        {
+            "name": "prompt_template.list",
+            "description": (
+                "List all currently-active prompt templates for the tenant, "
+                "optionally filtered to a single workspace scope."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "Optional workspace scope filter.",
+                    },
+                },
+            },
+        },
+        {
+            "name": "prompt_template.create",
+            "description": (
+                "Publish a new active version of a prompt template for a "
+                "(tenant, workspace_id, name) scope, deactivating whatever "
+                "version was previously active for that exact scope. "
+                "Equivalent to prompt_template.update (alias)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Template name."},
+                    "content": {"type": "string", "description": "Prompt body."},
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional workspace scope. Omit for a tenant-wide "
+                            "default template."
+                        ),
+                    },
+                },
+                "required": ["name", "content"],
+            },
+        },
+        {
+            "name": "prompt_template.update",
+            "description": (
+                "Publish a new active version of a prompt template for a "
+                "(tenant, workspace_id, name) scope, deactivating whatever "
+                "version was previously active for that exact scope. "
+                "Equivalent to prompt_template.create (alias)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Template name."},
+                    "content": {"type": "string", "description": "Prompt body."},
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional workspace scope. Omit for a tenant-wide "
+                            "default template."
+                        ),
+                    },
+                },
+                "required": ["name", "content"],
+            },
+        },
     ]
+
+    # ------------------------------------------------------------------
+    # prompt_template.get
+    # ------------------------------------------------------------------
 
     def _handle_get(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         slot = require_param(params, "slot")
-        if slot not in PROMPT_TEMPLATE_DEFAULTS:
+        workspace_id = optional_uuid(params, "workspace_id")
+
+        # Spec §3.3: the workspace-first / tenant-global / factory-default
+        # precedence now lives in exactly one place
+        # (application.prompt_resolver), shared with AiDerivationService and
+        # interview_protocol.get_protocol — this tool no longer keeps its own
+        # merged factory-default table.
+        content = try_resolve_template_content(str(slot), auth_context, workspace_id)
+        if content is not None:
+            return ToolResult.ok({"slot": slot, "content": content})
+
+        return ToolResult.error(
+            "NOT_FOUND",
+            f"No prompt template named '{slot}' exists for this tenant, and "
+            "it is not one of the factory-default slots. Known "
+            f"factory-default slots: {', '.join(sorted(get_prompt_slots()))}. "
+            "Use prompt_template.create to define a new one.",
+        )
+
+    # ------------------------------------------------------------------
+    # prompt_template.list
+    # ------------------------------------------------------------------
+
+    def _handle_list(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """prompt_template.list — active templates visible to the caller.
+
+        Systemaudit 2026-08-29 §6.5 follow-up: ``workspace_id`` is optional,
+        and ADR-01 (#124) defines an omitted one as "no workspace filter" —
+        tenant-wide *and* every workspace-scoped row (see
+        ``list_active_templates``' docstring). That returned other workspaces'
+        templates to any caller, the same cross-workspace read class the audit
+        raised, and the dispatcher gate could not catch it: no workspace named,
+        no target object to resolve.
+
+        ``list_active_templates`` keeps its contract — ``settings_service``
+        relies on the unfiltered view for the tenant-admin settings screen. The
+        narrowing happens here instead: the caller sees the tenant-wide rows
+        (which are theirs by definition) plus rows of workspaces they hold an
+        active role in. An explicit ``workspace_id`` is untouched; the
+        dispatcher already gated membership for that case.
+        """
+        workspace_id = optional_uuid(params, "workspace_id")
+        rows = list_active_templates(
+            tenant_id=auth_context.tenant_id, workspace_id=workspace_id
+        )
+
+        if workspace_id is None:
+            from auth_tenancy.services.authorization import AuthorizationService
+
+            accessible = set(
+                AuthorizationService().accessible_workspace_ids(
+                    user_id=auth_context.user_id, tenant_id=auth_context.tenant_id
+                )
+            )
+            rows = [
+                row
+                for row in rows
+                if row.workspace_id is None or row.workspace_id in accessible
+            ]
+
+        templates = [_template_to_dict(row) for row in rows]
+        return ToolResult.ok({"templates": templates, "count": len(templates)})
+
+    # ------------------------------------------------------------------
+    # prompt_template.create / prompt_template.update (alias pair --
+    # see module docstring for the decision and its reasoning)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_admin(auth_context: AuthContext) -> ToolResult | None:
+        """Return a ``PERMISSION_DENIED`` ToolResult if the caller is not admin.
+
+        Mirrors ``rest_api.settings_views``'s ``ROLE_ADMIN`` gate on the
+        prompt-template REST endpoint (fix #101): without this, any valid
+        API key could overwrite tenant-wide LLM prompt templates via MCP,
+        a prompt-injection vector into every AI-derivation and review path.
+        """
+        if auth_context.has_role("admin"):
+            return None
+        return ToolResult.error(
+            "PERMISSION_DENIED",
+            f"Permission denied: role 'admin' required, "
+            f"user has {auth_context.active_roles}",
+        )
+
+    def _handle_create_or_update(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        denied = self._check_admin(auth_context)
+        if denied is not None:
+            return denied
+
+        name = require_param(params, "name")
+        content = require_param(params, "content")
+        workspace_id = optional_uuid(params, "workspace_id")
+
+        # Interview-protocol names carry structured YAML (application.
+        # interview_protocol) rather than free-form prompt text -- reject a
+        # malformed protocol here, at write time, instead of persisting a
+        # row that would only fail later, at interview.start time, for every
+        # workspace that resolves to it.
+        if str(name).startswith("interview.protocol."):
+            try:
+                parse_protocol_yaml(str(content))
+            except ProtocolValidationError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        had_prior = (
+            get_active_template(
+                tenant_id=auth_context.tenant_id,
+                name=name,
+                workspace_id=workspace_id,
+            )
+            is not None
+        )
+
+        try:
+            new_row = publish_new_version(
+                tenant_id=auth_context.tenant_id,
+                name=str(name),
+                content=str(content),
+                workspace_id=workspace_id,
+            )
+        except IntegrityError as exc:
+            # A concurrent writer for the same scope committed first; the
+            # model's own save()-level mutex (see PromptTemplate.save)
+            # rejected our attempt to activate a second row for the scope.
             return ToolResult.error(
                 "VALIDATION_ERROR",
-                f"Unknown prompt slot: '{slot}'. Valid slots: "
-                f"{', '.join(PROMPT_TEMPLATE_DEFAULTS)}.",
+                f"Could not publish a new version for '{name}': {exc}",
             )
 
-        # TenantContext is active during dispatch, so the default manager is
-        # already tenant-scoped. Fall back to the factory default when no row
-        # has been created for this tenant yet.
-        row = PromptTemplate.objects.filter(
-            tenant_id=auth_context.tenant_id
-        ).first()
-        content = (
-            getattr(row, slot) if row is not None else PROMPT_TEMPLATE_DEFAULTS[slot]
+        # Audit operation/tool_name reflect what actually happened (a prior
+        # active row existed -> "update"; none did -> "create"), independent
+        # of which of the two alias tool names the caller invoked -- see the
+        # module docstring's create/update alias decision.
+        operation = "update" if had_prior else "create"
+        write_mcp_audit(
+            ctx=auth_context,
+            operation=operation,
+            entity_type="PromptTemplate",
+            entity_id=new_row.id,
+            tool_name=f"prompt_template.{operation}",
+            api_key=api_key,
         )
-        return ToolResult.ok({"slot": slot, "content": content})
+        return ToolResult.ok(
+            {
+                "name": new_row.name,
+                "version": new_row.version,
+                "workspace_id": str(new_row.workspace_id) if new_row.workspace_id else None,
+                "content": new_row.content,
+            }
+        )
 
 
 __all__ = ["PromptTemplateToolGroup"]

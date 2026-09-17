@@ -1,7 +1,7 @@
 # ReqFlow — Codebase-Übersicht (IST-Zustand)
 
-> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057)  
-> **Letzte Aktualisierung:** 2026-07-19  
+> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057) + v1.2 Memory Admin UI (Phasen 1–5)  
+> **Letzte Aktualisierung:** 2026-08-27  
 > **Branch:** `feat/se-implementation`  
 > **Validierung:** 1130/1130 pytest Tests grün; 111/112 E2E Tests (Playwright) grün; `manage.py check` 0 Issues
 
@@ -64,7 +64,7 @@ Baseline(workspace, name, scope, created_at, created_by)
 BaselineItem(baseline, artifact, artifact_version)
 
 # Traceability
-TraceLink(source_artifact, target_artifact, link_type)  # 8 Typen: TRACE_TO, DERIVED_FROM, etc.
+TraceLink(source_artifact, target_artifact, link_type)  # 15 Typen: parent-child, derives-from, etc. (backend/traceability/types.py LinkType)
 
 # Audit
 AuditLogEntry(tenant, entity_type, entity_id, operation, old_value, new_value, ...)
@@ -102,6 +102,10 @@ from auth_tenancy.context import AuthContext, AuthMethod
 
 **Passwort-Login:**
 - `POST /api/v1/auth/login/` → JWT + httpOnly-Cookie `reqflow_access` (REQ-052)
+- Der `token` im Response-Body ist seit #696 **deprecated** (nur für E2E-/API-Tooling;
+  die SPA nutzt ausschließlich das Cookie). Per `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False`
+  (Default `True` = unverändertes Verhalten) lässt er sich abschalten; solange er
+  ausgeliefert wird, trägt die Response den Header `Deprecation: true` (RFC 9745).
 - `manage.py seed_demo` erstellt Admin-Account
 
 **Test-Coverage:** 115+ Tests (auth, RBAC, tenant-isolation, JWT, Rollen-Resolution)
@@ -200,8 +204,12 @@ from traceability.services import (
 )
 ```
 
-**Link-Typen (8):**
-- TRACE_TO, DERIVED_FROM, IMPLEMENTS, TESTS, VERIFIES, RELATED_TO, CONFLICTS_WITH, SUPERCEDES
+**Link-Typen (15, siehe `backend/traceability/types.py:LinkType`):**
+- parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes,
+  traces, copy-of, allocated-to, uses-term, decides, decomposes, diagram-ref
+- Kein dedizierter `conflicts-with`/`supersedes`-Typ (siehe `traceability/audit/rules/coverage_consistency.py`:
+  die Regeln `CONS-P9`/`CONS-P10`, die das prüfen würden, sind deshalb bewusst als `deferred`
+  markiert, nicht implementiert)
 
 **Komponenten:**
 - `TraceLink` Model (in persistence)
@@ -310,6 +318,52 @@ from diagram.services import (
 
 ---
 
+#### `memory/` (ARCH-L1-017)
+**Modell:** AI Long-Term Memory Storage mit pluggable Backends (pgvector/HNSW, Honcho) und 2D-PCA-Visualisierung für Clustering.
+
+**Exportierte API (Memory Models + Backends + Projector):**
+```python
+from memory.models import (
+    WorkspaceMemory,              # Consolidated facts scoped to workspace
+    UserTenantMemory,             # Consolidated facts scoped to user (follows across workspaces)
+    WorkspaceMemorySettings,      # Per-workspace enable/disable toggle
+    SystemMemorySettings,         # System-wide override (Django superuser only)
+)
+from memory.backends import MemoryBackend          # ABC für pluggable Backends
+from memory.honcho_backend import HonchoMemoryBackend
+from memory.pgvector_backend import PgVectorMemoryBackend
+from memory.projector import MemoryProjector      # PCA 2D projection + clustering
+```
+
+**Komponenten:**
+- `models.py` — `WorkspaceMemory`, `UserTenantMemory` (with pgvector HNSW indexes), `WorkspaceMemorySettings`, `SystemMemorySettings`
+- `backends.py` — `MemoryBackend` (ABC) für pluggable Implementierungen
+- `pgvector_backend.py` — PostgreSQL pgvector + HNSW Index Backend
+- `honcho_backend.py` — Honcho Remote Memory Service Backend
+- `context_builder.py` — Ereilt Speicherkontext aus Live-Daten
+- `projector.py` — PCA 2D-Projektion + Ähnlichkeits-Clustering (HNSW-ähnlich)
+- `tasks.py` — Async Consolidation/Embedding Tasks (Celery)
+- `memory_rest.py` — REST-Adapter (Siehe Layer 3)
+
+**Endpoints (siehe REST-API-Sektion):**
+- `GET/PUT /api/v1/workspaces/{id}/memory-settings/` — Per-Workspace Toggle
+- `GET/PUT /api/v1/system/memory-settings/` — System-Admin Override
+- `POST /api/v1/system/memory-settings/reset/` — Reset Overrides
+- `GET /api/v1/system/memory/workspaces/` — Workspace-Übersicht
+- `DELETE /api/v1/system/memory/workspaces/{id}/` — Workspace-Memory Löschen
+- `GET /api/v1/system/memory/entries/` — Live Entries List + Full-Text Filter
+- `GET /api/v1/system/memory/projection/` — 2D PCA Projection + Clustering
+- `GET/DELETE /api/v1/memory/me/` — User Self-Service
+
+**Modell-Besonderheiten:**
+- `WorkspaceMemory` + `UserTenantMemory` speichern Embeddings (384D, pgvector) + `superseded_by`-FK für Consolidation-Historie ohne zu löschen
+- `WorkspaceMemorySettings` folgt der "missing row = default state" Konvention (wie `LlmSettings`, `WorkspaceContextSettings`)
+- `SystemMemorySettings` ist eine Deployment-globale Row (Cross-Tenant), nur für Django Superuser editierbar
+
+**Test-Coverage:** 50+ Tests (Models, Backends, Projector, Consolidation, RLS)
+
+---
+
 #### `icd/` (ARCH-L1-014)
 **Modell:** Interface Control Document Management (Versionierung + Breaking-Change-Detection).
 
@@ -336,7 +390,7 @@ from icd.services import (
 #### `application/` (ARCH-L1-004)
 **Modell:** Central Facade mit 16 Domain Services (ADR-01: Single Entry Point). Alle höheren Schichten rufen nur `ApplicationService` auf.
 
-**Exportierte API (19 Services — 16 Core + 3 v1.1):**
+**Exportierte API (21 Services — 13 Core + 3 v1.1 + 2 v1.2):**
 ```python
 from application.services import (
     # Core
@@ -375,10 +429,14 @@ from application.services import (
     ImportService,                 # CSV bulk import
     TestRunService,                # Test-Run-Protokollierung
     ArtifactDiffService,           # Strukturiertes Feld-Level-Diff
+    
+    # v1.2 New Features (Memory Admin)
+    MemoryAdminService,            # System-Admin Memory-Operationen (Phase 1+5)
+    MemorySettingsService,         # Memory-Settings-Verwaltung (Phase 3)
 )
 ```
 
-**Komponenten (16 im `services/` Subpackage — 13 Core + 3 v1.1):**
+**Komponenten (18 im `services/` Subpackage — 13 Core + 3 v1.1 + 2 v1.2):**
 - `artifact_service.py` — `ArtifactService`
 - `requirement_service.py` — `RequirementService`
 - `architecture_service.py` — `ArchitectureService`
@@ -398,6 +456,8 @@ from application.services import (
 - `import_service.py` — `ImportService` (COMP-AS-009, v1.1 CSV-Bulk-Import)
 - `test_run_service.py` — `TestRunService` (COMP-AS-017, v1.1 Test-Run-Protokollierung)
 - `artifact_diff_service.py` — `ArtifactDiffService` (COMP-AS-019, v1.1 Feld-Level-Diff)
+- `memory_admin_service.py` — `MemoryAdminService` (v1.2, Memory Admin UI Phasen 1+5: Workspace-Übersicht, Löschen, Visualisierung)
+- `memory_settings_service.py` — `MemorySettingsService` (v1.2, Memory Admin UI Phase 3: System-Settings-Override)
 
 **Signature (Beispiel):**
 ```python
@@ -508,6 +568,34 @@ class MermaidSourceView(APIView):
 
 class MermaidPreviewView(APIView):
     # GET /api/v1/diagrams/{id}/mermaid-preview/ — rendered preview data
+
+# Memory Management (v1.2, Memory Admin UI Phasen 1–5)
+class WorkspaceMemorySettingsView(APIView):
+    # GET  /api/v1/workspaces/{id}/memory-settings/ — view settings (any workspace member)
+    # PUT  /api/v1/workspaces/{id}/memory-settings/ — toggle enabled (editor/admin)
+
+class SystemMemorySettingsView(APIView):
+    # GET /api/v1/system/memory-settings/  — effective config (System-Admin; env fallback)
+    # PUT /api/v1/system/memory-settings/  — override (Django superuser only)
+
+class SystemMemorySettingsResetView(APIView):
+    # POST /api/v1/system/memory-settings/reset/ — clear all overrides (Django superuser only)
+
+class SystemMemoryWorkspacesListView(APIView):
+    # GET /api/v1/system/memory/workspaces/ — Workspace-Übersicht (System-Admin)
+
+class SystemMemoryWorkspacesDeleteView(APIView):
+    # DELETE /api/v1/system/memory/workspaces/{id}/ — Löschen (System-Admin)
+
+class SystemMemoryEntriesListView(APIView):
+    # GET /api/v1/system/memory/entries/ — Paginated List + Full-Text-Filter (System-Admin, Phase 5)
+
+class SystemMemoryProjectionView(APIView):
+    # GET /api/v1/system/memory/projection/ — 2D PCA + Clustering (System-Admin, Phase 5)
+
+class MemorySelfServiceView(APIView):
+    # GET    /api/v1/memory/me/ — User's own UserTenantMemory (any authenticated user, Phase 4)
+    # DELETE /api/v1/memory/me/ — Delete (any authenticated user, Phase 4)
 ```
 
 **Auth-Endpoints:**
@@ -542,9 +630,9 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server mit 20 Tools in 4 Gruppen, direkt gegen ApplicationService (ADR-01).
+**Modell:** MCP-Server mit 23 Tools in 5 Gruppen, direkt gegen ApplicationService (ADR-01).
 
-**Exportierte API (20 MCP Tools):**
+**Exportierte API (23 MCP Tools):**
 
 **Group 1: Requirements (6 Tools)**
 ```
@@ -582,9 +670,16 @@ query_tracelinks        # artifact_id, direction="both" → List[TraceLink]
 report_coverage         # requirement_id/workspace_id → coverage%
 ```
 
+**Group 5: Memory (3 Tools, v1.2)**
+```
+memory.query            # Semantic search over workspace or user-tenant memory
+memory.list             # List recent memory entries (workspace or user-tenant scoped)
+memory.forget           # Delete a memory entry (ownership/admin-gated)
+```
+
 **Komponenten:**
 - `server.py` — MCP Server-Instanz
-- `tools/` — 4 Tool-Group-Module
+- `tools/` — 5 Tool-Group-Module
 - `handlers/` — Request-Handler pro Tool
 - `schemas/` — JSON-Schema für Tool-Inputs/-Outputs
 
@@ -687,7 +782,9 @@ frontend/
       BaselinesView/              # Baseline-Verwaltung und Diff-Viewer
       TraceabilityView/           # Trace-Link-Visualisierung
       NavigationShell/            # Sidebar, Workspace-Switcher, globale Suche
+        BannerStack.tsx            # Rendert globales System-Banner + Workspace-Banner (session-scoped Dismiss)
       WorkspaceSettings/          # Workspace-Settings (Preset, Terminologie, Sprache)
+        WorkspaceBannerSection.tsx # Workspace-Banner-Verwaltung (Workspace-Admin oder System-Admin)
     context/
       index.ts                    # React Context (Auth, Tenant, Presets, Workspace)
     types/
@@ -714,8 +811,8 @@ frontend/
 3. `ArchitectureEditors` — Architecture-Element-Editor
 4. `TraceabilityView` — Trace-Link-Visualisierung und Create-Formular
 5. `BaselinesView` — Baseline-Verwaltung und Diff-Viewer
-6. `NavigationShell` — Sidebar mit Workspace-Switcher, globaler Suche
-7. `WorkspaceSettings` — Workspace-Settings (Preset, Terminologie, Sprache)
+6. `NavigationShell` — Sidebar mit Workspace-Switcher, globaler Suche; inkl. `BannerStack` (System-/Workspace-Banner-Anzeige, v1.7.0)
+7. `WorkspaceSettings` — Workspace-Settings (Preset, Terminologie, Sprache); inkl. `WorkspaceBannerSection` (Workspace-Banner-Verwaltung, v1.7.0)
 8. `ArtifactDiff` — Visueller Artefakt-Diff (side-by-side + unified, Feld-Highlighting)
 9. `CsvImport` — CSV-Bulk-Import UI
 10. `TestRuns` — Test-Run-Ansicht mit Ergebnisliste
@@ -755,7 +852,7 @@ DATABASES = {
     }
 }
 
-# Installed Apps (16 + Django standard)
+# Installed Apps (17 + Django standard; +1 v1.2)
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -773,6 +870,7 @@ INSTALLED_APPS = [
     'traceability',
     'workflow',
     'baseline',
+    'memory',  # v1.2: AI Long-Term Memory
     'application',
     'rest_api',
     'mcp_server',
@@ -927,13 +1025,16 @@ Alle höheren Schichten (REST, MCP) greifen auf `ApplicationService` zu. Es gibt
 
 ## Deployment & Operations
 
-Die detaillierte Deployment-Dokumentation ist in den entsprechenden `deployment/`-Verzeichnissen verfügbar:
+Alle Deployment-Beispiele leben unter `deploy/` (nicht im Repo-Root — jeder direkte `docker compose`-Aufruf braucht `--project-directory .`, siehe `deploy/README.md`, auch KI-Agenten-lesbar):
 
-| Option | Anleitung | Beschreibung |
-|--------|-----------|-------------|
-| **Unraid Community Applications** | `deployment/unraid/README.md` | Unraid CA-Template (reqflow.xml) + vollständiger 9-Container-Stack via Compose Manager Plus Plugin. Icon-Platzhalter. |
-| **Docker Compose (Standard)** | `docker-compose.yml` | Lokale Entwicklung & Deployment: postgres, postgres-backup, redis, backend, celery, celery-beat, frontend, bootstrap, migrate. |
+| Option | Datei | Beschreibung |
+|--------|-------|-------------|
+| **Full-Stack** | `deploy/docker-compose.yml` | postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend + optionales Honcho-Memory-Backend hinter `profiles: ["honcho"]`. Standardwahl. |
+| **Minimal** | `deploy/docker-compose.minimal.yml` | Nur postgres, redis, backend, migrate, frontend — kein Celery/Backup/Honcho. |
+| **Dev-Hot-Reload** | `deploy/docker-compose.override.yml` | Overlay, via `make up` automatisch mitgemergt. |
 | **Kubernetes (geplant v2)** | — | Nicht dokumentiert; siehe Feature-Backlog. |
+
+Ehemals separate `deployment/`-Verzeichnisse (GHCR-Pull-Varianten, Unraid Community-Applications-Template) wurden am 2026-09-01 entfernt und in `deploy/` konsolidiert — siehe `docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md`. `deploy/docker-compose.yml` pullt standardmäßig bereits fertige GHCR-Images (kein lokaler Build nötig); `BACKEND_PORT`/`FRONTEND_PORT` sind per `.env` überschreibbar für Mehrfach-Instanzen auf einem Host.
 
 **Für Produktionsumgebungen:** Siehe die jeweilige Deployment-Option oben. Alle Optionen unterstützen die vollständige Feature-Set (Multi-Tenancy, RBAC, LLM-Integration, API-Keys, MCP-Server).
 
@@ -989,7 +1090,7 @@ Returns `204 No Content`. The key is immediately invalidated.
 
 ### Tool Reference
 
-All 11 tool groups listed below. Tools are called as `<prefix>.<tool_name>` (e.g., `requirement.query`, `test.run_create`).
+All 12 tool groups listed below. Tools are called as `<prefix>.<tool_name>` (e.g., `requirement.query`, `test.run_create`).
 
 ####1 `requirement.*` — Requirements Management
 

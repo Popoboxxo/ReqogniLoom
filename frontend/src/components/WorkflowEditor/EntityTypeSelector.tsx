@@ -7,6 +7,7 @@
  * so selecting an entity never triggers a second fetch.
  */
 
+import { useTranslation } from "react-i18next";
 import { Layers } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { WorkflowEntityType } from "../../api/workflows";
@@ -36,6 +37,7 @@ function EntityTypeItem({
   onSelect,
   scope,
 }: EntityTypeItemProps): JSX.Element {
+  const { t } = useTranslation();
   const { graph, isLoading } = useWorkflowData(type, scope);
   const count = graph?.states.length ?? 0;
   // In global scope, flag not-yet-seeded presets so the admin sees where to
@@ -43,10 +45,10 @@ function EntityTypeItem({
   const notInitialized =
     scope?.kind === "global" && !isLoading && graph !== null && !graph.initialized;
   const countLabel = isLoading
-    ? "…"
+    ? t("workflow.entitySelector.loadingCount")
     : notInitialized
-    ? "not initialized"
-    : `${count} ${count === 1 ? "state" : "states"}`;
+    ? t("workflow.entitySelector.notInitialized")
+    : t("workflow.entitySelector.stateCount", { count });
 
   return (
     <li>
@@ -69,6 +71,7 @@ export function EntityTypeSelector({
   onSelect,
   scope,
 }: EntityTypeSelectorProps): JSX.Element {
+  const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   const preset =
     scope?.kind === "global"
@@ -78,16 +81,16 @@ export function EntityTypeSelector({
   return (
     <nav
       className={styles.entityPanel}
-      aria-label="Workflow entity types"
+      aria-label={t("workflow.entitySelector.ariaLabel")}
       data-testid="workflow-entity-selector"
     >
-      <div className={styles.entityPanelLabel}>Entity Types</div>
+      <div className={styles.entityPanelLabel}>{t("workflow.entitySelector.title")}</div>
       <ul className={styles.entityList}>
         {WORKFLOW_ENTITY_TYPES.map((e) => (
           <EntityTypeItem
             key={e.type}
             type={e.type}
-            label={e.label}
+            label={t(`workflow.entityTypes.${e.type}`)}
             active={e.type === selected}
             onSelect={onSelect}
             scope={scope}
@@ -96,7 +99,7 @@ export function EntityTypeSelector({
       </ul>
       <div className={styles.entityPanelFooter}>
         <Layers size={14} className={styles.entityPanelFooterLabel} aria-hidden="true" />
-        <span className={styles.entityPanelFooterLabel}>Preset</span>
+        <span className={styles.entityPanelFooterLabel}>{t("workflow.entitySelector.preset")}</span>
         <span className={styles.presetBadge}>{preset}</span>
       </div>
     </nav>

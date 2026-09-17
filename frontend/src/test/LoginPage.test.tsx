@@ -5,7 +5,7 @@
  * req_id:  REQ-L2-RF-010 (Authentication, 401/403 → redirect to login)
  *
  * Tests:
- * 1. Successful login → token stored, user navigated away.
+ * 1. Successful login → authenticated via the httpOnly cookie, user navigated away.
  * 2. 401 response → error message displayed (invalidCredentials).
  * 3. Empty username → validation error shown.
  * 4. Empty password → validation error shown.
@@ -143,9 +143,9 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
 
   it("authenticates and navigates on successful login", async () => {
     // The token is delivered as an httpOnly cookie (REQ-052); the SPA no longer
-    // persists it to sessionStorage. Success is observed via navigation.
+    // persists it to sessionStorage. The response body deliberately carries NO
+    // `token` field here (#696): the SPA must not depend on the deprecated field.
     const mockLoginResponse = {
-      token: "test-jwt-token-123",
       user: {
         id: "user-1",
         username: "testuser",
@@ -185,8 +185,15 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
       ok: false,
       status: 401,
       json: async () => ({
-        error: "invalid_token",
-        message: "Invalid username or password",
+        // #271: the login endpoint reports "invalid_credentials";
+        // "invalid_token" is reserved for JWT parse/expiry failures.
+        // Systemaudit 2026-08-27 (P1 item 13): the auth error body is now the
+        // project-wide envelope, so the code/message are nested under `error`.
+        error: {
+          code: "invalid_credentials",
+          message: "Invalid username or password",
+          details: [{ doc_url: "https://docs.reqogniloom.local/errors/invalid_credentials" }],
+        },
       }),
     });
 
@@ -212,7 +219,6 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
       ok: true,
       status: 200,
       json: async () => ({
-        token: "tok",
         user: {
           id: "1",
           username: "admin",

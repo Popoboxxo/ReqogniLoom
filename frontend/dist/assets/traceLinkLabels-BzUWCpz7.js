@@ -1,1 +1,0 @@
-const s={"parent-child":"Parent / Child","derives-from":"Derives From",satisfies:"Satisfies",verifies:"Verifies",implements:"Implements",refines:"Refines",documents:"Documents",realizes:"Realizes",traces:"Traces","copy-of":"Copy Of","allocated-to":"Allocated To","uses-term":"Uses Term",decides:"Decides"},i=e=>s[e]??e,t=Object.keys(s);export{t as A,i as g};

@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Sample CSV content for testing
@@ -80,6 +80,14 @@ test.describe('CSV Import', () => {
 
   test('[REQ-L0-013] import button visible in requirements toolbar', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
+
+    // UI-consistency P1: CSV import is a rare action and now lives in the page
+    // header's "⋯" overflow menu (UI concept ch. 12.1), so it is not mounted
+    // until the menu is opened — same as PDF export, see pdf-export.spec.ts.
+    const overflowTrigger = page.locator('[data-testid="page-header-overflow-trigger"]');
+    await expect(overflowTrigger).toBeVisible({ timeout: 10000 });
+    await overflowTrigger.click();
+
     await expect(page.locator('[data-testid="csv-import-toolbar-btn"]')).toBeVisible({ timeout: 10000 });
   });
 

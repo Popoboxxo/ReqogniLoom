@@ -1,11 +1,22 @@
 import { Page, request } from '@playwright/test';
 
-const BASE_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BASE_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
+// Review finding F-05 (docs/SYSTEMAUDIT_2026-08-18.md follow-up, BUG-17):
+// `admin12345` is only the demo default in `seed_demo`
+// (`_DEFAULT_ADMIN_PASSWORD`/`SYSTEM_ADMIN_PASSWORD` fallback, see
+// backend/auth_tenancy/management/commands/seed_demo.py). A local
+// `.env` with its own `SYSTEM_ADMIN_PASSWORD` set (as the security-hardening
+// guidance in README recommends) makes every E2E login fail with a plain
+// 401 that reads like an unrelated app bug (e.g. "ICD version doesn't
+// increment" when the request never even got past login) — see
+// docs/SYSTEMAUDIT_2026-08-18.md BUG-17 for a concrete case. Overridable via
+// `E2E_ADMIN_PASSWORD` so a local run can point at the real seeded password
+// without editing this file.
 export const TEST_USER = {
   username: 'admin',
-  password: 'admin12345',
+  password: process.env.E2E_ADMIN_PASSWORD || 'admin12345',
 };
 
 /**
@@ -67,6 +78,28 @@ export async function getWorkspaceId(token: string): Promise<string> {
 }
 
 /**
+ * Create a brand-new, empty workspace via the API and return its ID.
+ *
+ * Used by specs that need a workspace with no pre-existing architecture root
+ * (or other singleton state), so they don't collide with other specs sharing
+ * SEEDED_WORKSPACE_ID.
+ */
+export async function createIsolatedWorkspace(token: string, name?: string): Promise<string> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  const wsName = name || `e2e-isolated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const response = await ctx.post('/api/v1/workspaces/', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: wsName },
+  });
+  if (!response.ok()) {
+    throw new Error(`Workspace creation failed: ${response.status()} ${await response.text()}`);
+  }
+  const body = await response.json();
+  await ctx.dispose();
+  return body.id as string;
+}
+
+/**
  * Inject JWT token and workspace ID into sessionStorage so tests skip the
  * login UI and the WorkspaceContext picks up the real workspace.
  */
@@ -117,6 +150,55 @@ export async function setWorkspacePreset(preset: WorkspacePresetName): Promise<v
     throw new Error(
       `Failed to set workspace preset to '${preset}': ${response.status()} ${await response.text()}`
     );
+  }
+}
+
+/**
+ * Read the *persisted* preset tier of a workspace via API.
+ *
+ * Companion to {@link setWorkspacePreset} for specs that must prove an actual
+ * state change instead of only that a click did not throw (issue #947): the
+ * seeded workspace's preset is tenant-wide shared state, so "the radio is
+ * checked" alone is a weaker claim than "the backend reports this tier".
+ *
+ * `GET /api/v1/workspaces/{id}/` returns `preset` either as a plain string
+ * ("extended") or as a blob ({"name": "extended", "tier": "extended", ...}),
+ * depending on whether the row was written through the preset endpoint or the
+ * generic update path — both shapes are normalized here, mirroring
+ * `frontend/src/context/WorkspaceContext.tsx::normalizePreset`.
+ *
+ * The caller passes the token so this can be used inside `expect.poll`
+ * without a fresh login per poll iteration (see
+ * stakeholder-needs.spec.ts REQ-L0-002).
+ */
+export async function getWorkspacePreset(
+  token: string,
+  workspaceId: string = SEEDED_WORKSPACE_ID
+): Promise<WorkspacePresetName> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  try {
+    const response = await ctx.get(`/api/v1/workspaces/${workspaceId}/`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok()) {
+      throw new Error(
+        `Failed to read workspace preset for '${workspaceId}': ${response.status()} ${await response.text()}`
+      );
+    }
+    const body = await response.json();
+    const raw = body.preset as unknown;
+    if (typeof raw === 'string') {
+      return raw as WorkspacePresetName;
+    }
+    if (raw && typeof raw === 'object') {
+      const blob = raw as { name?: string; tier?: string };
+      return (blob.name ?? blob.tier) as WorkspacePresetName;
+    }
+    throw new Error(
+      `Workspace '${workspaceId}' has no usable preset field: ${JSON.stringify(raw)}`
+    );
+  } finally {
+    await ctx.dispose();
   }
 }
 

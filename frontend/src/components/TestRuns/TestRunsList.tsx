@@ -13,12 +13,18 @@
  * Resizable divider between panels (REQ-002 Masken-Standardisierung).
  */
 
-import { useState } from "react";
+import type { CSSProperties } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { SplitView } from "../SplitView/SplitView";
-import { StatusBadge } from "./StatusBadge";
+import { PageHeader } from "../shared/PageHeader";
+import { ListToolbar } from "../shared/ListToolbar";
+import { EmptyState } from "../shared/EmptyState/EmptyState";
+import { Dialog } from "../shared/Dialog";
+import { StatusBadge } from "../shared/StatusBadge";
 import { TestRunDetailEditor } from "./TestRunDetailEditor";
+import { getTestRunStatusLabel } from "./testRunStatusLabel";
 import { useTestRunsData } from "./useTestRunsData";
 
 // REQ-175: TestRun.status choices — see persistence/models.py TestRun.status.
@@ -30,6 +36,49 @@ const TEST_RUN_STATUSES = [
   "closed",
 ] as const;
 
+// UI-56: named style objects for the test-case picker's search/select-all
+// row, named instead of inline JSX style object literals (ui-ratchet.test.ts
+// style-brace ceiling).
+const testCasePickerToolbarStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  marginBottom: "var(--space-1)",
+};
+const testCasePickerSearchStyle: CSSProperties = {
+  flex: "1 1 auto",
+  padding: "var(--space-1) var(--space-2)",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--color-border)",
+  fontSize: "var(--font-size-sm)",
+  fontFamily: "inherit",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+};
+const testCasePickerSelectedCountStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
+  margin: "0 0 var(--space-1)",
+};
+const testCasePickerNoMatchStyle: CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  margin: 0,
+};
+
+/** UI-56: select-all label style — cursor depends on whether any row is selectable. */
+function selectAllLabelStyle(disabled: boolean): CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--space-1)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-text)",
+    whiteSpace: "nowrap",
+    cursor: disabled ? "not-allowed" : "pointer",
+  };
+}
+
 export function TestRunsList(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -39,6 +88,10 @@ export function TestRunsList(): JSX.Element {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [listSearch, setListSearch] = useState<string>("");
+  // UI-56: the create-run test-case picker had no way to filter or bulk-select
+  // from a workspace's full test-case catalog.
+  const [testCaseSearch, setTestCaseSearch] = useState<string>("");
 
   const {
     items,
@@ -57,16 +110,64 @@ export function TestRunsList(): JSX.Element {
   } = useTestRunsData(selectedId, showCreateForm);
 
   // REQ-175: client-side status filter over the loaded runs.
-  const visibleItems = statusFilter
-    ? items.filter((item) => item.status === statusFilter)
-    : items;
+  const visibleItems = items.filter((item) => {
+    if (statusFilter && item.status !== statusFilter) return false;
+    if (
+      listSearch.trim() &&
+      !item.name.toLowerCase().includes(listSearch.trim().toLowerCase())
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const hasActiveListControls = Boolean(statusFilter || listSearch);
+
+  const resetListFilters = (): void => {
+    setStatusFilter("");
+    setListSearch("");
+  };
 
   const resetCreateForm = (): void => {
     setNewName("");
     setValidationError(null);
     setSelectedTestCaseIds([]);
+    setTestCaseSearch("");
     resetCreateError();
   };
+
+  // UI-56: filtered view of the workspace's test cases for the picker below.
+  const visibleTestCaseOptions = testCaseOptions.filter(
+    (tc) =>
+      !testCaseSearch.trim() ||
+      tc.title.toLowerCase().includes(testCaseSearch.trim().toLowerCase()),
+  );
+  const allVisibleSelected =
+    visibleTestCaseOptions.length > 0 &&
+    visibleTestCaseOptions.every((tc) => selectedTestCaseIds.includes(tc.id));
+
+  const toggleSelectAllVisible = (): void => {
+    setSelectedTestCaseIds((prev) => {
+      if (allVisibleSelected) {
+        const visibleIds = new Set(visibleTestCaseOptions.map((tc) => tc.id));
+        return prev.filter((id) => !visibleIds.has(id));
+      }
+      const merged = new Set(prev);
+      for (const tc of visibleTestCaseOptions) merged.add(tc.id);
+      return Array.from(merged);
+    });
+  };
+
+  // F-08 (Dialog migration): Escape / backdrop click / × must discard the
+  // draft exactly like the existing Cancel button.
+  const handleCancelCreate = (): void => {
+    resetCreateForm();
+    setShowCreateForm(false);
+  };
+
+  // F-08: preserve the previous `autoFocus` UX — Dialog's focus trap
+  // defaults to the first focusable element in the panel (its own × close
+  // button) unless told otherwise.
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const toggleTestCaseSelection = (id: string): void => {
     setSelectedTestCaseIds((prev) =>
@@ -110,85 +211,74 @@ export function TestRunsList(): JSX.Element {
   }
 
   return (
-    <div style={{ height: "100%" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Test Runs are not a Spine artifact type (no derivation chain), but
+          PageHeader/ListToolbar/EmptyState still apply (task 5.2). Unlike
+          Baselines, creating a test run is the routine primary action, so it
+          stays a primary header button.
+
+          #797: the label used to flip to "Cancel" while the create dialog was
+          open, which made this the one primary create action that could not
+          read "+ New Test Run". The three sibling routes that keep their form
+          open in the page all disable the trigger instead (Architecture,
+          Goals, Needs) and leave cancelling to the form's own Cancel button —
+          which this dialog already has (`testrun-create-cancel-btn`). */}
+      <PageHeader
+        title={t("nav.testRuns", "Test Runs")}
+        summary={t("testRuns.summary", { count: items.length })}
+        primaryAction={{
+          label: t("testRuns.create", "Create Run"),
+          prefixWithPlus: true,
+          onClick: () => setShowCreateForm(true),
+          disabled: showCreateForm,
+          testId: "testrun-create-btn",
+        }}
+      />
+
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
       <SplitView
         moduleType="testruns"
         leftMinWidth={260}
         leftPanel={
           <>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-4)",
-          }}
-        >
-          <h2
-            style={{
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-              margin: 0,
-            }}
-          >
-            {t("nav.testRuns", "Test Runs")}
-          </h2>
-          <button
-            type="button"
-            data-testid="testrun-create-btn"
-            onClick={() =>
-              showCreateForm
-                ? (resetCreateForm(), setShowCreateForm(false))
-                : setShowCreateForm(true)
-            }
-            style={{
-              padding: "var(--space-2) var(--space-3)",
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              cursor: "pointer",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-            }}
-          >
-            {showCreateForm ? t("actions.cancel") : `+ ${t("actions.new")}`}
-          </button>
-        </div>
+        {/* REQ-175: search + status filter */}
+        <ListToolbar
+          testIdPrefix="testrun-list"
+          searchValue={listSearch}
+          onSearchChange={setListSearch}
+          searchPlaceholder={t("editor.searchPlaceholder", "Search...")}
+          filters={[
+            {
+              id: "status",
+              allLabel: t("editor.allStatuses", "All Statuses"),
+              value: statusFilter,
+              options: TEST_RUN_STATUSES.map((s) => ({
+                value: s,
+                label: t(`testRuns.status.${s}`, s),
+              })),
+              onChange: setStatusFilter,
+            },
+          ]}
+          countLabel={
+            hasActiveListControls
+              ? t("editor.filteredCount", {
+                  shown: visibleItems.length,
+                  total: items.length,
+                })
+              : String(items.length)
+          }
+        />
 
-        {/* REQ-175: status filter */}
-        <div style={{ marginBottom: "var(--space-3)" }}>
-          <label htmlFor="testrun-status-filter" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
-            {t("editor.allStatuses", "All Statuses")}
-          </label>
-          <select
-            id="testrun-status-filter"
-            data-testid="testrun-status-filter"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "var(--space-2) var(--space-3)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--color-border)",
-              fontSize: "var(--font-size-sm)",
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-              boxSizing: "border-box",
-            }}
-          >
-            <option value="">{t("editor.allStatuses", "All Statuses")}</option>
-            {TEST_RUN_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {t(`testRuns.status.${s}`, s)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Create form */}
+        {/* Create form — F-08: wrapped in the shared Dialog primitive so it
+            gets a real focus trap and Escape-to-close (GESAMTTEST_BERICHT
+            2026-08-21 §5 finding 8); the form markup itself is unchanged. */}
         {showCreateForm && (
+          <Dialog
+            title={t("testRuns.create", "Create Run")}
+            onClose={handleCancelCreate}
+            initialFocusRef={nameInputRef}
+            testId="testrun-create-dialog"
+          >
           <form
             data-testid="testrun-create-form"
             onSubmit={(e) => void handleCreate(e)}
@@ -216,6 +306,7 @@ export function TestRunsList(): JSX.Element {
             <input
               id="testrun-name"
               data-testid="testrun-name-input"
+              ref={nameInputRef}
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
@@ -279,43 +370,92 @@ export function TestRunsList(): JSX.Element {
                   {t("testRuns.noTestCases", "Keine Testfälle im Workspace vorhanden")}
                 </p>
               ) : (
-                <div
-                  data-testid="testrun-create-testcases-list"
-                  style={{
-                    maxHeight: "160px",
-                    overflowY: "auto",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-2)",
-                    background: "var(--color-surface)",
-                  }}
-                >
-                  {testCaseOptions.map((tc) => (
+                <>
+                  {/* UI-56: search + select-all were missing, forcing manual
+                      one-by-one scrolling/ticking through the full workspace
+                      test-case catalog to build a run. */}
+                  <div style={testCasePickerToolbarStyle}>
+                    <input
+                      type="search"
+                      data-testid="testrun-create-testcases-search"
+                      value={testCaseSearch}
+                      onChange={(e) => setTestCaseSearch(e.target.value)}
+                      placeholder={t("testRuns.testCaseSearchPlaceholder", "Testfälle filtern...")}
+                      disabled={isCreating}
+                      style={testCasePickerSearchStyle}
+                    />
                     <label
-                      key={tc.id}
-                      htmlFor={`testrun-create-testcase-${tc.id}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "var(--space-2)",
-                        padding: "var(--space-1) 0",
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text)",
-                        cursor: "pointer",
-                      }}
+                      htmlFor="testrun-create-testcases-select-all"
+                      style={selectAllLabelStyle(visibleTestCaseOptions.length === 0)}
                     >
                       <input
-                        id={`testrun-create-testcase-${tc.id}`}
-                        data-testid={`testrun-create-testcase-${tc.id}`}
+                        id="testrun-create-testcases-select-all"
+                        data-testid="testrun-create-testcases-select-all"
                         type="checkbox"
-                        checked={selectedTestCaseIds.includes(tc.id)}
-                        onChange={() => toggleTestCaseSelection(tc.id)}
-                        disabled={isCreating}
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAllVisible}
+                        disabled={isCreating || visibleTestCaseOptions.length === 0}
                       />
-                      {tc.title}
+                      {t("testRuns.selectAllTestCases", "Alle auswählen")}
                     </label>
-                  ))}
-                </div>
+                  </div>
+                  {selectedTestCaseIds.length > 0 && (
+                    <p
+                      data-testid="testrun-create-testcases-selected-count"
+                      style={testCasePickerSelectedCountStyle}
+                    >
+                      {t("testRuns.selectedCount", "{{count}} ausgewählt", {
+                        count: selectedTestCaseIds.length,
+                      })}
+                    </p>
+                  )}
+                  {visibleTestCaseOptions.length === 0 ? (
+                    <p
+                      data-testid="testrun-create-testcases-no-match"
+                      style={testCasePickerNoMatchStyle}
+                    >
+                      {t("testRuns.testCaseSearchNoResults", "Keine passenden Testfälle.")}
+                    </p>
+                  ) : (
+                    <div
+                      data-testid="testrun-create-testcases-list"
+                      style={{
+                        maxHeight: "160px",
+                        overflowY: "auto",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: "var(--radius-md)",
+                        padding: "var(--space-2)",
+                        background: "var(--color-surface)",
+                      }}
+                    >
+                      {visibleTestCaseOptions.map((tc) => (
+                        <label
+                          key={tc.id}
+                          htmlFor={`testrun-create-testcase-${tc.id}`}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "var(--space-2)",
+                            padding: "var(--space-1) 0",
+                            fontSize: "var(--font-size-sm)",
+                            color: "var(--color-text)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            id={`testrun-create-testcase-${tc.id}`}
+                            data-testid={`testrun-create-testcase-${tc.id}`}
+                            type="checkbox"
+                            checked={selectedTestCaseIds.includes(tc.id)}
+                            onChange={() => toggleTestCaseSelection(tc.id)}
+                            disabled={isCreating}
+                          />
+                          {tc.title}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
             {formError && (
@@ -340,10 +480,7 @@ export function TestRunsList(): JSX.Element {
               <button
                 type="button"
                 data-testid="testrun-create-cancel-btn"
-                onClick={() => {
-                  resetCreateForm();
-                  setShowCreateForm(false);
-                }}
+                onClick={handleCancelCreate}
                 disabled={isCreating}
                 style={{
                   padding: "var(--space-2) var(--space-3)",
@@ -364,7 +501,7 @@ export function TestRunsList(): JSX.Element {
                 style={{
                   padding: "var(--space-2) var(--space-3)",
                   background: "var(--color-primary)",
-                  color: "white",
+                  color: "var(--color-on-primary)",
                   border: "none",
                   borderRadius: "var(--radius-md)",
                   cursor:
@@ -380,6 +517,7 @@ export function TestRunsList(): JSX.Element {
               </button>
             </div>
           </form>
+          </Dialog>
         )}
 
         {/* Load error */}
@@ -408,24 +546,41 @@ export function TestRunsList(): JSX.Element {
                 fontSize: "var(--font-size-sm)",
               }}
             >
-              {t("actions.reload", "Erneut versuchen")}
+              {t("actions.retry")}
             </button>
           </div>
         )}
 
         {/* List */}
         {visibleItems.length === 0 ? (
-          <p
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-              marginTop: "var(--space-4)",
-            }}
-          >
-            {statusFilter
-              ? t("editor.noMatches", "No matches found.")
-              : t("testRuns.empty", "No test runs yet")}
-          </p>
+          items.length === 0 ? (
+            // ch. 13.3: "there is nothing" — offer the create action.
+            <EmptyState
+              variant="empty"
+              testId="testrun-list-empty"
+              title={t("testRuns.emptyTitle", "No test runs yet")}
+              description={t(
+                "testRuns.emptyDescription",
+                "Test runs record the execution of your test cases against a build.",
+              )}
+              actions={[
+                {
+                  label: t("testRuns.create", "Create Run"),
+                  prefixWithPlus: true,
+                  onClick: () => setShowCreateForm(true),
+                  testId: "testrun-list-empty-create",
+                },
+              ]}
+            />
+          ) : (
+            // ch. 13.3: "there is something, just not under this filter" —
+            // offer only a filter reset, never a create action.
+            <EmptyState
+              variant="no-match"
+              testId="testrun-list-no-match"
+              onResetFilters={resetListFilters}
+            />
+          )
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {visibleItems.map((item) => {
@@ -434,14 +589,23 @@ export function TestRunsList(): JSX.Element {
                 <li
                   key={item.id}
                   data-testid={`testrun-item-${item.id}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
                   onClick={() => setSelectedId(item.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedId(item.id);
+                    }
+                  }}
                   style={{
                     padding: "var(--space-3) var(--space-3)",
                     marginBottom: "var(--space-2)",
                     background: isSelected
                       ? "var(--color-primary)"
                       : "var(--color-surface)",
-                    color: isSelected ? "white" : "var(--color-text)",
+                    color: isSelected ? "var(--color-on-primary)" : "var(--color-text)",
                     borderRadius: "var(--radius-md)",
                     border: isSelected
                       ? `1px solid var(--color-primary)`
@@ -471,7 +635,7 @@ export function TestRunsList(): JSX.Element {
                     }}
                   >
                     <strong>{item.name}</strong>
-                    <StatusBadge status={item.status} />
+                    <StatusBadge status={item.status} label={getTestRunStatusLabel(item.status)} />
                   </div>
                   {item.ci_job_id && (
                     <p
@@ -510,11 +674,12 @@ export function TestRunsList(): JSX.Element {
               padding: "var(--space-8)",
             }}
           >
-            {t("testRuns.selectPrompt", "Select a test run to view details")}
+            {t("testRuns.selectPrompt", "Select a test run from the list to view details.")}
           </p>
           )
         }
       />
+      </div>
     </div>
   );
 }

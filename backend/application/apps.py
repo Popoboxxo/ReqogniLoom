@@ -14,7 +14,8 @@ class ApplicationConfig(AppConfig):
       PresetConfigEngine, LlmAdapter, AuditLog, PersistenceLayer.
     - Ensures transactional consistency (REQ-L1-025 ACID).
     - WebhookDispatcher and GitHub-Integration route outbound calls via
-      ResilienceOrchestrator (IF-L1-049, REQ-L1-032).
+      ResilienceOrchestrator (IF-L1-049, REQ-L1-032). WebhookDispatcher is
+      registered on the DomainEventBus in ready() — see COMP-AS-011.
 
     See: docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/L2_ApplicationServiceSystem_Architecture.md
     REQ-L1: REQ-L1-001, REQ-L1-002, REQ-L1-004, REQ-L1-012, REQ-L1-019..025
@@ -25,11 +26,50 @@ class ApplicationConfig(AppConfig):
     verbose_name = "ARCH-L1-004 ApplicationService"
 
     def ready(self) -> None:
-        """Wire signal-based cache invalidation (REQ-038, BE-7) and the
-        first-start self-init receiver (REQ-188)."""
+        """Wire signal-based cache invalidation (REQ-038, BE-7), the
+        first-start self-init receiver (REQ-188), and the WebhookDispatcher
+        subscriber on application.event_bus's DomainEventBus (COMP-AS-011).
+
+        Previously WebhookDispatcher.subscribe_to_events() was never called
+        from any ready() hook, so it never actually received events despite
+        being fully implemented (HMAC signing, retry, DLQ) and configurable
+        via the Django admin (WebhookSubscription). SYSTEMAUDIT_2026-08-27 P0-3c.
+        """
         from application.cache_invalidation import register_signals
 
         register_signals()
+
+        # SA-21: register the Generic Artifact Model domain entities on the
+        # Layer-0 domain-model registry, so traceability (Task 3.2a
+        # artifact<->domain-entity resolution), baseline (issue #398 state
+        # capture) and workflow.lifecycle_manager's status-mirror write path
+        # (_STATUS_MIRROR_MODELS) — all Layer 1 — can resolve them by name
+        # instead of importing them directly. See
+        # persistence.domain_model_registry's module docstring.
+        #
+        # Datenmodell-Konsolidierung Phase 2 / Milestone M2: the six classes now
+        # live in persistence.models, so this imports them from their owner
+        # rather than through application.models' re-export. The registration
+        # itself stays here — it is a lazy, ready()-time indirection that lets
+        # Layer 1 resolve the models without an import edge, and that value is
+        # unchanged by the move.
+        from persistence.domain_model_registry import register_models
+        from persistence.models import Adr, ChangeRequest, Goal, Issue, MainGoal, Risk
+
+        register_models(
+            {
+                "Adr": Adr,
+                "Risk": Risk,
+                "Issue": Issue,
+                "Goal": Goal,
+                "MainGoal": MainGoal,
+                "ChangeRequest": ChangeRequest,
+            }
+        )
+
+        from application.webhook_dispatcher import get_webhook_dispatcher
+
+        get_webhook_dispatcher().subscribe_to_events()
 
         # REQ-188: self-initialise a fresh deployment (admin + base workspace +
         # default workflow/permission definitions) on first start, replacing the
@@ -51,10 +91,10 @@ def _run_self_init_on_migrate(sender, **kwargs) -> None:
     Two independent guards keep the pytest suite — which migrates a test database
     on every run and would otherwise be implicitly provisioned — safe:
 
-    * ``settings.SELF_INIT_ON_MIGRATE`` (False under ``reqflow.settings_test``),
+    * ``settings.SELF_INIT_ON_MIGRATE`` (False under ``reqogniloom.settings_test``),
       the explicit, documented switch, and
     * a defensive test-runner check, because the docker image forces
-      ``DJANGO_SETTINGS_MODULE=reqflow.settings`` into every process, so a
+      ``DJANGO_SETTINGS_MODULE=reqogniloom.settings`` into every process, so a
       ``docker compose exec backend pytest`` inherits the runtime settings
       instead of ``settings_test`` and would slip past the flag alone.
     """

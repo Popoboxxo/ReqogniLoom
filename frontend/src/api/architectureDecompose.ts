@@ -43,6 +43,20 @@ export interface DecompositionDraft {
   nodes: DraftNode[];
 }
 
+/**
+ * UI-40: one SE-Auditor/invariant (I1-I5) finding, as carried by
+ * `DecompositionAuditError.findings` on a 422 commit rollback — mirrors
+ * `traceability.audit.types.Finding.to_dict()`.
+ */
+export interface DecomposeFinding {
+  rule_id: string;
+  severity: string;
+  message: string;
+  artifact_ids: string[];
+  scope: string | null;
+  scope_artifact_id: string | null;
+}
+
 export interface CommitResult {
   committed: boolean;
   root_element_id: string;
@@ -53,9 +67,14 @@ export interface CommitResult {
   counts: { elements: number; requirements: number; links: number };
 }
 
+/**
+ * Optional *upper bounds* for one decompose call (spec §4). Omitting a value
+ * leaves the workspace's configured `max_breadth`/`max_depth` in force — the
+ * AI decides the actual structure from the element's content.
+ */
 export interface GenerateDraftOptions {
-  breadth?: number;
-  depth?: number;
+  maxBreadth?: number;
+  maxDepth?: number;
 }
 
 export const architectureDecomposeApi = {
@@ -69,8 +88,8 @@ export const architectureDecomposeApi = {
       `/workspaces/${workspaceId}/architecture/decompose/`,
       {
         element_id: elementId,
-        ...(options.breadth != null ? { breadth: options.breadth } : {}),
-        ...(options.depth != null ? { depth: options.depth } : {}),
+        ...(options.maxBreadth != null ? { max_breadth: options.maxBreadth } : {}),
+        ...(options.maxDepth != null ? { max_depth: options.maxDepth } : {}),
       }
     );
   },

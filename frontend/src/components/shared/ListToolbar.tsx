@@ -46,12 +46,21 @@ export interface ListToolbarProps {
   /** Accessible label for the sort dropdown. */
   sortLabel?: string;
   /**
-   * Preformatted result count (e.g. "12 of 240"). Only rendered when
-   * non-null — callers typically show it while any control is active.
+   * Preformatted result count (e.g. "12 of 240" while filtered, "240"
+   * otherwise). Per UI_KONZEPT.md ch. 12.1 the count must always be
+   * visible, not only while a filter/search is active — callers should
+   * pass the plain total when no control is active rather than `null`.
+   * `null` is still accepted for routes without a meaningful count.
    */
   countLabel?: string | null;
   /** Prefix for data-testid attributes, e.g. "req-list" / "arch-tree". */
   testIdPrefix: string;
+  /**
+   * Optional actions rendered at the right end of the toolbar.
+   * Note: UI_KONZEPT.md ch. 12.2 recommends no primary actions in toolbar,
+   * but this is a deliberate override per user request for improved UX.
+   */
+  actions?: React.ReactNode;
 }
 
 const controlStyle: React.CSSProperties = {
@@ -67,6 +76,20 @@ const controlStyle: React.CSSProperties = {
   outline: "none",
 };
 
+/*
+ * GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: the native <select>'s caret
+ * icon needs extra reserved space on the right beyond the symmetric
+ * controlStyle padding, otherwise long option labels run underneath the
+ * browser-drawn arrow once the select shrinks (flex: 1 1 0, minWidth: 0)
+ * below its content width. Applied only to <select> elements (filters +
+ * sort), not the free-text search input, which has no caret.
+ */
+const selectStyle: React.CSSProperties = {
+  ...controlStyle,
+  paddingRight: "calc(var(--space-2) + 16px)",
+  textOverflow: "ellipsis",
+};
+
 export function ListToolbar({
   searchValue,
   onSearchChange,
@@ -78,6 +101,7 @@ export function ListToolbar({
   sortLabel,
   countLabel,
   testIdPrefix,
+  actions,
 }: ListToolbarProps): JSX.Element {
   const hasFilterRow =
     (filters && filters.length > 0) ||
@@ -110,40 +134,49 @@ export function ListToolbar({
             flexWrap: "wrap",
             gap: "var(--space-2)",
             alignItems: "center",
+            justifyContent: "space-between",
           }}
         >
-          {(filters ?? []).map((filter) => (
-            <select
-              key={filter.id}
-              data-testid={`${testIdPrefix}-filter-${filter.id}`}
-              value={filter.value}
-              onChange={(e) => filter.onChange(e.target.value)}
-              aria-label={filter.allLabel}
-              style={{ ...controlStyle, flex: "1 1 0", minWidth: 0 }}
-            >
-              <option value="">{filter.allLabel}</option>
-              {filter.options.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          ))}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", alignItems: "center", flex: "1 1 auto" }}>
+            {(filters ?? []).map((filter) => (
+              <select
+                key={filter.id}
+                data-testid={`${testIdPrefix}-filter-${filter.id}`}
+                value={filter.value}
+                onChange={(e) => filter.onChange(e.target.value)}
+                aria-label={filter.allLabel}
+                style={{ ...selectStyle, flex: "1 1 0", minWidth: 0 }}
+              >
+                <option value="">{filter.allLabel}</option>
+                {filter.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            ))}
 
-          {sortOptions && sortOptions.length > 0 && onSortChange && (
-            <select
-              data-testid={`${testIdPrefix}-sort-select`}
-              value={sortValue ?? ""}
-              onChange={(e) => onSortChange(e.target.value)}
-              aria-label={sortLabel ?? "Sort"}
-              style={{ ...controlStyle, flex: "1 1 0", minWidth: 0 }}
-            >
-              {sortOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            {sortOptions && sortOptions.length > 0 && onSortChange && (
+              <select
+                data-testid={`${testIdPrefix}-sort-select`}
+                value={sortValue ?? ""}
+                onChange={(e) => onSortChange(e.target.value)}
+                aria-label={sortLabel ?? "Sort"}
+                style={{ ...selectStyle, flex: "1 1 0", minWidth: 0 }}
+              >
+                {sortOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {actions && (
+            <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexShrink: 0 }}>
+              {actions}
+            </div>
           )}
         </div>
       )}

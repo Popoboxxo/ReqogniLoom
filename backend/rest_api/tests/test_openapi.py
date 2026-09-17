@@ -96,3 +96,113 @@ class TestPublicExports:
             "COMMON_ERROR_RESPONSES",
         }
         assert required.issubset(set(__all__))
+
+
+# ---------------------------------------------------------------------------
+# #447 — query parameters must be declared, not just parsed
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def openapi_schema() -> dict:
+    """The generated OpenAPI 3.0 document (same output as GET /api/schema/)."""
+    from drf_spectacular.generators import SchemaGenerator
+
+    return SchemaGenerator().get_schema(request=None, public=True)
+
+
+def _query_params(schema: dict, path: str) -> dict:
+    """Return ``{name: parameter}`` for the GET operation's query parameters."""
+    assert path in schema["paths"], (
+        f"{path} missing from the OpenAPI schema; available: "
+        f"{sorted(p for p in schema['paths'] if 'bundle' in p or 'search' in p)}"
+    )
+    operation = schema["paths"][path]["get"]
+    return {
+        p["name"]: p for p in operation.get("parameters", []) if p["in"] == "query"
+    }
+
+
+class TestDocumentedQueryParameters:
+    """#447: drf-spectacular cannot see ``request.query_params.get(...)``.
+
+    Both endpoints below read their inputs straight off ``query_params``, so
+    without an explicit ``@extend_schema(parameters=[...])`` the generated
+    document advertised no query parameters at all. requirement-bundle
+    documented only its path ``id`` while accepting six, and /search/
+    documented none while *requiring* two -- a generated client could only
+    produce requests the server rejects with 400. That also left the correct
+    bundle path undiscoverable from the spec alone (#446).
+    """
+
+    BUNDLE_PATH = "/api/v1/architecture/{id}/requirement-bundle/"
+    SEARCH_PATH = "/api/v1/search/"
+
+    def test_requirement_bundle_documents_every_accepted_query_param(
+        self, openapi_schema: dict
+    ) -> None:
+        params = _query_params(openapi_schema, self.BUNDLE_PATH)
+        assert set(params) == {
+            "depth",
+            "filter_mode",
+            "fields",
+            "output_format",
+            "mode",
+            "async",
+        }
+
+    def test_requirement_bundle_enums_match_the_validated_values(
+        self, openapi_schema: dict
+    ) -> None:
+        # The view answers 400 for anything outside these sets, so the schema
+        # has to name them or a client cannot avoid the rejection.
+        params = _query_params(openapi_schema, self.BUNDLE_PATH)
+        assert set(params["mode"]["schema"]["enum"]) == {"raw", "compressed"}
+        assert set(params["output_format"]["schema"]["enum"]) == {
+            "json",
+            "markdown",
+            "csv",
+        }
+
+    def test_search_documents_its_two_mandatory_params(
+        self, openapi_schema: dict
+    ) -> None:
+        params = _query_params(openapi_schema, self.SEARCH_PATH)
+        assert params["q"]["required"] is True
+        assert params["workspace_id"]["required"] is True
+        assert {"type", "page", "limit"}.issubset(set(params))
+
+
+# ---------------------------------------------------------------------------
+# #696 — the login body token is deprecated and must say so
+# ---------------------------------------------------------------------------
+
+
+class TestLoginBodyTokenDeprecation:
+    """#696 (review C-3): clients must be able to discover the deprecation.
+
+    The `token` field of the login response body stays for API/CI tooling, but
+    an undocumented deprecation is invisible to generated clients — they would
+    keep wiring it into JavaScript and re-open the XSS vector REQ-052 closed.
+    """
+
+    LOGIN_PATH = "/api/v1/auth/login/"
+
+    def test_login_documents_deprecation_and_the_opt_out_flag(
+        self, openapi_schema: dict
+    ) -> None:
+        post = openapi_schema["paths"][self.LOGIN_PATH]["post"]
+        description = post.get("description", "")
+
+        assert "DEPRECATED" in description
+        assert "AUTH_LOGIN_INCLUDE_BODY_TOKEN" in description
+
+    def test_login_documents_the_cookie_as_the_supported_path(
+        self, openapi_schema: dict
+    ) -> None:
+        post = openapi_schema["paths"][self.LOGIN_PATH]["post"]
+        description = post.get("description", "")
+
+        assert "reqogniloom_access" in description
+        # The 401 contract (REQ-L3-AT001-004) stays documented.
+        assert "401" in post.get("responses", {})

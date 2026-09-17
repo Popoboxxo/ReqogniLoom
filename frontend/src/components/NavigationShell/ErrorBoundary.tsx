@@ -18,6 +18,8 @@ interface ErrorBoundaryProps {
   backLabel?: string;
   /** Label for error title */
   errorTitle?: string;
+  /** Fallback text when the thrown value carries no message. */
+  unknownErrorLabel?: string;
 }
 
 interface ErrorBoundaryState {
@@ -63,6 +65,7 @@ export class ErrorBoundary extends Component<
       reloadLabel = "Reload",
       backLabel = "Back",
       errorTitle = "An unexpected error occurred.",
+      unknownErrorLabel = "Unknown error",
     } = this.props;
 
     return (
@@ -75,12 +78,12 @@ export class ErrorBoundary extends Component<
         }}
       >
         <h2>{errorTitle}</h2>
-        <p style={{ color: "#666", marginBottom: "1.5rem" }}>
-          {this.state.error?.message ?? "Unknown error"}
+        <p style={{ color: "var(--color-errorboundary-text)", marginBottom: "1.5rem" }}>
+          {this.state.error?.message ?? unknownErrorLabel}
         </p>
         <div style={{ display: "flex", gap: "1rem", justifyContent: "center" }}>
-          <button onClick={this.handleReload}>{reloadLabel}</button>
-          <button onClick={this.handleBack}>{backLabel}</button>
+          <button onClick={this.handleReload} data-testid="error-reload-btn">{reloadLabel}</button>
+          <button onClick={this.handleBack} data-testid="error-back-btn">{backLabel}</button>
         </div>
       </div>
     );

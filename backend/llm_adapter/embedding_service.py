@@ -1,9 +1,11 @@
 """REQ-L2-VS-004 EmbeddingService — best-effort embedding generation.
 
-Generates semantic embeddings (1536-dim, OpenAI text-embedding-3-small
-compatible) for Requirement text. Kept in the LlmAdapterSystem (Layer 1) rather
-than in persistence (Layer 0), because it is an LLM-provider concern and
-llm_adapter is already permitted to depend on persistence — not the reverse.
+Generates semantic embeddings via configurable providers (default:
+sentence-transformers, 384 dims; optional: ollama 768 dims, openai 1536 dims)
+for Requirement/TraceLink/Icd text. Kept in the LlmAdapterSystem
+(Layer 1) rather than in persistence (Layer 0), because it is an LLM-provider
+concern and llm_adapter is already permitted to depend on persistence — not
+the reverse.
 
 Contract:
     - ``generate_embedding`` NEVER raises. On any error (missing SDK, network
@@ -11,26 +13,323 @@ Contract:
       persist the requirement without an embedding (best-effort, ADR: embedding
       generation must never fail the surrounding write).
     - Provider support:
-        openai  -> real embeddings via the OpenAI SDK.
-        mock    -> deterministic pseudo-random vector (stable per input text),
-                   so local/CI similarity queries return sensible orderings.
-        others  -> None (Anthropic/Ollama/Azure have no embedding path yet).
+        sentence-transformers  -> real embeddings via sentence-transformers SDK
+                                  (default, 384 dims, in-process).
+        ollama                 -> real embeddings via ollama remote service
+                                  (768 dims, optional external service).
+        openai                 -> real embeddings via the OpenAI SDK
+                                  (1536 dims, requires API key).
+        mock                   -> deterministic pseudo-random vector (stable per
+                                  input text), so local/CI similarity queries
+                                  return sensible orderings.
+
+DIMENSIONS (issue #794): every ``VectorField`` in this project is sized from
+``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``, which is
+pinned to the *default* provider's output width (384). The default
+configuration therefore works end to end with no operator action.
+
+    History: ``EMBEDDING_PROVIDER``'s default changed from ``openai`` to
+    ``sentence-transformers`` (Task 1 of the ai-memory-and-search plan) while
+    ``Requirement.embedding``/``TraceLink.embedding``/``Icd.embedding``
+    stayed hardcoded ``vector(1536)``. Because every write site guards
+    ``len(vector) == column.dimensions`` before touching the DB (a mismatched
+    width is a pgvector ``DataError`` that poisons the caller's ambient
+    transaction) and the read side short-circuits identically, the shipped
+    default silently skipped 100% of embedding writes and left semantic
+    ``artifact.search`` permanently empty. #794 resized the columns and made
+    the residual mismatch loud rather than silent.
+
+Selecting a NON-default provider whose native width differs from
+``EMBEDDING_VECTOR_DIMENSIONS`` (``ollama``/``nomic-embed-text`` -> 768,
+``openai``/``text-embedding-3-small`` -> 1536) reintroduces the mismatch and
+is no longer silent: ``llm_adapter.checks.check_embedding_dimensions`` reports
+it via ``manage.py check`` at startup, and the first skipped write logs at
+WARNING (:func:`warn_dimension_mismatch`). To actually run such a provider,
+change ``EMBEDDING_VECTOR_DIMENSIONS``, generate the resulting ``AlterField``
+migrations for all five columns and re-run ``manage.py backfill_embeddings``
+(existing vectors cannot be cast between widths and are discarded).
 """
 from __future__ import annotations
 
 import hashlib
 import logging
 import os
-from typing import List, Optional
+import random
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional, Type
 
 logger = logging.getLogger(__name__)
 
-# Dimension of the embedding vector. Must match Requirement.embedding
-# (VectorField(dimensions=1536)) and the HNSW index.
-EMBEDDING_DIMENSIONS = 1536
+# sentence-transformers' all-MiniLM-L6-v2 (the new default model) has 384 dims;
+# this is now provider-dependent, not a single module-wide constant -- callers
+# needing the dimension read it off the resolved provider instance, not a
+# module constant (WorkspaceMemory/UserTenantMemory in Task 2 hardcode 384
+# because they are built specifically against the default provider for v1 --
+# see Global Constraints on fixed-per-tenant provider selection).
 
-# OpenAI embedding model producing 1536-dim vectors.
-OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+
+class EmbeddingProvider(ABC):
+    dimensions: int
+
+    @abstractmethod
+    def embed(self, text: str) -> Optional[List[float]]:
+        ...
+
+
+@dataclass
+class EmbeddingProviderConfig:
+    provider_name: str = ""
+    model_name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    timeout: Optional[float] = None
+
+
+def _read_env_config() -> EmbeddingProviderConfig:
+    return EmbeddingProviderConfig(
+        provider_name=os.environ.get("EMBEDDING_PROVIDER", "sentence-transformers").strip().lower(),
+        model_name=os.environ.get("EMBEDDING_MODEL_NAME") or None,
+        base_url=os.environ.get("OLLAMA_BASE_URL") or None,
+        api_key=os.environ.get("LLM_API_KEY") or None,  # reuses the existing LLM API key, not a new secret
+        timeout=float(os.environ.get("EMBEDDING_TIMEOUT", "10")),
+    )
+
+
+#: SA-21: DI seam so this Layer-1 module never imports ``memory`` (an
+#: ADR-01 Layer-2-placed app, per memory.apps.MemoryConfig's own docstring)
+#: directly. ``memory.apps.MemoryConfig.ready()`` registers the real
+#: SystemMemorySettings lookup here at startup -- the same
+#: register-on-``ready()`` pattern ``audit.apps.AuditConfig`` uses for
+#: ``AuditLogWriter``/``DomainEventBus``. Replaces the previous lazy
+#: ``from memory.models import SystemMemorySettings`` import, which only
+#: avoided *crashing* on the memory<->llm_adapter circular import (memory
+#: itself imports ``llm_adapter.embedding_service.generate_embedding`) --
+#: it did not remove the backwards dependency.
+_settings_override_provider: Optional[
+    Callable[["EmbeddingProviderConfig"], "EmbeddingProviderConfig"]
+] = None
+
+
+def register_settings_override_provider(
+    provider: Callable[["EmbeddingProviderConfig"], "EmbeddingProviderConfig"],
+) -> None:
+    """Register the Layer-2/Ext settings-override lookup. Called once from
+    ``memory.apps.MemoryConfig.ready()`` at Django startup."""
+    global _settings_override_provider
+    _settings_override_provider = provider
+
+
+def _apply_db_settings(cfg: EmbeddingProviderConfig) -> EmbeddingProviderConfig:
+    """Overlay a persisted SystemMemorySettings override onto an env-based
+    config (Memory Admin UI Phase 3). Mirrors llm_adapter.providers's own
+    _apply_db_settings for LlmSettings -- same best-effort semantics: any
+    failure (no row, DB unavailable, provider not yet registered) leaves cfg
+    untouched, env stays the fallback.
+    """
+    if _settings_override_provider is None:
+        return cfg
+    try:
+        return _settings_override_provider(cfg)
+    except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
+        logger.debug("SystemMemorySettings lookup skipped; falling back to environment.")
+        return cfg
+
+
+def _read_config() -> EmbeddingProviderConfig:
+    return _apply_db_settings(_read_env_config())
+
+
+EMBEDDING_PROVIDER_REGISTRY: Dict[str, Type[EmbeddingProvider]] = {}
+
+
+def register_embedding_provider(name: str) -> Callable[[Type[EmbeddingProvider]], Type[EmbeddingProvider]]:
+    def _decorator(cls: Type[EmbeddingProvider]) -> Type[EmbeddingProvider]:
+        EMBEDDING_PROVIDER_REGISTRY[name] = cls
+        return cls
+    return _decorator
+
+
+def get_embedding_provider(config: Optional[EmbeddingProviderConfig] = None) -> EmbeddingProvider:
+    cfg = config or _read_config()
+    provider_cls = EMBEDDING_PROVIDER_REGISTRY.get(cfg.provider_name)
+    if provider_cls is None:
+        raise ValueError(f"unknown embedding provider: {cfg.provider_name!r}")
+    return provider_cls(cfg)
+
+
+@register_embedding_provider("mock")
+class MockEmbeddingProvider(EmbeddingProvider):
+    dimensions = 384
+
+    def __init__(self, config: EmbeddingProviderConfig) -> None:
+        self._config = config
+
+    def embed(self, text: str) -> Optional[List[float]]:
+        if not text or not text.strip():
+            return None
+        seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2**32)
+        rng = random.Random(seed)
+        return [rng.uniform(-1.0, 1.0) for _ in range(self.dimensions)]
+
+
+@register_embedding_provider("sentence-transformers")
+class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
+    """Default provider: runs in-process, no extra container/service.
+    Model weights are bundled into the backend/celery Docker image at build
+    time (Task 12 adds the download step to the Dockerfile)."""
+
+    dimensions = 384
+    _DEFAULT_MODEL = "all-MiniLM-L6-v2"
+    _model = None  # class-level lazy singleton -- loading the model is expensive (~100ms+)
+    # Which model name _model was actually built from. The cache is KEYED by
+    # this name: without it, an EMBEDDING_MODEL_NAME change (env or, since
+    # Memory Admin UI Phase 3, a SystemMemorySettings override) would be
+    # silently ignored by every worker that had already loaded some model,
+    # while the admin UI reported the new value as active.
+    _loaded_model_name: Optional[str] = None
+
+    def __init__(self, config: EmbeddingProviderConfig) -> None:
+        self._model_name = config.model_name or self._DEFAULT_MODEL
+
+    def _get_model(self):
+        cls = SentenceTransformersEmbeddingProvider
+        if cls._model is None or cls._loaded_model_name != self._model_name:
+            from sentence_transformers import SentenceTransformer
+            cls._model = SentenceTransformer(self._model_name)
+            cls._loaded_model_name = self._model_name
+        return cls._model
+
+    def embed(self, text: str) -> Optional[List[float]]:
+        if not text or not text.strip():
+            return None
+        try:
+            model = self._get_model()
+            vector = model.encode(text, normalize_embeddings=True)
+            return vector.tolist()
+        except Exception as exc:
+            logger.warning("sentence-transformers embedding failed: %s", exc)
+            return None
+
+
+@register_embedding_provider("ollama")
+class OllamaEmbeddingProvider(EmbeddingProvider):
+    """Optional, externally-connectable -- requires a reachable Ollama service."""
+
+    dimensions = 768  # nomic-embed-text's native dimension
+    _DEFAULT_MODEL = "nomic-embed-text"
+
+    def __init__(self, config: EmbeddingProviderConfig) -> None:
+        self._base_url = (config.base_url or "http://localhost:11434").rstrip("/")
+        self._model_name = config.model_name or self._DEFAULT_MODEL
+        self._timeout = config.timeout or 10
+
+    def embed(self, text: str) -> Optional[List[float]]:
+        if not text or not text.strip():
+            return None
+        import requests
+        try:
+            response = requests.post(
+                f"{self._base_url}/api/embeddings",
+                json={"model": self._model_name, "prompt": text},
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+            vector = response.json().get("embedding")
+            if not vector or len(vector) != self.dimensions:
+                logger.warning("ollama embedding returned unexpected shape")
+                return None
+            return vector
+        except Exception as exc:
+            logger.warning("ollama embedding failed: %s", exc)
+            return None
+
+
+@register_embedding_provider("openai")
+class OpenAiEmbeddingProvider(EmbeddingProvider):
+    """Existing provider, kept as an optional higher-quality alternative."""
+
+    dimensions = 1536
+    _DEFAULT_MODEL = "text-embedding-3-small"
+
+    def __init__(self, config: EmbeddingProviderConfig) -> None:
+        self._api_key = config.api_key
+        self._model_name = config.model_name or self._DEFAULT_MODEL
+        self._timeout = config.timeout or 10
+
+    def embed(self, text: str) -> Optional[List[float]]:
+        if not text or not text.strip():
+            return None
+        try:
+            import openai
+            client = openai.OpenAI(api_key=self._api_key, timeout=self._timeout)
+            response = client.embeddings.create(model=self._model_name, input=text)
+            vector = response.data[0].embedding
+            if len(vector) != self.dimensions:
+                logger.warning("openai embedding returned unexpected dimension %d", len(vector))
+                return None
+            return vector
+        except Exception as exc:
+            logger.warning("openai embedding failed: %s", exc)
+            return None
+
+
+def generate_embedding(text: str) -> Optional[List[float]]:
+    """Backward-compatible facade -- existing call sites (Requirement, TraceLink,
+    Icd embedding generation) are unchanged, now backed by the registry."""
+    if not text or not text.strip():
+        return None
+    try:
+        return get_embedding_provider().embed(text)
+    except Exception as exc:
+        logger.warning("generate_embedding failed: %s", exc)
+        return None
+
+
+#: Sites that have already warned about a dimension mismatch this process,
+#: keyed by ``(site, produced_dimensions, expected_dimensions)``. See
+#: :func:`warn_dimension_mismatch`.
+_warned_dimension_mismatches: set = set()
+
+
+def warn_dimension_mismatch(site: str, produced: int, expected: int) -> None:
+    """Log a dimension mismatch once per process, at WARNING level (#794).
+
+    Every embedding write site guards ``len(vector) == column.dimensions``
+    before touching the DB, because pgvector rejects a mismatched width with a
+    ``DataError`` that would poison the caller's ambient transaction. Those
+    guards used to log at DEBUG, which is why the shipped default
+    configuration could skip *100% of embedding writes* — for months, on every
+    deployment — with no operator-visible signal at all beyond an
+    ``artifact.search`` that never returned semantic hits.
+
+    WARNING, not DEBUG: a skipped embedding is a silent loss of a feature, not
+    routine bookkeeping. Deduplicated per process rather than logged per write
+    so that a bulk operation (import, ``backfill_embeddings``) reporting a real
+    misconfiguration does not emit one line per row — the condition is a
+    static config property, so the first occurrence carries all the
+    information the thousandth would.
+    """
+    key = (site, produced, expected)
+    if key in _warned_dimension_mismatches:
+        logger.debug(
+            "%s: embedding skipped, dimension mismatch (got %d, column expects %d)",
+            site,
+            produced,
+            expected,
+        )
+        return
+    _warned_dimension_mismatches.add(key)
+    logger.warning(
+        "%s: embedding skipped and semantic search will be incomplete -- "
+        "dimension mismatch: the configured embedding provider produced a "
+        "%d-dim vector but the column expects %d dims. Run `manage.py check` "
+        "for the full report (#794). Further occurrences of this exact "
+        "mismatch log at DEBUG.",
+        site,
+        produced,
+        expected,
+    )
 
 
 def get_embedding_text(requirement) -> str:
@@ -44,34 +343,35 @@ def get_embedding_text(requirement) -> str:
     return f"{title}\n\n{description}".strip()
 
 
-def get_icd_version_embedding_text(icd_version) -> str:
-    """Combine an IcdVersion's contract fields into embedding input.
+def get_icd_embedding_text(icd) -> str:
+    """Combine an ICD's contract fields into embedding input.
 
-    REQ-L2-VS-004. Duck-typed: accepts any object exposing the IcdVersion
-    contract attributes (ORM instance or DTO). Includes the parent ICD name
-    when the relation is available so structurally similar interfaces cluster.
+    REQ-L2-VS-004. Duck-typed: accepts any object exposing the ICD contract
+    attributes (ORM instance, ``IcdRevision`` or DTO). Includes the interface
+    name when present so structurally similar interfaces cluster.
+
+    Task 28c-2: renamed from ``get_icd_version_embedding_text`` and reads
+    ``name`` directly — the contract and the name now live on the same row,
+    so the old ``icd_id``/``icd.name`` relation walk is gone.
     """
     parts: List[str] = []
 
-    icd_name = None
-    if getattr(icd_version, "icd_id", None):
-        icd = getattr(icd_version, "icd", None)
-        icd_name = getattr(icd, "name", None) if icd is not None else None
-    if icd_name:
-        parts.append(f"Interface: {icd_name}")
+    name = getattr(icd, "name", None)
+    if name:
+        parts.append(f"Interface: {name}")
 
-    parts.append(f"Type: {getattr(icd_version, 'interface_type', '') or ''}")
+    parts.append(f"Type: {getattr(icd, 'interface_type', '') or ''}")
     parts.append(
-        f"Description: {getattr(icd_version, 'semantic_description', '') or ''}"
+        f"Description: {getattr(icd, 'semantic_description', '') or ''}"
     )
 
-    preconditions = getattr(icd_version, "preconditions", None)
+    preconditions = getattr(icd, "preconditions", None)
     if preconditions:
         parts.append(f"Preconditions: {' '.join(str(p) for p in preconditions)}")
-    postconditions = getattr(icd_version, "postconditions", None)
+    postconditions = getattr(icd, "postconditions", None)
     if postconditions:
         parts.append(f"Postconditions: {' '.join(str(p) for p in postconditions)}")
-    invariants = getattr(icd_version, "invariants", None)
+    invariants = getattr(icd, "invariants", None)
     if invariants:
         parts.append(f"Invariants: {' '.join(str(p) for p in invariants)}")
 
@@ -107,82 +407,15 @@ def get_tracelink_embedding_text(tracelink) -> str:
     return f"{link_type}: {source_title} → {target_title}".strip()
 
 
-def generate_embedding(text: str) -> Optional[List[float]]:
-    """Generate an embedding for *text* via the configured provider.
-
-    Returns a list of ``EMBEDDING_DIMENSIONS`` floats, or ``None`` when no
-    embedding could be produced. Never raises (best-effort).
-    """
-    if not text or not text.strip():
-        return None
-
-    provider = os.environ.get("LLM_PROVIDER", "").strip().lower()
-    try:
-        if provider == "openai":
-            return _openai_embedding(text)
-        if provider == "mock":
-            return _mock_embedding(text)
-        # anthropic / ollama / azure / unset: no embedding support yet.
-        logger.debug(
-            "EmbeddingService: provider %r has no embedding support; "
-            "skipping embedding generation",
-            provider or "<unset>",
-        )
-        return None
-    except Exception as exc:  # noqa: BLE0001 — best-effort, must not propagate
-        logger.warning("EmbeddingService: embedding generation failed: %s", exc)
-        return None
-
-
-def _openai_embedding(text: str) -> Optional[List[float]]:
-    """Call the OpenAI embeddings endpoint via the OpenAI SDK.
-
-    Mirrors OpenAiProvider's SDK usage (llm_adapter.providers). Returns None if
-    the SDK is unavailable or the response shape is unexpected.
-    """
-    try:
-        from openai import OpenAI  # noqa: PLC0415 (lazy import intentional)
-    except ImportError:
-        logger.warning(
-            "EmbeddingService: openai SDK not installed; cannot generate "
-            "embeddings (run: pip install openai)"
-        )
-        return None
-
-    api_key = os.environ.get("LLM_API_KEY", "")
-    timeout = int(os.environ.get("LLM_TIMEOUT", "30"))
-    client = OpenAI(api_key=api_key, timeout=timeout)
-    response = client.embeddings.create(model=OPENAI_EMBEDDING_MODEL, input=text)
-    vector = list(response.data[0].embedding)
-    if len(vector) != EMBEDDING_DIMENSIONS:
-        logger.warning(
-            "EmbeddingService: unexpected embedding dimension %d (expected %d)",
-            len(vector),
-            EMBEDDING_DIMENSIONS,
-        )
-        return None
-    return vector
-
-
-def _mock_embedding(text: str) -> List[float]:
-    """Return a deterministic pseudo-random unit-ish vector for *text*.
-
-    Seeded by a stable hash of the text so identical inputs always map to the
-    same vector — this lets similarity ordering be exercised without a real
-    embedding provider (tests, local dev, demo data).
-    """
-    import random
-
-    seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2**32)
-    rng = random.Random(seed)
-    return [rng.uniform(-1.0, 1.0) for _ in range(EMBEDDING_DIMENSIONS)]
-
-
 __all__ = [
-    "EMBEDDING_DIMENSIONS",
-    "OPENAI_EMBEDDING_MODEL",
-    "get_embedding_text",
-    "get_icd_version_embedding_text",
-    "get_tracelink_embedding_text",
+    "EmbeddingProvider",
+    "EmbeddingProviderConfig",
+    "EMBEDDING_PROVIDER_REGISTRY",
+    "register_embedding_provider",
+    "get_embedding_provider",
     "generate_embedding",
+    "get_embedding_text",
+    "get_icd_embedding_text",
+    "get_tracelink_embedding_text",
+    "warn_dimension_mismatch",
 ]

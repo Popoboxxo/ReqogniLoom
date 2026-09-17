@@ -4,6 +4,7 @@ Adds the two workflow endpoints that every workflow-backed entity ViewSet needs:
 
     GET  /api/v1/<entity>/{pk}/transitions/       → current state + allowed moves
     POST /api/v1/<entity>/{pk}/transitions/       → perform a gated transition
+    POST /api/v1/<entity>/{pk}/reactivate/        → undo a soft-delete (GH-443)
     GET  /api/v1/<entity>/{pk}/workflow-history/   → append-only audit trail
 
 The WorkflowEngine (via ``WorkflowFacade``) is the single authority for the
@@ -32,7 +33,100 @@ from application.services import (
     WorkflowFacade,
 )
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.serializers import build_error_response, detect_lang
+
+#: Keys that are never writable through PATCH on any entity, whether or not the
+#: serializer happens to declare them (#269, finding 5). ``workspace_id`` is a
+#: create-time field — a PATCH carrying it is an attempted cross-workspace move,
+#: which has to go through the dedicated move flow. ``is_admin`` is not a field
+#: of any entity at all; it is listed explicitly so a mass-assignment probe gets
+#: a precise error instead of the generic "unknown field".
+_PROTECTED_PATCH_FIELDS = frozenset(
+    {
+        "artifact_id",
+        "created_at",
+        "created_by_id",
+        "id",
+        "is_admin",
+        "modified_by_id",
+        "tenant_id",
+        "updated_at",
+        "uid",
+        "version",
+        "workspace_id",
+    }
+)
+
+#: Keys accepted on every entity even when the serializer does not declare them.
+#: ``change_reason`` and ``custom_fields`` are sent by the UI detail panels on
+#: every save, and ``expected_version`` carries optimistic-locking state, so
+#: rejecting them as "unknown" would break working save paths.
+#:
+#: SYSTEMAUDIT_2026-08-29 (REST finding 1): ``expected_version`` is now declared
+#: by ``ExpectedVersionSerializerMixin`` on every entity serializer *and*
+#: honoured by the matching service, so this entry is no longer what makes the
+#: key pass. It stays because this guard also runs for handlers validating
+#: against a serializer that does not mix the field in, and because letting the
+#: key through without enforcement — which is exactly what happened before the
+#: audit — is worse than rejecting it: the client believes it is protected.
+_ALWAYS_ALLOWED_PATCH_FIELDS = frozenset(
+    {"change_reason", "custom_fields", "expected_version"}
+)
+
+
+def _same_status(candidate: Any, current: str) -> bool:
+    """Compare a client-supplied status against the stored one, leniently.
+
+    Status labels are mirrored across the WorkflowEngine and the entity's own
+    column and still differ in casing between entity types (``'draft'`` for the
+    persistence-app entities vs ``'Draft'`` for ``Adr``; TestCase joined the
+    lowercase group in GH-453). Comparing case-insensitively keeps a harmless
+    echo of the value the client just read via GET from being treated as a
+    status *change*, which under #263 cost the user the rest of their edit.
+
+    It also absorbs the GH-453 rename for clients that cached the old
+    Title-Case TestCase status and echo it back on the next PATCH.
+    """
+    return str(candidate).strip().casefold() == str(current).strip().casefold()
+
+
+def _latest_proposal_actor(
+    item_id: UUID, item_type: str, workspace_id: UUID
+) -> str | None:
+    """Return the actor of the newest ``-> "proposed"`` history entry, or None.
+
+    Split out from :func:`resolve_proposed_by` so the pure decision logic stays
+    testable without a database.
+    """
+    from workflow.models import WorkflowHistoryEntry, WorkflowItemState
+
+    state = WorkflowItemState.objects.filter(
+        item_id=item_id, item_type=item_type, workspace_id=workspace_id
+    ).first()
+    if state is None:
+        return None
+    entry = (
+        WorkflowHistoryEntry.objects.filter(item_state=state, to_state="proposed")
+        .order_by("-transitioned_at")
+        .first()
+    )
+    return entry.transitioned_by if entry is not None else None
+
+
+def resolve_proposed_by(
+    current_state: str | None,
+    item_id: UUID,
+    item_type: str,
+    workspace_id: UUID,
+) -> str | None:
+    """Return the proposing agent's label when the item is a proposal.
+
+    Spec §4.4: the artifact header shows "Vorschlag von {agent_label}" instead
+    of the plain status badge. Returns ``None`` for every non-proposed item so
+    the UI can branch on a single nullable field.
+    """
+    if current_state != "proposed":
+        return None
+    return _latest_proposal_actor(item_id, item_type, workspace_id)
 
 
 class WorkflowTransitionsMixin:
@@ -54,6 +148,120 @@ class WorkflowTransitionsMixin:
     """
 
     workflow_item_type: str = ""
+
+    #: Item type this ViewSet's rows are keyed by in the attribute definition
+    #: (e.g. ``"Requirement"``). ``None`` disables definition-driven field
+    #: validation for the ViewSet — used by the ViewSets that are not one of
+    #: the eleven bootstrapped artifact types.
+    attribute_item_type: str | None = None
+
+    def _validate_attribute_definition(
+        self,
+        ctx: Any,
+        workspace_id: Any,
+        changed_fields: dict,
+        existing: dict | None,
+    ) -> Response | None:
+        """Validate a payload against the resolved AttributeDefinition.
+
+        Returns a 400 ``Response`` on violation and ``None`` when clean, so
+        callers stay a single ``if``.
+
+        Delegates to ``ArtifactAttributeGateway.validate`` — a thin,
+        behaviour-preserving forward to the identical
+        ``AttributeDefinitionService.validate_artifact_fields`` — so REST and
+        MCP share exactly one attribute-validation entry point (Epic #934 /
+        WS1 #935, ADR-004).
+
+        Every "cannot decide" outcome degrades to ``None`` rather than to an
+        error, because this guard runs *before* the ViewSet's own service call
+        and must never pre-empt that call's authoritative answer:
+
+        * no ``attribute_item_type`` / no workspace id → not an artifact write;
+        * ``AttributeDefinitionNotFound`` → the bootstrap has not been run for
+          this workspace's preset (or the type is outside the bootstrapped
+          ten). An unconfigured deployment must stay usable, so validation is a
+          no-op rather than a wall in front of every write;
+        * ``CrossTenantWorkspaceError`` → the payload names another tenant's
+          workspace. The service below answers that with the established 403;
+          raising out of here instead would turn it into an uncaught 500.
+
+        ``AttributeSchemaError`` (the stored definition itself is malformed —
+        ledger item (e)) IS reported, as a 400 naming the offending attribute.
+        It is not in ``_EXC_TO_HTTP``, so letting it escape would produce a 500
+        with the generic "An internal error occurred." message, i.e. an
+        admin-fixable configuration problem rendered as a server fault.
+        """
+        from application.artifact_attribute_gateway import ArtifactAttributeGateway
+        from application.attribute_definition_service import (
+            AttributeDefinitionNotFound,
+            AttributeSchemaError,
+            FieldValidationError,
+        )
+        from presets.exceptions import CrossTenantWorkspaceError
+        from rest_api.serializers import build_error_response, detect_lang
+
+        if not self.attribute_item_type or workspace_id is None:
+            return None
+        details: list[dict[str, Any]]
+        try:
+            gateway = ArtifactAttributeGateway()
+            gateway.validate(
+                ctx, self.attribute_item_type, workspace_id, changed_fields, existing
+            )
+            # WS2 review #936 (Major 2): the DB-free definition check cannot
+            # tell an unknown/foreign-tenant actor UUID from a valid one, so the
+            # Artifact-level owner/reporter references are resolved here — before
+            # the ViewSet's own service call creates the row — and an
+            # unresolvable actor is reported as a normal field validation error.
+            gateway.validate_actor_system_fields(
+                ctx, self.attribute_item_type, workspace_id, changed_fields
+            )
+        except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
+            return None
+        except FieldValidationError as exc:
+            details = [
+                {"field": name, "errors": messages}
+                for name, messages in sorted(exc.errors.items())
+            ]
+            message = "; ".join(
+                f"{d['field']}: {', '.join(d['errors'])}" for d in details
+            )
+        except AttributeSchemaError as exc:
+            details = [{"field": "attribute_definition", "errors": list(exc.errors)}]
+            message = (
+                "The attribute definition for this workspace is malformed: "
+                + "; ".join(exc.errors)
+            )
+        else:
+            return None
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                detect_lang(self.request),
+                details=details,
+                message=message,
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def _resolve_workspace_id(self, pk: str | None, ctx: Any) -> UUID | None:
+        """Workspace of the row under edit, or ``None`` when it cannot be resolved.
+
+        Reuses the ViewSet's own ``_resolve_workflow_target`` getter so there is
+        no second lookup path to keep in sync. That getter returns the tuple
+        ``(item_id, workspace_id)`` and raises ``NotFoundError`` /
+        ``PermissionDeniedError`` / ``ValueError`` — all of which are swallowed
+        here on purpose: the handler that called us re-runs the same lookup
+        immediately afterwards and is the one that owns the 403/404 answer.
+        """
+        if pk is None:
+            return None
+        try:
+            _item_id, workspace_id = self._resolve_workflow_target(pk, ctx)
+        except Exception:  # noqa: BLE001 — the handler below reports the real error
+            return None
+        return workspace_id
 
     def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
         """Return ``(item_id, workspace_id)`` for the entity identified by *pk*.
@@ -85,6 +293,12 @@ class WorkflowTransitionsMixin:
                signature gates enforced) and returns the new state envelope,
                optionally with the refreshed entity embedded.
         """
+        # Imported lazily to avoid a circular import: rest_api.serializers now
+        # imports WorkflowStateSerializerMixin from this package at module
+        # load time (Datenmodell-Konsolidierung), so a top-level import here
+        # would run before rest_api.serializers finishes initializing.
+        from rest_api.serializers import build_error_response, detect_lang
+
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -133,6 +347,12 @@ class WorkflowTransitionsMixin:
                         }
                         for t in avail.transitions
                     ],
+                    "proposed_by": resolve_proposed_by(
+                        avail.current_state,
+                        item_id,
+                        self.workflow_item_type,
+                        workspace_id,
+                    ),
                 }
             )
 
@@ -170,6 +390,59 @@ class WorkflowTransitionsMixin:
             body.update(embedded)
         return Response(body)
 
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST ``reactivate/`` — undo a soft-delete (GH-443).
+
+        DELETE on these entities is a soft-delete: the row survives with
+        ``status="outdated"``. This restores it to the state it held
+        immediately before the delete, and is the only way back — "outdated"
+        is a system state outside every preset's state list, so
+        ``POST .../transitions/`` cannot leave it.
+
+        Responses:
+            200 ``{id, previous_state, new_state}`` (plus the refreshed entity
+                when the ViewSet embeds one, exactly as ``transitions/`` does),
+            400 when the item is not currently outdated,
+            403 without the write role,
+            404 when the item does not exist.
+        """
+        from rest_api.serializers import build_error_response, detect_lang  # see transitions()
+
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item_id, workspace_id = self._resolve_workflow_target(pk, ctx)
+        except NotFoundError as exc:
+            return self._error(exc, lang)
+        except PermissionDeniedError as exc:
+            return self._error(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            result = WorkflowFacade().reactivate(
+                item_id=item_id,
+                ctx=ctx,
+                item_type=self.workflow_item_type,
+                workspace_id=workspace_id,
+            )
+        except Exception as exc:
+            return self._error(exc, lang)
+
+        body: dict[str, Any] = {
+            "id": pk,
+            "previous_state": result.previous_state,
+            "new_state": result.new_state,
+        }
+        embedded = self._serialize_after_transition(item_id, ctx)
+        if embedded is not None:
+            body.update(embedded)
+        return Response(body)
+
     @action(detail=True, methods=["get"], url_path="workflow-history")
     def workflow_history(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET ``workflow-history/`` — transition audit trail (REQ-144).
@@ -179,6 +452,8 @@ class WorkflowTransitionsMixin:
         the transition was signature-sealed. The seal value itself is never
         exposed — only a ``sealed`` boolean.
         """
+        from rest_api.serializers import build_error_response, detect_lang  # see transitions()
+
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -215,31 +490,161 @@ class WorkflowTransitionsMixin:
             ]
         )
 
-    @staticmethod
-    def _reject_status_in_patch(request: Request, lang: str) -> Response | None:
-        """Reject a PATCH payload that carries ``status`` (QA-123).
+    def _current_status(self, pk: str, ctx: Any) -> str | None:
+        """Return the entity's current status, as the GET representation reports it.
 
-        ``status`` is a read-only serializer field for every workflow-backed
-        entity, so DRF silently drops it from ``validated_data`` — the request
-        returned HTTP 200 with ``version`` bumped from the other fields, but
-        the status itself never changed and the caller was given no signal
-        that their change was ignored. Status may only move through the
-        WorkflowEngine via ``POST .../transitions/``, so a PATCH containing it
-        is rejected outright instead of pretending to succeed.
+        Resolved through :mod:`workflow.state_reader` — the single status
+        projection the artifact serializers themselves use
+        (``WorkflowStateSerializerMixin``), so the guard compares against the
+        same value the client just read via GET.
+
+        It used to be read off the persistence row
+        (``getattr(row, "status", None)``) in per-ViewSet overrides. That broke
+        silently once the denormalized ``status`` column was dropped
+        (Datenmodell-Konsolidierung Task 12): every lookup returned ``None``,
+        which this method documents as "cannot determine" and which therefore
+        made the ``status`` branch of :meth:`_validate_patch_payload` accept
+        *any* status change without applying it — #915's hollow 200. The
+        per-ViewSet copies are gone; this one implementation is the shared
+        source of truth.
+
+        Returns ``None`` only when the state genuinely cannot be read (or the
+        ViewSet forgot ``workflow_item_type``); callers then fall back to
+        accepting-and-ignoring the field, because losing the rest of the payload
+        is the worse failure.
         """
-        if isinstance(request.data, dict) and "status" in request.data:
+        if not self.workflow_item_type:
+            return None
+        try:
+            from workflow import state_reader
+
+            state = state_reader.current_state(self.workflow_item_type, UUID(pk))
+            # No ``WorkflowItemState`` row (e.g. a definition-less workspace)?
+            # Report the same fallback the serializer/GET uses, so a change
+            # away from it is still recognised as a change.
+            return state or state_reader.initial_state(self.workflow_item_type)
+        except Exception:  # noqa: BLE001 — never let a status probe break the PATCH
+            return None
+
+    def _validate_patch_payload(
+        self,
+        request: Request,
+        lang: str,
+        *,
+        serializer_cls: type | None = None,
+        pk: str | None = None,
+        ctx: Any = None,
+    ) -> Response | None:
+        """Validate PATCH field names; return a 400 Response or ``None`` if OK.
+
+        Three rules, all reported as field-level errors in the standard error
+        envelope so a client can point at the offending key:
+
+        ``status`` (#263 / QA-123)
+            Status only moves through the WorkflowEngine
+            (``POST .../transitions/``). A payload whose ``status`` *equals* the
+            current one changes nothing, so it is accepted and the field
+            ignored — the UI detail panels resend the whole form and the
+            previous blanket rejection threw away the description the user had
+            just typed. A *differing* status is still refused, so a real status
+            change can never be silently swallowed.
+
+        Protected fields (#269, finding 5)
+            Server-owned or privilege-shaped keys (``workspace_id``,
+            ``is_admin``, ``version``, ...) used to be dropped by DRF without a
+            word while the request still reported 200 — a cross-workspace move
+            or a mass-assignment attempt looked like it had succeeded.
+
+        Unknown fields (#269, finding 5)
+            A key the serializer does not declare (a typo, or ``title`` on
+            glossary, which uses ``term``) used to return 200 and bump
+            ``version`` although nothing was written. Rejecting it keeps
+            ``version`` an honest change counter.
+
+        A fourth rule runs only after those three pass: the payload is checked
+        against the workspace's resolved AttributeDefinition (spec section 5),
+        which is where ``required``, per-type and ``validation``-rule
+        violations are reported. It runs last so a structural problem is still
+        reported as one, and so the definition lookup is skipped for a request
+        that was going to be rejected anyway.
+        """
+        from rest_api.serializers import build_error_response  # see transitions()
+
+        data = request.data
+        if not isinstance(data, dict):
+            return None
+
+        known: set[str] = set(_ALWAYS_ALLOWED_PATCH_FIELDS)
+        if serializer_cls is not None:
+            # Instantiated without context on purpose: that yields the
+            # unfiltered field superset, so a field merely hidden by the
+            # workspace's rigor preset is not mistaken for an unknown one.
+            known |= set(serializer_cls().fields)
+
+        errors: list[dict[str, Any]] = []
+        for field in data:
+            if field == "status":
+                exposed = "status" in known
+                current = None
+                if exposed and pk is not None:
+                    try:
+                        current = self._current_status(pk, ctx)
+                    except Exception:  # noqa: BLE001 — never mask the PATCH itself
+                        current = None
+                if exposed and (current is None or _same_status(data[field], current)):
+                    # Either a verbatim echo of the current status, or a status
+                    # we could not read back. Both are accepted and ignored:
+                    # discarding the rest of the payload (#263) is the worse
+                    # outcome, and the response body still reports the real,
+                    # unchanged status.
+                    continue
+                errors.append(
+                    {
+                        "field": "status",
+                        "errors": [
+                            "status cannot be changed via PATCH; use "
+                            "POST .../transitions/ with a target_state "
+                            "instead."
+                        ],
+                    }
+                )
+                continue
+            if field in _PROTECTED_PATCH_FIELDS:
+                errors.append(
+                    {
+                        "field": field,
+                        "errors": [f"'{field}' is read-only and cannot be set via PATCH."],
+                    }
+                )
+                continue
+            if field not in known:
+                errors.append(
+                    {"field": field, "errors": [f"Unknown field '{field}'."]}
+                )
+
+        if errors:
+            # Keep a human-readable summary in ``message`` as well: the detail
+            # panels surface ``error.message`` directly in their save alert, so
+            # field-only errors would degrade into a generic "validation error".
+            summary = (
+                errors[0]["errors"][0]
+                if len(errors) == 1
+                else "Invalid fields: "
+                + ", ".join(str(e["field"]) for e in errors)
+            )
             return Response(
                 build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    message=(
-                        "status cannot be changed via PATCH; use "
-                        "POST .../transitions/ with a target_state instead."
-                    ),
+                    "VALIDATION_ERROR", lang, details=errors, message=summary
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return None
+
+        # ``existing`` is a presence marker, not the row's values: it selects
+        # UPDATE semantics in ``validate_values`` (only the fields the request
+        # actually carries are checked), which is all that distinction needs.
+        return self._validate_attribute_definition(
+            ctx, self._resolve_workspace_id(pk, ctx), dict(data), {"__exists__": True}
+        )
 
     @staticmethod
     def _error(exc: Exception, lang: str) -> Response:

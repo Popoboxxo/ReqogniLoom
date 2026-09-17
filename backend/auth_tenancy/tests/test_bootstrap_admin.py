@@ -11,7 +11,7 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.models import ROLE_ADMIN, TenantRole, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 
@@ -31,6 +31,12 @@ def test_bootstrap_creates_base_data_and_is_idempotent(monkeypatch):
         assert Workspace.objects.filter(name="Demo Workspace").count() == 1
         admin = User.objects.get(username="admin")
         assert UserRole.objects.filter(user=admin, role=ROLE_ADMIN).count() == 1
+        assert (
+            TenantRole.unscoped.filter(
+                tenant=tenant, user=admin, role=TenantRole.ROLE_ADMIN
+            ).count()
+            == 1
+        )
     finally:
         clear_request_tenant()
 
@@ -38,6 +44,32 @@ def test_bootstrap_creates_base_data_and_is_idempotent(monkeypatch):
     assert admin.check_password("s3cure-bootstrap-pw") is True
     assert admin.is_staff is True
     assert admin.is_superuser is True
+
+
+@pytest.mark.django_db
+def test_bootstrap_initializes_workflow_definitions(monkeypatch):
+    """#41: bootstrap_admin left workflow definitions empty (states=[],
+    transitions=[], initialized=True) until a separate POST
+    /workflows/definition/initialize/ per entity type -- this is the
+    *mandatory* bootstrap (see module docstring), so the gap hit every fresh
+    deployment, not just local dev via seed_demo."""
+    from workflow.services import get_definition
+    from auth_tenancy.provisioning import DEFAULT_WORKSPACE_ID
+
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "s3cure-bootstrap-pw")
+    call_command("bootstrap_admin")
+
+    set_request_tenant(Tenant.objects.get(slug="demo").id)
+    try:
+        # Raises WorkflowDefinitionError if unconfigured -- the bug this
+        # regression guards against.
+        definition = get_definition(
+            workspace_id=DEFAULT_WORKSPACE_ID, item_type="Requirement"
+        )
+        assert definition.states, "Requirement workflow has no states"
+        assert definition.transitions, "Requirement workflow has no transitions"
+    finally:
+        clear_request_tenant()
 
 
 @pytest.mark.django_db

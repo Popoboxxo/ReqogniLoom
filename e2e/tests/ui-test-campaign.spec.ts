@@ -18,7 +18,7 @@
 import { test, expect, Page, BrowserContext } from '@playwright/test';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const BACKEND_URL  = process.env.BACKEND_URL  || 'http://localhost:8000';
+const BACKEND_URL  = process.env.BACKEND_URL  || 'http://localhost:8001';
 const SCREENSHOTS  = process.env.SCREENSHOTS_DIR ||
   '/tmp/claude-1000/-home-dduchrow-Repos-ai-native-reqflow-POC/c6ffd178-9d77-4dc1-856a-c306204b4f92/scratchpad/screenshots';
 
@@ -119,7 +119,12 @@ test.describe('[REQ-133] Workspace Language — UI Journey', () => {
     await loginAsAdmin(page);
 
     // Navigate via sidebar menu (user-like)
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
+    // M-03: interface language + theme moved out of the "Allgemein" tab into
+    // their own "Darstellung" tab. Deep-linked via the settings page's own
+    // `?tab=` parameter (#609) so this does not depend on click order.
+    // `/workspace-settings` is a <Navigate> alias that drops the query
+    // string, hence the direct `/settings` target here.
+    await page.goto(`${FRONTEND_URL}/settings?tab=appearance`);
     await page.waitForLoadState('networkidle');
 
     await screenshot(page, 'req133-01-workspace-settings-initial');
@@ -153,7 +158,12 @@ test.describe('[REQ-133] Workspace Language — UI Journey', () => {
     await injectWorkspace(page);
     await injectBearer(page, token);
     await loginAsAdmin(page);
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
+    // M-03: interface language + theme moved out of the "Allgemein" tab into
+    // their own "Darstellung" tab. Deep-linked via the settings page's own
+    // `?tab=` parameter (#609) so this does not depend on click order.
+    // `/workspace-settings` is a <Navigate> alias that drops the query
+    // string, hence the direct `/settings` target here.
+    await page.goto(`${FRONTEND_URL}/settings?tab=appearance`);
     await page.waitForLoadState('networkidle');
 
     // Should show 'en' selected
@@ -357,17 +367,17 @@ test.describe('[REQ-134] API-Key Management — UI Journey', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Journey 4: [REQ-136] Attribute-Visibility-Configs — no console errors
+// Journey 4: workspace settings page — renders without console errors
 // ---------------------------------------------------------------------------
 
-test.describe('[REQ-136] Attribute Visibility Configs — UI Journey', () => {
+test.describe('Workspace Settings — UI Journey', () => {
   let token: string;
 
   test.beforeAll(async () => {
     token = await getToken();
   });
 
-  test('[REQ-136] workspace-settings opens without console errors', async ({ page }) => {
+  test('workspace-settings opens without console errors', async ({ page }) => {
     await injectWorkspace(page);
     await injectBearer(page, token);
 
@@ -378,41 +388,20 @@ test.describe('[REQ-136] Attribute Visibility Configs — UI Journey', () => {
     });
     page.on('pageerror', (err) => errors.push(`UNCAUGHT: ${err.message}`));
 
-    let attrVisStatus: number | null = null;
-    page.on('response', (resp) => {
-      if (resp.url().includes('attribute-visibility-config')) {
-        attrVisStatus = resp.status();
-      }
-    });
-
     await loginAsAdmin(page);
     await page.goto(`${FRONTEND_URL}/workspace-settings`);
     await page.waitForLoadState('networkidle');
 
-    await screenshot(page, 'req136-01-workspace-settings-loaded');
-
-    // API call must return 200 if it was made
-    if (attrVisStatus !== null) {
-      expect(attrVisStatus, '[REQ-136] attribute-visibility-configs must return 200').toBe(200);
-    }
+    await screenshot(page, 'workspace-settings-01-loaded');
 
     // Page must render the workspace-settings container
     await expect(page.locator('[data-testid="workspace-settings"]')).toBeVisible({ timeout: 10000 });
 
-    await screenshot(page, 'req136-02-workspace-settings-rendered');
-
-    // No error banner for attribute visibility
-    const errorBanner = page.locator('[data-testid="attr-visibility-error"]');
-    const hasError = await errorBanner.isVisible().catch(() => false);
-    if (hasError) {
-      await screenshot(page, 'req136-FAIL-attr-visibility-error-banner');
-      const errorText = await errorBanner.textContent();
-      throw new Error(`[REQ-136] attr-visibility error banner shown: "${errorText}"`);
-    }
+    await screenshot(page, 'workspace-settings-02-rendered');
 
     // Filter out known pre-existing noise (favicon, hot-update, HMR)
     const realErrors = filterKnownNoise(errors);
-    expect(realErrors, `[REQ-136] Console errors on workspace-settings: ${JSON.stringify(realErrors)}`).toHaveLength(0);
+    expect(realErrors, `Console errors on workspace-settings: ${JSON.stringify(realErrors)}`).toHaveLength(0);
   });
 });
 

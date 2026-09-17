@@ -20,12 +20,14 @@ Interfaces consumed:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.db.models import QuerySet
 from django.utils import timezone
+from auth_tenancy.models import ROLE_ADMIN, UserRole
+from persistence.free_text import find_free_text_violation
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -54,6 +56,64 @@ _VALID_TERMINOLOGY_PROFILES = {key for key, _ in TERMINOLOGY_CHOICES}
 
 # Sentinel distinguishing "field omitted" from an explicit ``None`` in PATCH.
 _UNSET: object = object()
+
+# Mirrors persistence.models.Workspace column widths — create_workspace() and
+# update_metadata() write to these CharFields directly via .save(), bypassing
+# WorkspaceSerializer's max_length validation entirely (#56, #80): an
+# oversized string (e.g. 2000 emoji) previously reached the DB unchecked and
+# triggered an uncaught StringDataRightTruncation / DataError there (HTTP
+# 500). Enforcing the cap here, before the write, turns that into a clean
+# ValidationError -> 400.
+_NAME_MAX_LENGTH = 255
+_LINK_TYPE_MAX_LENGTH = 50
+_LANGUAGE_MAX_LENGTH = 8
+_THEME_MAX_LENGTH = 32
+
+
+def _validate_and_cap(value: str, *, max_length: int, field_name: str) -> str:
+    """Reject HTML/script-URI free text and enforce a max length (#56, #57, #80).
+
+    Same write-path gap as above: free-text fields set directly on the model
+    here are never routed through WorkspaceSerializer's ``SanitizedCharField``,
+    so a ``<script>`` payload was previously stored verbatim (stored XSS for
+    any non-React consumer, e.g. MCP responses / ReqIF export).
+
+    #820: this used to call ``strip_tags`` and persist the mutilated remainder,
+    which contradicted the single free-text policy documented in
+    :mod:`persistence.free_text` — the REST serializer, ``Artifact.custom_fields``
+    and ``AttributeCatalogService`` all *reject* markup, so the same payload was
+    a 400 on one write path and a silent rewrite on another. Rejecting here too
+    makes the policy uniform: markup is a ``ValidationError``, everything else
+    (including SQL-shaped prose such as ``'; DROP TABLE users; --``) passes
+    through byte-identically.
+    """
+    violation = find_free_text_violation(value)
+    if violation is not None:
+        raise ValidationError(f"{field_name} {violation}")
+    if len(value) > max_length:
+        raise ValidationError(
+            f"{field_name} must not exceed {max_length} characters"
+        )
+    return value
+
+
+def _assert_workspace_name_free(
+    name: str, tenant_id: UUID | str, *, exclude_id: Optional[UUID] = None
+) -> None:
+    """Raise ``ValidationError`` when *name* is already taken in the tenant.
+
+    Issue #127: ``uq_workspace_tenant_name`` enforces this invariant in the
+    database (the only race-free place). This pre-check exists purely to turn
+    the resulting ``IntegrityError`` into a 400-mappable ``ValidationError``
+    with an actionable message.
+    """
+    qs = Workspace.objects.filter(tenant_id=tenant_id, name=name)
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    if qs.exists():
+        raise ValidationError(
+            f"A workspace named '{name}' already exists in this tenant"
+        )
 
 
 class WorkspaceService(ServiceBase):
@@ -97,6 +157,11 @@ class WorkspaceService(ServiceBase):
         preset: str = "standard",
         terminology_profile: str = "se_mode",
         language: str = "de",
+        theme: Optional[str] = None,
+        decomposition_link_type: Optional[str] = None,
+        default_link_type: Optional[str] = None,
+        goals_enabled: Optional[bool] = None,
+        goals_ai_enabled: Optional[bool] = None,
     ) -> Workspace:
         """Create a Workspace + its WorkspacePresetConfig companion.
 
@@ -105,6 +170,19 @@ class WorkspaceService(ServiceBase):
         for a future per-workspace setting and currently stored only on the
         Workspace.preset JSON blob alongside the tier (the Workspace model
         does not have a dedicated language column yet).
+
+        SYSTEMAUDIT_2026-08-29 (REST finding 2): ``theme``,
+        ``decomposition_link_type``, ``default_link_type``, ``goals_enabled``
+        and ``goals_ai_enabled`` are settable at creation time. They were
+        advertised by ``WorkspaceSerializer`` (and therefore by the published
+        OpenAPI schema for ``POST /api/v1/workspaces/``) long before this, but
+        the create path dropped them silently: a client that created a
+        goals-enabled workspace in one call got ``goals_enabled=False`` back
+        with a 201 and no indication that half its payload was discarded. The
+        settings are the same ones :meth:`update_metadata` already accepts, so
+        create/PATCH now agree on which fields are workspace configuration.
+        ``None`` means "not supplied" and leaves the model/blob default in
+        place — no existing caller changes behaviour.
 
         REQ-L2-AS-018 (ACID), REQ-L2-AS-019 (Audit), REQ-L2-AS-021 (Auth),
         REQ-L2-AS-022 (Tenant scoping).
@@ -115,6 +193,9 @@ class WorkspaceService(ServiceBase):
         name_clean = (name or "").strip()
         if not name_clean:
             raise ValidationError("name is required")
+        name_clean = _validate_and_cap(
+            name_clean, max_length=_NAME_MAX_LENGTH, field_name="name"
+        )
 
         if preset not in _VALID_PRESETS:
             raise ValidationError(
@@ -130,14 +211,43 @@ class WorkspaceService(ServiceBase):
         if tenant is None:
             raise NotFoundError(f"Tenant {ctx.tenant_id} not found")
 
+        _assert_workspace_name_free(name_clean, ctx.tenant_id)
+
+        preset_blob: dict[str, Any] = {
+            "tier": preset,
+            "terminology_profile": terminology_profile,
+            "language": language,
+        }
+        # ``theme`` has no column: it lives on the preset blob, exactly as
+        # update_metadata() stores it and _workspace_to_dict() reads it back.
+        if theme is not None:
+            preset_blob["theme"] = _validate_and_cap(
+                str(theme), max_length=_THEME_MAX_LENGTH, field_name="theme"
+            )
+
+        extra_columns: dict[str, Any] = {}
+        if decomposition_link_type is not None:
+            extra_columns["decomposition_link_type"] = _validate_and_cap(
+                str(decomposition_link_type),
+                max_length=_LINK_TYPE_MAX_LENGTH,
+                field_name="decomposition_link_type",
+            )
+        if default_link_type is not None:
+            extra_columns["default_link_type"] = _validate_and_cap(
+                str(default_link_type),
+                max_length=_LINK_TYPE_MAX_LENGTH,
+                field_name="default_link_type",
+            )
+        if goals_enabled is not None:
+            extra_columns["goals_enabled"] = bool(goals_enabled)
+        if goals_ai_enabled is not None:
+            extra_columns["goals_ai_enabled"] = bool(goals_ai_enabled)
+
         workspace = Workspace.objects.create(
             tenant=tenant,
             name=name_clean,
-            preset={
-                "tier": preset,
-                "terminology_profile": terminology_profile,
-                "language": language,
-            },
+            preset=preset_blob,
+            **extra_columns,
         )
 
         WorkspacePresetConfig.objects.create(
@@ -145,6 +255,29 @@ class WorkspaceService(ServiceBase):
             workspace=workspace,
             active_tier=preset,
             terminology_profile=terminology_profile,
+        )
+
+        # #232: grant the creator an 'admin' UserRole in the new workspace.
+        # Without this, a freshly created workspace has zero UserRole rows,
+        # so any workspace-scoped role lookup (e.g. the MCP API-key dispatch
+        # path in mcp_server/tool_registry.py, which resolves roles strictly
+        # per workspace_id) returns an empty role tuple and every write is
+        # rejected with "Role '()' does not permit write operations" — even
+        # for the tenant admin who just created the workspace. The REST
+        # Bearer-token path happened to mask this because it resolves roles
+        # tenant-globally rather than per-workspace, so the gap only surfaced
+        # via API keys. ``update_or_create`` (not ``create``) so callers that
+        # already assign the creator a role explicitly (some tests, or a
+        # future caller) don't hit a duplicate-key error.
+        UserRole.objects.update_or_create(
+            workspace=workspace,
+            user_id=ctx.user_id,
+            role=ROLE_ADMIN,
+            defaults={
+                "tenant": tenant,
+                "assigned_by_id": ctx.user_id,
+                "suspended_at": None,
+            },
         )
 
         # Seed the workspace's default workflow definitions (Requirement with
@@ -193,6 +326,8 @@ class WorkspaceService(ServiceBase):
         if not target_name_clean:
             raise ValidationError("target_name is required")
 
+        _assert_workspace_name_free(target_name_clean, ctx.tenant_id)
+
         source_config = WorkspacePresetConfig.objects.filter(workspace=source).first()
         active_tier = source_config.active_tier if source_config else "standard"
         terminology = source_config.terminology_profile if source_config else "se_mode"
@@ -209,6 +344,19 @@ class WorkspaceService(ServiceBase):
             workspace=target,
             active_tier=active_tier,
             terminology_profile=terminology,
+        )
+
+        # #232: same as create_workspace() — grant the creator 'admin' in the
+        # cloned workspace so it isn't role-less from the start.
+        UserRole.objects.update_or_create(
+            workspace=target,
+            user_id=ctx.user_id,
+            role=ROLE_ADMIN,
+            defaults={
+                "tenant_id": ctx.tenant_id,
+                "assigned_by_id": ctx.user_id,
+                "suspended_at": None,
+            },
         )
 
         # Provision the cloned workspace's default workflows (Requirement with
@@ -481,9 +629,12 @@ class WorkspaceService(ServiceBase):
         *,
         name: object = _UNSET,
         language: object = _UNSET,
+        theme: object = _UNSET,
         decomposition_link_type: object = _UNSET,
         default_link_type: object = _UNSET,
         terminology_profile: object = _UNSET,
+        goals_enabled: object = _UNSET,
+        goals_ai_enabled: object = _UNSET,
     ) -> Workspace:
         """Update workspace metadata + optional terminology-profile switch (REQ-066).
 
@@ -508,22 +659,49 @@ class WorkspaceService(ServiceBase):
             new_name = str(name or "").strip()
             if not new_name:
                 raise ValidationError("name must not be empty")
+            new_name = _validate_and_cap(
+                new_name, max_length=_NAME_MAX_LENGTH, field_name="name"
+            )
+            if new_name != ws.name:
+                _assert_workspace_name_free(
+                    new_name, ctx.tenant_id, exclude_id=ws.id
+                )
             ws.name = new_name
             update_fields.append("name")
 
         if language is not _UNSET:
-            preset_blob["language"] = str(language)
+            clean_language = _validate_and_cap(
+                str(language), max_length=_LANGUAGE_MAX_LENGTH, field_name="language"
+            )
+            preset_blob["language"] = clean_language
+            ws.preset = preset_blob
+            if "preset" not in update_fields:
+                update_fields.append("preset")
+
+        if theme is not _UNSET:
+            clean_theme = _validate_and_cap(
+                str(theme), max_length=_THEME_MAX_LENGTH, field_name="theme"
+            )
+            preset_blob["theme"] = clean_theme
             ws.preset = preset_blob
             if "preset" not in update_fields:
                 update_fields.append("preset")
 
         if decomposition_link_type is not _UNSET:
-            ws.decomposition_link_type = str(decomposition_link_type)
+            ws.decomposition_link_type = _validate_and_cap(
+                str(decomposition_link_type),
+                max_length=_LINK_TYPE_MAX_LENGTH,
+                field_name="decomposition_link_type",
+            )
             if "decomposition_link_type" not in update_fields:
                 update_fields.append("decomposition_link_type")
 
         if default_link_type is not _UNSET:
-            ws.default_link_type = str(default_link_type)
+            ws.default_link_type = _validate_and_cap(
+                str(default_link_type),
+                max_length=_LINK_TYPE_MAX_LENGTH,
+                field_name="default_link_type",
+            )
             if "default_link_type" not in update_fields:
                 update_fields.append("default_link_type")
 
@@ -541,6 +719,14 @@ class WorkspaceService(ServiceBase):
             ws.preset = preset_blob
             if "preset" not in update_fields:
                 update_fields.append("preset")
+
+        if goals_enabled is not _UNSET:
+            ws.goals_enabled = bool(goals_enabled)
+            update_fields.append("goals_enabled")
+
+        if goals_ai_enabled is not _UNSET:
+            ws.goals_ai_enabled = bool(goals_ai_enabled)
+            update_fields.append("goals_ai_enabled")
 
         if update_fields:
             ws.save(update_fields=update_fields)

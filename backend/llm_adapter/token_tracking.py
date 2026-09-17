@@ -10,7 +10,11 @@ and enforces a configurable daily limit
 Design principles:
     - Fault-tolerant: recording and limit checks never raise into the LLM call
       path. A DB failure degrades to "not recorded" / "fail-open" so a broken
-      accounting layer can never take down the AI features.
+      accounting layer can never take down the AI features. Every DB access
+      here runs in its own ``transaction.atomic()`` savepoint — swallowing the
+      exception is not enough on Postgres, where a failed statement leaves the
+      caller's ambient transaction aborted and breaks every query it runs
+      afterwards (#444, extended to the read paths per the #522 review).
     - Tenant-scoped: records are written and queried through the tenant-isolating
       default manager, so the active ``TenantContext`` scopes every query.
     - No provider SDK imports; this module is a thin persistence + aggregation
@@ -26,6 +30,47 @@ logger = logging.getLogger(__name__)
 
 # Error code surfaced when a tenant exceeds its configured daily token budget.
 LLM_TOKEN_LIMIT_EXCEEDED = "LLM_TOKEN_LIMIT_EXCEEDED"
+
+# Rough characters-per-token ratio for English text. Used only as a fallback
+# when no real token count is available (see :func:`approximate_token_count`).
+_APPROX_CHARS_PER_TOKEN = 4
+
+
+def approximate_token_count(text: str) -> int:
+    """Approximate the token count of *text* without a real tokenizer.
+
+    ``provider.complete()`` (``llm_adapter.providers``) returns a plain ``str``
+    with no token-usage figure attached, unlike the capability methods whose
+    results are dataclasses carrying a real ``.token_usage``. Real HTTP
+    providers *do* compute a token count internally but discard it before
+    returning; surfacing it would mean changing ``complete()``'s return type,
+    which ripples through all of its call sites.
+
+    Every sync free-form flow therefore used to record ``input_tokens=0``,
+    leaving :func:`is_over_daily_limit` blind to its own spend (REQ-106): the
+    budget aggregates ``TokenUsageRecord`` rows, so a permanently-zero row
+    contributes nothing and the sync path could never exhaust a limit no
+    matter how large its prompts were.
+
+    This applies the industry-standard ~4-characters-per-token heuristic for
+    English text instead, so budget accounting is a reasonable
+    order-of-magnitude estimate rather than a guaranteed zero. It is NOT a
+    substitute for a real BPE tokenizer and deliberately does not pull one in
+    (no ``tiktoken`` dependency, no per-provider vocabulary): revisit only if
+    precise accounting for free-form calls becomes a real requirement.
+
+    Args:
+        text: The prompt or completion text to estimate. ``None``/empty is
+            tolerated and yields 0.
+
+    Returns:
+        An estimated token count; at least 1 for any non-empty text, 0 for
+        empty text.
+    """
+    length = len(text or "")
+    if not length:
+        return 0
+    return max(1, length // _APPROX_CHARS_PER_TOKEN)
 
 
 def record_token_usage(
@@ -53,15 +98,28 @@ def record_token_usage(
     if input_tokens is None:
         input_tokens = 0
     try:
+        from django.db import transaction  # noqa: PLC0415
+
         from persistence.models import TokenUsageRecord  # noqa: PLC0415
 
-        TokenUsageRecord.objects.create(
-            provider=provider,
-            capability=capability,
-            input_tokens=int(input_tokens or 0),
-            output_tokens=int(output_tokens or 0),
-            workspace_id=workspace_id,
-        )
+        # #444 follow-up: a bare TokenUsageRecord.objects.create() call left a
+        # failed INSERT's Postgres transaction "aborted" for whoever called
+        # record_token_usage() from inside their own ambient transaction —
+        # every query the caller ran afterward (this module's own or theirs)
+        # then raised TransactionManagementError, even though the INSERT
+        # failure itself was caught and logged here. That defeats this
+        # function's "never affects the caller" contract as badly as letting
+        # the original exception propagate would have. atomic() gives the
+        # INSERT its own savepoint, so a failure rolls back only that
+        # savepoint and the caller's transaction stays usable.
+        with transaction.atomic():
+            TokenUsageRecord.objects.create(
+                provider=provider,
+                capability=capability,
+                input_tokens=int(input_tokens or 0),
+                output_tokens=int(output_tokens or 0),
+                workspace_id=workspace_id,
+            )
     except Exception as exc:  # noqa: BLE001 — accounting must never break LLM calls
         logger.warning(
             "TokenUsageTracker: failed to record usage for %s via %s: %s",
@@ -83,15 +141,23 @@ def get_daily_usage(days: int = 1) -> int:
         Sum of ``input_tokens + output_tokens`` over the window, or 0.
     """
     try:
+        from django.db import transaction  # noqa: PLC0415
         from django.db.models import Sum  # noqa: PLC0415
         from django.utils import timezone  # noqa: PLC0415
 
         from persistence.models import TokenUsageRecord  # noqa: PLC0415
 
         since = timezone.now() - timedelta(days=days)
-        agg = TokenUsageRecord.objects.filter(created_at__gte=since).aggregate(
-            total=Sum("input_tokens") + Sum("output_tokens")
-        )
+        # #522 review follow-up (F4): savepoint for the same reason the INSERT
+        # in record_token_usage has one. A failing SELECT aborts an ambient
+        # Postgres transaction exactly as a failing INSERT does, so without
+        # this the "never affects the caller" contract held on one of four
+        # paths only. This one matters most: is_over_daily_limit() calls it
+        # before *every* LLM request, in-request, from seven services.
+        with transaction.atomic():
+            agg = TokenUsageRecord.objects.filter(created_at__gte=since).aggregate(
+                total=Sum("input_tokens") + Sum("output_tokens")
+            )
         return int(agg["total"] or 0)
     except Exception as exc:  # noqa: BLE001 — fail-open aggregation
         logger.warning("TokenUsageTracker: get_daily_usage failed: %s", exc)
@@ -115,17 +181,22 @@ def aggregate_usage(days: int = 30) -> Dict[str, Any]:
     """
     result: Dict[str, Any] = {"days": days, "total_tokens": 0, "by_provider": {}}
     try:
+        from django.db import transaction  # noqa: PLC0415
         from django.db.models import Sum  # noqa: PLC0415
         from django.utils import timezone  # noqa: PLC0415
 
         from persistence.models import TokenUsageRecord  # noqa: PLC0415
 
         since = timezone.now() - timedelta(days=days)
-        rows = (
-            TokenUsageRecord.objects.filter(created_at__gte=since)
-            .values("provider")
-            .annotate(total=Sum("input_tokens") + Sum("output_tokens"))
-        )
+        # #522 review follow-up (F4): savepoint — see get_daily_usage. The
+        # queryset is materialised inside the block on purpose; a lazy
+        # QuerySet would execute after the savepoint was released.
+        with transaction.atomic():
+            rows = list(
+                TokenUsageRecord.objects.filter(created_at__gte=since)
+                .values("provider")
+                .annotate(total=Sum("input_tokens") + Sum("output_tokens"))
+            )
         total = 0
         for row in rows:
             provider_total = int(row["total"] or 0)
@@ -174,6 +245,7 @@ def is_over_daily_limit() -> bool:
 
 __all__ = [
     "LLM_TOKEN_LIMIT_EXCEEDED",
+    "approximate_token_count",
     "record_token_usage",
     "get_daily_usage",
     "aggregate_usage",

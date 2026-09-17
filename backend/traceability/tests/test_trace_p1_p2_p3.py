@@ -3,7 +3,7 @@ SysEng 2.0 SE-Auditor — TRACE-P1, TRACE-P1b, TRACE-P2, TRACE-P3 tests.
 
 UMSETZUNGSPLAN_SYSENG_2.0.md §2.2. Each rule gets at least one positive case
 (no finding) and one negative case (finding correctly raised). Also covers
-the TRACE-P2 tiered severity (WARNING at standard, BLOCKER at extended) and
+the TRACE-P2 calibrated severity (WARNING at every tier, issue #581) and
 the L4 out-of-scope exemption.
 
 These rules are NOT wired into ``rules/__init__.py`` yet (a later
@@ -19,7 +19,6 @@ import pytest
 import traceability.audit.rules.trace_derivation_allocation  # noqa: F401  (registration)
 from persistence.models import (
     ArchitectureElement,
-    LifecycleStatus,
     Requirement,
     RequirementLevel,
     StakeholderNeed,
@@ -92,21 +91,46 @@ class TestTraceP1:
         assert len(findings) == 1
         assert str(req_art.id) in findings[0].artifact_ids
 
-    def test_derives_from_wrong_target_type_still_flagged(self, tenant_a, workspace_a):
-        """A root Requirement deriving from another Requirement (not a Need)
-        satisfies the general orphan check (P1b) but not the P1 need-link."""
+    def test_need_anchor_is_required_only_at_the_top_of_a_chain(
+        self, tenant_a, workspace_a
+    ):
+        """A Requirement derived from another Requirement is a child, not a root.
+
+        Behaviour change, issue #395. This case used to be asserted the other
+        way round ("a root Requirement deriving from another Requirement is
+        still flagged"), which was the bug: ``derives-from`` is a hierarchy
+        edge, so in ``child --derives-from--> parent --derives-from--> need``
+        the *parent* is the root and the only Requirement TRACE-P1 may demand
+        a Need link from. The chain is anchored at its top; flagging the child
+        as an unanchored root made every real, correctly derived hierarchy
+        unbaselineable (the issue's live workspace reported 3343 such
+        blockers).
+        """
         with active_tenant(tenant_a):
             need_art, _ = _need(tenant_a, workspace_a)
-            other_art, _ = _requirement(tenant_a, workspace_a, title="Other")
-            make_trace_link(other_art, need_art, tenant_a, "derives-from")
-            root_art, _ = _requirement(tenant_a, workspace_a, title="Root")
-            make_trace_link(root_art, other_art, tenant_a, "derives-from")
+            parent_art, _ = _requirement(tenant_a, workspace_a, title="Parent")
+            make_trace_link(parent_art, need_art, tenant_a, "derives-from")
+            child_art, _ = _requirement(tenant_a, workspace_a, title="Child")
+            make_trace_link(child_art, parent_art, tenant_a, "derives-from")
+
+            result = _run("standard", workspace_a, tenant_a)
+
+        # The chain is anchored at parent_art, so nothing is flagged.
+        assert _findings(result, TRACE_P1) == []
+
+    def test_unanchored_chain_flags_its_root_only(self, tenant_a, workspace_a):
+        """Remove the Need link and the *top* of the chain is flagged — once."""
+        with active_tenant(tenant_a):
+            _need(tenant_a, workspace_a)
+            parent_art, _ = _requirement(tenant_a, workspace_a, title="Parent")
+            child_art, _ = _requirement(tenant_a, workspace_a, title="Child")
+            make_trace_link(child_art, parent_art, tenant_a, "derives-from")
 
             result = _run("standard", workspace_a, tenant_a)
 
         findings = _findings(result, TRACE_P1)
         assert len(findings) == 1
-        assert str(root_art.id) in findings[0].artifact_ids
+        assert str(parent_art.id) in findings[0].artifact_ids
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +178,7 @@ class TestTraceP1b:
                 tenant_a,
                 workspace_a,
                 title="L4 leaf",
-                level=RequirementLevel.L4_MATERIAL,
+                level=RequirementLevel.L4_PRESENTATION,
             )
 
             result = _run("standard", workspace_a, tenant_a)
@@ -162,10 +186,29 @@ class TestTraceP1b:
         assert _findings(result, TRACE_P1B) == []
 
     def test_deleted_requirement_is_excluded(self, tenant_a, workspace_a):
+        """Task 12: the `status` column is dropped -- ``outdate()`` now only
+        writes a real WorkflowItemState, so the fixture must register one
+        (via the same real path) instead of setting a column."""
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-trace-p1-p2-p3"
+
         with active_tenant(tenant_a):
             art, req = _requirement(tenant_a, workspace_a, title="Deleted")
-            req.lifecycle_status = LifecycleStatus.DELETED
-            req.save(update_fields=["lifecycle_status"])
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
 
             result = _run("standard", workspace_a, tenant_a)
 
@@ -173,7 +216,7 @@ class TestTraceP1b:
 
 
 # ---------------------------------------------------------------------------
-# TRACE-P2 — Requirement allocated-to an ArchitectureElement (tiered severity)
+# TRACE-P2 — Requirement allocated-to an ArchitectureElement (advisory severity)
 # ---------------------------------------------------------------------------
 
 
@@ -198,9 +241,14 @@ class TestTraceP2:
         assert len(findings) == 1
         assert str(req_art.id) in findings[0].artifact_ids
 
-    def test_severity_is_warning_at_standard_and_blocker_at_extended(
-        self, tenant_a, workspace_a
-    ):
+    def test_severity_is_warning_at_every_tier(self, tenant_a, workspace_a):
+        """#581: allocation coverage is advisory — never a BLOCKER.
+
+        The unallocated Requirement is a BLOCKER at extended through the
+        *other* rules (TRACE-P1/P1b: no derives-from), which is exactly the
+        distinction: a missing allocation is a coverage gap, a missing trace
+        is not. TRACE-P2 itself must not add to the blocker count at any tier.
+        """
         with active_tenant(tenant_a):
             _requirement(tenant_a, workspace_a, title="Unallocated")
 
@@ -209,12 +257,10 @@ class TestTraceP2:
 
         from traceability.audit.types import Severity
 
-        standard_findings = _findings(standard_result, TRACE_P2)
-        extended_findings = _findings(extended_result, TRACE_P2)
-        assert len(standard_findings) == 1
-        assert len(extended_findings) == 1
-        assert standard_findings[0].severity is Severity.WARNING
-        assert extended_findings[0].severity is Severity.BLOCKER
+        for result in (standard_result, extended_result):
+            findings = _findings(result, TRACE_P2)
+            assert len(findings) == 1
+            assert findings[0].severity is Severity.WARNING
 
 
 # ---------------------------------------------------------------------------
@@ -225,20 +271,22 @@ class TestTraceP2:
 
 class TestTraceP3:
     def test_element_satisfying_requirement_is_clean(self, tenant_a, workspace_a):
+        """satisfies/implements were folded into allocated-to (Requirement -> element)."""
         with active_tenant(tenant_a):
             req_art, _ = _requirement(tenant_a, workspace_a)
             ae_art, _ = _arch_element(tenant_a, workspace_a)
-            make_trace_link(ae_art, req_art, tenant_a, "satisfies")
+            make_trace_link(req_art, ae_art, tenant_a, "allocated-to")
 
             result = _run("extended", workspace_a, tenant_a)
 
         assert _findings(result, TRACE_P3) == []
 
     def test_element_implementing_requirement_is_clean(self, tenant_a, workspace_a):
+        """Same fact as above, kept as a separate regression for the second retired key."""
         with active_tenant(tenant_a):
             req_art, _ = _requirement(tenant_a, workspace_a)
             ae_art, _ = _arch_element(tenant_a, workspace_a)
-            make_trace_link(ae_art, req_art, tenant_a, "implements")
+            make_trace_link(req_art, ae_art, tenant_a, "allocated-to")
 
             result = _run("extended", workspace_a, tenant_a)
 

@@ -36,7 +36,7 @@ const headingStyle: React.CSSProperties = {
 };
 
 const inputStyle: React.CSSProperties = {
-  background: "var(--color-bg)",
+  background: "var(--color-surface)",
   border: "1px solid var(--color-border)",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-3)",
@@ -55,7 +55,7 @@ const labelStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
@@ -122,6 +122,7 @@ export function ProfileSection(): JSX.Element {
 
       {error && (
         <div
+          role="alert"
           data-testid="profile-error"
           style={{
             color: "var(--color-danger)",
@@ -137,7 +138,7 @@ export function ProfileSection(): JSX.Element {
         <div
           data-testid="profile-saved"
           style={{
-            color: "var(--color-success, green)",
+            color: "var(--color-success)",
             marginBottom: "var(--space-3)",
             fontSize: "var(--font-size-sm)",
           }}

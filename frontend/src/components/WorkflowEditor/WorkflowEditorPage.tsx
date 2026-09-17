@@ -12,7 +12,8 @@
 
 import "@xyflow/react/dist/style.css";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -63,6 +64,7 @@ interface WorkflowEditorPageProps {
 export function WorkflowEditorPage({
   scope = "workspace",
 }: WorkflowEditorPageProps = {}): JSX.Element {
+  const { t } = useTranslation();
   const isGlobal = scope === "global";
   const { entityType: entitySlug } = useParams<{ entityType: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -89,18 +91,39 @@ export function WorkflowEditorPage({
   const [editMode, setEditMode] = useState(false);
   const [dialog, setDialog] = useState<DialogState>({ kind: "none" });
 
-  const flashToast = useCallback((message: string): void => {
-    setToast(message);
-    window.setTimeout(() => setToast(null), 3000);
+  // UI-38: the toast auto-dismiss timers were fire-and-forget window.setTimeout
+  // calls with no cleanup — if the component unmounted (route change) before
+  // the timer fired, setToast(null) ran on an unmounted component. Track the
+  // pending timer so it can be cleared on unmount or superseded by a newer
+  // toast.
+  const toastTimerRef = useRef<number | null>(null);
+
+  const clearToastTimer = useCallback((): void => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
   }, []);
+
+  const flashToast = useCallback(
+    (message: string, durationMs = 3000): void => {
+      clearToastTimer();
+      setToast(message);
+      toastTimerRef.current = window.setTimeout(() => {
+        setToast(null);
+        toastTimerRef.current = null;
+      }, durationMs);
+    },
+    [clearToastTimer]
+  );
+
+  useEffect(() => clearToastTimer, [clearToastTimer]);
 
   const handlePropagated = useCallback(
     (count: number): void => {
-      flashToast(
-        `Change propagated to ${count} workspace${count === 1 ? "" : "s"} currently on default.`
-      );
+      flashToast(t("workflow.toast.propagated", { count }));
     },
-    [flashToast]
+    [flashToast, t]
   );
 
   const { graph, isLoading, error } = useWorkflowData(entityType, workflowScope);
@@ -149,10 +172,9 @@ export function WorkflowEditorPage({
     const text = toMermaid(graph);
     void navigator.clipboard
       ?.writeText(text)
-      .then(() => setToast("Copied Mermaid diagram to clipboard"))
-      .catch(() => setToast("Could not access clipboard"));
-    window.setTimeout(() => setToast(null), 2000);
-  }, [graph]);
+      .then(() => flashToast(t("workflow.toast.copiedMermaid"), 2000))
+      .catch(() => flashToast(t("workflow.toast.clipboardError"), 2000));
+  }, [graph, t, flashToast]);
 
   const toggleEditMode = useCallback((): void => {
     setEditMode((v) => {
@@ -240,7 +262,11 @@ export function WorkflowEditorPage({
         editMode={editMode}
         onToggleEditMode={toggleEditMode}
         canEdit={isAdmin}
-        title={isGlobal ? "Global Workflow Defaults" : "Workflow Editor"}
+        title={
+          isGlobal
+            ? t("workflow.header.titleGlobal")
+            : t("workflow.header.titleDefault")
+        }
         presetControl={
           isGlobal ? (
             <PresetSegmentedControl value={globalPreset} onChange={handleSelectPreset} />
@@ -367,8 +393,10 @@ export function WorkflowEditorPage({
       )}
       {dialog.kind === "confirmDeleteState" && (
         <ConfirmDialog
-          title="Delete State"
-          message={`Delete state "${dialog.name}"? This cannot be undone. The state must have no transitions and no items in it.`}
+          title={t("workflow.confirmDialog.deleteState.title")}
+          message={t("workflow.confirmDialog.deleteState.message", {
+            name: dialog.name,
+          })}
           busy={mutations.busy}
           errorMessage={mutations.error}
           onClose={closeDialog}
@@ -379,8 +407,11 @@ export function WorkflowEditorPage({
       )}
       {dialog.kind === "confirmDeleteTransition" && (
         <ConfirmDialog
-          title="Delete Transition"
-          message={`Delete the transition ${dialog.from} → ${dialog.to}? This cannot be undone.`}
+          title={t("workflow.confirmDialog.deleteTransition.title")}
+          message={t("workflow.confirmDialog.deleteTransition.message", {
+            from: dialog.from,
+            to: dialog.to,
+          })}
           busy={mutations.busy}
           errorMessage={mutations.error}
           onClose={closeDialog}

@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from persistence.models import Adr
 from rest_api.serializers import (
     QUERYSET_OPTIMIZATIONS,
     AdrSerializer,
@@ -30,6 +31,7 @@ from rest_api.serializers import (
     RiskSerializer,
     StandardPagination,
     TestRunResultSerializer,
+    TraceLinkPagination,
     TraceLinkSerializer,
     apply_queryset_optimizations,
     build_error_response,
@@ -149,14 +151,70 @@ class TestStandardPagination:
 
     def test_paginated_response_schema_declares_envelope(self) -> None:
         # REQ-076: OpenAPI schema pins the count/next/previous/results envelope.
+        # #571 (reopen): plus the applied page_size and the endpoint's ceiling.
         p = StandardPagination()
         item_schema = {"type": "array", "items": {"type": "object"}}
         schema = p.get_paginated_response_schema(item_schema)
         assert schema["type"] == "object"
-        assert set(schema["properties"]) == {"count", "next", "previous", "results"}
+        assert set(schema["properties"]) == {
+            "count",
+            "next",
+            "previous",
+            "page_size",
+            "max_page_size",
+            "results",
+        }
         assert schema["properties"]["results"] is item_schema
         assert "count" in schema["required"]
         assert schema["properties"]["next"]["nullable"] is True
+
+
+class TestPageSizeCapIsNotSilent:
+    """#571 (reopen): an out-of-range ``page_size`` must be observable.
+
+    DRF clamps to ``max_page_size`` and says nothing, so a client asking for
+    5000 got 100 with no way to distinguish that from a short last page.
+    """
+
+    def _request(self, query: str):
+        from rest_framework.test import APIRequestFactory
+        from rest_framework.request import Request
+
+        return Request(APIRequestFactory().get(f"/api/v1/requirements/?{query}"))
+
+    def test_over_large_page_size_is_clamped_to_max(self) -> None:
+        p = StandardPagination()
+        assert p.get_page_size(self._request("page_size=5000")) == 100
+
+    def test_applied_page_size_is_remembered_for_the_envelope(self) -> None:
+        p = StandardPagination()
+        p.get_page_size(self._request("page_size=5000"))
+        assert p._effective_page_size == 100
+
+        p.get_page_size(self._request("page_size=10"))
+        assert p._effective_page_size == 10
+
+    def test_schema_parameter_documents_the_maximum(self) -> None:
+        p = StandardPagination()
+        params = p.get_schema_operation_parameters(view=None)
+        page_size_param = next(pp for pp in params if pp["name"] == "page_size")
+        assert page_size_param["schema"]["maximum"] == 100
+        assert "100" in page_size_param["description"]
+
+
+class TestTraceLinkPagination:
+    """#571 (reopen): /tracelinks/ needs fewer round-trips, not a bigger row."""
+
+    def test_ceiling_is_raised_above_the_shared_default(self) -> None:
+        assert TraceLinkPagination.max_page_size == 500
+        assert StandardPagination.max_page_size == 100, (
+            "the raise must stay scoped to TraceLink — entities with free-text "
+            "bodies have no comparable per-row bound"
+        )
+
+    def test_inherits_the_shared_default_page_size(self) -> None:
+        # Clients that do not ask for a page size keep the familiar 25.
+        assert TraceLinkPagination.page_size == StandardPagination.page_size
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +235,51 @@ class TestRequirementSerializer:
         }
         ser = RequirementSerializer(data=data)
         assert ser.is_valid(), ser.errors
+
+    @pytest.mark.django_db
+    def test_artifact_id_rendered(self) -> None:
+        """#413/#416: the backing Artifact id must reach the client.
+
+        TraceLink endpoints are Artifact ids, so a client holding only the
+        Requirement id cannot tell whether a link endpoint is this very
+        requirement. ``_dto_from_orm`` always supplied ``artifact_id``; the
+        serializer simply never declared the field, so DRF dropped it and the
+        traceability UI degraded to raw UUIDs.
+        """
+        from persistence.tenancy import TenantContext
+
+        artifact_id = str(uuid.uuid4())
+        payload = {
+            "id": str(uuid.uuid4()),
+            "workspace_id": str(uuid.uuid4()),
+            "artifact_id": artifact_id,
+            "title": "Test requirement",
+            "description": "",
+            "category": "functional",
+            "status": "draft",
+            "type": "SyReq",
+            "version": 1,
+        }
+        # Datenmodell-Konsolidierung: `status` now resolves via
+        # WorkflowStateSerializerMixin, a tenant-scoped WorkflowItemState
+        # query — unrelated to what this test actually covers (artifact_id).
+        TenantContext.set_tenant(uuid.uuid4())
+        try:
+            data = RequirementSerializer(payload).data
+        finally:
+            TenantContext.clear_tenant()
+        assert data["artifact_id"] == artifact_id
+
+    def test_artifact_id_is_read_only(self) -> None:
+        """A client-supplied artifact_id is ignored, never persisted."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "artifact_id": str(uuid.uuid4()),
+        }
+        ser = RequirementSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+        assert "artifact_id" not in ser.validated_data
 
     def test_missing_title_invalid(self) -> None:
         data = {
@@ -224,6 +327,43 @@ class TestRequirementSerializer:
         assert not ser.is_valid()
         assert "change_reason" in ser.errors
 
+    def test_script_tags_rejected_in_title_and_description(self) -> None:
+        """Regression (SEC-001/#57): free-text fields must not persist raw
+        HTML/script markup verbatim (stored-XSS risk for non-React API
+        consumers like MCP responses or the ReqIF export).
+
+        BREAKING CHANGE (#269 finding 3): the remedy used to be a silent
+        ``strip_tags`` — ``"<img src=x onerror=alert(1)>"`` became ``""`` and
+        the caller got a ``201``, i.e. data loss it could not detect. The
+        payload is now rejected with a field-level error instead; the caller
+        keeps its input and is told why.
+        """
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "<script>alert(1)</script>Title",
+            "description": "<img src=x onerror=alert(1)>Body",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert set(ser.errors) == {"title", "description"}
+        assert "disallowed content" in str(ser.errors["title"][0])
+
+    def test_javascript_uri_rejected_in_free_text(self) -> None:
+        """#269 finding 3: markup-free but script-capable input must also fail.
+
+        ``strip_tags`` left ``javascript:alert(1)`` untouched, and the frontend
+        renders descriptions as Markdown — ``[x](javascript:...)`` becomes a
+        real ``<a href>``.
+        """
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Ordinary title",
+            "description": "See [details](javascript:alert(1)).",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "description" in ser.errors
+
 
 # ---------------------------------------------------------------------------
 # #104 — free-text size limits across entity serializers
@@ -255,15 +395,18 @@ class TestFreeTextSizeLimits:
         assert not ser.is_valid()
         assert "consequences" in ser.errors
 
-    def test_risk_owner_oversized_rejected(self) -> None:
+    def test_risk_owner_name_oversized_rejected(self) -> None:
+        # Attribut v3 WS7 (#940): the legacy free-text Risk.owner column was
+        # renamed to owner_name (same DB column) so the Artifact-level owner
+        # Actor FK is no longer shadowed. The length guard moved with it.
         data = {
             "workspace_id": str(uuid.uuid4()),
             "title": "Test Risk",
-            "owner": "A" * 256,
+            "owner_name": "A" * 256,
         }
         ser = RiskSerializer(data=data)
         assert not ser.is_valid()
-        assert "owner" in ser.errors
+        assert "owner_name" in ser.errors
 
     def test_risk_mitigation_strategy_oversized_rejected(self) -> None:
         data = {
@@ -316,15 +459,51 @@ class TestFreeTextSizeLimits:
 
 
 # ---------------------------------------------------------------------------
+# #890 — AdrSerializer.description must not drift from the model field
+# ---------------------------------------------------------------------------
+
+
+class TestAdrDescriptionMaxLengthAlignment:
+    """Regression (#890): ``AdrSerializer.description`` declared
+    ``max_length=20000`` while the ``Adr`` model field and
+    ``AdrService._validate_description`` (create and update paths) both cap the
+    value at 10000. The serializer therefore accepted payloads the service would
+    later reject, so the published REST/MCP contract disagreed with the enforced
+    domain limit.
+
+    Both bounds are read dynamically from the live objects — the serializer
+    field and the model field — so the two can never silently drift apart
+    again; a change to either one without the other fails this test.
+    """
+
+    def test_serializer_max_length_matches_model_field(self) -> None:
+        model_max_length = Adr._meta.get_field("description").max_length
+        serializer_max_length = AdrSerializer().fields["description"].max_length
+        assert serializer_max_length == model_max_length
+
+
+# ---------------------------------------------------------------------------
 # IssueSerializer
 # ---------------------------------------------------------------------------
 
 
 class TestIssueSerializerStatusField:
-    def test_invalid_status_error_lists_valid_choices(self) -> None:
-        """Regression (issue #26): DRF's default invalid_choice message
-        ('"<value>" is not a valid choice.') didn't enumerate the valid
-        status values, forcing MCP/API callers to guess."""
+    """Datenmodell-Konsolidierung (Task 3): `status` is now resolved from the
+    WorkflowEngine via WorkflowStateSerializerMixin, same as every other
+    workflow-backed serializer (Requirement, TestCase, ...). It used to be a
+    writable ``NormalizedChoiceField`` — IssueViewSet.create() forwarded a
+    client-supplied initial status, but initialize_workflow_states() always
+    seeded the workflow's own initial state regardless, so that value never
+    reached the true engine state, only the (now legacy) mirror column. These
+    tests covered that write-time validation/normalization; superseded by
+    ``test_status_from_engine.py`` (read-only field, engine-sourced value).
+    """
+
+    def test_status_input_is_accepted_and_ignored(self) -> None:
+        """A client-supplied status is not validated and never persisted —
+        same "accepted and ignored" contract as RequirementSerializer.status.
+        Change the lifecycle state via POST /api/v1/issues/{id}/transitions/.
+        """
         data = {
             "workspace_id": str(uuid.uuid4()),
             "title": "Test issue",
@@ -333,61 +512,8 @@ class TestIssueSerializerStatusField:
             "status": "bogus-status",
         }
         ser = IssueSerializer(data=data)
-        assert not ser.is_valid()
-        assert "status" in ser.errors
-        message = str(ser.errors["status"][0])
-        for choice in ("Open", "In Progress", "Resolved", "Closed", "Wontfix"):
-            assert choice in message
-
-    def test_valid_status_accepted(self) -> None:
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "Test issue",
-            "severity": "high",
-            "category": "defect",
-            "status": "In Progress",
-        }
-        ser = IssueSerializer(data=data)
         assert ser.is_valid(), ser.errors
-
-    def test_case_insensitive_status_lowercase(self) -> None:
-        """Issue status field accepts lowercase input and normalizes to Title-Case."""
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "Test issue",
-            "severity": "high",
-            "category": "defect",
-            "status": "open",
-        }
-        ser = IssueSerializer(data=data)
-        assert ser.is_valid(), ser.errors
-        assert ser.validated_data["status"] == "Open"
-
-    def test_case_insensitive_status_uppercase(self) -> None:
-        """Issue status field accepts uppercase input and normalizes to Title-Case."""
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "Test issue",
-            "severity": "high",
-            "category": "defect",
-            "status": "IN PROGRESS",
-        }
-        ser = IssueSerializer(data=data)
-        assert ser.is_valid(), ser.errors
-        assert ser.validated_data["status"] == "In Progress"
-
-    def test_case_insensitive_status_mixed_case(self) -> None:
-        """Issue status field accepts mixed-case input and normalizes to Title-Case."""
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "Test issue",
-            "severity": "high",
-            "category": "defect",
-            "status": "wONtFiX",
-        }
-        ser = IssueSerializer(data=data)
-        assert ser.is_valid(), ser.errors
-        assert ser.validated_data["status"] == "Wontfix"
+        assert "status" not in ser.validated_data
 
 
 # ---------------------------------------------------------------------------
@@ -424,7 +550,7 @@ class TestTraceLinkSerializer:
             "id": str(uuid.uuid4()),
             "source_id": source_id,
             "target_id": target_id,
-            "link_type": "satisfies",
+            "link_type": "allocated-to",
             "source_title": "My Requirement",
             "target_title": "My Architecture Element",
             "source_type": "Requirement",
@@ -468,8 +594,11 @@ class TestTraceLinkSerializer:
 class TestPresetAwareSerializerMixin:
     """FieldFilter applied before generating response (REQ-L3-RA002-004)."""
 
+    @pytest.mark.django_db
     def test_permitted_fields_filter_applied(self) -> None:
         """Fields not in permitted_fields are excluded from output."""
+        from persistence.tenancy import TenantContext
+
         ff = FieldFilter(permitted_fields=frozenset({"id", "title"}), required_fields=frozenset())
         data = {
             "workspace_id": str(uuid.uuid4()),
@@ -485,7 +614,14 @@ class TestPresetAwareSerializerMixin:
         # Simulate by testing the mixin logic directly via a dict.
         ser2 = RequirementSerializer({"id": str(uuid.uuid4()), "title": "T", "workspace_id": str(uuid.uuid4()), "description": "desc", "category": "func", "status": "draft", "version": 1, "created_at": None, "updated_at": None, "change_reason": None})
         ser2.field_filter = ff
-        result = ser2.to_representation(ser2.instance)
+        # Datenmodell-Konsolidierung: to_representation() now resolves
+        # `status` via a tenant-scoped WorkflowItemState query, even though
+        # the field is filtered out of the result below.
+        TenantContext.set_tenant(uuid.uuid4())
+        try:
+            result = ser2.to_representation(ser2.instance)
+        finally:
+            TenantContext.clear_tenant()
         assert "title" in result
         assert "description" not in result
 
@@ -618,3 +754,58 @@ class TestArchitectureElementSerializerParentInvariants:
             ser = ArchitectureElementSerializer(data=self._payload(parent_id=None))
             assert ser.is_valid(), ser.errors
         mock_v.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# PresetAwareSerializerMixin — NUL (0x00) byte rejection (QIRK-003, #76)
+# ---------------------------------------------------------------------------
+
+
+class TestNullByteRejection:
+    """A NUL byte in any string field must be rejected with a 400 at the
+    serializer boundary, instead of reaching Postgres and raising a raw
+    ``ValueError: A string literal cannot contain NUL (0x00) characters``
+    (HTTP 500). Covered generically via ``PresetAwareSerializerMixin.validate()``
+    so every entity serializer that uses the mixin (Workspace, Requirement,
+    Adr, Risk, Issue, TestCase, ChangeRequest, ...) is protected.
+    """
+
+    def test_null_byte_in_requirement_title_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "test\x00null",
+            "description": "A description",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "title" in ser.errors
+        # DRF's built-in CharField validator (ProhibitNullCharactersValidator)
+        # rejects this before PresetAwareSerializerMixin.validate() even runs;
+        # either way it's a 400, not a raw Postgres 500.
+        assert "null charact" in str(ser.errors["title"][0]).lower()
+
+    def test_null_byte_in_requirement_description_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "description": "bad\x00value",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "description" in ser.errors
+        assert "null charact" in str(ser.errors["description"][0]).lower()
+
+    def test_without_null_byte_still_valid(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "description": "A clean description",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert ser.is_valid(), ser.errors

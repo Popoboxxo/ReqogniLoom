@@ -75,7 +75,7 @@ def source_workspace():
     Tree:  need1 -> req1 -> req2   (3 levels deep)
            need2                    (top-level)
            req3                     (top-level)
-    TraceLinks: req1 --satisfies--> need1, req2 --verifies--> req1
+    TraceLinks: req1 --derives-from--> need1, req2 --verifies--> req1
     """
     tenant = Tenant.objects.create(
         name="Reqif-Import-Src-T", slug="reqif-import-src-t", is_active=True
@@ -95,7 +95,6 @@ def source_workspace():
             title="Need One",
             description="First need",
             category="functional",
-            status="draft",
             moscow_priority="Must",
             uid="NEED-001",
         )
@@ -108,7 +107,6 @@ def source_workspace():
             title="Need Two",
             description="Second need",
             category="functional",
-            status="draft",
             uid="NEED-002",
         )
 
@@ -124,7 +122,6 @@ def source_workspace():
             title="Req One",
             description="Req one description",
             category="functional",
-            status="draft",
             verification_method="Test",
             uid="REQ-001",
         )
@@ -140,7 +137,6 @@ def source_workspace():
             title="Req Two",
             description="Req two description",
             category="functional",
-            status="in_review",
             verification_method="Review",
             uid="REQ-002",
         )
@@ -153,12 +149,11 @@ def source_workspace():
             title="Req Three",
             description="Req three description",
             category="non-functional",
-            status="draft",
             uid="REQ-003",
         )
 
         satisfies_link = TraceLink.objects.create(
-            tenant=tenant, source=req1_art, target=need1_art, link_type="satisfies"
+            tenant=tenant, source=req1_art, target=need1_art, link_type="derives-from"
         )
         verifies_link = TraceLink.objects.create(
             tenant=tenant, source=req2_art, target=req1_art, link_type="verifies"
@@ -285,7 +280,7 @@ class TestReqifImportRoundTrip:
         )
 
         assert TraceLink.objects.filter(
-            source=req1_copy.artifact, target=need1_copy.artifact, link_type="satisfies"
+            source=req1_copy.artifact, target=need1_copy.artifact, link_type="derives-from"
         ).exists()
         assert TraceLink.objects.filter(
             source=req2_copy.artifact, target=req1_copy.artifact, link_type="verifies"
@@ -414,7 +409,7 @@ class TestReqifImportErrorCases:
     ):
         tenant = source_workspace["tenant"]
         reqif_text = _export(source_workspace["workspace"].id, tenant.id)
-        # Remove need1's SPEC-OBJECT entirely so the "satisfies" relation that
+        # Remove need1's SPEC-OBJECT entirely so the derives-from relation that
         # targets it becomes unresolvable.
         import re
 
@@ -459,6 +454,28 @@ class TestReqifImportStatusMapping:
                     "transitions": [],
                 },
             )
+            # Task 12: the `status` column is dropped, so req2's "in_review"
+            # source status (this test's whole premise -- the export must
+            # carry a non-default value for the mapping to be meaningful)
+            # can only be represented by a real WorkflowItemState now.
+            source_definition = WorkflowEngineDefinition.objects.create(
+                tenant=tenant,
+                workspace_id=source_workspace["workspace"].id,
+                item_type="Requirement",
+                preset=WorkflowEngineDefinition.PRESET_STANDARD,
+                workflow_json={
+                    "states": ["draft", "in_review", "approved", "deprecated"],
+                    "transitions": [],
+                },
+            )
+            WorkflowItemState.objects.create(
+                tenant=tenant,
+                item_id=source_workspace["req2"].id,
+                item_type="Requirement",
+                workspace_id=source_workspace["workspace"].id,
+                definition=source_definition,
+                current_state="in_review",
+            )
         finally:
             clear_request_tenant()
 
@@ -470,7 +487,8 @@ class TestReqifImportStatusMapping:
         )
         # req2 was exported with status "in_review", a known state of the
         # target definition -> kept as-is, and a WorkflowItemState mirrors it.
-        assert req2_copy.status == "in_review"
+        # Task 12: the `status` column is dropped, so WorkflowItemState is
+        # the only place left to check.
         state = WorkflowItemState.objects.get(
             item_id=req2_copy.id, item_type="Requirement"
         )
@@ -481,12 +499,17 @@ class TestReqifImportStatusMapping:
         self, source_workspace, target_workspace
     ):
         """No WorkflowEngineDefinition for StakeholderNeed in target_workspace ->
-        status is only normalised (unknown -> draft), no WorkflowItemState row.
+        no WorkflowItemState row is created (the FK to a definition is
+        PROTECT). Task 12: the `status` column that used to at least keep
+        the normalised ("unknown" -> "draft") value is dropped, so this case
+        now has no record of the imported status anywhere at all --
+        documented, reviewed data-loss tradeoff, see the Task 12 report
+        Finding 2.
 
         Mutates need1's ATTR-STATUS value to an unrecognised free-text status
-        before importing, so the "unknown -> draft" fallback branch of
-        _map_status is actually exercised (need1's real status is already
-        "draft", which would pass trivially without this mutation).
+        before importing, exercising the "unknown -> draft" branch of
+        _map_status (which still runs -- it just has nowhere left to persist
+        its result when there is no definition).
         """
         import re
 
@@ -512,7 +535,6 @@ class TestReqifImportStatusMapping:
         need1_copy = StakeholderNeed.objects.get(
             artifact__workspace=target_workspace, uid="NEED-001"
         )
-        assert need1_copy.status == "draft"
         assert not WorkflowItemState.objects.filter(
             item_id=need1_copy.id, item_type="StakeholderNeed"
         ).exists()
@@ -544,7 +566,10 @@ class TestReqifImportStatusMapping:
         req2_copy = Requirement.objects.get(
             artifact__workspace=target_workspace, uid="REQ-002"
         )
-        assert req2_copy.status == "backlog"
+        state = WorkflowItemState.objects.get(
+            item_id=req2_copy.id, item_type="Requirement"
+        )
+        assert state.current_state == "backlog"
 
 
 # ---------- Upsert identifier-collision handling ----------
@@ -581,3 +606,58 @@ class TestReqifImportUpsertCollisions:
             artifact__workspace=target_workspace, uid="REQ-001"
         )
         assert req1_copy.artifact_id != req1.artifact_id
+
+
+# ---------- Untrusted custom_fields in an imported file (#269 follow-up) ----
+
+
+class TestReqifImportCustomFieldsGuard:
+    """A ReqIF file is untrusted input; its custom fields go through the same
+    guard as a request body.
+
+    This import assigns ``artifact.custom_fields`` directly and calls
+    ``save(update_fields=...)``, which never runs the model validators — so
+    without the explicit ``validate_custom_fields`` call, an attacker-authored
+    file could seed markup / ``javascript:`` payloads straight into the map,
+    the exact surface that #290 made live for REST.
+    """
+
+    def test_spec_object_with_markup_in_custom_fields_is_skipped(
+        self, source_workspace, target_workspace
+    ):
+        tenant = source_workspace["tenant"]
+        # Written straight onto the model: validators do not run on ``save``,
+        # which is precisely how a hostile file's payload would arrive.
+        artifact = source_workspace["req1"].artifact
+        artifact.custom_fields = {"owner": "<img src=x onerror=alert(1)>"}
+        artifact.save(update_fields=["custom_fields"])
+
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+        result = _import(reqif_text, target_workspace.id, tenant.id)
+
+        assert result.requirements.skipped == 1
+        assert any(
+            "custom_fields" in e["message"] for e in result.requirements.errors
+        ), result.requirements.errors
+        # The rest of the file still imports — a soft error, not a hard abort.
+        assert result.needs.created == 2
+        assert Requirement.objects.filter(
+            artifact__workspace=target_workspace, uid="REQ-001"
+        ).count() == 0
+
+    def test_ordinary_custom_fields_still_import(
+        self, source_workspace, target_workspace
+    ):
+        tenant = source_workspace["tenant"]
+        artifact = source_workspace["req1"].artifact
+        artifact.custom_fields = {"owner": "alice", "sprint": 7}
+        artifact.save(update_fields=["custom_fields"])
+
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+        result = _import(reqif_text, target_workspace.id, tenant.id)
+
+        assert result.requirements.skipped == 0
+        imported = Requirement.objects.get(
+            artifact__workspace=target_workspace, uid="REQ-001"
+        )
+        assert imported.artifact.custom_fields == {"owner": "alice", "sprint": 7}

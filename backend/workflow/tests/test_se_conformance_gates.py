@@ -1,0 +1,1046 @@
+"""
+DB-backed tests for the SE-conformance transition gates.
+
+leaf_id : COMP-WE-002 (extension)
+
+Lever 1 — mandatory-field completeness
+    The mandatory set is derived per ``(item_type, preset)`` from the attribute
+    definition's ``required`` flags, with the legacy Requirement
+    ``presets.registry.mandatory_fields`` list folded in (#912); it is enforced
+    on approval transitions by
+    ``workflow.precondition_rules.check_mandatory_fields``.
+
+Lever 3 — verification evidence
+    ``docs/se/V_AND_V_STRATEGY.md`` §3 "Passed" is derived from the trace graph
+    plus the latest test-run results by
+    ``workflow.precondition_rules.check_verification_evidence``.
+
+Rule 7 — TestCase verifies-link coverage (GitHub #584)
+    An Extended-tier TestCase may not be approved without a ``verifies`` link
+    to a live Requirement or ArchitectureElement, enforced by
+    ``workflow.precondition_rules.check_verifies_link``.
+
+All gates are exercised through the real :class:`TransitionValidator` against
+real workflow definitions and real preset configs — no mocks, because the whole
+point of these levers is that a *declared* policy is actually consumed.
+"""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from django.core.management import call_command
+
+from persistence.models import (
+    Artifact,
+    Requirement,
+    Tenant,
+    TestCase,
+    TestRun,
+    TestRunResult,
+    TraceLink,
+    Workspace,
+)
+from persistence.tenancy import TenantContext
+from workflow.definition_store import PRESET_SCHEMAS
+from workflow.precondition_rules import (
+    EC_MANDATORY_FIELDS_MISSING,
+    EC_VERIFICATION_EVIDENCE_MISSING,
+    EC_VERIFIES_LINK_MISSING,
+)
+from workflow.services import create_default_workflow, outdate
+from workflow.transition_validator import (
+    TransitionValidator,
+    ValidationRequest,
+    _definition_cache,
+)
+
+pytestmark = pytest.mark.django_db
+
+
+# ---------------------------------------------------------------------------
+# Fixtures / helpers
+# ---------------------------------------------------------------------------
+
+
+class _SystemCtx:
+    """Minimal AuthContext stand-in -- outdate() only reads ``user_id``."""
+
+    user_id = "system:test-se-conformance-gates"
+
+
+@pytest.fixture(autouse=True)
+def _clean_caches():
+    """Drop the process-level caches that survive the DB rollback."""
+    TenantContext.clear_tenant()
+    _definition_cache.clear()
+    yield
+    TenantContext.clear_tenant()
+    _definition_cache.clear()
+    from presets import gate
+
+    with gate._cache_lock:
+        gate._tier_cache.clear()
+
+
+@pytest.fixture
+def tenant() -> Tenant:
+    return Tenant.objects.create(name="se-gate-tenant", slug="se-gate-tenant")
+
+
+def _workspace(tenant: Tenant, tier: str) -> Workspace:
+    """Create a workspace pinned to *tier* via ``Workspace.preset["name"]``."""
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return Workspace.objects.create(
+            tenant=tenant, name=f"ws-{tier}-{uuid.uuid4().hex[:6]}",
+            preset={"name": tier},
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _make_workflow(tenant: Tenant, ws: Workspace, preset: str, item_type: str) -> None:
+    """Create the workspace's workflow definition inside a tenant context."""
+    TenantContext.set_tenant(tenant.id)
+    try:
+        create_default_workflow(
+            workspace_id=ws.id,
+            preset=preset,
+            item_type=item_type,
+            tenant_id=tenant.id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _mark_workspace_required(
+    tenant: Tenant, ws: Workspace, item_type: str, preset: str, name: str
+) -> None:
+    """Materialize the workspace definition and flip *name* to ``required``.
+
+    Mirrors an admin override: the global default is materialized on first
+    resolve, then the workspace row is customized locally. Used to prove the
+    approval gate reads the workspace-resolved definition (M4), not the global
+    row and not the Requirement-shaped legacy preset list.
+    """
+    from attribute_definitions.schema import stored_attributes
+    from attribute_definitions.workspace_definition_store import (
+        WorkspaceAttributeDefinitionStore,
+    )
+
+    store = WorkspaceAttributeDefinitionStore()
+    TenantContext.set_tenant(tenant.id)
+    try:
+        row = store.resolve(tenant.id, ws.id, item_type, preset)
+        attributes = stored_attributes(row.definition_json)
+        for entry in attributes:
+            if entry["name"] == name:
+                entry["required"] = True
+        store.update(tenant.id, ws.id, item_type, attributes)
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _requirement(tenant: Tenant, workspace: Workspace, **fields) -> Requirement:
+    TenantContext.set_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="requirement"
+        )
+        return Requirement.objects.create(
+            tenant=tenant, artifact=artifact, **fields
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _validate(
+    *,
+    tenant: Tenant,
+    workspace: Workspace,
+    item_id: uuid.UUID,
+    item_type: str,
+    current_state: str,
+    target_state: str,
+    roles: tuple[str, ...] = ("admin",),
+    change_reason: str = "because",
+):
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return TransitionValidator().validate(
+            ValidationRequest(
+                item_id=item_id,
+                workspace_id=workspace.id,
+                item_type=item_type,
+                current_state=current_state,
+                target_state=target_state,
+                user_id=uuid.uuid4(),
+                user_roles=roles,
+                tenant_id=tenant.id,
+                change_reason=change_reason,
+            )
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+# ---------------------------------------------------------------------------
+# Lever 1 — mandatory-field completeness
+# ---------------------------------------------------------------------------
+
+
+class TestTierPolicyIsRead:
+    """The tier policy is read from the registry, never re-derived."""
+
+    def test_registry_tier_lists_are_what_the_gate_assumes(self):
+        from presets.registry import (
+            TIER_EXTENDED,
+            TIER_MINIMAL,
+            TIER_STANDARD,
+            get_registry,
+        )
+
+        registry = get_registry()
+        assert registry.get_preset_config(TIER_MINIMAL).mandatory_fields == (
+            "title",
+        )
+        assert registry.get_preset_config(TIER_STANDARD).mandatory_fields == (
+            "title",
+            "description",
+            "acceptance_criteria",
+            "priority",
+        )
+        assert set(
+            registry.get_preset_config(TIER_EXTENDED).mandatory_fields
+        ) >= {"classification", "traceability_target", "change_reason"}
+
+    def test_minimal_workflow_has_no_approval_state(self):
+        """Minimal is a structural no-op: its schema is draft -> done."""
+        assert "approved" not in PRESET_SCHEMAS["minimal"]["states"]
+        assert "verified" not in PRESET_SCHEMAS["minimal"]["states"]
+        assert "verified" not in PRESET_SCHEMAS["standard"]["states"]
+
+
+class TestMandatoryFieldGate:
+    """Approval transitions are gated on the tier's mandatory_fields."""
+
+    @pytest.mark.parametrize("target_state", ["approved", "deprecated"])
+    def test_preset_conflict_blocks_only_approval(self, tenant, target_state) -> None:
+        from attribute_definitions.global_definition_store import (
+            GlobalAttributeDefinitionStore,
+        )
+        from attribute_definitions.workspace_definition_store import (
+            WorkspaceAttributeDefinitionStore,
+        )
+
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "standard", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="Complete", acceptance_criteria="ac"
+        )
+        title = {"name": "title", "kind": "core", "type": "text"}
+        attributes = [title, {
+            "name": "description", "kind": "extended", "type": "text",
+            "required": True,
+        }]
+        globals_store = GlobalAttributeDefinitionStore()
+        globals_store.initialize(tenant.id, "Requirement", "extended", attributes)
+        globals_store.initialize(tenant.id, "Requirement", "standard", [title])
+        store = WorkspaceAttributeDefinitionStore()
+        row = store.resolve(tenant.id, ws.id, "Requirement", "extended")
+        row = store.update(tenant.id, ws.id, "Requirement", attributes)
+        version = row.version
+        definition = row.definition_json
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="draft" if target_state == "approved" else "approved",
+            target_state=target_state,
+        )
+
+        if target_state == "approved":
+            assert result.valid is False
+            assert result.error_code == "ATTRIBUTE_DEFINITION_CONFLICT"
+            assert result.error_message == (
+                "Cannot approve this Requirement: the workspace attribute definition "
+                "conflicts with the current 'standard' preset. "
+                "Customized definition 'Requirement' uses preset 'extended', but "
+                "workspace requests 'standard'; target preset lacks: description. "
+                "Reconcile the customization or explicitly reset it."
+            )
+        else:
+            assert result.valid is True, result.error_message
+        row.refresh_from_db()
+        assert row.preset == "extended"
+        assert row.version == version
+        assert row.definition_json == definition
+
+    def test_other_schema_errors_still_fail_open(self, tenant, caplog) -> None:
+        from attribute_definitions.global_definition_store import (
+            GlobalAttributeDefinitionStore,
+        )
+        from attribute_definitions.models import WorkspaceAttributeDefinition
+        from attribute_definitions.workspace_definition_store import (
+            WorkspaceAttributeDefinitionStore,
+        )
+
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "standard", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="Complete", acceptance_criteria="ac"
+        )
+        GlobalAttributeDefinitionStore().initialize(
+            tenant.id, "Requirement", "standard",
+            [{"name": "title", "kind": "core", "type": "text"}],
+        )
+        row = WorkspaceAttributeDefinitionStore().resolve(
+            tenant.id, ws.id, "Requirement", "standard"
+        )
+        WorkspaceAttributeDefinition.unscoped.filter(pk=row.pk).update(
+            definition_json={"attributes": "malformed", "sections": []}
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="draft",
+            target_state="approved",
+        )
+
+        assert result.valid is True, result.error_message
+        assert "malformed attribute definition" in caplog.text
+        assert "failing open" in caplog.text
+
+    def test_extended_blocks_requirement_missing_fields(self, tenant):
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        req = _requirement(tenant, ws, title="R1", description="", acceptance_criteria="")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert "description" in result.error_message
+        assert "acceptance_criteria" in result.error_message
+        # traceability_target is the SE-Auditor's mandate, not a scalar field.
+        assert "traceability_target" not in result.error_message
+
+    def test_extended_allows_complete_requirement(self, tenant):
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        req = _requirement(
+            tenant,
+            ws,
+            title="R1",
+            description="A description",
+            acceptance_criteria="Given/When/Then",
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_extended_requirement_gate_is_unchanged_by_the_scoped_source(
+        self, tenant
+    ):
+        """#912: with a real definition row present, the definition's ``required``
+        flags must not weaken the Requirement approval gate — the legacy preset
+        list stays folded in for this one item type."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        req = _requirement(tenant, ws, title="R1", description="", acceptance_criteria="")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert "description" in result.error_message
+        assert "acceptance_criteria" in result.error_message
+        assert "traceability_target" not in result.error_message
+
+    def test_mandatory_message_lists_each_column_once(self, tenant):
+        """m7: a name carried by BOTH the definition and the legacy Requirement
+        list (``description``) is reported exactly once."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        _mark_workspace_required(tenant, ws, "Requirement", "extended", "description")
+        req = _requirement(
+            tenant, ws, title="R1", description="", acceptance_criteria="ac"
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert result.error_message.count("description") == 1
+
+    def test_extended_blocks_when_change_reason_is_blank(self, tenant):
+        """``change_reason`` is a request-level mandatory field on Extended.
+
+        Rule 3 already rejects it for this transition, so assert the earlier
+        rule wins and the message stays specific rather than being swallowed.
+        """
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="d", acceptance_criteria="ac"
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+            change_reason="",
+        )
+
+        assert result.valid is False
+        assert result.error_code == "CHANGE_REASON_REQUIRED"
+
+    def test_standard_blocks_and_skips_inapplicable_fields(self, tenant):
+        """Standard gates draft -> approved; 'priority' is not a Requirement field."""
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "standard", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="", acceptance_criteria="ac"
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="draft",
+            target_state="approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert "description" in result.error_message
+        # Requirement has no `priority`/`moscow_priority` column, so the policy
+        # field is not applicable and must not appear.
+        assert "priority" not in result.error_message
+        assert "'standard' preset" in result.error_message
+
+    def test_minimal_is_a_no_op(self, tenant):
+        """Minimal has only ``title`` mandatory and no approval state at all."""
+        ws = _workspace(tenant, "minimal")
+        _make_workflow(tenant, ws, "minimal", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="", acceptance_criteria=""
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="draft",
+            target_state="done",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_non_approval_transition_is_untouched(self, tenant):
+        """A draft-internal transition never triggers field completeness."""
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="", acceptance_criteria=""
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="draft",
+            target_state="in_review",
+        )
+
+        assert result.valid is True, result.error_message
+
+
+class TestSharedValidatorStaysGenericAcrossArtifactTypes:
+    """Requirement-shaped policy fields must not leak onto other types."""
+
+    def _adr(self, tenant: Tenant, ws: Workspace, **fields):
+        from application.models import Adr
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="adr"
+            )
+            return Adr.objects.create(
+                artifact=artifact,
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                **fields,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_adr_approval_is_not_blocked_by_requirement_fields(self, tenant):
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "adr_default", "Adr")
+        adr = self._adr(tenant, ws, title="ADR-1", description="a decision")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=adr.id,
+            item_type="Adr",
+            current_state="In Review",
+            target_state="Approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_adr_approval_does_not_inherit_the_requirement_description_policy(
+        self, tenant
+    ):
+        """#912: with a real Adr definition present, only the Adr definition's
+        own ``required`` flags apply. The Requirement-shaped legacy list (which
+        names ``description``) must not leak onto Adr, so an empty optional
+        ``description`` does not block approval."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "adr_default", "Adr")
+        adr = self._adr(tenant, ws, title="ADR-2", description="")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=adr.id,
+            item_type="Adr",
+            current_state="In Review",
+            target_state="Approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_adr_approval_blocks_a_missing_workspace_required_attribute(
+        self, tenant
+    ):
+        """M4/rule-5: a ``required`` Adr attribute set by a workspace override is
+        enforced, and an optional ``description`` still must not block."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "adr_default", "Adr")
+        _mark_workspace_required(tenant, ws, "Adr", "extended", "decision")
+        adr = self._adr(tenant, ws, title="ADR-3", description="", decision="")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=adr.id,
+            item_type="Adr",
+            current_state="In Review",
+            target_state="Approved",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_MANDATORY_FIELDS_MISSING
+        assert "decision" in result.error_message
+        # #912 regression stays meaningful: the optional description is not
+        # demanded even though the workspace has a definition row.
+        assert "description" not in result.error_message
+
+    def test_adr_approval_allows_a_present_workspace_required_attribute(
+        self, tenant
+    ):
+        """The same workspace-resolved gate passes once the attribute is filled."""
+        call_command("bootstrap_attribute_definitions", "--tenant", str(tenant.id))
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "adr_default", "Adr")
+        _mark_workspace_required(tenant, ws, "Adr", "extended", "decision")
+        adr = self._adr(
+            tenant, ws, title="ADR-4", description="", decision="chosen"
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=adr.id,
+            item_type="Adr",
+            current_state="In Review",
+            target_state="Approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_change_request_ccb_decision_is_exempt(self, tenant):
+        """``ccb_approval``'s "approved" is a decision, not artefact readiness."""
+        from application.models import ChangeRequest
+
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "ccb_approval", "ChangeRequest")
+        TenantContext.set_tenant(tenant.id)
+        try:
+            cr = ChangeRequest.objects.create(
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                title="CR-1",
+                description="",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=cr.id,
+            item_type="ChangeRequest",
+            current_state="under_review",
+            target_state="approved",
+        )
+
+        assert result.valid is True, result.error_message
+
+
+# ---------------------------------------------------------------------------
+# Lever 3 — verification evidence (V&V strategy §3 "Passed")
+# ---------------------------------------------------------------------------
+
+
+def _testcase(tenant: Tenant, ws: Workspace, title: str) -> tuple[Artifact, TestCase]:
+    TenantContext.set_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type="testcase"
+        )
+        tc = TestCase.objects.create(tenant=tenant, artifact=artifact, title=title)
+        return artifact, tc
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _verifies(tenant: Tenant, tc_artifact: Artifact, req_artifact: Artifact) -> None:
+    """Create the link in the SE direction: TestCase -> Requirement."""
+    TenantContext.set_tenant(tenant.id)
+    try:
+        TraceLink.objects.create(
+            tenant=tenant,
+            source=tc_artifact,
+            target=req_artifact,
+            link_type="verifies",
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _run(tenant: Tenant, ws: Workspace, tc: TestCase, status: str) -> None:
+    TenantContext.set_tenant(tenant.id)
+    try:
+        run = TestRun.objects.create(
+            tenant=tenant, workspace=ws, name=f"run-{uuid.uuid4().hex[:6]}"
+        )
+        TestRunResult.objects.create(
+            tenant=tenant,
+            test_run=run,
+            test_case=tc,
+            test_case_title=tc.title,
+            status=status,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+class TestVerificationEvidenceGate:
+    """``implemented -> verified`` is derived, not claimed."""
+
+    @pytest.fixture
+    def extended_ws(self, tenant):
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        return ws
+
+    def _complete_req(self, tenant, ws) -> Requirement:
+        return _requirement(
+            tenant, ws, title="R1", description="d", acceptance_criteria="ac"
+        )
+
+    def test_rejected_without_any_verifying_testcase(self, tenant, extended_ws):
+        req = self._complete_req(tenant, extended_ws)
+
+        result = _validate(
+            tenant=tenant,
+            workspace=extended_ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="implemented",
+            target_state="verified",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_VERIFICATION_EVIDENCE_MISSING
+        assert "no active TestCase" in result.error_message
+
+    def test_rejected_when_testcase_never_ran(self, tenant, extended_ws):
+        req = self._complete_req(tenant, extended_ws)
+        tc_art, _tc = _testcase(tenant, extended_ws, "TC-1")
+        _verifies(tenant, tc_art, req.artifact)
+
+        result = _validate(
+            tenant=tenant,
+            workspace=extended_ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="implemented",
+            target_state="verified",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_VERIFICATION_EVIDENCE_MISSING
+        assert "Not Run" in result.error_message
+        assert str(tc_art.id) in result.error_message
+
+    def test_rejected_when_latest_run_failed(self, tenant, extended_ws):
+        req = self._complete_req(tenant, extended_ws)
+        tc_art, tc = _testcase(tenant, extended_ws, "TC-1")
+        _verifies(tenant, tc_art, req.artifact)
+        _run(tenant, extended_ws, tc, "failed")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=extended_ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="implemented",
+            target_state="verified",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_VERIFICATION_EVIDENCE_MISSING
+        assert str(tc_art.id) in result.error_message
+
+    def test_accepted_when_every_verifying_testcase_passed(
+        self, tenant, extended_ws
+    ):
+        req = self._complete_req(tenant, extended_ws)
+        tc1_art, tc1 = _testcase(tenant, extended_ws, "TC-1")
+        tc2_art, tc2 = _testcase(tenant, extended_ws, "TC-2")
+        _verifies(tenant, tc1_art, req.artifact)
+        _verifies(tenant, tc2_art, req.artifact)
+        _run(tenant, extended_ws, tc1, "passed")
+        _run(tenant, extended_ws, tc2, "passed")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=extended_ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="implemented",
+            target_state="verified",
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_rejected_when_one_of_several_testcases_failed(
+        self, tenant, extended_ws
+    ):
+        req = self._complete_req(tenant, extended_ws)
+        tc1_art, tc1 = _testcase(tenant, extended_ws, "TC-1")
+        tc2_art, tc2 = _testcase(tenant, extended_ws, "TC-2")
+        _verifies(tenant, tc1_art, req.artifact)
+        _verifies(tenant, tc2_art, req.artifact)
+        _run(tenant, extended_ws, tc1, "passed")
+        _run(tenant, extended_ws, tc2, "blocked")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=extended_ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="implemented",
+            target_state="verified",
+        )
+
+        assert result.valid is False
+        assert str(tc2_art.id) in result.error_message
+        assert str(tc1_art.id) not in result.error_message
+
+    def test_link_direction_matters(self, tenant, extended_ws):
+        """A backwards link (Requirement -> TestCase) is not evidence."""
+        req = self._complete_req(tenant, extended_ws)
+        tc_art, tc = _testcase(tenant, extended_ws, "TC-1")
+        _verifies(tenant, req.artifact, tc_art)  # deliberately reversed
+        _run(tenant, extended_ws, tc, "passed")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=extended_ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="implemented",
+            target_state="verified",
+        )
+
+        assert result.valid is False
+        assert result.error_code == EC_VERIFICATION_EVIDENCE_MISSING
+
+
+# ---------------------------------------------------------------------------
+# Rule 7 — a TestCase must verify something before it can be approved (#584)
+# ---------------------------------------------------------------------------
+
+
+def _approvable_testcase(
+    tenant: Tenant, ws: Workspace, title: str
+) -> tuple[Artifact, TestCase]:
+    """A TestCase that already satisfies rule 5 on every tier.
+
+    ``description`` is a ``mandatory_fields`` entry from Standard upwards, so a
+    bare ``_testcase()`` is rejected by rule 5 before rule 7 is ever reached.
+    Filling it in keeps these tests about the verifies link only.
+    """
+    TenantContext.set_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type="testcase"
+        )
+        tc = TestCase.objects.create(
+            tenant=tenant,
+            artifact=artifact,
+            title=title,
+            description="Steps are documented elsewhere.",
+        )
+        return artifact, tc
+    finally:
+        TenantContext.clear_tenant()
+
+
+def _architecture_element(tenant: Tenant, ws: Workspace, title: str):
+    from persistence.models import ArchitectureElement
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=ws, artifact_type="architectureelement"
+        )
+        element = ArchitectureElement.objects.create(
+            tenant=tenant, artifact=artifact, title=title, element_type="component"
+        )
+        return artifact, element
+    finally:
+        TenantContext.clear_tenant()
+
+
+class TestVerifiesLinkGate:
+    """GH-584(a): ``ready -> approved`` on a TestCase needs a verifies link.
+
+    The V&V chain Requirement -> TestCase -> TestRun was structurally present
+    but functionally broken at the first hop (0 of 30 TestCases carried a
+    ``verifies`` link). The gate lives at the approval transition — the same
+    place rule 5 consumes ``mandatory_fields`` — rather than at create time,
+    because both the REST and the MCP create paths build the entity first and
+    the link afterwards.
+    """
+
+    @pytest.fixture
+    def extended_ws(self, tenant):
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "testcase_default", "TestCase")
+        return ws
+
+    def _approve(self, tenant, ws, tc):
+        return _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=tc.id,
+            item_type="TestCase",
+            current_state="ready",
+            target_state="approved",
+        )
+
+    def test_extended_blocks_testcase_without_verifies_link(self, tenant, extended_ws):
+        _tc_art, tc = _approvable_testcase(tenant, extended_ws, "Orphan TC")
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is False
+        assert result.error_code == EC_VERIFIES_LINK_MISSING
+        assert "verifies" in result.error_message
+
+    def test_extended_allows_testcase_verifying_a_requirement(
+        self, tenant, extended_ws
+    ):
+        req = _requirement(
+            tenant, extended_ws, title="R1", description="d", acceptance_criteria="ac"
+        )
+        tc_art, tc = _approvable_testcase(tenant, extended_ws, "Linked TC")
+        _verifies(tenant, tc_art, req.artifact)
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is True, result.error_message
+
+    def test_extended_allows_testcase_verifying_an_architecture_element(
+        self, tenant, extended_ws
+    ):
+        """SE_LINK_SEMANTICS allows TestCase -> ArchitectureElement too."""
+        arch_art, _arch = _architecture_element(tenant, extended_ws, "Component A")
+        tc_art, tc = _approvable_testcase(tenant, extended_ws, "Linked TC")
+        _verifies(tenant, tc_art, arch_art)
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is True, result.error_message
+
+    def test_link_direction_matters(self, tenant, extended_ws):
+        """A reversed link (Requirement -> TestCase) is not coverage."""
+        req = _requirement(
+            tenant, extended_ws, title="R1", description="d", acceptance_criteria="ac"
+        )
+        tc_art, tc = _approvable_testcase(tenant, extended_ws, "Backwards TC")
+        _verifies(tenant, req.artifact, tc_art)  # deliberately reversed
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is False
+        assert result.error_code == EC_VERIFIES_LINK_MISSING
+
+    def test_link_to_a_soft_deleted_requirement_is_not_coverage(
+        self, tenant, extended_ws
+    ):
+        """Same target pool as TRACE-P6: an outdated target does not count."""
+        req = _requirement(
+            tenant, extended_ws, title="R1", description="d", acceptance_criteria="ac"
+        )
+        tc_art, tc = _approvable_testcase(tenant, extended_ws, "TC of a deleted Req")
+        _verifies(tenant, tc_art, req.artifact)
+        # Task 12: the `status` column is dropped -- outdating a Requirement
+        # is now only representable through the engine (workflow.services
+        # .outdate), the same real path RequirementService.delete_requirement
+        # uses in production. This class's `extended_ws` fixture only
+        # provisions a TestCase workflow definition, so a Requirement one is
+        # provisioned here too (outdate()'s lazy-init needs a definition to
+        # create the WorkflowItemState row against).
+        _make_workflow(tenant, extended_ws, "standard", "Requirement")
+        TenantContext.set_tenant(tenant.id)
+        try:
+            outdate(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=extended_ws.id,
+                ctx=_SystemCtx(),
+                reason="test: simulate soft-deleted Requirement",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is False
+        assert result.error_code == EC_VERIFIES_LINK_MISSING
+
+    def test_a_second_live_target_still_satisfies_the_gate(
+        self, tenant, extended_ws
+    ):
+        """Multiple 'verifies' targets: any single live one satisfies the gate."""
+        old_req = _requirement(
+            tenant, extended_ws, title="Old R", description="d", acceptance_criteria="ac"
+        )
+        live_req = _requirement(
+            tenant, extended_ws, title="Live R", description="d", acceptance_criteria="ac"
+        )
+        tc_art, tc = _approvable_testcase(tenant, extended_ws, "TC with two subjects")
+        _verifies(tenant, tc_art, old_req.artifact)
+        _verifies(tenant, tc_art, live_req.artifact)
+
+        result = self._approve(tenant, extended_ws, tc)
+
+        assert result.valid is True, result.error_message
+
+    def test_standard_tier_does_not_gate_the_testcase(self, tenant):
+        """Tier lever: only Extended declares ``traceability_target``."""
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "testcase_default", "TestCase")
+        _tc_art, tc = _approvable_testcase(tenant, ws, "Orphan TC")
+
+        result = self._approve(tenant, ws, tc)
+
+        assert result.valid is True, result.error_message
+
+    def test_minimal_tier_does_not_gate_the_testcase(self, tenant):
+        ws = _workspace(tenant, "minimal")
+        _make_workflow(tenant, ws, "testcase_default", "TestCase")
+        _tc_art, tc = _approvable_testcase(tenant, ws, "Orphan TC")
+
+        result = self._approve(tenant, ws, tc)
+
+        assert result.valid is True, result.error_message
+
+    def test_non_approval_transition_is_untouched(self, tenant, extended_ws):
+        """draft -> ready must keep working for an unlinked TestCase."""
+        _tc_art, tc = _approvable_testcase(tenant, extended_ws, "Orphan TC")
+
+        result = _validate(
+            tenant=tenant,
+            workspace=extended_ws,
+            item_id=tc.id,
+            item_type="TestCase",
+            current_state="draft",
+            target_state="ready",
+            roles=("editor",),
+        )
+
+        assert result.valid is True, result.error_message
+
+    def test_requirement_approval_is_untouched_by_rule_7(self, tenant):
+        """Control: rule 7 is TestCase-only; Requirements keep rule 5's verdict."""
+        ws = _workspace(tenant, "extended")
+        _make_workflow(tenant, ws, "extended", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="d", acceptance_criteria="ac"
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="in_review",
+            target_state="approved",
+        )
+
+        assert result.valid is True, result.error_message

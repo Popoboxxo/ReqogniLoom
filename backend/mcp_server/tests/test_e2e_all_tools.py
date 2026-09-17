@@ -7,7 +7,7 @@ Req IDs: REQ-L2-MC-001..013, REQ-L1-039, REQ-L1-042, REQ-L1-046.
 Exercises the full HTTP/JSON-RPC pipeline (``django.test.Client.post('/mcp/', ...)``)
 through to the real ToolGroup + ApplicationService implementations, using
 the production authentication, RBAC, tenant-isolation and preset-gate stack
-wired in :mod:`mcp_server.tests.conftest_e2e`.
+wired in :mod:`mcp_server.tests.conftest`.
 
 Tool coverage (40 tools):
     requirement.*      : 6 tools (get, query, create, update, decompose, validate)
@@ -77,7 +77,7 @@ from audit.models import AuditEntry
 # AdminOps — the BackupMetadata is a system-level entity (not tenant-scoped).
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 
-# MCP e2e fixtures (auto-imported via conftest_e2e.py).
+# MCP e2e fixtures (auto-imported via conftest.py).
 
 # JSON-RPC helpers — see mcp_server/tests/helpers.py.
 from mcp_server.tests.helpers import (
@@ -87,9 +87,13 @@ from mcp_server.tests.helpers import (
     post_mcp,
 )
 
+# SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
+# see the `e2e` marker docstring in pyproject.toml.
+pytestmark = pytest.mark.e2e
+
 
 # ---------------------------------------------------------------------------
-# Local fixtures — deep LLM + backup mocks not covered by conftest_e2e
+# Local fixtures — deep LLM + backup mocks not covered by conftest
 # ---------------------------------------------------------------------------
 
 
@@ -108,7 +112,7 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
     #    RequirementService.decompose() loop can run. The original is a
     #    @staticmethod, so we wrap the replacement in ``staticmethod`` to
     #    preserve the no-self-binding contract.
-    def _fake_decompose(requirement_id):
+    def _fake_decompose(requirement_id, title=None, content=None):
         return [
             {"title": "Child A", "description": "First child"},
             {"title": "Child B", "description": "Second child"},
@@ -121,7 +125,7 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # 2. validate_artifact — return a valid LlmResult-like dict so
     #    requirement.validate can serialise it.
-    def _fake_validate(artifact_id, ctx=None):
+    def _fake_validate(artifact_id, title=None, content=None, ctx=None):
         return {
             "result": "valid",
             "score": 0.95,
@@ -238,13 +242,15 @@ def _seed_requirement(workspace: Workspace, title: str = "Seeded Requirement") -
             tenant=workspace.tenant,
             artifact_type="Requirement",
         )
+        # Task 12: `status` column dropped -- a fresh Requirement's engine
+        # state already starts at "draft" (every rigor preset's states[0]),
+        # no explicit seeding needed.
         return Requirement.unscoped.create(
             tenant=workspace.tenant,
             artifact=artifact,
             title=title,
             description="seeded for E2E test",
             category="functional",
-            status="draft",
         )
     finally:
         clear_request_tenant()
@@ -438,7 +444,7 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "params": {
             "arch_id": "__UUID_2A__",
             "target_id": "__UUID_2B__",
-            "link_type": "satisfies",
+            "link_type": "decomposes",
             "workspace_id": "__WORKSPACE__",
         },
         "result_key": "trace_link",
@@ -516,7 +522,13 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "tool": "traceability.query",
         "params": {"artifact_id": "__UUID__", "workspace_id": "__WORKSPACE__"},
         "result_key": "links",
-        "needs_seed": None,
+        # fix #264: this case used to run on a fresh random uuid4, which is not
+        # a happy path — it exercised an id that resolves to nothing. The tool
+        # answered with an empty link list, indistinguishable from "artifact
+        # exists but has no links"; that ambiguity is exactly what made the
+        # issue's phantom-link report impossible to diagnose. An unresolvable
+        # id now returns NOT_FOUND, so the happy path needs a real artifact.
+        "needs_seed": "artifact",
     },
     # artifact.*
     {
@@ -945,7 +957,7 @@ _RBAC_DENIAL_CASES: List[Dict[str, Any]] = [
     # architecture.*
     {"tool": "architecture.create", "params": {"title": "X", "workspace_id": "__WORKSPACE__"}},
     {"tool": "architecture.update", "params": {"id": str(uuid4()), "workspace_id": "__WORKSPACE__", "data": {"title": "X"}}},
-    {"tool": "architecture.link", "params": {"arch_id": str(uuid4()), "target_id": str(uuid4()), "link_type": "refines", "workspace_id": "__WORKSPACE__"}},
+    {"tool": "architecture.link", "params": {"arch_id": str(uuid4()), "target_id": str(uuid4()), "link_type": "decomposes", "workspace_id": "__WORKSPACE__"}},
     # test.*
     {"tool": "test.create", "params": {"title": "X", "workspace_id": "__WORKSPACE__"}},
     {"tool": "test.update", "params": {"id": str(uuid4()), "workspace_id": "__WORKSPACE__", "data": {"title": "X"}}},
@@ -996,9 +1008,8 @@ def test_e2e_viewer_denied_for_write_tool(
         f"{case['tool']} viewer should get 403, got {response.status_code}: "
         f"{response.content!r}"
     )
-    body = response.json()
-    assert body.get("error", {}).get("error_code") == "PERMISSION_DENIED", (
-        f"{case['tool']} expected PERMISSION_DENIED, got body: {body}"
+    assert extract_error_code(response) == "PERMISSION_DENIED", (
+        f"{case['tool']} expected PERMISSION_DENIED, got body: {response.json()}"
     )
 
 
@@ -1038,8 +1049,7 @@ def test_e2e_invalid_api_key_returns_auth_failed(
         f"{case['tool']} expected 401, got {response.status_code}: "
         f"{response.content!r}"
     )
-    body = response.json()
-    assert body.get("error", {}).get("error_code") == "AUTH_FAILED", body
+    assert extract_error_code(response) == "AUTH_FAILED", response.json()
 
 
 def test_e2e_missing_api_key_returns_auth_failed(admin_client: Client):
@@ -1154,20 +1164,18 @@ def test_e2e_not_found_for_nonexistent_requirement(admin_client: Client):
 def test_e2e_not_found_for_nonexistent_workspace_member_admin_call(
     admin_client: Client, e2e_workspace: Workspace
 ):
-    """``workspace.close`` for an unknown workspace returns PERMISSION_DENIED.
+    """``workspace.close`` for an unknown workspace returns NOT_FOUND.
 
-    The role resolution step runs before the service call: an unknown
-    workspace id has no UserRole entries, so the active_roles tuple is
-    empty and the RBAC check denies the write with 403. The actual
-    NOT_FOUND branch is exercised via the e2e happy-path test
-    (``workspace.delete`` with a freshly created workspace).
+    Tool dispatch checks workspace existence before role resolution
+    (``ToolRegistry.execute_tool`` step 2), so an unknown workspace id
+    short-circuits with 404 NOT_FOUND rather than reaching the RBAC
+    check.
     """
     response = post_mcp(
         admin_client, "workspace.close", {"workspace_id": str(uuid4())}
     )
-    # Unknown workspace -> no role -> 403 PERMISSION_DENIED.
-    assert response.status_code == 403
-    assert extract_error_code(response) == "PERMISSION_DENIED"
+    assert response.status_code == 404, response.content
+    assert extract_error_code(response) == "NOT_FOUND"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1189,6 +1197,27 @@ def test_e2e_validation_error_for_missing_required_param(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_e2e_validation_error_for_whitespace_only_title(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """BUG-02 (SYSTEMAUDIT_2026-08-18 §4): ``requirement.create`` with a
+    whitespace-only ``title`` (present, non-empty string, but blank once
+    trimmed) must be rejected the same way as an entirely missing title —
+    not silently accepted as a "valid" non-null string. Verified here against
+    ``tools/base.require_param``, which already folds ``str.strip()``-empty
+    values into the same "missing or empty" rejection; this closes the gap
+    that only the fully-missing-key variant had explicit coverage.
+    """
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {"workspace_id": str(e2e_workspace.id), "title": "   "},
+    )
+    assert response.status_code == 400
+    assert extract_error_code(response) == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db(transaction=True)
 def test_e2e_validation_error_for_invalid_uuid(
     admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
@@ -1200,6 +1229,102 @@ def test_e2e_validation_error_for_invalid_uuid(
     )
     assert response.status_code == 400
     assert extract_error_code(response) == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_requirement_create_rejects_script_tag_in_title(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """Issue #709: ``requirement.create`` bypassed the REST serializer's
+    free-text guard (#269) entirely — MCP calls ``RequirementService.
+    create_requirement`` directly, so a ``<script>`` title used to be
+    persisted verbatim instead of rejected, unlike the same payload sent
+    over REST (see ``test_security_hardening_269.
+    test_html_markup_in_title_is_rejected_not_silently_stripped``).
+    """
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {
+            "workspace_id": str(e2e_workspace.id),
+            "title": "<script>alert(1)</script>",
+        },
+    )
+    assert response.status_code == 400, response.content
+    assert extract_error_code(response) == "VALIDATION_ERROR"
+
+    # Nothing was persisted — the rejection must not silently strip and save.
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        assert not Requirement.objects.filter(
+            artifact__workspace_id=e2e_workspace.id
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_requirement_create_rejects_javascript_uri_in_description(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """Same #709 gap, on ``description`` via a script-capable URI scheme."""
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {
+            "workspace_id": str(e2e_workspace.id),
+            "title": "Legitimate title",
+            "description": "javascript:alert(1)",
+        },
+    )
+    assert response.status_code == 400, response.content
+    assert extract_error_code(response) == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_requirement_create_accepts_benign_angle_brackets_in_title(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """The guard must not overcorrect: ordinary prose with '<'/'>' is not markup."""
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {
+            "workspace_id": str(e2e_workspace.id),
+            "title": "System shall respond in < 200 ms",
+        },
+    )
+    assert response.status_code == 200, response.content
+    assert (
+        extract_result(response)["requirement"]["title"]
+        == "System shall respond in < 200 ms"
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_requirement_update_rejects_script_tag_in_title(
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
+):
+    """The same #709 bypass exists on ``requirement.update`` — guarded too."""
+    req = _seed_requirement(e2e_workspace)
+
+    response = post_mcp(
+        admin_client,
+        "requirement.update",
+        {
+            "id": str(req.id),
+            "data": {"title": "<img src=x onerror=alert(1)>"},
+        },
+    )
+    assert response.status_code == 400, response.content
+    assert extract_error_code(response) == "VALIDATION_ERROR"
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        req.refresh_from_db()
+    finally:
+        clear_request_tenant()
+    assert req.title != "<img src=x onerror=alert(1)>"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1492,10 +1617,19 @@ def test_e2e_workspace_get_context_returns_tenant_and_user(
 
 @pytest.mark.django_db(transaction=True)
 def test_e2e_workspace_get_context_with_workspace_id(
-    admin_client: Client, e2e_workspace: Workspace, e2e_user_admin: User
+    admin_client: Client,
+    e2e_workspace: Workspace,
+    e2e_user_admin: User,
+    e2e_userrole_admin: UserRole,
 ):
     """``workspace.get_context`` with explicit workspace_id returns the
     preset features and a (possibly zero) open-requirements count.
+
+    ``e2e_userrole_admin`` is required, not incidental: naming a workspace
+    makes this a workspace-scoped read, and since Systemaudit 2026-08-29 §6.5
+    that needs an active ``UserRole`` there. ``admin_client`` on its own only
+    carries the tenant-wide ``TenantRole(admin)``. Every sibling test in this
+    file that names a ``workspace_id`` already requests the fixture.
     """
     response = post_mcp(
         admin_client,
@@ -1602,6 +1736,67 @@ def test_e2e_user_list_viewer_denied(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_e2e_user_create_then_assign_role_onboards_brand_new_user(
+    admin_client: Client,
+    e2e_tenant: Tenant,
+    e2e_workspace: Workspace,
+    e2e_user_admin: User,
+    e2e_userrole_admin: UserRole,
+):
+    """GitHub #30: a user created via ``user.create`` holds no workspace
+    membership yet; ``user.assign_role`` must still succeed for that
+    brand-new, non-member user instead of failing with 'not a member'
+    (SEC-05 onboarding fix).
+    """
+    create_response = post_mcp(
+        admin_client,
+        "user.create",
+        {
+            "username": "onboarding-target",
+            "email": "onboarding-target@e2e.test",
+            "password": "verysecret123",
+            "workspace_id": str(e2e_workspace.id),
+        },
+    )
+    assert create_response.status_code == 200, create_response.content
+    new_user_id = extract_result(create_response)["user"]["id"]
+
+    # The new user must not hold any role anywhere yet (no auto-membership).
+    set_request_tenant(e2e_tenant.id)
+    try:
+        assert not UserRole.objects.filter(user_id=new_user_id).exists()
+    finally:
+        clear_request_tenant()
+
+    assign_response = post_mcp(
+        admin_client,
+        "user.assign_role",
+        {
+            "user_id": new_user_id,
+            "workspace_id": str(e2e_workspace.id),
+            "role": "viewer",
+            "preset": "extended",
+        },
+    )
+    assert assign_response.status_code == 200, assign_response.content
+    assignment = extract_result(assign_response)["assignment"]
+    assert assignment["user_id"] == new_user_id
+    assert assignment["role"] == "viewer"
+
+    # The role assignment is now the user's first (and only) membership.
+    set_request_tenant(e2e_tenant.id)
+    try:
+        assert UserRole.objects.filter(
+            user_id=new_user_id,
+            workspace_id=e2e_workspace.id,
+            role="viewer",
+            suspended_at__isnull=True,
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_e2e_admin_backup_list_empty(
     admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
@@ -1613,6 +1808,54 @@ def test_e2e_admin_backup_list_empty(
     result = extract_result(response)
     assert "backups" in result
     assert isinstance(result["backups"], list)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_admin_backup_create_allowed_regardless_of_workspace_role_scope(
+    admin_client: Client,
+    e2e_tenant: Tenant,
+    e2e_workspace: Workspace,
+    e2e_user_admin: User,
+    e2e_userrole_admin: UserRole,
+    mock_backup_service: None,
+):
+    """GitHub #37: ``admin.backup_create`` is an instance-level DR
+    operation (``BackupMetadata`` is not even tenant-scoped, let alone
+    workspace-scoped). The caller is Admin in *e2e_workspace* only, via
+    *e2e_userrole_admin*. If the request happens to carry a *different*
+    workspace's id (e.g. a client that always attaches the "current
+    workspace" context to every call), role resolution must not narrow
+    to that other workspace and wrongly deny a legitimate tenant admin.
+    """
+    from presets.models import WorkspacePresetConfig
+
+    set_request_tenant(e2e_tenant.id)
+    try:
+        other_ws = Workspace.objects.create(
+            tenant=e2e_tenant,
+            name="Other Workspace (no role for e2e_user_admin)",
+            is_active=True,
+            preset={"name": "other"},
+        )
+        WorkspacePresetConfig.unscoped.create(
+            tenant=e2e_tenant,
+            workspace=other_ws,
+            active_tier="extended",
+            terminology_profile="dev_mode",
+            downgrade_policy="allow",
+        )
+    finally:
+        clear_request_tenant()
+
+    # e2e_user_admin holds an active role only in e2e_workspace, NOT in
+    # other_ws. Before the fix, passing other_ws.id here narrowed roles
+    # to other_ws (empty) and the write-gate denied the call.
+    response = post_mcp(
+        admin_client, "admin.backup_create", {"workspace_id": str(other_ws.id)}
+    )
+    assert response.status_code == 200, response.content
+    result = extract_result(response)
+    assert "backup" in result
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1763,9 +2006,14 @@ def test_e2e_workspace_reactivate_admin_can_restore_closed_workspace(
 
 @pytest.mark.django_db(transaction=True)
 def test_e2e_traceability_query_with_no_links_returns_empty(
-    admin_client: Client, e2e_workspace: Workspace
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
-    """``traceability.query`` for an isolated artifact returns empty links."""
+    """``traceability.query`` for an isolated artifact returns empty links.
+
+    ``e2e_userrole_admin``: the call names a ``workspace_id``, so it is a
+    workspace-scoped read and needs an active role there since Systemaudit
+    2026-08-29 §6.5 — ``admin_client`` alone is only a tenant-admin.
+    """
     set_request_tenant(e2e_workspace.tenant_id)
     try:
         artifact = Artifact.unscoped.create(
@@ -1791,9 +2039,14 @@ def test_e2e_traceability_query_with_no_links_returns_empty(
 
 @pytest.mark.django_db(transaction=True)
 def test_e2e_traceability_query_invalid_direction_returns_validation_error(
-    admin_client: Client, e2e_workspace: Workspace
+    admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
-    """Direction outside upstream/downstream/both is VALIDATION_ERROR."""
+    """Direction outside upstream/downstream/both is VALIDATION_ERROR.
+
+    ``e2e_userrole_admin``: the RBAC gate runs before the tool's own parameter
+    validation, so without a role in the named workspace this would assert on
+    PERMISSION_DENIED instead of the VALIDATION_ERROR it is about.
+    """
     response = post_mcp(
         admin_client,
         "traceability.query",
@@ -1893,13 +2146,23 @@ def test_e2e_user_assign_role_invalid_role_returns_validation_error(
 def test_e2e_architecture_link_invalid_link_type_returns_validation_error(
     admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
-    """Unknown link_type -> VALIDATION_ERROR."""
+    """Unknown link_type -> VALIDATION_ERROR, decided by the workspace catalog.
+
+    Real endpoints, not random UUIDs: the hardcoded ``MANUAL_LINK_TYPES``
+    pre-check that used to reject the key before anything was resolved is
+    gone (same treatment Task 21 gave ``traceability.create_link``), so the
+    verdict now comes from the resolved catalog *after* endpoint resolution —
+    which means unresolvable endpoints would produce NOT_FOUND instead and
+    this test would no longer be testing link-type validation at all.
+    """
+    arch = _seed_architecture_element(e2e_workspace)
+    target = _seed_requirement(e2e_workspace)
     response = post_mcp(
         admin_client,
         "architecture.link",
         {
-            "arch_id": str(uuid4()),
-            "target_id": str(uuid4()),
+            "arch_id": str(arch.artifact_id),
+            "target_id": str(target.artifact_id),
             "link_type": "made-up",
             "workspace_id": str(e2e_workspace.id),
         },
@@ -2268,13 +2531,13 @@ def test_e2e_requirement_get_member_role_can_read(
             tenant=e2e_workspace.tenant,
             artifact_type="Requirement",
         )
+        # Task 12: `status` column dropped -- see _seed_requirement's comment.
         req = Requirement.unscoped.create(
             tenant=e2e_workspace.tenant,
             artifact=artifact,
             title="Member-readable",
             description="",
             category="",
-            status="draft",
         )
     finally:
         clear_request_tenant()

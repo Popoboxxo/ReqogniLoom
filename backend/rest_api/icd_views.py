@@ -11,13 +11,34 @@ Endpoints:
   DELETE /api/v1/icds/<pk>/                             — delete ICD
 
 Structured interface parameters (REQ-L2-ICD-002, COMP-ICD-001):
-  GET    /api/v1/icds/<pk>/parameters/?version=<n>      — list parameters (default: current version)
-  POST   /api/v1/icds/<pk>/parameters/                  — create a parameter (body: version=<n>, default: current)
+  GET    /api/v1/icds/<pk>/parameters/?version=<n>      — list parameters (default: current revision)
+  POST   /api/v1/icds/<pk>/parameters/                  — create a parameter (body: version=<n>, current revision only)
   PATCH  /api/v1/icds/<pk>/parameters/<parameter_id>/   — update a parameter
   DELETE /api/v1/icds/<pk>/parameters/<parameter_id>/   — delete a parameter
+
+Datenmodell-Konsolidierung Task 28c-2: ``IcdParameter`` rows belong to the ICD,
+not to one of its revisions (they always were mutable in place — the FK to
+``IcdVersion`` never actually froze them). ``?version=<n>`` therefore no longer
+selects a live row set. It is still honoured rather than ignored or rejected,
+because ignoring it would answer a question about revision N with revision
+"current"'s data:
+
+  * ``?version=`` absent, or equal to the ICD's current revision -> the live
+    ``IcdParameter`` rows, exactly as before.
+  * an older revision -> the by-value ``parameters_snapshot`` recorded in that
+    revision's ``ArtifactVersion`` payload, served read-only (``id`` is null,
+    there is no live row behind it).
+  * an older revision recorded *before* this cut-over, whose payload predates
+    ``parameters_snapshot`` -> 404 with an explicit message. Its parameter set
+    was genuinely never captured, and an empty list would be a lie.
+  * a revision that does not exist -> 404, as before.
+
+POST rejects a ``version`` other than the current revision with 400: a
+parameter can only be added to the contract that is live.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -25,10 +46,15 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.viewsets import ViewSet
 
+from application.artifact_attribute_gateway import artifact_system_fields
+from application.artifact_diff_service import (
+    ArtifactDiffService,
+    creation_baseline_entry,
+)
 from application.base import NotFoundError
-from icd.models import Icd, IcdDirection, IcdParameter, IcdVersion
+from application.workspace_context_service import get_tenant, get_user
+from icd.models import Icd, IcdDirection, IcdParameter, IcdRevision
 from icd.services import (
     create_icd,
     create_icd_parameter,
@@ -40,6 +66,7 @@ from icd.services import (
     get_icd_history,
     find_similar_icds,
     list_icd_parameters,
+    list_icds,
     IcdCreateDTO,
     IcdParameterCreateDTO,
     IcdParameterNotFoundError,
@@ -47,26 +74,243 @@ from icd.services import (
     IcdPgVectorUnavailableError,
     IcdUpdateDTO,
 )
-from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
+from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import (
     IcdParameterSerializer,
     StandardPagination,
     build_error_response,
     detect_lang,
+    reject_unknown_fields,
+)
+from rest_api.views import BaseEntityViewSet, _SYSTEM_FIELD_NAMES
+
+logger = logging.getLogger(__name__)
+
+
+#: Request keys ``IcdViewSet.create()`` reads off ``request.data`` (#851).
+#: Icd has no dedicated DRF serializer — the handler hand-builds an
+#: ``IcdCreateDTO`` — so the allowed set is declared here and enforced through
+#: ``reject_unknown_fields``. ``owner``/``reporter``/``priority`` are read by
+#: ``_apply_artifact_system_fields``; ``custom_fields`` is handled by the
+#: attribute-definition guard.
+_ICD_CREATE_FIELDS: frozenset[str] = frozenset(
+    {
+        "name",
+        "workspace_id",
+        "source_element_id",
+        "target_element_id",
+        "direction",
+        "interface_type",
+        "semantic_description",
+        "preconditions",
+        "postconditions",
+        "invariants",
+        "custom_fields",
+        "status",
+        *_SYSTEM_FIELD_NAMES,
+    }
+)
+
+#: Request keys ``IcdViewSet.partial_update()`` accepts. ``name`` is listed
+#: because ``icdsApi.update()`` sends it (the service ignores it today);
+#: rejecting it would break a currently working call. ``status`` is a declared
+#: (read-only) field on every artifact serializer, so the mixin would accept it
+#: there too — an echo must not start failing here.
+_ICD_UPDATE_FIELDS: frozenset[str] = frozenset(
+    {
+        "name",
+        "direction",
+        "interface_type",
+        "semantic_description",
+        "preconditions",
+        "postconditions",
+        "invariants",
+        "custom_fields",
+        "status",
+        *_SYSTEM_FIELD_NAMES,
+    }
 )
 
 
-class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
+class IcdRevisionNotFoundError(LookupError):
+    """A requested ICD contract revision cannot be served.
+
+    Replaces the ``IcdVersion.DoesNotExist`` this module used to raise, now
+    that contract revisions are ``ArtifactVersion`` snapshots rather than rows
+    of a dedicated table (Task 28c-2). Its messages only ever echo the id or
+    revision number the caller itself supplied, which is why it is in
+    ``_CLIENT_SAFE_EXCEPTIONS`` below.
+    """
+
+
+def _internal_error(lang: str, context: str) -> Response:
+    """500 response that logs the real cause and returns only a static message.
+
+    fix #108 / SYSTEMAUDIT-2026-08-27 finding B (CWE-209). Every endpoint in
+    this module wraps its whole body in a bare ``except Exception`` and used to
+    hand the caller ``str(exc)``. On this code path ``exc`` is by definition an
+    exception no typed handler above claimed — ``IntegrityError``,
+    ``ProgrammingError``, ``KeyError``, a pgvector/DB driver error — and its
+    ``str()`` routinely carries SQL fragments, table and column names or
+    constraint names.
+
+    The project's established policy (``rest_api.views._service_error_response``,
+    ``mcp_server.tools.base.BaseToolGroup.execute_tool``) is to forward the
+    message only for explicitly mapped, safe-to-surface exception types and to
+    replace everything else with the canonical message for the error code.
+    Passing no ``message`` makes ``build_error_response`` fall back to exactly
+    that canonical, localised text.
+
+    Must be called from inside an ``except`` block: ``logger.exception`` reads
+    the active exception from ``sys.exc_info()``.
+    """
+    logger.exception("Unhandled error in ICD endpoint '%s'", context)
+    return Response(
+        build_error_response("INTERNAL_SERVER_ERROR", lang),
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+
+
+#: Exception types whose ``str()`` this module is allowed to forward to a client
+#: (SA-03, issue #697). Membership is tested by **exact type**, never
+#: ``isinstance`` — deliberately, and this is the whole point of the list:
+#: ``except ValueError`` also catches ``json.JSONDecodeError``,
+#: ``UnicodeDecodeError`` and every third-party ``ValueError`` subclass, whose
+#: messages carry raw input fragments, byte offsets and library internals.
+#: Exact-type matching is the same mechanism ``rest_api.views``
+#: ``_service_error_response`` uses (``_EXC_TO_CODE.get(type(exc))``).
+#:
+#: Every type listed here is only ever raised from ``backend/icd/`` with a
+#: hand-written message that contains nothing but text the caller already
+#: supplied (an id it passed, a field name it sent):
+#:   ValueError                 — icd_manager / icd_parameter_service validation
+#:                                (#104 contract: the client needs this text to
+#:                                know *which* field it got wrong), plus the
+#:                                harmless ``UUID(pk)`` / ``int(version)`` parse
+#:                                errors that echo the caller's own input.
+#:   Icd.DoesNotExist,          — "<Model> <id> not found"
+#:   IcdRevisionNotFoundError
+#:   IcdParameterNotFoundError
+#:
+#: Notably **absent**: ``IcdPgVectorUnavailableError``. Its messages name the
+#: backing technology ("pgvector extension not available") — infrastructure
+#: disclosure is exactly what CWE-209 is about, and the client can do nothing
+#: with it. It becomes the canonical 503 text; the operator reads the log.
+_CLIENT_SAFE_EXCEPTIONS: frozenset[type] = frozenset(
+    {
+        ValueError,
+        Icd.DoesNotExist,
+        IcdRevisionNotFoundError,
+        IcdParameterNotFoundError,
+    }
+)
+
+
+def _client_message(exc: Exception, context: str) -> str | None:
+    """Return *exc*'s message if it is safe to surface, else ``None``.
+
+    ``None`` makes ``build_error_response`` fall back to the canonical,
+    localised message for the error code, so the HTTP status and error code of
+    the response are unchanged — only the free-text detail is withheld.
+
+    Must be called from inside an ``except`` block: on the masking path
+    ``logger.exception`` reads the active exception from ``sys.exc_info()``.
+    """
+    if type(exc) in _CLIENT_SAFE_EXCEPTIONS:
+        return str(exc) or None
+    logger.exception(
+        "Masked non-allow-listed %s in ICD endpoint '%s'",
+        type(exc).__name__,
+        context,
+    )
+    return None
+
+
+def _icd_status(icd: Icd, status_map: dict[str, str] | None = None) -> str:
+    """Resolve the wire-level ``status`` of *icd* from the workflow engine.
+
+    Epic #934 WS1: ``status`` is a visible system attribute on the bootstrapped
+    Icd definition, but the REST read projection (``_icd_to_dict``/``retrieve``)
+    omitted it. Mirrors :func:`rest_api.mixins.workflow_state.WorkflowStateSerializerMixin.get_status`
+    and :func:`mcp_server.tools.base.resolve_engine_status`: the workflow engine
+    is the single source of truth, and ``Icd``'s fixed ``icd_default`` preset
+    initial state is the fallback for a row the engine does not track.
+
+    Pass a pre-batched *status_map* (:func:`_icd_status_map`) for list-shaped
+    responses so a page of N ICDs costs a constant number of queries instead of
+    N (the same batching rule the REST status mixin follows).
+    """
+    from persistence.tenancy import TenantContextNotSetError
+    from workflow import state_reader
+
+    if status_map is not None:
+        state = status_map.get(str(icd.id))
+    else:
+        try:
+            state = state_reader.current_state("Icd", icd.id)
+        except TenantContextNotSetError:
+            state = None
+    return state or state_reader.initial_state("Icd")
+
+
+def _icd_status_map(icds: list[Icd]) -> dict[str, str]:
+    """Batch-resolve the wire ``status`` of every ICD in *icds* (one query set).
+
+    Thin wrapper over ``workflow.state_reader.current_states``: like
+    ``rest_api.mixins.workflow_state``, a list endpoint must not degrade into
+    one engine lookup per row. An empty page or a missing ``TenantContext``
+    resolves to no entries, so every ICD falls back to its preset initial
+    state via :func:`_icd_status`.
+    """
+    if not icds:
+        return {}
+    from persistence.tenancy import TenantContextNotSetError
+    from workflow import state_reader
+
+    try:
+        return state_reader.current_states("Icd", [icd.id for icd in icds])
+    except TenantContextNotSetError:
+        return {}
+
+
+class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """REST ViewSet for ICD CRUD operations.
 
     REQ-173: transitions/ and workflow-history/ via WorkflowTransitionsMixin
     so ICDs share the same lifecycle machinery as every other artifact type.
+
+    SA-20: no dedicated DRF serializer exists for ICD's DTO-built fields
+    (create()/partial_update() hand-build IcdCreateDTO/IcdUpdateDTO), so
+    ``serializer_class`` stays unset and the narrative fields are named via
+    ``free_text_extra_fields`` instead — the same seam FreeTextSanitizationMixin
+    uses for serializer-declared free text. No preset feature key for ICD
+    endpoints exists yet in presets.registry.FEATURE_KEYS, so
+    preset_endpoint_key stays "" (gate always passes), matching every other
+    non-Baseline BaseEntityViewSet.
+
+    Epic #934 / WS1 #935: writes validate through the shared
+    ``ArtifactAttributeGateway.validate`` (via
+    ``WorkflowTransitionsMixin._validate_attribute_definition``), the same
+    single entry point every MCP write uses. Reads and the service-managed
+    persistence stay direct — see the gateway module docstring.
     """
 
     pagination_class = StandardPagination
     workflow_item_type = "Icd"
+    # REQ-L2-AS-037 / Epic #934 WS1: Icd is one of the eleven bootstrapped
+    # artifact types, so its write paths validate the resolved
+    # AttributeDefinition like every other type. Default preset ("") is used by
+    # the workspace resolver.
+    attribute_item_type = "Icd"
+    free_text_extra_fields = (
+        "name",
+        "semantic_description",
+        "preconditions",
+        "postconditions",
+        "invariants",
+    )
 
     # -- helpers -----------------------------------------------------------
 
@@ -82,22 +326,43 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             return self.paginator.get_paginated_response(page)
         return Response(data)
 
-    def _resolve_tenant(self, request: Request) -> Tenant:
+    def _resolve_tenant(self, request: Request) -> Any:
         ctx = get_auth_context(request)
-        return Tenant.objects.get(id=ctx.tenant_id)
+        return get_tenant(tenant_id=ctx.tenant_id)
 
-    def _resolve_user(self, request: Request) -> User | None:
+    def _resolve_user(self, request: Request) -> Any | None:
         ctx = get_auth_context(request)
-        return User.objects.filter(id=ctx.user_id).first()
+        return get_user(user_id=ctx.user_id)
 
-    def _icd_to_dict(self, icd: Icd) -> dict[str, Any]:
+    @staticmethod
+    def _icd_custom_fields(icd: Icd) -> dict[str, Any]:
+        """Return the extended attributes stored on *icd*'s backing Artifact.
+
+        REQ-L2-AS-037 / Epic #934 WS1: the map lives on ``Artifact``; missing or
+        unbacked rows normalize to an empty dict so the read contract is stable.
+        """
+        artifact = getattr(icd, "artifact", None)
+        if artifact is None:
+            return {}
+        return getattr(artifact, "custom_fields", None) or {}
+
+    def _icd_to_dict(
+        self, icd: Icd, *, status_map: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         return {
             "id": str(icd.id),
             "name": icd.name,
             "workspace_id": str(icd.workspace_id),
             "source_element_id": str(icd.source_element_id),
             "target_element_id": str(icd.target_element_id),
-            "current_version": str(icd.current_version_id) if icd.current_version_id else None,
+            # Epic #934 WS1: the visible ``status`` system attribute.
+            "status": _icd_status(icd, status_map),
+            "custom_fields": self._icd_custom_fields(icd),
+            # Task 28c-2: was the current IcdVersion's UUID; that row no longer
+            # exists, so this is the revision number instead.
+            "current_revision": icd.current_revision,
+            # Attribut v3 WS2 (#936): Artifact-level system fields, actor form.
+            **artifact_system_fields(icd),
             "created_at": icd.created_at.isoformat() if icd.created_at else None,
         }
 
@@ -105,7 +370,7 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         """Convert IcdParameter ORM object to serializer-compatible dict."""
         return {
             "id": str(param.id),
-            "icd_version_id": str(param.icd_version_id),
+            "icd_id": str(param.icd_id),
             "name": param.name,
             "description": param.description,
             "unit": param.unit,
@@ -120,26 +385,63 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             "updated_at": param.modified_at.isoformat() if param.modified_at else None,
         }
 
-    def _resolve_icd_version(self, icd: Icd, version_param: str | None) -> IcdVersion:
-        """Resolve a version_number query/body param to its IcdVersion.
+    @staticmethod
+    def _snapshot_parameter_to_dict(
+        icd: Icd, entry: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Render one historical ``parameters_snapshot`` entry like a live row.
 
-        Defaults to the ICD's current version when *version_param* is None.
+        ``id``/``created_at``/``updated_at`` are ``None``: a snapshot entry is
+        a recorded value, not a row that can still be addressed or edited.
+        """
+        return {
+            "id": None,
+            "icd_id": str(icd.id),
+            "name": entry.get("name", ""),
+            "description": entry.get("description", ""),
+            "unit": entry.get("unit", ""),
+            "data_type": entry.get("data_type", ""),
+            "direction": entry.get("direction", ""),
+            "min_value": entry.get("min_value"),
+            "max_value": entry.get("max_value"),
+            "nominal_value": entry.get("nominal_value", ""),
+            "tolerance": entry.get("tolerance", ""),
+            "ordering": entry.get("ordering", 0),
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    def _resolve_revision(
+        self, icd: Icd, version_param: str | None
+    ) -> IcdRevision:
+        """Resolve a version_number query/body param to a contract revision.
+
+        Defaults to the ICD's current revision when *version_param* is None or
+        empty.
 
         Raises:
-            IcdVersion.DoesNotExist: No matching version found.
+            IcdRevisionNotFoundError: No such revision for this ICD.
+            ValueError: *version_param* is not an integer (mapped to 400 by
+                the callers' existing ValueError handling).
         """
         if version_param is None or version_param == "":
-            if icd.current_version_id is None:
-                raise IcdVersion.DoesNotExist(f"ICD {icd.id} has no current version")
-            return icd.current_version
+            if not icd.current_revision:
+                raise IcdRevisionNotFoundError(
+                    f"ICD {icd.id} has no recorded revision"
+                )
+            return IcdRevision.from_icd(icd)
+
         target_number = int(version_param)
-        version_list = get_icd_history(icd_id=icd.id)
+        if target_number == icd.current_revision:
+            return IcdRevision.from_icd(icd)
+
+        version_list = get_icd_history(icd_id=icd.id, tenant_id=icd.tenant_id)
         match = next(
             (v for v in version_list if v.version_number == target_number), None
         )
         if match is None:
-            raise IcdVersion.DoesNotExist(
-                f"IcdVersion number {target_number} not found for ICD {icd.id}"
+            raise IcdRevisionNotFoundError(
+                f"Revision {target_number} not found for ICD {icd.id}"
             )
         return match
 
@@ -164,23 +466,23 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            workspace_id = request.query_params.get("workspace_id")
-            if not workspace_id:
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            icds = Icd.objects.filter(
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
+            icds = list_icds(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
-            ).order_by("-created_at")
-            serialized = [self._icd_to_dict(icd) for icd in icds]
-            return self._paginate(request, serialized)
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+            status_map = _icd_status_map(icds)
+            serialized = [
+                self._icd_to_dict(icd, status_map=status_map) for icd in icds
+            ]
+            return self._paginate(request, serialized)
+        except Exception:
+            return _internal_error(lang, "list")
 
     # -- create ------------------------------------------------------------
 
@@ -188,6 +490,11 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         """POST /api/v1/icds/ — create a new ICD with initial version."""
         lang = detect_lang(request)
         try:
+            # #851: no serializer on this path, so carry the guard here.
+            invalid = reject_unknown_fields(request.data, _ICD_CREATE_FIELDS, lang)
+            if invalid is not None:
+                return invalid
+
             ctx = get_auth_context(request)
             tenant = self._resolve_tenant(request)
             user = self._resolve_user(request)
@@ -206,6 +513,23 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # REQ-L2-AS-037 / Epic #934 WS1: run the resolved definition guard
+            # whenever the payload carries extended attributes, so an
+            # out-of-rule value is rejected with 400 instead of being persisted
+            # unvalidated (Icd previously had no attribute binding at all). The
+            # gate keeps writes without attributes on the pre-existing path —
+            # this ViewSet's unit tests run without a bootstrapped definition.
+            custom_fields = request.data.get("custom_fields")
+            if "custom_fields" in request.data:
+                definition_error = self._validate_attribute_definition(
+                    ctx,
+                    UUID(str(workspace_id)),
+                    dict(request.data) if isinstance(request.data, dict) else {},
+                    None,
+                )
+                if definition_error is not None:
+                    return definition_error
+
             dto = IcdCreateDTO(
                 tenant_id=tenant.id,
                 workspace_id=UUID(str(workspace_id)),
@@ -219,8 +543,11 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 postconditions=request.data.get("postconditions", []),
                 invariants=request.data.get("invariants", []),
                 created_by_id=str(user.id) if user else None,
+                custom_fields=custom_fields,
             )
             result = create_icd(dto)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            self._apply_artifact_system_fields(request, "Icd", result.icd, ctx)
             return Response(
                 {
                     "id": str(result.icd.id),
@@ -229,6 +556,15 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                     "source_element_id": str(result.icd.source_element_id),
                     "target_element_id": str(result.icd.target_element_id),
                     "version": result.current_version.version_number if result.current_version else 1,
+                    # Epic #934 WS1: ``status`` is a visible system attribute;
+                    # list/retrieve and every MCP icd.* response already carry
+                    # it, so create must too (parity -- resolve it exactly like
+                    # retrieve does).
+                    "status": _icd_status(result.icd),
+                    # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
+                    "custom_fields": self._icd_custom_fields(result.icd),
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **artifact_system_fields(result.icd),
                     "created_at": result.icd.created_at.isoformat() if result.icd.created_at else None,
                 },
                 status=status.HTTP_201_CREATED,
@@ -240,14 +576,15 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             # not a server fault, so map it to 400 instead of falling through
             # to the generic 500 handler below.
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "create"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "create")
 
     # -- retrieve ----------------------------------------------------------
 
@@ -257,22 +594,27 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         try:
             ctx = get_auth_context(request)
             icd = get_icd(UUID(pk), ctx.tenant_id)
-            # Get version info
-            versions = get_icd_history(icd_id=UUID(pk))
-            current_version = versions[-1] if versions else None
+            # Task 28c-2: the current contract is the header. This used to
+            # walk the whole IcdVersion history just to read its last row.
             return Response({
                 "id": str(icd.id),
                 "name": icd.name,
                 "workspace_id": str(icd.workspace_id),
                 "source_element_id": str(icd.source_element_id),
                 "target_element_id": str(icd.target_element_id),
-                "version": current_version.version_number if current_version else 1,
-                "direction": current_version.direction if current_version else None,
-                "interface_type": current_version.interface_type if current_version else None,
-                "semantic_description": current_version.semantic_description if current_version else None,
-                "preconditions": current_version.preconditions if current_version else [],
-                "postconditions": current_version.postconditions if current_version else [],
-                "invariants": current_version.invariants if current_version else [],
+                "version": icd.current_revision or 1,
+                "direction": icd.direction,
+                "interface_type": icd.interface_type,
+                "semantic_description": icd.semantic_description,
+                "preconditions": icd.preconditions or [],
+                "postconditions": icd.postconditions or [],
+                "invariants": icd.invariants or [],
+                # Epic #934 WS1: the visible ``status`` system attribute.
+                "status": _icd_status(icd),
+                # REQ-L2-AS-037 / Epic #934 WS1: extended attributes.
+                "custom_fields": self._icd_custom_fields(icd),
+                # Attribut v3 WS2 (#936): Artifact-level system fields.
+                **artifact_system_fields(icd),
                 "created_at": icd.created_at.isoformat() if icd.created_at else None,
             })
         except Icd.DoesNotExist:
@@ -280,11 +622,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "retrieve")
 
     # -- partial_update ----------------------------------------------------
 
@@ -292,8 +631,26 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         """PATCH /api/v1/icds/<pk>/ — update ICD (creates new version)."""
         lang = detect_lang(request)
         try:
+            # #851: no serializer on this path, so carry the guard here.
+            invalid = reject_unknown_fields(request.data, _ICD_UPDATE_FIELDS, lang)
+            if invalid is not None:
+                return invalid
+
             ctx = get_auth_context(request)
             user = self._resolve_user(request)
+
+            # REQ-L2-AS-037 / Epic #934 WS1: same definition guard as create,
+            # gated on the payload actually carrying extended attributes.
+            if "custom_fields" in request.data:
+                existing_icd = get_icd(UUID(pk), ctx.tenant_id)
+                definition_error = self._validate_attribute_definition(
+                    ctx,
+                    existing_icd.workspace_id,
+                    dict(request.data) if isinstance(request.data, dict) else {},
+                    {"__exists__": True},
+                )
+                if definition_error is not None:
+                    return definition_error
 
             dto = IcdUpdateDTO(
                 direction=request.data.get("direction"),
@@ -303,13 +660,24 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 postconditions=request.data.get("postconditions"),
                 invariants=request.data.get("invariants"),
                 modified_by_id=str(user.id) if user else None,
+                custom_fields=request.data.get("custom_fields"),
             )
-            result = update_icd(icd_id=UUID(pk), payload=dto)
+            result = update_icd(icd_id=UUID(pk), payload=dto, tenant_id=ctx.tenant_id)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            self._apply_artifact_system_fields(request, "Icd", result.icd, ctx)
             return Response({
                 "id": str(result.icd.id),
                 "name": result.icd.name,
                 "version": result.current_version.version_number if result.current_version else 1,
                 "direction": result.current_version.direction if result.current_version else None,
+                # Epic #934 WS1: keep ``status`` on the update response too --
+                # list/retrieve and every MCP icd.* response carry it, so a
+                # write round-trip must not drop it.
+                "status": _icd_status(result.icd),
+                # REQ-L2-AS-037 / Epic #934 WS1: echo the persisted map.
+                "custom_fields": self._icd_custom_fields(result.icd),
+                # Attribut v3 WS2 (#936): Artifact-level system fields.
+                **artifact_system_fields(result.icd),
             })
         except Icd.DoesNotExist:
             return Response(
@@ -320,22 +688,23 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             # #104: see create() — syntax/size validation errors are client
             # errors (400), not server faults.
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "partial_update"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "partial_update")
 
     # -- destroy -----------------------------------------------------------
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/icds/<pk>/ — delete an ICD and all versions.
+        """DELETE /api/v1/icds/<pk>/ — delete an ICD and its parameters.
 
-        Note: IcdVersion records are immutable via DB trigger (ADR-ICD-01).
-        We temporarily disable the trigger to allow deletion.
+        Task 28c-2: a plain cascading delete. The immutability trigger this
+        used to work around went away with the ``icd_version`` table.
         """
         lang = detect_lang(request)
         try:
@@ -347,40 +716,37 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "destroy")
 
     # -- versions ----------------------------------------------------------
 
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/icds/<pk>/versions/ — list available versions."""
+        """GET /api/v1/icds/<pk>/versions/ — list available versions.
+
+        Datenmodell-Konsolidierung Task 29 (Milestone M5): routes through the
+        generic ``ArtifactDiffService.list_versions`` — the same entry point
+        every other artifact type uses — rather than hand-rolling the entry
+        shape from :func:`icd.services.get_icd_history`. An ICD's
+        ``workspace_id`` is a required (non-nullable) column, so every ICD has
+        a backing Artifact and therefore a real revision list.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
             icd = get_icd(UUID(pk), ctx.tenant_id)
-            version_list = get_icd_history(icd_id=icd.id)
-            result = [{"version": 0, "label": "Creation baseline"}]
-            for v in version_list:
-                result.append({
-                    "version": v.version_number,
-                    "label": f"v{v.version_number}",
-                    "modified_at": v.created_at.isoformat() if v.created_at else None,
-                })
+            if icd.artifact_id is None:
+                return Response([creation_baseline_entry()])
+            result = ArtifactDiffService().list_versions(icd.artifact_id, ctx)
             return Response(result)
         except Icd.DoesNotExist:
             return Response(
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "versions")
 
     # -- diff --------------------------------------------------------------
 
@@ -389,6 +755,14 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         """GET /api/v1/icds/<pk>/diff/?from_version=1&to_version=2
 
         REQ-L1-090 / REQ-L1-091: Structured field-level diff for ICDs.
+
+        Datenmodell-Konsolidierung Task 29 (Milestone M5): routes through the
+        generic ``ArtifactDiffService.diff`` instead of hand-rolling the
+        Design-by-Contract field comparison. This closes a latent gap in the
+        hand-rolled version: it compared only six of the eight fields
+        registered in ``_ENTITY_FIELDS["Icd"]`` (``name`` and
+        ``parameters_snapshot`` were never diffed), so a name or parameter
+        change never showed up in a diff.
         """
         lang = detect_lang(request)
         try:
@@ -396,65 +770,36 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             icd = get_icd(UUID(pk), ctx.tenant_id)
 
             from_version = int(request.query_params.get("from_version", "0"))
-            current_ver = icd.current_version.version_number if icd.current_version else 1
+            current_ver = icd.current_revision or 1
             to_version = int(request.query_params.get("to_version", str(current_ver)))
 
-            version_list = get_icd_history(icd_id=icd.id)
-            from_v = next((v for v in version_list if v.version_number == from_version), None)
-            to_v = next((v for v in version_list if v.version_number == to_version), None)
-
-            if to_v is None:
+            if icd.artifact_id is None:
                 return Response(
-                    build_error_response("NOT_FOUND", lang, message=f"Version {to_version} not found"),
+                    build_error_response(
+                        "NOT_FOUND", lang, message=f"Version {to_version} not found"
+                    ),
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            fields = []
-            # Compare Design-by-Contract fields
-            dbc_fields = ["direction", "interface_type", "semantic_description", "preconditions", "postconditions", "invariants"]
-            for field_name in dbc_fields:
-                from_val = getattr(from_v, field_name, None) if from_v else None
-                to_val = getattr(to_v, field_name, None)
-                
-                if from_v is None:
-                    # Version 0 = creation baseline
-                    fields.append({
-                        "name": field_name,
-                        "status": "added",
-                        "to": to_val,
-                    })
-                elif from_val != to_val:
-                    fields.append({
-                        "name": field_name,
-                        "status": "modified",
-                        "from": from_val,
-                        "to": to_val,
-                    })
-                else:
-                    fields.append({
-                        "name": field_name,
-                        "status": "unchanged",
-                        "from": from_val,
-                        "to": to_val,
-                    })
-
-            result = {
-                "from_version": from_version,
-                "to_version": to_version,
-                "entity_type": "Icd",
-                "fields": fields,
-            }
+            result = ArtifactDiffService().diff(
+                artifact_id=icd.artifact_id,
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
             return Response(result)
         except Icd.DoesNotExist:
             return Response(
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
+        except NotFoundError as exc:
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                build_error_response("NOT_FOUND", lang, message=_client_message(exc, "diff")),
+                status=status.HTTP_404_NOT_FOUND,
             )
+        except Exception:
+            return _internal_error(lang, "diff")
 
     # -- similar -----------------------------------------------------------
 
@@ -463,8 +808,8 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         """GET /api/v1/icds/<pk>/similar/?limit=10 — semantic similarity search.
 
         REQ-L2-VS-004: Returns the top-N ICDs most similar to <pk> by cosine
-        distance over the current IcdVersion's pgvector embedding. Returns 400
-        when the ICD has no embedding, 503 when pgvector is unavailable.
+        distance over the Icd row's pgvector embedding. Returns 400 when the
+        ICD has no embedding, 503 when pgvector is unavailable.
         """
         lang = detect_lang(request)
         try:
@@ -486,25 +831,29 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             )
         except ValueError as exc:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "similar"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except IcdPgVectorUnavailableError as exc:
             return Response(
-                build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
+                build_error_response(
+                    "SERVICE_UNAVAILABLE",
+                    lang,
+                    message=_client_message(exc, "similar"),
+                ),
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "similar")
 
         return Response(
             [
                 {
                     "icd_id": str(hit.icd_id),
-                    "version_id": str(hit.version_id),
                     "name": hit.name,
                     "interface_type": hit.interface_type,
                     "version_number": hit.version_number,
@@ -520,8 +869,10 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
     def parameters(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET/POST /api/v1/icds/<pk>/parameters/?version=<n>
 
-        GET  — list structured parameters for a version (default: current).
-        POST — create a structured parameter on a version (default: current).
+        GET  — list structured parameters (default: the current revision; an
+               older revision is served from its recorded snapshot — see the
+               module docstring for the full ``?version=`` contract).
+        POST — create a structured parameter on the current revision.
         """
         lang = detect_lang(request)
         try:
@@ -532,31 +883,53 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "parameters")
 
         if request.method == "GET":
             try:
-                version = self._resolve_icd_version(
+                revision = self._resolve_revision(
                     icd, request.query_params.get("version")
                 )
-                items = list_icd_parameters(
-                    icd_version_id=version.id, tenant_id=ctx.tenant_id
-                )
-            except IcdVersion.DoesNotExist as exc:
+                if revision.version_number == icd.current_revision:
+                    serialized = [
+                        self._parameter_to_dict(item)
+                        for item in list_icd_parameters(
+                            icd_id=icd.id, tenant_id=ctx.tenant_id
+                        )
+                    ]
+                elif not revision.parameters_captured:
+                    raise IcdRevisionNotFoundError(
+                        f"Revision {revision.version_number} of ICD {icd.id} "
+                        "predates parameter snapshots; its parameter set was "
+                        "not recorded."
+                    )
+                else:
+                    serialized = [
+                        self._snapshot_parameter_to_dict(icd, entry)
+                        for entry in revision.parameters_snapshot
+                    ]
+            except IcdRevisionNotFoundError as exc:
                 return Response(
-                    build_error_response("NOT_FOUND", lang, message=str(exc)),
+                    build_error_response(
+                        "NOT_FOUND",
+                        lang,
+                        message=_client_message(exc, "parameters_list"),
+                    ),
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            except Exception as exc:
+            except ValueError as exc:
+                # Non-integer ?version= — echoes only the caller's own input.
                 return Response(
-                    build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message=_client_message(exc, "parameters_list"),
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            serialized = [self._parameter_to_dict(item) for item in items]
+            except Exception:
+                return _internal_error(lang, "parameters")
             return self._paginate(request, serialized)
 
         # POST — create
@@ -571,10 +944,31 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        requested_version = request.data.get("version")
+        if requested_version not in (None, ""):
+            # A parameter can only be attached to the live contract; writing to
+            # a historical revision would have to mutate a recorded snapshot.
+            # ``int()`` is inside the guard, not around it: a non-numeric
+            # ``version`` is a client error, not a 500.
+            try:
+                targets_current = int(requested_version) == icd.current_revision
+            except (TypeError, ValueError):
+                targets_current = False
+            if not targets_current:
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message=(
+                            "Parameters can only be added to the current "
+                            f"revision ({icd.current_revision})."
+                        ),
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         try:
-            version = self._resolve_icd_version(icd, request.data.get("version"))
             payload = IcdParameterCreateDTO(
-                icd_version_id=version.id,
+                icd_id=icd.id,
                 name=data["name"],
                 unit=data.get("unit", ""),
                 data_type=data.get("data_type", "other"),
@@ -587,21 +981,26 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 ordering=data.get("ordering", 0),
             )
             item = create_icd_parameter(payload, tenant_id=ctx.tenant_id)
-        except IcdVersion.DoesNotExist as exc:
+        except Icd.DoesNotExist as exc:
             return Response(
-                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                build_error_response(
+                    "NOT_FOUND",
+                    lang,
+                    message=_client_message(exc, "parameters_create"),
+                ),
                 status=status.HTTP_404_NOT_FOUND,
             )
         except ValueError as exc:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "parameters_create"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "parameters")
         return Response(
             IcdParameterSerializer(self._parameter_to_dict(item)).data,
             status=status.HTTP_201_CREATED,
@@ -623,25 +1022,23 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "parameter_detail")
 
         if request.method == "DELETE":
             try:
                 delete_icd_parameter(UUID(parameter_id), tenant_id=ctx.tenant_id)
             except IcdParameterNotFoundError as exc:
                 return Response(
-                    build_error_response("NOT_FOUND", lang, message=str(exc)),
+                    build_error_response(
+                        "NOT_FOUND",
+                        lang,
+                        message=_client_message(exc, "parameters_delete"),
+                    ),
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            except Exception as exc:
-                return Response(
-                    build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            except Exception:
+                return _internal_error(lang, "parameter_detail")
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         # PATCH — update
@@ -674,17 +1071,22 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             )
         except IcdParameterNotFoundError as exc:
             return Response(
-                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                build_error_response(
+                    "NOT_FOUND",
+                    lang,
+                    message=_client_message(exc, "parameters_update"),
+                ),
                 status=status.HTTP_404_NOT_FOUND,
             )
         except ValueError as exc:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=_client_message(exc, "parameters_update"),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception:
+            return _internal_error(lang, "parameter_detail")
         return Response(IcdParameterSerializer(self._parameter_to_dict(item)).data)

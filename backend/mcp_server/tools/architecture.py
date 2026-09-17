@@ -24,7 +24,8 @@ Architecture:
 
 ADR-L3-MC004-01: TraceLink via separate create_trace_link call.
 ADR-L3-MC004-02: Dedicated handler method per tool.
-ADR-L3-MC004-03: link_type validated against VALID_LINK_TYPES before service call.
+ADR-L3-MC004-03: link_type validated server-side against the resolved,
+                  workspace-scoped link-type catalog (no fixed set here).
 """
 from __future__ import annotations
 
@@ -41,32 +42,78 @@ from application.services import (
     PermissionDeniedError,
     TraceLinkService,
     ValidationError,
-    VALID_LINK_TYPES,
 )
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    artifact_custom_fields,
+    mcp_audit_handoff,
     optional_uuid,
     require_param,
     require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
+    validate_artifact_write,
     write_mcp_audit,
+)
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _arch_el_to_dict(el: Any) -> Dict[str, Any]:
-    """Serialise an ArchitectureElement ORM object to a dict."""
+def _arch_el_to_dict(
+    el: Any, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Serialise an ArchitectureElement ORM object to a dict.
+
+    Pass a pre-batched *status_map* (:func:`resolve_status_map`) from list-shaped
+    handlers so a page of N elements resolves its ``status`` in one engine query
+    instead of N. On the single-item paths it stays ``None`` and
+    :func:`resolve_engine_status` keeps its per-item fallback behaviour.
+    """
     result: Dict[str, Any] = {
         "id": str(el.id),
+        # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
+        # ArchitectureElement definition (the REST serializer returns it); the
+        # MCP projection omitted it.
+        "uid": getattr(el, "uid", None),
         "title": el.title,
         "description": el.description,
         "element_type": el.element_type,
         "version": el.version,
+        "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
     }
+    # REQ-L2-AS-037 / Epic #934 WS1: the SE classification attributes
+    # (asil_level, make_or_buy) and the extended custom_fields map must be
+    # readable — the create used to accept/drop them and the read omitted them.
+    result["asil_level"] = getattr(el, "asil_level", None)
+    result["make_or_buy"] = getattr(el, "make_or_buy", None)
+    # Epic #934 WS1: ``status`` is a visible system attribute on every
+    # bootstrapped definition (``editable="workflow"``). The REST
+    # ``ArchitectureElementSerializer`` already resolves it from the workflow
+    # engine; the MCP projection omitted it, so the read-back could not satisfy
+    # the Attribute Usability Contract's R check (class ``SYSTEM``).
+    result["status"] = resolve_engine_status(
+        "ArchitectureElement", el.id, status_map=status_map
+    )
+    result["custom_fields"] = artifact_custom_fields(el)
     if hasattr(el, "artifact") and el.artifact:
         result["workspace_id"] = str(el.artifact.workspace_id)
+        # Expose the backing Artifact id so callers can resolve
+        # requirement_bundle.export's item-level 'found_under_element_id'
+        # (which is this same artifact_id, not an ArchitectureElement id).
+        # Restores parity with ArchitectureElementSerializer
+        # (rest_api/serializers.py), which already exposes artifact_id via a
+        # read-only UUIDField.
+        result["artifact_id"] = str(el.artifact_id)
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, el)
     return result
 
 
@@ -79,6 +126,8 @@ class ArchitectureToolGroup(BaseToolGroup):
         "architecture.create": "_handle_create",
         "architecture.update": "_handle_update",
         "architecture.link": "_handle_link",
+        "architecture.outdate": "_handle_outdate",
+        "architecture.reactivate": "_handle_reactivate",
         # SysEng 2.0 N1 — Draft-Staging copilot (§3.1). generate = no DB write;
         # commit = single-transaction persist + SE-Auditor verification.
         "architecture.decompose": "_handle_decompose",
@@ -104,6 +153,10 @@ class ArchitectureToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "If true, include outdated (soft-deleted) elements. Defaults to false.",
+                    },
                 },
                 "required": ["workspace_id"],
             },
@@ -121,6 +174,34 @@ class ArchitectureToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "Element type (default 'component').",
                     },
+                    "parent_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional UUID of the parent ArchitectureElement. "
+                            "If omitted, a root element is created (subject to "
+                            "the workspace's single-root invariant I5). If "
+                            "provided, the new element is attached as a child "
+                            "of that element (invariants I1/I3 apply)."
+                        ),
+                    },
+                    "asil_level": {
+                        "type": "string",
+                        "description": "Functional-safety ASIL level (REQ-L3-RF004-004).",
+                    },
+                    "make_or_buy": {
+                        "type": "string",
+                        "description": "Make-or-buy decision (REQ-L3-RF004-004).",
+                    },
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map) defined by this workspace's attribute definition."
+                        ),
+                    },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -138,7 +219,34 @@ class ArchitectureToolGroup(BaseToolGroup):
                     },
                     "data": {
                         "type": "object",
-                        "description": "Fields to update (title, description, element_type, expected_version).",
+                        "description": (
+                            "Fields to update (title, description, element_type, "
+                            "asil_level, make_or_buy, custom_fields, "
+                            "expected_version, parent_id). 'parent_id' is optional: "
+                            "omit it to leave the current parent unchanged, set it "
+                            "to a UUID to re-parent, or set it to null to detach "
+                            "the element to root (subject to invariants I1/I3/I5)."
+                        ),
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "element_type": {"type": "string"},
+                            "asil_level": {"type": "string"},
+                            "make_or_buy": {"type": "string"},
+                            "custom_fields": {
+                                "type": "object",
+                                "additionalProperties": True,
+                                "description": (
+                                    "Extended user-defined attributes (flat "
+                                    "key/value map). Replaces the stored map."
+                                ),
+                            },
+                            "parent_id": {"type": ["string", "null"]},
+                            "expected_version": {"type": "integer"},
+                            # Attribut v3 WS2 (#936): Artifact-level system
+                            # fields are applied through the gateway.
+                            **SYSTEM_FIELD_SCHEMA,
+                        },
                     },
                 },
                 "required": ["id"],
@@ -154,10 +262,45 @@ class ArchitectureToolGroup(BaseToolGroup):
                     "target_id": {"type": "string", "description": "UUID of the link target."},
                     "link_type": {
                         "type": "string",
-                        "description": "TraceLink type (must be a valid link type).",
+                        # Deliberately NOT an enum, identical treatment to
+                        # traceability.create_link (cross_cutting.py): the
+                        # catalog is tenant- and workspace-configurable, so a
+                        # published enum would make the tools/list manifest
+                        # tenant-specific and break the "manifest built once"
+                        # model. Validation happens server-side against the
+                        # resolved catalog and the error lists the valid
+                        # values; call link_type.list to discover them.
+                        "description": (
+                            "TraceLink type key. Call link_type.list for the "
+                            "values this workspace accepts and their allowed "
+                            "source/target artifact types."
+                        ),
                     },
                 },
                 "required": ["arch_id", "target_id", "link_type"],
+            },
+        },
+        {
+            "name": "architecture.outdate",
+            "description": "Soft-delete an ArchitectureElement via the workflow engine's outdate escape hatch (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the architecture element."},
+                    "reason": {"type": "string", "description": "Optional audit reason."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "architecture.reactivate",
+            "description": "Restore an outdated ArchitectureElement to its previous state (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the architecture element."},
+                },
+                "required": ["id"],
             },
         },
         {
@@ -165,9 +308,13 @@ class ArchitectureToolGroup(BaseToolGroup):
             "description": (
                 "SysEng 2.0 N1: generate a non-persistent decomposition draft "
                 "for an ArchitectureElement (child elements + derived "
-                "requirements + internal trace links). Review the returned "
-                "draft, then persist it via architecture.decompose_commit. "
-                "Available only in standard/extended rigor."
+                "requirements + internal trace links). The AI decides how "
+                "many children and levels are justified by the content; "
+                "max_breadth and max_depth are optional upper bounds that "
+                "override the workspace's configured caps for this call "
+                "only. Review the returned draft, then persist it via "
+                "architecture.decompose_commit. Available only in "
+                "standard/extended rigor."
             ),
             "inputSchema": {
                 "type": "object",
@@ -176,13 +323,25 @@ class ArchitectureToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "UUID of the ArchitectureElement (Subsystem) to decompose.",
                     },
-                    "breadth": {
+                    "max_breadth": {
                         "type": "integer",
-                        "description": "Child elements per level (1..5, default 2).",
+                        "description": (
+                            "Upper bound on child elements per level (the AI "
+                            "decides the actual number); omit to use the "
+                            "workspace's configured max_breadth (factory "
+                            "default 5). Always hard-capped at 10 regardless "
+                            "of what is requested."
+                        ),
                     },
-                    "depth": {
+                    "max_depth": {
                         "type": "integer",
-                        "description": "Recursion depth (1..3, default 1).",
+                        "description": (
+                            "Upper bound on recursion depth (the AI decides "
+                            "the actual number of levels); omit to use the "
+                            "workspace's configured max_depth (factory "
+                            "default 3). Always hard-capped at 4 regardless "
+                            "of what is requested."
+                        ),
                     },
                 },
                 "required": ["element_id"],
@@ -247,12 +406,23 @@ class ArchitectureToolGroup(BaseToolGroup):
                 "VALIDATION_ERROR",
                 "Parameter 'workspace_id' is required for architecture.query.",
             )
+        include_outdated = bool(params.get("include_outdated", False))
         try:
-            elements = self._service.list_architecture_elements(workspace_id, auth_context)
+            elements = self._service.list_architecture_elements(
+                workspace_id, auth_context, include_deleted=include_outdated
+            )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance -- mirrors requirements/tests/
+        # goals/interview and rest_api/mixins/workflow_state.py's rationale).
+        status_map = resolve_status_map(
+            "ArchitectureElement", [el.id for el in elements]
+        )
         return ToolResult.ok({
-            "architecture_elements": [_arch_el_to_dict(el) for el in elements],
+            "architecture_elements": [
+                _arch_el_to_dict(el, status_map) for el in elements
+            ],
             "count": len(elements),
         })
 
@@ -268,14 +438,43 @@ class ArchitectureToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         description: str = params.get("description", "")
         element_type: str = params.get("element_type", "component")
+        parent_id = optional_uuid(params, "parent_id")
+        # Epic #934 WS1: these writable defined attributes were silently
+        # dropped here even though ArchitectureService already accepted them.
+        asil_level = params.get("asil_level")
+        make_or_buy = params.get("make_or_buy")
+        custom_fields = params.get("custom_fields")
+
+        # Ledger gap #1 / issue #881: same central gate as
+        # ArchitectureElementViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "ArchitectureElement", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
 
         try:
-            el = self._service.create_architecture_element(
-                workspace_id=workspace_id,
-                title=str(title),
-                ctx=auth_context,
-                description=description,
-                element_type=element_type,
+            # Codeberg #313: suppress create_architecture_element's single
+            # internal _audit() call for the same entity — write_mcp_audit
+            # below is the sole entry.
+            with mcp_audit_handoff():
+                el = self._service.create_architecture_element(
+                    workspace_id=workspace_id,
+                    title=str(title),
+                    ctx=auth_context,
+                    description=description,
+                    element_type=element_type,
+                    parent_id=parent_id,
+                    asil_level=asil_level,
+                    make_or_buy=make_or_buy,
+                    custom_fields=custom_fields,
+                )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "ArchitectureElement",
+                el,
+                system_field_values(params),
+                auth_context,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -314,14 +513,81 @@ class ArchitectureToolGroup(BaseToolGroup):
         except (TypeError, ValueError):
             return ToolResult.error("VALIDATION_ERROR", "'expected_version' must be an integer.")
 
+        # REQ-L1-044: 'parent_id' is optional and tri-state — distinguish
+        # "omitted" (leave current parent unchanged) from "set to null"
+        # (detach to root), matching the REST partial_update contract.
+        update_kwargs: Dict[str, Any] = {}
+        if "parent_id" in data:
+            raw_parent_id = data["parent_id"]
+            if raw_parent_id is None:
+                update_kwargs["parent_id"] = None
+            else:
+                try:
+                    update_kwargs["parent_id"] = UUID(str(raw_parent_id))
+                except (ValueError, AttributeError):
+                    return ToolResult.error(
+                        "VALIDATION_ERROR",
+                        f"Parameter 'parent_id' is not a valid UUID: '{raw_parent_id}'",
+                    )
+
         try:
-            el = self._service.update_architecture_element(
-                arch_el_id=arch_id,
-                ctx=auth_context,
-                expected_version=expected_version,
-                title=data.get("title"),
-                description=data.get("description"),
-                element_type=data.get("element_type"),
+            # Ledger gap #1 / issue #881: same central gate as
+            # ArchitectureElementViewSet.partial_update. workspace_id is not
+            # part of this tool's params, so it is resolved via a lookup
+            # first (mirrors architecture.outdate's own resolution).
+            existing_el = self._service.get_architecture_element(arch_id, auth_context)
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact
+            # (nested under `data` for this group) and must be part of the
+            # definition gate, not only of the post-call gateway write.
+            system_values = system_field_values(data)
+            changed_fields = {
+                name: data[name]
+                for name in (
+                    "title",
+                    "description",
+                    "element_type",
+                    "parent_id",
+                    "asil_level",
+                    "make_or_buy",
+                    "custom_fields",
+                )
+                if name in data
+            }
+            changed_fields.update(system_values)
+            definition_error = validate_artifact_write(
+                auth_context,
+                "ArchitectureElement",
+                getattr(getattr(existing_el, "artifact", None), "workspace_id", None),
+                changed_fields,
+                {"__exists__": True},
+            )
+            if definition_error is not None:
+                return definition_error
+
+            # Only forward optional attributes the caller actually sent: the
+            # service uses `_UNSET` sentinels, so an absent key must not clear
+            # the stored value.
+            for optional_name in ("asil_level", "make_or_buy", "custom_fields"):
+                if optional_name in data:
+                    update_kwargs[optional_name] = data[optional_name]
+
+            # Codeberg #313: suppress update_architecture_element's single
+            # internal _audit() call for the same entity — write_mcp_audit
+            # below is the sole entry.
+            with mcp_audit_handoff():
+                el = self._service.update_architecture_element(
+                    arch_el_id=arch_id,
+                    ctx=auth_context,
+                    expected_version=expected_version,
+                    title=data.get("title"),
+                    description=data.get("description"),
+                    element_type=data.get("element_type"),
+                    **update_kwargs,
+                )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact;
+            # the nested `data` object carries them for this tool group.
+            apply_system_fields(
+                "ArchitectureElement", el, system_values, auth_context
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -353,26 +619,31 @@ class ArchitectureToolGroup(BaseToolGroup):
 
         ADR-L3-MC004-01: TraceLink is created via TraceLinkService, not as
         an update to ArchitectureElement itself.
-        ADR-L3-MC004-03: link_type validated against VALID_LINK_TYPES.
+        ADR-L3-MC004-03: link_type is validated by the workspace catalog.
         """
         arch_id = require_uuid(params, "arch_id")
         target_id = require_uuid(params, "target_id")
         link_type = require_param(params, "link_type")
 
-        # Validate link_type (ADR-L3-MC004-03)
-        if link_type not in VALID_LINK_TYPES:
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                f"Invalid link_type '{link_type}'. Valid types: {sorted(VALID_LINK_TYPES)}",
-            )
-
+        # The fixed-set pre-check that used to live here
+        # (`link_type not in MANUAL_LINK_TYPES`) was removed, same treatment
+        # Task 21 gave traceability.create_link: a hardcoded gate silently
+        # rejects tenant-invented custom types before they ever reach the
+        # real, workspace-aware validation. create_trace_link's catalog check
+        # (unknown/inactive/not-manual/disallowed-pair — including the
+        # reconciler-owned 'diagram-ref') is the sole validation authority
+        # now; it already raises ValidationError, caught right below.
         try:
-            trace_link = self._trace_service.create_trace_link(
-                source_id=arch_id,
-                target_id=target_id,
-                link_type=link_type,
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress create_trace_link's single internal
+            # _audit() call for the same TraceLink — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                trace_link = self._trace_service.create_trace_link(
+                    source_id=arch_id,
+                    target_id=target_id,
+                    link_type=link_type,
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -405,6 +676,98 @@ class ArchitectureToolGroup(BaseToolGroup):
         })
 
     # ------------------------------------------------------------------
+    # architecture.outdate
+    # ------------------------------------------------------------------
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """architecture.outdate — soft-delete via the workflow engine (write, audited)."""
+        arch_id = require_uuid(params, "id")
+        reason: str = params.get("reason", "")
+
+        try:
+            el = self._service.get_architecture_element(arch_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=arch_id,
+                item_type="ArchitectureElement",
+                workspace_id=el.artifact.workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except Exception:
+            # #697 (CWE-209): str(exc) on an unmapped exception can carry SQL
+            # fragments, table names or driver details. Log the real cause,
+            # answer with the canonical masked message.
+            logger.exception("architecture.outdate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #626: reuse "delete", the REST pendant for a soft-delete (was
+            # the undeclared "outdate", silently rejected by full_clean()).
+            operation="delete",
+            entity_type="ArchitectureElement",
+            entity_id=arch_id,
+            tool_name="architecture.outdate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(arch_id), "status": "outdated"})
+
+    # ------------------------------------------------------------------
+    # architecture.reactivate
+    # ------------------------------------------------------------------
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """architecture.reactivate — restore a previously outdated ArchitectureElement (write, audited)."""
+        arch_id = require_uuid(params, "id")
+
+        try:
+            el = self._service.get_architecture_element(arch_id, auth_context, include_deleted=True)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import reactivate
+
+        try:
+            result = reactivate(
+                item_id=arch_id,
+                item_type="ArchitectureElement",
+                workspace_id=el.artifact.workspace_id,
+                ctx=auth_context,
+            )
+        except ValueError as exc:
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("architecture.reactivate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #626: reuse "transition" (was the undeclared "reactivate",
+            # silently rejected by full_clean()) -- same convention as #573.
+            operation="transition",
+            entity_type="ArchitectureElement",
+            entity_id=arch_id,
+            tool_name="architecture.reactivate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(arch_id), "status": result.new_state})
+
+    # ------------------------------------------------------------------
     # architecture.decompose (SysEng 2.0 N1 — generate draft, no DB write)
     # ------------------------------------------------------------------
 
@@ -418,14 +781,23 @@ class ArchitectureToolGroup(BaseToolGroup):
         )
 
         element_id = require_uuid(params, "element_id")
-        breadth = params.get("breadth", 2)
-        depth = params.get("depth", 1)
+        # None (not a literal default) so the workspace's configured caps win
+        # when the caller omits the parameter — spec §3.3's precedence chain.
+        raw_breadth = params.get("max_breadth")
+        raw_depth = params.get("max_depth")
+        try:
+            max_breadth = int(raw_breadth) if raw_breadth is not None else None
+            max_depth = int(raw_depth) if raw_depth is not None else None
+        except (TypeError, ValueError):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "'max_breadth' and 'max_depth' must be integers."
+            )
         try:
             draft = ArchitectureDecomposeService().generate_draft(
                 auth_context,
                 element_id,
-                breadth=int(breadth),
-                depth=int(depth),
+                max_breadth=max_breadth,
+                max_depth=max_depth,
             )
         except DecompositionNotAvailableError as exc:
             return ToolResult.error("FEATURE_NOT_ENABLED", str(exc))

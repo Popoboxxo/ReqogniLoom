@@ -6,6 +6,13 @@ import type {
   PaginatedResponse,
 } from "../types";
 
+export interface DerivedRequirementDraft {
+  title: string;
+  description: string;
+  rationale: string;
+  suggested_parent_id: string;
+}
+
 export const stakeholderNeedApi = {
   listByWorkspace: async (workspaceId: string, params?: Record<string, string>): Promise<PaginatedResponse<StakeholderNeed>> => {
     const qs = params ? `?${new URLSearchParams(params).toString()}` : '';
@@ -31,24 +38,18 @@ export const stakeholderNeedApi = {
   /**
    * REQ-162: `change_reason` is mandatory when the workspace preset requires
    * it (Extended preset — see backend/application/preset_policy_service.py,
-   * `is_change_reason_required`). Whitelisted like requirementsApi.update /
-   * architectureApi.update so the contract stays explicit.
+   * `is_change_reason_required`).
+   *
+   * Task 23 (rollout wave 2c): widened from a fixed `Partial<Pick<StakeholderNeed,
+   * ...>>` to `Record<string, unknown>`, same deviation as `risksApi.update`/
+   * `issuesApi.update` (Tasks 19/20). The payload now comes from `ArtifactForm`
+   * (`NeedArtifactForm`'s `formValuesToNeedPatch`), a generic definition-driven
+   * value bag whose keys are whatever the resolved attribute definition
+   * currently lists, not a fixed compile-time-known set — the backend's own
+   * per-field 400s remain the actual validation authority (see
+   * StakeholderNeedViewSet.partial_update / field_validation.py).
    */
-  update: async (
-    id: string,
-    data: Partial<
-      Pick<
-        StakeholderNeed,
-        | "title"
-        | "description"
-        | "category"
-        | "status"
-        | "moscow_priority"
-        | "custom_fields"
-        | "change_reason"
-      >
-    >
-  ): Promise<StakeholderNeed> => {
+  update: async (id: string, data: Record<string, unknown>): Promise<StakeholderNeed> => {
     return apiClient.patch<StakeholderNeed>(`/needs/${id}/`, data);
   },
 
@@ -56,12 +57,20 @@ export const stakeholderNeedApi = {
     return apiClient.delete(`/needs/${id}/`, { data: { change_reason } });
   },
 
+  /** Async fire-and-forget Celery dispatch. Result not persisted/read by UI. */
   derive: async (id: string): Promise<{ task_id: string; message: string }> => {
     return apiClient.post<{ task_id: string; message: string }>(`/needs/${id}/derive/`, {});
   },
 
-  deriveRequirements: async (id: string): Promise<{ task_id: string }> => {
-    return apiClient.post<{ task_id: string }>(`/needs/${id}/derive/`, {});
+  /** Draft/Accept (REQ-L2-AI-001/002): returns proposed requirements without persisting. */
+  deriveRequirements: async (
+    id: string,
+    n = 3
+  ): Promise<{ drafts: DerivedRequirementDraft[] }> => {
+    return apiClient.post<{ drafts: DerivedRequirementDraft[] }>(
+      `/needs/${id}/derive-requirements/`,
+      { n }
+    );
   },
 
   // -----------------------------------------------------------------------

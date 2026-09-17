@@ -26,7 +26,8 @@
  *                        GET /api/v1/requirements/{id}/versions/
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
@@ -71,7 +72,37 @@ const ENTITY_LABELS: Record<ArtifactKind, string> = {
   glossary: "Glossary",
   stakeholderNeed: "Stakeholder Need",
   testCase: "Test Case",
+  goal: "Goal",
+  mainGoal: "Main Goal",
 };
+
+/**
+ * The comparison this component has actually resolved and is displaying.
+ *
+ * M-04: hosts used to describe the comparison from their own state, which is
+ * only a *request* — the resolved range is decided here, from the fetched
+ * version list. Reporting it back is what lets a host label the panel with
+ * the range on screen instead of the one it asked for.
+ */
+export interface ArtifactDiffRange {
+  from: number;
+  to: number;
+  /**
+   * True when `from` is the synthetic, empty "creation baseline" (version 0)
+   * and no content-bearing version sits between it and `to` — i.e. `to` has
+   * no stored predecessor to be compared against, so what is on screen is the
+   * artifact's initial state rather than a change set.
+   */
+  isInitialState: boolean;
+}
+
+/**
+ * Version number of the synthetic "creation baseline" the backend prepends to
+ * every version list. It holds no field values, which is why a comparison
+ * starting at it reports every field as "added" (see `ArtifactDiffService`
+ * and issue #213).
+ */
+const CREATION_BASELINE_VERSION = 0;
 
 interface ArtifactDiffProps {
   entityId: UUID;
@@ -84,45 +115,73 @@ interface ArtifactDiffProps {
   ) => Promise<ArtifactDiffResult>;
   versionsFetcher: (id: UUID) => Promise<ArtifactVersion[]>;
   onClose: () => void;
+  /**
+   * Preferred left-hand side of the comparison, e.g. the version a host's
+   * "Compare to current" action picked. Honoured only when it names a version
+   * that exists and sits strictly below the resolved right-hand side;
+   * otherwise the automatic seeding below applies. Before M-04 the host's
+   * choice had no way in at all and was silently discarded.
+   */
+  initialFromVersion?: number;
+  /** Notified whenever the resolved comparison changes (M-04). */
+  onRangeChange?: (range: ArtifactDiffRange | null) => void;
 }
 
 // ---------------------------------------------------------------------------
 // Status badge styles
 // ---------------------------------------------------------------------------
 
+/**
+ * Shared badge geometry. H-03: `flex: 0 0 auto` + `nowrap` keep the badge at
+ * its natural size when the surrounding row wraps in the narrow
+ * ArtifactInspector column — without it the badge itself shrank and its label
+ * broke mid-word.
+ */
+const STATUS_BADGE_BASE: React.CSSProperties = {
+  padding: "2px 8px",
+  borderRadius: "4px",
+  fontSize: "12px",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+  flex: "0 0 auto",
+};
+
 const STATUS_STYLES: Record<DiffFieldStatus, React.CSSProperties> = {
   added: {
-    background: "#c6f6d5",
-    color: "#22543d",
-    padding: "2px 8px",
-    borderRadius: "4px",
-    fontSize: "12px",
-    fontWeight: 600,
+    ...STATUS_BADGE_BASE,
+    background: "var(--color-diff-added-bg)",
+    color: "var(--color-diff-added-text)",
   },
   removed: {
-    background: "#fed7d7",
-    color: "#9b2c2c",
-    padding: "2px 8px",
-    borderRadius: "4px",
-    fontSize: "12px",
-    fontWeight: 600,
+    ...STATUS_BADGE_BASE,
+    background: "var(--color-diff-removed-bg)",
+    color: "var(--color-diff-removed-text)",
   },
   modified: {
-    background: "#fefcbf",
-    color: "#744210",
-    padding: "2px 8px",
-    borderRadius: "4px",
-    fontSize: "12px",
-    fontWeight: 600,
+    ...STATUS_BADGE_BASE,
+    background: "var(--color-diff-modified-bg)",
+    color: "var(--color-diff-modified-text)",
   },
   unchanged: {
-    background: "#e2e8f0",
-    color: "#4a5568",
-    padding: "2px 8px",
-    borderRadius: "4px",
-    fontSize: "12px",
-    fontWeight: 600,
+    ...STATUS_BADGE_BASE,
+    background: "var(--color-diff-unchanged-bg)",
+    color: "var(--color-diff-unchanged-text)",
   },
+};
+
+/**
+ * M-04 — framing for a version that has no stored predecessor. Reuses the
+ * existing "note" palette (the limitation banner below) so the two read as
+ * the same class of message rather than as an error.
+ */
+const initialStateNoticeStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  background: "var(--color-diff-note-bg)",
+  color: "var(--color-diff-note-text)",
+  borderRadius: "4px",
+  fontSize: "12px",
+  lineHeight: 1.5,
+  marginBottom: "12px",
 };
 
 const STATUS_LABELS: Record<DiffFieldStatus, string> = {
@@ -184,15 +243,23 @@ function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
         padding: "12px 0",
       }}
     >
+      {/* H-03: the field name reserved a fixed 120px and the row never
+          wrapped, so inside the narrow ArtifactInspector column the status
+          badge was pushed past the right edge and rendered clipped ("Add…").
+          The name now shrinks and the badge wraps below it instead. */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
+          flexWrap: "wrap",
           gap: "8px",
+          rowGap: "4px",
           marginBottom: showLines ? "8px" : "0",
         }}
       >
-        <strong style={{ fontSize: "14px", minWidth: "120px" }}>{field.name}</strong>
+        <strong style={{ fontSize: "14px", flex: "1 1 auto", minWidth: 0, overflowWrap: "anywhere" }}>
+          {field.name}
+        </strong>
         <span style={STATUS_STYLES[field.status]}>
           {STATUS_LABELS[field.status]}
         </span>
@@ -243,7 +310,10 @@ export function ArtifactDiff({
   diffFetcher,
   versionsFetcher,
   onClose,
+  initialFromVersion,
+  onRangeChange,
 }: ArtifactDiffProps): JSX.Element {
+  const { t } = useTranslation();
   const [versions, setVersions] = useState<ArtifactVersion[]>([]);
   // `null` until the version list has loaded — prevents a premature diff
   // fetch with a meaningless from=0/to=currentVersion pair before the user
@@ -253,6 +323,11 @@ export function ArtifactDiff({
   const [diffResult, setDiffResult] = useState<ArtifactDiffResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Defensive hardening (see the longer note on fetchDiff below): a
+  // monotonically-increasing id identifying the "latest" fetchDiff call —
+  // lets an out-of-order/late response from a superseded request be ignored
+  // instead of appending a spurious error banner to fresher state.
+  const diffRequestIdRef = useRef(0);
 
   // Versions sorted ascending by version number — used for both the option
   // lists and the initial from/to selection.
@@ -278,19 +353,61 @@ export function ArtifactDiff({
         // initial diff is a valid forward comparison; falls back to the
         // lowest version (only meaningful when a single version exists).
         const below = sorted.filter((x) => x.version < to);
-        const from = below.length > 0 ? below[below.length - 1].version : sorted[0].version;
-        setFromVersion(from);
+        const auto =
+          below.length > 0 ? below[below.length - 1].version : sorted[0].version;
+        // M-04: a host-requested left version wins, but only when it is a
+        // real entry below "to". Hosts seed it from their own notion of the
+        // current version, which is frequently equal to "to" (a comparison of
+        // a version against itself) or a version that never existed — neither
+        // may be allowed to produce an empty or backwards range.
+        const requested =
+          initialFromVersion !== undefined &&
+          initialFromVersion < to &&
+          sorted.some((x) => x.version === initialFromVersion)
+            ? initialFromVersion
+            : null;
+        setFromVersion(requested ?? auto);
         setToVersion(to);
       })
       .catch((err) => {
         if (!cancelled) setError(extractErrorMessage(err));
       });
     return () => { cancelled = true; };
-  }, [entityId, versionsFetcher, currentVersion]);
+  }, [entityId, versionsFetcher, currentVersion, initialFromVersion]);
 
   // Fetch diff only once both endpoints are chosen (guards the premature
   // from=0 fetch and any backwards from >= to selection).
+  //
+  // Hardening (not a fix for a confirmed production bug — see below):
+  // `currentVersion` seeds `toVersion`, and can change shortly after mount
+  // (e.g. right after the artifact's first save). That re-seed can fire a
+  // new diff fetch while a PREVIOUS one is still in flight. `diffResult` is
+  // never cleared on error (see the `{diffResult && !loading && ...}` render
+  // below), so a late, superseded rejection landing after a fresher success
+  // cannot hide `diff-fields` — it can only add a spurious error banner
+  // above an otherwise-correct diff. That is a real but cosmetic bug on its
+  // own; it does NOT explain the originally reported ">30s timeout" symptom
+  // (SYSTEMAUDIT_2026-08-18 §4, BUG-04), which needs `diffResult` to stay
+  // `null` or `loading` to stay `true` indefinitely — this component has no
+  // code path that does that. Live re-execution of
+  // e2e/tests/artifact-diff.spec.ts against a freshly booted dev backend +
+  // Vite server reproduced the exact `page.waitForResponse` 30000ms timeout
+  // once (in `saveWithChangeReason`, unrelated to version selection) and
+  // then passed cleanly 5/5 times afterward on warm re-runs — consistent
+  // with the compose/cold-start issues fixed the same day in #614 (890bfed:
+  // stale dev image, crash-loop, OOM-tuned limits), not a deterministic
+  // application defect. Root cause for BUG-04 could not be confirmed as
+  // application code; see the PR description for the full write-up.
+  //
+  // The `requestId` ref below still closes a genuine (if cosmetic) staleness
+  // gap — kept as defensive hardening, mirroring the `cancelled` flag the
+  // sibling `versionsFetcher` effect above already uses for the same class
+  // of problem. It is bumped unconditionally at the top of every call
+  // (including the early-return branch) so an in-flight request is always
+  // marked superseded the moment fetchDiff runs again, even when the new
+  // run turns out to have nothing to fetch.
   const fetchDiff = useCallback(async () => {
+    const requestId = ++diffRequestIdRef.current;
     if (fromVersion === null || toVersion === null || fromVersion >= toVersion) {
       return;
     }
@@ -298,11 +415,13 @@ export function ArtifactDiff({
     setError(null);
     try {
       const result = await diffFetcher(entityId, fromVersion, toVersion);
+      if (requestId !== diffRequestIdRef.current) return; // superseded — ignore
       setDiffResult(result);
     } catch (err) {
+      if (requestId !== diffRequestIdRef.current) return; // superseded — ignore
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (requestId === diffRequestIdRef.current) setLoading(false);
     }
   }, [entityId, fromVersion, toVersion, diffFetcher]);
 
@@ -310,14 +429,54 @@ export function ArtifactDiff({
     fetchDiff();
   }, [fetchDiff]);
 
+  // -------------------------------------------------------------------------
+  // M-04 — "this version has no predecessor"
+  // -------------------------------------------------------------------------
+  //
+  // Version 0 is the synthetic, empty creation baseline, so a comparison that
+  // starts there is not a change set: every field is reported as "added"
+  // simply because the left side holds nothing. That is only misleading when
+  // there is genuinely nothing else to compare against — which is exactly the
+  // case for the artifact's first version. When real snapshots do sit between
+  // 0 and "to", the user has deliberately widened the range back to creation
+  // and the added-everything reading is the correct answer to what was asked.
+  const hasStoredPredecessor =
+    toVersion !== null &&
+    sortedVersions.some(
+      (v) => v.version > CREATION_BASELINE_VERSION && v.version < toVersion,
+    );
+  const isInitialState =
+    fromVersion === CREATION_BASELINE_VERSION &&
+    toVersion !== null &&
+    !hasStoredPredecessor;
+
+  // Report the *resolved* range upward so a host labels the panel with what is
+  // on screen. Before M-04 the ArtifactInspector announced its own requested
+  // range, which seeded left and right to the same version and therefore
+  // claimed a comparison of a version against itself ("v1 → v1") above a
+  // panel that was in fact showing 0 → 1.
+  useEffect(() => {
+    if (!onRangeChange) return;
+    if (fromVersion === null || toVersion === null) {
+      onRangeChange(null);
+      return;
+    }
+    onRangeChange({ from: fromVersion, to: toVersion, isInitialState });
+  }, [onRangeChange, fromVersion, toVersion, isInitialState]);
+
   // "From" cannot be the latest version (nothing sits above it); "To" is
-  // restricted to versions strictly greater than the current "From".
-  const fromOptions = sortedVersions.filter(
-    (v) => maxVersion === null || v.version < maxVersion
-  );
-  const toOptions = sortedVersions.filter(
-    (v) => fromVersion === null || v.version > fromVersion
-  );
+  // restricted to versions strictly greater than the current "From". With
+  // only one version total, those exclusions would leave both selects with
+  // zero options (empty dropdowns, e.g. every freshly created artifact) --
+  // fall back to offering the sole version in both instead.
+  const fromOptions =
+    sortedVersions.length <= 1
+      ? sortedVersions
+      : sortedVersions.filter((v) => maxVersion === null || v.version < maxVersion);
+  const toOptions =
+    sortedVersions.length <= 1
+      ? sortedVersions
+      : sortedVersions.filter((v) => fromVersion === null || v.version > fromVersion);
 
   // Keep "To" valid when the user moves "From" forward past it.
   const handleFromChange = (next: number): void => {
@@ -335,6 +494,9 @@ export function ArtifactDiff({
     fontSize: "13px",
     background: "var(--color-surface-raised)",
     color: "var(--color-text)",
+    // H-03: a select sizes to its widest option by default and overflowed the
+    // narrow inspector column, cutting off the dropdown arrow.
+    maxWidth: "100%",
   };
 
   return (
@@ -349,16 +511,19 @@ export function ArtifactDiff({
         color: "var(--color-text)",
       }}
     >
-      {/* Header */}
+      {/* Header — H-03: wraps so the title and the Close button stop
+          overlapping once the inspector column narrows. */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          flexWrap: "wrap",
+          gap: "8px",
           marginBottom: "16px",
         }}
       >
-        <h3 style={{ margin: 0, fontSize: "16px" }}>
+        <h3 style={{ margin: 0, fontSize: "16px", overflowWrap: "anywhere" }}>
           {ENTITY_LABELS[entityType]} Diff
         </h3>
         <button
@@ -383,7 +548,9 @@ export function ArtifactDiff({
         data-testid="diff-version-selectors"
         style={{
           display: "flex",
+          flexWrap: "wrap",
           gap: "16px",
+          rowGap: "8px",
           alignItems: "center",
           marginBottom: "16px",
           padding: "8px",
@@ -391,7 +558,7 @@ export function ArtifactDiff({
           borderRadius: "4px",
         }}
       >
-        <label style={{ fontSize: "13px", fontWeight: 500 }}>
+        <label style={{ fontSize: "13px", fontWeight: 500, minWidth: 0 }}>
           From:
           <select
             data-testid="diff-from-version"
@@ -407,9 +574,11 @@ export function ArtifactDiff({
           </select>
         </label>
 
-        <span style={{ color: "var(--color-text-muted)" }}>→</span>
+        <span style={{ color: "var(--color-text-muted)" }} aria-hidden="true">
+          →
+        </span>
 
-        <label style={{ fontSize: "13px", fontWeight: 500 }}>
+        <label style={{ fontSize: "13px", fontWeight: 500, minWidth: 0 }}>
           To:
           <select
             data-testid="diff-to-version"
@@ -426,6 +595,24 @@ export function ArtifactDiff({
         </label>
       </div>
 
+      {/* M-04: name the situation instead of letting an all-"Added" field
+          list read as a change set. The values below are still the only
+          content view available for a first version, so they stay — what was
+          missing was the framing that they are an initial state and not a
+          comparison. */}
+      {isInitialState && !loading && (
+        <div
+          data-testid="diff-initial-state"
+          style={initialStateNoticeStyle}
+        >
+          <strong>{t("diff.initialState.title", "Ausgangszustand")}</strong>{" "}
+          {t(
+            "diff.initialState.body",
+            "Diese Version hat keinen gespeicherten Vorgänger. Angezeigt werden die Werte bei der Erstellung — deshalb ist jedes Feld als hinzugefügt markiert.",
+          )}
+        </div>
+      )}
+
       {/* Loading / Error */}
       {loading && (
         <div data-testid="diff-loading" style={{ padding: "16px", textAlign: "center" }}>
@@ -435,11 +622,12 @@ export function ArtifactDiff({
 
       {error && (
         <div
+          role="alert"
           data-testid="diff-error"
           style={{
             padding: "12px",
-            background: "#fed7d7",
-            color: "#9b2c2c",
+            background: "var(--color-diff-removed-bg)",
+            color: "var(--color-diff-removed-text)",
             borderRadius: "4px",
             fontSize: "13px",
           }}
@@ -454,8 +642,8 @@ export function ArtifactDiff({
           data-testid="diff-note"
           style={{
             padding: "8px 12px",
-            background: "#bee3f8",
-            color: "#2c5282",
+            background: "var(--color-diff-note-bg)",
+            color: "var(--color-diff-note-text)",
             borderRadius: "4px",
             fontSize: "12px",
             marginBottom: "12px",

@@ -16,6 +16,7 @@ Public import paths:
         update_diagram,
         get_diagram,
         list_versions,
+        list_diagrams,
         get_mcp_artifact,
         canvas_auto_save,
         get_canvas_diagram,
@@ -30,13 +31,25 @@ Architecture:
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from diagram.canvas_editor import CanvasEditor, CanvasExportResult  # noqa: F401
-from diagram.manager import DiagramManager, DiagramResult, DiagramValidationError  # noqa: F401
+from diagram.manager import (  # noqa: F401
+    DiagramManager,
+    DiagramResult,
+    DiagramRevisionNotFoundError,
+    DiagramValidationError,
+)
 from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData  # noqa: F401
-from diagram.models import Diagram, DiagramVersion  # noqa: F401
+from diagram.models import Diagram, DiagramRevision  # noqa: F401
 from diagram.mcp_artifact_provider import McpArtifactProvider
+from diagram.traceability_connector import sync_node_links
+from diagram.validator import ValidationResult  # noqa: F401  (H1: re-exported)
+from persistence.transactions import atomic_transaction
+
+if TYPE_CHECKING:
+    from auth_tenancy.context import AuthContext
+    from persistence.models import Tenant, User
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (lazy-initialised, stateless)
@@ -64,7 +77,7 @@ def create_diagram(
     target_id: Optional[uuid.UUID] = None,
     workspace_id: Optional[uuid.UUID] = None,
 ) -> Diagram:
-    """Create a new Diagram and its initial DiagramVersion (v1).
+    """Create a new Diagram with its content at revision 1.
 
     IF-L1-032 entry point for ApplicationService.
 
@@ -76,7 +89,7 @@ def create_diagram(
         tenant:         Active Tenant ORM object.
         description:    Optional description.
         created_by:     Optional User ORM object for audit.
-        target_id:      Optional target Artifact UUID for a 'documents' TraceLink.
+        target_id:      Optional target Artifact UUID for a 'references' TraceLink.
         workspace_id:   Optional owning workspace UUID (REQ-173).
 
     Returns:
@@ -107,8 +120,8 @@ def update_diagram(
     content: str,
     modified_by: Optional[object] = None,
     target_id: Optional[uuid.UUID] = None,
-) -> DiagramVersion:
-    """Update a Diagram by creating a new immutable DiagramVersion (N+1).
+) -> DiagramRevision:
+    """Update a Diagram, recording content revision N+1.
 
     IF-L1-032 entry point for ApplicationService.
 
@@ -120,7 +133,7 @@ def update_diagram(
         target_id:      Optional target Artifact UUID for additional TraceLink.
 
     Returns:
-        The newly created DiagramVersion ORM object.
+        The newly recorded DiagramRevision.
 
     Raises:
         Diagram.DoesNotExist:   If diagram_id not found (tenant-scoped).
@@ -187,15 +200,34 @@ def get_diagram_header(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> Diagram:
     return Diagram.objects.get(id=diagram_id, tenant_id=tenant_id)
 
 
-def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-    """Delete a tenant-scoped Diagram and all its versions (REQ-066).
+@atomic_transaction
+def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: "AuthContext") -> None:
+    """Soft-delete a tenant-scoped Diagram via the workflow engine's outdate()
+    (REQ-066, REQ-006/Phase 0).
 
-    Encapsulates the tenant-scoped ORM lookup + cascade delete so REST views
-    stay ORM-free.
+    Encapsulates the tenant-scoped ORM lookup so REST views stay ORM-free.
+    Physical deletion intentionally avoided — the Diagram row and its
+    versions remain for audit/history purposes; ``outdate()`` marks the item
+    "outdated" in ``WorkflowItemState`` (Diagram is not registered in
+    ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, so no denormalized
+    field on Diagram itself is written).
+
+    I5 (Codeberg #353 final review): a soft-deleted diagram must not leave
+    its ``DIAGRAM_REF`` TraceLinks dangling forever — nothing else prunes
+    them, since the reconciler (``diagram.traceability_connector.
+    sync_node_links``) otherwise only runs on create/update. After the
+    ``outdate()`` transition, the reconciler is called with an empty
+    node_graph so every existing ``DIAGRAM_REF`` link for this diagram's
+    shadow Artifact is deleted (the reconciler's own guard makes this a
+    no-op when the diagram never had a shadow Artifact / never carried any
+    refs — see ``sync_node_links`` docstring). ``@atomic_transaction`` wraps
+    the whole function so both steps commit or roll back together.
 
     Args:
         diagram_id: UUID of the Diagram to delete.
         tenant_id:  Active tenant primary key (isolation boundary).
+        ctx:        Resolved AuthContext of the caller (REQ-165/REQ-167: the
+            WorkflowEngine is the sole authority for the transition).
 
     Raises:
         Diagram.DoesNotExist: If no diagram with the given id exists for the
@@ -203,12 +235,54 @@ def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
 
     req_id: REQ-066, REQ-L2-DS-001
     """
+    from workflow.services import outdate
+
     diagram = Diagram.objects.get(id=diagram_id, tenant_id=tenant_id)
-    diagram.delete()
+    outdate(
+        item_id=diagram.id,
+        item_type="Diagram",
+        workspace_id=diagram.workspace_id,
+        ctx=ctx,
+        reason="deleted via diagram delete",
+    )
+    sync_node_links(diagram, {"nodes": [], "edges": []}, created_by_id=ctx.user_id)
 
 
-def list_versions(diagram_id: uuid.UUID) -> list[DiagramVersion]:
-    """Return all DiagramVersions for a Diagram, sorted by version_number.
+def list_diagrams(
+    workspace_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    include_deleted: bool = False,
+) -> list[Diagram]:
+    """Return all Diagrams for a workspace, tenant-scoped (MCP diagram.query).
+
+    Diagram has no denormalized status mirror field (see ``delete_diagram``
+    docstring) — soft-deleted (outdated) rows are excluded via
+    ``workflow.services.outdated_item_ids("Diagram", ...)`` instead of a
+    ``lifecycle_status`` filter.
+
+    Args:
+        workspace_id:    UUID of the owning workspace.
+        tenant_id:       Active tenant primary key (isolation boundary).
+        include_deleted: If True, include outdated (soft-deleted) diagrams.
+            Defaults to False.
+
+    Returns:
+        List of Diagram ORM objects, newest first.
+
+    req_id: REQ-066, REQ-173, REQ-L2-DS-001
+    """
+    qs = Diagram.objects.filter(workspace_id=workspace_id, tenant_id=tenant_id)
+    if not include_deleted:
+        from workflow.services import outdated_item_ids
+
+        qs = qs.exclude(
+            id__in=outdated_item_ids("Diagram", tenant_id=tenant_id)
+        )
+    return list(qs.order_by("-created_at"))
+
+
+def list_versions(diagram_id: uuid.UUID) -> list[DiagramRevision]:
+    """Return all recorded content revisions of a Diagram, oldest-first.
 
     IF-L1-032 entry point for ApplicationService.
 
@@ -216,7 +290,7 @@ def list_versions(diagram_id: uuid.UUID) -> list[DiagramVersion]:
         diagram_id: UUID of the parent Diagram.
 
     Returns:
-        List of DiagramVersion objects, version_number ascending.
+        List of DiagramRevision objects, version_number ascending.
 
     Raises:
         Diagram.DoesNotExist: If diagram_id not found.
@@ -239,6 +313,7 @@ def canvas_auto_save(
     name: str = "Canvas Drawing",
     user: Optional[object] = None,
     target_id: Optional[uuid.UUID] = None,
+    workspace_id: Optional[uuid.UUID] = None,
 ) -> Diagram:
     """Auto-Save canvas stroke data (IF-L1-058 entry point).
 
@@ -252,6 +327,9 @@ def canvas_auto_save(
         name:        Diagram name (used only on create).
         user:        Optional User ORM object for audit.
         target_id:   Optional target Artifact UUID for TraceLink creation.
+        workspace_id: Owning workspace UUID, used only on create — without it
+            the new Diagram gets no backing Artifact and no content history
+            (see CanvasEditor.handle_stroke_update).
 
     Returns:
         The created or updated Diagram ORM object.
@@ -268,6 +346,7 @@ def canvas_auto_save(
         user=user,
         name=name,
         target_id=target_id,
+        workspace_id=workspace_id,
     )
 
 
@@ -326,7 +405,7 @@ def update_mermaid_source(
     source: str,
     tenant: object,
     user: Optional[object] = None,
-) -> Diagram:
+) -> "DiagramRevision":
     """Update Mermaid source code for an existing diagram.
 
     IF-L1-059 entry point: PUT /api/v1/diagrams/{id}/mermaid-source
@@ -340,7 +419,8 @@ def update_mermaid_source(
         user:       Optional User ORM object for audit.
 
     Returns:
-        The updated Diagram ORM object.
+        The newly recorded DiagramRevision (NOT the Diagram row) — it
+        carries no diagram id usable for a lookup; use the caller's own.
 
     Raises:
         DiagramValidationError: If source validation fails.
@@ -397,8 +477,55 @@ def validate_mermaid_source(
 
     REQ-L2-DS-007, REQ-L1-057
     """
-    from diagram.validator import ValidationResult
     return _mermaid_renderer.validate_mermaid_source(source, diagram_type)
+
+
+# ---------------------------------------------------------------------------
+# Tenant/user resolution (ADR-01, issue #124)
+# ---------------------------------------------------------------------------
+#
+# ``create_diagram``/``update_diagram`` take ORM ``Tenant``/``User`` objects
+# rather than bare ids, because ``TenantScopedModel`` requires the instance.
+# Callers therefore need a way to turn the ids on an ``AuthContext`` into those
+# objects. That lookup used to live in ``mcp_server/tools/diagram.py``, which
+# violated ADR-01's Single-Entry-Point rule; it now lives here, next to the
+# contract that forces it. The queries are byte-for-byte the ones the MCP tool
+# ran before, so the observable behaviour — including ``Tenant.DoesNotExist``
+# propagating out of ``resolve_tenant`` and ``resolve_user`` returning ``None``
+# for an unknown/absent user id — is unchanged.
+
+
+def resolve_tenant(tenant_id: uuid.UUID) -> "Tenant":
+    """Return the ``Tenant`` ORM object for ``tenant_id``.
+
+    Args:
+        tenant_id: UUID of the tenant, typically ``AuthContext.tenant_id``.
+
+    Returns:
+        The Tenant ORM object required by ``create_diagram``/``update_diagram``.
+
+    Raises:
+        Tenant.DoesNotExist: If no tenant with that id exists.
+    """
+    from persistence.models import Tenant
+
+    return Tenant.objects.get(id=tenant_id)
+
+
+def resolve_user(user_id: Optional[uuid.UUID]) -> Optional["User"]:
+    """Return the ``User`` ORM object for ``user_id``, or ``None``.
+
+    Args:
+        user_id: UUID of the user, typically ``AuthContext.user_id``. May be
+            ``None`` for machine/API-key contexts without a user.
+
+    Returns:
+        The User ORM object used for audit attribution, or ``None`` when the
+        id is absent or matches no row.
+    """
+    from persistence.models import User
+
+    return User.objects.filter(id=user_id).first()
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +539,7 @@ __all__ = [
     "get_diagram",
     "get_diagram_header",
     "delete_diagram",
+    "list_diagrams",
     "list_versions",
     "get_mcp_artifact",
     # Canvas editor — COMP-DS-006
@@ -421,12 +549,16 @@ __all__ = [
     "update_mermaid_source",
     "get_mermaid_preview",
     "validate_mermaid_source",
+    # Tenant/user resolution — ADR-01 (#124)
+    "resolve_tenant",
+    "resolve_user",
     # DTOs
     "CanvasExportResult",
     "DiagramResult",
+    "DiagramRevisionNotFoundError",
     "DiagramValidationError",
     "LivePreviewData",
     # ORM types
     "Diagram",
-    "DiagramVersion",
+    "DiagramRevision",
 ]

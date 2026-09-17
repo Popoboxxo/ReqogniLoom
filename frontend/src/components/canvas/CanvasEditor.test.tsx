@@ -6,9 +6,23 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { CanvasEditor } from "./CanvasEditor";
+
+// CanvasEditor invalidates the diagram-detail query cache on save
+// (B-DIAG-001 / REQ-L1-029), which needs a real QueryClientProvider in scope
+// — same pattern as e.g. NeedsEditors/need-form.test.tsx.
+function render(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return rtlRender(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  );
+}
 
 // Mock the diagrams API
 vi.mock("../../api/diagrams", () => ({
@@ -34,32 +48,37 @@ vi.mock("../../api/diagrams", () => ({
 
 // Mock Fabric.js
 vi.mock("fabric", () => ({
-  Canvas: vi.fn().mockImplementation(() => ({
-    width: 800,
-    height: 600,
-    isDrawingMode: true,
-    freeDrawingBrush: {
+  Canvas: class {
+    width = 800;
+    height = 600;
+    isDrawingMode = true;
+    freeDrawingBrush = {
       color: "#000000",
       width: 2,
       globalCompositeOperation: "source-over",
-    },
-    on: vi.fn(),
-    off: vi.fn(),
-    getObjects: vi.fn().mockReturnValue([]),
-    toJSON: vi.fn().mockReturnValue({ objects: [] }),
-    loadFromJSON: vi.fn().mockResolvedValue(undefined),
-    renderAll: vi.fn(),
-    setDimensions: vi.fn(),
-    dispose: vi.fn(),
-  })),
-  PencilBrush: vi.fn().mockImplementation(() => ({
-    color: "#000000",
-    width: 2,
-    globalCompositeOperation: "source-over",
-  })),
-  Path: vi.fn().mockImplementation(() => ({
-    set: vi.fn(),
-  })),
+    };
+    constructor(_element: HTMLCanvasElement | string, _options?: object) {}
+    on = vi.fn().mockReturnThis();
+    off = vi.fn().mockReturnThis();
+    add = vi.fn().mockReturnThis();
+    remove = vi.fn().mockReturnThis();
+    getObjects = vi.fn().mockReturnValue([]);
+    toJSON = vi.fn().mockReturnValue({ objects: [] });
+    loadFromJSON = vi.fn().mockResolvedValue(undefined);
+    renderAll = vi.fn().mockReturnThis();
+    setDimensions = vi.fn().mockReturnThis();
+    dispose = vi.fn();
+  },
+  PencilBrush: class {
+    color = "#000000";
+    width = 2;
+    globalCompositeOperation = "source-over";
+    constructor(_canvas: unknown) {}
+  },
+  Path: class {
+    set = vi.fn();
+    constructor(_path: string, _options?: object) {}
+  },
 }));
 
 // Mock i18n

@@ -44,6 +44,7 @@ from persistence.models import (
     ArchitectureElement,
     Artifact,
     Requirement,
+    StakeholderNeed,
     Tenant,
     TestCase,
     TestRun,
@@ -53,12 +54,17 @@ from persistence.models import (
 from presets.models import WorkspacePresetConfig
 
 # Auth & tenancy — for UserRole/ApiKey seeding and role constants.
+from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import (
     ROLE_ADMIN,
     ItemPermission,
     ITEM_PERMISSION_READ,
     UserRole,
 )
+
+# Application — RequirementService for the REST-simulated regression test
+# (Codeberg #313: calls the service directly, bypassing MCP entirely).
+from application.requirement_service import RequirementService
 
 # Application — DLQ rows live outside the TenantScopedModel lineage.
 from application.models import DomainEventDLQ
@@ -71,7 +77,7 @@ from audit.services import query
 # AdminOps — BackupMetadata is system-level (not tenant-scoped).
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 
-# MCP e2e fixtures (auto-imported via conftest_e2e.py).
+# MCP e2e fixtures (auto-imported via conftest.py).
 
 # JSON-RPC helpers.
 from mcp_server.tests.helpers import (
@@ -79,6 +85,10 @@ from mcp_server.tests.helpers import (
     extract_result,
     post_mcp,
 )
+
+# SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
+# see the `e2e` marker docstring in pyproject.toml.
+pytestmark = pytest.mark.e2e
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +106,24 @@ from mcp_server.tests.helpers import (
 WRITE_TOOL_AUDIT_OPS: Dict[str, Dict[str, str]] = {
     "requirement.create": {"op": "create", "entity_type": "Requirement"},
     "requirement.update": {"op": "update", "entity_type": "Requirement"},
-    "requirement.decompose": {"op": "decompose", "entity_type": "Requirement"},
-    "requirement.validate": {"op": "validate", "entity_type": "Requirement"},
+    # #573: the lifecycle tools map onto the op their REST pendant writes —
+    # ``outdate`` is the MCP spelling of ``DELETE /requirements/{id}/``
+    # (RequirementService.delete_requirement -> op="delete") and ``reactivate``
+    # mirrors ``POST /requirements/{id}/reactivate/`` (WorkflowFacade.reactivate
+    # -> op="transition"), so an auditor filtering on op=delete sees REST and
+    # MCP deletions alike.
+    "requirement.outdate": {"op": "delete", "entity_type": "Requirement"},
+    "requirement.reactivate": {"op": "transition", "entity_type": "Requirement"},
+    # #573: LLM analyses have no REST pendant, so they get their own declared
+    # ops in the ``ai.`` namespace (see AuditEntry.OP_CHOICES).
+    "requirement.decompose": {"op": "ai.decompose", "entity_type": "Requirement"},
+    "requirement.validate": {"op": "ai.validate", "entity_type": "Requirement"},
+    "requirement.check_consistency": {
+        "op": "ai.check_consistency",
+        "entity_type": "Workspace",
+    },
+    "needs.outdate": {"op": "delete", "entity_type": "StakeholderNeed"},
+    "needs.reactivate": {"op": "transition", "entity_type": "StakeholderNeed"},
     "architecture.create": {"op": "create", "entity_type": "ArchitectureElement"},
     "architecture.update": {"op": "update", "entity_type": "ArchitectureElement"},
     "architecture.link": {"op": "create", "entity_type": "TraceLink"},
@@ -125,7 +151,10 @@ WRITE_TOOL_AUDIT_OPS: Dict[str, Dict[str, str]] = {
         "entity_type": "BackupMetadata",
     },
     "admin.restore": {"op": "admin.restore", "entity_type": "BackupRestore"},
-    "events.dlq_replay": {"op": "replay", "entity_type": "DomainEventDLQ"},
+    # #626: "replay" was undeclared and silently swallowed by write_mcp_audit
+    # (relaxed in the fixture below to mask it); now "events.replay", a real
+    # declared choice with no REST pendant to reuse.
+    "events.dlq_replay": {"op": "events.replay", "entity_type": "DomainEventDLQ"},
     "user.create": {"op": "user.create", "entity_type": "User"},
     "user.assign_role": {"op": "user.assign_role", "entity_type": "UserRole"},
     "user.deactivate": {"op": "user.deactivate", "entity_type": "User"},
@@ -144,17 +173,40 @@ WRITE_TOOL_AUDIT_OPS: Dict[str, Dict[str, str]] = {
 def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
     """Permit non-canonical ``op`` values in the audit model.
 
-    The production ``AuditEntry`` model restricts ``op`` to the canonical
-    ``["create", "update", "delete", "transition"]`` via ``choices``.
-    Several MCP tools use richer operation names (e.g.
-    ``"workspace.close"``, ``"replay"``, ``"permissions.set_rule"``).
-    Those audit writes are legitimate but the model's ``full_clean()``
-    rejects them.
+    The production ``AuditEntry`` model restricts ``op`` to a closed
+    ``choices`` enum. Several MCP tools use richer operation names (e.g.
+    ``"workspace.close"``, ``"replay"``) that are not yet
+    part of that enum. Those audit writes are legitimate but the model's
+    ``full_clean()`` rejects them.
 
     This autouse fixture widens the choices list on the field's
     ``_choices`` attribute at test setup and restores the original via
     ``monkeypatch`` so the tests exercise the real service code path
     without modifying the production schema.
+
+    #539: the admin/user/permissions op values (``"user.create"``,
+    ``"admin.restore"``, ``"permissions.set_rule"``, ...) used to be relaxed
+    here too — that masked the production bug where ``write_mcp_audit``
+    silently swallowed the ``ValidationError`` these undeclared values
+    caused, so ``test_write_tool_creates_audit_entry`` passed while real MCP
+    calls wrote zero audit rows. Those values are now declared in
+    ``AuditEntry.OP_CHOICES`` for real (see migration
+    ``0008_alter_auditentry_op``) and no longer need relaxing.
+
+    #573: same story for ``"decompose"`` and ``"validate"`` — relaxing them
+    here is exactly what let ``requirement.decompose`` / ``requirement.validate``
+    (and their unrelaxed siblings ``outdate`` / ``reactivate`` /
+    ``check_consistency``, which were not covered by this test at all) ship
+    while writing zero audit rows in production. The requirements/needs tool
+    groups now emit declared ops only (migration
+    ``0009_alter_auditentry_op``), so nothing from those groups is relaxed.
+
+    #626: ``"replay"`` (events.dlq_replay) is fixed too — it now emits
+    ``"events.replay"``, a real declared choice (migration
+    ``0010_alter_auditentry_op``), so it is no longer relaxed here either.
+    The ``ai_derivation.*``/``review.*``/lifecycle tools #626 also fixed are
+    not in ``WRITE_TOOL_AUDIT_OPS`` at all (never covered by this harness);
+    see ``audit/tests/test_op_vocabulary.py`` for their static coverage.
     """
     from audit import models as audit_models
 
@@ -164,16 +216,6 @@ def _relax_audit_op_choices(monkeypatch: pytest.MonkeyPatch) -> None:
         ("workspace.close", "Workspace Close"),
         ("workspace.reactivate", "Workspace Reactivate"),
         ("workspace.delete", "Workspace Delete"),
-        ("replay", "DLQ Replay"),
-        ("permissions.set_rule", "Permissions Set Rule"),
-        ("permissions.revoke", "Permissions Revoke"),
-        ("user.create", "User Create"),
-        ("user.assign_role", "User Assign Role"),
-        ("user.deactivate", "User Deactivate"),
-        ("admin.backup_create", "Admin Backup Create"),
-        ("admin.restore", "Admin Restore"),
-        ("decompose", "Requirement Decompose"),
-        ("validate", "Requirement Validate"),
     ]
     op_field.choices = relaxed
     yield
@@ -185,7 +227,7 @@ def mock_backup_service(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """Mock ``BackupService`` and ``AdminRestoreService`` with MagicMocks
     shaped like their real return types.
 
-    The conftest_e2e :func:`mock_backup_filesystem` returns a bare dict;
+    The conftest :func:`mock_backup_filesystem` returns a bare dict;
     the production tool code accesses ``row.id``/``row.file_size_bytes``
     on the returned object, so we need a MagicMock with the right spec.
     """
@@ -229,7 +271,7 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deep-mock the LLM stack so requirement.decompose / requirement.validate
     can run end-to-end without an actual LLM provider.
     """
-    def _fake_decompose(requirement_id):
+    def _fake_decompose(requirement_id, title=None, content=None):
         return [
             {"title": "Child A", "description": "First child"},
             {"title": "Child B", "description": "Second child"},
@@ -240,7 +282,7 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
         staticmethod(_fake_decompose),
     )
 
-    def _fake_validate(artifact_id, ctx=None):
+    def _fake_validate(artifact_id, title=None, content=None, ctx=None):
         return {
             "result": "valid",
             "score": 0.95,
@@ -251,6 +293,16 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "llm_adapter.services.validate_artifact",
         _fake_validate,
+    )
+
+    # #573: requirement.check_consistency is asynchronous — the real capability
+    # returns a task id. Stub it so the tool reaches its write_mcp_audit call.
+    def _fake_check_consistency(workspace_id, artifacts=None):
+        return {"task_id": str(uuid4()), "status": "queued"}
+
+    monkeypatch.setattr(
+        "llm_adapter.services.check_consistency",
+        _fake_check_consistency,
     )
 
 
@@ -267,13 +319,90 @@ def _seed_requirement(workspace: Workspace, title: str = "Seeded Requirement") -
             tenant=workspace.tenant,
             artifact_type="Requirement",
         )
+        # Task 12: `status` column dropped -- a fresh Requirement's engine
+        # state already starts at "draft" (every rigor preset's states[0]).
         return Requirement.unscoped.create(
             tenant=workspace.tenant,
             artifact=artifact,
             title=title,
             description="seeded for audit test",
             category="functional",
-            status="draft",
+        )
+    finally:
+        clear_request_tenant()
+
+
+def _seed_stakeholder_need(
+    workspace: Workspace, title: str = "Seeded Need"
+) -> StakeholderNeed:
+    set_request_tenant(workspace.tenant_id)
+    try:
+        artifact = Artifact.unscoped.create(
+            workspace=workspace,
+            tenant=workspace.tenant,
+            artifact_type="StakeholderNeed",
+        )
+        # Task 12: `status` column dropped -- need_default's initial state is
+        # also "draft" (see workflow/definition_store.py PRESET_SCHEMAS).
+        return StakeholderNeed.unscoped.create(
+            tenant=workspace.tenant,
+            artifact=artifact,
+            title=title,
+            description="seeded for audit test",
+        )
+    finally:
+        clear_request_tenant()
+
+
+def _ensure_workflow_definitions(workspace: Workspace) -> None:
+    """Provision the per-entity workflow definitions for an ORM-built workspace.
+
+    ``e2e_workspace`` creates the ``Workspace`` row directly, which skips the
+    provisioning that ``WorkspaceService`` normally performs — and
+    ``workflow.services.outdate`` needs a ``WorkflowEngineDefinition`` to
+    initialise the item state against. Idempotent (``get_or_create``
+    throughout), so calling it per test case is safe.
+    """
+    from application.workspace_provisioning import provision_workspace_defaults
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        provision_workspace_defaults(
+            workspace_id=workspace.id,
+            tenant_id=workspace.tenant_id,
+            requirement_preset="extended",
+        )
+    finally:
+        clear_request_tenant()
+
+
+def _outdate_for_reactivate(
+    workspace: Workspace, item_id: Any, item_type: str, user: User
+) -> None:
+    """Soft-delete *item_id* so a ``*.reactivate`` tool call has work to do.
+
+    ``workflow.services.outdate`` is the same escape hatch the MCP outdate
+    handlers use; calling it directly here keeps the arrange step out of the
+    tool under test.
+    """
+    from auth_tenancy.context import AuthContext as _AuthContext
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        from workflow.services import outdate
+
+        outdate(
+            item_id=item_id,
+            item_type=item_type,
+            workspace_id=workspace.id,
+            ctx=_AuthContext(
+                user_id=user.id,
+                tenant_id=workspace.tenant_id,
+                active_roles=(ROLE_ADMIN,),
+                auth_method=AuthMethod.API_KEY,
+                workspace_id=workspace.id,
+            ),
+            reason="arranged for reactivate audit test",
         )
     finally:
         clear_request_tenant()
@@ -419,12 +548,33 @@ def _build_audit_params(
             "workspace_id": str(workspace.id),
             "data": {"title": "Updated Audit Title", "change_reason": "audit test"},
         }
+    if tool_name == "requirement.outdate":
+        _ensure_workflow_definitions(workspace)
+        req = _seed_requirement(workspace)
+        return {"id": str(req.id), "workspace_id": str(workspace.id)}
+    if tool_name == "requirement.reactivate":
+        _ensure_workflow_definitions(workspace)
+        req = _seed_requirement(workspace)
+        _outdate_for_reactivate(workspace, req.id, "Requirement", user_admin)
+        return {"id": str(req.id), "workspace_id": str(workspace.id)}
     if tool_name == "requirement.decompose":
         req = _seed_requirement(workspace)
         return {"requirement_id": str(req.id), "workspace_id": str(workspace.id)}
     if tool_name == "requirement.validate":
         req = _seed_requirement(workspace)
         return {"requirement_id": str(req.id), "workspace_id": str(workspace.id)}
+    if tool_name == "requirement.check_consistency":
+        _seed_requirement(workspace, "Consistency Subject")
+        return {"workspace_id": str(workspace.id)}
+    if tool_name == "needs.outdate":
+        _ensure_workflow_definitions(workspace)
+        need = _seed_stakeholder_need(workspace)
+        return {"id": str(need.id), "workspace_id": str(workspace.id)}
+    if tool_name == "needs.reactivate":
+        _ensure_workflow_definitions(workspace)
+        need = _seed_stakeholder_need(workspace)
+        _outdate_for_reactivate(workspace, need.id, "StakeholderNeed", user_admin)
+        return {"id": str(need.id), "workspace_id": str(workspace.id)}
     if tool_name == "architecture.create":
         return {"title": "Audit Arch", "workspace_id": str(workspace.id)}
     if tool_name == "architecture.update":
@@ -441,7 +591,7 @@ def _build_audit_params(
         return {
             "arch_id": str(a1.artifact_id),
             "target_id": str(a2.artifact_id),
-            "link_type": "satisfies",
+            "link_type": "decomposes",
             "workspace_id": str(workspace.id),
         }
     if tool_name == "test.create":
@@ -804,7 +954,7 @@ def test_failed_write_does_not_create_audit_entry(
         viewer_client, "workspace.close", {"workspace_id": str(e2e_workspace.id)}
     )
     assert response.status_code == 403, response.content
-    assert response.json().get("error", {}).get("error_code") == "PERMISSION_DENIED"
+    assert extract_error_code(response) == "PERMISSION_DENIED"
 
     set_request_tenant(e2e_workspace.tenant_id)
     try:
@@ -1080,3 +1230,211 @@ def test_audit_entry_for_requirement_create_records_requirement_id(
     assert entry is not None
     assert str(entry.entity_id) == req_id
     assert entry.op == "create"
+
+
+# ---------------------------------------------------------------------------
+# Codeberg #313 — MCP write tools must not double-audit
+# ---------------------------------------------------------------------------
+#
+# test_write_tool_creates_audit_entry (above) filters
+# ``AuditEntry.objects.filter(client_name=tool_name, ...)`` and only
+# inspects the *most recent* match — it would never have caught #313,
+# because the redundant internal ServiceBase._audit() entry has
+# client_name=None and is silently excluded by that filter. The three
+# tests below count ALL AuditEntry rows for the affected entity_id,
+# unfiltered by client_name, which is what actually proves "exactly one".
+
+
+@pytest.mark.django_db(transaction=True)
+def test_requirement_create_writes_exactly_one_audit_entry_total(
+    admin_client: Client,
+    e2e_workspace: Workspace,
+    e2e_user_admin: User,
+    e2e_userrole_admin: UserRole,
+):
+    """Codeberg #313: requirement.create must write exactly ONE AuditEntry
+    row for the created Requirement — not two (one from
+    RequirementService._audit via ServiceBase, one from write_mcp_audit).
+
+    The sole entry must still carry the MCP enrichment (client_name,
+    hashed api_key, actor_type='agent') write_mcp_audit adds.
+    """
+    response = post_mcp(
+        admin_client,
+        "requirement.create",
+        {"title": "313 regression", "workspace_id": str(e2e_workspace.id)},
+    )
+    assert response.status_code == 200, response.content
+    req_id = extract_result(response)["requirement"]["id"]
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id=req_id,
+            )
+        )
+    finally:
+        clear_request_tenant()
+
+    assert len(entries) == 1, (
+        f"requirement.create wrote {len(entries)} AuditEntry row(s) for "
+        f"entity_id={req_id}, expected exactly 1 (Codeberg #313): "
+        f"{[(e.op, e.client_name, e.actor_type) for e in entries]}"
+    )
+    entry = entries[0]
+    assert entry.source == AuditEntry.SOURCE_MCP
+    assert entry.actor_type == AuditEntry.ACTOR_TYPE_AGENT
+    assert entry.client_name == "requirement.create"
+    assert entry.api_key_hash, "sole entry must carry the MCP-hashed api_key"
+    assert entry.actor == str(e2e_user_admin.id)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_requirement_update_writes_exactly_one_audit_entry_total(
+    admin_client: Client,
+    e2e_workspace: Workspace,
+    e2e_userrole_admin: UserRole,
+):
+    """Codeberg #313: requirement.update must write exactly ONE AuditEntry
+    row (same duplicate pattern as create, on the update path)."""
+    req = _seed_requirement(e2e_workspace)
+    response = post_mcp(
+        admin_client,
+        "requirement.update",
+        {
+            "id": str(req.id),
+            "workspace_id": str(e2e_workspace.id),
+            "data": {"title": "313 updated", "change_reason": "regression test"},
+        },
+    )
+    assert response.status_code == 200, response.content
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id=req.id,
+            )
+        )
+    finally:
+        clear_request_tenant()
+
+    assert len(entries) == 1, (
+        f"requirement.update wrote {len(entries)} AuditEntry row(s) for "
+        f"entity_id={req.id}, expected exactly 1 (Codeberg #313): "
+        f"{[(e.op, e.client_name, e.actor_type) for e in entries]}"
+    )
+    assert entries[0].client_name == "requirement.update"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_rest_originated_create_still_writes_exactly_one_audit_entry(
+    e2e_workspace: Workspace,
+    e2e_tenant: Tenant,
+    e2e_user_admin: User,
+):
+    """Codeberg #313 regression guard: a REST-style caller (no MCP, no
+    ``mcp_audit_handoff()`` in play at all) calling
+    ``RequirementService.create_requirement`` directly must still produce
+    exactly one AuditEntry row, with the pre-#313 REST shape (source='rest',
+    actor_type='user', client_name=None) — proving the new suppression
+    mechanism defaults to inactive and does not leak across calls.
+    """
+    ctx = AuthContext(
+        user_id=e2e_user_admin.id,
+        tenant_id=e2e_tenant.id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        req = RequirementService().create_requirement(
+            workspace_id=e2e_workspace.id,
+            title="313 REST regression",
+            ctx=ctx,
+        )
+        entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id=req.id,
+            )
+        )
+    finally:
+        clear_request_tenant()
+
+    assert len(entries) == 1, (
+        f"direct RequirementService.create_requirement() call wrote "
+        f"{len(entries)} AuditEntry row(s), expected exactly 1: "
+        f"{[(e.op, e.client_name, e.source) for e in entries]}"
+    )
+    entry = entries[0]
+    assert entry.source == AuditEntry.SOURCE_REST
+    assert entry.actor_type == AuditEntry.ACTOR_TYPE_USER
+    assert entry.client_name is None
+    assert entry.op == "create"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_requirement_decompose_still_writes_one_entry_per_child(
+    admin_client: Client,
+    e2e_workspace: Workspace,
+    e2e_userrole_admin: UserRole,
+    mock_llm_configured: None,
+    mock_llm_deep: None,
+):
+    """Codeberg #313 non-regression: requirement.decompose is a genuine
+    multi-entity operation (mock_llm_deep returns 2 children) — the fix
+    must NOT suppress the per-child internal audit entries. Each child
+    Requirement gets its own ``_audit(op='create', entity_type='Requirement',
+    entity_id=child.id)`` from RequirementService.create_requirement,
+    distinct from the single MCP-level ``op='decompose'`` summary entry
+    write_mcp_audit writes for the *parent*.
+    """
+    parent = _seed_requirement(e2e_workspace, title="313 decompose parent")
+
+    response = post_mcp(
+        admin_client,
+        "requirement.decompose",
+        {"requirement_id": str(parent.id), "workspace_id": str(e2e_workspace.id)},
+    )
+    assert response.status_code == 200, response.content
+    result = extract_result(response)
+    child_ids = [c["id"] for c in result["children"]]
+    assert len(child_ids) == 2, f"expected 2 children from mock_llm_deep, got {result}"
+
+    set_request_tenant(e2e_workspace.tenant_id)
+    try:
+        child_create_entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id__in=child_ids,
+                op="create",
+            )
+        )
+        parent_decompose_entries = list(
+            AuditEntry.unscoped.filter(
+                tenant_id=e2e_workspace.tenant_id,
+                entity_type="Requirement",
+                entity_id=parent.id,
+                op="ai.decompose",
+            )
+        )
+    finally:
+        clear_request_tenant()
+
+    # One legitimate internal "create" entry per child — not suppressed.
+    assert len(child_create_entries) == 2, (
+        f"expected one internal 'create' AuditEntry per decomposed child, "
+        f"got {len(child_create_entries)}: {[e.entity_id for e in child_create_entries]}"
+    )
+    assert {str(e.entity_id) for e in child_create_entries} == set(child_ids)
+    # And exactly one MCP-level "ai.decompose" summary entry for the parent.
+    assert len(parent_decompose_entries) == 1

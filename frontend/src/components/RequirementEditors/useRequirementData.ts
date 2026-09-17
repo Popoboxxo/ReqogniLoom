@@ -32,12 +32,24 @@ export interface RequirementData {
   refresh: () => void;
 }
 
-export function useRequirementData(selectedId?: string): RequirementData {
+export interface UseRequirementDataOptions {
+  /**
+   * GH-443: include soft-deleted (`status === "outdated"`) requirements in the
+   * list. Off by default — DELETE is a soft-delete, so without the opt-in the
+   * list would keep showing records the user just deleted.
+   */
+  includeDeleted?: boolean;
+}
+
+export function useRequirementData(
+  selectedId?: string,
+  options?: UseRequirementDataOptions,
+): RequirementData {
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
-  const listQuery = useRequirementsList(workspaceId);
+  const listQuery = useRequirementsList(workspaceId, options?.includeDeleted ?? false);
   const detailQuery = useRequirementDetail(workspaceId, selectedId);
 
   const refresh = (): void => {
@@ -61,7 +73,14 @@ export function useRequirementData(selectedId?: string): RequirementData {
     linkedTitles: detailQuery.data?.linkedTitles ?? {},
     linkedRoutes: detailQuery.data?.linkedRoutes ?? {},
     isLoading: listQuery.isLoading,
-    error: detailQuery.error ? extractErrorMessage(detailQuery.error) : null,
+    // UI-31: previously only detailQuery.error was surfaced, so a failed list
+    // fetch silently looked like an empty list instead of an error. Mirror
+    // useNeedData's pattern and propagate whichever query failed.
+    error: detailQuery.error
+      ? extractErrorMessage(detailQuery.error)
+      : listQuery.error
+        ? extractErrorMessage(listQuery.error)
+        : null,
     refresh,
   };
 }

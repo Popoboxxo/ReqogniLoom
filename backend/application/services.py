@@ -91,7 +91,11 @@ from application.architecture_service import ArchitectureService  # noqa: F401
 from application.test_service import TestService  # noqa: F401
 
 # COMP-AS-005
-from application.trace_link_service import TraceLinkService, VALID_LINK_TYPES  # noqa: F401
+from application.trace_link_service import (  # noqa: F401
+    TraceLinkService,
+    VALID_LINK_TYPES,
+    MANUAL_LINK_TYPES,
+)
 
 # COMP-AS-012
 from application.preset_policy_service import (  # noqa: F401
@@ -109,6 +113,7 @@ from application.event_bus import (  # noqa: F401
 
 # Shared exceptions
 from application.base import (  # noqa: F401
+    BaselineGateBlockedError,
     LlmNotConfiguredError,
     NotFoundError,
     OptimisticLockError,
@@ -177,6 +182,25 @@ from application.reqif_import_service import (  # noqa: F401,E402
     ReqifImportService,
 )
 
+# ---------------------------------------------------------------------------
+# Datenmodell-Konsolidierung Phase 5 — ArtifactVersionService (spec §6, D-4)
+# ---------------------------------------------------------------------------
+from application.artifact_version_service import ArtifactVersionService  # noqa: F401,E402
+
+# ---------------------------------------------------------------------------
+# Menschen-im-System — collaboration: comments + notifications (§4/§5)
+# ---------------------------------------------------------------------------
+from application.comment_service import CommentService  # noqa: F401,E402
+from application.notification_service import NotificationService  # noqa: F401,E402
+
+# ---------------------------------------------------------------------------
+# COMP-AS-022 — EffectivePermissionService (ADR-01, issue #722)
+# ---------------------------------------------------------------------------
+from application.effective_permission_service import (  # noqa: F401,E402
+    EffectivePermission,
+    EffectivePermissionService,
+)
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -199,6 +223,7 @@ __all__ = [
     "PermissionDeniedError",
     "NotFoundError",
     "ValidationError",
+    "BaselineGateBlockedError",
     "OptimisticLockError",
     "LlmNotConfiguredError",
     "PgVectorUnavailableError",
@@ -208,6 +233,7 @@ __all__ = [
     "_registry",
     # Constants
     "VALID_LINK_TYPES",
+    "MANUAL_LINK_TYPES",
     # Helpers
     "get_preset_policy_service",
     # Step-2 services (COMP-AS-006..011)
@@ -251,4 +277,12 @@ __all__ = [
     "ReqifImportService",
     "ReqifImportResult",
     "ReqifEntityReport",
+    # Datenmodell-Konsolidierung Phase 5 — ArtifactVersionService
+    "ArtifactVersionService",
+    # Menschen-im-System — collaboration (§4/§5)
+    "CommentService",
+    "NotificationService",
+    # COMP-AS-022 — effective permission resolution (ADR-01, #722)
+    "EffectivePermissionService",
+    "EffectivePermission",
 ]

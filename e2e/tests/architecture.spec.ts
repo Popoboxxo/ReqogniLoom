@@ -1,14 +1,19 @@
 // REQ-L1-004, REQ-L2-AS-004: Architecture elements CRUD
 import { test, expect } from '@playwright/test';
-import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { loginAsAdmin, getAuthToken, setWorkspaceId, createIsolatedWorkspace } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('Architecture Management', () => {
+  let workspaceId: string;
+
   test.beforeEach(async ({ page }) => {
-    // Inject real workspace ID so WorkspaceContext uses the seeded workspace
-    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
+    // Each test gets its own empty workspace so architecture-root creation
+    // (invariant [I5]: one root per workspace) never collides across specs.
+    const token = await getAuthToken();
+    workspaceId = await createIsolatedWorkspace(token);
+    await setWorkspaceId(page, workspaceId);
     await loginAsAdmin(page);
   });
 
@@ -25,7 +30,7 @@ test.describe('Architecture Management', () => {
     await page.locator('[data-testid="create-arch-btn"]').click();
     await page.locator('[data-testid="arch-new-title-input"]').fill('E2E Arch Element');
     await page.locator('[data-testid="arch-new-save-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
   });
 
   test('[REQ-L1-004] create architecture element via API', async ({ request }) => {
@@ -33,7 +38,7 @@ test.describe('Architecture Management', () => {
     const response = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
-        workspace_id: SEEDED_WORKSPACE_ID,
+        workspace_id: workspaceId,
         title: 'E2E Test Architecture Element',
         element_type: 'component',
       },
@@ -56,10 +61,10 @@ test.describe('Architecture Management', () => {
     await page.locator('[data-testid="arch-new-save-btn"]').click();
 
     // Wait for navigation to /architecture/:id and the title input to appear
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
-    await page.locator('[data-testid="arch-title"]').fill('UI E2E Arch Element');
-    await page.locator('[data-testid="arch-save-btn"]').click();
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="artifact-field-title"]').fill('UI E2E Arch Element');
+    await page.locator('[data-testid="artifact-form-save"]').click();
 
-    await expect(page.locator('[data-testid="arch-title"]')).toHaveValue('UI E2E Arch Element', { timeout: 8000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue('UI E2E Arch Element', { timeout: 8000 });
   });
 });

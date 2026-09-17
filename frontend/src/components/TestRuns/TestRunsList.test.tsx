@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TestRunsList } from "./TestRunsList";
@@ -51,7 +51,7 @@ const mockTestRuns = [
     workspace_id: "ws-123",
     name: "Sprint 1 QA Run",
     description: "Full regression test",
-    status: "completed",
+    status: "closed",
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
   },
@@ -60,7 +60,7 @@ const mockTestRuns = [
     workspace_id: "ws-123",
     name: "Smoke test run",
     description: "",
-    status: "in-progress",
+    status: "in_progress",
     created_at: "2026-01-02T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
   },
@@ -98,8 +98,37 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
     });
-    expect(screen.getByText(/completed/)).toBeInTheDocument();
-    expect(screen.getByText(/in-progress/)).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("testrun-item-tr-1")).getByText(/closed/i)
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("testrun-item-tr-2")).getByText(/in progress/i)
+    ).toBeInTheDocument();
+  });
+
+  it("[#797] labels the header and empty-state create triggers with the '+' gesture", async () => {
+    // This file's i18n mock resolves t(key) to the key itself, so the
+    // assertion pins the *shape* ("+ " + label), which is what #797 unified:
+    // the header trigger used to flip to "Cancel" while the form was open,
+    // making Test Runs the one route whose primary create action could not
+    // read "+ {Entity}".
+    vi.mocked(testRunsModule.testRunsApi.listAll).mockResolvedValue([] as any);
+    const user = userEvent.setup();
+
+    renderList();
+
+    const header = await screen.findByTestId("testrun-create-btn");
+    expect(header).toHaveTextContent("+ testRuns.create");
+    expect(screen.getByTestId("testrun-list-empty-create")).toHaveTextContent(
+      "+ testRuns.create",
+    );
+
+    // The trigger stays put (disabled) instead of becoming a second, wrongly
+    // labelled "cancel" affordance; the form owns cancelling itself.
+    await user.click(header);
+    expect(screen.getByTestId("testrun-create-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("testrun-create-cancel-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("testrun-create-btn")).toBeDisabled();
   });
 
   it("shows empty state when no test runs exist", async () => {
@@ -409,6 +438,88 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
           test_case_ids: ["tc-1"],
         });
       });
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // UI-56 (Systemaudit 2026-08-27 AP-5): test-case picker search + select-all.
+  // -------------------------------------------------------------------
+  describe("test-case picker search and select-all (UI-56)", () => {
+    const testCases = [
+      { id: "tc-1", workspace_id: "ws-123", title: "Login works", description: "", status: "active", version: 1, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+      { id: "tc-2", workspace_id: "ws-123", title: "Logout works", description: "", status: "active", version: 1, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+      { id: "tc-3", workspace_id: "ws-123", title: "Password reset", description: "", status: "active", version: 1, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+    ];
+
+    it("filters the picker list by the search input", async () => {
+      vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue(testCases as any);
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByTestId("testrun-create-btn"));
+      await screen.findByTestId("testrun-create-testcases-list");
+
+      await user.type(screen.getByTestId("testrun-create-testcases-search"), "login");
+
+      expect(screen.getByText("Login works")).toBeInTheDocument();
+      expect(screen.queryByText("Logout works")).not.toBeInTheDocument();
+      expect(screen.queryByText("Password reset")).not.toBeInTheDocument();
+    });
+
+    it("shows a no-match state when the search matches nothing", async () => {
+      vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue(testCases as any);
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByTestId("testrun-create-btn"));
+      await screen.findByTestId("testrun-create-testcases-list");
+
+      await user.type(
+        screen.getByTestId("testrun-create-testcases-search"),
+        "no such test case",
+      );
+
+      expect(screen.getByTestId("testrun-create-testcases-no-match")).toBeInTheDocument();
+      expect(screen.queryByTestId("testrun-create-testcases-list")).not.toBeInTheDocument();
+    });
+
+    it("selects and deselects all visible test cases via the select-all checkbox", async () => {
+      vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue(testCases as any);
+      vi.mocked(testRunsModule.testRunsApi.create).mockResolvedValue({ id: "tr-4" } as any);
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByTestId("testrun-create-btn"));
+      await screen.findByTestId("testrun-create-testcase-tc-1");
+
+      await user.click(screen.getByTestId("testrun-create-testcases-select-all"));
+      expect(screen.getByTestId("testrun-create-testcase-tc-1")).toBeChecked();
+      expect(screen.getByTestId("testrun-create-testcase-tc-2")).toBeChecked();
+      expect(screen.getByTestId("testrun-create-testcase-tc-3")).toBeChecked();
+      expect(screen.getByTestId("testrun-create-testcases-selected-count")).toBeInTheDocument();
+
+      await user.click(screen.getByTestId("testrun-create-testcases-select-all"));
+      expect(screen.getByTestId("testrun-create-testcase-tc-1")).not.toBeChecked();
+      expect(screen.getByTestId("testrun-create-testcase-tc-2")).not.toBeChecked();
+      expect(screen.getByTestId("testrun-create-testcase-tc-3")).not.toBeChecked();
+    });
+
+    it("select-all only affects the currently filtered/visible test cases", async () => {
+      vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue(testCases as any);
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(await screen.findByTestId("testrun-create-btn"));
+      await screen.findByTestId("testrun-create-testcase-tc-1");
+
+      await user.type(screen.getByTestId("testrun-create-testcases-search"), "log");
+      await user.click(screen.getByTestId("testrun-create-testcases-select-all"));
+
+      expect(screen.getByTestId("testrun-create-testcase-tc-1")).toBeChecked();
+      expect(screen.getByTestId("testrun-create-testcase-tc-2")).toBeChecked();
+
+      await user.clear(screen.getByTestId("testrun-create-testcases-search"));
+      expect(screen.getByTestId("testrun-create-testcase-tc-3")).not.toBeChecked();
     });
   });
 });

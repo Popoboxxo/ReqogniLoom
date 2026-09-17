@@ -18,9 +18,17 @@ test.describe('Global Search', () => {
     await page.goto(`${FRONTEND_URL}/`);
     const searchInput = page.locator('[data-testid="global-search"]');
     await searchInput.fill('test');
-    await searchInput.press('Enter');
-    // Either results dropdown or navigation should happen
-    await page.waitForTimeout(2000);
+    // Enter clears the debounce and calls runSearch() immediately
+    // (SidebarNavigation.tsx handleSearchKeyDown), which issues a GET to
+    // /search/. Wait for that response instead of a fixed delay — either
+    // the results dropdown or a navigation should follow.
+    const [searchResponse] = await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/search/') && resp.request().method() === 'GET'
+      ),
+      searchInput.press('Enter'),
+    ]);
+    expect(searchResponse.ok()).toBeTruthy();
     // Just verify no crash — the page should still be functional
     await expect(page.locator('body')).not.toContainText('TypeError');
   });

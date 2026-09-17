@@ -6,12 +6,13 @@ import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/au
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // "+ New" only opens an inline quick-create form (title input + Save/Cancel);
-// the full editor (req-title etc.) only renders after Save navigates to the
+// the full editor (artifact-field-title etc.) only renders after Save navigates to the
 // created requirement's detail route.
-async function createRequirementViaQuickForm(page: Page): Promise<void> {
+async function createRequirementViaQuickForm(page: Page, title = 'E2E Requirement'): Promise<void> {
   await page.locator('[data-testid="create-req-btn"]').click();
+  await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 }
 
 test.describe('[COMP-RF-003] RequirementEditors', () => {
@@ -27,7 +28,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await createRequirementViaQuickForm(page);
 
     // Inline edit title
-    const title = page.locator('[data-testid="req-title"]');
+    const title = page.locator('[data-testid="artifact-field-title"]');
     await title.fill('Inline Edit Title REQ-L3-RF003-001');
     await expect(title).toHaveValue('Inline Edit Title REQ-L3-RF003-001');
 
@@ -50,22 +51,27 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
-    // REQ-143: the current state is shown read-only (WorkflowEngine-owned);
-    // a transitions <select> ("req-workflow") only renders when the backend
-    // reports allowed transitions from the current state — otherwise a
-    // "req-workflow-locked" message is shown instead. Fixed literal states
+    // REQ-161: the current state is shown read-only via WorkflowStatusEditor's
+    // status badge; a "Change status" trigger + menu only renders when the
+    // backend reports allowed transitions from the current state — otherwise
+    // a "workflow-no-transitions" hint is shown instead. Fixed literal states
     // ('draft'/'review'/'approved') are no longer guaranteed as option text.
-    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible({ timeout: 10000 });
 
-    const workflow = page.locator('[data-testid="req-workflow"]');
-    const locked = page.locator('[data-testid="req-workflow-locked"]');
-    await expect(workflow.or(locked)).toBeVisible({ timeout: 6000 });
+    const trigger = page.locator('[data-testid="workflow-transition-trigger"]');
+    const noTransitions = page.locator('[data-testid="workflow-no-transitions"]');
+    await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 6000 });
 
-    if (await workflow.count()) {
-      const targetState = await workflow.locator('option').nth(1).getAttribute('value');
+    if (await trigger.count()) {
+      await trigger.click();
+      const menu = page.locator('[data-testid="workflow-transition-menu"]');
+      await expect(menu).toBeVisible();
+
+      const option = menu.locator('[data-testid^="workflow-transition-option-"]').first();
+      const targetState = await option.getAttribute('data-testid');
       if (targetState) {
-        await workflow.selectOption(targetState);
-        await expect(workflow).toHaveValue(targetState);
+        await option.click();
+        await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible();
       }
     }
   });
@@ -110,15 +116,17 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await expect(page.locator('[data-testid="req-tracelink-type-select"]')).toBeVisible({ timeout: 4000 });
     await expect(page.locator('[data-testid="req-tracelink-submit-btn"]')).toBeVisible({ timeout: 4000 });
 
-    // All 6 link types must be available. Options render getLinkTypeLabel()
-    // as display text (e.g. "Parent / Child") but keep the raw LinkType as
-    // the underlying `value` — assert against values, not visible text.
+    // All 8 core link types must be available (link-types catalog migration,
+    // 2026-09). Options render getLinkTypeLabel() as display text but keep
+    // the raw catalog key as the underlying `value` — assert against values,
+    // not visible text. The pre-migration types this used to assert
+    // ('parent-child', 'satisfies', 'implements', 'refines') no longer exist.
     const typeValues = await page.locator('[data-testid="req-tracelink-type-select"]').locator('option').evaluateAll(
       (opts) => opts.map((o) => (o as HTMLOptionElement).value)
     );
     const realTypes = typeValues.filter((o) => o.trim());
-    expect(realTypes).toEqual(expect.arrayContaining(['parent-child', 'derives-from', 'satisfies', 'verifies', 'implements', 'refines']));
-    expect(realTypes.length).toBeGreaterThanOrEqual(6);
+    expect(realTypes).toEqual(expect.arrayContaining(['derives-from', 'decomposes', 'allocated-to', 'verifies', 'decides', 'mitigates', 'references', 'diagram-ref']));
+    expect(realTypes.length).toBeGreaterThanOrEqual(8);
   });
 
   // -------------------------------------------------------------------------

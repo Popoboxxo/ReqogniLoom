@@ -33,6 +33,8 @@ import pytest
 
 from application.self_init import run_self_init
 from application.workspace_provisioning import WORKFLOW_ENTITY_TYPES
+from attribute_definitions.models import GlobalAttributeDefinition
+from attribute_definitions.schema import ITEM_TYPES
 from auth_tenancy.provisioning import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
 from persistence.models import User, Workspace
 from persistence.tenancy import TenantContext
@@ -92,7 +94,49 @@ def test_run_self_init_on_empty_database_provisions_admin_and_workflows(monkeypa
     workspace = Workspace.unscoped.get(name="Demo Workspace")
     item_types = _workflow_item_types_for(workspace.id)
     assert item_types == _EXPECTED_WORKFLOW_ITEM_TYPES
-    assert len(item_types) == 11
+    # Pre-existing staleness found while working on #41: this used to be a
+    # hardcoded `== 13`, which silently drifted out of sync with
+    # WORKFLOW_ENTITY_TYPES once "Interview" was added there (14 entries now)
+    # -- the set-equality assert above already covers this correctly since
+    # _EXPECTED_WORKFLOW_ITEM_TYPES is derived from the same tuple; deriving
+    # the count from it too means this can't go stale again the same way.
+    assert len(item_types) == len(_EXPECTED_WORKFLOW_ITEM_TYPES)
+
+
+def test_run_self_init_bootstraps_attribute_definitions_for_the_new_tenant(
+    monkeypatch,
+):
+    """[#888] should seed global attribute definitions for the tenant it creates
+
+    Migration 0003 only seeds tenants that already exist when migrations run.
+    On a fresh database the tenant is created by self-init itself, moments
+    later in the same post_migrate pass — without this the tenant has zero
+    global definitions and every artifact form renders the
+    "No global attribute definition for '<type>/<preset>'" error instead of
+    its fields (root cause of the PR #888 e2e failures).
+    """
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "s3lf-init-pw-2026")
+    assert GlobalAttributeDefinition.unscoped.exists() is False
+
+    run_self_init()
+
+    tenant_id = _tenant_id_of(Workspace.unscoped.get(name="Demo Workspace").id)
+    seeded = set(
+        GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant_id).values_list(
+            "item_type", flat=True
+        )
+    )
+    assert seeded == set(ITEM_TYPES)
+    # Three rigor presets per item type, no duplicates.
+    assert GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant_id).count() == (
+        len(ITEM_TYPES) * 3
+    )
+
+    # Idempotent: a second pass must not duplicate or multiply the rows.
+    run_self_init()
+    assert GlobalAttributeDefinition.unscoped.filter(tenant_id=tenant_id).count() == (
+        len(ITEM_TYPES) * 3
+    )
 
 
 def test_run_self_init_is_idempotent_on_repeated_runs(monkeypatch):
@@ -281,9 +325,19 @@ def test_application_config_registers_post_migrate_receiver():
     """[REQ-188] should register the self-init receiver on the post_migrate signal with the documented dispatch_uid"""
     from django.db.models.signals import post_migrate
 
+    # ``Signal.receivers`` is a Django internal with no public introspection
+    # equivalent, and its entry shape is NOT stable across Django versions:
+    # Django 4.2 stored ``(lookup_key, receiver)`` while Django 5.0+ appends a
+    # third ``is_async`` element (``(lookup_key, receiver, is_async)``) as part
+    # of the async-signal support added in 5.0. Unpacking a fixed arity here
+    # therefore broke on the 4.2 -> 5.2 upgrade with "too many values to
+    # unpack (expected 2)".
+    #
+    # Only element 0 (the ``lookup_key``, itself a ``(dispatch_uid, sender_id)``
+    # tuple) carries the contract under test, so index it positionally and stay
+    # agnostic about how many elements follow — the same version-robust access
+    # pattern already used in test_cache_invalidation.py.
     dispatch_uids = {
-        receiver_key[0]
-        for receiver_key, _receiver in post_migrate.receivers
-        if isinstance(receiver_key, tuple)
+        entry[0][0] for entry in post_migrate.receivers if isinstance(entry[0], tuple)
     }
     assert "application.self_init.run_self_init" in dispatch_uids

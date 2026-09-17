@@ -23,6 +23,10 @@ Interfaces:
   IF-L1-037 (ApplicationService): create_icd, update_icd,
                                    validate_compatibility, get_icd_history
   IF-L1-038 (BaselineService):    get_icd_versions(workspace_id)
+
+Datenmodell-Konsolidierung Task 28c-2 retired ``IcdVersion``: the history
+readers return :class:`icd.models.IcdRevision` (a by-value read model over
+``persistence.ArtifactVersion``) instead of ORM rows.
 """
 from __future__ import annotations
 
@@ -44,7 +48,7 @@ from icd.icd_parameter_service import (
     IcdParameterUpdateDTO,
     get_parameter_service,
 )
-from icd.models import Icd, IcdParameter, IcdVersion
+from icd.models import Icd, IcdParameter, IcdRevision
 
 
 # ---------------------------------------------------------------------------
@@ -70,15 +74,46 @@ def get_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> Icd:
     req_id: REQ-066, REQ-L2-ICD-001
     leaf_id: COMP-ICD-001
     """
-    return Icd.objects.get(id=icd_id, tenant_id=tenant_id)
+    return Icd.objects.select_related("artifact").get(id=icd_id, tenant_id=tenant_id)
+
+
+def list_icds(workspace_id: uuid.UUID, tenant_id: uuid.UUID) -> list[Icd]:
+    """Return all ICDs for a workspace, tenant-scoped (ADR-01 facade).
+
+    Encapsulates the tenant-scoped ORM lookup so REST views stay ORM-free
+    (SA-19 — REST layer must not query models directly).
+
+    Args:
+        workspace_id: UUID of the owning workspace.
+        tenant_id:    Active tenant primary key (isolation boundary).
+
+    Returns:
+        List of Icd ORM objects, newest first.
+
+    req_id: REQ-066, REQ-L2-ICD-001
+    leaf_id: COMP-ICD-001
+    """
+    return list(
+        Icd.objects.select_related("artifact")
+        .filter(workspace_id=workspace_id, tenant_id=tenant_id)
+        .order_by("-created_at")
+    )
 
 
 def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-    """Delete a tenant-scoped ICD and all its immutable versions (REQ-066).
+    """Delete a tenant-scoped ICD and its structured parameters (REQ-066).
 
-    IcdVersion rows are immutable via a DB trigger (ADR-ICD-01); the trigger is
-    temporarily disabled to permit cascade deletion, then re-enabled in a
-    ``finally`` block so it always survives the operation.
+    Datenmodell-Konsolidierung Task 28c-2 removed the ``IcdVersion`` table and
+    with it the ownership problem this function used to work around: the
+    immutability trigger on ``icd_version`` had to be bypassed through the
+    transaction-local ``app.allow_icd_version_delete`` GUC, because
+    ``ALTER TABLE ... DISABLE TRIGGER`` needs table ownership the runtime role
+    does not have (REQ-L2-PL-010). No trigger guards ``icd_icd`` or
+    ``icd_parameter``, so the delete is now a plain cascading ORM delete.
+
+    The ICD's contract history in ``persistence.ArtifactVersion`` hangs off the
+    backing Artifact and is deliberately not touched here — same as for every
+    other artifact type.
 
     Args:
         icd_id:    UUID of the Icd to delete.
@@ -90,34 +125,15 @@ def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
     req_id: REQ-066, REQ-L2-ICD-001
     leaf_id: COMP-ICD-001
     """
-    from django.db import connection
+    from django.db import transaction
 
-    icd = Icd.objects.get(id=icd_id, tenant_id=tenant_id)
-
-    with connection.cursor() as cursor:
-        # Temporarily disable the immutability trigger to allow deletion.
-        cursor.execute(
-            "ALTER TABLE icd_version DISABLE TRIGGER trg_icd_version_immutable"
-        )
-        try:
-            # Nullify FK to avoid constraint issues, then delete versions.
-            icd.current_version = None
-            icd.save(update_fields=["current_version"])
-            cursor.execute(
-                "DELETE FROM icd_version WHERE icd_id = %s",
-                [str(icd.id)],
-            )
-        finally:
-            cursor.execute(
-                "ALTER TABLE icd_version ENABLE TRIGGER trg_icd_version_immutable"
-            )
-
-    # Now delete the ICD itself (no child FK references remain).
-    icd.delete()
+    with transaction.atomic():
+        # IcdParameter.icd is on_delete=CASCADE, so parameters go with it.
+        Icd.objects.get(id=icd_id, tenant_id=tenant_id).delete()
 
 
 def create_icd(payload: IcdCreateDTO) -> IcdResult:
-    """Create a new ICD with initial version 1 and a 'realizes' TraceLink.
+    """Create a new ICD at revision 1 with a 'decomposes' TraceLink.
 
     IF-L1-037 (ApplicationService → IcdManagementSystem).
 
@@ -125,7 +141,7 @@ def create_icd(payload: IcdCreateDTO) -> IcdResult:
         payload: IcdCreateDTO containing all required fields.
 
     Returns:
-        IcdResult with the persisted Icd and IcdVersion(v1).
+        IcdResult with the persisted Icd and its revision-1 IcdRevision.
 
     Raises:
         ValueError: Syntax validation failure on the payload.
@@ -136,8 +152,10 @@ def create_icd(payload: IcdCreateDTO) -> IcdResult:
     return get_manager().create_icd(payload)
 
 
-def update_icd(icd_id: uuid.UUID, payload: IcdUpdateDTO) -> IcdResult:
-    """Append a new immutable IcdVersion with breaking-change detection.
+def update_icd(
+    icd_id: uuid.UUID, payload: IcdUpdateDTO, tenant_id: uuid.UUID
+) -> IcdResult:
+    """Overwrite the ICD contract with breaking-change detection.
 
     IF-L1-037 (ApplicationService → IcdManagementSystem).
 
@@ -148,23 +166,25 @@ def update_icd(icd_id: uuid.UUID, payload: IcdUpdateDTO) -> IcdResult:
     Args:
         icd_id:  UUID of the Icd to update.
         payload: IcdUpdateDTO with fields to change (None = keep current).
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
-        IcdResult with the new IcdVersion and validation_result populated.
+        IcdResult with the new IcdRevision and validation_result populated.
 
     Raises:
-        Icd.DoesNotExist: When no ICD with the given id is found.
+        Icd.DoesNotExist: When no ICD with the given id is found for this tenant.
         ValueError: Syntax validation failure on the merged payload.
 
     req_id: REQ-L2-ICD-001, REQ-L2-ICD-003, REQ-L2-ICD-006
     leaf_id: COMP-ICD-001
     """
-    return get_manager().update_icd(icd_id=icd_id, payload=payload)
+    return get_manager().update_icd(icd_id=icd_id, payload=payload, tenant_id=tenant_id)
 
 
 def validate_compatibility(
     icd_id: uuid.UUID,
     new_payload: dict[str, Any],
+    tenant_id: uuid.UUID,
 ) -> ValidationResult:
     """Dry-run compatibility check for a proposed ICD update.
 
@@ -173,6 +193,7 @@ def validate_compatibility(
     Args:
         icd_id:      UUID of the target Icd.
         new_payload: Dict with proposed contract fields.
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
         ValidationResult with is_breaking and breaking_changes populated.
@@ -180,24 +201,27 @@ def validate_compatibility(
     req_id: REQ-L2-ICD-003
     leaf_id: COMP-ICD-001
     """
-    return get_manager().validate_compatibility(icd_id=icd_id, new_payload=new_payload)
+    return get_manager().validate_compatibility(
+        icd_id=icd_id, new_payload=new_payload, tenant_id=tenant_id
+    )
 
 
-def get_icd_history(icd_id: uuid.UUID) -> list[IcdVersion]:
-    """Return all IcdVersions for the given ICD, oldest-first.
+def get_icd_history(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> list[IcdRevision]:
+    """Return all contract revisions of the given ICD, oldest-first.
 
     IF-L1-037 (ApplicationService → IcdManagementSystem).
 
     Args:
         icd_id: UUID of the target Icd.
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
-        List of IcdVersion objects ordered by version_number ascending.
+        List of IcdRevision objects ordered by version_number ascending.
 
     req_id: REQ-L2-ICD-001
     leaf_id: COMP-ICD-001
     """
-    return get_manager().get_icd_history(icd_id=icd_id)
+    return get_manager().get_icd_history(icd_id=icd_id, tenant_id=tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -205,20 +229,19 @@ def get_icd_history(icd_id: uuid.UUID) -> list[IcdVersion]:
 # ---------------------------------------------------------------------------
 
 
-def get_icd_versions(workspace_id: uuid.UUID) -> list[IcdVersion]:
-    """Return the current (latest) IcdVersion for each ICD in a workspace.
+def get_icd_versions(workspace_id: uuid.UUID) -> list[IcdRevision]:
+    """Return the current contract revision of each ICD in a workspace.
 
     IF-L1-038 (BaselineService → IcdManagementSystem).
 
     Used by BaselineService to capture a point-in-time snapshot of all
-    interface contracts in a workspace. Returns exactly one IcdVersion per
-    active ICD (the most recent version).
+    interface contracts in a workspace.
 
     Args:
         workspace_id: UUID of the workspace to snapshot.
 
     Returns:
-        List of IcdVersion objects (one per active ICD in the workspace).
+        List of IcdRevision objects (one per ICD with recorded content).
 
     req_id: REQ-L2-ICD-005
     leaf_id: COMP-ICD-001
@@ -238,12 +261,12 @@ def find_similar_icds(
 ) -> list[SimilarIcdDTO]:
     """Return the ICDs most semantically similar to *icd_id*.
 
-    IF-L1-037. Cosine-distance nearest-neighbour search over the current
-    IcdVersion embeddings, tenant-scoped and excluding the query ICD.
+    IF-L1-037. Cosine-distance nearest-neighbour search over the Icd
+    embedding column, tenant-scoped and excluding the query ICD.
 
     Raises:
         Icd.DoesNotExist: The query ICD does not exist.
-        ValueError: The query ICD's current version has no embedding.
+        ValueError: The query ICD has no embedding.
         IcdPgVectorUnavailableError: pgvector package/extension unavailable.
 
     req_id: REQ-L2-VS-004
@@ -255,14 +278,14 @@ def find_similar_icds(
 
 
 # ---------------------------------------------------------------------------
-# REQ-L2-ICD-002: structured IcdVersion parameters (COMP-ICD-001)
+# REQ-L2-ICD-002: structured Icd contract parameters (COMP-ICD-001)
 # ---------------------------------------------------------------------------
 
 
 def create_icd_parameter(
     payload: IcdParameterCreateDTO, tenant_id: uuid.UUID
 ) -> IcdParameter:
-    """Create a structured parameter on an IcdVersion.
+    """Create a structured parameter on an ICD.
 
     IF-L1-037 (ApplicationService → IcdManagementSystem).
 
@@ -275,13 +298,13 @@ def create_icd_parameter(
 
     Raises:
         ValueError: When the parameter name is blank.
-        IcdVersion.DoesNotExist: When the target IcdVersion is not found.
+        Icd.DoesNotExist: When the target Icd is not found.
 
     req_id: REQ-L2-ICD-002
     leaf_id: COMP-ICD-001
     """
     return get_parameter_service().create_parameter(
-        icd_version_id=payload.icd_version_id,
+        icd_id=payload.icd_id,
         name=payload.name,
         tenant_id=tenant_id,
         unit=payload.unit,
@@ -356,13 +379,13 @@ def delete_icd_parameter(parameter_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
     )
 
 
-def list_icd_parameters(icd_version_id: uuid.UUID, tenant_id: uuid.UUID):
-    """Return all IcdParameters for a given IcdVersion (tenant-scoped).
+def list_icd_parameters(icd_id: uuid.UUID, tenant_id: uuid.UUID):
+    """Return all IcdParameters of an ICD's current contract (tenant-scoped).
 
     IF-L1-037 (ApplicationService → IcdManagementSystem).
 
     Args:
-        icd_version_id: UUID of the target IcdVersion.
+        icd_id: UUID of the target Icd.
         tenant_id: Active tenant primary key (isolation boundary).
 
     Returns:
@@ -372,7 +395,7 @@ def list_icd_parameters(icd_version_id: uuid.UUID, tenant_id: uuid.UUID):
     leaf_id: COMP-ICD-001
     """
     return get_parameter_service().list_parameters(
-        icd_version_id=icd_version_id, tenant_id=tenant_id
+        icd_id=icd_id, tenant_id=tenant_id
     )
 
 
@@ -405,7 +428,7 @@ __all__ = [
     "IcdParameterCreateDTO",
     "IcdParameterUpdateDTO",
     "IcdParameterNotFoundError",
-    # Model re-exported for type hints
-    "IcdVersion",
+    # Read model / ORM type re-exported for type hints
+    "IcdRevision",
     "IcdParameter",
 ]

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import UUID
@@ -66,12 +67,69 @@ AI_REVIEW_PROMPT_TEMPLATE = (
 )
 
 
+# Prompt purpose name — must stay in the workspace-wide set of
+# ``llm_adapter.timeouts.WORKSPACE_WIDE_PURPOSES`` (issue #342).
+_AI_REVIEW_PURPOSE = "audit_ai_review"
+
+
+def _is_timeout_failure(error: BaseException) -> bool:
+    """Return True when *error* is, or wraps, a provider timeout (issue #951).
+
+    The timeout case gets its own message because the timeout budget is then
+    the actionable fact (see :func:`_failure_message`).
+    """
+    if isinstance(error, (TimeoutError, socket.timeout)):
+        return True
+    # A real outbound call fails inside ``llm_adapter.resilient_transport``,
+    # which wraps the terminal failure in an ``LlmTransportError`` and
+    # deliberately preserves the reason text ("Carries the final error text
+    # (including any HTTP status token) so the CapabilityRouter's message-based
+    # categorisation still applies"). The resilience taxonomy's own
+    # ``TimeoutError`` is *not* a ``builtins.TimeoutError`` subclass, so that
+    # reason text is the only timeout signal that survives the wrapper.
+    return "timeout" in str(error).lower()
+
+
+def _failure_message(provider_name: str, error: BaseException, timeout: float) -> str:
+    """Build the client-facing ``AiReviewResponseError`` message (issue #951).
+
+    The raw provider exception is deliberately NOT interpolated: SDK errors
+    routinely carry endpoint details, request/response fragments or credential
+    hints, and this message travels to the MCP client and the REST caller
+    (CWE-209). The full detail is logged by the caller instead, and the caller
+    gets a stable, actionable sentence naming the provider that actually
+    answered the call — the pre-#951 message named ``settings.LLM_PROVIDER``
+    (the *environment* default), which can differ from the effective provider
+    when a tenant's persisted ``LlmSettings`` row overrides it, and described
+    every failure as a timeout so a credential/429 error read as "did not
+    answer within 180s".
+    """
+    if _is_timeout_failure(error):
+        return (
+            f"The LLM provider '{provider_name}' did not answer the ai_review "
+            f"request within {timeout:.0f}s. Narrow the request "
+            "(scope=document) or raise LLM_LONG_RUNNING_TIMEOUT."
+        )
+    return (
+        f"The LLM provider '{provider_name}' failed to answer the ai_review "
+        "request. Check the provider configuration and credentials (LLM "
+        "settings), or switch to the credential-free mock provider "
+        "(LLM_PROVIDER=mock); the provider error is in the server log."
+    )
+
+
 class AiReviewResponseError(RuntimeError):
-    """Raised when the LLM returns a response that cannot be parsed as JSON.
+    """Raised when the LLM call fails or returns unparseable content.
 
     Sibling of ``application.ai_derivation_service.LlmResponseError``: the
     request itself was valid, but the provider misbehaved. Maps to HTTP 500
     in the REST layer and to an INTERNAL_ERROR ToolResult in the MCP layer.
+
+    Issue #342: this also covers *transport* failures (timeout, open circuit
+    breaker, SDK error). They used to escape ``_complete`` raw as an
+    ``LlmTransportError`` and reached the MCP/REST boundary as an unhandled
+    exception; now every caller gets the same catchable error type with an
+    actionable message.
     """
 
 
@@ -103,12 +161,25 @@ class RefactoringPackage:
 
 @dataclass
 class AiReviewResult:
-    """Full N8 run: tier/provider metadata plus the generated packages."""
+    """Full N8 run: tier/provider metadata plus the generated packages.
+
+    ``truncated`` / ``total_findings_available`` (BUG-15 follow-up M2):
+    ``review()`` reads ``report.findings`` from ``AuditService.run_audit``,
+    which caps at ``AuditService.MAX_REPORT_FINDINGS`` — so ``total_findings``
+    here is the *returned* (possibly capped) count, same convention as
+    ``AuditReport.counts.total``. Without these two fields an MCP/REST
+    caller has no way to tell a genuinely-clean workspace apart from a
+    workspace whose findings were silently capped before packaging —
+    propagated straight from the underlying ``AuditReport`` so the signal
+    survives this layer instead of being dropped.
+    """
 
     tier: str
     provider: str
     degraded: bool
     total_findings: int = 0
+    truncated: bool = False
+    total_findings_available: int = 0
     packages: List[RefactoringPackage] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -118,6 +189,8 @@ class AiReviewResult:
             "provider": self.provider,
             "degraded": self.degraded,
             "packages": [p.to_dict() for p in self.packages],
+            "truncated": self.truncated,
+            "total_findings_available": self.total_findings_available,
             "counts": {
                 "total_findings": self.total_findings,
                 "packaged_findings": packaged,
@@ -164,12 +237,17 @@ class AiReviewService(ServiceBase):
 
         if not findings:
             return AiReviewResult(
-                tier=report.tier, provider="mock", degraded=False, total_findings=0
+                tier=report.tier,
+                provider="mock",
+                degraded=False,
+                total_findings=0,
+                truncated=report.truncated,
+                total_findings_available=report.total_findings_available,
             )
 
         findings_payload = [self._finding_payload(fv) for fv in findings]
 
-        raw, provider_name, degraded = self._complete(findings_payload)
+        raw, provider_name, degraded = self._complete(findings_payload, workspace_id=str(workspace_id))
         proposed = self._parse_packages(raw)
 
         by_index: Dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
@@ -180,6 +258,8 @@ class AiReviewService(ServiceBase):
             provider=provider_name,
             degraded=degraded,
             total_findings=len(findings),
+            truncated=report.truncated,
+            total_findings_available=report.total_findings_available,
             packages=packages,
         )
 
@@ -258,7 +338,7 @@ class AiReviewService(ServiceBase):
     # ------------------------------------------------------------------
 
     def _complete(
-        self, findings_payload: List[Dict[str, Any]]
+        self, findings_payload: List[Dict[str, Any]], *, workspace_id: str
     ) -> Tuple[str, str, bool]:
         """Call the LLM provider for a package grouping (graceful degradation).
 
@@ -266,21 +346,59 @@ class AiReviewService(ServiceBase):
         provider configuration error it degrades to the credential-free
         deterministic mock so the review flow never crashes (REQ-L2-AI-002;
         default provider is ``mock``).
+
+        Issue #342: the prompt spans every finding in the workspace, so the
+        call runs under the workspace-wide timeout resolved by
+        :func:`llm_adapter.timeouts.resolve_timeout_seconds` instead of the
+        provider's 30s config default. Transport failures (timeout, open
+        circuit breaker) are mapped to :class:`AiReviewResponseError` rather
+        than escaping as an unhandled ``LlmTransportError``.
+
+        Code review finding: this call bypassed REQ-106 (per-tenant daily LLM
+        token budget) and the LlmAuditLog trail entirely -- neither an
+        is_over_daily_limit() check beforehand nor a
+        LlmAuditLogger.log_llm_call()/record_token_usage() call afterward,
+        unlike every other free-form LLM flow in this codebase. Both are now
+        applied here, mirroring AiDerivationService._complete /
+        BundleCompressionService._call_provider.
+
+        Raises:
+            AiReviewResponseError: The provider call failed outright.
+            LlmResponseError: The tenant's daily LLM token budget is already
+                exceeded (checked before the real-provider call only; the
+                mock-fallback path is exempt, ADR-02).
         """
         from django.conf import settings
 
+        from application.ai_derivation_service import (
+            AiDerivationService,
+            LlmResponseError,
+        )
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
             LlmProviderUnknownError,
             MockLlmProvider,
             get_provider,
         )
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
+        )
 
         prompt = AI_REVIEW_PROMPT_TEMPLATE.format(
             findings_json=json.dumps(findings_payload)
         )
+        # R5/R7 Sprache (systemaudit 2026-09-02): reuse AiDerivationService's
+        # workspace-language directive (issue #795) rather than duplicating
+        # it -- audit.ai_review is the one content-generating flow that fix
+        # did not cover (it lives in a sibling module).
+        prompt += AiDerivationService._language_instruction(workspace_id)
         context = {"findings": findings_payload}
         provider_name = getattr(settings, "LLM_PROVIDER", "mock")
+        audit_logger = LlmAuditLogger()
         degraded = False
         try:
             provider = get_provider()
@@ -293,8 +411,80 @@ class AiReviewService(ServiceBase):
             provider = MockLlmProvider()
             provider_name = "mock"
             degraded = True
+        else:
+            # #951: ``settings.LLM_PROVIDER`` is only the *environment*
+            # default. A tenant's persisted ``LlmSettings`` row wins over it
+            # (``llm_adapter.providers._apply_db_settings``), so the env value
+            # can name a provider that was never called — the reported failure
+            # said "provider 'mock'" while the call actually went to
+            # 'opencode_go'. Report the provider that is really in use.
+            provider_name = getattr(provider, "PROVIDER_NAME", provider_name)
 
-        raw = provider.complete(prompt, purpose="audit_ai_review", context=context)
+        if not degraded and is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=_AI_REVIEW_PURPOSE,
+                artifact_id=workspace_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise LlmResponseError(
+                "Daily LLM token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
+
+        timeout = resolve_timeout_seconds(_AI_REVIEW_PURPOSE)
+        try:
+            raw = provider.complete(
+                prompt,
+                purpose=_AI_REVIEW_PURPOSE,
+                context=context,
+                timeout=timeout,
+            )
+        except Exception as error:  # noqa: BLE001 — see class docstring (#342)
+            logger.warning(
+                "audit.ai_review: provider %s call failed (timeout=%ss): %s",
+                provider_name,
+                timeout,
+                error,
+                # #951: the raw provider detail is the diagnostic — keep it in
+                # the log (this is what the issue's "nicht diagnostizierbar"
+                # complaint was about) and out of the client-facing message.
+                exc_info=True,
+            )
+            if not degraded:
+                audit_logger.log_llm_call(
+                    provider=provider_name,
+                    capability=_AI_REVIEW_PURPOSE,
+                    artifact_id=workspace_id,
+                    token_usage=None,
+                    success=False,
+                    error=str(error),
+                )
+            raise AiReviewResponseError(
+                _failure_message(provider_name, error, timeout)
+            ) from error
+
+        if not degraded:
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=_AI_REVIEW_PURPOSE,
+                artifact_id=workspace_id,
+                token_usage=None,
+                success=True,
+                error=None,
+            )
+            # SA-26: this used to hardcode input_tokens=0, leaving the daily
+            # budget (is_over_daily_limit above) blind to this call's real
+            # spend. Estimate both sides client-side (see
+            # ``approximate_token_count``) like every other free-form path.
+            record_token_usage(
+                provider=provider_name,
+                capability=_AI_REVIEW_PURPOSE,
+                input_tokens=approximate_token_count(prompt),
+                output_tokens=approximate_token_count(raw),
+            )
         return raw, provider_name, degraded
 
     @staticmethod

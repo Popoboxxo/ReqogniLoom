@@ -27,7 +27,11 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
-from rest_api.audit_views import WorkspaceAuditRemediateView, WorkspaceAuditView
+from rest_api.audit_views import (
+    WorkspaceAuditAiReviewView,
+    WorkspaceAuditRemediateView,
+    WorkspaceAuditView,
+)
 from traceability.audit.registry import TRACE_P5
 from traceability.types import LinkType
 
@@ -67,11 +71,17 @@ def workspace(tenant: Tenant) -> Workspace:
     # The audit endpoint derives the rigor tier from the workspace preset (no
     # tier query param by design). Switch to Extended so the extended-only
     # TRACE-P5 rule is active and the endpoint behaviour is deterministic.
+    from link_types.workspace_store import provision_workspace_link_types
     from presets.services import switch_preset
 
     with _active(tenant):
         ws = Workspace.objects.create(tenant=tenant, name="Audit-API-WS")
         switch_preset(str(ws.id), "extended")
+        # This module shadows the conftest `workspace` fixture, so it needs
+        # its own provisioning: link validation is always-on and an
+        # unprovisioned workspace has an empty catalog that rejects every
+        # trace link — including the ones TRACE-P5 remediation writes.
+        provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
         return ws
 
 
@@ -87,8 +97,11 @@ def _ctx(user: User) -> AuthContext:
 def _p5_scenario(tenant, workspace):
     """Parent -decomposes-> child, no derives-from: raises exactly TRACE-P5."""
     def _req(title):
+        # PascalCase, as RequirementService writes it: the link-type catalog
+        # matches allowed_pairs on the exact artifact_type string, so a
+        # lowercase "requirement" makes the remediation link uncreatable.
         art = Artifact.objects.create(
-            tenant=tenant, workspace=workspace, artifact_type="requirement"
+            tenant=tenant, workspace=workspace, artifact_type="Requirement"
         )
         return Requirement.objects.create(tenant=tenant, artifact=art, title=title)
 
@@ -123,6 +136,54 @@ class TestAuditGetEndpoint:
         with _active(tenant):
             req = APIRequestFactory().get(
                 f"/api/v1/workspaces/{workspace.id}/audit/?scope=document"
+            )
+            req.auth_context = _ctx(user)
+            resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
+
+        assert resp.status_code == 400
+
+    def test_get_with_limit_returns_a_windowed_response(self, tenant, workspace, user):
+        """#622: ?limit=&offset= page past the default truncation cap."""
+        with _active(tenant):
+            _p5_scenario(tenant, workspace)
+            req = APIRequestFactory().get(
+                f"/api/v1/workspaces/{workspace.id}/audit/?scope=project&limit=1&offset=0"
+            )
+            req.auth_context = _ctx(user)
+            resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
+
+        assert resp.status_code == 200
+        body = resp.data
+        assert len(body["findings"]) == 1
+        assert body["offset"] == 0
+
+    def test_get_without_limit_omits_pagination_effect(self, tenant, workspace, user):
+        """No ?limit= must behave exactly as before #622 (offset always 0)."""
+        with _active(tenant):
+            _p5_scenario(tenant, workspace)
+            req = APIRequestFactory().get(
+                f"/api/v1/workspaces/{workspace.id}/audit/?scope=project"
+            )
+            req.auth_context = _ctx(user)
+            resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
+
+        assert resp.status_code == 200
+        assert resp.data["offset"] == 0
+
+    def test_get_rejects_non_integer_limit(self, tenant, workspace, user):
+        with _active(tenant):
+            req = APIRequestFactory().get(
+                f"/api/v1/workspaces/{workspace.id}/audit/?scope=project&limit=not-a-number"
+            )
+            req.auth_context = _ctx(user)
+            resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
+
+        assert resp.status_code == 400
+
+    def test_get_rejects_non_integer_offset(self, tenant, workspace, user):
+        with _active(tenant):
+            req = APIRequestFactory().get(
+                f"/api/v1/workspaces/{workspace.id}/audit/?scope=project&limit=10&offset=abc"
             )
             req.auth_context = _ctx(user)
             resp = WorkspaceAuditView.as_view()(req, workspace_id=str(workspace.id))
@@ -184,3 +245,48 @@ class TestAuditRemediateEndpoint:
             )
 
         assert resp.status_code == 400
+
+
+class TestAuditAiReviewEndpointErrorMasking:
+    """CWE-209 regression (DEEP_DIVE_REVIEW C-1, ``audit_views.py:241``):
+    ``AiReviewResponseError`` (e.g. an LLM transport failure) must not leak
+    its raw message to the client, but the real exception must still be
+    logged for operators.
+
+    Also verifies the Task 5 deviation fix: this call site previously had NO
+    ``logger.exception`` at all (unlike the finding's blanket claim that
+    logging was present everywhere) — this test would fail on ``caplog.text``
+    if that gap were not closed.
+    """
+
+    def test_post_masks_internal_exception_but_logs_it(
+        self, tenant, workspace, user, caplog
+    ):
+        from unittest.mock import patch
+
+        from application.ai_review_service import AiReviewResponseError
+
+        sensitive_detail = (
+            "AnthropicError: connection refused to https://internal-llm-proxy"
+            ".corp.local:8443 (api_key=sk-live-REDACTED-but-not-really)"
+        )
+
+        with _active(tenant):
+            req = APIRequestFactory().post(
+                f"/api/v1/workspaces/{workspace.id}/audit/ai-review/"
+            )
+            req.auth_context = _ctx(user)
+            with patch(
+                "rest_api.audit_views.AiReviewService.review",
+                side_effect=AiReviewResponseError(sensitive_detail),
+            ):
+                with caplog.at_level("ERROR"):
+                    resp = WorkspaceAuditAiReviewView.as_view()(
+                        req, workspace_id=str(workspace.id)
+                    )
+
+        assert resp.status_code == 500
+        body = str(resp.data)
+        assert sensitive_detail not in body
+        assert resp.data["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        assert sensitive_detail in caplog.text

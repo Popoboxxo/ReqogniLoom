@@ -1,0 +1,1032 @@
+"""Seed the initial GlobalAttributeDefinition rows from model introspection.
+
+Spec section 3.2 ("the cheap core list", Audit N4 step 1). Runs once per tenant
+as part of the rollout, not live on every read: later new Django model fields
+need an explicit ``--sync-new-fields`` run, which is deliberate — model fields
+change rarely and an automatic sync would silently reintroduce columns an admin
+had removed from the form.
+
+Two design points that make this command order-independent with respect to the
+Datenmodell-Konsolidierung spec:
+
+1. ``status`` is NOT introspected from a column. It is injected synthetically
+   (``locked``, ``editable="workflow"``) because the single status axis after
+   that migration is ``WorkflowItemState.current_state``, not a per-model
+   column. ``options`` stays empty: the concrete states come from the workflow
+   definition, which is already their single source of truth.
+2. Every column that migration drops is in ``EXCLUDED_MODEL_FIELDS``, so the
+   output is byte-identical before and after it.
+
+Models are resolved through ``apps.get_model`` with an ordered candidate list
+because Adr / Risk / Issue / Goal historically lived in ``application.models``
+and moved to ``persistence.models`` in that same migration.
+
+Tenancy: ``Command.handle`` arms both isolation layers per tenant via
+``persistence.middleware.set_request_tenant``/``clear_request_tenant`` (paired
+in a ``finally``). A management command has no request/middleware around it,
+so without this the least-privilege runtime role (``reqogniloom_app``) hits
+Postgres RLS: ``GlobalAttributeDefinitionStore.get`` silently returns nothing
+and ``.initialize`` raises ``ProgrammingError`` ("new row violates row-level
+security policy") — verified live against the dev stack, not just inferred
+from the store's docstring. Same pattern as
+``application.management.commands.backfill_embeddings``.
+"""
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+from django.apps import apps
+from django.core.management.base import BaseCommand, CommandError
+from django.db import models, transaction
+
+from application.cache_invalidation import invalidate_workspace_caches
+from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
+from attribute_definitions.mandatory_fields import LEGACY_MANDATORY_FIELDS_ITEM_TYPE
+from attribute_definitions.models import GlobalAttributeDefinition
+from attribute_definitions.schema import (
+    ITEM_TYPES,
+    PRESETS,
+    SYSTEM_FIELDS_ENABLED_ITEM_TYPES,
+    materialize_sections,
+    normalize_attribute,
+    stored_attributes,
+    stored_sections,
+)
+from attribute_definitions.stage_matrix import (
+    OWNER_MANDATORY_STAGES,
+    PRESET_STAGE,
+    PRIORITY_MANDATORY_STAGES,
+    SEC_ATTRIBUTION,
+    SEC_CHANGE,
+    SEC_CLASSIFICATION,
+    SEC_CONTENT,
+    SEC_IDENTIFICATION,
+    SEC_TRACEABILITY,
+    SEC_TYPE_SPECIFIC,
+    SEC_VERIFICATION,
+    apply_stage_overrides,
+    build_stage_attributes,
+)
+from persistence.models import Tenant
+from presets.registry import PresetRegistry
+
+#: Historical alias. The list itself moved to ``attribute_definitions.schema``
+#: so the store can reject a typo'd ``(item_type, preset)`` key without
+#: importing a management command (ledger item (h)).
+BOOTSTRAP_ITEM_TYPES: tuple[str, ...] = ITEM_TYPES
+
+#: Ordered ``(app_label, model_name)`` candidates per item type. The first that
+#: resolves wins, so a model that moves between apps does not break the command.
+MODEL_LOCATIONS: dict[str, tuple[tuple[str, str], ...]] = {
+    "Requirement": (("persistence", "Requirement"),),
+    "StakeholderNeed": (("persistence", "StakeholderNeed"),),
+    "ArchitectureElement": (("persistence", "ArchitectureElement"),),
+    "TestCase": (("persistence", "TestCase"),),
+    "GlossaryTerm": (("persistence", "GlossaryTerm"),),
+    "Icd": (("icd", "Icd"),),
+    "Adr": (("persistence", "Adr"), ("application", "Adr")),
+    "Risk": (("persistence", "Risk"), ("application", "Risk")),
+    "Issue": (("persistence", "Issue"), ("application", "Issue")),
+    "Goal": (("persistence", "Goal"), ("application", "Goal")),
+    "ChangeRequest": (("persistence", "ChangeRequest"),),
+}
+
+#: Columns that are never user-facing attributes. ``status`` and
+#: ``lifecycle_status`` are here because they are the two status axes the
+#: Datenmodell-Konsolidierung removes; ``status`` comes back synthetically.
+#:
+#: The trailing block is server-owned state that a client neither sends nor may
+#: set. It matters beyond cosmetics since Task 11: ``required`` is derived from
+#: ``blank=False``, and these columns are all ``blank=False``, so leaving them
+#: in made ``validate_artifact_fields`` demand them on every create — a payload
+#: no client can produce (``suspect`` is the SN-30 upstream-change flag,
+#: ``lineage_id``/``sequence_number`` are the Goal version-chain keys the
+#: service assigns, ``current_revision`` is the ICD revision counter), i.e. a
+#: definition that made its own item type uncreatable.
+EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
+    {
+        "current_revision",
+        "lineage_id",
+        "sequence_number",
+        "suspect",
+        "id",
+        "tenant",
+        "tenant_id",
+        "workspace",
+        "workspace_id",
+        "artifact",
+        "artifact_id",
+        "created_at",
+        "modified_at",
+        "updated_at",
+        "created_by",
+        "modified_by",
+        "version",
+        "lock_version",
+        "status",
+        "lifecycle_status",
+        "risk_score",
+        "term_fk",
+        # Task 19 finding: an internal legacy actor-name column, never exposed
+        # by ANY REST serializer (verified: zero matches across
+        # rest_api/serializers.py). Present on Adr/Risk/Goal/MainGoal/Issue/
+        # ChangeRequest — introspecting it produced a visible, editable text
+        # attribute whose value is always empty on read (the REST response
+        # never carries it) and silently discarded on write (unknown
+        # top-level key, see field_validation.py's docstring).
+        "created_by_name",
+        # Task 20 finding: `Issue.assignee_id` changes are deliberately routed
+        # through the dedicated `IssueService.assign_issue()` method (REQ-L3-
+        # ISSUE-008, ADR-L3-ISSUE-02 — its own audit trail with old/new
+        # assignee), not through the generic update path — see
+        # `update_issue()`'s own docstring note ("Assignee changes are handled
+        # by assign_issue() for proper tracking"). No REST or MCP route calls
+        # `assign_issue()` at all (verified: zero matches for `assign_issue`
+        # outside application/issue_service.py), so introspecting `assignee_id`
+        # produced a visible, editable User-picker attribute — same
+        # silent-discard class as `owner_user`/`created_by_name` above, minus
+        # even a serializer field to alias onto. Wiring a real `/assign/`
+        # endpoint is a standalone feature, not part of this rollout wave —
+        # excluded here rather than shipped as a landmine.
+        "assignee_id",
+        # Task 20 finding: the audit timestamp `assign_issue()` itself sets on
+        # every (re)assignment — derived server state, same class as
+        # `created_at`/`updated_at` above, not a user-editable field.
+        "assignee_changed_date",
+        # Gap #4a finding (ChangeRequest bootstrap): `ChangeRequest.baseline`
+        # has no `ChangeRequestSerializer` field at all — introspecting it
+        # produced a visible, editable reference picker whose every write
+        # silently no-op'd (unknown top-level key, dropped by
+        # field_validation.py before the serializer ever sees it), same
+        # silent-discard class as `owner_user`/`assignee_id` above.
+        "baseline",
+    }
+)
+
+#: Per-item-type exclusions layered on top of ``EXCLUDED_MODEL_FIELDS``, for a
+#: column name that is genuine derived server state on ONE model sharing that
+#: name but an ordinary user-editable field on another.
+#:
+#: Task 20 review finding F-1: ``severity`` used to sit in the global
+#: exclusion set above. That is correct for ``Risk.severity`` — a persisted
+#: value derived from ``risk_score`` (see the field's own comment in
+#: persistence/models.py) — but wrong for ``Issue.severity``: an ordinary
+#: 4-choice ``ChoiceField``, writable on ``IssueSerializer`` and documented as
+#: user-settable (L3_COMP-AS-015_IssueService_Requirements.md). The global
+#: exclusion hid it on both models; it belongs on Risk only.
+#:
+#: ``Risk.owner`` (Attribut v3 WS2, #936) joins ``severity`` here: it is the
+#: legacy free-text owner column the spec retires in favour of the
+#: Artifact-level ``owner`` Actor FK (spec sections 3/10). WS7 (#940) renamed
+#: the column to ``Risk.owner_name`` (same DB column) and folds it onto the
+#: Actor carrier via AWMS; the renamed column stays out of the introspected
+#: definition so it cannot collide with the artifact-level ``owner`` attribute
+#: (duplicate name -> AttributeSchemaError during normalize). The physical
+#: column is dropped in a later contract step.
+PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
+    "Risk": frozenset({"severity", "owner_name"}),
+}
+
+#: Attributes an interview must elicit ON TOP of the ``title``/``description``
+#: pair every item type shares, because the type's ``create_X()`` service
+#: method declares them **without a default** — an interview that never asks
+#: for them can only produce a session ``formalize()`` rejects.
+#:
+#: This is the tier-2 half of the same rule ``interview_protocol.
+#: _EXTRA_REQUIRED_FIELDS`` states for tier 3 (the hardcoded factory-default
+#: protocol). ``InterviewProtocol.get_protocol()`` prefers the
+#: attribute-definition-derived protocol whenever a definition exists, and
+#: ``application.self_init`` bootstraps one for every new tenant — so tier 2
+#: is what every real deployment resolves, and marking the fields here is what
+#: actually fixes Risk interviews. Keep the two in sync.
+#:
+#: Risk: ``RiskService.create_risk(workspace_id, title, probability, impact,
+#: ctx)``. ``Adr.description`` needs no entry — it is already in the shared
+#: pair below.
+PER_ITEM_TYPE_AI_ELICIT_FIELDS: dict[str, frozenset[str]] = {
+    "Risk": frozenset({"probability", "impact"}),
+}
+
+#: Elicited for every item type: the two attributes every ``create_X()``
+#: accepts and every artifact needs.
+SHARED_AI_ELICIT_FIELDS: frozenset[str] = frozenset({"title", "description"})
+
+#: The canonical SE section ("Gruppe") vocabulary every bootstrapped item type
+#: is grouped by — ``docs/se/attribut/attribut-modell-3-stufen.md`` §5.2 and
+#: ``docs/se/attribut/attribut-detailtabellen.md`` §14.1. GitHub #803: the
+#: earlier three-way split (``general``/``classification``/``change_control``)
+#: left every SE-relevant core field — title, description, acceptance criteria,
+#: verification method — in the ``general`` catch-all, so the Requirement form
+#: rendered "two sections, then six loose fields". The names are the SAME ones
+#: the stage matrix already uses for its new attributes (``stage_matrix.SEC_*``),
+#: so core and extended attributes of one item type now share one vocabulary.
+IDENTIFICATION_FIELDS: frozenset[str] = frozenset({"uid", "title", "name", "term"})
+CONTENT_FIELDS: frozenset[str] = frozenset({"description", "acceptance_criteria"})
+ATTRIBUTION_FIELDS: frozenset[str] = frozenset({"owner", "reporter"})
+VERIFICATION_FIELDS: frozenset[str] = frozenset({"verification_method"})
+
+CLASSIFICATION_FIELDS: frozenset[str] = frozenset(
+    {
+        "category", "type", "level", "test_type", "element_type", "severity_level",
+        "moscow_priority", "complexity_fibonacci",
+        "probability", "impact", "detection",
+    }
+)
+
+#: ``uid`` moved to :data:`IDENTIFICATION_FIELDS` (matrix Requirement row:
+#: uid is an identity, not a change-control field). ``suspect``/``baseline_id``
+#: stay here — they are change-control state, not identity.
+CHANGE_CONTROL_FIELDS: frozenset[str] = frozenset({"suspect", "baseline_id"})
+
+#: Section order a bootstrapped definition materializes in (spec §5.2): the
+#: SE cascade reads identity -> content -> classification -> justification ->
+#: proof -> traceability -> change control. ``general`` is the documented
+#: fallback bucket for anything the mapping above does not name and is sorted
+#: after the canonical groups; a section name outside this list (an admin's own
+#: section) keeps its first-appearance position behind them. GitHub #803: the
+#: sections list used to materialize in **alphabetical** first-appearance order,
+#: which put ``attribution``/``change_control`` before ``title``'s group.
+SECTION_ORDER: tuple[str, ...] = (
+    SEC_IDENTIFICATION,
+    SEC_CONTENT,
+    SEC_CLASSIFICATION,
+    SEC_ATTRIBUTION,
+    SEC_VERIFICATION,
+    SEC_TRACEABILITY,
+    SEC_CHANGE,
+    SEC_TYPE_SPECIFIC,
+    "general",
+)
+
+_SECTION_INDEX: dict[str, int] = {name: index for index, name in enumerate(SECTION_ORDER)}
+
+
+def section_order_index(section: str) -> int:
+    """Sort key for a section name: canonical order, unknown names last."""
+    return _SECTION_INDEX.get(section, len(SECTION_ORDER))
+
+#: Model fields that are real, visible, serializer-declared columns (so they
+#: must NOT be excluded like ``created_by_name``) but are declared
+#: ``read_only=True`` on every serializer that exposes them (verified: all 8
+#: ``uid = serializers.CharField(read_only=True, ...)`` declarations across
+#: rest_api/serializers.py). ``uid`` is also listed in
+#: ``_PROTECTED_PATCH_FIELDS`` (rest_api/mixins/workflow_transitions.py),
+#: which rejects any PATCH containing it outright. Introspecting it as
+#: ``editable=True`` (the loop's default) therefore produced a definition
+#: that both the form renderer AND every ArtifactForm-driven save round-trip
+#: (GET -> edit -> PATCH) sent straight back — a 400 on every single save.
+#: Template bug: present in every bootstrapped item type, not just Risk.
+#:
+#: Gap #4a finding: `ChangeRequest.requestor_id` is real and serializer-
+#: declared, but `ChangeRequestSerializer.requestor_id` is
+#: `read_only=True` — same landmine class as `uid` above (introspected as
+#: `editable=True`, every PATCH round-trip 400s).
+READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset({"uid", "requestor_id"})
+
+#: Curated widget attributes (spec section 6.3). ``fields[]`` names the core
+#: attributes the widget renders; the form renderer skips those individually so
+#: they are not drawn twice.
+WIDGET_ATTRIBUTES: dict[str, tuple[dict[str, Any], ...]] = {
+    "Risk": (
+        {
+            "name": "risk_matrix",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "risk_matrix_rpz",
+            "fields": ["probability", "impact", "detection"],
+            "section": SEC_CLASSIFICATION,
+            "order": 10,
+            "label": {"de": "Risikomatrix", "en": "Risk matrix"},
+        },
+    ),
+    "Adr": (
+        {
+            "name": "decision_record",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "markdown_tab_group",
+            "fields": ["description", "context", "consequences"],
+            "section": SEC_CONTENT,
+            "order": 10,
+            "label": {"de": "Entscheidung", "en": "Decision"},
+        },
+    ),
+    "TestCase": (
+        {
+            "name": "steps",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "steps_editor",
+            "fields": ["steps_data"],
+            "section": SEC_CONTENT,
+            "order": 20,
+            "label": {"de": "Testschritte", "en": "Test steps"},
+        },
+    ),
+    "Issue": (
+        {
+            # Task 20 review finding F-1: `Issue.tags` is a JSONField, so
+            # `_attribute_type` returns None for it (no basic renderer) and it
+            # was silently dropped from the introspected definition entirely —
+            # never editable in the migrated ArtifactForm. Registering it as a
+            # widget (same class fix as `steps`/`steps_editor` above) keeps the
+            # raw `tags` column in the definition (still validated/patchable)
+            # while binding an actual editor to it. `name` deliberately differs
+            # from `tags` (the bound field) so the two entries do not collide
+            # under `stored_attributes`' duplicate-name check.
+            "name": "tag_list",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "tag_input",
+            "fields": ["tags"],
+            "section": "general",
+            "order": 30,
+            "label": {"de": "Tags", "en": "Tags"},
+        },
+    ),
+    "ArchitectureElement": (
+        {
+            # Task 24 finding: the deleted hand-written `ArchitectureForm`
+            # edited `description` through `<MarkdownPreview>` (edit/preview
+            # toggle). A bare `description` attribute renders through the
+            # generic `textarea` field type, which has no such toggle — a
+            # parity regression under this migration's own documented policy
+            # ("the migration unifies upward... it never cuts one",
+            # ArtifactForm.tsx). `markdown_tab_group` already supports a
+            # single bound field (`WIDGET_FIELD_CONTRACTS`: any non-empty
+            # `fields` list renders, one tab per field), the same widget Adr's
+            # `decision_record` uses for three fields — reused here for one,
+            # no new widget component needed. `name` deliberately differs
+            # from `description` (the bound field) so the two entries do not
+            # collide under `stored_attributes`' duplicate-name check, same
+            # convention as Issue's `tag_list`/`tags` above.
+            "name": "description_editor",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "markdown_tab_group",
+            "fields": ["description"],
+            "section": SEC_CONTENT,
+            "order": 2,
+            "label": {"de": "Beschreibung", "en": "Description"},
+        },
+    ),
+    "Requirement": (
+        {
+            # Task 25 finding, same parity regression as ArchitectureElement's
+            # `description_editor` above (Task 24): the deleted hand-written
+            # `RequirementForm` edited `description` through
+            # `<MarkdownPreview>` (edit/preview toggle). A bare `description`
+            # attribute renders through the generic `textarea` field type,
+            # which has no such toggle. Reuses the same single-field
+            # `markdown_tab_group` binding, no new widget component needed.
+            "name": "description_editor",
+            "kind": "core",
+            "type": "widget",
+            "widget_key": "markdown_tab_group",
+            "fields": ["description"],
+            "section": SEC_CONTENT,
+            "order": 2,
+            "label": {"de": "Beschreibung", "en": "Description"},
+        },
+    ),
+}
+
+#: Model fields whose introspected name would not match the actual wire
+#: contract, so the attribute is served under a different name than the
+#: Django column. Maps ``item_type -> {model_field: attribute_name}``.
+#: Two distinct reasons feed this map:
+#:   - a widget consumes the raw column under its own name (TestCase.steps
+#:     <-> the ``steps`` widget);
+#:   - the REST serializer names the field differently than the model column
+#:     (Task 19 finding: ``Risk.owner_user`` is a ``ForeignKey`` — Django names
+#:     it ``owner_user`` — but ``RiskSerializer`` only declares
+#:     ``owner_user_id``/``owner_user_display``, DRF's own convention for a
+#:     FK's raw id. An unaliased ``owner_user`` attribute rendered a working
+#:     User picker whose every assignment silently no-op'd on save (unknown
+#:     top-level key, dropped both by ``field_validation.py`` and by the
+#:     serializer) while always reading back empty. Proven live via
+#:     ``introspect_core_attributes("Risk", "standard")`` against the real
+#:     model/serializer pair.
+#   - Task 24 finding: same class as `Risk.owner_user` above.
+#     `ArchitectureElement.parent` is a self-referential `ForeignKey` — Django
+#     names the field `parent`, but `ArchitectureElementSerializer` only
+#     declares `parent_id` (DRF's own convention for a FK's raw id, matching
+#     `_arch_to_dict`'s response shape and `architectureApi.update`'s payload
+#     shape). An unaliased `parent` attribute rendered a working reference
+#     picker whose every reparent silently no-op'd on save (unknown top-level
+#     key, dropped by both `field_validation.py` and the serializer).
+#   - Task 22 finding: `TestCase.steps` is the odd one out in this map — it is
+#     a `JSONField`, so `_attribute_type` returns `None` for it regardless of
+#     aliasing, and `introspect_core_attributes` now unconditionally drops any
+#     column it cannot render (see the loop below). The `steps -> steps_data`
+#     entry therefore no longer changes what gets emitted for the *raw*
+#     column (nothing does, aliased or not) — it is kept purely as
+#     documentation of the internal-only key (`steps_data`) that the
+#     `steps_editor` widget's own `fields` entry, `StepsEditor.tsx` and
+#     `TestCaseArtifactForm.tsx`'s `STEPS_WIRE_FIELD`/`STEPS_FORM_FIELD`
+#     translation all agree on. `steps_data` is NOT a real column or
+#     serializer field on `TestCase` (`TestCaseSerializer` declares `steps`,
+#     matching the model) — do not "fix" this by making it one; the wire
+#     translation belongs in the frontend adapter, same as Risk's
+#     `owner_user_id` alias or Issue's `tag_list`/`tags` split.
+WIDGET_FIELD_ALIASES: dict[str, dict[str, str]] = {
+    "TestCase": {"steps": "steps_data"},
+    "Risk": {"owner_user": "owner_user_id"},
+    "ArchitectureElement": {"parent": "parent_id"},
+}
+
+
+def synthetic_status_attribute() -> dict[str, Any]:
+    """The one systemobligatory attribute every type carries (spec section 3.1).
+
+    ``options`` is empty on purpose: the reachable states come from the
+    workflow definition for ``(workspace, item_type)``, which is their single
+    source of truth. The renderer fills the select from there.
+    """
+    return normalize_attribute(
+        {
+            "name": "status",
+            "kind": "core",
+            "type": "enum",
+            "options": [
+                {"value": "__workflow__", "label_de": "Workflow", "label_en": "Workflow"}
+            ],
+            "required": True,
+            "visible": True,
+            "locked": True,
+            "editable": "workflow",
+            # Matrix section 0: ``status`` is grouped with the classification
+            # attributes, not in the ``general`` catch-all (#803).
+            "section": SEC_CLASSIFICATION,
+            "order": -100,
+            "label": {"de": "Status", "en": "Status"},
+            "export": True,
+        }
+    )
+
+
+#: Artifact-level system attributes every item type inherits (spec section 3).
+#:
+#: ``introspect_core_attributes`` walks the *per-type* model (Requirement, Adr,
+#: ...), which by construction has no column for a field that lives on
+#: ``pl_artifact``. This constant is the ``ARTIFACT_LEVEL_CORE_ATTRIBUTES``
+#: source the spec calls for; ``introspect_core_attributes`` merges it into
+#: every item type's result (see there).
+#:
+#: ``id`` is the synthetic identity attribute: ``editable="system"`` (spec
+#: section 6 — server-owned, never a payload field), ``locked`` and
+#: ``visible=False`` (spec section 5: hidden by default, revealed/copied on
+#: demand). Its generic display properties are configured right here
+#: (spec section 5: ``reveal="click"`` / ``copyable=True`` / ``mask="short"``).
+#: It is deliberately NOT introspected from the model PK: the model PK
+#: is in ``EXCLUDED_MODEL_FIELDS`` precisely so the synthetic definition is the
+#: single source of that attribute.
+#:
+#: ``owner``/``reporter``/``priority`` are the Artifact columns added in WS2
+#: (#936). They are seeded ``visible=False`` and ``editable=False`` by default
+#: for this workstream: the columns exist and are the right carrier, but a
+#: transport only reads/writes them where it has been wired. A visible-but-
+#: unwritable attribute would make the contract matrix (#934 WS0) demand a W/R
+#: round-trip no transport can satisfy, and an editable one would render a
+#: control whose PATCH is silently dropped.
+#:
+#: ``SYSTEM_FIELDS_ENABLED_ITEM_TYPES`` is the explicit transport rollout gate:
+#: the three fields are flipped to ``editable=True`` **only** for the item types
+#: whose REST and MCP transports carry them today. That is what keeps the
+#: contract ratchet green while the remaining types are wired one wave at a
+#: time (see the WS2 plan / issue #936).
+#:
+#: ``visible`` has a second, orthogonal gate since WS6 (#939): the matrix's
+#: cross-cutting section 0 makes ``owner``/``reporter``/``priority`` hidden at
+#: stage 1 (``-``) and visible from stage 2 (``o``/``P``), so for an enabled type
+#: they are shown on standard/extended only. ``owner``/``reporter`` are the
+#: ``actor`` type (spec section 4), single-valued and internal-only by default;
+#: ``priority`` stays the enum with the ``low|medium|high|critical`` default
+#: scale. Their stage-readiness rides on ``stage_mandatory`` (owner at stage 3,
+#: priority at stages 2–3).
+#:
+#: WS2 part B2 (#936) wired the remaining transport paths, so the canonical
+#: set now lives in ``attribute_definitions.schema`` (Django-free, importable
+#: by the MCP helpers that mirror it) and is imported above. WS7 (#940) added
+#: ``Risk``: its legacy free-text ``owner`` column was renamed to ``owner_name``
+#: (same DB column), so the Artifact-level ``owner`` FK is no longer shadowed
+#: and the introspected legacy column (see ``PER_ITEM_TYPE_EXCLUDED_FIELDS``)
+#: no longer collides with it.
+
+#: The names that the rollout gate above may flip.
+_GATED_SYSTEM_FIELD_NAMES: frozenset[str] = frozenset(
+    {"owner", "reporter", "priority"}
+)
+
+ARTIFACT_LEVEL_CORE_ATTRIBUTES: tuple[dict[str, Any], ...] = (
+    {
+        "name": "id",
+        "kind": "core",
+        "type": "text",
+        "editable": "system",
+        "locked": True,
+        "visible": False,
+        # Spec section 5: the id system field is the first consumer of the
+        # generic display properties — hidden by default, revealed on click,
+        # copy-to-clipboard enabled, and rendered as an 8-character short label
+        # while ``copyable`` copies the full UUID (the ``mask`` contract).
+        "reveal": "click",
+        "copyable": True,
+        "mask": "short",
+        "required": False,
+        "section": SEC_IDENTIFICATION,
+        "order": -300,
+        "label": {"de": "ID", "en": "ID"},
+    },
+    {
+        "name": "owner",
+        "kind": "core",
+        "type": "actor",
+        "multiple": False,
+        "allow_external": False,
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": SEC_ATTRIBUTION,
+        "order": -290,
+        "label": {"de": "Owner", "en": "Owner"},
+    },
+    {
+        "name": "reporter",
+        "kind": "core",
+        "type": "actor",
+        "multiple": False,
+        "allow_external": False,
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": SEC_ATTRIBUTION,
+        "order": -280,
+        "label": {"de": "Reporter", "en": "Reporter"},
+    },
+    {
+        "name": "priority",
+        "kind": "core",
+        "type": "enum",
+        "options": [
+            {"value": "low", "label_de": "Niedrig", "label_en": "Low"},
+            {"value": "medium", "label_de": "Mittel", "label_en": "Medium"},
+            {"value": "high", "label_de": "Hoch", "label_en": "High"},
+            {"value": "critical", "label_de": "Kritisch", "label_en": "Critical"},
+        ],
+        "editable": False,
+        "visible": False,
+        "required": False,
+        "section": SEC_CLASSIFICATION,
+        "order": -300,
+        "label": {"de": "Priorität", "en": "Priority"},
+    },
+)
+
+
+def _resolve_model(item_type: str) -> type[models.Model]:
+    for app_label, model_name in MODEL_LOCATIONS[item_type]:
+        try:
+            return apps.get_model(app_label, model_name)
+        except LookupError:
+            continue
+    raise CommandError(
+        f"Could not resolve a model for item type {item_type!r}; "
+        f"tried {MODEL_LOCATIONS[item_type]}"
+    )
+
+
+def _attribute_type(field: models.Field) -> str | None:
+    """Map a Django field onto an attribute ``type``, or None to skip it."""
+    if getattr(field, "choices", None):
+        return "enum"
+    if isinstance(field, models.BooleanField):
+        return "boolean"
+    if isinstance(field, (models.DateField, models.DateTimeField)):
+        return "date"
+    if isinstance(
+        field, (models.IntegerField, models.FloatField, models.DecimalField)
+    ):
+        return "number"
+    if isinstance(field, models.TextField):
+        return "textarea"
+    if isinstance(field, (models.CharField, models.SlugField, models.EmailField)):
+        return "text"
+    if isinstance(field, (models.ForeignKey, models.OneToOneField)):
+        related = field.related_model
+        if related is not None and related.__name__ == "User":
+            return "user"
+        return "reference"
+    if isinstance(field, models.UUIDField):
+        return "reference"
+    # JSONField and everything else has no basic renderer; a special case must
+    # be registered as a widget in WIDGET_ATTRIBUTES instead.
+    return None
+
+
+def _options_from_choices(field: models.Field) -> list[dict[str, str]]:
+    return [
+        {"value": str(value), "label_de": str(label), "label_en": str(label)}
+        for value, label in (field.choices or [])
+    ]
+
+
+def _section_for(name: str) -> str:
+    """The canonical SE section for a model-backed core attribute (GitHub #803).
+
+    One shared name -> group mapping for every item type (the "Gruppe" column
+    of ``docs/se/attribut/attribut-matrix-3-stufen.md``), not per-entity markup:
+    the renderer already groups by the definition's ``section``, so fixing the
+    mapping here groups every artifact form at once. Unmapped names keep the
+    documented ``general`` fallback.
+    """
+    if name in IDENTIFICATION_FIELDS:
+        return SEC_IDENTIFICATION
+    if name in CONTENT_FIELDS:
+        return SEC_CONTENT
+    if name in CLASSIFICATION_FIELDS:
+        return SEC_CLASSIFICATION
+    if name in ATTRIBUTION_FIELDS:
+        return SEC_ATTRIBUTION
+    if name in VERIFICATION_FIELDS:
+        return SEC_VERIFICATION
+    if name in CHANGE_CONTROL_FIELDS:
+        return SEC_CHANGE
+    return "general"
+
+
+def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, Any]]:
+    """Return the normalized core attribute list for ``(item_type, preset)``.
+
+    ``required`` comes from ``blank=False``/``has_default()`` on the model, and
+    from nothing else: it is a **create-payload** contract ("the client must
+    send this, the server cannot fill it in"), enforced by
+    ``field_validation.validate_values`` at create time.
+
+    Preset ``mandatory_fields`` are deliberately NOT folded in here, even
+    though ``presets/registry.py``'s field docstring reads "required when
+    creating a Requirement". That docstring describes an intent that was never
+    implemented as a create gate: ``workflow/precondition_rules.py`` records
+    that ``mandatory_fields`` "had zero consumers" and then implements it as
+    **rule 5**, an *approval-transition* gate ("the moment an artifact is
+    declared baseline-ready ... rather than at create time"). That is the one
+    shipped meaning of the policy, and it is the right one — the whole stack
+    is draft-first about these columns: ``Requirement.acceptance_criteria`` is
+    ``blank=True, default=""`` on the model, ``allow_blank=True, default=""``
+    on the serializer, ``= ""`` on ``RequirementService.create_requirement``,
+    and ``params.get("acceptance_criteria", "")`` on the MCP create tool.
+
+    Folding the policy in here anyway (Task 11) turned an approval gate into a
+    create gate and 400'd every minimal Requirement create — the UI quick-create
+    dialog, the MCP tool and ~15 E2E specs — with "acceptance_criteria: is
+    required". Rule 5 still enforces the same policy at the moment SE practice
+    actually cares about, so nothing is lost by not duplicating it here.
+    Regression net: ``rest_api/tests/test_bootstrapped_definition_allows_creates``.
+
+    ``required`` stays preset-invariant (it is the model's create contract).
+    The *staged* part of the definition — per-stage ``visible``/``audience``
+    plus the matrix's new extended attributes and its ``stage_mandatory``
+    readiness flag — is layered on afterwards from
+    :mod:`attribute_definitions.stage_matrix` (Epic #934 WS6, #939), so the
+    ``(item_type, preset)`` key now genuinely selects the rigor stage.
+    """
+    model = _resolve_model(item_type)
+    aliases = WIDGET_FIELD_ALIASES.get(item_type, {})
+
+    attributes: list[dict[str, Any]] = [synthetic_status_attribute()]
+    order = 0
+    for field in model._meta.get_fields():
+        if not isinstance(field, models.Field) or field.auto_created:
+            continue
+        if field.name in EXCLUDED_MODEL_FIELDS:
+            continue
+        if field.name in PER_ITEM_TYPE_EXCLUDED_FIELDS.get(item_type, frozenset()):
+            continue
+        attribute_type = _attribute_type(field)
+        name = aliases.get(field.name, field.name)
+        if attribute_type is None:
+            # Task 22 finding: a JSONField-backed column with no basic
+            # renderer used to be kept as a bare `textarea` fallback
+            # whenever a widget's `fields` list already claimed it (steps,
+            # tags) — that produced a SECOND, competing editor bound to the
+            # exact same key as the widget's own entry (added below). For
+            # `TestCase.steps` it was worse: the fallback surfaced under the
+            # alias name (`steps_data`), which is not a real column or
+            # serializer field on TestCase at all — nothing on the backend
+            # accepts a `steps_data` PATCH, so that phantom attribute was
+            # both a duplicate editor AND unpatchable. A column nothing
+            # renders is simply dropped; the widget attribute added below is
+            # the sole representation once something does claim it.
+            continue
+        order += 1
+        attributes.append(
+            normalize_attribute(
+                {
+                    "name": name,
+                    "kind": "core",
+                    "type": attribute_type,
+                    "options": _options_from_choices(field) if attribute_type == "enum" else [],
+                    # A column with a model default is fillable without the
+                    # client naming it, so `blank=False` alone does not make it
+                    # a REQUIRED payload field — it only means "must not end up
+                    # empty in the DB", which the default already guarantees.
+                    # This matters since Task 11 turned the definition into an
+                    # enforced create gate: without `has_default()` the
+                    # bootstrapped definition demanded `Risk.probability`,
+                    # `Issue.category`, `Requirement.type` etc. in every create
+                    # payload — fields whose service defaults exist precisely
+                    # so a client can omit them — and 400'd every existing
+                    # client. Proven by
+                    # rest_api/tests/test_bootstrapped_definition_allows_creates.py.
+                    "required": not field.blank and not field.has_default(),
+                    "visible": True,
+                    "editable": name not in READ_ONLY_MODEL_FIELDS,
+                    "section": _section_for(name),
+                    "order": order,
+                    "label": {"de": name, "en": name},
+                    "ai_elicit": name in SHARED_AI_ELICIT_FIELDS
+                    or name in PER_ITEM_TYPE_AI_ELICIT_FIELDS.get(item_type, frozenset()),
+                    "export": True,
+                }
+            )
+        )
+
+    for entry in WIDGET_ATTRIBUTES.get(item_type, ()):
+        attributes.append(normalize_attribute(dict(entry, export=False)))
+
+    # Spec section 3: the Artifact-level system fields are inherited by every
+    # item type and cannot come from the per-type model walk above. Merged here
+    # so every `(item_type, preset)` definition carries them. The three
+    # transport-backed fields are flipped visible/editable only for the item
+    # types whose REST + MCP paths actually carry them (rollout gate above).
+    stage = PRESET_STAGE[preset]
+    system_fields_enabled = item_type in SYSTEM_FIELDS_ENABLED_ITEM_TYPES
+    for entry in ARTIFACT_LEVEL_CORE_ATTRIBUTES:
+        spec = dict(entry)
+        name = spec["name"]
+        if name in _GATED_SYSTEM_FIELD_NAMES:
+            # Spec section 0 of the matrix: owner/reporter/priority become
+            # visible from stage 2 (``o``) onwards; their transport rollout gate
+            # (SYSTEM_FIELDS_ENABLED_ITEM_TYPES) still owns *whether* they may be
+            # shown at all for this type.
+            if system_fields_enabled:
+                spec["visible"] = stage >= 2
+                spec["editable"] = True
+            if name == "owner":
+                spec["stage_mandatory"] = (
+                    system_fields_enabled and stage in OWNER_MANDATORY_STAGES
+                )
+            elif name == "priority":
+                spec["stage_mandatory"] = (
+                    system_fields_enabled and stage in PRIORITY_MANDATORY_STAGES
+                )
+            else:  # reporter: visible from stage 2, never stage-mandatory
+                spec["stage_mandatory"] = False
+        attributes.append(normalize_attribute(spec))
+
+    # Epic #934 WS6 (#939): layer the declarative 3-stage matrix on top of the
+    # introspection result — per-stage visibility/audience for existing
+    # attributes, plus the matrix's new extended attributes.
+    apply_stage_overrides(item_type, preset, attributes)
+    attributes.extend(build_stage_attributes(item_type, preset))
+
+    # NOTE: preset `mandatory_fields` are deliberately not applied here — see
+    # this function's docstring. They are an approval-transition contract
+    # (workflow.precondition_rules rule 5), not a create-payload contract, and
+    # the matrix's own stage-requiredness rides on ``stage_mandatory`` (also
+    # not a create gate, see attribute_definitions.stage_matrix).
+
+    # GitHub #803: sorted by the canonical SE section order, not
+    # alphabetically — ``materialize_sections`` (below, in ``handle``) derives
+    # the section list from first appearance, so this sort is what makes the
+    # stored definition render identity -> content -> classification -> ... .
+    attributes.sort(
+        key=lambda a: (section_order_index(a["section"]), a["order"], a["name"])
+    )
+    return attributes
+
+
+def unmatched_mandatory_fields(item_type: str, preset: str) -> list[str]:
+    """Legacy preset ``mandatory_fields`` entries with no consumer.
+
+    GitHub #912: preset ``mandatory_fields`` is Requirement-only. For the other
+    ten item types the mandatory set is each definition's own ``required`` flags
+    (``attribute_definitions.mandatory_fields``), so resolving the
+    Requirement-shaped names against them only ever produced false positives
+    (the 22-line migrate warning of issue #912). This hygiene check is therefore
+    scoped to Requirement, where the legacy list is still folded into the
+    approval gate.
+
+    GitHub #912 follow-up: matching the names against *attributes alone* was
+    still wrong for Requirement. ``classification`` is the policy name for the
+    ``type`` column, ``change_reason`` is satisfied by the transition request and
+    ``traceability_target`` is the Extended lever for rule 7
+    (``workflow.precondition_rules``) — none of them is an attribute, all three
+    are enforced, and the migrate log called them "ignored". The check therefore
+    delegates to :func:`workflow.precondition_rules.policy_fields_without_consumer`,
+    which knows which policy names actually have a consumer; only the ones that
+    do not are reported. For the built-in presets that is the empty set, so a
+    clean migrate is silent — while a genuinely dead entry (a renamed field, a
+    preset edit that forgot to follow) still warns.
+    """
+    if item_type != LEGACY_MANDATORY_FIELDS_ITEM_TYPE:
+        return []
+
+    # Lazy: keeps this management command importable without dragging the whole
+    # workflow package (and its persistence imports) into `bootstrap` for the
+    # common no-warning path.
+    from workflow.precondition_rules import policy_fields_without_consumer
+
+    attributes = introspect_core_attributes(item_type, preset)
+    model = _resolve_model(item_type)
+    return policy_fields_without_consumer(
+        PresetRegistry().get_preset_config(preset).mandatory_fields,
+        item_type=item_type,
+        attribute_names={a["name"] for a in attributes},
+        model_field_names={
+            field.name
+            for field in model._meta.get_fields()
+            if isinstance(field, models.Field)
+        },
+    )
+
+
+class Command(BaseCommand):
+    help = (
+        "Seed GlobalAttributeDefinition rows from Django model introspection. "
+        "Idempotent: existing rows are left alone unless --sync-new-fields."
+    )
+
+    def add_arguments(self, parser) -> None:
+        parser.add_argument(
+            "--tenant",
+            dest="tenant",
+            default=None,
+            help="Tenant UUID. Omit to bootstrap every tenant.",
+        )
+        parser.add_argument(
+            "--sync-new-fields",
+            action="store_true",
+            dest="sync_new_fields",
+            help=(
+                "Append core attributes that exist on the model but not yet in "
+                "the stored definition. Never modifies an existing entry."
+            ),
+        )
+        parser.add_argument(
+            "--reset",
+            action="store_true",
+            dest="reset",
+            help=(
+                "RECOVERY: overwrite existing definitions with freshly "
+                "introspected defaults, discarding every admin customization of "
+                "the global rows. The only way back from a bad initial payload "
+                "— core/locked attributes cannot be repaired through the API."
+            ),
+        )
+
+    def handle(self, *args, **options) -> None:
+        # A management command has no request/middleware around it, so
+        # without explicitly arming both isolation layers the least-privilege
+        # runtime role (reqogniloom_app) hits Postgres RLS: reads return
+        # nothing and writes raise ProgrammingError ("new row violates
+        # row-level security policy"). Same pattern as
+        # application.management.commands.backfill_embeddings.
+        from persistence.middleware import clear_request_tenant, set_request_tenant
+
+        store = GlobalAttributeDefinitionStore()
+        tenant_ids = (
+            [options["tenant"]]
+            if options["tenant"]
+            else list(Tenant.objects.values_list("id", flat=True))
+        )
+        created = updated = reset = 0
+        with transaction.atomic():
+            for tenant_id in tenant_ids:
+                set_request_tenant(tenant_id)
+                try:
+                    for item_type in BOOTSTRAP_ITEM_TYPES:
+                        for preset in PRESETS:
+                            attributes = introspect_core_attributes(item_type, preset)
+                            # Epic #934 WS6 (#939): seed the matrix's ISO sections
+                            # explicitly so discovery and the MCP
+                            # `attribute_definition.update(sections)` contract have
+                            # a non-empty section list from the first read.
+                            sections = materialize_sections(attributes)
+                            existing = store.get(tenant_id, item_type, preset)
+                            if existing is None:
+                                store.initialize(
+                                    tenant_id, item_type, preset, attributes, sections
+                                )
+                                created += 1
+                            elif options["reset"]:
+                                # Ledger item (f): the recovery path out of a bad
+                                # initial payload. store.update() cannot do this —
+                                # its core/locked rules (correctly) make a bad seed
+                                # permanent, so the escape hatch has to bypass them.
+                                row, _propagated = store.reinitialize(
+                                    tenant_id, item_type, preset, attributes, sections
+                                )
+                                for workspace_id in store.list_derived_workspace_ids(row):
+                                    invalidate_workspace_caches(workspace_id)
+                                reset += 1
+                            elif options["sync_new_fields"]:
+                                if self._append_missing(store, existing, attributes):
+                                    updated += 1
+                finally:
+                    clear_request_tenant()
+
+        for item_type in BOOTSTRAP_ITEM_TYPES:
+            for preset in PRESETS:
+                unmatched = unmatched_mandatory_fields(item_type, preset)
+                if unmatched:
+                    # #912: this is the *only* remaining legitimate case — a
+                    # policy name that neither an attribute, nor a model column
+                    # alias, nor a request-/graph-level rule consumes. It is a
+                    # configuration defect (the requirement it names is enforced
+                    # nowhere), not routine noise, so it keeps warning.
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"{item_type}/{preset}: preset mandatory_fields name "
+                            f"{unmatched} has no consumer in the approval gate — "
+                            "not enforced anywhere"
+                        )
+                    )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"bootstrap_attribute_definitions: {created} created, "
+                f"{updated} synced, {reset} reset"
+            )
+        )
+
+    @staticmethod
+    def _append_missing(
+        store: GlobalAttributeDefinitionStore,
+        row: GlobalAttributeDefinition,
+        introspected: list[dict[str, Any]],
+    ) -> bool:
+        """Append attributes the stored definition lacks. Returns True on change.
+
+        Writes via a bare ``row.save()`` rather than ``store.update()``:
+        ``update()`` runs ``validate_meta_only_change``, which correctly
+        rejects adding a new *core* attribute "through the API" — that
+        restriction targets admin edits, not this command's own
+        introspection-driven sync. But ``update()`` is also the only place
+        that calls ``_propagate()``, so bypassing it used to leave every
+        non-customized workspace row permanently out of sync with the global
+        default it mirrors (ledger binding (k), Task 6 review I-1). Calling
+        ``store._propagate(row)`` directly after the save keeps the schema
+        bypass (still needed) while closing the propagation gap.
+
+        ``_propagate()`` itself bulk-``update()``s workspace rows, which
+        bypasses ``save()``/signals and therefore the shared cache too —
+        without the explicit ``invalidate_workspace_caches`` loop below, a
+        warm worker keeps serving the pre-sync definition for every affected
+        workspace until it restarts (Task 7 review I-2).
+        """
+        # Ledger item (e): normalize the STORED row before indexing ``a["name"]``
+        # (and before re-sorting on ``a["section"]``/``a["order"]``). An older or
+        # hand-edited row otherwise takes down the whole command with a bare
+        # KeyError mid-transaction; now it raises AttributeSchemaError naming the
+        # offending attribute, which the operator can act on.
+        stored = stored_attributes(row.definition_json)
+        known = {a["name"] for a in stored}
+        additions = [copy.deepcopy(a) for a in introspected if a["name"] not in known]
+        if not additions:
+            return False
+        stored.extend(additions)
+        stored.sort(key=lambda a: (section_order_index(a["section"]), a["order"], a["name"]))
+        # Epic #934 WS6 (#939): keep the seeded ``sections`` list consistent with
+        # the (possibly grown) attribute set. Existing sections keep their
+        # admin-configured order/visibility/layout; a section a newly synced
+        # attribute introduces is appended, never silently dropped.
+        sections = stored_sections(row.definition_json)
+        known_sections = {section["name"] for section in sections}
+        for attribute in stored:
+            if attribute["section"] not in known_sections:
+                sections.append(
+                    {
+                        "name": attribute["section"],
+                        "order": len(sections),
+                        "visible": True,
+                        "layout": "full",
+                    }
+                )
+                known_sections.add(attribute["section"])
+        row.definition_json = {"attributes": stored, "sections": sections}
+        # Ledger binding (j), closed at Task 10: F("version") + 1 instead of a
+        # read-modify-write, consistent with the other 3 sites in this
+        # codebase (global_definition_store.py, workspace_definition_store.py
+        # x2). No refresh_from_db here — unlike those 3 sites, nothing in this
+        # function (or its caller) reads ``row.version`` again afterwards;
+        # ``store._propagate(row)`` below only reads ``row.definition_json``
+        # and ``row.id``/``row.tenant_id``/``row.preset``, none of which are
+        # affected by the F() expression left on ``row.version`` in memory.
+        row.version = models.F("version") + 1
+        row.save(update_fields=["definition_json", "version", "modified_at"])
+        store._propagate(row)
+        for workspace_id in store.list_derived_workspace_ids(row):
+            invalidate_workspace_caches(workspace_id)
+        return True

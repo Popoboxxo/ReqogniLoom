@@ -1,7 +1,7 @@
 """Field-level symmetric encryption helpers (REQ-081).
 
 Wraps :class:`cryptography.fernet.Fernet` using the application-wide
-``FIELD_ENCRYPTION_KEY`` setting (see ``reqflow/settings.py``, which fails
+``FIELD_ENCRYPTION_KEY`` setting (see ``reqogniloom/settings.py``, which fails
 fast at startup if the key is missing). Currently used by
 :class:`persistence.models.LlmSettings` to store provider API keys as
 ciphertext instead of plaintext.

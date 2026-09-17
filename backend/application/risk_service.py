@@ -5,7 +5,7 @@ leaf_id : COMP-AS-014
 req_id  : REQ-L1-029
 
 Orchestrates:
-  IF-AS-INT-002   TraceLinkService.create_trace_link / cascade_delete_trace_links
+  IF-AS-INT-002   TraceLinkService.create_trace_link
   IF-AS-INT-003   WorkflowFacade.transition (status transitions)
   IF-AS-INT-016   DomainEventBus → RiskCreated/Updated/Deleted (Outbox)
   IF-AS-EXT-OUT-007  application.models.Risk (Django ORM)
@@ -30,13 +30,29 @@ from auth_tenancy.context import AuthContext
 from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
+from application.artifact_service import (
+    _clean_custom_fields,
+    has_field_changes,
+    snapshot_versioned_fields,
+)
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox, Risk
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
 # Supported TraceLink types for Risks (REQ-L3-RISK-006)
 RISK_LINK_TYPES = frozenset({"threatens", "mitigated-by", "related-to"})
+
+# Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}"
+# (mirrors application.artifact_service._UNSET, same per-module pattern as
+# requirement_service/stakeholder_need_service/test_service).
+_UNSET = object()
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +84,9 @@ class RiskDTO:
     version: int
 
     @classmethod
-    def from_orm(cls, risk: Risk) -> "RiskDTO":
+    def from_orm(cls, risk: Risk, *, status: str = "") -> "RiskDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
+        resolved_status = status
         return cls(
             id=risk.id,
             workspace_id=risk.workspace_id,
@@ -80,9 +98,9 @@ class RiskDTO:
             impact=risk.impact,
             risk_score=risk.risk_score,
             severity=risk.severity,
-            owner=risk.owner,
+            owner=risk.owner_name,
             mitigation_strategy=risk.mitigation_strategy,
-            status=risk.status,
+            status=resolved_status,
             version=risk.version,
         )
 
@@ -102,6 +120,9 @@ class RiskValidator:
     VALID_PROBABILITIES = frozenset(Risk.Probability.values)
     VALID_IMPACTS = frozenset(Risk.Impact.values)
     VALID_CATEGORIES = frozenset(Risk.Category.values)
+    # Datenmodell-Konsolidierung Phase 1: still used by transition_status()'s
+    # target-state validation — unrelated to create-time status, which is
+    # retired below (no longer a validate_create input).
     VALID_STATUSES = frozenset(Risk.RiskStatus.values)
 
     @classmethod
@@ -111,9 +132,8 @@ class RiskValidator:
         probability: str,
         impact: str,
         category: str = "technical",
-        status: str = "Identified",
     ) -> None:
-        """Validate fields for Risk creation."""
+        """Validate fields for Risk creation. Status is not an input (Phase 1)."""
         if not title:
             raise ValidationError("Risk title is required")
         if probability not in cls.VALID_PROBABILITIES:
@@ -130,11 +150,6 @@ class RiskValidator:
             raise ValidationError(
                 f"Risk category '{category}' invalid; "
                 f"must be one of {sorted(cls.VALID_CATEGORIES)}"
-            )
-        if status not in cls.VALID_STATUSES:
-            raise ValidationError(
-                f"Risk status '{status}' invalid; "
-                f"must be one of {sorted(cls.VALID_STATUSES)}"
             )
 
 
@@ -172,12 +187,15 @@ class RiskService(ServiceBase):
         category: str = "technical",
         owner: str = "",
         mitigation_strategy: str = "",
-        status: str = "Identified",
         uid: Optional[str] = None,
         detection: int = 5,
         owner_user_id: Optional[UUID] = None,
+        custom_fields: Optional[dict] = None,
     ) -> Risk:
         """Create a Risk with automatic score calculation (REQ-L3-RISK-001/002/007).
+
+        The initial state comes from the workflow definition, not from the
+        caller (Datenmodell-Konsolidierung Phase 1).
 
         Args:
             workspace_id: Target workspace UUID.
@@ -189,7 +207,6 @@ class RiskService(ServiceBase):
             category: One of {"technical", "operational", "organizational", "business"}.
             owner: Optional owner identifier.
             mitigation_strategy: Optional mitigation description.
-            status: Initial status (default: Identified).
             detection: FMEA detection score, 1 (easy) .. 10 (impossible). Default 5
                 (REQ-L1-029).
             owner_user_id: Optional User FK for structured risk assignment
@@ -202,11 +219,7 @@ class RiskService(ServiceBase):
         self._assert_write_permission(ctx)
 
         RiskValidator.validate_create(
-            title=title,
-            probability=probability,
-            impact=impact,
-            category=category,
-            status=status,
+            title=title, probability=probability, impact=impact, category=category
         )
         if not 1 <= detection <= 10:
             raise ValidationError(
@@ -230,8 +243,14 @@ class RiskService(ServiceBase):
             tenant=tenant,
             workspace=workspace,
             artifact_type="Risk",
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
+        # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
+        # parameter at all — WorkflowItemState.current_state (seeded below
+        # from the workflow definition's initial_state) is the sole
+        # authority. The model field's own default keeps the column non-null
+        # until it is dropped (Task 12).
         risk = Risk(
             artifact=artifact,
             workspace_id=workspace_id,
@@ -241,19 +260,24 @@ class RiskService(ServiceBase):
             category=category,
             probability=probability,
             impact=impact,
-            owner=owner,
+            owner_name=owner,
             mitigation_strategy=mitigation_strategy,
-            status=status,
             uid=uid,
             detection=detection,
             owner_user_id=owner_user_id,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
         )
         # Calculate score before save (ADR-L3-RISK-01)
         score = risk.compute_score()
         risk.risk_score = score
         risk.severity = Risk.score_to_severity(score)
         risk.save()
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_risk takes no change_reason.
+        ArtifactVersionService().record(
+            risk.artifact_id, snapshot_fields(risk, "Risk"), ctx
+        )
 
         # Initialize workflow state
         try:
@@ -294,6 +318,8 @@ class RiskService(ServiceBase):
         change_reason: Optional[str] = None,
         detection: Optional[int] = None,
         owner_user_id: Optional[UUID] = None,
+        custom_fields: object = _UNSET,
+        expected_version: Optional[int] = None,
     ) -> Risk:
         """Update a Risk, recomputing score when probability/impact change (REQ-L3-RISK-003).
 
@@ -311,16 +337,33 @@ class RiskService(ServiceBase):
             detection: New FMEA detection score, 1..10 (optional, REQ-L1-029).
             owner_user_id: New User FK for structured risk assignment (optional,
                 REQ-L1-029).
+            expected_version: Caller's last-seen ``version``. When supplied and
+                stale, the update is refused with ``OptimisticLockError`` (409)
+                instead of overwriting a concurrent edit. Omitting it keeps the
+                previous last-writer-wins behaviour.
 
         Returns:
             Updated Risk ORM instance.
+
+        Raises:
+            OptimisticLockError: *expected_version* does not match the stored one.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        risk = Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id).first()
+        risk = lock_for_version_check(
+            Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id), expected_version
+        ).first()
         if risk is None:
             raise NotFoundError(f"Risk {risk_id} not found")
+        assert_expected_version(risk, expected_version, entity_type="Risk")
+
+        # #269 finding 5: snapshot BEFORE any assignment so the version bump
+        # below can be gated on a real value change. Taken before the
+        # score/severity recomputation too, so a recompute that lands on the
+        # same values is correctly treated as a no-op.
+        _before = snapshot_versioned_fields(risk)
+        _custom_fields_changed = False
 
         if title is not None:
             risk.title = title
@@ -339,7 +382,7 @@ class RiskService(ServiceBase):
                 raise ValidationError(f"Invalid category '{category}'")
             risk.category = category
         if owner is not None:
-            risk.owner = owner
+            risk.owner_name = owner
         if mitigation_strategy is not None:
             risk.mitigation_strategy = mitigation_strategy
         if detection is not None:
@@ -351,6 +394,23 @@ class RiskService(ServiceBase):
         if owner_user_id is not None:
             risk.owner_user_id = owner_user_id
 
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the Risk snapshot and has to be compared separately. Legacy
+        # rows created before REQ-L2-TE-020 may have no backing Artifact yet
+        # (nullable FK) — reject rather than silently drop the write.
+        if custom_fields is not _UNSET:
+            if risk.artifact is None:
+                raise ValidationError(
+                    "Risk has no backing Artifact; custom_fields is unsupported "
+                    "for this legacy record"
+                )
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (risk.artifact.custom_fields or {})
+            )
+            risk.artifact.custom_fields = cleaned_custom_fields
+            risk.artifact.save(update_fields=["custom_fields", "modified_at"])
+
         # Recompute score whenever probability or impact changed (ADR-L3-RISK-01)
         score = risk.compute_score()
         risk.risk_score = score
@@ -358,9 +418,19 @@ class RiskService(ServiceBase):
         # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
         # then issue a single SQL UPDATE that increments version at the database
         # level — avoids the read-modify-write race condition of `version += 1`.
+        # #269 finding 5: only a real value change is a new revision.
         risk.save()
-        Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
-        risk.refresh_from_db(fields=["version"])
+        if has_field_changes(risk, _before) or _custom_fields_changed:
+            Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
+            risk.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            ArtifactVersionService().record(
+                risk.artifact_id,
+                snapshot_fields(risk, "Risk"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
         self._audit(
             ctx=ctx,
@@ -386,7 +456,12 @@ class RiskService(ServiceBase):
 
     @atomic_transaction
     def delete_risk(self, risk_id: UUID, ctx: AuthContext) -> None:
-        """Delete Risk and cascade-delete TraceLinks (REQ-L3-RISK-004).
+        """Soft-delete a Risk via the workflow engine (REQ-L3-RISK-004).
+
+        GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
+        survive alongside the outdated Risk, symmetric with
+        Requirement/ADR/Need/etc., so ``reactivate()`` (GH-443) restores the
+        record with its links intact instead of silently losing them.
 
         Args:
             risk_id: UUID of the Risk to delete.
@@ -401,15 +476,17 @@ class RiskService(ServiceBase):
 
         workspace_id = risk.workspace_id
 
-        try:
-            self._trace_link_service.cascade_delete_trace_links(risk_id, ctx)
-        except Exception:
-            logger.debug(
-                "RiskService.delete_risk: cascade TraceLink delete skipped for risk=%s",
-                risk_id,
-            )
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of hard-deleting the row.
+        from workflow.services import outdate
 
-        risk.delete()
+        outdate(
+            item_id=risk.id,
+            item_type="Risk",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via risk.delete",
+        )
 
         self._audit(ctx=ctx, operation="delete", entity_type="Risk", entity_id=risk_id)
         self._emit_event(
@@ -436,12 +513,20 @@ class RiskService(ServiceBase):
             raise NotFoundError(f"Risk {risk_id} not found")
         return risk
 
-    def list_risks(self, workspace_id: UUID, ctx: AuthContext) -> QuerySet[Risk]:
+    def list_risks(
+        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+    ) -> QuerySet[Risk]:
         """Return all Risks in *workspace_id* (tenant-scoped, REQ-L3-RISK-010).
 
         Args:
             workspace_id: Target workspace UUID.
             ctx: Resolved AuthContext.
+            include_deleted: When False (default), excludes Risks soft-deleted
+                via ``workflow.services.outdate()`` (REQ-006, Phase 0). ``Risk``
+                is registered in
+                ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, so
+                ``outdate()`` writes ``"outdated"`` into the mirrored
+                ``status`` field.
 
         Returns:
             QuerySet of Risk ORM instances ordered by risk_score descending.
@@ -450,9 +535,44 @@ class RiskService(ServiceBase):
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
-        return Risk.objects.filter(
-            workspace_id=workspace_id, tenant_id=ctx.tenant_id
-        ).order_by("-risk_score")
+        qs = Risk.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
+        if not include_deleted:
+            # Datenmodell-Konsolidierung Phase 4 (D-3): soft-delete routes
+            # through workflow.services.outdate(), which sets
+            # Artifact.lifecycle_status and no longer writes an "outdated"
+            # workflow state -- so this must read the flag seam, not
+            # state_reader.item_ids_in_state, which would match nothing.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("Risk", tenant_id=ctx.tenant_id))
+        return qs.order_by("-risk_score")
+
+    def list_risks_by_status(
+        self, workspace_id: UUID, status: str, ctx: AuthContext
+    ) -> List[Risk]:
+        """Return Risks filtered by workflow *status* (REQ-L3-RISK-010).
+
+        Args:
+            workspace_id: Target workspace UUID.
+            status: Workflow state name to match.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            Filtered list of Risk ORM instances ordered by risk_score descending.
+        """
+        self._set_tenant_context(ctx)
+        # Phase 4 (D-3): *status* is caller-supplied and may be "outdated",
+        # which now lives on Artifact.lifecycle_status rather than being a
+        # workflow state -- item_ids_with_status routes it accordingly.
+        from workflow.services import item_ids_with_status
+
+        return list(
+            Risk.objects.filter(
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                id__in=item_ids_with_status("Risk", status, tenant_id=ctx.tenant_id),
+            ).order_by("-risk_score")
+        )
 
     def query_risks_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext
@@ -557,10 +677,8 @@ class RiskService(ServiceBase):
         # enforced by the engine; their errors propagate and abort this atomic
         # transaction instead of being swallowed (the previous bare
         # ``except Exception: pass`` silently flipped the status even when a gate
-        # denied the move). The engine also writes the denormalized ``status``
-        # mirror inside its own transaction (StateLifecycleManager
-        # ._sync_status_mirror), so no direct status assignment is done here. A
-        # workflow transition is not a content edit, so ``version`` is not bumped.
+        # denied the move). A workflow transition is not a content edit, so
+        # ``version`` is not bumped.
         from application.workflow_facade import WorkflowFacade
 
         WorkflowFacade().transition(
@@ -572,7 +690,18 @@ class RiskService(ServiceBase):
             change_reason=change_reason or "",
             credential=credential or "",
         )
-        risk.refresh_from_db(fields=["status", "version"])
+        risk.refresh_from_db(fields=["version"])
+        # Datenmodell-Konsolidierung Phase 1 (Task 12): the ``status`` column
+        # is dropped, so it can no longer be refreshed or read as a fallback.
+        # Set the in-memory (not persisted) ``.status`` from the engine so the
+        # returned Risk instance still exposes the real current state, same
+        # fallback convention as GoalService.transition_status. The engine
+        # state is guaranteed to exist here (the transition above just
+        # succeeded), so ``state_reader.initial_state`` never actually
+        # triggers.
+        risk.status = state_reader.current_state(
+            "Risk", risk.id
+        ) or state_reader.initial_state("Risk")
 
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine (WorkflowFacade._audit, op="transition") inside the same

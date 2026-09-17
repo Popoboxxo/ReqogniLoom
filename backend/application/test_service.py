@@ -7,11 +7,19 @@ req_id  : REQ-L2-AS-005 (TestCase CRUD), REQ-L2-AS-025 (Coverage)
 Manages TestCase entities with:
   - Full CRUD including execution_status management
   - WorkflowState initialisation on create
-  - Cascade TraceLink deletion on delete
+  - Soft-delete via workflow outdate() (GH-484: TraceLinks are preserved,
+    not cascade-deleted, so reactivate() restores them intact)
   - Coverage calculation delegation to TraceabilityEngine
 
+Test-type representation (#816, #953): ``TestCase.test_type`` — the
+first-class lowercase ``TestCaseType`` column — is the single source of
+truth. The deprecated ``"TestCase:<Type>"`` ``Artifact.artifact_type`` prefix
+is no longer written here and was stripped from existing rows by migration
+``persistence/0093``; the plain ``"TestCase"`` artifact type is what every
+reader (link-type catalog, artifact diff, traceability, frontend) expects.
+The historical Title-case vocabulary is accepted on input as an alias only.
+
 Interfaces consumed:
-  IF-AS-INT-005     TraceLinkService.cascade_delete_trace_links (on delete)
   IF-AS-INT-011     DomainEventBus → TestCaseCreated/Updated/Deleted (Outbox)
   IF-AS-EXT-OUT-003 traceability.services.coverage (for coverage calculation)
   IF-AS-EXT-OUT-007 persistence.models.TestCase (Django ORM)
@@ -27,15 +35,24 @@ import logging
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 
 from auth_tenancy.context import AuthContext
-from persistence.models import Artifact, TestCase, Tenant, Workspace
+from persistence.models import Artifact, TestCase, Tenant, TestCaseType, Workspace
 from persistence.transactions import atomic_transaction
 
-from application.artifact_service import _clean_custom_fields
+from application.artifact_service import (
+    _clean_custom_fields,
+    has_field_changes,
+    snapshot_versioned_fields,
+)
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +62,68 @@ _UNSET = object()
 # Allowed execution status values (REQ-L2-AS-005)
 VALID_EXECUTION_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
 
-# Allowed test types (REQ-L2-AS-005)
-VALID_TEST_TYPES = frozenset({"Unit", "Integration", "System", "Acceptance"})
+# ---------------------------------------------------------------------------
+# Canonical test-type representation (#816)
+# ---------------------------------------------------------------------------
+# ``TestCase.test_type`` (first-class model column, migration 0041,
+# ``persistence.models.TestCaseType``: lowercase) is the SINGLE source of
+# truth for a test case's type. The deprecated alternative representation — a
+# Title-case "TestCase:<Type>" tag on ``Artifact.artifact_type`` — is no
+# longer written by any code path, and migration 0093 strips it from existing
+# rows.
+#
+# The historical Title-case vocabulary ("Unit", "Integration", "System", ...)
+# is still *accepted on input* as a deprecated alias, because it differs from
+# the canonical values only in case (``normalize_test_type`` below folds it
+# onto the canonical value). ``"Acceptance"`` has no canonical counterpart in
+# ``TestCaseType`` and is therefore retired — see the create/update/list
+# contract in ``TestService``.
+VALID_TEST_TYPES = frozenset(value for value, _label in TestCaseType.choices)
+
+#: Deprecated alias of :data:`VALID_TEST_TYPES` (#816). Kept so existing
+#: importers of the old constant name keep working; both names now denote the
+#: canonical lowercase vocabulary.
+VALID_TEST_TYPE_VALUES = VALID_TEST_TYPES
+
+#: Default applied when a caller does not name a test type (documented default
+#: of the REST/MCP create contracts, issue #953).
+DEFAULT_TEST_TYPE = TestCaseType.UNIT
+
+
+def normalize_test_type(value: object) -> Optional[str]:
+    """Return the canonical ``TestCaseType`` value for *value* (#816, #953).
+
+    Accepts the canonical lowercase values and the deprecated Title-case
+    legacy vocabulary (``Unit``/``Integration``/``System``/``Inspection``/
+    ``Analysis``/``Demonstration``) — the two differ only in case. ``None``
+    stays ``None`` (the column documents NULL as "type not derivable").
+
+    Raises:
+        ValidationError: *value* is neither ``None`` nor a known test type.
+            The message names the valid values (no exception text from an
+            inner failure is ever forwarded).
+    """
+    if value is None:
+        return None
+    candidate = str(value).strip().lower()
+    if candidate in VALID_TEST_TYPES:
+        return candidate
+    raise ValidationError(
+        f"Invalid test_type '{value}'. Valid: {sorted(VALID_TEST_TYPES)}"
+    )
+
+
+def canonical_test_type_or_none(value: object) -> Optional[str]:
+    """Lenient variant of :func:`normalize_test_type` for bulk import.
+
+    The CSV importer must not abort a whole batch because one cell carries a
+    retired alias (e.g. the pre-#816 ``"Acceptance"``); such a cell is dropped
+    so the column keeps its documented NULL value instead.
+    """
+    try:
+        return normalize_test_type(value)
+    except ValidationError:
+        return None
 
 
 class TestService(ServiceBase):
@@ -67,22 +144,37 @@ class TestService(ServiceBase):
         title: str,
         ctx: AuthContext,
         description: str = "",
-        test_type: str = "Unit",
+        test_type: str = DEFAULT_TEST_TYPE,
         steps: Optional[list] = None,
         uid: Optional[str] = None,
         custom_fields: Optional[dict] = None,
+        test_type_value: object = _UNSET,
     ) -> TestCase:
         """Create a TestCase with initial WorkflowState.
 
         REQ-L2-AS-005: creates TestCase with test_type and initial WorkflowState.
+
+        Canonical test-type contract (#816, #953):
+
+        * ``test_type`` is the **canonical** value written to the
+          ``TestCase.test_type`` column (lowercase ``TestCaseType``). It
+          accepts the deprecated Title-case legacy vocabulary as an alias
+          (:func:`normalize_test_type`) and defaults to ``"unit"`` — the
+          documented default of the REST/MCP create contracts.
+        * ``test_type_value`` is the deprecated alias of the same column, kept
+          for the REST create path (which maps its nullable ``test_type``
+          serializer field here). It takes precedence when supplied —
+          *including* an explicit ``None``, which the REST contract uses for
+          "no type given".
+        * ``Artifact.artifact_type`` is always the plain ``"TestCase"``; the
+          old ``"TestCase:<Type>"`` sub-type tag is no longer written.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        if test_type not in VALID_TEST_TYPES:
-            raise ValidationError(
-                f"Invalid test_type '{test_type}'. Valid: {sorted(VALID_TEST_TYPES)}"
-            )
+        canonical_test_type = normalize_test_type(
+            test_type if test_type_value is _UNSET else test_type_value
+        )
 
         # Tenant and Workspace are imported at module level to allow test mocking.
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
@@ -107,11 +199,14 @@ class TestService(ServiceBase):
             description=description,
             steps=steps or [],
             uid=uid,
+            test_type=canonical_test_type,
         )
-        # Store test_type in description metadata (no dedicated field in schema)
-        # We tag the artifact_type with test_type for differentiation
-        artifact.artifact_type = f"TestCase:{test_type}"
-        artifact.save(update_fields=["artifact_type"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_test_case takes no change_reason.
+        ArtifactVersionService().record(
+            test_case.artifact_id, snapshot_fields(test_case, "TestCase"), ctx
+        )
 
         # Initialise workflow state
         try:
@@ -134,7 +229,12 @@ class TestService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.TEST_CASE_CREATED,
                 entity_id=test_case.id,
                 workspace_id=workspace_id,
-                payload={"title": title, "test_type": test_type},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={
+                    "title": title,
+                    "test_type": canonical_test_type,
+                    "artifact_id": str(artifact.id),
+                },
             )
         )
         return test_case
@@ -147,17 +247,38 @@ class TestService(ServiceBase):
         title: Optional[str] = None,
         description: Optional[str] = None,
         steps: Optional[list] = None,
+        test_type: object = _UNSET,
         custom_fields: object = _UNSET,
+        change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> TestCase:
-        """Update a TestCase."""
+        """Update a TestCase.
+
+        GH-829: ``change_reason`` is the optional, caller-supplied rationale
+        for this edit. It is recorded on the audit trail (and on the artifact
+        revision) exactly like RequirementService.update_requirement does.
+
+        SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
+        caller's last-seen ``version``. When supplied and stale, the update is
+        refused with ``OptimisticLockError`` (409 CONFLICT) instead of silently
+        overwriting a concurrent edit. Omitting it keeps the previous
+        last-writer-wins behaviour.
+        """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        test_case = TestCase.objects.select_related("artifact").filter(
-            id=test_case_id
+        test_case = lock_for_version_check(
+            TestCase.objects.select_related("artifact").filter(id=test_case_id),
+            expected_version,
         ).first()
         if test_case is None:
             raise NotFoundError(f"TestCase {test_case_id} not found")
+        assert_expected_version(test_case, expected_version, entity_type="TestCase")
+
+        # #269 finding 5: snapshot BEFORE any assignment so the version bump
+        # below can be gated on a real value change.
+        _before = snapshot_versioned_fields(test_case)
+        _custom_fields_changed = False
 
         if title is not None:
             test_case.title = title
@@ -165,25 +286,62 @@ class TestService(ServiceBase):
             test_case.description = description
         if steps is not None:
             test_case.steps = steps
+        # C-1 fix round: real model column (migration 0041, B6a) — distinct
+        # from create_test_case's `test_type` parameter above, which only
+        # ever tagged `artifact.artifact_type` and never touched this field.
+        # N-1 fix round 2: `_UNSET` sentinel (mirrors `custom_fields` below)
+        # distinguishes "field omitted" from an explicit `null` sent to clear
+        # the value — a plain `is not None` check swallowed the clear-to-null
+        # PATCH silently (200 OK, DB unchanged).
+        # #816: values are folded onto the canonical lowercase vocabulary on
+        # the write path, so a legacy Title-case "System" can no longer land
+        # in the column (None still clears it).
+        if test_type is not _UNSET:
+            test_case.test_type = normalize_test_type(test_type)
 
-        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the TestCase snapshot and has to be compared separately.
         if custom_fields is not _UNSET:
-            test_case.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (test_case.artifact.custom_fields or {})
+            )
+            test_case.artifact.custom_fields = cleaned_custom_fields
             test_case.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         test_case.save()
         # Atomic version increment (REQ-L3-PL001-002): mirrors the fix applied to
         # RequirementService — update_test_case never bumped version, so every
         # update stayed at version=1 forever.
-        TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
-        test_case.refresh_from_db(fields=["version"])
+        # #269 finding 5: only a real value change is a new revision.
+        if has_field_changes(test_case, _before) or _custom_fields_changed:
+            TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
+            test_case.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            # GH-829: carry the caller's change_reason onto the revision, as
+            # RequirementService does.
+            ArtifactVersionService().record(
+                test_case.artifact_id,
+                snapshot_fields(test_case, "TestCase"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
-        self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="TestCase",
+            entity_id=test_case_id,
+            change_reason=change_reason,
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.TEST_CASE_UPDATED,
                 entity_id=test_case_id,
                 workspace_id=test_case.artifact.workspace_id,
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"artifact_id": str(test_case.artifact_id)},
             )
         )
         return test_case
@@ -227,7 +385,16 @@ class TestService(ServiceBase):
 
     @atomic_transaction
     def delete_test_case(self, test_case_id: UUID, ctx: AuthContext) -> None:
-        """Delete TestCase + cascade TraceLinks (IF-AS-INT-005)."""
+        """Soft-delete a TestCase via the workflow engine (IF-AS-INT-005).
+
+        GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
+        survive alongside the outdated TestCase, symmetric with
+        Requirement/ADR/Need/etc., so ``reactivate()`` (GH-443) restores the
+        record with its links intact instead of silently losing them.
+        ``CoverageCalculator.coverage()`` compensates by excluding links
+        whose source TestCase is itself outdated from the coverage count
+        (see ``coverage_calculator.py``).
+        """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
@@ -238,14 +405,18 @@ class TestService(ServiceBase):
             raise NotFoundError(f"TestCase {test_case_id} not found")
 
         workspace_id = test_case.artifact.workspace_id
-        artifact_id = test_case.artifact_id
 
-        # IF-AS-INT-005
-        self._trace_link_service.cascade_delete_trace_links(
-            UUID(str(artifact_id)), ctx
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of hard-deleting the row.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=test_case.id,
+            item_type="TestCase",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via test.delete",
         )
-
-        test_case.delete()
 
         self._audit(ctx=ctx, operation="delete", entity_type="TestCase", entity_id=test_case_id)
         self._emit_event(
@@ -269,18 +440,51 @@ class TestService(ServiceBase):
         workspace_id: UUID,
         ctx: AuthContext,
         test_type: Optional[str] = None,
+        include_deleted: bool = False,
+        search: Optional[str] = None,
     ) -> QuerySet[TestCase]:
         """Return TestCases in *workspace_id*, optionally filtered by test_type.
 
+        REQ-006: Excludes outdated (soft-deleted) test cases by default. Pass
+        ``include_deleted=True`` for admin/audit access. Datenmodell-
+        Konsolidierung Phase 4 (D-3): the exclusion reads the
+        ``Artifact.lifecycle_status`` flag via
+        ``workflow.services.outdated_item_ids``.
+
+        Issue #267 (same root cause as RequirementService.list_requirements):
+        ``search`` case-insensitively filters on title/description/uid via
+        ``icontains``.
+
         REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
+
+        #816: *test_type* filters the canonical ``TestCase.test_type`` column
+        and accepts the deprecated Title-case legacy vocabulary as an alias
+        (:func:`normalize_test_type`) — it used to filter on the
+        ``"TestCase:<Type>"`` ``artifact_type`` tag, which no longer exists.
         """
         self._set_tenant_context(ctx)
         qs = TestCase.objects.select_related("artifact").filter(
             artifact__workspace_id=workspace_id
         )
+        if not include_deleted:
+            # Datenmodell-Konsolidierung Phase 4 (D-3): "outdated" is the
+            # Artifact.lifecycle_status flag, not a workflow state --
+            # outdate() stopped writing the state, so
+            # state_reader.item_ids_in_state would match nothing here.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(
+                id__in=outdated_item_ids("TestCase", tenant_id=ctx.tenant_id)
+            )
         if test_type is not None:
-            qs = qs.filter(artifact__artifact_type=f"TestCase:{test_type}")
+            qs = qs.filter(test_type=normalize_test_type(test_type))
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(uid__icontains=search)
+            )
         return qs
 
     # ---------- Coverage (REQ-L2-AS-025) ----------
@@ -318,4 +522,8 @@ __all__ = [
     "TestService",
     "VALID_EXECUTION_STATUSES",
     "VALID_TEST_TYPES",
+    "VALID_TEST_TYPE_VALUES",
+    "DEFAULT_TEST_TYPE",
+    "normalize_test_type",
+    "canonical_test_type_or_none",
 ]

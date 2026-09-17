@@ -13,10 +13,13 @@
 
 import { useTranslation } from "react-i18next";
 import { ApiKeysSection } from "./ApiKeysSection";
+import { MemorySection } from "./MemorySection";
+import { NotificationsSection } from "./NotificationsSection";
 import { ProfileSection } from "./ProfileSection";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 import { useState, useCallback } from "react";
+import { PageHeader } from "../shared/PageHeader";
 
 const VISIBILITY_LABELS: Record<OptionalArtifactFeature, string> = {
   adr: "ADR (Architecture Decision Records)",
@@ -81,20 +84,23 @@ export default function UserProfileSettings(): JSX.Element {
 
   return (
     <div data-testid="user-profile-settings" style={{ maxWidth: "640px" }}>
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          marginBottom: "var(--space-6)",
-        }}
-      >
-        {t("nav.profile")}
-      </h2>
+      <PageHeader
+        title={t("nav.profile")}
+        summary={t(
+          "profile.pageSummary",
+          "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen.",
+        )}
+      />
 
       <ProfileSection />
 
       <ApiKeysSection />
+
+      <MemorySection />
+
+      {/* User-global section: keep it contiguous with the three above and
+          before the workspace-scoped visibility block below. */}
+      <NotificationsSection />
 
       {activeWorkspace && (
         <section style={{
@@ -123,9 +129,12 @@ export default function UserProfileSettings(): JSX.Element {
               "Blendet einzelne optionale Artefakttypen in der Navigation und den Editoren ein oder aus. Overrides wirken nur für dich in diesem Workspace und überschreiben die Preset-Vorgabe."
             )}
           </p>
-          
+
           {saveError && (
-            <div style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)", fontSize: "var(--font-size-sm)" }}>
+            <div
+              role="alert"
+              style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)", fontSize: "var(--font-size-sm)" }}
+            >
               {saveError}
             </div>
           )}
@@ -176,25 +185,32 @@ export default function UserProfileSettings(): JSX.Element {
                     </span>
                   </span>
                 </label>
-                {overridden && (
-                  <button
-                    type="button"
-                    data-testid={`visibility-reset-${feature}`}
-                    onClick={() => void handleResetFeature(feature)}
-                    disabled={isPending}
-                    style={{
-                      background: "transparent",
-                      color: "var(--color-text-muted)",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: "var(--radius-sm)",
-                      padding: "var(--space-1) var(--space-3)",
-                      fontSize: "var(--font-size-sm)",
-                      cursor: isPending ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {t("settings.visibilityReset", "Auf Preset zurücksetzen")}
-                  </button>
-                )}
+                {/*
+                  BUG-16 fix: always render the reset control, disabled when
+                  there is nothing to reset. Previously this was gated on
+                  `overridden` alone, so a successful reset (which clears
+                  `overridden`) unmounted the button entirely instead of
+                  disabling it — the E2E assertion `toBeDisabled()` could
+                  never be satisfied because the element left the DOM.
+                */}
+                <button
+                  type="button"
+                  data-testid={`visibility-reset-${feature}`}
+                  onClick={() => void handleResetFeature(feature)}
+                  disabled={isPending || !overridden}
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-text-muted)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "var(--space-1) var(--space-3)",
+                    fontSize: "var(--font-size-sm)",
+                    cursor: isPending || !overridden ? "not-allowed" : "pointer",
+                    opacity: overridden ? 1 : 0.5,
+                  }}
+                >
+                  {t("settings.visibilityReset", "Auf Preset zurücksetzen")}
+                </button>
               </div>
             );
           })}

@@ -1,0 +1,4 @@
+# Exclude agent-meta and AI tool config folders
+.agent-meta/
+.gemini/
+.github/

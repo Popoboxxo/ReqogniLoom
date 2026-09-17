@@ -167,7 +167,9 @@ class TestValidateTransitionRoles:
             "application.preset_policy_service.PresetPolicyService._get_preset",
             return_value=mock_preset,
         ):
-            allowed, msg = svc.validate_transition_roles(ctx, target_state="approved")
+            allowed, msg = svc.validate_transition_roles(
+                ctx, target_state="approved", workspace_id=WS_ID
+            )
 
         assert allowed is True
         assert msg is None
@@ -182,7 +184,9 @@ class TestValidateTransitionRoles:
             "application.preset_policy_service.PresetPolicyService._get_preset",
             return_value=mock_preset,
         ):
-            allowed, msg = svc.validate_transition_roles(ctx, target_state="approved")
+            allowed, msg = svc.validate_transition_roles(
+                ctx, target_state="approved", workspace_id=WS_ID
+            )
 
         assert allowed is False
         assert msg is not None
@@ -198,7 +202,9 @@ class TestValidateTransitionRoles:
             "application.preset_policy_service.PresetPolicyService._get_preset",
             return_value=mock_preset,
         ):
-            allowed, msg = svc.validate_transition_roles(ctx, target_state="approved")
+            allowed, msg = svc.validate_transition_roles(
+                ctx, target_state="approved", workspace_id=WS_ID
+            )
 
         assert allowed is True
         assert msg is None
@@ -214,7 +220,7 @@ class TestValidateTransitionRoles:
             return_value=mock_preset,
         ):
             allowed, msg = svc.validate_transition_roles(
-                ctx, target_state="in_review"
+                ctx, target_state="in_review", workspace_id=WS_ID
             )
 
         assert allowed is True
@@ -228,9 +234,29 @@ class TestValidateTransitionRoles:
             "application.preset_policy_service.PresetPolicyService._get_preset",
             side_effect=Exception("down"),
         ):
-            allowed, msg = svc.validate_transition_roles(ctx, target_state="approved")
+            allowed, msg = svc.validate_transition_roles(
+                ctx, target_state="approved", workspace_id=WS_ID
+            )
 
         assert allowed is True
+
+    def test_uses_workspace_id_not_tenant_id(self):
+        """Regression (GitHub #215): preset lookup must use workspace_id, not
+        ctx.tenant_id — a tenant can own many workspaces with distinct presets."""
+        svc = PresetPolicyService()
+        different_tenant_id = uuid.uuid4()
+        ctx = _make_ctx(roles=("editor",), tenant_id=different_tenant_id)
+        mock_preset = _make_preset(features={"approval_workflows": True})
+
+        with patch(
+            "application.preset_policy_service.PresetPolicyService._get_preset",
+            return_value=mock_preset,
+        ) as mock_get_preset:
+            svc.validate_transition_roles(
+                ctx, target_state="approved", workspace_id=WS_ID
+            )
+
+        mock_get_preset.assert_called_once_with(WS_ID)
 
 
 # ---------------------------------------------------------------------------

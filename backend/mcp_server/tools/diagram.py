@@ -1,0 +1,565 @@
+"""
+COMP-MC-003-style DiagramToolGroup — Diagram MCP tool group (Phase 1 Task 5).
+
+leaf_id : COMP-DS-001 (DiagramManager, wrapped via diagram.services)
+req_id  : REQ-L2-DS-001, REQ-L3-DM-001..004, REQ-L2-MC-012 (MCP audit trail)
+
+Tools implemented:
+  diagram.create      — create a new diagram + initial version (write, audited)
+  diagram.get         — fetch a diagram (header + current/specific version)
+  diagram.update      — append a new immutable version (write, audited)
+  diagram.query       — list diagrams for a workspace
+  diagram.outdate     — soft-delete via the workflow engine (write, audited)
+  diagram.reactivate  — restore a previously outdated diagram (write, audited)
+
+Unlike ``RequirementsToolGroup``/``StakeholderNeedsToolGroup``, ``diagram/
+services.py`` exposes module-level functions rather than an
+ApplicationService class — this tool group calls those functions directly
+instead of wrapping a service instance (ADR-L3-MC003-01 analog: dedicated
+handler method per tool, own tool group).
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, Optional
+
+from auth_tenancy.context import AuthContext
+
+from diagram.models import Diagram
+from diagram.node_graph_renderer import NodeGraphRenderError
+from diagram.renderer import DiagramRenderer
+from diagram.services import (
+    DiagramResult,
+    DiagramValidationError,
+    create_diagram,
+    delete_diagram,
+    get_diagram,
+    get_diagram_header,
+    list_diagrams,
+    resolve_tenant,
+    resolve_user,
+    update_diagram,
+)
+
+from mcp_server.protocol_handler import ToolResult
+from mcp_server.tools.base import (
+    BaseToolGroup,
+    mcp_audit_handoff,
+    optional_uuid,
+    require_param,
+    require_uuid,
+    write_mcp_audit,
+)
+
+logger = logging.getLogger(__name__)
+
+# GH-353 (Task 6): module-level singleton, mirrors diagram/services.py's
+# pattern of stateless, lazily-shared renderer/manager instances.
+_diagram_renderer = DiagramRenderer()
+
+
+def _assert_write_permission(auth_context: AuthContext) -> None:
+    """Raise if *auth_context* lacks a role that permits WRITE (Systemaudit #102).
+
+    ``diagram.services`` exposes plain module-level functions (no
+    ``AuthContext`` parameter, no internal check — unlike ``application/
+    *_service.py``, which all call ``ServiceBase._assert_write_permission``
+    as their last line of defence). Registry-level RBAC
+    (``ToolRegistry._is_write_tool``) already fail-closed gates
+    ``diagram.create``/``.update`` (Systemaudit #99), but this tool group had
+    no defense-in-depth of its own — a Viewer-scoped API key that reached this
+    handler through any future registry regression would otherwise write
+    unchecked. Mirrors the check ``AuthTenancyAuthentication``/
+    ``HasOperationPermission`` (auth_tenancy/rest.py) perform at the REST
+    boundary.
+    """
+    from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+    decision = AuthorizationService().decide_access(
+        auth_context.active_roles, Operation.WRITE
+    )
+    if not decision.allow:
+        raise PermissionError(
+            f"Permission denied: write operation requires at least 'editor' "
+            f"role, user has {auth_context.active_roles}"
+        )
+
+
+def _diagram_header_to_dict(diagram: Diagram) -> Dict[str, Any]:
+    """Serialise a Diagram header (no version payload) for MCP responses."""
+    return {
+        "id": str(diagram.id),
+        "name": diagram.name,
+        "diagram_type": diagram.diagram_type,
+        "description": diagram.description,
+        "workspace_id": str(diagram.workspace_id) if diagram.workspace_id else None,
+        # Task 28c-2: was the current DiagramVersion UUID; that row no
+        # longer exists, so this is the revision number instead.
+        "current_revision": diagram.current_revision,
+    }
+
+
+class DiagramToolGroup(BaseToolGroup):
+    """Diagram tool group (6 tools) — wraps ``diagram.services`` module functions."""
+
+    _TOOL_MAP = {
+        "diagram.create": "_handle_create",
+        "diagram.get": "_handle_get",
+        "diagram.update": "_handle_update",
+        "diagram.query": "_handle_query",
+        "diagram.outdate": "_handle_outdate",
+        "diagram.reactivate": "_handle_reactivate",
+    }
+
+    _TOOL_SCHEMAS = [
+        {
+            "name": "diagram.create",
+            "description": "Create a new diagram with its initial version (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the owning workspace."},
+                    "name": {"type": "string", "description": "Diagram name."},
+                    "diagram_type": {
+                        "type": "string",
+                        "enum": ["block", "canvas", "context", "flow", "mermaid"],
+                        "description": "One of 'block' | 'flow' | 'context' | 'canvas' | 'mermaid'.",
+                    },
+                    "payload_format": {
+                        "type": "string",
+                        "enum": ["mermaid", "plantuml", "json", "canvas_stroke", "node_graph"],
+                        "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'.",
+                    },
+                    "content": {"type": "string", "description": "Raw diagram payload string."},
+                    "description": {"type": "string", "description": "Optional free-text description."},
+                    "target_id": {
+                        "type": "string",
+                        "description": "Optional target Artifact UUID for a 'references' TraceLink.",
+                    },
+                },
+                "required": ["name", "diagram_type", "payload_format", "content"],
+            },
+        },
+        {
+            "name": "diagram.get",
+            "description": "Fetch a diagram by ID (current or a specific version).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the diagram."},
+                    "version_number": {
+                        "type": "integer",
+                        "description": "Optional specific version. Defaults to current.",
+                    },
+                    "export_format": {
+                        "type": "string",
+                        "enum": ["svg"],
+                        "description": (
+                            "Optional export format. Omit for the default behaviour "
+                            "(returns the canonical JSON payload). 'svg' renders the "
+                            "diagram to an SVG string — currently only supported for "
+                            "'node_graph' diagrams; requesting it for any other "
+                            "payload_format returns a VALIDATION_ERROR."
+                        ),
+                    },
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "diagram.update",
+            "description": "Append a new immutable version to an existing diagram (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the diagram."},
+                    "payload_format": {
+                        "type": "string",
+                        "enum": ["mermaid", "plantuml", "json", "canvas_stroke", "node_graph"],
+                        "description": "Diagram payload format: 'mermaid', 'plantuml', 'json', 'canvas_stroke', or 'node_graph'.",
+                    },
+                    "content": {"type": "string", "description": "New raw payload string."},
+                    "target_id": {
+                        "type": "string",
+                        "description": "Optional target Artifact UUID for an additional TraceLink.",
+                    },
+                },
+                "required": ["id", "payload_format", "content"],
+            },
+        },
+        {
+            "name": "diagram.query",
+            "description": "List diagrams for a workspace.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "include_deleted": {
+                        "type": "boolean",
+                        "description": "If true, include outdated (soft-deleted) diagrams. Defaults to false.",
+                    },
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "diagram.outdate",
+            "description": "Soft-delete a diagram via the workflow engine's outdate escape hatch (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the diagram."},
+                    "reason": {"type": "string", "description": "Optional audit reason."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "diagram.reactivate",
+            "description": "Restore an outdated diagram to its previous state (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the diagram."},
+                },
+                "required": ["id"],
+            },
+        },
+    ]
+
+    # ------------------------------------------------------------------
+    # Tenant/user resolution — diagram/services.py's create/update take
+    # ORM Tenant/User objects, not bare ids (TenantScopedModel requirement).
+    # ADR-01 (#124): the lookups themselves now live in diagram/services.py
+    # next to the contract that demands them; these stay as thin adapters
+    # from AuthContext to that service call.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_tenant(auth_context: AuthContext) -> Any:
+        return resolve_tenant(auth_context.tenant_id)
+
+    @staticmethod
+    def _resolve_user(auth_context: AuthContext) -> Optional[Any]:
+        return resolve_user(auth_context.user_id)
+
+    # ------------------------------------------------------------------
+    # diagram.create
+    # ------------------------------------------------------------------
+
+    def _handle_create(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """diagram.create — create a new diagram + initial version (write, audited)."""
+        try:
+            _assert_write_permission(auth_context)
+        except PermissionError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        name = require_param(params, "name")
+        diagram_type = require_param(params, "diagram_type")
+        payload_format = require_param(params, "payload_format")
+        content = require_param(params, "content")
+        description: str = params.get("description", "")
+        workspace_id = optional_uuid(params, "workspace_id")
+        target_id = optional_uuid(params, "target_id")
+
+        tenant = self._resolve_tenant(auth_context)
+        user = self._resolve_user(auth_context)
+
+        try:
+            # Codeberg #313: create_diagram writes its own audit entry via a
+            # direct audit.services.log_write call (bypassing
+            # ServiceBase._audit, unlike most other services) — suppress it
+            # here so write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                diagram = create_diagram(
+                    name=str(name),
+                    diagram_type=str(diagram_type),
+                    payload_format=str(payload_format),
+                    content=str(content),
+                    tenant=tenant,
+                    description=str(description),
+                    created_by=user,
+                    target_id=target_id,
+                    workspace_id=workspace_id,
+                )
+        except DiagramValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="create",
+            entity_type="Diagram",
+            entity_id=diagram.id,
+            tool_name="diagram.create",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"diagram": _diagram_header_to_dict(diagram)})
+
+    # ------------------------------------------------------------------
+    # diagram.get
+    # ------------------------------------------------------------------
+
+    def _handle_get(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """diagram.get — fetch a diagram (current or a specific version).
+
+        GH-353 (Task 6): optional ``export_format="svg"`` renders the
+        diagram to SVG instead of returning the canonical JSON payload —
+        only implemented for ``node_graph`` diagrams (see
+        ``diagram.renderer.DiagramRenderer.export_svg``); any other
+        ``payload_format`` returns ``VALIDATION_ERROR``, not a 500.
+        """
+        diagram_id = require_uuid(params, "id")
+        version_number = params.get("version_number")
+        export_format = params.get("export_format")
+
+        try:
+            result: DiagramResult = get_diagram(
+                diagram_id=diagram_id, version_number=version_number
+            )
+        except Diagram.DoesNotExist:
+            return ToolResult.error("NOT_FOUND", f"Diagram {diagram_id} not found.")
+
+        diagram = result.diagram
+        version = result.version
+
+        if export_format is not None:
+            if export_format != "svg":
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"Unsupported export_format {export_format!r}; only 'svg' is supported.",
+                )
+            if version is None or result.renderable is None:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"Diagram {diagram_id} has no version to export.",
+                )
+            try:
+                svg = _diagram_renderer.export_svg(result.renderable)
+            except NotImplementedError:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"export_format='svg' is not supported for payload_format "
+                    f"{version.payload_format!r}; only 'node_graph' diagrams can "
+                    "be exported to SVG.",
+                )
+            except NodeGraphRenderError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+            return ToolResult.ok(
+                {
+                    "diagram": {
+                        "id": str(diagram_id),
+                        "export_format": "svg",
+                        "svg": svg,
+                    }
+                }
+            )
+
+        payload = _diagram_header_to_dict(diagram)
+        payload.update(
+            {
+                "payload_format": version.payload_format if version else None,
+                "content": version.payload if version else None,
+                "version_number": version.version_number if version else None,
+            }
+        )
+        return ToolResult.ok({"diagram": payload})
+
+    # ------------------------------------------------------------------
+    # diagram.update
+    # ------------------------------------------------------------------
+
+    def _handle_update(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """diagram.update — append a new immutable version (write, audited)."""
+        try:
+            _assert_write_permission(auth_context)
+        except PermissionError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        diagram_id = require_uuid(params, "id")
+        payload_format = require_param(params, "payload_format")
+        content = require_param(params, "content")
+        target_id = optional_uuid(params, "target_id")
+
+        user = self._resolve_user(auth_context)
+
+        try:
+            # Codeberg #313: update_diagram writes its own audit entry via a
+            # direct audit.services.log_write call — suppress it here so
+            # write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                new_version = update_diagram(
+                    diagram_id=diagram_id,
+                    payload_format=str(payload_format),
+                    content=str(content),
+                    modified_by=user,
+                    target_id=target_id,
+                )
+        except Diagram.DoesNotExist:
+            return ToolResult.error("NOT_FOUND", f"Diagram {diagram_id} not found.")
+        except DiagramValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="Diagram",
+            entity_id=diagram_id,
+            tool_name="diagram.update",
+            api_key=api_key,
+        )
+        return ToolResult.ok(
+            {
+                "diagram": {
+                    "id": str(diagram_id),
+                    "version_number": new_version.version_number,
+                    "payload_format": new_version.payload_format,
+                    "content": new_version.payload,
+                }
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # diagram.query
+    # ------------------------------------------------------------------
+
+    def _handle_query(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """diagram.query — list diagrams for a workspace."""
+        workspace_id = optional_uuid(params, "workspace_id")
+        if not workspace_id:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'workspace_id' is required for diagram.query.",
+            )
+        include_deleted = bool(params.get("include_deleted", False))
+
+        diagrams = list_diagrams(
+            workspace_id=workspace_id,
+            tenant_id=auth_context.tenant_id,
+            include_deleted=include_deleted,
+        )
+        return ToolResult.ok(
+            {
+                "diagrams": [_diagram_header_to_dict(d) for d in diagrams],
+                "count": len(diagrams),
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # diagram.outdate
+    # ------------------------------------------------------------------
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """diagram.outdate — soft-delete via the workflow engine (write, audited)."""
+        try:
+            _assert_write_permission(auth_context)
+        except PermissionError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        diagram_id = require_uuid(params, "id")
+        reason: str = params.get("reason", "")
+
+        try:
+            diagram = get_diagram_header(diagram_id, auth_context.tenant_id)
+        except Diagram.DoesNotExist:
+            return ToolResult.error("NOT_FOUND", f"Diagram {diagram_id} not found.")
+
+        if diagram.workspace_id is None:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Diagram {diagram_id} has no workspace assigned; workflow unavailable.",
+            )
+
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=diagram_id,
+                item_type="Diagram",
+                workspace_id=diagram.workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("diagram.outdate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #626: reuse "delete", the REST pendant for a soft-delete (was
+            # the undeclared "outdate", silently rejected by full_clean()).
+            operation="delete",
+            entity_type="Diagram",
+            entity_id=diagram_id,
+            tool_name="diagram.outdate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(diagram_id), "status": "outdated"})
+
+    # ------------------------------------------------------------------
+    # diagram.reactivate
+    # ------------------------------------------------------------------
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """diagram.reactivate — restore a previously outdated diagram (write, audited)."""
+        try:
+            _assert_write_permission(auth_context)
+        except PermissionError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        diagram_id = require_uuid(params, "id")
+
+        try:
+            diagram = get_diagram_header(diagram_id, auth_context.tenant_id)
+        except Diagram.DoesNotExist:
+            return ToolResult.error("NOT_FOUND", f"Diagram {diagram_id} not found.")
+
+        if diagram.workspace_id is None:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Diagram {diagram_id} has no workspace assigned; workflow unavailable.",
+            )
+
+        from workflow.services import reactivate
+
+        try:
+            result = reactivate(
+                item_id=diagram_id,
+                item_type="Diagram",
+                workspace_id=diagram.workspace_id,
+                ctx=auth_context,
+            )
+        except ValueError as exc:
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("diagram.reactivate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #626: reuse "transition" (was the undeclared "reactivate",
+            # silently rejected by full_clean()) -- same convention as #573.
+            operation="transition",
+            entity_type="Diagram",
+            entity_id=diagram_id,
+            tool_name="diagram.reactivate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(diagram_id), "status": result.new_state})
+
+
+__all__ = ["DiagramToolGroup"]

@@ -1,0 +1,30 @@
+# AWMS first-plan set (spec §8.2): priority-Backfill fuer Requirement.
+# Strategie: derive_from_link ueber derives-from -> StakeholderNeed.moscow_priority,
+# Fallback "Should", only_if target_is_empty -> idempotent.
+version: 1
+id: 2026-09-priority-backfill
+description: >-
+  Requirement.priority (Artifact-Systemfeld) fuer leere Werte nachziehen: zuerst
+  aus dem verlinkten StakeholderNeed.moscow_priority ableiten, sonst "Should".
+scope:
+  tenant: current
+  item_type: Requirement
+  preset: [standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: backfill_value
+    target: {target: model_field, name: priority}
+    value_strategy: derive_from_link
+    via:
+      link_type: derives-from
+      direction: outgoing
+      source_attr: moscow_priority
+    fallback: "Should"
+    only_if: "target_is_empty"
+  - op: verify
+    assertions: ["failed == 0"]

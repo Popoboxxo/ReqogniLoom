@@ -38,7 +38,21 @@ describe("extractErrorMessage — REQ-001", () => {
         ],
       },
     };
-    expect(extractErrorMessage(apiError)).toBe("This field is required.");
+    // The field name is part of the message on purpose: every caller renders
+    // this detached from the form (dialog-level alert), where a bare
+    // "This field is required." names no field. See client.ts.
+    expect(extractErrorMessage(apiError)).toBe("title: This field is required.");
+  });
+
+  it("returns the bare detail message when the server names no field", () => {
+    const apiError = {
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed",
+        details: [{ errors: ["Something went wrong."] }],
+      },
+    };
+    expect(extractErrorMessage(apiError)).toBe("Something went wrong.");
   });
 
   it("falls back to top-level message when details array is empty", () => {

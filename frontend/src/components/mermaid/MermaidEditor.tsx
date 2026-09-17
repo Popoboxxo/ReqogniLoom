@@ -22,9 +22,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { diagramsApi } from "../../api/diagrams";
-import type { MermaidPreviewResponse } from "../../types";
+import { diagramKeys } from "../DiagramView/useDiagramData";
 import styles from "../../styles/components/MermaidEditor.module.css";
+import { sanitizeSvg } from "../../utils/sanitizeSvg";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -53,9 +55,17 @@ export function MermaidEditor({
   onSourceChange,
 }: MermaidEditorProps): JSX.Element {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
 
   const [source, setSource] = useState(initialSource ?? "");
-  const [preview, setPreview] = useState<MermaidPreviewResponse | null>(null);
+  // #259: the status bar's diagram-type label used to read `preview.diagram_type`,
+  // which only updates 300ms after a *debounced, backend-persisted* round-trip
+  // (GET /mermaid-preview/, driven by `diagramId` alone -- see fetchPreview
+  // below) -- it never reflected what the user had just typed but not yet
+  // saved. `detectedType` is derived synchronously from the same client-side
+  // mermaid.js parse that already renders `previewSvg`, so it always matches
+  // the current `source`.
+  const [detectedType, setDetectedType] = useState<string>("");
   const [previewSvg, setPreviewSvg] = useState<string>("");
   const [validationError, setValidationError] = useState<string>("");
   const [isDirty, setIsDirty] = useState(false);
@@ -68,6 +78,29 @@ export function MermaidEditor({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const cmViewRef = useRef<InstanceType<typeof import("@codemirror/view").EditorView> | null>(null);
+
+  // Mirror of `isDirty` for use inside callbacks that must stay referentially
+  // stable. `performAutoSave` runs from a 2s timer that was scheduled during a
+  // render where `isDirty` was still false; reading the state variable there
+  // would capture that stale value and abort every scheduled save. The ref is
+  // written synchronously next to every `setIsDirty` call, so it is always
+  // current when the timer fires.
+  const isDirtyRef = useRef(false);
+
+  // UI-23: mirror of `validationError` for the same reason as `isDirtyRef`
+  // above — `performAutoSave` runs from a 2s timer scheduled during an
+  // earlier render and must see the *current* validation state, not the one
+  // captured when the timer was set.
+  const validationErrorRef = useRef<string>("");
+  useEffect(() => {
+    validationErrorRef.current = validationError;
+  }, [validationError]);
+
+  // Always points at the newest `handleSourceChange`. The CodeMirror instance
+  // is created once per `diagramId` and its `updateListener` closes over
+  // whatever binding existed at that moment — without this indirection the
+  // editor would keep calling the mount-time callback forever.
+  const handleSourceChangeRef = useRef<(newSource: string) => void>(() => {});
 
   // -----------------------------------------------------------------------
   // Load initial source from server if not provided
@@ -124,7 +157,7 @@ export function MermaidEditor({
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const newSource = update.state.doc.toString();
-              handleSourceChange(newSource);
+              handleSourceChangeRef.current(newSource);
             }
           }),
           EditorView.lineWrapping,
@@ -157,6 +190,7 @@ export function MermaidEditor({
     (newSource: string) => {
       setSource(newSource);
       setIsDirty(true);
+      isDirtyRef.current = true;
       onSourceChange?.(newSource);
 
       // Debounced preview fetch (300ms)
@@ -175,9 +209,18 @@ export function MermaidEditor({
         void performAutoSave(newSource);
       }, AUTO_SAVE_DELAY_MS);
     },
+    // `fetchPreview` and `performAutoSave` are intentionally omitted: both are
+    // declared further down, so naming them here would evaluate a `const` in
+    // its temporal dead zone on every render. Omitting them is safe because
+    // neither reads render-scoped state any more — `performAutoSave` goes
+    // through `isDirtyRef`, and both only close over `diagramId`, which is
+    // already a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [diagramId, onSourceChange]
   );
+
+  // Publish the current callback for the CodeMirror updateListener.
+  handleSourceChangeRef.current = handleSourceChange;
 
   // -----------------------------------------------------------------------
   // Preview fetch
@@ -186,8 +229,6 @@ export function MermaidEditor({
   const fetchPreview = useCallback(
     async (currentSource: string) => {
       if (!currentSource.trim()) {
-        setPreview(null);
-        setPreviewSvg("");
         setValidationError("");
         return;
       }
@@ -195,23 +236,23 @@ export function MermaidEditor({
       setIsLoadingPreview(true);
       try {
         const resp = await diagramsApi.fetchMermaidPreview(diagramId);
-        setPreview(resp);
 
+        // #259: this GET is a server-side validity double-check (the source
+        // it validates is whatever was last persisted, not `currentSource` --
+        // see the module docstring). It must never touch `previewSvg`: that
+        // is owned exclusively by the client-side mermaid.js render effect
+        // above, which resolves faster (no network round-trip) on every
+        // keystroke. This call used to `setPreviewSvg("")` in its
+        // non-fallback branch too, discarding whatever the render effect had
+        // *already* drawn once this slower, debounced fetch caught up.
         if (resp.fallback_mode) {
           setValidationError(resp.error_message || t("mermaid.preview.error", "Render error"));
-          setPreviewSvg("");
-        } else {
-          setValidationError("");
-          // The preview endpoint returns source + hints; actual SVG rendering
-          // happens client-side via mermaid.js
-          setPreviewSvg("");
         }
       } catch (err) {
         const msg =
           (err as { error?: { message?: string } })?.error?.message ??
           String(err);
         setValidationError(msg);
-        setPreview(null);
       } finally {
         setIsLoadingPreview(false);
       }
@@ -226,6 +267,7 @@ export function MermaidEditor({
   useEffect(() => {
     if (!source.trim()) {
       setPreviewSvg("");
+      setDetectedType("");
       return;
     }
 
@@ -240,12 +282,28 @@ export function MermaidEditor({
           startOnLoad: false,
           theme: "default",
           securityLevel: "strict",
+          // Labels must be plain SVG <text>: the rendered markup passes
+          // through sanitizeSvg, which drops <foreignObject> (mXSS vector).
+          htmlLabels: false,
+          flowchart: { htmlLabels: false },
         });
+
+        // #259: detectType() is a synchronous, purely local parse of the
+        // *current* source -- unlike the debounced GET /mermaid-preview/
+        // round-trip (fetchPreview below), it can never lag behind what the
+        // user just typed. Its own failure (unparseable source) must not
+        // block the render attempt below, so it gets its own try/catch.
+        try {
+          setDetectedType(mermaid.detectType(source));
+        } catch {
+          setDetectedType("");
+        }
 
         const id = `mermaid-preview-${Date.now()}`;
         const { svg } = await mermaid.render(id, source);
         if (!cancelled) {
-          setPreviewSvg(svg);
+          // Rendered via dangerouslySetInnerHTML below — sanitise first.
+          setPreviewSvg(sanitizeSvg(svg));
           setValidationError("");
         }
       } catch (err) {
@@ -269,14 +327,39 @@ export function MermaidEditor({
   // -----------------------------------------------------------------------
 
   const performAutoSave = useCallback(
-    async (currentSource: string) => {
-      if (!isDirty) return;
+    async (currentSource: string, options?: { auto?: boolean }) => {
+      // Read the ref, not the `isDirty` state: this function is invoked from a
+      // debounce timer scheduled by an older render, so the state variable
+      // captured here would still be the mount-time `false` and would abort
+      // every auto-save.
+      if (!isDirtyRef.current) return;
+
+      // UI-23: the 2s autosave timer used to check only `isDirtyRef`, so a
+      // syntactically broken source was persisted the moment the user
+      // stopped typing — the invalid state silently became "the diagram".
+      // An explicit manual save (the Save button) still goes through: that
+      // is a deliberate action, not a silent background write.
+      const isAutoTriggered = options?.auto ?? true;
+      if (isAutoTriggered && validationErrorRef.current) {
+        return;
+      }
 
       setSaveStatus("saving");
       try {
         await diagramsApi.saveMermaidSource(diagramId, currentSource);
         setIsDirty(false);
+        isDirtyRef.current = false;
         setSaveStatus("saved");
+
+        // REQ-L1-029 / B-DIAG-001: this save goes straight through
+        // diagramsApi, bypassing useDiagramDetail's mutation and the
+        // invalidation it normally triggers. Without this, the detail pane's
+        // react-query cache (30s staleTime) keeps serving the pre-save
+        // version — the backend has already created v2, the UI just never
+        // asks for it again within that window.
+        void queryClient.invalidateQueries({
+          queryKey: diagramKeys.detail(diagramId),
+        });
 
         setTimeout(() => setSaveStatus("idle"), 2000);
       } catch (err) {
@@ -284,12 +367,13 @@ export function MermaidEditor({
         setSaveStatus("error");
       }
     },
-    [diagramId, isDirty]
+    [diagramId, queryClient]
   );
 
-  // Manual save
+  // Manual save — an explicit user action, so it is allowed to persist an
+  // invalid source (unlike the silent 2s autosave timer, see UI-23 above).
   const handleManualSave = useCallback(() => {
-    void performAutoSave(source);
+    void performAutoSave(source, { auto: false });
   }, [performAutoSave, source]);
 
   // Cleanup timers
@@ -320,7 +404,7 @@ export function MermaidEditor({
               style={{
                 padding: "var(--space-1) var(--space-2)",
                 background: "var(--color-primary)",
-                color: "white",
+                color: "var(--color-on-primary)",
                 border: "none",
                 borderRadius: "var(--radius-sm)",
                 cursor: isDirty ? "pointer" : "not-allowed",
@@ -346,9 +430,9 @@ export function MermaidEditor({
         <div className={styles.previewPane} data-testid="mermaid-preview-pane">
           <div className={styles.editorHeader}>
             <span>{t("mermaid.preview.title", "Live Preview")}</span>
-            {preview && (
+            {detectedType && (
               <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-                {preview.diagram_type}
+                {detectedType}
               </span>
             )}
           </div>
@@ -387,8 +471,8 @@ export function MermaidEditor({
       {/* Status bar */}
       <div className={styles.statusBar} data-testid="mermaid-status-bar">
         <span>
-          {preview
-            ? `${t("mermaid.status.type", "Type")}: ${preview.diagram_type}`
+          {detectedType
+            ? `${t("mermaid.status.type", "Type")}: ${detectedType}`
             : t("mermaid.status.noPreview", "No preview")}
         </span>
         <span
@@ -402,6 +486,7 @@ export function MermaidEditor({
                   : ""
           }
           data-testid="mermaid-save-status"
+          role={saveStatus === "error" ? "alert" : "status"}
         >
           {saveStatus === "saving"
             ? t("canvas.status.saving", "Saving...")

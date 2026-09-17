@@ -14,15 +14,19 @@ Follows the same convention established in ``trace_derivation_allocation.py``
 is ``NULL`` for practically every Requirement created via
 ``RequirementService.decompose()``, so "leaf" cannot be read off that field
 for the regular case. This module instead uses the *dynamic
-decomposition-graph depth*: a Requirement is a "leaf" when it is not the
-*source* of any ``decomposes``/``parent-child`` link to another Requirement
-in scope, i.e. no other Requirement was decomposed from it. This is the
-mirror image of ``trace_derivation_allocation._root_requirement_ids``
-(which looks for "not a *target*").
+decomposition-graph depth*: a Requirement is a "leaf" when no other
+Requirement in scope hangs below it in the hierarchy, i.e. nothing was
+decomposed/derived from it. Both spellings of a hierarchy edge count —
+``parent --decomposes/parent-child--> child`` and the inverse
+``child --derives-from--> parent`` (issue #395); see
+:mod:`traceability.audit.hierarchy`, which holds the shared definition used
+by both this module and ``trace_derivation_allocation``'s mirror-image root
+classification (and only those two — that module's docstring lists the other
+hierarchy representations it must *not* be unified with).
 
 L4 (Presentation) is out of scope for the whole §2.2 matrix (closing note
 of §2.2): a Requirement with an *explicitly assigned*
-``level == RequirementLevel.L4_MATERIAL`` is skipped by VERIF-P8. Rows with
+``level == RequirementLevel.L4_PRESENTATION`` is skipped by VERIF-P8. Rows with
 ``level IS NULL`` (the overwhelming majority) are never treated as L4 and are
 NOT skipped — same rationale as the sibling rule modules.
 
@@ -32,10 +36,13 @@ LinkType gap: CONS-P9/CONS-P10 are deferred (verified against code, 2026-07-19)
 CONS-P9 ("open CONFLICTS_WITH link blocks the Approval-Transition") and
 CONS-P10 ("no link may reference a SUPERCEDES-replaced artifact") both
 require ``LinkType`` members that do not exist. Verified against
-``backend/traceability/types.py``: the ``LinkType`` enum has 14 members (see
-UMSETZUNGSPLAN_SYSENG_2.0.md §2.3 — the CLAUDE.md project taxonomy names 8
-link types including ``CONFLICTS_WITH`` and ``SUPERCEDES``, but the actual
-code enum diverges and defines neither). ``TraceLinkManager.create_link()``
+``backend/traceability/types.py``: the ``LinkType`` enum had 14 members when
+this was first investigated (2026-07-19, see UMSETZUNGSPLAN_SYSENG_2.0.md
+§2.3) and has 15 now (``diagram-ref`` was added 2026-08-08, #353/#428) — the
+CLAUDE.md project taxonomy at the time named 8 link types including
+``CONFLICTS_WITH`` and ``SUPERCEDES``, but the actual code enum diverges and
+still defines neither (see GitHub #404, which corrected the documentation
+side of this gap). ``TraceLinkManager.create_link()``
 validates ``link_type`` against ``VALID_LINK_TYPES`` and would reject both
 strings (``InvalidLinkTypeError``) — no real user can ever create such a
 link through the validated path.
@@ -52,13 +59,14 @@ but the RuleEngine guarantees zero findings and never calls their ``check``
 for any tier. Implementing them for real is follow-up work, gated on the
 ``LinkType`` enum actually gaining ``CONFLICTS_WITH``/``SUPERCEDES`` members.
 
---------------------------------------------------------------------------
-TRACE-P6 / VERIF-P8 "supersedes" note
---------------------------------------------------------------------------
-TRACE-P6 already filters trace links by the literal string ``"supersedes"``
-(via :func:`_superseded_artifact_ids`) — that pre-existing behaviour is out of
-scope for this change (TRACE-P6 stays active and unmodified) and is left as
-is; only CONS-P9/CONS-P10 are deferred here.
+TRACE-P6 used to carry its own string-literal ``"supersedes"`` exclusion
+(``_superseded_artifact_ids``) on top of this — that filter could never match
+a real link either (same validation gap as CONS-P9/CONS-P10), so it was
+removed rather than deferred: it was live, unconditional code silently
+promising an exclusion that no user-created data could ever trigger.
+SYSTEMAUDIT_2026-08-27 P1-15; the mirror-image filter in
+``workflow.precondition_rules.check_verifies_link`` (Rule 7) was removed for
+the same reason in the same change.
 
 None of the four rules re-implement endpoint-type legality — that is
 ``traceability.types.check_se_link_semantics`` territory (§2.1). They only
@@ -70,11 +78,11 @@ from typing import Dict, FrozenSet, List, Set, Tuple
 
 from persistence.models import (
     ArchitectureElement,
-    LifecycleStatus,
     Requirement,
     RequirementLevel,
     TestCase,
 )
+from traceability.audit.hierarchy import leaf_requirement_ids as _leaf_requirement_ids
 from traceability.audit.registry import (
     CONS_P9,
     CONS_P10,
@@ -85,43 +93,60 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
-
-# Used by TRACE-P6 only (_superseded_artifact_ids below); see the
-# "TRACE-P6 / VERIF-P8 'supersedes' note" section of the module docstring —
-# out of scope for the CONS-P9/CONS-P10 deferral in this module.
-_SUPERCEDES = "supersedes"
-
-_DECOMPOSITION_LINK_TYPES: FrozenSet[str] = frozenset(
-    {LinkType.DECOMPOSES.value, LinkType.PARENT_CHILD.value}
-)
+from workflow import state_reader
+from workflow.services import outdated_item_ids
 
 # ---------------------------------------------------------------------------
 # Shared, read-only data access helpers (audit infrastructure — mirrors the
 # ``TraceLink.unscoped.filter(tenant_id=...)`` pattern used by
 # ``AuditContext.iter_trace_links()``: tenant/workspace are supplied
 # explicitly by the engine, so these bypass the thread-local ``objects``
-# manager deliberately).
+# manager deliberately. ``state_reader.current_states``'s own ``tenant_id=``
+# kwarg (N1) covers this same need — no local reimplementation required.)
 # ---------------------------------------------------------------------------
 
 
 def _active_requirements(context: AuditContext) -> Dict[str, Tuple[str, int | None]]:
-    """Return ``{artifact_id: (title, level)}`` for active Requirements."""
-    qs = Requirement.unscoped.filter(
-        tenant_id=context.tenant_id,
-        artifact__workspace_id=context.workspace_id,
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+    """Return ``{artifact_id: (title, level)}`` for active Requirements.
+
+    Datenmodell-Konsolidierung Phase 1: "active" is resolved through
+    ``WorkflowItemState`` (batched) — needed here because (unlike
+    ArchitectureElement) Requirement has no backfill-migration guarantee.
+    Task 12: the ``status`` column is dropped, so a Requirement never wired
+    into a ``WorkflowItemState`` falls back to the "draft" preset initial
+    state instead (documented, reviewed data-loss tradeoff, see Task 12
+    report Finding 2); "draft" is never "outdated", so it is still counted
+    active.
+    """
+    rows = list(
+        Requirement.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "title", "level")
+    )
+    states = state_reader.current_states(
+        "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    requirement_initial_state = state_reader.initial_state("Requirement")
     return {
-        str(artifact_id): (title, level)
-        for artifact_id, title, level in qs.values_list("artifact_id", "title", "level")
+        str(row["artifact_id"]): (row["title"], row["level"])
+        for row in rows
+        if (states.get(str(row["id"])) or requirement_initial_state) != "outdated"
     }
 
 
 def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
-    """Return ``{artifact_id: title}`` for active ArchitectureElements."""
+    """Return ``{artifact_id: title}`` for active ArchitectureElements.
+
+    ArchitectureElement has no status mirror — ``outdate()`` writes only
+    ``WorkflowItemState``, so "active" is computed against that table
+    (``workflow.services.outdated_item_ids``) instead of the dead
+    ``lifecycle_status`` column.
+    """
     qs = ArchitectureElement.unscoped.filter(
         tenant_id=context.tenant_id,
         artifact__workspace_id=context.workspace_id,
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+    ).exclude(id__in=outdated_item_ids("ArchitectureElement", tenant_id=context.tenant_id))
     return {
         str(artifact_id): title
         for artifact_id, title in qs.values_list("artifact_id", "title")
@@ -129,19 +154,44 @@ def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
 
 
 def _active_test_cases(context: AuditContext) -> Dict[str, str]:
-    """Return ``{artifact_id: title}`` for TestCases.
+    """Return ``{artifact_id: title}`` for active TestCases.
 
-    TestCase has no ``lifecycle_status`` (soft-delete) field — unlike
-    Requirement/ArchitectureElement/StakeholderNeed it is never soft-deleted,
-    so there is nothing to exclude here.
+    Datenmodell-Konsolidierung Phase 1: "active" excludes ``"outdated"`` via
+    ``WorkflowItemState``, the same seam :func:`_active_requirements` uses.
+
+    GH-574: this helper used to return every row, on the assumption that
+    TestCase is never soft-deleted. That stopped being true twice over —
+    REQ-165/REQ-166 registered TestCase in
+    ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` and GH-443 routed
+    ``TestService.delete_test_case`` through ``workflow.services.outdate()``,
+    so a deleted TestCase does carry ``status="outdated"``. Auditing it anyway
+    meant TRACE-P6 kept a workspace fail-closed on an artifact the user had
+    already removed, naming an id that no longer resolves in any list view.
+
+    Both consumers change with this: TRACE-P6 no longer flags deleted
+    TestCases, and VERIF-P8 no longer accepts one as verification evidence
+    (deleting the only TestCase covering a leaf Requirement re-opens VERIF-P8
+    instead of leaving the Requirement silently "covered").
     """
-    qs = TestCase.unscoped.filter(
-        tenant_id=context.tenant_id,
-        artifact__workspace_id=context.workspace_id,
+    # Task 12: the ``status`` column is dropped, so a TestCase never wired
+    # into a ``WorkflowItemState`` falls back to the testcase_default
+    # preset's initial state instead (documented, reviewed data-loss
+    # tradeoff, see Task 12 report Finding 2); the initial state is never
+    # "outdated", so it is still counted active.
+    rows = list(
+        TestCase.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "title")
     )
+    states = state_reader.current_states(
+        "TestCase", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    testcase_initial_state = state_reader.initial_state("TestCase")
     return {
-        str(artifact_id): title
-        for artifact_id, title in qs.values_list("artifact_id", "title")
+        str(row["artifact_id"]): row["title"]
+        for row in rows
+        if (states.get(str(row["id"])) or testcase_initial_state) != "outdated"
     }
 
 
@@ -157,51 +207,15 @@ def _targets_by_source(
     return result
 
 
-def _superseded_artifact_ids(context: AuditContext) -> FrozenSet[str]:
-    """Return the artifact-id set of artifacts replaced by a SUPERCEDES link.
-
-    Direction convention (consistent with ``DERIVES_FROM``/``ALLOCATED_TO``
-    etc., §2.2 header note "Source -> Target, ... der Link zeigt aber vom
-    Requirement zum Need"): source = the NEW artifact, target = the OLD
-    (superseded) one — mirrors the existing Adr lifecycle
-    (``Approved -> Superseded``, an approved decision is superseded by a
-    later one, never the other way round).
-    """
-    return frozenset(
-        link["target_id"]
-        for link in context.iter_trace_links()
-        if link["link_type"] == _SUPERCEDES
-    )
-
-
-def _leaf_requirement_ids(
-    context: AuditContext, requirement_ids: FrozenSet[str]
-) -> FrozenSet[str]:
-    """Return the subset of *requirement_ids* with no decomposition child.
-
-    A Requirement is a "leaf" (dynamic-graph stand-in for "L3/L4", see module
-    docstring) when it is not the *source* of any ``decomposes``/
-    ``parent-child`` link to another Requirement in *requirement_ids* — i.e.
-    nothing was decomposed from it.
-    """
-    parent_ids: Set[str] = set()
-    for link in context.iter_trace_links():
-        if link["link_type"] not in _DECOMPOSITION_LINK_TYPES:
-            continue
-        if link["source_id"] in requirement_ids and link["target_id"] in requirement_ids:
-            parent_ids.add(link["source_id"])
-    return requirement_ids - frozenset(parent_ids)
-
-
 # ---------------------------------------------------------------------------
-# TRACE-P6 — every TestCase verifies >=1 existing, non-superseded
-# Requirement/ArchitectureElement. Standard + Extended.
+# TRACE-P6 — every TestCase verifies >=1 existing Requirement/ArchitectureElement.
+# Standard + Extended.
 # ---------------------------------------------------------------------------
 
 
 @register_rule
 class TestCaseVerifiesExistingArtifactRule(Rule):
-    """TRACE-P6: every TestCase verifies an existing, non-superseded target."""
+    """TRACE-P6: every TestCase verifies an existing target."""
 
     rule_id = TRACE_P6
 
@@ -213,13 +227,12 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
         requirement_ids = frozenset(_active_requirements(context))
         arch_ids = frozenset(_active_architecture_elements(context))
         target_pool = requirement_ids | arch_ids
-        superseded_ids = _superseded_artifact_ids(context)
         verifies = _targets_by_source(context, frozenset({LinkType.VERIFIES.value}))
 
         findings: List[Finding] = []
         for tc_id, title in sorted(test_cases.items()):
             targets = verifies.get(tc_id, set())
-            valid_targets = (targets & target_pool) - superseded_ids
+            valid_targets = targets & target_pool
             if valid_targets:
                 continue
             findings.append(
@@ -228,8 +241,8 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
                     severity=Severity.BLOCKER,
                     message=(
                         f"[TRACE-P6] TestCase '{title}' ({tc_id}) has no "
-                        "'verifies' link to an existing, non-superseded "
-                        "Requirement or ArchitectureElement."
+                        "'verifies' link to an existing Requirement or "
+                        "ArchitectureElement."
                     ),
                     artifact_ids=(tc_id,),
                 )
@@ -257,7 +270,7 @@ class LeafRequirementHasTestCaseRule(Rule):
         non_l4_ids = frozenset(
             artifact_id
             for artifact_id, (_, level) in requirements.items()
-            if level != RequirementLevel.L4_MATERIAL
+            if level != RequirementLevel.L4_PRESENTATION
         )
         if not non_l4_ids:
             return []
@@ -314,9 +327,10 @@ class OpenConflictBlocksApprovalRule(Rule):
     rule_id = CONS_P9
     deferred_reason = (
         "LinkType.CONFLICTS_WITH is not a member of traceability.types.LinkType "
-        "(14 members, verified 2026-07-19; see UMSETZUNGSPLAN_SYSENG_2.0.md "
-        "§2.3). No unvalidated string workaround is used per product "
-        "decision — implement this rule once the enum is extended."
+        "(15 members as of 2026-08-08, 14 when first verified 2026-07-19; see "
+        "UMSETZUNGSPLAN_SYSENG_2.0.md §2.3). No unvalidated string workaround "
+        "is used per product decision — implement this rule once the enum is "
+        "extended."
     )
 
     def check(self, context: AuditContext) -> List[Finding]:
@@ -346,9 +360,10 @@ class NoDanglingSupersededReferenceRule(Rule):
     rule_id = CONS_P10
     deferred_reason = (
         "LinkType.SUPERCEDES is not a member of traceability.types.LinkType "
-        "(14 members, verified 2026-07-19; see UMSETZUNGSPLAN_SYSENG_2.0.md "
-        "§2.3). No unvalidated string workaround is used per product "
-        "decision — implement this rule once the enum is extended."
+        "(15 members as of 2026-08-08, 14 when first verified 2026-07-19; see "
+        "UMSETZUNGSPLAN_SYSENG_2.0.md §2.3). No unvalidated string workaround "
+        "is used per product decision — implement this rule once the enum is "
+        "extended."
     )
 
     def check(self, context: AuditContext) -> List[Finding]:

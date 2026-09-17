@@ -25,6 +25,8 @@ from se_metrics.types import (
     WorkflowGapResult,
 )
 
+from .conftest import active_tenant
+
 
 def _make_result(ws_id: str = "ws-1") -> MetricsResult:
     return MetricsResult(
@@ -43,8 +45,8 @@ class TestCacheTenantIsolation:
     """Tests that cache is workspace-scoped (tenant isolation, REQ-L2-SM-010)."""
 
     @pytest.fixture(autouse=True)
-    def _db(self, db):
-        pass
+    def _db(self, metrics_tenant_context):
+        """DB access plus an active tenant context (required since SA-35)."""
 
     def test_different_workspaces_have_independent_caches(self, db):
         """Caching for ws-A does not affect ws-B (workspace scoping)."""
@@ -62,14 +64,14 @@ class TestCacheTenantIsolation:
         # ws-A cache should still be present
         assert mgr.get_cached(ws_a, "P30D") is not None
 
-    def test_threshold_config_workspace_scoped(self, db):
+    def test_threshold_config_workspace_scoped(self, metrics_tenant_context):
         """ThresholdConfig for ws-A does not affect ws-B."""
         from se_metrics.cache import MetricsCacheManager
 
         mgr = MetricsCacheManager()
         ws_a = str(uuid.uuid4())
         ws_b = str(uuid.uuid4())
-        tenant_id = str(uuid.uuid4())
+        tenant_id = str(metrics_tenant_context.id)
 
         mgr.save_threshold_config(
             workspace_id=ws_a,
@@ -102,6 +104,93 @@ class TestCacheTenantIsolation:
 
         assert mgr.get_cached(ws_a, "P30D") is None
         assert mgr.get_cached(ws_b, "P30D") is not None
+
+
+class TestCrossTenantIsolation:
+    """SA-35 — the isolation the rest of this module never actually tested.
+
+    SYSTEMAUDIT-2026-08-27 §4.6 F14: ``sm_metric_cache`` / ``sm_threshold_config``
+    had a ``tenant_id`` column but exposed only Django's plain manager, so every
+    read was ``WHERE workspace_id = …`` with no tenant predicate. Worse,
+    ``put_cached`` filled ``tenant_id`` with the *workspace* id ("use
+    workspace_id as tenant proxy"), so the column was not even meaningful.
+
+    The tests above assert *workspace* scoping, which held before the fix
+    because workspace UUIDs do not collide. These assert *tenant* scoping, which
+    did not.
+    """
+
+    def test_cached_metrics_do_not_cross_tenants(
+        self, metrics_tenant, other_metrics_tenant
+    ):
+        """A workspace id known to both tenants must not leak a cached result."""
+        from se_metrics.cache import MetricsCacheManager
+
+        mgr = MetricsCacheManager()
+        shared_ws = str(uuid.uuid4())
+
+        with active_tenant(metrics_tenant.id):
+            mgr.put_cached(shared_ws, "P30D", _make_result(shared_ws), ttl_seconds=600)
+            assert mgr.get_cached(shared_ws, "P30D") is not None
+
+        with active_tenant(other_metrics_tenant.id):
+            assert mgr.get_cached(shared_ws, "P30D") is None
+
+    def test_threshold_config_does_not_cross_tenants(
+        self, metrics_tenant, other_metrics_tenant
+    ):
+        from se_metrics.cache import MetricsCacheManager
+
+        mgr = MetricsCacheManager()
+        shared_ws = str(uuid.uuid4())
+
+        with active_tenant(metrics_tenant.id):
+            mgr.save_threshold_config(
+                workspace_id=shared_ws,
+                tenant_id=str(metrics_tenant.id),
+                traceability_coverage_min=80.0,
+            )
+            assert mgr.get_threshold_config(shared_ws) is not None
+
+        with active_tenant(other_metrics_tenant.id):
+            assert mgr.get_threshold_config(shared_ws) is None
+
+    def test_stored_tenant_id_is_the_tenant_not_the_workspace(self, metrics_tenant):
+        """Regression guard for the 'workspace_id as tenant proxy' shortcut."""
+        from se_metrics.cache import MetricsCacheManager
+        from se_metrics.models import MetricCache
+
+        ws_id = str(uuid.uuid4())
+        with active_tenant(metrics_tenant.id):
+            MetricsCacheManager().put_cached(
+                ws_id, "P30D", _make_result(ws_id), ttl_seconds=600
+            )
+
+        row = MetricCache.unscoped.get(workspace_id=ws_id, timeframe_key="P30D")
+        assert str(row.tenant_id) == str(metrics_tenant.id)
+        assert str(row.tenant_id) != ws_id
+
+    def test_write_with_a_foreign_tenant_id_is_rejected(
+        self, metrics_tenant, other_metrics_tenant
+    ):
+        """The caller-supplied tenant_id may not override the active context."""
+        from se_metrics.cache import MetricsCacheManager
+
+        with active_tenant(metrics_tenant.id):
+            with pytest.raises(ValueError):
+                MetricsCacheManager().save_threshold_config(
+                    workspace_id=str(uuid.uuid4()),
+                    tenant_id=str(other_metrics_tenant.id),
+                    traceability_coverage_min=50.0,
+                )
+
+    def test_query_without_a_tenant_context_fails_fast(self, db):
+        """No ambient context means no SQL — the ADR-03 fail-fast contract."""
+        from persistence.tenancy import TenantContextNotSetError
+        from se_metrics.models import MetricCache
+
+        with pytest.raises(TenantContextNotSetError):
+            list(MetricCache.objects.all())
 
 
 class TestComputeMetricsTenantContext:

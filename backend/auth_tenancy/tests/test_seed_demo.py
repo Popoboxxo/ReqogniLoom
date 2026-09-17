@@ -32,6 +32,30 @@ def test_seed_demo_creates_admin_and_is_idempotent():
 
 
 @pytest.mark.django_db
+def test_seed_demo_initializes_workflow_definitions():
+    """#41: seed_demo left workflow definitions empty (states=[], transitions=[],
+    initialized=True) until a separate POST /workflows/definition/initialize/
+    per entity type. Same fix application.self_init.run_self_init() already
+    applies after its own provision_admin() call."""
+    from workflow.services import get_definition
+    from auth_tenancy.provisioning import DEFAULT_WORKSPACE_ID
+
+    call_command("seed_demo")
+
+    set_request_tenant(Tenant.objects.get(slug="demo").id)
+    try:
+        # Raises WorkflowDefinitionError if unconfigured -- the bug this
+        # regression guards against.
+        definition = get_definition(
+            workspace_id=DEFAULT_WORKSPACE_ID, item_type="Requirement"
+        )
+        assert definition.states, "Requirement workflow has no states"
+        assert definition.transitions, "Requirement workflow has no transitions"
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
 def test_seed_demo_admin_password_is_usable(monkeypatch):
     # Default password when no admin-password env var is set.
     monkeypatch.delenv("SYSTEM_ADMIN_PASSWORD", raising=False)

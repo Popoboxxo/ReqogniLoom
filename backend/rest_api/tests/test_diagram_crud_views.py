@@ -14,13 +14,18 @@ rest_api/tests/test_diagram_versioning_views.py and test_diagram_canvas_views.py
 """
 from __future__ import annotations
 
+import json
 import uuid
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from rest_framework.test import APIRequestFactory
 
 from diagram.services import DiagramValidationError
+from diagram.validator import DiagramValidator
 from rest_api.diagram_views import DiagramViewSet
+from traceability.exceptions import TraceLinkError
 
 FAKE_DIAGRAM_ID = uuid.uuid4()
 FAKE_TENANT_ID = uuid.uuid4()
@@ -61,8 +66,8 @@ class TestDiagramViewSetCreateValidation:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.Tenant"), patch(
-                "rest_api.diagram_views.User"
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
             ):
                 with patch(
                     "rest_api.diagram_views.create_diagram",
@@ -107,8 +112,8 @@ class TestDiagramViewSetCreateValidation:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.Tenant"), patch(
-                "rest_api.diagram_views.User"
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
             ):
                 with patch(
                     "rest_api.diagram_views.create_diagram",
@@ -134,7 +139,7 @@ class TestDiagramViewSetCreateValidation:
         with patch(
             "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
         ):
-            with patch("rest_api.diagram_views.User"):
+            with patch("rest_api.diagram_views.get_user"):
                 with patch(
                     "rest_api.diagram_views.update_diagram",
                     side_effect=DiagramValidationError(
@@ -146,3 +151,503 @@ class TestDiagramViewSetCreateValidation:
 
         assert response.status_code == 400
         assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+
+class TestDiagramViewSetTraceLinkErrorMapping:
+    """M4 (Codeberg #353 final review): a TraceLinkError raised by the
+    node_graph artifact_ref reconciler (e.g. a workspace-less legacy Diagram)
+    is a client-input problem, not a server fault — it must map to 400
+    VALIDATION_ERROR the same way DiagramValidationError already does,
+    instead of falling through to the generic 500 handler."""
+
+    def test_create_tracelinkerror_returns_400(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "Refs a workspace-less legacy diagram",
+                "diagram_type": "block",
+                "payload_format": "node_graph",
+                "content": '{"nodes": [], "edges": []}',
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
+            ):
+                with patch(
+                    "rest_api.diagram_views.create_diagram",
+                    side_effect=TraceLinkError(
+                        "Diagram has no workspace_id; a Diagram must be "
+                        "assigned to a workspace before it can back a "
+                        "TraceLink."
+                    ),
+                ):
+                    response = view(req)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "workspace" in response.data["error"]["message"]
+
+    def test_partial_update_tracelinkerror_returns_400(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.patch(
+            f"/api/v1/diagrams/{FAKE_DIAGRAM_ID}/",
+            data={"payload_format": "node_graph", "content": '{"nodes": [], "edges": []}'},
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"patch": "partial_update"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.get_user"):
+                with patch(
+                    "rest_api.diagram_views.update_diagram",
+                    side_effect=TraceLinkError(
+                        "Diagram has no workspace_id; a Diagram must be "
+                        "assigned to a workspace before it can back a "
+                        "TraceLink."
+                    ),
+                ):
+                    response = view(req, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "workspace" in response.data["error"]["message"]
+
+
+class TestDiagramViewSetCanvasStrokeTypeValidation:
+    """GH-352: the generic /api/v1/diagrams/ intake (payload_format=canvas_stroke)
+    must type-check numeric-role element fields exactly like the dedicated
+    canvas-strokes/ endpoint — not just check structure.
+
+    ``create_diagram`` itself is DB-backed (``@atomic_transaction`` opens a
+    real connection on entry), so it is mocked here like everywhere else in
+    this file to keep these tests DB-free. For the rejection case, the mock's
+    side effect calls the *real* ``DiagramValidator.validate_payload`` (the
+    same call ``create_diagram`` makes internally, before any persistence) so
+    the test exercises the actual GH-352 validation logic rather than a
+    canned error string.
+    """
+
+    def _post_canvas_stroke(self, content: str) -> Any:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "My Canvas Diagram",
+                "diagram_type": "canvas",
+                "payload_format": "canvas_stroke",
+                "content": content,
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
+            ):
+                return view(req)
+
+    def test_non_numeric_width_rejected_with_400(self) -> None:
+        """A rect element with a string 'width' must be rejected, not persisted."""
+        content = json.dumps({
+            "strokes": [
+                {"type": "rect", "x": 0, "y": 0, "width": "not-a-number", "height": 10},
+            ],
+        })
+
+        def _real_validation_side_effect(**kwargs: Any) -> None:
+            # Mirrors create_diagram's first step (before any DB write):
+            # DiagramManager.create_diagram() -> validate_payload(...).
+            DiagramValidator().validate_payload(
+                kwargs["diagram_type"], kwargs["payload_format"], kwargs["content"]
+            )
+            raise AssertionError(
+                "validation should have raised before persistence was reached"
+            )
+
+        with patch(
+            "rest_api.diagram_views.create_diagram",
+            side_effect=_real_validation_side_effect,
+        ):
+            response = self._post_canvas_stroke(content)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "width" in response.data["error"]["message"]
+
+    def test_valid_canvas_stroke_payload_still_succeeds(self) -> None:
+        """Well-typed canvas_stroke payloads still pass validation (no regression)."""
+        content = json.dumps({
+            "strokes": [
+                {"type": "rect", "x": 0, "y": 0, "width": 100, "height": 50},
+                {"type": "text", "x": 10, "y": 10, "content": "hi", "font_size": 16},
+            ],
+        })
+
+        fake_diagram = MagicMock()
+        fake_diagram.id = FAKE_DIAGRAM_ID
+        fake_diagram.name = "My Canvas Diagram"
+        fake_diagram.diagram_type = "canvas"
+        fake_diagram.description = ""
+        fake_diagram.workspace_id = None
+        fake_diagram.current_version_id = None
+        fake_diagram.created_at = None
+        fake_diagram.versions.count.return_value = 1
+
+        with patch(
+            "rest_api.diagram_views.create_diagram", return_value=fake_diagram
+        ):
+            response = self._post_canvas_stroke(content)
+
+        assert response.status_code == 201
+
+
+class TestDiagramViewSetNodeGraphValidation:
+    """GH-353 (Task 1): POST /api/v1/diagrams/ with payload_format=node_graph.
+
+    ``create_diagram`` is DB-backed, so it is mocked here like everywhere
+    else in this file. For the rejection cases, the mock's side effect calls
+    the *real* ``DiagramValidator.validate_payload`` (mirrors the GH-352
+    canvas_stroke tests above) so the test exercises the actual node_graph
+    validation logic rather than a canned error string.
+    """
+
+    _VALID_CONTENT = json.dumps({
+        "schema_version": 1,
+        "nodes": [
+            {
+                "id": "n-1",
+                "type": "box",
+                "label": "Auth Service",
+                "position": {"x": 0, "y": 0},
+            },
+        ],
+        "edges": [],
+    })
+
+    def _post_node_graph(self, content: str) -> Any:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "My Node Graph Diagram",
+                "diagram_type": "block",
+                "payload_format": "node_graph",
+                "content": content,
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
+            ):
+                return view(req)
+
+    def _real_validation_side_effect(self, **kwargs: Any) -> None:
+        # Mirrors create_diagram's first step (before any DB write):
+        # DiagramManager.create_diagram() -> validate_payload(...).
+        DiagramValidator().validate_payload(
+            kwargs["diagram_type"], kwargs["payload_format"], kwargs["content"]
+        )
+        raise AssertionError(
+            "validation should have raised before persistence was reached"
+        )
+
+    def test_valid_node_graph_returns_201(self) -> None:
+        """Done-when: a valid node_graph payload is accepted."""
+        fake_diagram = MagicMock()
+        fake_diagram.id = FAKE_DIAGRAM_ID
+        fake_diagram.name = "My Node Graph Diagram"
+        fake_diagram.diagram_type = "block"
+        fake_diagram.description = ""
+        fake_diagram.workspace_id = None
+        fake_diagram.current_version_id = None
+        fake_diagram.created_at = None
+        fake_diagram.versions.count.return_value = 1
+
+        with patch(
+            "rest_api.diagram_views.create_diagram", return_value=fake_diagram
+        ):
+            response = self._post_node_graph(self._VALID_CONTENT)
+
+        assert response.status_code == 201
+
+    def test_dangling_edge_endpoint_rejected_with_400(self) -> None:
+        """Done-when: a dangling edge endpoint is rejected with 400 VALIDATION_ERROR."""
+        content = json.dumps({
+            "schema_version": 1,
+            "nodes": [
+                {"id": "n-1", "type": "box", "label": "A", "position": {"x": 0, "y": 0}},
+            ],
+            "edges": [
+                {"id": "e-1", "source": "n-1", "target": "ghost", "type": "flow"},
+            ],
+        })
+
+        with patch(
+            "rest_api.diagram_views.create_diagram",
+            side_effect=self._real_validation_side_effect,
+        ):
+            response = self._post_node_graph(content)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "dangling" in response.data["error"]["message"]
+
+    def test_unknown_node_type_rejected_with_400(self) -> None:
+        """Done-when: an unknown node type is rejected with 400 VALIDATION_ERROR."""
+        content = json.dumps({
+            "schema_version": 1,
+            "nodes": [
+                {"id": "n-1", "type": "hexagon", "label": "A", "position": {"x": 0, "y": 0}},
+            ],
+            "edges": [],
+        })
+
+        with patch(
+            "rest_api.diagram_views.create_diagram",
+            side_effect=self._real_validation_side_effect,
+        ):
+            response = self._post_node_graph(content)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_over_cap_payload_rejected_with_400(self) -> None:
+        """Done-when: an over-cap payload (> 500 nodes) is rejected with 400."""
+        content = json.dumps({
+            "schema_version": 1,
+            "nodes": [
+                {
+                    "id": f"n-{i}",
+                    "type": "box",
+                    "label": "",
+                    "position": {"x": i, "y": i},
+                }
+                for i in range(501)
+            ],
+            "edges": [],
+        })
+
+        with patch(
+            "rest_api.diagram_views.create_diagram",
+            side_effect=self._real_validation_side_effect,
+        ):
+            response = self._post_node_graph(content)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "500" in response.data["error"]["message"]
+
+
+class TestDiagramViewSetInternalErrorMasking:
+    """CWE-209 regression (DEEP_DIVE_REVIEW C-1, "weitere Treffer in
+    diagram_views.py"): an unexpected exception's ``str()`` must never reach
+    the client via the generic ``except Exception`` 500 handler, but the real
+    exception must still be logged for operators.
+    """
+
+    _SENSITIVE = (
+        "psycopg2.OperationalError: FATAL: password authentication failed "
+        "for user \"reqogniloom\" at /etc/postgresql/pg_hba.conf line 42"
+    )
+
+    def test_create_masks_internal_exception_but_logs_it(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "My Diagram",
+                "diagram_type": "block",
+                "payload_format": "json",
+                "content": json.dumps({"nodes": []}),
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
+            ):
+                with patch(
+                    "rest_api.diagram_views.create_diagram",
+                    side_effect=RuntimeError(self._SENSITIVE),
+                ):
+                    with caplog.at_level("ERROR"):
+                        response = view(req)
+
+        assert response.status_code == 500
+        body = str(response.data)
+        assert self._SENSITIVE not in body
+        assert response.data["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        assert self._SENSITIVE in caplog.text
+
+    def test_retrieve_masks_internal_exception_but_logs_it(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/diagrams/{FAKE_DIAGRAM_ID}/")
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"get": "retrieve"})
+
+        with patch(
+            "rest_api.diagram_views.get_diagram",
+            side_effect=RuntimeError(self._SENSITIVE),
+        ):
+            with caplog.at_level("ERROR"):
+                response = view(req, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 500
+        body = str(response.data)
+        assert self._SENSITIVE not in body
+        assert response.data["error"]["code"] == "INTERNAL_SERVER_ERROR"
+        assert self._SENSITIVE in caplog.text
+
+
+class TestDiagramViewSetFreeTextSanitization:
+    """SA-20: DiagramViewSet now inherits BaseEntityViewSet, so
+    FreeTextSanitizationMixin.initial() must reject HTML markup in the
+    ``name``/``description`` fields *before* create()/partial_update() run —
+    the same guarantee every other entity ViewSet already has (#269 finding
+    4). ``free_text_extra_fields`` is used (rather than a serializer_class)
+    because Diagram has no dedicated DRF serializer.
+    """
+
+    _PAYLOAD = "<img src=x onerror=alert(1)>"
+
+    def test_create_rejects_html_markup_in_name(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": self._PAYLOAD,
+                "diagram_type": "block",
+                "payload_format": "json",
+                "content": json.dumps({"nodes": []}),
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            # create_diagram is deliberately NOT given a happy-path return: the
+            # guard runs in initial(), before create() is even entered, so a
+            # reached create_diagram call would prove the bug, not the fix.
+            with patch(
+                "rest_api.diagram_views.create_diagram",
+                side_effect=AssertionError(
+                    "create_diagram must not be reached — the free-text "
+                    "guard should have rejected the request in initial()"
+                ),
+            ):
+                response = view(req)
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_partial_update_rejects_html_markup_in_description(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.patch(
+            f"/api/v1/diagrams/{FAKE_DIAGRAM_ID}/",
+            data={
+                "payload_format": "json",
+                "content": json.dumps({"nodes": []}),
+                "description": self._PAYLOAD,
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"patch": "partial_update"})
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch(
+                "rest_api.diagram_views.update_diagram",
+                side_effect=AssertionError(
+                    "update_diagram must not be reached — the free-text "
+                    "guard should have rejected the request in initial()"
+                ),
+            ):
+                response = view(req, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_create_with_clean_name_is_unaffected(self) -> None:
+        """No-regression: a benign name/description still passes the guard."""
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/diagrams/",
+            data={
+                "name": "Perfectly Normal Diagram Name",
+                "description": "Nothing suspicious here.",
+                "diagram_type": "block",
+                "payload_format": "json",
+                "content": json.dumps({"nodes": []}),
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = DiagramViewSet.as_view({"post": "create"})
+
+        fake_diagram = MagicMock()
+        fake_diagram.id = FAKE_DIAGRAM_ID
+        fake_diagram.name = "Perfectly Normal Diagram Name"
+        fake_diagram.diagram_type = "block"
+        fake_diagram.description = "Nothing suspicious here."
+        fake_diagram.workspace_id = None
+        fake_diagram.current_version_id = None
+        fake_diagram.created_at = None
+        fake_diagram.versions.count.return_value = 1
+
+        with patch(
+            "rest_api.diagram_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.diagram_views.get_tenant"), patch(
+                "rest_api.diagram_views.get_user"
+            ):
+                with patch(
+                    "rest_api.diagram_views.create_diagram",
+                    return_value=fake_diagram,
+                ):
+                    response = view(req)
+
+        assert response.status_code == 201

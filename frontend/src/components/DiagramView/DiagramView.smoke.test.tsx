@@ -28,11 +28,19 @@ import React from "react";
 vi.mock("../../api/diagrams");
 vi.mock("../../context/WorkspaceContext");
 vi.mock("react-i18next", () => {
-  const t = (key: string, fallback?: string): string => fallback ?? key;
+  // `t(key, fallback)` (string) and `t(key, { count, ... })` (interpolation
+  // options, e.g. PageHeader's summary) must both resolve to a renderable
+  // string — passing the raw options object through as a React child would
+  // crash the render.
+  const t = (key: string, fallbackOrOptions?: string | Record<string, unknown>): string =>
+    typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
   return { useTranslation: () => ({ t }) };
 });
-// DiagramDetailView imports fabric canvas editor; stub the whole presenter
-// so this smoke test doesn't need canvas/WebGL in jsdom.
+// Stub the whole detail presenter: this file is about the container's list /
+// header / create-form wiring, and the detail pane has its own test file
+// (DiagramDetailView.test.tsx). Since the E2-D4 preview change it no longer
+// mounts the Fabric canvas editor, so the stub is scoping, not a jsdom
+// workaround.
 vi.mock("./DiagramDetailView", () => ({
   DiagramDetailView: ({ diagramId }: { diagramId: string }) =>
     React.createElement("div", { "data-testid": "diagram-detail-stub" }, diagramId),
@@ -63,6 +71,7 @@ const MOCK_DIAGRAMS = [
     id: "diag-001",
     workspace_id: "ws-diag-001",
     name: "System Context Diagram (C4 Level 1)",
+    diagram_type: "context",
     payload_format: "mermaid",
     created_at: "2026-02-01T10:00:00Z",
     updated_at: "2026-02-01T10:00:00Z",
@@ -71,6 +80,7 @@ const MOCK_DIAGRAMS = [
     id: "diag-002",
     workspace_id: "ws-diag-001",
     name: "Navigation Subsystem State Machine",
+    diagram_type: "flow",
     payload_format: "mermaid",
     created_at: "2026-02-05T14:30:00Z",
     updated_at: "2026-02-07T09:00:00Z",
@@ -154,7 +164,7 @@ describe("DiagramView (REQ-053 smoke tests)", () => {
     expect(screen.getByTestId("create-diagram-form")).toBeInTheDocument();
   });
 
-  it("[REQ-053] diagram count is shown in the list heading", async () => {
+  it("[REQ-053][Task 5.1] diagram count is shown in the always-visible PageHeader summary", async () => {
     vi.mocked(diagramsModule.diagramsApi.list).mockResolvedValue({
       results: MOCK_DIAGRAMS,
     } as any);
@@ -162,7 +172,37 @@ describe("DiagramView (REQ-053 smoke tests)", () => {
     renderDiagramView();
 
     await waitFor(() => {
-      expect(screen.getByText(/Diagrams.*\(2\)/)).toBeInTheDocument();
+      expect(screen.getByTestId("page-header-count")).toBeInTheDocument();
     });
+  });
+
+  it("[REQ-053][#797] labels the create action '+ New Diagram' in header and empty state alike", async () => {
+    // #797: with an empty list the header CTA and the empty-state CTA are on
+    // screen at the same time, and used to read "+ New Diagram" and
+    // "New Diagram" — the same action under two labels. Both carry the
+    // gesture marker now (`prefixWithPlus` on the same `diagrams.create` key).
+    vi.mocked(diagramsModule.diagramsApi.list).mockResolvedValue({ results: [] } as any);
+
+    renderDiagramView();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("diagrams-empty")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("create-diagram-btn")).toHaveTextContent("+ New Diagram");
+    expect(screen.getByTestId("diagram-list-empty-create")).toHaveTextContent("+ New Diagram");
+  });
+
+  it("[Task 5.1] renders exactly one <h1> and a ListToolbar with search input", async () => {
+    vi.mocked(diagramsModule.diagramsApi.list).mockResolvedValue({
+      results: MOCK_DIAGRAMS,
+    } as any);
+
+    renderDiagramView();
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    });
+    expect(screen.getByTestId("diagram-list-search-input")).toBeInTheDocument();
   });
 });

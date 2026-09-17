@@ -54,53 +54,26 @@ def _make_artifact_mock(artifact_type="Requirement"):
     return artifact
 
 
-def _make_requirement_mock(**kwargs):
-    req = MagicMock()
-    req.id = kwargs.get("id", uuid.uuid4())
-    req.title = kwargs.get("title", "Sample Requirement")
-    req.description = kwargs.get("description", "Initial description")
-    req.category = kwargs.get("category", "functional")
-    req.status = kwargs.get("status", "draft")
-    req.version = kwargs.get("version", 2)
-    req.modified_at = kwargs.get("modified_at", None)
-    artifact = MagicMock()
-    artifact.id = ARTIFACT_ID
-    artifact.workspace_id = WS_ID
-    req.artifact = artifact
-    req.artifact_id = ARTIFACT_ID
-    return req
+def _make_goal_mock(**kwargs):
+    goal = MagicMock()
+    goal.id = kwargs.get("id", uuid.uuid4())
+    goal.title = kwargs.get("title", "Reduce onboarding time")
+    goal.description = kwargs.get("description", "Initial description")
+    goal.status = kwargs.get("status", "Entwurf")
+    goal.version = kwargs.get("version", 1)
+    goal.modified_at = kwargs.get("modified_at", None)
+    return goal
 
 
-def _make_arch_element_mock(**kwargs):
-    el = MagicMock()
-    el.id = kwargs.get("id", uuid.uuid4())
-    el.title = kwargs.get("title", "Component A")
-    el.description = kwargs.get("description", "A component")
-    el.element_type = kwargs.get("element_type", "component")
-    el.version = kwargs.get("version", 1)
-    el.modified_at = kwargs.get("modified_at", None)
-    artifact = MagicMock()
-    artifact.id = ARTIFACT_ID
-    artifact.workspace_id = WS_ID
-    el.artifact = artifact
-    el.artifact_id = ARTIFACT_ID
-    return el
-
-
-def _make_testcase_mock(**kwargs):
-    tc = MagicMock()
-    tc.id = kwargs.get("id", uuid.uuid4())
-    tc.title = kwargs.get("title", "Test Case 1")
-    tc.description = kwargs.get("description", "Test description")
-    tc.steps = kwargs.get("steps", ["step1", "step2"])
-    tc.version = kwargs.get("version", 1)
-    tc.modified_at = kwargs.get("modified_at", None)
-    artifact = MagicMock()
-    artifact.id = ARTIFACT_ID
-    artifact.workspace_id = WS_ID
-    tc.artifact = artifact
-    tc.artifact_id = ARTIFACT_ID
-    return tc
+def _make_main_goal_mock(**kwargs):
+    mg = MagicMock()
+    mg.id = kwargs.get("id", uuid.uuid4())
+    mg.content = kwargs.get("content", "Deliver a self-service onboarding flow.")
+    mg.source = kwargs.get("source", "ai")
+    mg.status = kwargs.get("status", "Entwurf")
+    mg.version = kwargs.get("version", 1)
+    mg.modified_at = kwargs.get("modified_at", None)
+    return mg
 
 
 # ---------------------------------------------------------------------------
@@ -117,26 +90,19 @@ class TestDiffFirstToCurrentVersion:
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         artifact_mock = _make_artifact_mock("Requirement")
-        req_mock = _make_requirement_mock(
-            title="New Title",
-            description="New description",
-            category="functional",
-            status="draft",
-            version=1,
-        )
-
-        req_model = MagicMock()
-        req_model.objects.select_related.return_value.filter.return_value.first.return_value = (
-            req_mock
-        )
+        payload = {
+            "title": "New Title",
+            "description": "New description",
+            "category": "functional",
+        }
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
                 ArtMock.objects.filter.return_value.first.return_value = artifact_mock
-                with patch.dict(
-                    "application.artifact_diff_service._ENTITY_MODELS",
-                    {"Requirement": req_model},
-                ):
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.return_value = payload
                     result = svc.diff(
                         artifact_id=ARTIFACT_ID,
                         from_version=0,
@@ -153,12 +119,77 @@ class TestDiffFirstToCurrentVersion:
         assert field_statuses["title"] == "added"
         assert field_statuses["description"] == "added"
         assert field_statuses["category"] == "added"
-        assert field_statuses["status"] == "added"
+        # Issue #767: "status" is intentionally not a version-bound diff
+        # field anymore — workflow transitions write it without bumping
+        # `version`, which made diffs on a fixed version pair unstable.
+        assert "status" not in field_statuses
 
         # "added" fields should have "to" but no "from"
         title_field = next(f for f in result["fields"] if f["name"] == "title")
         assert title_field["to"] == "New Title"
         assert "from" not in title_field
+
+
+# ---------------------------------------------------------------------------
+# diff: stable across a status-only workflow transition (issue #767)
+# ---------------------------------------------------------------------------
+
+
+class TestDiffStableAcrossWorkflowTransition:
+    """Issue #767 (QA Audit Follow-up #737); revalidated for Task 29 (M5).
+
+    A workflow transition writes ``status`` via
+    ``StateLifecycleManager._sync_status_mirror``, a bare ``.update()`` on the
+    live row that never touches ``ArtifactVersion``. Since Task 29, ``diff()``
+    reads exclusively from the immutable, already-recorded
+    ``ArtifactVersion`` snapshot (never the live row), so a workflow
+    transition happening between two calls to ``diff()`` for the same
+    revision pair cannot change the result at all — a stronger guarantee than
+    the pre-M5 "status is excluded from the diffable field list" fix.
+    """
+
+    def test_diff_unchanged_when_status_mutates_without_version_bump(self):
+        svc = ArtifactDiffService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        artifact_mock = _make_artifact_mock("Requirement")
+        payload = {
+            "title": "Stable Title",
+            "description": "Stable description",
+            "category": "functional",
+        }
+
+        def _run_diff() -> dict:
+            with patch.object(svc, "_set_tenant_context"):
+                with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                    ArtMock.objects.filter.return_value.first.return_value = artifact_mock
+                    with patch(
+                        "application.artifact_diff_service.ArtifactVersionService"
+                    ) as version_svc_cls:
+                        version_svc_cls.return_value.get_payload.return_value = payload
+                        return svc.diff(
+                            artifact_id=ARTIFACT_ID,
+                            from_version=0,
+                            to_version=2,
+                            ctx=ctx,
+                        )
+
+        result_before = _run_diff()
+
+        # A workflow transition mutates the live row's `status` via a bare
+        # `.update()` that never calls ArtifactVersionService.record() — the
+        # recorded revision-2 payload is unaffected, so a second diff() call
+        # for the same version pair must be byte-for-byte identical.
+        result_after = _run_diff()
+
+        assert result_after == result_before
+
+        # "status" is not part of _ENTITY_FIELDS["Requirement"] and the mock
+        # payload never carried it either — it must not appear either side.
+        field_names_before = {f["name"] for f in result_before["fields"]}
+        field_names_after = {f["name"] for f in result_after["fields"]}
+        assert "status" not in field_names_before
+        assert "status" not in field_names_after
 
 
 # ---------------------------------------------------------------------------
@@ -295,8 +326,16 @@ class TestDiffInvalidVersion:
                         ctx=ctx,
                     )
 
-    def test_diff_unsupported_artifact_type(self):
-        """Artifact type not in supported list → NotFoundError."""
+    def test_diff_unsupported_artifact_type_at_version_zero_returns_empty_fields(self):
+        """Task 29 (M5): diff() no longer gates on a fixed type-support list.
+
+        Before Task 29, an artifact type absent from ``_ENTITY_FIELDS`` raised
+        NotFoundError up front. Since ``diff()`` reads exclusively from
+        ``ArtifactVersionService`` now, an unregistered type simply has no
+        diffable fields (``_ENTITY_FIELDS.get(type, [])`` defaults to
+        ``[]``) — comparing baseline (0) against itself (0) succeeds with an
+        empty field list rather than being rejected outright.
+        """
         svc = ArtifactDiffService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -306,13 +345,38 @@ class TestDiffInvalidVersion:
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
                 ArtMock.objects.filter.return_value.first.return_value = artifact_mock
 
-                with pytest.raises(NotFoundError, match="not supported"):
-                    svc.diff(
-                        artifact_id=ARTIFACT_ID,
-                        from_version=1,
-                        to_version=2,
-                        ctx=ctx,
-                    )
+                result = svc.diff(
+                    artifact_id=ARTIFACT_ID,
+                    from_version=0,
+                    to_version=0,
+                    ctx=ctx,
+                )
+
+        assert result["entity_type"] == "UnsupportedType"
+        assert result["fields"] == []
+
+    def test_diff_unsupported_artifact_type_at_missing_revision_raises_not_found(self):
+        """A non-zero version with no recorded snapshot still 404s."""
+        svc = ArtifactDiffService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        artifact_mock = _make_artifact_mock("UnsupportedType")
+
+        with patch.object(svc, "_set_tenant_context"):
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.first.return_value = artifact_mock
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.return_value = None
+
+                    with pytest.raises(NotFoundError, match="not available"):
+                        svc.diff(
+                            artifact_id=ARTIFACT_ID,
+                            from_version=0,
+                            to_version=2,
+                            ctx=ctx,
+                        )
 
 
 # ---------------------------------------------------------------------------
@@ -329,26 +393,16 @@ class TestDiffTenantIsolation:
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         artifact_mock = _make_artifact_mock("Requirement")
-        req_mock = _make_requirement_mock()
-
-        req_model = MagicMock()
-        req_model.objects.select_related.return_value.filter.return_value.first.return_value = (
-            req_mock
-        )
 
         with patch.object(svc, "_set_tenant_context") as mock_set_tenant:
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
                 ArtMock.objects.filter.return_value.first.return_value = artifact_mock
-                with patch.dict(
-                    "application.artifact_diff_service._ENTITY_MODELS",
-                    {"Requirement": req_model},
-                ):
-                    svc.diff(
-                        artifact_id=ARTIFACT_ID,
-                        from_version=0,
-                        to_version=1,
-                        ctx=ctx,
-                    )
+                svc.diff(
+                    artifact_id=ARTIFACT_ID,
+                    from_version=0,
+                    to_version=0,
+                    ctx=ctx,
+                )
 
         mock_set_tenant.assert_called_once_with(ctx)
 
@@ -367,25 +421,19 @@ class TestDiffArchitectureElement:
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         artifact_mock = _make_artifact_mock("ArchitectureElement")
-        arch_mock = _make_arch_element_mock(
-            title="Component A",
-            description="Updated description",
-            element_type="component",
-            version=2,
-        )
-
-        arch_model = MagicMock()
-        arch_model.objects.select_related.return_value.filter.return_value.first.return_value = (
-            arch_mock
-        )
+        payload = {
+            "title": "Component A",
+            "description": "Updated description",
+            "element_type": "component",
+        }
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
                 ArtMock.objects.filter.return_value.first.return_value = artifact_mock
-                with patch.dict(
-                    "application.artifact_diff_service._ENTITY_MODELS",
-                    {"ArchitectureElement": arch_model},
-                ):
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.return_value = payload
                     result = svc.diff(
                         artifact_id=ARTIFACT_ID,
                         from_version=0,
@@ -429,6 +477,88 @@ class TestDiffTestCase:
 
 
 # ---------------------------------------------------------------------------
+# diff: Goal / MainGoal (issue #219 — _ENTITY_FIELDS/_ENTITY_MODELS gap)
+# ---------------------------------------------------------------------------
+
+
+class TestDiffForGoalAndMainGoal:
+    """Issue #219: Goal/MainGoal were missing from the diff dispatch tables.
+
+    Baselines already capture full Goal/MainGoal state (issue #398), but
+    ``ArtifactDiffService`` had no ``_ENTITY_FIELDS``/``_ENTITY_MODELS`` entry
+    for either type, so the entity-diff code path (``diff_for_entity`` /
+    ``list_versions_for_entity``) would fail with ``NotFoundError`` the moment
+    it was reached — e.g. from a future frontend wiring of #219.
+    """
+
+    def test_goal_is_registered_for_entity_diffing(self):
+        from application.artifact_diff_service import _ENTITY_FIELDS, _ENTITY_MODELS
+        from application.models import Goal
+
+        assert "Goal" in _ENTITY_FIELDS
+        assert _ENTITY_MODELS["Goal"] is Goal
+
+    def test_main_goal_is_registered_for_entity_diffing(self):
+        from application.artifact_diff_service import _ENTITY_FIELDS, _ENTITY_MODELS
+        from application.models import MainGoal
+
+        assert "MainGoal" in _ENTITY_FIELDS
+        assert _ENTITY_MODELS["MainGoal"] is MainGoal
+
+    def test_diff_for_goal_detects_title_change(self):
+        """Field-level diff on a Goal entity via diff_for_entity."""
+        svc = ArtifactDiffService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        goal_mock = _make_goal_mock(version=1)
+
+        goal_model = MagicMock()
+        goal_model.objects.filter.return_value.first.return_value = goal_mock
+
+        with patch.object(svc, "_set_tenant_context"):
+            with patch.dict(
+                "application.artifact_diff_service._ENTITY_MODELS",
+                {"Goal": goal_model},
+            ):
+                result = svc.diff_for_entity(
+                    entity_type="Goal",
+                    entity_id=goal_mock.id,
+                    from_version=0,
+                    to_version=1,
+                    ctx=ctx,
+                )
+
+        title_field = next(f for f in result["fields"] if f["name"] == "title")
+        assert title_field["status"] == "added"
+        assert title_field["to"] == "Reduce onboarding time"
+
+    def test_diff_for_main_goal_detects_content_change(self):
+        """Field-level diff on a MainGoal entity via diff_for_entity."""
+        svc = ArtifactDiffService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        mg_mock = _make_main_goal_mock(version=1)
+
+        mg_model = MagicMock()
+        mg_model.objects.filter.return_value.first.return_value = mg_mock
+
+        with patch.object(svc, "_set_tenant_context"):
+            with patch.dict(
+                "application.artifact_diff_service._ENTITY_MODELS",
+                {"MainGoal": mg_model},
+            ):
+                result = svc.diff_for_entity(
+                    entity_type="MainGoal",
+                    entity_id=mg_mock.id,
+                    from_version=0,
+                    to_version=1,
+                    ctx=ctx,
+                )
+
+        content_field = next(f for f in result["fields"] if f["name"] == "content")
+        assert content_field["status"] == "added"
+        assert content_field["to"] == "Deliver a self-service onboarding flow."
+
+
+# ---------------------------------------------------------------------------
 # diff: note field when historical version unavailable
 # ---------------------------------------------------------------------------
 
@@ -437,25 +567,30 @@ class TestDiffNoteField:
     """REQ-L2-AS-032: Response includes note when historical version unavailable."""
 
     def test_diff_note_when_from_version_unavailable(self):
-        """from_version > 0 resolves to current state → no note (same snapshot)."""
+        """from_version > 0 with no stored snapshot → response carries a note.
+
+        Task 29 (M5): ``get_payload`` returning ``None`` for the from-side
+        (e.g. a revision recorded before a field joined ``_ENTITY_FIELDS``,
+        or genuinely missing) is documented via ``note`` rather than treated
+        as a 404 — only the to-side is hard-required.
+        """
         svc = ArtifactDiffService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
         artifact_mock = _make_artifact_mock("Requirement")
-        req_mock = _make_requirement_mock(version=3)
-
-        req_model = MagicMock()
-        req_model.objects.select_related.return_value.filter.return_value.first.return_value = (
-            req_mock
-        )
+        payload = {"title": "t", "description": "d", "category": "functional"}
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
                 ArtMock.objects.filter.return_value.first.return_value = artifact_mock
-                with patch.dict(
-                    "application.artifact_diff_service._ENTITY_MODELS",
-                    {"Requirement": req_model},
-                ):
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.get_payload.side_effect = (
+                        lambda _artifact_id, revision, _ctx: (
+                            None if revision == 1 else payload
+                        )
+                    )
                     result = svc.diff(
                         artifact_id=ARTIFACT_ID,
                         from_version=1,
@@ -463,8 +598,9 @@ class TestDiffNoteField:
                         ctx=ctx,
                     )
 
-        # Both versions resolve to current state → same snapshot → no note
-        assert "note" not in result
+        # from_version=1 has no stored snapshot → limitation documented
+        assert "note" in result
+        assert "no stored content" in result["note"]
 
 
 # ---------------------------------------------------------------------------
@@ -475,32 +611,37 @@ class TestDiffNoteField:
 class TestListVersions:
     """REQ-L2-AS-032: Version listing for artifacts."""
 
-    def test_list_versions_returns_baseline_and_current(self):
-        """list_versions returns version 0 (baseline) + current version."""
+    def test_list_versions_returns_baseline_and_recorded_revisions(self):
+        """list_versions returns version 0 (baseline) + every stored revision."""
         svc = ArtifactDiffService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
-        artifact_mock = _make_artifact_mock("Requirement")
-        req_mock = _make_requirement_mock(version=3)
-
-        req_model = MagicMock()
-        req_model.objects.select_related.return_value.filter.return_value.first.return_value = (
-            req_mock
-        )
+        recorded = [
+            {"version": 1, "label": "v1", "modified_at": None, "content_available": True},
+            {"version": 2, "label": "v2", "modified_at": None, "content_available": True},
+        ]
 
         with patch.object(svc, "_set_tenant_context"):
             with patch("application.artifact_diff_service.Artifact") as ArtMock:
-                ArtMock.objects.filter.return_value.first.return_value = artifact_mock
-                with patch.dict(
-                    "application.artifact_diff_service._ENTITY_MODELS",
-                    {"Requirement": req_model},
-                ):
-                    versions = svc.list_versions(
-                        artifact_id=ARTIFACT_ID, ctx=ctx
-                    )
+                ArtMock.objects.filter.return_value.exists.return_value = True
+                with patch(
+                    "application.artifact_diff_service.ArtifactVersionService"
+                ) as version_svc_cls:
+                    version_svc_cls.return_value.list_revisions.return_value = recorded
+                    versions = svc.list_versions(artifact_id=ARTIFACT_ID, ctx=ctx)
 
-        assert len(versions) == 2
+        assert len(versions) == 3
         assert versions[0]["version"] == 0
         assert versions[0]["label"] == "Creation baseline"
-        assert versions[1]["version"] == 3
-        assert "Current" in versions[1]["label"]
+        assert [v["version"] for v in versions[1:]] == [1, 2]
+        assert all(v["content_available"] for v in versions[1:])
+
+    def test_list_versions_unknown_artifact_raises_not_found(self):
+        svc = ArtifactDiffService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with patch.object(svc, "_set_tenant_context"):
+            with patch("application.artifact_diff_service.Artifact") as ArtMock:
+                ArtMock.objects.filter.return_value.exists.return_value = False
+                with pytest.raises(NotFoundError):
+                    svc.list_versions(artifact_id=ARTIFACT_ID, ctx=ctx)

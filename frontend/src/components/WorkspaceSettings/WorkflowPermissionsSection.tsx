@@ -32,6 +32,7 @@ import {
 } from "../WorkflowEditor/constants";
 import { PermissionMatrixEditor } from "../PermissionMatrix/PermissionMatrixEditor";
 import { DefaultStatusBadge, ResetToDefaultButton } from "./DefaultStatusBadge";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { UUID } from "../../types";
 
 function extractErrorMessage(err: unknown): string {
@@ -146,18 +147,11 @@ export function WorkflowPermissionsSection({
     };
   }, [loadRow]);
 
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [pendingWorkflowReset, setPendingWorkflowReset] = useState<WorkflowEntityType | null>(null);
+
   const handleWorkflowReset = useCallback(
     async (type: WorkflowEntityType): Promise<void> => {
-      if (
-        !window.confirm(
-          t(
-            "settings.workflowResetConfirm",
-            "Reset this workflow to the current global default? Workspace-specific changes will be discarded."
-          )
-        )
-      ) {
-        return;
-      }
       setRows((prev) => ({
         ...prev,
         [type]: { ...prev[type], resetting: true, error: null },
@@ -184,8 +178,15 @@ export function WorkflowPermissionsSection({
         }));
       }
     },
-    [workspaceId, t]
+    [workspaceId]
   );
+
+  const confirmWorkflowReset = useCallback((): void => {
+    if (!pendingWorkflowReset) return;
+    const type = pendingWorkflowReset;
+    setPendingWorkflowReset(null);
+    void handleWorkflowReset(type);
+  }, [pendingWorkflowReset, handleWorkflowReset]);
 
   // ---- Card 2: workspace permission matrix ----
   const [permDef, setPermDef] = useState<WorkspacePermissionDefinition | null>(
@@ -215,17 +216,10 @@ export function WorkflowPermissionsSection({
     void loadPermDef();
   }, [loadPermDef]);
 
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [showPermResetConfirm, setShowPermResetConfirm] = useState(false);
+
   const handlePermReset = useCallback(async (): Promise<void> => {
-    if (
-      !window.confirm(
-        t(
-          "settings.permissionResetConfirm",
-          "Reset this workspace's permission matrix to the current global default?"
-        )
-      )
-    ) {
-      return;
-    }
     setPermResetting(true);
     setPermError(null);
     try {
@@ -237,7 +231,7 @@ export function WorkflowPermissionsSection({
     } finally {
       setPermResetting(false);
     }
-  }, [workspaceId, t]);
+  }, [workspaceId]);
 
   const handleMatrixSave = useCallback(
     async (matrix: PermissionMatrix): Promise<void> => {
@@ -339,7 +333,7 @@ export function WorkflowPermissionsSection({
                       {t("settings.openInEditor", "Open in Workflow Editor")}
                     </button>
                     <ResetToDefaultButton
-                      onReset={() => void handleWorkflowReset(e.type)}
+                      onReset={() => setPendingWorkflowReset(e.type)}
                       disabled={!row.isCustomized || !row.hasSource}
                       busy={row.resetting}
                       ariaLabel={`Reset ${entityTypeLabel(e.type)} workflow to default`}
@@ -395,7 +389,7 @@ export function WorkflowPermissionsSection({
                   hasSource={permDef?.source_global_id != null}
                 />
                 <ResetToDefaultButton
-                  onReset={() => void handlePermReset()}
+                  onReset={() => setShowPermResetConfirm(true)}
                   disabled={
                     !permDef?.is_customized || permDef?.source_global_id == null
                   }
@@ -440,6 +434,37 @@ export function WorkflowPermissionsSection({
           )
         )}
       </section>
+
+      {pendingWorkflowReset && (
+        <ConfirmDialog
+          title={t("settings.workflowReset", "Reset workflow")}
+          message={t(
+            "settings.workflowResetConfirm",
+            "Reset this workflow to the current global default? Workspace-specific changes will be discarded."
+          )}
+          confirmLabel={t("settings.workflowReset", "Reset workflow")}
+          onConfirm={confirmWorkflowReset}
+          onCancel={() => setPendingWorkflowReset(null)}
+          testId="workflow-config-reset-confirm"
+        />
+      )}
+
+      {showPermResetConfirm && (
+        <ConfirmDialog
+          title={t("settings.permissionReset", "Reset permission matrix")}
+          message={t(
+            "settings.permissionResetConfirm",
+            "Reset this workspace's permission matrix to the current global default?"
+          )}
+          confirmLabel={t("settings.permissionReset", "Reset permission matrix")}
+          onConfirm={() => {
+            setShowPermResetConfirm(false);
+            void handlePermReset();
+          }}
+          onCancel={() => setShowPermResetConfirm(false)}
+          testId="permission-config-reset-confirm"
+        />
+      )}
     </>
   );
 }

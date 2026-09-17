@@ -17,7 +17,7 @@ only check graph-wide structural/derivation consistency at audit time, reading
 raw TraceLink rows via ``AuditContext.iter_trace_links()``.
 
 L4 (Presentation) is out of scope for the whole Section 2.2 matrix (Section 2.2
-closing note): a Requirement with ``level == RequirementLevel.L4_MATERIAL`` is
+closing note): a Requirement with ``level == RequirementLevel.L4_PRESENTATION`` is
 never required to carry a ``derives-from`` link by TRACE-P5/ARCH-003.
 
 --------------------------------------------------------------------------
@@ -58,6 +58,27 @@ Because their trigger conditions differ (a ``decomposes`` Requirement link vs.
 an ``allocated-to`` + ArchitectureElement-parent combination), a workspace can
 fail one without failing the other — see the two rules' respective negative
 tests in ``traceability/tests/test_trace_p4_p5_arch003.py``.
+
+--------------------------------------------------------------------------
+ARCH-003 granularity (issue #581): one finding per decomposition edge
+--------------------------------------------------------------------------
+ARCH-003 used to emit one finding per ``(child element, allocated Requirement)``
+pair. A single missing derivation *chain* therefore multiplied into as many
+findings as the child element carried Requirements — the QS instance reported
+683 ARCH-003 findings (68% of all blockers) from one AI-derived architecture,
+all describing the same defect: the decomposition edge carries no Requirement
+derivation. The rule now aggregates per architecture decomposition edge (each
+non-root element has exactly one parent, so this is also per child element),
+naming every violating Requirement inside that one finding. The finding count
+is thereby bounded by the number of architecture elements instead of the number
+of allocations, and one root cause yields one finding.
+
+``Finding.artifact_ids`` stays ``(requirement..., child element, parent
+element)``: the Requirements are still the finding's subject (the frontend's
+"Modify" target resolution relies on the subject being first), the aggregated
+finding simply lists all of them. The message names at most
+:data:`_MAX_LISTED_REQUIREMENTS` ids — the complete set always stays in
+``artifact_ids`` — so one finding's payload stays bounded.
 """
 from __future__ import annotations
 
@@ -72,15 +93,23 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
+from workflow import state_reader
+
+#: Upper bound on the Requirement ids ARCH-003 renders into one aggregated
+#: finding's message (issue #581). The complete set is always carried in
+#: ``Finding.artifact_ids``; the message only summarises it, so a single
+#: finding's JSON payload stays bounded regardless of how many Requirements a
+#: child element carries.
+_MAX_LISTED_REQUIREMENTS = 5
 
 
 def _l4_level() -> int:
-    """Return ``RequirementLevel.L4_MATERIAL`` (deferred import — persistence is
+    """Return ``RequirementLevel.L4_PRESENTATION`` (deferred import — persistence is
     Layer 0 but the audit package defers model imports to check-time, mirroring
     ``AuditContext.iter_trace_links``)."""
     from persistence.models import RequirementLevel
 
-    return RequirementLevel.L4_MATERIAL
+    return RequirementLevel.L4_PRESENTATION
 
 
 def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, Optional[str]]]:
@@ -95,13 +124,17 @@ def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, O
     ``artifact_id`` to correlate ``allocated-to`` TraceLinks (which point at
     Artifact ids) back to a tree position.
     """
-    from persistence.models import ArchitectureElement, LifecycleStatus
+    # ArchitectureElement has no status mirror — outdate() writes only
+    # WorkflowItemState (dead lifecycle_status column for this type), so
+    # "non-deleted" is computed against that table instead.
+    from persistence.models import ArchitectureElement
+    from workflow.services import outdated_item_ids
 
     rows = (
         ArchitectureElement.unscoped.filter(
             tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
         )
-        .exclude(lifecycle_status=LifecycleStatus.DELETED)
+        .exclude(id__in=outdated_item_ids("ArchitectureElement", tenant_id=context.tenant_id))
         .values("id", "parent_id", "artifact_id")
     )
     return {
@@ -114,17 +147,33 @@ def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, O
 
 
 def _fetch_requirement_levels(context: AuditContext) -> Dict[str, Optional[int]]:
-    """Return ``{requirement_artifact_id: level_or_None}`` for non-deleted requirements."""
-    from persistence.models import LifecycleStatus, Requirement
+    """Return ``{requirement_artifact_id: level_or_None}`` for non-deleted requirements.
 
-    rows = (
+    Datenmodell-Konsolidierung Phase 1: "non-deleted" is resolved through
+    ``WorkflowItemState`` (batched) — Requirement has no backfill-migration
+    guarantee (unlike ArchitectureElement, which never had a ``status``
+    column to begin with, so :func:`_fetch_architecture_elements` above needs
+    no fallback). Task 12: the ``status`` column is dropped, so a Requirement
+    never wired into one falls back to the "draft" preset initial state
+    instead (documented, reviewed data-loss tradeoff, see Task 12 report
+    Finding 2).
+    """
+    from persistence.models import Requirement
+
+    rows = list(
         Requirement.unscoped.filter(
             tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
-        )
-        .exclude(lifecycle_status=LifecycleStatus.DELETED)
-        .values("artifact_id", "level")
+        ).values("id", "artifact_id", "level")
     )
-    return {str(row["artifact_id"]): row["level"] for row in rows}
+    states = state_reader.current_states(
+        "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    requirement_initial_state = state_reader.initial_state("Requirement")
+    return {
+        str(row["artifact_id"]): row["level"]
+        for row in rows
+        if (states.get(str(row["id"])) or requirement_initial_state) != "outdated"
+    }
 
 
 def _derives_from_pairs(context: AuditContext) -> Set[Tuple[str, str]]:
@@ -283,29 +332,46 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
             if parent_id is None or parent_id not in elements:
                 continue  # root, or already an orphan (TRACE-P4's responsibility)
             parent_requirements = allocations_by_element.get(parent_id, set())
-            for req_child in allocations_by_element.get(child_id, ()):
-                if levels.get(req_child) == l4:
-                    continue
-                if not any(
+            # One finding per decomposition edge (#581) — see the module
+            # docstring's "ARCH-003 granularity" section. sorted() keeps the
+            # aggregated artifact_ids deterministic across runs.
+            violating = sorted(
+                req_child
+                for req_child in allocations_by_element.get(child_id, ())
+                if levels.get(req_child) != l4
+                and not any(
                     (req_child, req_parent) in derives_from
                     for req_parent in parent_requirements
-                ):
-                    findings.append(
-                        Finding(
-                            rule_id=self.rule_id,
-                            severity=Severity.BLOCKER,
-                            message=(
-                                f"[ARCH-003] Requirement {req_child} is allocated to "
-                                f"ArchitectureElement {child_id} (decomposed from "
-                                f"{parent_id}) but does not derive-from any "
-                                "Requirement allocated to the parent element — the "
-                                "architecture decomposition has no matching "
-                                "Requirement derivation on the new level."
-                            ),
-                            artifact_ids=(req_child, child_id, parent_id),
-                        )
-                    )
+                )
+            )
+            if not violating:
+                continue
+            findings.append(
+                Finding(
+                    rule_id=self.rule_id,
+                    severity=Severity.BLOCKER,
+                    message=self._message(child_id, parent_id, violating),
+                    artifact_ids=(*violating, child_id, parent_id),
+                )
+            )
         return findings
+
+    @staticmethod
+    def _message(
+        child_id: str, parent_id: str, violating: List[str]
+    ) -> str:
+        """Render the aggregated finding message for one decomposition edge."""
+        listed = ", ".join(violating[:_MAX_LISTED_REQUIREMENTS])
+        if len(violating) > _MAX_LISTED_REQUIREMENTS:
+            listed += f", … (+{len(violating) - _MAX_LISTED_REQUIREMENTS} more)"
+        return (
+            f"[ARCH-003] Architecture decomposition {parent_id} -> {child_id} "
+            f"has no matching Requirement derivation: {len(violating)} "
+            f"Requirement(s) allocated to {child_id} ({listed}) do not "
+            "derive-from any Requirement allocated to the parent element — "
+            "the architecture decomposition has no matching Requirement "
+            "derivation on the new level."
+        )
 
 
 __all__ = [

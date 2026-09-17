@@ -27,7 +27,7 @@ schema_version: "1.0.0"
 
 ## Systemzweck
 
-Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone Event-basierte Kommunikation im ApplicationServiceSystem. Er publiziert typisierte Domain-Events nach Datenbankänderungen (via post_commit-Hook), speichert diese in einem Transactional Outbox Store und stellt sie asynchron an registrierte Subscriber zu (AuditLogWriter, SeMetrics, WebhookDispatcher). Garantiert Exactly-Once-Delivery und Entkopplung von schreibenden Domain-Services.
+Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone Event-basierte Kommunikation im ApplicationServiceSystem. Er publiziert typisierte Domain-Events durch Speicherung in einem Transactional Outbox Store (inline in der Mutation-Transaktion) und stellt sie asynchron an registrierte Subscriber zu (AuditLogWriter, SeMetrics, WebhookDispatcher). Garantiert Exactly-Once-Delivery und Entkopplung von schreibenden Domain-Services.
 
 ---
 
@@ -35,7 +35,7 @@ Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone E
 
 | ID | Richtung | Typ | Beschreibung |
 |----|----------|-----|--------------|
-| IF-AS-INT-009 bis 017 | input | event | Domain-Event-Publikation von schreibenden Services (post_commit Hook, async enqueue) |
+| IF-AS-INT-009 bis 017 | input | event | Domain-Event-Publikation von schreibenden Services (inline in Transaktion, async dispatch) |
 | IF-AS-EXT-OUT-007 | output | data | Transactional Outbox Table im PersistenceLayer (INSERT Events) |
 | IF-AS-INT-013, 014 | output | async | Subscriber-Dispatch an WebhookDispatcher und AuditLog (async worker call) |
 | (internal) | input | control | Worker-Queue-Polling (Django-Q/Celery) für Event-Processing |
@@ -79,21 +79,20 @@ Der DomainEventBus SHALL Events in einer persistenten Outbox-Tabelle speichern (
 
 ---
 
-### REQ-L3-DEB-002: Event-Publikation im post_commit Hook
+### REQ-L3-DEB-002: Event-Publikation in Transactionaler Outbox
 
-Die schreibenden Domain-Services publizieren Events nach erfolgreicher DB-Commit (nicht vor):
-- Nach `transaction.commit()` wird post_commit-Hook ausgelöst
-- Hook ruft `DomainEventBus.publish(event)` auf
-- Event wird in Outbox-Tabelle eingefügt
+Die schreibenden Domain-Services publizieren Events durch Speicherung in der Outbox-Tabelle inline, in derselben Transaktion wie die Datenmutation:
+- `DomainEventBus.publish(event)` wird innerhalb der Transaction aufgerufen
+- Outbox-Row wird in derselben Transaktion wie die Mutation geschrieben
+- Event ist persistent, bevor der Commit erfolgreich ist
 
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] post_commit-Hook wird korrekt registriert (Django signal oder explicit hook)
-- [ ] Event wird erst nach erfolgreichem Commit publiziert
-- [ ] Rollback verhindert Event-Publikation
+- [ ] Outbox-INSERT erfolgt inline in der Mutation-Transaktion (kein post_commit Hook)
+- [ ] Rollback verhindert sowohl Mutation als auch Event-Publikation
 - [ ] Multiple Events in einer Transaktion werden alle oder keine publiziert
-- [ ] Hook-Fehler werden geloggt (nicht propagiert)
+- [ ] Outbox-Fehler propagieren und verursachen Rollback der gesamten Mutation
 
 **Interfaces:** IF-AS-INT-009, 010, 011, 012, 015, 016, 017, IF-AS-EXT-OUT-007
 **Implementation State:** Implemented

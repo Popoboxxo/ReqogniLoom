@@ -1,0 +1,164 @@
+#
+# AUTO-GENERATED — do not edit by hand.
+#
+# Source      : requirements.txt
+# Generator   : pip-compile (pip-tools)
+# Platform    : linux/amd64, CPython 3.12  (must match backend/Dockerfile)
+# Regenerated : 2026-08-30
+#
+# This file is NOT installed by anything: backend/Dockerfile and every CI job
+# install from requirements.txt directly. It exists only to document the full
+# transitive dependency closure that requirements.txt resolves to, so that a
+# CVE advisory against a transitive package can be checked without a build.
+#
+# Reproduce exactly (see backend/REGENERATING_LOCK_FILE.md):
+#
+#   docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
+#     'apt-get update -qq && apt-get install -y -qq --no-install-recommends git && \
+#      pip install -q --upgrade pip pip-tools && \
+#      pip-compile requirements.txt --output-file requirements.lock \
+#        --no-header --no-annotate --strip-extras'
+#
+# The container is not optional. Resolution is platform-dependent: torch pulls
+# the nvidia-*/triton wheels only under Linux markers, so running pip-compile
+# on Windows or macOS produces a closure that does not describe the deployed
+# image. The `git` install is likewise not optional while requirements.txt
+# carries the temporary `django-celery-beat @ git+https://...` VCS pin —
+# python:3.12-slim ships no git and pip-compile cannot resolve the URL without
+# it. Drop it again when that pin returns to PyPI.
+#
+amqp==5.3.1
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anthropic==0.125.0
+anyio==4.14.2
+asgiref==3.12.1
+attrs==26.1.0
+billiard==4.2.4
+brotli==1.2.0
+celery==5.6.3
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+click==8.5.0
+click-didyoumean==0.3.1
+click-plugins==1.1.1.2
+click-repl==0.3.0
+cron-descriptor==2.1.0
+cryptography==50.0.1
+cuda-bindings==13.3.1
+cuda-pathfinder==1.8.0
+cuda-toolkit==13.0.3.0
+distro==1.9.0
+django==6.1
+django-celery-beat @ git+https://github.com/celery/django-celery-beat.git@6767df6f6f723a96ebd38269a073a11cde124850
+django-timezone-field==7.2.2
+djangorestframework==3.18.0
+docstring-parser==0.18.0
+drf-spectacular==0.30.0
+elementpath==5.1.4
+et-xmlfile==2.0.0
+filelock==3.32.4
+fsspec==2026.7.0
+gunicorn==26.2.0
+h11==0.16.0
+hf-xet==1.6.0
+honcho-ai==2.3.0
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+huggingface-hub==1.29.0
+idna==3.19
+inflection==0.5.1
+iniconfig==2.3.0
+jinja2==3.1.6
+jiter==0.16.0
+joblib==1.5.3
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+kombu==5.6.2
+lxml==6.1.2
+markdown-it-py==4.2.0
+markupsafe==3.0.3
+mdurl==0.1.2
+mpmath==1.3.0
+narwhals==2.25.0
+networkx==3.6.1
+numpy==2.5.2
+nvidia-cublas==13.1.1.3
+nvidia-cuda-cupti==13.0.85
+nvidia-cuda-nvrtc==13.0.88
+nvidia-cuda-runtime==13.0.96
+nvidia-cudnn-cu13==9.20.0.48
+nvidia-cufft==12.0.0.61
+nvidia-cufile==1.15.1.6
+nvidia-curand==10.4.0.35
+nvidia-cusolver==12.0.4.66
+nvidia-cusparse==12.6.3.3
+nvidia-cusparselt-cu13==0.8.1
+nvidia-nccl-cu13==2.29.7
+nvidia-nvjitlink==13.3.33
+nvidia-nvshmem-cu13==3.4.5
+nvidia-nvtx==13.0.85
+openai==1.109.1
+openpyxl==3.1.5
+packaging==26.3
+pgvector==0.5.0
+pillow==12.3.0
+pluggy==1.6.0
+prompt-toolkit==3.0.53
+psycopg2-binary==2.9.12
+pycparser==3.0
+pydantic==2.13.5
+pydantic-core==2.46.5
+pygments==2.21.0
+pypdf==6.16.2
+pytest==9.1.1
+pytest-django==4.14.0
+python-crontab==3.4.0
+python-dateutil==2.9.0.post0
+python-decouple==3.8
+python-dotenv==1.2.3
+python-json-logger==4.2.0
+pyyaml==6.0.3
+redis==8.1.0
+referencing==0.37.0
+regex==2026.7.19
+reportlab==4.5.1
+reqif==0.1.0
+requests==2.34.2
+rich==15.0.0
+rpds-py==2026.6.3
+safetensors==0.8.0
+scikit-learn==1.9.0
+scipy==1.18.1
+sentence-transformers==6.0.0
+shellingham==1.5.4
+six==1.17.0
+sniffio==1.3.1
+sqlparse==0.6.0
+sympy==1.14.0
+threadpoolctl==3.6.0
+tokenizers==0.23.1
+torch==2.13.0
+tqdm==4.70.0
+transformers==5.16.1
+triton==3.7.1
+typer==0.27.2
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+tzdata==2026.3
+tzlocal==5.4.4
+uritemplate==4.2.0
+urllib3==2.7.0
+uvicorn==0.52.4
+uvloop==0.22.1
+vine==5.1.0
+watchfiles==1.2.0
+wcwidth==0.8.3
+websockets==17.1
+whitenoise==6.12.0
+xmlschema==4.3.2
+
+# The following packages are considered to be unsafe in a requirements file:
+# setuptools

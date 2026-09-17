@@ -14,7 +14,15 @@ from __future__ import annotations
 
 
 class PresetError(Exception):
-    """Base class for all PresetConfigEngine errors."""
+    """Base class for all PresetConfigEngine errors.
+
+    NOTE: ``rest_api.preset_guard.PresetError`` is a distinct, unrelated
+    class with the same name (SYSTEMAUDIT-2026-08-27 AP-6 M-1). It wraps
+    *any* exception raised while calling into this module's facade
+    functions (``get_preset``, ``is_feature_enabled``) — including
+    instances of this base class and its subclasses — into its own type.
+    An ``except`` clause on one does not catch the other.
+    """
 
 
 class ConfigurationError(PresetError):
@@ -60,9 +68,39 @@ class IncompleteProfileError(PresetError):
 
 
 class CustomPresetNotAllowedError(PresetError):
-    """Raised when custom preset creation is attempted outside Extended mode.
+    """Raised whenever custom preset creation is attempted (REQ-L3-PC001-004).
 
-    REQ-L3-PC001-004.
+    SYSTEMAUDIT SA-57: custom presets are deliberately locked for v1, not
+    just gated to Extended mode. ``PresetRegistry._custom`` only ever stores
+    the created ``PresetConfig`` in an in-memory, per-process dict —
+    ``get_preset_config()`` never reads from it, ``WorkspacePresetConfig``
+    only carries the three built-in tiers as a ``CharField(choices=...)``
+    (no field for a custom tier's ``mandatory_fields``/``features``/
+    ``baseline_scopes`` overrides), and nothing in ``workflow``/
+    ``application`` resolves a workspace's *custom* preset by name. So a
+    caller that got past the (now historical) Extended-mode check would
+    still never be able to retrieve what it just "created" — not only after
+    a process restart (as originally reported), but immediately, in the very
+    same request. Persisting full custom preset *definitions* (not just
+    tier *selection*, which ``WorkspacePresetConfig.active_tier`` already
+    does) is a real schema change, not a v1 fix — see the ``create_custom_preset``
+    docstring for the full analysis. Until that lands, every call is
+    rejected with a clear message instead of silently building a PresetConfig
+    that can never be read back.
+    """
+
+
+class CrossTenantWorkspaceError(PresetError):
+    """Raised when a workspace is addressed from a foreign tenant context.
+
+    SYSTEMAUDIT-2026-08-27 SA-15 (§4.1 #6): the gate resolves a
+    caller-supplied ``workspace_id`` through the ``unscoped`` escape-hatch
+    managers, which do not carry the ``TenantManager`` WHERE clause. Without
+    this guard a caller authenticated for tenant A could read (and switch)
+    tenant B's preset configuration by guessing/leaking a workspace UUID.
+
+    The error deliberately carries no tenant identifiers in its message so it
+    cannot be used as a cross-tenant existence oracle.
     """
 
 
@@ -75,4 +113,5 @@ __all__ = [
     "DowngradeBlockedError",
     "IncompleteProfileError",
     "CustomPresetNotAllowedError",
+    "CrossTenantWorkspaceError",
 ]

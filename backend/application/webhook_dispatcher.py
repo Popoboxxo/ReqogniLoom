@@ -314,7 +314,7 @@ class WebhookDispatcher:
         """
         headers = {
             "Content-Type": "application/json; charset=utf-8",
-            "User-Agent": "ReqFlow-WebhookDispatcher/1.0",
+            "User-Agent": "ReqogniLoom-WebhookDispatcher/1.0",
         }
 
         if secret:

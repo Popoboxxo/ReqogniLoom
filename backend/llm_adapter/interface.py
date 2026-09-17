@@ -47,7 +47,17 @@ class LlmResult:
     token_usage: Optional[int]
 
     def __post_init__(self) -> None:
-        """Validate score range after initialisation (REQ-L3-LA001-002)."""
+        """Normalize and validate score range (REQ-L3-LA001-002).
+
+        Providers inconsistently return a 0-1, 0-10, or 0-100 confidence
+        scale despite prompt instructions (systemaudit 2026-09-02, R5/R7:
+        "LlmResult.score must be in [0.0, 1.0], got 8.5"). Normalize the
+        common cases instead of failing the whole validate_artifact call.
+        """
+        if 1.0 < self.score <= 10.0:
+            self.score = self.score / 10.0
+        elif 10.0 < self.score <= 100.0:
+            self.score = self.score / 100.0
         if not (0.0 <= self.score <= 1.0):
             raise ValueError(
                 f"LlmResult.score must be in [0.0, 1.0], got {self.score!r}"

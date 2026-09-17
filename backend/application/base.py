@@ -11,7 +11,8 @@ the ApplicationServiceSystem. Subclasses (ArtifactService, RequirementService,
 
   - _assert_permission(ctx, required_role): RBAC gate
   - _set_tenant_context(ctx): thread-local propagation for ORM queries
-  - _emit_event(event): schedules a DomainEvent in the on_commit hook
+  - _emit_event(event): writes a DomainEvent to the outbox in the current
+    transaction (SA-02 — was previously deferred to an on_commit hook)
   - _audit(ctx, operation, entity_type, entity_id, **kw): synchronous AuditLog
     write inside the current transaction (MVP path; async path via event bus)
 
@@ -34,10 +35,11 @@ Reference:
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from persistence.tenancy import TenantContext
 
 from application.event_bus import DomainEvent, get_event_bus
@@ -47,19 +49,32 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Domain exceptions
+#
+# PermissionDeniedError, NotFoundError and ValidationError now live in
+# persistence/errors.py (Layer 0) — re-exported here unchanged so every
+# existing `from application.base import NotFoundError` (etc.) keeps working.
+# See persistence/errors.py's module docstring for why (SYSTEMAUDIT_2026-08-27
+# P1-12).
 # ---------------------------------------------------------------------------
 
 
-class PermissionDeniedError(PermissionError):
-    """Raised when an operation is attempted without the required role."""
+class BaselineGateBlockedError(ValidationError):
+    """Raised when the SE-Auditor gate refuses a baseline build (GH-513).
 
+    A ``ValidationError`` subclass so every existing ``except ValidationError``
+    caller (REST views, MCP tools, ChangeRequestService) keeps behaving exactly
+    as before, but a *distinct* type so the API layer can answer a dedicated
+    error code. That code is what lets a client tell the two dead ends apart:
 
-class NotFoundError(LookupError):
-    """Raised when a requested entity does not exist in the active tenant."""
+      * this one — known BLOCKER findings, resolvable either by fixing them or
+        by re-sending the request with a documented ``override_reason``;
+      * a plain ``ValidationError`` from the same gate — the auditor itself
+        could not be evaluated (GH-400 fail-closed), which is *not* waivable.
 
-
-class ValidationError(ValueError):
-    """Raised when domain validation fails (cycle detection, missing fields, …)."""
+    Note for the REST layer: ``_service_error_response`` maps exception types
+    by exact identity, not ``isinstance`` — a new subclass MUST be registered
+    in ``_EXC_TO_HTTP``/``_EXC_TO_CODE`` or it degrades to a 500.
+    """
 
 
 class OptimisticLockError(RuntimeError):
@@ -105,15 +120,28 @@ class ServiceBase:
 
     @staticmethod
     def _assert_write_permission(ctx: AuthContext) -> None:
-        """Raise PermissionDeniedError for viewer-only contexts.
+        """Raise PermissionDeniedError unless *ctx* holds a role that permits WRITE.
 
-        Any role other than 'viewer' is allowed to write.
+        Positive check against the RBAC matrix (AuthorizationService), not a
+        deny-list of known-bad role sets: an empty role tuple (no UserRole row
+        resolved) or any role unrecognised by the matrix is fail-closed, i.e.
+        denied, instead of silently allowed. This is the last line of defence
+        for all callers in application/*_service.py (REQ-L2-AS-021).
+
+        Imported lazily: auth_tenancy.services.__init__ imports
+        auth_tenancy.services.item_permission, which imports
+        application.base.ServiceBase — a module-level import here would
+        create a circular import at package-init time.
         """
-        if ctx.active_roles == ("viewer",) or (
-            len(ctx.active_roles) == 1 and ctx.active_roles[0].lower() == "viewer"
-        ):
+        from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+        decision = AuthorizationService().decide_access(
+            ctx.active_roles, Operation.WRITE
+        )
+        if not decision.allow:
             raise PermissionDeniedError(
-                "Permission denied: write operation requires at least 'editor' role"
+                f"Permission denied: write operation requires at least 'editor' "
+                f"role, user has {ctx.active_roles}"
             )
 
     # ---------- Tenant Context ----------
@@ -142,18 +170,42 @@ class ServiceBase:
         REQ-L2-AS-019: Every write operation produces an audit entry.
         The entry is written in the same transaction as the mutation;
         a rollback removes both (atomic consistency, REQ-L2-AL-004).
+
+        Codeberg #313: this call is a silent no-op while an
+        ``audit.services.mcp_audit_handoff()`` context is active on the
+        current thread — an MCP tool handler uses that to suppress this
+        entry for the one service call whose write it is about to
+        re-log itself (with MCP enrichment) via
+        ``mcp_server.tools.base.write_mcp_audit``. See
+        ``audit.services.log_write`` for the actual check.
         """
         try:
             from audit.services import log_write
 
+            # Spec §3: the actor type is decided at the auth layer (an ApiKey
+            # with principal_type="agent"), not reconstructed here. Previously
+            # hardcoded to "user", which made every agent write look human.
+            #
+            # Defensive fallback: countless existing unit tests construct
+            # `ctx` as a bare MagicMock() without setting .actor_type, which
+            # was harmless while this method never read it. A Mock's
+            # auto-generated attribute is not "user"/"agent", and AuditEntry
+            # enforces that choice via full_clean() — normalize here rather
+            # than let an audit-log field the caller never meant to control
+            # fail an otherwise-valid business operation.
+            actor_type = ctx.actor_type if ctx.actor_type in ("user", "agent") else "user"
+            audit_details = details
+            if actor_type == "agent" and ctx.agent_label:
+                audit_details = {**(details or {}), "client_name": ctx.agent_label}
+
             log_write(
                 actor=str(ctx.user_id),
-                actor_type="user",
+                actor_type=actor_type,
                 operation=operation,
                 entity_type=entity_type,
                 entity_id=entity_id,
                 change_reason=change_reason,
-                details=details,
+                details=audit_details,
             )
         except Exception:
             logger.exception(
@@ -169,16 +221,24 @@ class ServiceBase:
 
     @staticmethod
     def _emit_event(event: DomainEvent) -> None:
-        """Schedule *event* for post-commit outbox insertion.
+        """Write *event* to the outbox inside the current transaction.
 
         Transaction boundary (REQ-073, see docs/ARCHITECTURE.md):
-        Domain events fire *after* the surrounding transaction commits. The
-        outbox row is written in a ``transaction.on_commit`` hook, so a rolled
-        back transaction never produces an event. Contrast with ``_audit``,
-        which writes synchronously inside the same transaction.
+        the outbox row is INSERTed synchronously, in the same transaction as the
+        mutation — exactly like ``_audit``. A rolled back transaction therefore
+        produces no event, and a crash cannot separate the two. *Delivery* to
+        subscribers still happens asynchronously afterwards, driven by
+        ``application.dispatch_outbox_events``.
+
+        SA-02: this used to defer the INSERT to a ``transaction.on_commit``
+        hook, which left a window between COMMIT and the callback in which a
+        crash lost the event permanently.
+
+        Must be called inside an active ``transaction.atomic()`` block. Failures
+        of the outbox INSERT propagate and roll the caller's mutation back —
+        see ``DomainEventBus.publish``.
 
         REQ-L2-AS-029: Event is atomically bound to the current transaction.
-        Must be called inside an active transaction.atomic() block.
         """
         get_event_bus().publish(event)
 
@@ -202,6 +262,7 @@ class ServiceBase:
 
 __all__ = [
     "ServiceBase",
+    "BaselineGateBlockedError",
     "PermissionDeniedError",
     "NotFoundError",
     "ValidationError",

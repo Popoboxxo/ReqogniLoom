@@ -10,7 +10,7 @@ audit logging via _audit and preset-role validation via PresetPolicyService.
 
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: transition, initialize_workflow_states
-  IF-AS-INT-007     — outbound: PresetPolicyService.validate_transition_roles()
+  IF-AS-INT-007     — outbound: PresetPolicyService.validate_transition_roles(workspace_id)
 
 Architecture:
   docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/Components/
@@ -102,7 +102,7 @@ class WorkflowFacade(ServiceBase):
         self._check_change_reason(str(ws_uuid), change_reason)
 
         # REQ-L3-WF-001: preset-level role gate (IF-AS-INT-007)
-        self._check_transition_roles(ctx, target_state)
+        self._check_transition_roles(ctx, target_state, str(ws_uuid))
 
         # REQ-L3-WF-002 + REQ-L3-WF-006: atomic wrap
         with transaction.atomic():
@@ -141,6 +141,93 @@ class WorkflowFacade(ServiceBase):
             )
 
             # Domain event (WorkflowTransitioned)
+            self._emit_event(
+                self._make_event(
+                    event_type="WorkflowTransitioned",
+                    entity_id=item_uuid,
+                    workspace_id=ws_uuid,
+                    payload={
+                        "item_type": item_type,
+                        "previous_state": result.previous_state,
+                        "new_state": result.new_state,
+                    },
+                )
+            )
+
+        return result
+
+    def reactivate(
+        self,
+        item_id: UUID | str,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+    ):
+        """Undo a soft-delete: restore an "outdated" item to its previous state.
+
+        GH-443. The counterpart to the ``outdate()`` escape hatch that every
+        ``*Service.delete_*`` method routes through: without it a soft-delete
+        would be a one-way street through the REST API, since "outdated" is not
+        part of any preset's state list and therefore cannot be left through
+        the regular ``POST .../transitions/`` gate.
+
+        Like :meth:`transition` this is a *write*: it checks the RBAC write gate
+        (the workflow engine's ``force_transition`` deliberately performs no
+        preset-role validation), runs atomically and writes an audit entry plus
+        a ``WorkflowTransitioned`` domain event, so a restore is as traceable as
+        the delete that preceded it.
+
+        Args:
+            item_id:      UUID of the outdated item.
+            ctx:          Fully resolved AuthContext.
+            item_type:    Entity type (e.g. "Requirement").
+            workspace_id: Workspace UUID.
+
+        Returns:
+            workflow.services.TransitionResult — ``new_state`` is the state the
+            item held immediately before it was outdated.
+
+        Raises:
+            PermissionDeniedError: caller lacks the write role.
+            ValidationError: the item is not currently "outdated".
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        item_uuid = UUID(str(item_id))
+        ws_uuid = UUID(str(workspace_id))
+
+        with transaction.atomic():
+            from workflow.services import reactivate as wf_reactivate
+
+            try:
+                result = wf_reactivate(
+                    item_id=item_uuid,
+                    item_type=item_type,
+                    workspace_id=ws_uuid,
+                    ctx=ctx,
+                )
+            except ValueError as exc:
+                # workflow.services.reactivate() signals "not outdated" with a
+                # bare ValueError; surface it as a 400, not a 500.
+                raise ValidationError(str(exc)) from exc
+            except Exception as exc:
+                _remap_workflow_exc(exc)
+
+            self._audit(
+                ctx=ctx,
+                operation="transition",
+                entity_type=item_type,
+                entity_id=item_uuid,
+                change_reason="reactivated",
+                details={
+                    "previous_state": result.previous_state,
+                    "new_state": result.new_state,
+                    "workspace_id": str(ws_uuid),
+                },
+            )
+
             self._emit_event(
                 self._make_event(
                     event_type="WorkflowTransitioned",
@@ -678,14 +765,22 @@ class WorkflowFacade(ServiceBase):
                 )
 
     @staticmethod
-    def _check_transition_roles(ctx: AuthContext, target_state: str) -> None:
+    def _check_transition_roles(
+        ctx: AuthContext, target_state: str, workspace_id: str
+    ) -> None:
         """Raise PermissionDeniedError if preset blocks this role for target_state.
 
         REQ-L3-WF-001. Delegates to IF-AS-INT-007.
+
+        ``workspace_id`` (NOT ``ctx.tenant_id``) governs which preset applies —
+        a tenant can own many workspaces, each with its own preset (GitHub
+        issue #215).
         """
         # get_preset_policy_service is imported at module level to allow test mocking.
         policy = get_preset_policy_service()
-        allowed, error_msg = policy.validate_transition_roles(ctx, target_state)
+        allowed, error_msg = policy.validate_transition_roles(
+            ctx, target_state, workspace_id
+        )
         if not allowed:
             raise PermissionDeniedError(error_msg or "Transition denied by preset policy.")
 
@@ -695,11 +790,20 @@ class WorkflowFacade(ServiceBase):
 def _remap_workflow_exc(exc: Exception) -> None:
     """Re-raise workflow-domain exceptions as application-layer exceptions."""
     from workflow.services import WorkflowTransitionError
+    from workflow.transition_validator import (
+        EC_AGENT_SELF_CONFIRM,
+        EC_ROLE_NOT_ALLOWED,
+    )
 
     from application.base import ValidationError, PermissionDeniedError
 
     if isinstance(exc, WorkflowTransitionError):
-        if exc.error_code in ("EC_ROLE_NOT_ALLOWED",):
+        if exc.error_code in (EC_ROLE_NOT_ALLOWED, EC_AGENT_SELF_CONFIRM):
+            # GH-913: the agent self-confirm/self-approve guard is a policy
+            # denial, not a malformed request. It already shares its error code
+            # with the role gate, and it must answer 403 PERMISSION_DENIED like
+            # every other "an AI agent may not ..." denial (see GH-914 for the
+            # trace-link sibling) instead of a 400 that reads like bad input.
             raise PermissionDeniedError(exc.error_message) from exc
         raise ValidationError(exc.error_message) from exc
     raise exc

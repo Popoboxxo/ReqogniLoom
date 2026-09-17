@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from persistence.models import Requirement, RequirementLevel
+from persistence.models import Requirement, RequirementLevel, TestCase
 from traceability.audit import RuleEngine
 from traceability.audit.registry import (
     CONS_P9,
@@ -79,7 +79,7 @@ def _run(tenant, workspace, tier="extended"):
 
 
 # ---------------------------------------------------------------------------
-# TRACE-P6 — TestCase verifies an existing, non-superseded target.
+# TRACE-P6 — TestCase verifies an existing target.
 # ---------------------------------------------------------------------------
 
 
@@ -104,21 +104,49 @@ class TestTraceP6:
         assert len(findings) == 1
         assert str(tc_artifact.id) in findings[0].artifact_ids
 
-    def test_testcase_verifying_only_a_superseded_requirement_is_flagged(
-        self, tenant_a, workspace_a
-    ):
+    def test_outdated_testcase_is_not_flagged(self, tenant_a, workspace_a):
+        """GH-574: a soft-deleted TestCase must not keep blocking the workspace.
+
+        ``TestService.delete_test_case`` routes through
+        ``workflow.services.outdate()``, which mirrors ``"outdated"`` into
+        ``TestCase.status`` (REQ-165/REQ-166). TRACE-P6 used to audit every
+        row regardless, so deleting the offending TestCase left the finding —
+        and the id it named no longer resolved in any list view.
+        """
         with active_tenant(tenant_a):
-            old_req, _ = make_requirement(tenant_a, workspace_a, title="Old Req")
-            new_req, _ = make_requirement(tenant_a, workspace_a, title="New Req")
-            make_trace_link(new_req, old_req, tenant_a, "supersedes")
-            tc_artifact, _ = make_test_case(tenant_a, workspace_a, title="TC")
-            make_trace_link(tc_artifact, old_req, tenant_a, "verifies")
+            tc_artifact, tc = make_test_case(tenant_a, workspace_a, title="Deleted TC")
+            # Task 12: the `status` column is dropped -- "outdated" can only
+            # be represented by a real WorkflowItemState row now.
+            _set_workflow_state(tenant_a, workspace_a, "TestCase", tc.id, "outdated")
 
             result = _run(tenant_a, workspace_a, tier="standard")
 
-        findings = _findings(result, TRACE_P6)
-        assert len(findings) == 1
-        assert str(tc_artifact.id) in findings[0].artifact_ids
+        assert _findings(result, TRACE_P6) == []
+
+    def test_outdated_testcase_does_not_count_as_verification_evidence(
+        self, tenant_a, workspace_a
+    ):
+        """VERIF-P8 side of the same helper: a deleted TestCase verifies nothing.
+
+        Deliberate consequence of the GH-574 fix — ``_active_test_cases`` feeds
+        both rules. Deleting the only TestCase covering a leaf Requirement
+        clears TRACE-P6 *and* re-opens VERIF-P8, instead of leaving the
+        Requirement silently "covered" by a removed artifact.
+        """
+        with active_tenant(tenant_a):
+            req_artifact, _ = make_requirement(tenant_a, workspace_a, title="Leaf Req")
+            tc_artifact, tc = make_test_case(tenant_a, workspace_a, title="Deleted TC")
+            make_trace_link(tc_artifact, req_artifact, tenant_a, "verifies")
+            # Task 12: the `status` column is dropped -- "outdated" can only
+            # be represented by a real WorkflowItemState row now.
+            _set_workflow_state(tenant_a, workspace_a, "TestCase", tc.id, "outdated")
+
+            result = _run(tenant_a, workspace_a, tier="extended")
+
+        assert _findings(result, TRACE_P6) == []
+        verif = _findings(result, VERIF_P8)
+        assert len(verif) == 1
+        assert str(req_artifact.id) in verif[0].artifact_ids
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +198,7 @@ class TestVerifP8:
                 tenant=tenant_a,
                 artifact=artifact,
                 title="Presentation Req",
-                level=RequirementLevel.L4_MATERIAL,
+                level=RequirementLevel.L4_PRESENTATION,
             )
 
             result = _run(tenant_a, workspace_a, tier="extended")
@@ -221,7 +249,7 @@ class TestConsP9AndP10AreDeferred:
             old_req, _ = make_requirement(tenant_a, workspace_a, title="Old")
             new_req, _ = make_requirement(tenant_a, workspace_a, title="New")
             make_trace_link(new_req, old_req, tenant_a, "supersedes")
-            make_trace_link(req_a, old_req, tenant_a, "satisfies")
+            make_trace_link(req_a, old_req, tenant_a, "allocated-to")
             make_trace_link(req_a, req_b, tenant_a, "conflicts-with")
 
             result = _run(tenant_a, workspace_a, tier=tier)

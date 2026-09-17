@@ -28,9 +28,9 @@ from auth_tenancy.models import (
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User
 
-# Fixtures below are auto-loaded from conftest_e2e.py; re-imported here
+# Fixtures below are auto-loaded from conftest.py; re-imported here
 # so type checkers and IDEs see them as fixture references.
-from mcp_server.tests.conftest_e2e import (  # noqa: F401
+from mcp_server.tests.conftest import (  # noqa: F401
     admin_client,
     e2e_api_key_admin,
     e2e_preset,
@@ -41,6 +41,12 @@ from mcp_server.tests.conftest_e2e import (  # noqa: F401
     e2e_workspace,
 )
 from mcp_server.tests.helpers import extract_result, post_mcp
+
+# SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
+# see the `e2e` marker docstring in pyproject.toml. Composes with the
+# per-test `@pytest.mark.slow` below (module-level pytestmark + function
+# decorators both apply).
+pytestmark = pytest.mark.e2e
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +110,17 @@ def test_requirement_query_with_100_requirements_under_2s(
     admin_client,
     e2e_workspace,
     e2e_user_admin,
+    e2e_userrole_admin,
 ):
-    """100 Requirements: query must complete in < 2s."""
+    """100 Requirements: query must complete in < 2s.
+
+    ``e2e_userrole_admin`` is required, not incidental: since Systemaudit
+    2026-08-29 §6.5 a workspace-scoped read needs an active ``UserRole`` in
+    that workspace. ``admin_client`` alone only carries the tenant-wide
+    ``TenantRole(admin)``, which — exactly as on the REST path — does not by
+    itself grant access to a workspace's contents. The three sibling
+    perf tests already requested this fixture; this one did not.
+    """
     svc = RequirementService()
     ctx = _admin_auth_context(e2e_workspace, e2e_user_admin.id)
 

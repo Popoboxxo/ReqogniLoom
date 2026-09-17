@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, Code2, Download, Upload } from "lucide-react";
 import styles from "./WorkflowEditor.module.css";
 
@@ -34,11 +35,13 @@ export function WorkflowEditorHeader({
   editMode,
   onToggleEditMode,
   canEdit,
-  title = "Workflow Editor",
+  title,
   presetControl,
 }: WorkflowEditorHeaderProps): JSX.Element {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const effectiveTitle = title ?? t("workflow.header.titleDefault");
 
   useEffect(() => {
     if (!open) return;
@@ -55,7 +58,7 @@ export function WorkflowEditorHeader({
     <header className={styles.header} data-testid="workflow-editor-header">
       <div className={styles.headerTitleGroup}>
         <span className={styles.headerDot} aria-hidden="true" />
-        <h1 className={styles.headerTitle}>{title}</h1>
+        <h1 className={styles.headerTitle}>{effectiveTitle}</h1>
       </div>
 
       {presetControl ?? (
@@ -76,9 +79,9 @@ export function WorkflowEditorHeader({
         title={
           canEdit
             ? editMode
-              ? "Switch to read-only"
-              : "Enable edit mode"
-            : "Edit mode requires the admin role"
+              ? t("workflow.header.editModeSwitchToReadOnly")
+              : t("workflow.header.editModeEnable")
+            : t("workflow.header.editModeRequiresAdmin")
         }
         onClick={onToggleEditMode}
         data-testid="workflow-edit-toggle"
@@ -95,7 +98,7 @@ export function WorkflowEditorHeader({
           />
         </span>
         <span className={editMode ? styles.toggleTextOn : ""}>
-          {editMode ? "Editing" : "Read-only"}
+          {editMode ? t("workflow.header.editing") : t("workflow.header.readOnly")}
         </span>
       </button>
 
@@ -109,7 +112,7 @@ export function WorkflowEditorHeader({
           data-testid="workflow-export-button"
         >
           <Upload size={14} />
-          Export
+          {t("workflow.header.export")}
           <ChevronDown size={14} />
         </button>
         {open && (
@@ -126,27 +129,27 @@ export function WorkflowEditorHeader({
               data-testid="workflow-copy-mermaid"
             >
               <Code2 size={14} />
-              Copy as Mermaid
+              {t("workflow.header.copyAsMermaid")}
             </button>
             <button
               type="button"
               className={styles.dropdownItem}
               role="menuitem"
               disabled
-              title="Coming soon"
+              title={t("workflow.header.comingSoon")}
             >
               <Download size={14} />
-              Download PNG
+              {t("workflow.header.downloadPng")}
             </button>
             <button
               type="button"
               className={styles.dropdownItem}
               role="menuitem"
               disabled
-              title="Coming soon"
+              title={t("workflow.header.comingSoon")}
             >
               <Download size={14} />
-              Download SVG
+              {t("workflow.header.downloadSvg")}
             </button>
           </div>
         )}

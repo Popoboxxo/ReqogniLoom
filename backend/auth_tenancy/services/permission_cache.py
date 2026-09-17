@@ -20,6 +20,38 @@ Thread safety: each thread sees its own dict. No lock is taken on read/write.
 A request that spans multiple threads (e.g. async views) will not share cache
 state, which is the correct behaviour (different threads mean different
 tenants/requests).
+
+Cross-worker invalidation (SYSTEMAUDIT-2026-08-27 SA-28, §4.1 #7)
+-----------------------------------------------------------------
+``invalidate_all`` used to clear only the *calling* thread's dict. Every other
+request thread — and every other Gunicorn/Celery worker process — kept serving
+its own cached decisions for up to the full TTL. For an **allow** decision that
+means a revoked permission stayed effective for up to 60 seconds after the
+admin revoked it, which is a security property, not a latency detail.
+
+The fix reuses the shared **generation counter** from
+:mod:`persistence.cache_generation` (SA-29's cross-worker invalidation
+primitive, backed by the Redis cache in ``settings.CACHES``). Every entry
+records the generation it was computed under; a grant/revoke bumps the counter,
+and every other worker's next read observes the new value and discards its own
+entries. Correctness therefore no longer depends on which thread handled the
+write.
+
+Residual staleness: the counter is memoised per process for
+``cache_generation.GENERATION_READ_TTL_SECONDS`` (default 1s) so a hot
+permission loop costs at most one cache round trip per second rather than one
+per check. The revoke propagation window therefore shrinks from the 60s TTL to
+roughly that interval — bounded and documented, not eliminated. If the shared
+cache is unreachable the helper is fail-safe (it keeps the last generation it
+saw), which degrades to exactly the pre-fix behaviour: still bounded by the 60s
+TTL, never worse than today.
+
+Blast radius: the counter uses a single global scope rather than one per tenant
+or workspace, so any grant/revoke invalidates every worker's permission cache.
+Permission writes are rare admin operations, so the extra recomputation is
+cheaper than the bookkeeping a finer-grained counter would need — and
+``invalidate_all`` was already deliberately coarse (a workspace-wide default
+rule change can affect artifact-scoped decisions).
 """
 from __future__ import annotations
 
@@ -28,6 +60,8 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
+
+from persistence.cache_generation import bump_cache_generation, cache_generation
 
 if TYPE_CHECKING:  # pragma: no cover - import-only
     # Forward reference to avoid a circular import at module load time
@@ -38,13 +72,39 @@ if TYPE_CHECKING:  # pragma: no cover - import-only
 # Default TTL: 60 seconds (REQ-L1-039, spec §"Permission-Cache").
 DEFAULT_TTL_SECONDS: float = 60.0
 
+# Generation-counter coordinates (SA-28). A single global scope: every
+# grant/revoke invalidates every cached decision — see the module docstring for
+# why the coarse blast radius is the right trade-off here.
+GENERATION_NAMESPACE: str = "item-permission"
+GENERATION_SCOPE: str = "all"
+
+
+def current_generation() -> int:
+    """Return the shared permission-cache generation (SA-28)."""
+    return cache_generation(GENERATION_NAMESPACE, GENERATION_SCOPE)
+
+
+def bump_generation() -> None:
+    """Invalidate every worker's permission cache (SA-28).
+
+    Never raises: a failed invalidation must not roll back the grant/revoke that
+    triggered it — the local wipe plus the 60s TTL remain as backstops.
+    """
+    bump_cache_generation(GENERATION_NAMESPACE, GENERATION_SCOPE)
+
 
 @dataclass(frozen=True)
 class CacheEntry:
-    """A single cache entry: the decision + the monotonic-clock expiry timestamp."""
+    """A single cache entry: the decision, its expiry and its generation.
+
+    ``generation`` is the shared counter value observed when the entry was
+    written. A mismatch against the current counter means some worker has
+    changed permissions since, so the entry must not be served (SA-28).
+    """
 
     decision: "PermissionDecision"
     expires_at: float
+    generation: int = 0
 
 
 class PermissionCache:
@@ -75,7 +135,10 @@ class PermissionCache:
     ) -> Optional["PermissionDecision"]:
         """Return the cached decision for ``key`` or ``None`` if absent/expired.
 
-        Expired entries are removed as a side effect (lazy eviction).
+        An entry is served only when it is (a) present, (b) still within its
+        TTL and (c) written under the current shared generation (SA-28). Any of
+        the three failing evicts the entry and reports a miss, so the caller
+        recomputes from the database.
         """
         _ThreadLocalCacheStore.ensure()
         key = (user_id, workspace_id, artifact_id)
@@ -84,6 +147,12 @@ class PermissionCache:
             return None
         if entry.expires_at <= time.monotonic():
             # Lazy evict
+            self._local.store.pop(key, None)
+            return None
+        if entry.generation != current_generation():
+            # SA-28: another worker granted/revoked since this entry was
+            # written. Drop it rather than serving a decision that may now be
+            # a stale "allow".
             self._local.store.pop(key, None)
             return None
         return entry.decision
@@ -102,6 +171,7 @@ class PermissionCache:
         self._local.store[key] = CacheEntry(
             decision=decision,
             expires_at=time.monotonic() + self._ttl_seconds,
+            generation=current_generation(),
         )
 
     def invalidate(
@@ -123,7 +193,17 @@ class PermissionCache:
         self._local.store.pop(key, None)
 
     def invalidate_all(self) -> None:
-        """Wipe the calling thread's entire cache (used after grant/revoke)."""
+        """Invalidate the permission cache in **every** worker (SA-28).
+
+        Two steps, in this order:
+
+        1. Bump the shared generation counter so all other threads/processes
+           discard their entries on their next read.
+        2. Clear the calling thread's dict, so the thread that performed the
+           write is consistent immediately and does not have to wait for its
+           own generation probe to expire.
+        """
+        bump_generation()
         _ThreadLocalCacheStore.ensure()
         self._local.store.clear()
 
@@ -157,5 +237,9 @@ class _ThreadLocalCacheStore:
 __all__ = [
     "PermissionCache",
     "DEFAULT_TTL_SECONDS",
+    "GENERATION_NAMESPACE",
+    "GENERATION_SCOPE",
     "CacheEntry",
+    "bump_generation",
+    "current_generation",
 ]

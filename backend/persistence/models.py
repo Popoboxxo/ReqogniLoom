@@ -24,12 +24,28 @@ Foundation note (ADR-03, ADR-PL-03):
     ``tenant`` FK, audit fields (created_at/created_by/modified_at/modified_by/
     version) and the tenant-isolating default manager (``objects`` =
     :class:`~persistence.tenancy.TenantManager`).
+
+Ownership note (Datenmodell-Konsolidierung Phase 2 / Milestone M2):
+    ``Adr``, ``Risk``, ``Goal``, ``MainGoal``, ``Issue``, ``ChangeRequest`` and
+    ``ChangeRequestAffectedItem`` used to live in ``application/models.py``.
+    They are declared here now, at the bottom of this module, so the whole
+    domain data model has one owner; ``application/`` keeps only the services.
+    ``application.models`` re-exports them, so the ~40 existing
+    ``from application.models import Adr`` call sites are unaffected. Their
+    ``as_*`` tables never moved — see ``persistence/0071_adopt_layer2_models``.
 """
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
+from typing import Any, Dict, Sequence
+from uuid import UUID
 
-from django.db import models
+from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import IntegrityError, connection, models, transaction
+from django.db.models.functions import Lower
+from django.utils.crypto import salted_hmac
 
 # REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
 # (see requirements.txt) and the ``vector`` Postgres extension (provisioned by
@@ -37,7 +53,10 @@ from django.db import models
 # Requirement.embedding field references VectorField/HnswIndex directly.
 from pgvector.django import HnswIndex, VectorField
 
+from persistence.custom_fields import validate_custom_fields
+from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.encryption import decrypt_secret, encrypt_secret
+from persistence.role_permissions import validate_role_permissions
 from persistence.tenancy import TenantManager, UnscopedManager
 
 
@@ -57,6 +76,29 @@ class UserManager(models.Manager):
     def get_by_natural_key(self, username: str):
         """Look up a user by username (case-sensitive, matching AbstractUser)."""
         return self.get(**{self.model.USERNAME_FIELD: username})
+
+    def _create_user(self, username: str, email: str, password: str | None = None, **extra_fields):
+        """Create and save a user with the given username, email and password."""
+        user = self.model(username=username, email=email, **extra_fields)
+        user.set_password(password or "")
+        user.save(using=self._db)
+        return user
+
+    def create_user(self, username: str, email: str, password: str | None = None, **extra_fields):
+        """Create a regular (non-privileged) user.
+
+        Required by pytest-django's ``admin_user``/``admin_client`` fixtures
+        and Django's auth-manager contract.
+        """
+        extra_fields.setdefault("is_staff", False)
+        extra_fields.setdefault("is_superuser", False)
+        return self._create_user(username, email, password, **extra_fields)
+
+    def create_superuser(self, username: str, email: str, password: str | None = None, **extra_fields):
+        """Create a superuser with staff and superuser privileges."""
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        return self._create_user(username, email, password, **extra_fields)
 
 
 # ---------------------------------------------------------------------------
@@ -124,12 +166,29 @@ def derive_architecture_role(*, has_parent: bool, has_children: bool) -> str:
 
 
 class LifecycleStatus(models.TextChoices):
-    """Soft-delete lifecycle status for entities that must not be hard-deleted by users.
+    """Soft-delete flag, orthogonal to the workflow state (REQ-006).
 
-    REQ-006: Replaces physical deletion for ArchitectureElement and GlossaryTerm.
-    Entities with status 'deleted' are excluded from normal list queries but
-    remain in the database for audit purposes. Hard-delete is available only
-    via the Django admin panel.
+    REQ-006 originally introduced this as a per-entity mirror on
+    ArchitectureElement and GlossaryTerm (and an unwritten legacy column on
+    Requirement and StakeholderNeed). Datenmodell-Konsolidierung Phase 4
+    (Decision D-3) replaced every one of those per-entity columns with a
+    single column on ``Artifact``: ``workflow.services.outdate()``/
+    ``reactivate()`` write it directly, so an artifact can be ``approved`` and
+    ``outdated`` at the same time instead of the old model where soft-delete
+    destroyed the workflow state.
+
+    Read-only for application code:
+
+    * **Authoritative for the lifecycle axis is ``Artifact.lifecycle_status``**;
+      the workflow axis is still resolved through ``WorkflowItemState``
+      (``workflow.state_reader``/``workflow.services.outdated_item_ids``).
+      Serializers, CSV export, the frontend status filters and
+      ``baseline.state_capture`` all read the artifact-level value.
+    * ``DELETED`` is a legacy value only — the workflow engine writes
+      ``OUTDATED`` for a soft-delete. Rows still carrying ``"deleted"`` are the
+      input of the ``backfill_outdated_from_legacy_status`` management command.
+
+    Hard-delete remains available only via the Django admin panel.
     """
 
     ACTIVE = "active", "Active"
@@ -155,13 +214,42 @@ class RequirementLevel(models.IntegerChoices):
     Makes the L0-L4 traceability hierarchy an explicit, queryable field instead
     of a naming convention only. NULL means the level has not been assigned yet;
     it must be set deliberately going forward (no backfill for existing rows).
+
+    Numbering: **the integer IS the cascade level** — ``level == 3`` means "L3
+    Component", full stop. This holds by construction and every consumer
+    (``RequirementService.decompose``'s ``parent.level + 1`` derivation, the
+    CONS-P11 audit rule, ``migrate_se_docs._REQ_LEVEL_MAP``, the frontend
+    ``reqLevel.L{n}`` i18n keys) relies on it.
+
+    Vocabulary (SYSTEMAUDIT_2026-08-27 P1-9)
+    ----------------------------------------
+    This enum used to spell a *physical* decomposition scale offset by one
+    from the project's documented V-model cascade::
+
+        L0_SYSTEM = 0, L1_SUBSYSTEM = 1, L2_COMPONENT = 2,
+        L3_PART = 3, L4_MATERIAL = 4
+
+    Every other part of the system — the ``REQ-L0-*``/``REQ-L1-*``/``REQ-L2-*``
+    ID convention (CLAUDE.md, AGENTS.md, ``docs/se/traceability-matrix.md``),
+    the ``docs/se/L1/<system>/L2/<subsystem>/Components/`` folder tree, and the
+    SE-Auditor rule modules' own level vocabulary (see
+    ``traceability/audit/rules/trace_derivation_allocation.py``'s docstring,
+    which already documented "L1 = root/SystemRequirement" and "L4 =
+    Presentation") — uses the cascade spelling instead. The enum was the sole
+    dissenter, so it was realigned rather than the twenty-odd places that
+    agreed with each other.
+
+    **L0 is deliberately absent.** L0 (Stakeholder Need) is a separate Django
+    model (:class:`StakeholderNeed`), never a ``Requirement`` row, so
+    ``Requirement.level`` spans L1..L4 only. A ``level`` of ``0`` is therefore
+    not a legal value any more; migration ``0067`` remaps the pre-existing
+    integers (see its docstring for the old→new table and the lossy edge).
     """
 
-    L0_SYSTEM = 0, "L0 System"
-    L1_SUBSYSTEM = 1, "L1 Subsystem"
-    L2_COMPONENT = 2, "L2 Component"
-    L3_PART = 3, "L3 Part"
-    L4_MATERIAL = 4, "L4 Material"
+    L1_SYSTEM = 1, "L1 System"
+    L2_SUBSYSTEM = 2, "L2 Subsystem"
+    L3_COMPONENT = 3, "L3 Component"
+    L4_PRESENTATION = 4, "L4 Presentation"
 
 
 class MoSCoWPriority(models.TextChoices):
@@ -245,20 +333,6 @@ class MakeOrBuy(models.TextChoices):
     REUSE = "Reuse", "Reuse"
 
 
-class CustomFieldType(models.TextChoices):
-    """Data type of a workspace-wide custom field (REQ-016).
-
-    ``TEXT``     — free-text single line, stored verbatim.
-    ``NUMBER``   — numeric value, stored as its string representation.
-    ``DROPDOWN`` — one of a predefined set of options (see
-                   :attr:`CustomFieldDefinition.options`).
-    """
-
-    TEXT = "text", "Text"
-    NUMBER = "number", "Number"
-    DROPDOWN = "dropdown", "Dropdown"
-
-
 # ---------------------------------------------------------------------------
 # Abstract base classes (COMP-PL-001, ADR-L3-PL-001)
 # ---------------------------------------------------------------------------
@@ -273,6 +347,26 @@ class AuditableModel(models.Model):
 
     ``created_by``/``modified_by`` reference :class:`User` with ``SET_NULL`` so
     that deleting a user does not delete audited rows (REQ-L2-PL-009).
+
+    .. warning:: ``version`` is a **pure optimistic-concurrency counter**
+       (issue #213). It is *not* a content revision number and carries no
+       history: the row is overwritten in place on every write, so version
+       ``N`` only ever addresses the current state. Any save bumps it —
+       including writes that change nothing a user would recognise as
+       content. Consequences:
+
+       * ``version`` must only be used to detect concurrent modification
+         (``expected_version`` on update paths).
+       * Never present it as "this artifact has N revisions". Retrievable
+         history comes from Baselines (:mod:`baseline`), from the append-only
+         audit trail (:mod:`audit`), from the generic ``ArtifactVersion``
+         store (every type with recorded content revisions — GlossaryTerm
+         since Task 28b, Diagram and Icd since Task 28c-2), or — for the one
+         remaining type with its own version table — from ``PromptTemplate``.
+
+       :attr:`lock_version` is the unambiguous alias; prefer it in new code.
+       The column is not renamed because ``version`` is part of the published
+       REST/MCP contract (a rename needs its own design pass — see #213).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -292,10 +386,23 @@ class AuditableModel(models.Model):
         blank=True,
         related_name="+",
     )
+    # NOTE: intentionally no ``help_text`` — changing it would emit an
+    # AlterField migration for every concrete subclass without any schema
+    # change. The semantics are documented in the class docstring instead.
     version = models.IntegerField(default=1)
 
     class Meta:
         abstract = True
+
+    @property
+    def lock_version(self) -> int:
+        """Unambiguous alias for :attr:`version` (issue #213).
+
+        Read-only on purpose: writers must increment the counter atomically
+        via ``F('version') + 1`` rather than through a Python-level attribute
+        assignment, which would reintroduce the read-modify-write race.
+        """
+        return self.version
 
 
 class TenantScopedModel(AuditableModel):
@@ -407,6 +514,19 @@ class User(AuditableModel):
 
     class Meta:
         db_table = "pl_user"
+        constraints = [
+            # Issue #125: user.create (mcp_server/tools/users.py) pre-checks
+            # uniqueness with `username__iexact`, but the DB-level constraint
+            # was case-sensitive (`unique=True` on `username`), so "Alice" and
+            # "alice" could coexist if created concurrently (TOCTOU race)
+            # despite the app intent of case-insensitive uniqueness. This
+            # functional unique index makes case-insensitive uniqueness a
+            # real DB invariant, closing the race regardless of caller.
+            models.UniqueConstraint(
+                Lower("username"),
+                name="uq_user_username_ci",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.username
@@ -434,6 +554,58 @@ class User(AuditableModel):
         if not self.password:
             return False
         return _check(raw_password, self.password)
+
+    # -- Session auth hash (Django >=6.1 hard requirement) ---------------------
+    #
+    # This model implements the auth interface by hand instead of inheriting
+    # ``AbstractBaseUser`` (see the class docstring), and these two methods were
+    # the last ones missing. Django 5.2 tolerated that: ``auth.login()`` guarded
+    # the call with ``if hasattr(user, "get_session_auth_hash")`` and fell back
+    # to an empty hash, and ``auth.get_user()`` skipped session verification
+    # entirely for the same reason. Both guards were flagged
+    # ``RemovedInDjango61Warning`` and are gone in 6.1, which calls
+    # ``user.get_session_auth_hash()`` unconditionally — without these methods
+    # every session login raises ``AttributeError: 'User' object has no
+    # attribute 'get_session_auth_hash'`` (reproduced by
+    # persistence/tests/test_admin_login.py under 6.1).
+    #
+    # SECURITY NOTE — this is a real behaviour change, not just a shim: with the
+    # empty-hash fallback, ``HASH_SESSION_KEY`` was stored as "" and never
+    # verified, so a session survived a password change. Implementing the
+    # methods restores Django's intended invariant (changing a password
+    # invalidates that user's existing sessions). Consequence on rollout:
+    # sessions issued before this commit carry an empty hash, fail verification
+    # once and are flushed — affected users must log in again. The blast radius
+    # is the Django admin only; the application API is JWT-based and does not
+    # use Django sessions.
+    #
+    # The implementation mirrors ``AbstractBaseUser`` exactly, including the
+    # literal ``key_salt`` (so hashes stay compatible should this model ever be
+    # migrated onto ``AbstractBaseUser``) and the explicit ``algorithm="sha256"``
+    # (``salted_hmac``'s default is deprecated in 6.1 and changes to sha256 in a
+    # later release; passing it explicitly keeps this stable either way).
+
+    def _get_session_auth_hash(self, secret: str | None = None) -> str:
+        key_salt = "django.contrib.auth.models.AbstractBaseUser.get_session_auth_hash"
+        return salted_hmac(
+            key_salt,
+            self.password,
+            secret=secret,
+            algorithm="sha256",
+        ).hexdigest()
+
+    def get_session_auth_hash(self) -> str:
+        """Return an HMAC of the password field (Django auth interface)."""
+        return self._get_session_auth_hash()
+
+    def get_session_auth_fallback_hash(self) -> Iterator[str]:
+        """Yield one session auth hash per ``SECRET_KEY_FALLBACKS`` entry.
+
+        Used by ``django.contrib.auth.get_user()`` so that rotating
+        ``SECRET_KEY`` does not log every session out at once.
+        """
+        for fallback_secret in settings.SECRET_KEY_FALLBACKS:
+            yield self._get_session_auth_hash(secret=fallback_secret)
 
     def has_perm(self, perm: str, obj=None) -> bool:
         """Return ``True`` if the user has the given permission.
@@ -468,10 +640,24 @@ class User(AuditableModel):
 
 
 class Role(TenantScopedModel):
-    """RBAC role with a JSON permission set (REQ-L1-010)."""
+    """RBAC role with a JSON permission set (REQ-L1-010).
+
+    ``permissions`` is schema-validated (issue #128) — see
+    :func:`persistence.role_permissions.validate_role_permissions` for the
+    accepted structure.
+    """
 
     name = models.CharField(max_length=150)
-    permissions = models.JSONField(default=dict, blank=True)
+    permissions = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_role_permissions],
+        help_text=(
+            "Issue #128: RBAC permission map, "
+            '{"<key>": true | false | ["<scope>", ...]}. Validated on save() '
+            "— arbitrary/nested JSON is rejected."
+        ),
+    )
 
     class Meta:
         db_table = "pl_role"
@@ -480,6 +666,17 @@ class Role(TenantScopedModel):
                 fields=["tenant", "name"], name="uq_role_tenant_name"
             ),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Validate ``permissions`` before every write (issue #128).
+
+        Field ``validators`` only run via ``full_clean()``, which nothing in
+        this codebase calls for Role — so the check is enforced here to make it
+        effective on the real write path. Authorization data must never reach
+        the database in a shape the RBAC layer cannot interpret.
+        """
+        self.permissions = validate_role_permissions(self.permissions)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.name
@@ -495,6 +692,11 @@ class Workspace(TenantScopedModel):
     """
 
     name = models.CharField(max_length=255)
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Issue #362: optional human-readable workspace description.",
+    )
     preset = models.JSONField(default=dict, blank=True)
     ai_prompts = models.JSONField(
         default=dict,
@@ -503,8 +705,13 @@ class Workspace(TenantScopedModel):
     )
     decomposition_link_type = models.CharField(
         max_length=50,
-        default="parent-child",
-        help_text="Default link type used when decomposing requirements.",
+        default="decomposes",
+        help_text=(
+            "Default link type used when decomposing requirements. NOTE: "
+            "RequirementService.decompose hardcodes `decomposes` and does not "
+            "read this field (UMSETZUNGSPLAN_SYSENG_2.0 section 1.4); the "
+            "default was the now-retired parent/child link key."
+        ),
     )
     default_link_type = models.CharField(
         max_length=50,
@@ -521,6 +728,8 @@ class Workspace(TenantScopedModel):
         default=True,
         help_text="Soft-delete flag. False = workspace is closed (REQ-L1-042).",
     )
+    goals_enabled = models.BooleanField(default=False)
+    goals_ai_enabled = models.BooleanField(default=False)
     parent_workspace = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
@@ -545,9 +754,269 @@ class Workspace(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workspace"
+        indexes = [
+            # Issue #127: every workspace list query filters by tenant and
+            # (almost always) by is_active — see WorkspaceService.list_* and
+            # mcp_server/tools/cross_cutting.py. Without this composite index
+            # the query degenerates into a full scan of pl_workspace.
+            models.Index(
+                fields=["tenant", "is_active"], name="idx_workspace_tnt_active"
+            ),
+            # SN-33 sandbox lookups resolve children via parent_workspace.
+            models.Index(
+                fields=["tenant", "parent_workspace"],
+                name="idx_workspace_tnt_parent",
+            ),
+        ]
+        constraints = [
+            # Issue #127: MCP tools resolve workspaces by name within a tenant;
+            # duplicates made that resolution ambiguous. The DB is the only
+            # place this invariant can be enforced race-free.
+            models.UniqueConstraint(
+                fields=["tenant", "name"], name="uq_workspace_tenant_name"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
+
+
+class Actor(TenantScopedModel):
+    """Person / team carrier for ``Artifact.owner``/``reporter`` (spec section 4).
+
+    Attribut v3 WS2 (#936): one table carries both real internal users and
+    external dummies/placeholders, so an artifact can be attributed to someone
+    who cannot log in (a customer, a reviewer from an external lab, ...) without
+    inventing a login. The two cases are told apart by :attr:`kind`:
+
+    * ``kind="user"`` — :attr:`user` points at ``persistence.User`` (login
+      capable); :attr:`display_name` mirrors the user name at creation time so
+      the attribution survives a later rename or deletion.
+    * ``kind="external"`` — free-standing placeholder, :attr:`user` is NULL.
+
+    Uniqueness (spec section 4): ``(tenant, user)`` when a user is referenced,
+    and ``(tenant, lower(display_name))`` for externals. Both are partial
+    ``UniqueConstraint``s (PostgreSQL partial unique indexes), so the two rules
+    do not collide: an internal actor and an external dummy may share a display
+    name without tripping the external rule.
+
+    ``display_name`` is deliberately NOT NULL for both kinds: it is the label
+    every read projection shows, and a nullable label would push the fallback
+    ("resolve the user, if it still exists") into every consumer.
+    """
+
+    class Kind(models.TextChoices):
+        """Spec section 4: who the actor is, not what role they play."""
+
+        USER = "user", "User"
+        EXTERNAL = "external", "External"
+
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 4: set for kind='user', NULL for externals.",
+    )
+    display_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    organization = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "pl_actor"
+        constraints = [
+            # Spec section 4: one Actor row per (tenant, user). Partial so the
+            # many external rows (user IS NULL) do not all collide.
+            models.UniqueConstraint(
+                fields=["tenant", "user"],
+                condition=models.Q(user__isnull=False),
+                name="uq_actor_tenant_user",
+            ),
+            # Spec section 4: external actors are unique per tenant ignoring
+            # case, mirroring the User username rule (persistence/0003,
+            # ``uq_user_username_ci``). Internal actors are excluded because the
+            # rule is scoped to kind='external'.
+            models.UniqueConstraint(
+                "tenant",
+                Lower("display_name"),
+                condition=models.Q(kind="external"),
+                name="uq_actor_tenant_external_name",
+            ),
+        ]
+        indexes = [
+            # The actor picker lists the active actors of one tenant.
+            models.Index(fields=["tenant", "is_active"], name="idx_actor_tnt_active"),
+        ]
+
+    def __str__(self) -> str:
+        return self.display_name
+
+
+class AttributeCatalogEntry(TenantScopedModel):
+    """Item-type-independent attribute template in the tenant's catalog.
+
+    Attribut v3 WS5 (#942, spec section 8). The catalog is a *template
+    library*, not a hard binding: :attr:`definition` stores one normalized
+    ``kind="extended"`` attribute block (the exact shape
+    ``attribute_definitions.schema.normalize_attribute`` produces), and
+    applying an entry to a definition is an explicit, one-shot *copy*
+    (``AttributeCatalogService.add_to_definition``). Later edits to a catalog
+    entry therefore never reach an already-updated definition — "Re-Apply" is
+    an explicit user action.
+
+    :attr:`name` is unique per tenant (the catalog's addressing key). The
+    templating metadata (:attr:`category`, :attr:`tags`, :attr:`label`,
+    :attr:`help_text`, :attr:`origin`) is display/provenance only and is never
+    copied into a definition by ``add_to_definition``; it drives the WS5 UI
+    (Part B).
+
+    RLS: ``pl_attribute_catalog_entry`` ships its own policy migration
+    (``persistence/0089_attribute_catalog_rls_policy``) — the coverage guard
+    in ``persistence/tests/test_rls_coverage.py`` requires one per new
+    ``TenantScopedModel``.
+    """
+
+    name = models.CharField(max_length=64)
+    definition = models.JSONField()
+    category = models.CharField(max_length=64, blank=True)
+    tags = models.JSONField(default=list, blank=True)
+    label = models.JSONField(default=dict)
+    help_text = models.JSONField(default=dict)
+    origin = models.CharField(max_length=64, blank=True)
+    deprecated = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "pl_attribute_catalog_entry"
+        constraints = [
+            # Spec section 8: one catalog entry per (tenant, name).
+            models.UniqueConstraint(
+                fields=["tenant", "name"],
+                name="uq_attribute_catalog_tenant_name",
+            ),
+        ]
+        indexes = [
+            # The catalog browse view filters by category inside one tenant.
+            models.Index(
+                fields=["tenant", "category"],
+                name="idx_attr_catalog_tnt_cat",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class AttributeMigrationRun(TenantScopedModel):
+    """One AWMS run — a dry-run preview or a real value migration (spec §6).
+
+    Attribut v3 WS7 (#940). A *plan* is the declarative input; a *run* is the
+    auditable output: which plan (``plan_id`` + ``plan_hash``), in which mode,
+    with what counts and report. The run row is written for **both** modes:
+    ``dry_run`` records ``status="planned"`` with the full preview so the
+    operator (and an agent) can compare previews over time; only ``apply``
+    additionally writes snapshots and mutates artifacts.
+
+    ``plan_hash`` is the SHA-256 of the normalized plan (spec §6): a changed
+    plan carrying the same ``plan_id`` is detectable instead of silently
+    superseding an already-applied run.
+
+    ``snapshot_reference`` lists the ids of the :class:`AttributeMigrationSnapshot`
+    rows this run created — the rollback index. The snapshots themselves are a
+    separate table because one run touches many artifacts.
+
+    RLS: ships its own policy migration (``persistence/0091_...``) — the
+    coverage guard in ``persistence/tests/test_rls_coverage.py`` requires one
+    per new ``TenantScopedModel``.
+    """
+
+    MODE_DRY_RUN = "dry_run"
+    MODE_APPLY = "apply"
+    MODE_CHOICES = [
+        (MODE_DRY_RUN, "Dry run"),
+        (MODE_APPLY, "Apply"),
+    ]
+
+    STATUS_PLANNED = "planned"
+    STATUS_APPLIED = "applied"
+    STATUS_PARTIAL = "partial"
+    STATUS_FAILED = "failed"
+    STATUS_ROLLED_BACK = "rolled_back"
+    STATUS_CHOICES = [
+        (STATUS_PLANNED, "Planned (dry run)"),
+        (STATUS_APPLIED, "Applied"),
+        (STATUS_PARTIAL, "Partially applied"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_ROLLED_BACK, "Rolled back"),
+    ]
+
+    plan_id = models.CharField(max_length=128)
+    plan_hash = models.CharField(max_length=64)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PLANNED
+    )
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    actor_type = models.CharField(max_length=16, default="user")
+    actor_label = models.CharField(max_length=255, blank=True, default="")
+    #: Aggregate counters (steps/changed/skipped/failed) — duplicated out of
+    #: ``report_json`` so a run list can be rendered without parsing the report.
+    counts = models.JSONField(default=dict, blank=True)
+    report_json = models.JSONField(default=dict, blank=True)
+    #: Snapshot row ids created by an ``apply`` run (the rollback index).
+    snapshot_reference = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "pl_attribute_migration_run"
+        indexes = [
+            models.Index(fields=["tenant", "plan_id"], name="idx_amr_tnt_plan"),
+            models.Index(fields=["tenant", "started_at"], name="idx_amr_tnt_started"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AttributeMigrationRun({self.plan_id}:{self.status})"
+
+
+class AttributeMigrationSnapshot(TenantScopedModel):
+    """Before-image of one artifact touched by an AWMS ``apply`` run (spec §6).
+
+    One row per ``(run, artifact)``. :attr:`custom_fields` is the artifact's
+    complete ``custom_fields`` map *before* the run; :attr:`model_fields` maps
+    each touched model-field name to its before-value. Rollback restores both.
+
+    ``model_fields`` stores only the fields the plan referenced — a full row
+    image would be needless exposure for a bulk migration. A field the snapshot
+    does not mention is never touched by rollback either.
+    """
+
+    run = models.ForeignKey(
+        "persistence.AttributeMigrationRun",
+        on_delete=models.CASCADE,
+        related_name="snapshots",
+    )
+    artifact_id = models.UUIDField(db_index=True)
+    workspace_id = models.UUIDField(null=True, blank=True)
+    custom_fields = models.JSONField(null=True, blank=True)
+    model_fields = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "pl_attribute_migration_snapshot"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "artifact_id"],
+                name="uq_attr_mig_snapshot_run_artifact",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "run"], name="idx_ams_tnt_run"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AttributeMigrationSnapshot({self.artifact_id})"
 
 
 class Artifact(TenantScopedModel):
@@ -557,19 +1026,28 @@ class Artifact(TenantScopedModel):
     CASCADE`` deletes children with their parent (REQ-L2-PL-009). The BTree index
     on ``parent`` backs recursive-CTE tree queries (REQ-L3-PL005-001).
 
-    Deprecated hierarchy mechanism (REQ-L1-030 / REQ-L2-TE-020 direction):
-    domain services (RequirementService, StakeholderNeedService, AdrService,
-    ...) create their backing Artifact rows without populating ``parent`` and
-    express hierarchy exclusively through 'derives-from' / 'parent-child'
-    TraceLinks instead (see traceability/types.py LinkType). ``parent`` is
-    still writable via the generic ArtifactService and read by a handful of
-    call sites (see TODOs at those sites), which makes it a second,
-    inconsistently-populated hierarchy mechanism alongside TraceLinks. The
-    single source of truth for artifact hierarchy going forward is the
-    'derives-from' TraceLink graph. This field is not removed here (would
-    require a migration / behavior change for existing callers) — new code
-    should not rely on it and existing call sites should migrate to
-    TraceLink-based hierarchy queries.
+    Who populates ``parent`` (corrected for issues #365/#366 — the field's
+    ``help_text`` below still carries the older, blanket "deprecated" wording
+    and is left untouched to avoid a cosmetic migration):
+
+    * ``RequirementService.create_requirement`` / ``.decompose`` set it to the
+      *parent Requirement's Artifact* id.
+    * ``ArchitectureService.create_architecture_element`` / re-parenting via
+      ``.update_architecture_element`` mirror ``ArchitectureElement.parent``
+      onto it (#366). Element hierarchy is authoritative in the FK tree and is
+      deliberately *not* expressed as a TraceLink (#365): the SE endpoint
+      matrix in ``traceability/types.py`` has no ArchitectureElement pair for
+      'derives-from', and ``CrossCuttingToolGroup._handle_change_impact``
+      walks the FK tree explicitly.
+    * ``StakeholderNeedService`` / ``AdrService`` / ... still leave it NULL and
+      express hierarchy through 'derives-from' TraceLinks only.
+
+    So ``parent`` and the TraceLink graph are two *complementary* views, not
+    interchangeable ones: cross-type relations (allocation, verification,
+    derivation) live in TraceLinks; the same-type containment tree that the
+    recursive-CTE readers (``ArtifactService.get_tree``, document-scope
+    baselines) walk lives in ``parent``. Any service that writes one of them
+    for a type listed above must write the other in the same transaction.
     """
 
     parent = models.ForeignKey(
@@ -586,18 +1064,93 @@ class Artifact(TenantScopedModel):
             "compatibility only — do not add new dependencies on it."
         ),
     )
+    copied_from = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="copies",
+        help_text=(
+            "Provenance of a duplicated artifact. Replaces the retired "
+            "copy-of TraceLink type: a copy has exactly one origin, so a "
+            "1:1 field states the invariant that an N:M link table could not. "
+            "SET_NULL — deleting the original must not delete its copies, "
+            "which are independent artifacts."
+        ),
+    )
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="artifacts"
     )
     artifact_type = models.CharField(max_length=64)
+    # Attribut v3 WS2 (#936, spec section 3): the cross-cutting system fields.
+    # They live on Artifact — not on each of the 11 type models — so every type
+    # inherits exactly one owner/reporter/priority column set from one migration.
+    # ``owner``/``reporter`` reference the Actor entity (spec section 4) and are
+    # SET_NULL: deleting a person/placeholder must not delete the artifact they
+    # are attributed to. ``priority`` is a plain CharField *without* model
+    # ``choices`` on purpose — the scale is configurable per
+    # ``(item_type, preset)`` through the attribute definition (type=enum),
+    # validated there, not against a frozen DB vocabulary. Non-nullable by
+    # design (blank + empty default) so existing rows and the minimal preset
+    # keep working with an empty value.
+    owner = models.ForeignKey(
+        "persistence.Actor",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 3: attributed owner (internal user or external dummy).",
+    )
+    reporter = models.ForeignKey(
+        "persistence.Actor",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Spec section 3: person/team that reported the artifact.",
+    )
+    priority = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text=(
+            "Spec section 3: priority value. Deliberately no model-level "
+            "choices — the scale is defined per attribute definition "
+            "(type=enum, default low/medium/high/critical)."
+        ),
+    )
     custom_fields = models.JSONField(
         null=True,
         default=dict,
         blank=True,
+        # Issue #128: the prose schema below is enforced by
+        # persistence.custom_fields.validate_custom_fields (single source of
+        # truth). The REST serializer already applies it on the write path;
+        # declaring it here as well keeps forms/admin and full_clean() callers
+        # consistent with the documented contract.
+        validators=[validate_custom_fields],
         help_text=(
             "REQ-L2-AS-037: User-defined custom attributes as a flat key-value "
             "map. Keys: strings. Values: str, int, float, bool, or null. "
             "A GIN index (pl_artifact_custom_fields_gin) backs JSONB queries."
+        ),
+    )
+    # Datenmodell-Konsolidierung Phase 4 (spec §5, Decision D-3): the single
+    # soft-delete flag for every artifact type, orthogonal to the workflow
+    # state. Before this, "outdated" was a workflow *state*, so soft-deleting
+    # an approved artifact destroyed its approval and reactivate() had to guess
+    # the previous state from WorkflowHistoryEntry. Now the two axes are
+    # independent: an artifact can be `approved` and `outdated` at once.
+    lifecycle_status = models.CharField(
+        max_length=16,
+        choices=LifecycleStatus.choices,
+        default=LifecycleStatus.ACTIVE,
+        db_index=True,
+        help_text=(
+            "REQ-006 soft-delete. Orthogonal to WorkflowItemState.current_state: "
+            "'outdated' hides the artifact from default listings without "
+            "changing its workflow state."
         ),
     )
 
@@ -622,6 +1175,54 @@ class Artifact(TenantScopedModel):
         return f"{self.artifact_type}:{self.id}"
 
 
+class ArtifactVersion(TenantScopedModel):
+    """Immutable content snapshot of an Artifact at one revision.
+
+    Datenmodell-Konsolidierung Phase 5 (spec §6, Decision D-4). The single
+    content-history store for every artifact type, replacing DiagramVersion,
+    IcdVersion and GlossaryTermVersion.
+
+    ``revision`` is a real revision number (1, 2, 3, …), deliberately distinct
+    from ``AuditableModel.version``, which is an optimistic-lock counter and
+    carries no history (issue #213). Rows are append-only: no service method
+    issues UPDATE or DELETE against this table.
+
+    ``payload`` is the full field snapshot as written, not a delta. Diffs are
+    computed on read (``ArtifactDiffService``), so a stored snapshot never has
+    to be replayed through a chain to be readable — which is what made the
+    three legacy version tables usable and the audit log not.
+    """
+
+    artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.CASCADE,
+        related_name="revisions",
+    )
+    revision = models.PositiveIntegerField()
+    payload = models.JSONField(
+        default=dict,
+        help_text="Full field snapshot of the artifact at this revision.",
+    )
+    change_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "pl_artifact_version"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["artifact", "revision"],
+                name="uq_artifact_version_revision",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["artifact", "revision"], name="idx_artifactversion_hist"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.artifact_id}:r{self.revision}"
+
+
 class StakeholderNeed(TenantScopedModel):
     """Stakeholder Need entity derived from an artifact.
     
@@ -634,7 +1235,6 @@ class StakeholderNeed(TenantScopedModel):
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     category = models.CharField(max_length=64, blank=True)
-    status = models.CharField(max_length=64, default="draft")
     moscow_priority = models.CharField(
         max_length=16,
         null=True,
@@ -646,28 +1246,18 @@ class StakeholderNeed(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
         help_text="SN-30: Indicates if this need requires review due to upstream changes.",
     )
-    lifecycle_status = models.CharField(
-        max_length=16,
-        choices=LifecycleStatus.choices,
-        default=LifecycleStatus.ACTIVE,
-        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides need from normal views; hard-delete via admin only.",
-    )
 
     class Meta:
         db_table = "pl_stakeholder_need"
-        indexes = [
-            # REQ-039: composite indexes for dominant list-filter combinations.
-            models.Index(fields=["tenant", "status"], name="idx_sn_tnt_status"),
-            models.Index(
-                fields=["tenant", "lifecycle_status"], name="idx_sn_tnt_lifecycle"
-            ),
-        ]
 
     def __str__(self) -> str:
         return self.title
@@ -687,10 +1277,30 @@ class Requirement(TenantScopedModel):
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="requirement"
     )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "#133: denormalized copy of artifact.workspace_id, kept in sync by "
+            "RequirementService/reqif_import_service/ImportService on create. "
+            "Exists solely to back a DB-level UniqueConstraint on "
+            "(workspace, uid) — Requirement otherwise has no direct workspace "
+            "column and uid uniqueness was only enforced at the application "
+            "layer (check-then-insert), which is race-prone under concurrent "
+            "creates."
+        ),
+    )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
+    acceptance_criteria = models.TextField(
+        blank=True,
+        default="",
+        help_text="#43: Acceptance criteria describing when the requirement is fulfilled.",
+    )
     category = models.CharField(max_length=64, blank=True)
-    status = models.CharField(max_length=64, default="draft")
     type = models.CharField(
         max_length=64,
         choices=RequirementType.choices,
@@ -702,8 +1312,10 @@ class Requirement(TenantScopedModel):
         blank=True,
         choices=RequirementLevel.choices,
         help_text=(
-            "K3: V-model hierarchy level (0=System, 1=Subsystem, 2=Component, "
-            "3=Part, 4=Material). NULL until assigned explicitly."
+            "K3: V-model cascade level (1=System, 2=Subsystem, 3=Component, "
+            "4=Presentation). The integer is the cascade level itself. L0 "
+            "(Stakeholder Need) is a separate model and never a Requirement. "
+            "NULL until assigned explicitly."
         ),
     )
     complexity_fibonacci = models.IntegerField(
@@ -723,26 +1335,25 @@ class Requirement(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
         help_text="SN-30: Indicates if this requirement needs review due to upstream changes.",
     )
-    lifecycle_status = models.CharField(
-        max_length=16,
-        choices=LifecycleStatus.choices,
-        default=LifecycleStatus.ACTIVE,
-        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides requirement from normal views; hard-delete via admin only.",
-    )
     embedding = VectorField(
-        dimensions=1536,
+        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
         null=True,
         blank=True,
         help_text=(
-            "REQ-L2-VS-004: Semantic embedding (1536-dim, OpenAI "
-            "text-embedding-3-small compatible) for cosine similarity search. "
-            "Best-effort: NULL when no embedding provider is configured."
+            "REQ-L2-VS-004: Semantic embedding for cosine similarity search, "
+            "sized by persistence.embedding_dimensions."
+            "EMBEDDING_VECTOR_DIMENSIONS (#794 — was a hardcoded 1536 that no "
+            "shipped default provider could ever fill). Best-effort: NULL when "
+            "no embedding provider is configured."
         ),
     )
 
@@ -758,10 +1369,45 @@ class Requirement(TenantScopedModel):
                 ef_construction=64,
                 opclasses=["vector_cosine_ops"],
             ),
-            # REQ-039: composite indexes for dominant list-filter combinations.
-            models.Index(fields=["tenant", "status"], name="idx_req_tnt_status"),
-            models.Index(
-                fields=["tenant", "lifecycle_status"], name="idx_req_tnt_lifecycle"
+            # #44: uid is looked up scoped to a workspace (via artifact__workspace)
+            # on every create/update to enforce uniqueness at the application layer
+            # (RequirementService); this index backs that lookup.
+            models.Index(fields=["tenant", "uid"], name="idx_req_tnt_uid"),
+        ]
+        constraints = [
+            # Issue #123: migration 0020 removed 'StReq' from RequirementType
+            # choices without a data migration for legacy rows. Django's
+            # `choices` are validation-only and not enforced by the DB, so a
+            # leftover row with type='StReq' would silently keep an invalid
+            # value forever (and no longer be reachable by app code that only
+            # recognizes SyReq/UseCase/FeatureReq). This CHECK constraint
+            # makes the choice set a hard DB-level invariant so this class of
+            # bug cannot recur for future SE-mask splits either.
+            # ``condition=`` (not ``check=``): Django 5.1 renamed the kwarg and
+            # 5.2 emits RemovedInDjango60Warning for the old spelling. Purely a
+            # rename — ``CheckConstraint.deconstruct()`` has emitted
+            # ``condition`` since 5.1 regardless of which kwarg was passed, so
+            # the migration state (and therefore the emitted SQL) is unchanged.
+            models.CheckConstraint(
+                condition=models.Q(type__in=[c[0] for c in RequirementType.choices]),
+                name="ck_requirement_type_valid",
+            ),
+            # #133: uid was only enforced application-side (check-then-insert in
+            # RequirementService._assert_uid_unique_in_workspace), which is
+            # race-prone under concurrent creates. Scoped to workspace, not
+            # tenant: ReqIF import legitimately copies the same identifier into a
+            # different workspace of the same tenant (see
+            # application/tests/test_reqif_import_service.py::
+            # TestReqifImportUpsertCollisions). Partial (uid non-null/non-blank)
+            # because most requirements never get an explicit uid assigned.
+            # The application-level pre-check still exists to surface a clean
+            # ValidationError (400) for the common case; this constraint is the
+            # race-free authority of last resort (mirrors the precedent set for
+            # Workspace.name uniqueness / issue #127).
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_requirement_workspace_uid",
             ),
         ]
 
@@ -773,8 +1419,8 @@ class ArchitectureElement(TenantScopedModel):
     """Architecture element derived from an artifact (REQ-L1-002).
 
     REQ-L1-041: Supports hierarchical parent-child relationships via parent_id.
-    Level is derived from tree depth (0=root, 1=child of root, etc.) via CTE
-    annotation in manager.get_with_level() (REQ-L1-058 AC2).
+    Level is derived from tree depth (0=root, 1=child of root, etc.) via the
+    ``annotate_levels()`` classmethod (recursive-CTE, bulk, REQ-L1-058 AC2).
 
     REQ-L3-RF004-004: Supports SE mask fields (asil_level, make_or_buy, uid).
     REQ-L2-RF-025 AC3: Includes uid for stable identification.
@@ -820,17 +1466,14 @@ class ArchitectureElement(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
         help_text="SN-30: Indicates if this element needs review due to upstream changes.",
-    )
-    lifecycle_status = models.CharField(
-        max_length=16,
-        choices=LifecycleStatus.choices,
-        default=LifecycleStatus.ACTIVE,
-        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides element from normal views; hard-delete via admin only.",
     )
 
     class Meta:
@@ -839,10 +1482,6 @@ class ArchitectureElement(TenantScopedModel):
             # REQ-039: composite indexes for dominant list-filter combinations.
             models.Index(
                 fields=["tenant", "element_type"], name="idx_archelem_tnt_type"
-            ),
-            models.Index(
-                fields=["tenant", "lifecycle_status"],
-                name="idx_archelem_tnt_lifecyc",
             ),
         ]
 
@@ -853,11 +1492,11 @@ class ArchitectureElement(TenantScopedModel):
     def level(self) -> int:
         """Return tree depth of this element (from annotation or fallback).
 
-        REQ-L1-058 AC2: Prefer .get_with_level() for bulk fetches (CTE-based).
+        REQ-L1-058 AC2: Prefer ``annotate_levels()`` for bulk fetches (CTE-based).
         This property provides compatibility for single-instance access
         and falls back to Python recursion if not annotated.
         """
-        # Check if level was annotated by get_with_level()
+        # Check if level was annotated by annotate_levels()
         if hasattr(self, '_level_annotated'):
             return self._level_annotated
         # Fallback: compute via recursive get_level()
@@ -870,17 +1509,114 @@ class ArchitectureElement(TenantScopedModel):
         Direct child → level=1
         Nested → level=2, etc.
 
-        NOTE: For bulk level retrieval, use manager.get_queryset_with_level()
-        which uses DB CTE annotation (avoids N+1 queries, REQ-L1-058 AC2).
-        This method is a fallback for single-instance level computation.
+        Issue #129: this used to recurse in Python, issuing one query per
+        ancestor (O(tree depth) round-trips per element). It now walks the
+        ancestor chain in a single recursive CTE, so a single-instance level
+        read costs exactly one query regardless of depth.
+
+        NOTE: For bulk level retrieval prefer :meth:`annotate_levels` (one
+        query for the whole set) or the in-memory pass in
+        ``ArchitectureService._annotate_levels`` (zero extra queries when the
+        whole workspace set is already loaded).
         """
         if self.parent_id is None:
             return 0
-        # Fetch parent and recurse
-        parent = ArchitectureElement.objects.filter(id=self.parent_id).first()
-        if parent is None:
-            return 0  # Orphaned child fallback
-        return 1 + parent.get_level()
+        levels = ArchitectureElement.annotate_levels([self])
+        return levels.get(self.id, 0)
+
+    @classmethod
+    def annotate_levels(cls, elements: Sequence["ArchitectureElement"]) -> Dict[UUID, int]:
+        """Set ``_level_annotated`` on *elements* using a single SQL query.
+
+        Issue #129: replaces the per-element Python recursion. One recursive
+        CTE walks the ancestor chain for every requested id at once, so the
+        query count is O(1) instead of O(elements x tree depth).
+
+        A dangling ``parent_id`` (ancestor row missing or invisible under the
+        active row-level-security policy) terminates the walk, which yields the
+        same depth the old orphan fallback produced.
+
+        Args:
+            elements: ArchitectureElement instances to annotate. Instances must
+                belong to a single tenant (they always do — the model is
+                tenant-scoped).
+
+        Returns:
+            Mapping of element id -> level. Empty when *elements* is empty.
+        """
+        elements = list(elements)
+        if not elements:
+            return {}
+
+        roots = {el.id: 0 for el in elements if el.parent_id is None}
+        pending = [el for el in elements if el.parent_id is not None]
+        for el in elements:
+            if el.parent_id is None:
+                el._level_annotated = 0
+
+        if not pending:
+            return roots
+
+        tenant_id = pending[0].tenant_id
+        ids = [el.id for el in pending]
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                WITH RECURSIVE ancestors AS (
+                    SELECT id AS start_id, id, parent_id, 0 AS depth
+                    FROM pl_architecture_element
+                    WHERE id = ANY(%s) AND tenant_id = %s
+
+                    UNION ALL
+
+                    SELECT a.start_id, ae.id, ae.parent_id, a.depth + 1
+                    FROM pl_architecture_element ae
+                    JOIN ancestors a ON ae.id = a.parent_id
+                    WHERE ae.tenant_id = %s
+                )
+                SELECT start_id, MAX(depth) FROM ancestors GROUP BY start_id
+                """,
+                [ids, tenant_id, tenant_id],
+            )
+            resolved = {row[0]: row[1] for row in cursor.fetchall()}
+
+        levels: Dict[UUID, int] = dict(roots)
+        for el in pending:
+            level = resolved.get(el.id, 0)
+            el._level_annotated = level
+            levels[el.id] = level
+        return levels
+
+    @classmethod
+    def annotate_roles(cls, elements: Sequence["ArchitectureElement"]) -> None:
+        """Set ``_role_annotated`` on *elements* using a single SQL query.
+
+        Issue #129: the ``get_role()`` fallback fires one EXISTS query per
+        instance. This resolves the children check for the whole set in one
+        query, mirroring ``ArchitectureService._annotate_roles`` for call sites
+        that do not already hold the complete workspace tree in memory.
+        """
+        elements = list(elements)
+        if not elements:
+            return
+
+        # SA-21: Layer 0 must not import workflow (Layer 1) directly — this
+        # goes through the DI seam persistence.status_provider registers
+        # from WorkflowConfig.ready(); see that module's docstring.
+        from persistence.status_provider import outdated_item_ids
+
+        ids = [el.id for el in elements]
+        parents_with_children = set(
+            ArchitectureElement.objects.filter(parent_id__in=ids)
+            .exclude(id__in=outdated_item_ids("ArchitectureElement"))
+            .values_list("parent_id", flat=True)
+        )
+        for el in elements:
+            el._role_annotated = derive_architecture_role(
+                has_parent=el.parent_id is not None,
+                has_children=el.id in parents_with_children,
+            )
 
     @property
     def role(self) -> str:
@@ -899,8 +1635,22 @@ class ArchitectureElement(TenantScopedModel):
         """Compute the structural role from this element's tree position.
 
         Root (parent IS NULL) → 'system'; inner node (has non-deleted children)
-        → 'subsystem'; leaf → 'component'. Excludes soft-deleted children so a
-        parent whose only child was removed correctly collapses back to a leaf.
+        → 'subsystem'; leaf → 'component'. Excludes soft-deleted (outdated)
+        children so a parent whose only child was removed correctly collapses
+        back to a leaf.
+
+        ArchitectureElement has no denormalized ``status`` mirror.
+        ``Artifact.lifecycle_status`` (Datenmodell-Konsolidierung Phase 4) is
+        the soft-delete flag now, but ``WorkflowItemState`` stays the
+        authoritative source for the workflow axis, so the children check
+        keeps excluding against ``workflow.services.outdated_item_ids``.
+        SA-21: this used to be a direct, lazy Layer 0 -> Layer 1
+        import; it now goes through ``persistence.status_provider`` (a
+        Layer-0-owned seam that ``WorkflowConfig.ready()`` registers the real
+        implementation into at startup), so this module no longer imports
+        ``workflow`` at all. The alternative (re-adding a real status column
+        just to keep this method query-free) is a larger persistence
+        migration for no functional gain.
 
         NOTE: For bulk role retrieval use
         ``ArchitectureService.list_architecture_elements`` which annotates the
@@ -909,9 +1659,14 @@ class ArchitectureElement(TenantScopedModel):
         """
         if self.parent_id is None:
             return ArchitectureRole.SYSTEM
+        # SA-21: Layer 0 must not import workflow (Layer 1) directly — this
+        # goes through the DI seam persistence.status_provider registers
+        # from WorkflowConfig.ready(); see that module's docstring.
+        from persistence.status_provider import outdated_item_ids
+
         has_children = (
             ArchitectureElement.objects.filter(parent_id=self.id)
-            .exclude(lifecycle_status=LifecycleStatus.DELETED)
+            .exclude(id__in=outdated_item_ids("ArchitectureElement"))
             .exists()
         )
         return derive_architecture_role(has_parent=True, has_children=has_children)
@@ -933,14 +1688,68 @@ class TraceLink(TenantScopedModel):
     )
     link_type = models.CharField(max_length=64)
     embedding = VectorField(
-        dimensions=1536,
+        dimensions=EMBEDDING_VECTOR_DIMENSIONS,
         null=True,
         blank=True,
         help_text=(
-            "REQ-L2-VS-004: Semantic embedding (1536-dim, OpenAI "
-            "text-embedding-3-small compatible) for cosine similarity search "
-            "over trace links. Best-effort: NULL when no embedding provider is "
-            "configured."
+            "REQ-L2-VS-004: Semantic embedding for cosine similarity search "
+            "over trace links, sized by persistence.embedding_dimensions."
+            "EMBEDDING_VECTOR_DIMENSIONS (#794). Best-effort: NULL when no "
+            "embedding provider is configured."
+        ),
+    )
+    # KI-Vorschlag-als-Zustand spec §5: a trace link is not a workflow-tracked
+    # item (no WorkflowItemState per link), so an agent-proposed link is marked
+    # by these two fields instead of by a state. Confirming NULLs both;
+    # discarding deletes the row.
+    #
+    # SET_NULL, not CASCADE: revoking or deleting the proposing key must not
+    # delete trace edges. A NULL proposed_by with a non-NULL proposed_at simply
+    # reads as "proposed by a key that no longer exists".
+    proposed_by = models.ForeignKey(
+        "auth_tenancy.ApiKey",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="proposed_trace_links",
+        help_text=(
+            "API key of the AI agent that proposed this link; NULL once a human "
+            "confirmed it or when a human created it directly."
+        ),
+    )
+    proposed_at = models.DateTimeField(null=True, blank=True)
+    rationale = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Q1.6: why this link exists. A link type alone does not say why "
+            "*these two* artifacts are connected; without it a reviewer has "
+            "to reconstruct the intent from the two titles."
+        ),
+    )
+    suspect_flagged_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Set by the suspect-propagation engine "
+            "(application.trace_link_service.TraceLinkService."
+            "propagate_suspect_status) when this link caused the other "
+            "endpoint to be flagged suspect. NULL means this link has not "
+            "triggered a flag since the last review."
+        ),
+    )
+    suspect_source_change = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "audit.AuditEntry.id of the change that triggered the flag above. "
+            "Deliberately a plain UUID rather than a ForeignKey: audit_entry "
+            "is append-only and slated for monthly RANGE partitioning "
+            "(audit/migrations/0001_initial.py), which a real FK would "
+            "permanently block because Postgres requires the partition key in "
+            "the referenced primary key. No cascade semantics are needed — an "
+            "audit entry is never deleted."
         ),
     )
 
@@ -961,9 +1770,25 @@ class TraceLink(TenantScopedModel):
                 opclasses=["vector_cosine_ops"],
             ),
         ]
+        constraints = [
+            # Issue #126: the artifact tree is expressed exclusively via
+            # "derives-from" TraceLinks (see Artifact docstring), so a
+            # duplicate (source, target, link_type) edge corrupts tree
+            # traversal, coverage/SE metrics, and makes ReqIF import
+            # non-idempotent.
+            models.UniqueConstraint(
+                fields=["source", "target", "link_type"],
+                name="uq_tracelink_edge",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.source_id} -[{self.link_type}]-> {self.target_id}"
+
+    @property
+    def is_proposal(self) -> bool:
+        """Return whether this link is still an unconfirmed agent proposal."""
+        return self.proposed_at is not None
 
 
 class TestCase(TenantScopedModel):
@@ -971,18 +1796,28 @@ class TestCase(TenantScopedModel):
     __test__ = False
 
     class Status(models.TextChoices):
-        """REQ-165/REQ-166: lifecycle state mirrored from the WorkflowEngine.
+        """REQ-165/REQ-166: lifecycle state, historically mirrored from the
+        WorkflowEngine.
 
-        Read-only projection of WorkflowItemState.current_state — written ONLY
-        by StateLifecycleManager._sync_status_mirror inside a transition. The
-        value strings MUST stay byte-identical to the ``testcase_default``
-        preset states in ``workflow.definition_store.PRESET_SCHEMAS``.
+        Datenmodell-Konsolidierung Phase 1: no longer written by the workflow
+        engine — WorkflowItemState.current_state is the only store, read it
+        through ``workflow.state_reader``. This column is write-once at
+        creation and dropped in persistence/0070 (Task 12). The value strings
+        MUST stay byte-identical to the ``testcase_default`` preset states in
+        ``workflow.definition_store.PRESET_SCHEMAS``.
+
+        GH-453: the *values* are lowercase, matching every other persistence-app
+        entity (Requirement, StakeholderNeed, ArchitectureElement). TestCase
+        used to be the sole Title-Case outlier, so a case-sensitive
+        cross-entity query such as ``status="draft"`` silently skipped every
+        test case. The Title-Case spelling is preserved as the human-readable
+        *label* — API consumers get the lowercase value, UIs render the label.
         """
 
-        DRAFT = "Draft", "Draft"
-        READY = "Ready", "Ready"
-        APPROVED = "Approved", "Approved"
-        DEPRECATED = "Deprecated", "Deprecated"
+        DRAFT = "draft", "Draft"
+        READY = "ready", "Ready"
+        APPROVED = "approved", "Approved"
+        DEPRECATED = "deprecated", "Deprecated"
 
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="test_case"
@@ -1005,30 +1840,19 @@ class TestCase(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     suspect = models.BooleanField(
         default=False,
         help_text="SN-30: Indicates if this test case needs review due to upstream changes.",
     )
-    # REQ-165/REQ-166: denormalized `status` mirror (read-only projection of the
-    # WorkflowEngine state). Written ONLY from within a workflow transition
-    # (StateLifecycleManager._sync_status_mirror). TestCase is scoped via
-    # ``artifact.workspace`` (no local workspace_id column), so a plain
-    # single-column index on ``status`` is used instead of a (workspace, status)
-    # composite — cross-relation columns cannot participate in a table index.
-    status = models.CharField(
-        max_length=32,
-        choices=Status.choices,
-        default=Status.DRAFT,
-        db_index=False,
-    )
-
     class Meta:
         db_table = "pl_testcase"
         indexes = [
             models.Index(fields=["uid"], name="idx_testcase_uid_btree"),
-            models.Index(fields=["status"], name="idx_testcase_status"),
         ]
 
     def __str__(self) -> str:
@@ -1046,6 +1870,14 @@ class WorkflowDefinition(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workflow_definition"
+        indexes = [
+            # Issue #130: definitions are always resolved per tenant + artifact
+            # (workflow.services / rest_api workflow endpoints). Mirrors the
+            # composite-index pattern introduced by migration 0034.
+            models.Index(
+                fields=["tenant", "artifact"], name="idx_wfdef_tnt_artifact"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -1064,6 +1896,17 @@ class WorkflowState(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workflow_state"
+        indexes = [
+            # Issue #130: review/approval lists filter by state within a tenant
+            # (mcp_server/tools/review.py). Same pattern as migration 0034.
+            models.Index(
+                fields=["tenant", "current_state"], name="idx_wfstate_tnt_state"
+            ),
+            # State lookups for a single requirement are the hot read path.
+            models.Index(
+                fields=["tenant", "requirement"], name="idx_wfstate_tnt_req"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.current_state
@@ -1113,7 +1956,10 @@ class TestRun(TenantScopedModel):
         max_length=64,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
     )
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="test_runs"
@@ -1184,137 +2030,6 @@ class TestRunResult(TenantScopedModel):
         return f"Result:{self.test_case_title}:{self.status}"
 
 
-class AttributeVisibilityConfig(TenantScopedModel):
-    """Admin configuration for field visibility per entity type (REQ-L1-058).
-
-    Allows tenant admins to control which type-dependent fields are visible
-    in the UI and whether they are required in forms.
-
-    Constraint: Unique on (tenant_id, entity_type, attribute_name).
-    Index: Composite BTree on (tenant_id, entity_type) for fast bulk lookups.
-
-    AC2: Used by RequirementSerializer and ArchitectureElementSerializer
-    to conditionally include/exclude type-dependent fields in responses.
-    """
-
-    entity_type = models.CharField(
-        max_length=64,
-        help_text="Target entity type (e.g., 'Requirement', 'ArchitectureElement')",
-    )
-    attribute_name = models.CharField(
-        max_length=128,
-        help_text="Field name (e.g., 'moscow_priority', 'asil_level')",
-    )
-    is_visible = models.BooleanField(
-        default=True,
-        help_text="Show/hide toggle for frontend",
-    )
-    is_required = models.BooleanField(
-        default=False,
-        help_text="Mark as required in forms",
-    )
-    created_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        help_text="Audit: who created this config",
-    )
-    modified_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        help_text="Audit: who last modified this config",
-    )
-    version = models.IntegerField(
-        default=1,
-        help_text="Audit: version counter",
-    )
-
-    class Meta:
-        db_table = "pl_attribute_visibility_config"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "entity_type", "attribute_name"],
-                name="uq_attrvisib_tenant_entity_attr",
-            ),
-        ]
-        indexes = [
-            models.Index(fields=["tenant", "entity_type"], name="idx_attrvisib_tenant_type"),
-        ]
-
-    def __str__(self) -> str:
-        visibility_status = "visible" if self.is_visible else "hidden"
-        required_status = "required" if self.is_required else "optional"
-        return f"{self.entity_type}.{self.attribute_name} ({visibility_status}, {required_status})"
-
-
-class CustomFieldDefinition(TenantScopedModel):
-    """Workspace-wide custom field definition (REQ-016).
-
-    Workspace administrators define custom fields (name, type, required flag and
-    — for dropdowns — a fixed option set) centrally per workspace. A definition
-    applies to *all* artifacts of the workspace (Requirements, ArchitectureElements,
-    TestCases, …) because every concrete artifact type shares the generic
-    :class:`Artifact` base. Entered values are stored per artifact instance in
-    :class:`CustomFieldValue`.
-
-    Constraint: unique on (workspace, name) — a field name is unique per workspace.
-    """
-
-    workspace = models.ForeignKey(
-        Workspace,
-        on_delete=models.CASCADE,
-        related_name="custom_field_definitions",
-    )
-    name = models.CharField(
-        max_length=128,
-        help_text="Human-readable field label, unique within the workspace.",
-    )
-    field_type = models.CharField(
-        max_length=16,
-        choices=CustomFieldType.choices,
-        default=CustomFieldType.TEXT,
-        help_text="Data type: text, number or dropdown.",
-    )
-    is_required = models.BooleanField(
-        default=False,
-        help_text="Whether a value must be provided on the artifact form.",
-    )
-    options = models.JSONField(
-        default=list,
-        blank=True,
-        help_text=(
-            "Dropdown options as a list of strings. Empty for text/number "
-            "fields; required (non-empty) for dropdown fields."
-        ),
-    )
-    order = models.IntegerField(
-        default=0,
-        help_text="Display order of the field in artifact forms (ascending).",
-    )
-
-    class Meta:
-        db_table = "pl_custom_field_definition"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["workspace", "name"],
-                name="uq_customfielddef_workspace_name",
-            ),
-        ]
-        indexes = [
-            models.Index(
-                fields=["workspace"], name="idx_customfielddef_workspace"
-            ),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.name} ({self.field_type})"
-
-
 class CustomFieldValue(TenantScopedModel):
     """Persisted value of a custom field for a single artifact instance (REQ-016).
 
@@ -1324,13 +2039,18 @@ class CustomFieldValue(TenantScopedModel):
     text; numeric and dropdown values are serialised to their string form and
     validated against the definition at the API boundary.
 
-    Constraint: unique on (definition, artifact) — one value per field per artifact.
+    ``attribute_name`` replaced the ``definition`` FK when the legacy
+    ``CustomFieldDefinition``/``AttributeVisibilityConfig`` mechanisms were
+    retired (spec section 4, Decision D3): the attribute's home is now
+    ``GlobalAttributeDefinition``/``WorkspaceAttributeDefinition.definition_json``,
+    not a row in this app, so the link is a name rather than an FK.
+
+    Constraint: unique on (artifact, attribute_name) — one value per field per artifact.
     """
 
-    definition = models.ForeignKey(
-        CustomFieldDefinition,
-        on_delete=models.CASCADE,
-        related_name="values",
+    attribute_name = models.CharField(
+        max_length=128,
+        help_text="Attribute name from the resolved AttributeDefinition.",
     )
     artifact = models.ForeignKey(
         Artifact,
@@ -1347,8 +2067,8 @@ class CustomFieldValue(TenantScopedModel):
         db_table = "pl_custom_field_value"
         constraints = [
             models.UniqueConstraint(
-                fields=["definition", "artifact"],
-                name="uq_customfieldvalue_definition_artifact",
+                fields=["artifact", "attribute_name"],
+                name="uq_customfieldvalue_artifact_attribute",
             ),
         ]
         indexes = [
@@ -1358,7 +2078,7 @@ class CustomFieldValue(TenantScopedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.definition_id}={self.value!r}"
+        return f"{self.attribute_name}={self.value!r}"
 
 
 class GlossaryTerm(TenantScopedModel):
@@ -1367,17 +2087,21 @@ class GlossaryTerm(TenantScopedModel):
     workspace = models.ForeignKey(
         Workspace, on_delete=models.SET_NULL, null=True, blank=True, related_name="glossary_terms"
     )
+    # Datenmodell-Konsolidierung Phase 3 (spec §4): closes the gap that made
+    # interview_artifact_adapters._glossary_term reject every creation with
+    # "GlossaryTerm is not Artifact-backed yet".
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="glossary_term",
+    )
     term = models.CharField(max_length=255)
     definition = models.TextField()
     synonyms = models.JSONField(default=list, blank=True)
     abbreviation = models.CharField(max_length=64, blank=True)
     version = models.IntegerField(default=1)
-    lifecycle_status = models.CharField(
-        max_length=16,
-        choices=LifecycleStatus.choices,
-        default=LifecycleStatus.ACTIVE,
-        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides term from normal views; hard-delete via admin only.",
-    )
 
     class Meta:
         db_table = "pl_glossary_term"
@@ -1387,20 +2111,10 @@ class GlossaryTerm(TenantScopedModel):
         return self.term
 
 
-class GlossaryTermVersion(TenantScopedModel):
-    """Immutable version snapshot of GlossaryTerm."""
-
-    term_fk = models.ForeignKey(
-        GlossaryTerm, on_delete=models.CASCADE, related_name="versions"
-    )
-    term_version = models.IntegerField()
-    definition = models.TextField()
-    synonyms = models.JSONField(default=list, blank=True)
-    abbreviation = models.CharField(max_length=64, blank=True)
-
-    class Meta:
-        db_table = "pl_glossary_term_version"
-        unique_together = (("term_fk", "term_version"),)
+# Datenmodell-Konsolidierung Task 28b: GlossaryTermVersion (the immutable
+# per-term history table) was retired here. GlossaryTerm's history now lives
+# exclusively in the generic persistence.ArtifactVersion store (Task 27/28a
+# copied every legacy row across before this drop).
 
 
 # ---------------------------------------------------------------------------
@@ -1417,6 +2131,7 @@ class LlmProvider(models.TextChoices):
     ANTHROPIC = "anthropic", "Anthropic"
     OPENAI = "openai", "OpenAI"
     OLLAMA = "ollama", "Ollama"
+    OPENCODE_GO = "opencode_go", "OpenCode Go"
     MOCK = "mock", "Mock"
 
 
@@ -1424,8 +2139,13 @@ class LlmSettings(TenantScopedModel):
     """Per-tenant LLM provider configuration (REQ-L2-LLM-001).
 
     Singleton per tenant: a unique constraint on ``tenant`` guarantees at most
-    one row. The row is created lazily via ``get_or_create`` in the REST layer
-    and seeded for existing tenants by the accompanying data migration.
+    one row. The row is created lazily on the first *write* through
+    :class:`~application.settings_service.SettingsService`; reads never create
+    it and no migration seeds it. That is load-bearing, not incidental:
+    ``llm_adapter.providers._apply_db_settings`` gives an existing row
+    unconditional precedence over ``LLM_PROVIDER`` & co., so a row must exist
+    only when an admin explicitly configured this tenant — otherwise the
+    environment configuration would be silently overridden (issue #276).
 
     ``api_key`` holds the raw provider secret. It is never exposed through the
     REST serializer (write-only); readers only learn whether a key is set.
@@ -1449,7 +2169,7 @@ class LlmSettings(TenantScopedModel):
     )
     # REQ-081: Fernet ciphertext, not plaintext. Never read/write this field
     # directly — use the ``api_key`` property below, which transparently
-    # encrypts/decrypts using FIELD_ENCRYPTION_KEY (reqflow/settings.py).
+    # encrypts/decrypts using FIELD_ENCRYPTION_KEY (reqogniloom/settings.py).
     api_key_encrypted = models.TextField(
         blank=True,
         default="",
@@ -1511,11 +2231,12 @@ class LlmSettings(TenantScopedModel):
 # Read-only default prompt content. Kept at module level so the data migration
 # can seed identical values without importing model behaviour.
 DEFAULT_NEED_TO_SYSREQ = (
-    "Given the following stakeholder need, generate {n} system-level "
-    "requirements. Each requirement must be specific, measurable, and testable. "
-    "Return a JSON array of objects with fields: title (string), description "
-    "(string), rationale (string).\n\nStakeholder Need:\nTitle: {need_title}\n"
-    "Description: {need_description}"
+    "Given the following stakeholder need, generate at most "
+    "{max_requirements_per_need} system-level requirements — produce only as "
+    "many as the need actually justifies. Each requirement must be specific, "
+    "measurable, and testable. Return a JSON array of objects with fields: "
+    "title (string), description (string), rationale (string).\n\n"
+    "Stakeholder Need:\nTitle: {need_title}\nDescription: {need_description}"
 )
 
 DEFAULT_SYSREQ_TO_ARCH_ASSIGN = (
@@ -1541,65 +2262,295 @@ PROMPT_TEMPLATE_DEFAULTS: dict[str, str] = {
     "need_to_sysreq": DEFAULT_NEED_TO_SYSREQ,
     "sysreq_to_arch_assign": DEFAULT_SYSREQ_TO_ARCH_ASSIGN,
     "sysreq_decompose_next_level": DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL,
+    "goal_aggregate": (
+        "You are aggregating individual workspace Goals into a single "
+        "MainGoal statement.\n\n"
+        "Goals:\n{goals}\n\n"
+        "Write one concise MainGoal (2-4 sentences) that captures the "
+        "shared intent of all listed Goals. Respond with the MainGoal "
+        "text only, no preamble."
+    ),
 }
 
 
 class PromptTemplate(TenantScopedModel):
-    """Per-tenant editable LLM prompt templates (REQ-L2-PT-001).
+    """Named, versioned, workspace-overridable LLM prompt template (REQ-L2-PT-001).
 
-    Singleton per tenant (unique constraint on ``tenant``). Each field is a
-    prompt "slot" whose factory default is stored in ``PROMPT_TEMPLATE_DEFAULTS``.
-    ``reset_slot`` / ``reset_all`` restore the default content for a slot.
+    Phase 4 replaces the previous 3-fixed-slot tenant singleton with an
+    open-ended, named template model: ``name`` identifies the template (e.g.
+    ``"need_to_sysreq"``, ``"testcase_derive"`` — not an enum, since the set of
+    templates is no longer fixed to 3). ``workspace_id=None`` is the
+    tenant-wide default; a non-null ``workspace_id`` overrides it for that
+    workspace only. Multiple versions may exist per ``(tenant, workspace_id,
+    name)`` scope; ``is_active`` marks the one currently in effect.
+
+    Uniqueness: at most one ``is_active=True`` row per ``(tenant,
+    workspace_id, name)``. Enforced at the **application level** in
+    :meth:`save`, not via a Postgres partial unique index — this codebase has
+    no existing precedent for ``condition=`` partial indexes in its migrations
+    (checked: zero hits across ``persistence/migrations/*.py``), so
+    application-level enforcement keeps this constraint's mechanism
+    consistent with the rest of ``persistence/``. It mirrors the existing
+    idiom used by e.g. ``CustomFieldDefinitionService`` of raising/catching
+    :class:`~django.db.IntegrityError` around a uniqueness violation, so
+    calling services can catch it the same way.
+
+    Note on ``version``: this model repurposes the inherited
+    :class:`AuditableModel` ``version`` field (normally a per-row optimistic-
+    concurrency counter, see COMP-PL-003) to mean the template's version
+    number within its ``(tenant, workspace_id, name)`` scope instead.
+    ``PromptTemplate`` rows are effectively immutable once created — a new
+    prompt version is a new row, not an in-place update — so the
+    optimistic-locking use case the base field exists for does not apply to
+    this model.
     """
 
-    #: Read-only default constants (mirrors module-level defaults for callers
-    #: that hold a model instance).
-    DEFAULTS = PROMPT_TEMPLATE_DEFAULTS
-
-    need_to_sysreq = models.TextField(
-        default=DEFAULT_NEED_TO_SYSREQ,
-        help_text="Prompt: stakeholder need -> system requirements.",
+    name = models.CharField(
+        max_length=100,
+        help_text="Template identifier, e.g. 'need_to_sysreq' (open-ended, not an enum).",
     )
-    sysreq_to_arch_assign = models.TextField(
-        default=DEFAULT_SYSREQ_TO_ARCH_ASSIGN,
-        help_text="Prompt: system requirement -> architecture assignment.",
+    content = models.TextField(help_text="Prompt template body.")
+    version = models.PositiveIntegerField(
+        default=1,
+        help_text="Version number within the (tenant, workspace_id, name) scope; starts at 1.",
     )
-    sysreq_decompose_next_level = models.TextField(
-        default=DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL,
-        help_text="Prompt: decompose system requirement to the next level.",
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this version is the active one for its (tenant, workspace_id, name) scope.",
+    )
+    workspace_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Workspace override scope. NULL means tenant-wide default.",
     )
 
     class Meta:
         db_table = "pl_prompt_template"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant"], name="uq_prompt_template_tenant"
+        indexes = [
+            models.Index(
+                fields=["tenant", "workspace_id", "name"],
+                name="ix_prompt_template_scope",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"PromptTemplate(tenant={self.tenant_id})"
+        scope = f"workspace={self.workspace_id}" if self.workspace_id else "global"
+        return f"PromptTemplate(name={self.name!r}, {scope}, v{self.version})"
 
-    def get_slot(self, slot_name: str) -> str:
-        """Return the current content for ``slot_name``.
+    def save(self, *args: object, **kwargs: object) -> None:
+        """Persist the row, enforcing at most one active row per scope.
+
+        Concurrency note: a plain ``exists()`` check followed by an insert is
+        a TOCTOU race — two concurrent writers targeting the same ``(tenant,
+        workspace_id, name)`` scope could both pass the check before either
+        commits. ``select_for_update()`` on the ``PromptTemplate`` filter
+        itself would *not* close this race: under Postgres' default READ
+        COMMITTED isolation, ``SELECT ... FOR UPDATE`` takes no lock when the
+        filtered query returns zero rows (there is nothing to lock), so two
+        concurrent "no conflict yet" reads can still both proceed to insert.
+        Instead, this locks the row that unconditionally already exists for
+        this scope — the parent ``Tenant`` row — via ``select_for_update()``
+        inside an explicit ``transaction.atomic()`` block, using it as a
+        mutex: a second writer for the same tenant blocks on that lock until
+        the first transaction commits or rolls back, and only then performs
+        its own conflict check against the now-committed state. This
+        serializes ``PromptTemplate`` writes per tenant (coarser than
+        per-scope), which is an accepted trade-off to avoid introducing a
+        Postgres partial unique index (see class docstring).
 
         Raises:
-            KeyError: If ``slot_name`` is not a known prompt slot.
+            IntegrityError: If ``is_active=True`` and another row already is
+                active for the same ``(tenant, workspace_id, name)`` scope.
         """
-        if slot_name not in PROMPT_TEMPLATE_DEFAULTS:
-            raise KeyError(slot_name)
-        return getattr(self, slot_name)
+        if self.is_active:
+            with transaction.atomic():
+                # Mutex: block until any other in-flight writer for this
+                # tenant's PromptTemplate rows has committed or rolled back.
+                Tenant.objects.select_for_update().get(pk=self.tenant_id)
+                conflict_exists = (
+                    PromptTemplate.objects.filter(
+                        tenant_id=self.tenant_id,
+                        workspace_id=self.workspace_id,
+                        name=self.name,
+                        is_active=True,
+                    )
+                    .exclude(pk=self.pk)
+                    .exists()
+                )
+                if conflict_exists:
+                    raise IntegrityError(
+                        "Another active PromptTemplate already exists for "
+                        f"(tenant={self.tenant_id}, workspace_id={self.workspace_id}, "
+                        f"name={self.name!r})."
+                    )
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
-    def reset_slot(self, slot_name: str) -> None:
-        """Restore ``slot_name`` to its factory default (not saved)."""
-        if slot_name not in PROMPT_TEMPLATE_DEFAULTS:
-            raise KeyError(slot_name)
-        setattr(self, slot_name, PROMPT_TEMPLATE_DEFAULTS[slot_name])
 
-    def reset_all(self) -> None:
-        """Restore every slot to its factory default (not saved)."""
-        for slot_name, default in PROMPT_TEMPLATE_DEFAULTS.items():
-            setattr(self, slot_name, default)
+# Prompt-variable catalog (spec §3.1). Two kinds:
+#   "config" — pure configuration values (numeric caps, thresholds). Fully
+#              CRUD-able from the admin UI, no code deploy needed.
+#   "data"   — code-bound values computed from real artifact data (e.g.
+#              {req_title}). Registered here for catalog visibility only;
+#              never creatable or editable through REST/MCP/UI.
+PROMPT_VARIABLE_KIND_CONFIG = "config"
+PROMPT_VARIABLE_KIND_DATA = "data"
+PROMPT_VARIABLE_KINDS = (PROMPT_VARIABLE_KIND_CONFIG, PROMPT_VARIABLE_KIND_DATA)
+PROMPT_VARIABLE_TYPES = ("int", "str", "bool", "json")
+
+
+class PromptVariable(TenantScopedModel):
+    """Named, versioned, workspace-overridable prompt variable (spec §3.1).
+
+    Deliberately a structural copy of :class:`PromptTemplate`: same
+    ``workspace_id``-override semantics (``NULL`` = tenant-wide default, a
+    non-null value overrides it for that workspace only), same append-only
+    versioning (rows are effectively immutable — a new value is a new row and
+    the prior one is deactivated), and the same application-level "at most one
+    active row per ``(tenant, workspace_id, name)`` scope" rule enforced in
+    :meth:`save` rather than via a Postgres partial unique index (this
+    codebase has no precedent for ``condition=`` partial indexes in
+    ``persistence/migrations/*.py``).
+
+    ``default_value`` stores the JSON serialisation of the value so a single
+    TextField can carry all four ``var_type``s without a per-type column.
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Variable identifier, e.g. 'max_breadth' (open-ended, not an enum).",
+    )
+    kind = models.CharField(
+        max_length=10,
+        choices=[(k, k) for k in PROMPT_VARIABLE_KINDS],
+        default=PROMPT_VARIABLE_KIND_CONFIG,
+        help_text="'config' (data-driven, UI-editable) or 'data' (code-bound, read-only).",
+    )
+    var_type = models.CharField(
+        max_length=20,
+        choices=[(t, t) for t in PROMPT_VARIABLE_TYPES],
+        default="str",
+        help_text="int | str | bool | json — how default_value is deserialised.",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Human-readable purpose, shown in the catalog UI.",
+    )
+    default_value = models.TextField(
+        blank=True,
+        default="",
+        help_text="JSON-serialised value for this scope.",
+    )
+    version = models.PositiveIntegerField(
+        default=1,
+        help_text="Version number within the (tenant, workspace_id, name) scope; starts at 1.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this version is the active one for its scope.",
+    )
+    workspace_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Workspace override scope. NULL means tenant-wide default.",
+    )
+
+    class Meta:
+        db_table = "pl_prompt_variable"
+        indexes = [
+            models.Index(
+                fields=["tenant", "workspace_id", "name"],
+                name="ix_prompt_variable_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        scope = f"workspace={self.workspace_id}" if self.workspace_id else "global"
+        return f"PromptVariable(name={self.name!r}, {scope}, v{self.version})"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        """Persist the row, enforcing at most one active row per scope.
+
+        Uses the same Tenant-row mutex as :meth:`PromptTemplate.save`: under
+        Postgres READ COMMITTED a ``SELECT ... FOR UPDATE`` over a filter that
+        matches zero rows takes no lock, so the conflict check is serialised
+        by locking the parent ``Tenant`` row (which always exists) instead.
+
+        Raises:
+            IntegrityError: If ``is_active=True`` and another row already is
+                active for the same ``(tenant, workspace_id, name)`` scope.
+        """
+        if self.is_active:
+            with transaction.atomic():
+                Tenant.objects.select_for_update().get(pk=self.tenant_id)
+                conflict_exists = (
+                    PromptVariable.objects.filter(
+                        tenant_id=self.tenant_id,
+                        workspace_id=self.workspace_id,
+                        name=self.name,
+                        is_active=True,
+                    )
+                    .exclude(pk=self.pk)
+                    .exists()
+                )
+                if conflict_exists:
+                    raise IntegrityError(
+                        "Another active PromptVariable already exists for "
+                        f"(tenant={self.tenant_id}, workspace_id={self.workspace_id}, "
+                        f"name={self.name!r})."
+                    )
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+
+
+REVIEW_POLICY_MODES = ("auto", "review_changes", "review_all", "review_high_risk")
+
+
+class ReviewPolicy(TenantScopedModel):
+    """Per-workspace (or tenant-global) AI-derivation review policy (Phase 5).
+
+    Governs whether ``AiDerivationService``'s ``policy="auto"`` path
+    (``_auto_approve``) may cross an approval gate unsupervised, or must stop
+    and leave the item in its pre-gate state for a human to process via the
+    ``review.*`` MCP tool group. Unlike ``PromptTemplate`` this is a plain
+    upsert target, not append-only version history — there is no audit value
+    in keeping old policy values around, only the effective one matters.
+
+    ``workspace_id=None`` is the tenant-wide default; a non-null
+    ``workspace_id`` overrides it for that workspace only. At most one row
+    per ``(tenant, workspace_id)`` — enforced by the unique index below.
+    """
+
+    mode = models.CharField(
+        max_length=32,
+        choices=[(m, m) for m in REVIEW_POLICY_MODES],
+        default="auto",
+        help_text="auto | review_changes | review_all | review_high_risk.",
+    )
+    min_confidence = models.FloatField(
+        default=0.7,
+        help_text="Threshold used only by review_high_risk mode.",
+    )
+    workspace_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Workspace override scope. NULL means tenant-wide default.",
+    )
+
+    class Meta:
+        db_table = "pl_review_policy"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "workspace_id"], name="uq_review_policy_scope"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        scope = str(self.workspace_id) if self.workspace_id else "tenant-global"
+        return f"ReviewPolicy({scope}, {self.mode})"
 
 
 # ---------------------------------------------------------------------------
@@ -1666,6 +2617,813 @@ class TokenUsageRecord(TenantScopedModel):
         return int(self.input_tokens or 0) + int(self.output_tokens or 0)
 
 
+# ---------------------------------------------------------------------------
+# Interview session state (Interview-Management-Engine spec §3.2)
+# ---------------------------------------------------------------------------
+
+
+class InterviewSession(TenantScopedModel):
+    """Cross-host interview progress state (Interview-Management-Engine spec §3.2).
+
+    The server-side turn state that lets a session started on one host
+    (e.g. Claude Code) resume on another (e.g. Hermes) — every host reads
+    this row via interview.get_state instead of relying on its own
+    conversation history.
+    """
+
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_COMPLETED = "completed"
+    STATUS_ABANDONED = "abandoned"
+    STATUS_CHOICES = [
+        (STATUS_IN_PROGRESS, "In Progress"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_ABANDONED, "Abandoned"),
+    ]
+
+    SESSION_KIND_SINGLE = "single"
+    SESSION_KIND_MULTI = "multi"
+    SESSION_KIND_CHOICES = (
+        (SESSION_KIND_SINGLE, "Single artifact type"),
+        (SESSION_KIND_MULTI, "Multi-artifact discovery"),
+    )
+
+    workspace = models.ForeignKey(
+        Workspace, on_delete=models.CASCADE, related_name="interview_sessions"
+    )
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="interview_session",
+        null=True,
+        blank=True,
+        help_text="Backing Artifact — enables workflow-engine tracking and future TraceLink participation.",
+    )
+    artifact_type = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "Which interview protocol applies (PascalCase, matches "
+            "Artifact.artifact_type). NULL only for multi-artifact discovery "
+            "sessions, which are not bound to a single protocol."
+        ),
+    )
+    session_kind = models.CharField(
+        max_length=16,
+        choices=SESSION_KIND_CHOICES,
+        default=SESSION_KIND_SINGLE,
+        help_text=(
+            "Interview axis: 'single' drives one typed artifact via the "
+            "classic protocol; 'multi' lets the LLM propose several possibly "
+            "different-typed artifacts with provenance in InterviewSessionArtifact."
+        ),
+    )
+    target_artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="interview_sessions",
+        help_text="Set once grounding identifies an existing artifact to adjust instead of creating a new one.",
+    )
+    collected_fields = models.JSONField(default=dict, blank=True)
+    grounding_snapshot = models.JSONField(default=dict, blank=True)
+    resulting_artifact_ids = models.JSONField(default=list, blank=True)
+    transcript = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of {role, text, timestamp}. Only chat-driving clients (Spec 3) write to this; form clients (Spec 2) leave it empty.",
+    )
+    transcript_summary = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "L2.4: LLM-compressed digest of the turns that fell out of the "
+            "sliding transcript window (InterviewService."
+            "TRANSCRIPT_WINDOW_TURNS). Prepended to the chat prompt instead "
+            "of the full history, so prompt size stops growing with session "
+            "length. Empty, never NULL: every read path concatenates it."
+        ),
+    )
+
+    class Meta:
+        db_table = "pl_interview_session"
+
+
+class InterviewSessionArtifact(TenantScopedModel):
+    """Provenance join row: one artifact created by a multi-mode interview.
+
+    A real FK to ``Artifact`` (not a loose UUID) — ``Artifact`` is the shared
+    base row for every artifact subtype (models.py:680), so one FK covers
+    all 8 in-scope types plus explicit GlossaryTerm rejection without a
+    per-type join table, matching the project's existing FK-join-table style
+    (see ``TestRunResult``).
+    """
+
+    session = models.ForeignKey(
+        InterviewSession,
+        on_delete=models.CASCADE,
+        related_name="created_artifacts",
+        help_text="Multi-mode interview session that created this artifact.",
+    )
+    artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.CASCADE,
+        related_name="interview_provenance",
+        help_text="Artifact created by the session (any in-scope artifact_type).",
+    )
+    artifact_type = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "pl_interview_session_artifact"
+        indexes = [
+            models.Index(fields=["artifact"], name="idx_iview_artifact"),
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Datenmodell-Konsolidierung Phase 2 / Milestone M2 (spec section 3): the
+# ADR / Risk / Goal / MainGoal / Issue / ChangeRequest family moved here from
+# application/models.py. They were already TenantScopedModel subclasses after
+# Milestone M1; what changed is ownership — the domain data model belongs to
+# Layer 0, application/ keeps only the services. The ``as_*`` tables did not
+# move: persistence/0071 + application/0024 are a SeparateDatabaseAndState
+# pair that rewrites the Django registry and emits no SQL.
+# ---------------------------------------------------------------------------
+
+
+class Adr(TenantScopedModel):
+    """Architecture Decision Record entity — COMP-AS-013 AdrService.
+
+    Stores the full lifecycle of architectural decision records with
+    append-only versioning (REQ-L3-ADR-002) and tenant isolation (REQ-L3-ADR-006).
+
+    Datenmodell-Konsolidierung Phase 2: ``id``, ``version``, ``created_at``,
+    ``modified_at`` and the ``created_by``/``modified_by``/``tenant`` FKs now
+    come from :class:`persistence.models.TenantScopedModel`, so ``objects`` is
+    tenant-filtered by the manager rather than by each call site.
+
+    leaf_id : COMP-AS-013
+    req_id  : REQ-L1-029
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "Draft"
+        IN_REVIEW = "In Review"
+        APPROVED = "Approved"
+        REJECTED = "Rejected"
+        SUPERSEDED = "Superseded"
+        DELETED = "Deleted"  # REQ-006: soft-delete; excluded from normal list views
+
+    # REQ-L2-TE-020: OneToOne backing Artifact so ADRs participate in the
+    # TraceLink graph (which stores Artifact-to-Artifact edges). Nullable to
+    # keep the schema migration additive and backward-compatible with ADR rows
+    # created before this field existed; new ADRs always receive an Artifact
+    # via AdrService.create_adr. on_delete=CASCADE means deleting the backing
+    # Artifact also deletes this ADR (mirrors Requirement/ArchitectureElement).
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="adr",
+        null=True,
+        blank=True,
+        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+    )
+    workspace_id = models.UUIDField(db_index=True)
+    title = models.CharField(max_length=200)
+    # `blank=True` states what every shipped write path already does:
+    # ``AdrSerializer.description`` is ``allow_blank=True, default=""`` and the
+    # UI quick-create form posts a title only, so an ADR with an empty
+    # description is a normal, reachable state. Leaving the column
+    # ``blank=False`` made the bootstrapped attribute definition derive
+    # ``required=True`` (``introspect_core_attributes``: ``not field.blank and
+    # not field.has_default()``), which turned that same quick-create into a
+    # ``400 description: is required``.
+    description = models.TextField(max_length=10000, blank=True)
+    context = models.TextField(max_length=5000, blank=True)
+    # #373: standard ADR terminology (context/decision/consequences) has no
+    # `decision` field — a client sending it as documented gets an
+    # unexpected-keyword TypeError. `description` is kept as-is (may carry a
+    # short summary distinct from the full decision rationale).
+    decision = models.TextField(max_length=5000, blank=True)
+    consequences = models.TextField(max_length=5000, blank=True)
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
+    )
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_adr"
+        indexes = [
+            models.Index(fields=["tenant", "workspace_id"], name="idx_adr_tenant_ws"),
+            models.Index(fields=["uid"], name="idx_adr_uid_btree"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ADR:{self.id}:{self.title[:40]}"
+
+
+class Risk(TenantScopedModel):
+    """Risk entity — COMP-AS-014 RiskService.
+
+    Stores risk metadata with automatic score calculation
+    (probability × impact) and severity classification for SeMetrics.
+
+    Datenmodell-Konsolidierung Phase 2: identity, audit fields and the tenant FK
+    come from :class:`persistence.models.TenantScopedModel`.
+
+    leaf_id : COMP-AS-014
+    req_id  : REQ-L1-029
+    """
+
+    class Probability(models.TextChoices):
+        LOW = "low", "Low (1)"
+        MEDIUM = "medium", "Medium (2)"
+        HIGH = "high", "High (3)"
+
+    class Impact(models.TextChoices):
+        LOW = "low", "Low (1)"
+        MEDIUM = "medium", "Medium (2)"
+        HIGH = "high", "High (3)"
+
+    class Category(models.TextChoices):
+        TECHNICAL = "technical"
+        OPERATIONAL = "operational"
+        ORGANIZATIONAL = "organizational"
+        BUSINESS = "business"
+
+    class RiskStatus(models.TextChoices):
+        IDENTIFIED = "Identified"
+        MONITORED = "Monitored"
+        MITIGATED = "Mitigated"
+        ACCEPTED = "Accepted"
+        CLOSED = "Closed"
+
+    # Severity is derived from risk_score: low=1-3, medium=4-8, high>=9
+    class Severity(models.TextChoices):
+        LOW = "low"
+        MEDIUM = "medium"
+        HIGH = "high"
+
+    _PROB_NUMERIC = {"low": 1, "medium": 2, "high": 3}
+    _IMPACT_NUMERIC = {"low": 1, "medium": 2, "high": 3}
+
+    # REQ-L2-TE-020: OneToOne backing Artifact so Risks participate in the
+    # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
+    # Adr.artifact — nullable to keep the schema migration additive and
+    # backward-compatible with Risk rows created before this field existed.
+    # New Risks always receive an Artifact via RiskService.create_risk.
+    # on_delete=CASCADE means deleting the backing Artifact also deletes the
+    # Risk (mirrors Requirement/ArchitectureElement/Adr). This replaces the
+    # former UUID-identity hack (Artifact.id == Risk.id) which had no
+    # referential integrity.
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="risk",
+        null=True,
+        blank=True,
+        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+    )
+    workspace_id = models.UUIDField(db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    category = models.CharField(
+        max_length=32, choices=Category.choices, default=Category.TECHNICAL
+    )
+    probability = models.CharField(
+        max_length=16, choices=Probability.choices, default=Probability.LOW
+    )
+    impact = models.CharField(
+        max_length=16, choices=Impact.choices, default=Impact.LOW
+    )
+    risk_score = models.IntegerField(default=1)
+    # Persisted severity (low/medium/high) derived from risk_score
+    severity = models.CharField(
+        max_length=16, choices=Severity.choices, default=Severity.LOW
+    )
+    # Attribut v3 WS7 (#940): the legacy free-text owner column is renamed to
+    # ``owner_name`` so it no longer shadows the Artifact-level ``owner`` Actor
+    # FK (Attribut v3 WS2, #936). ``db_column`` keeps the physical column, so
+    # this is a state-only rename (expand/contract): existing data is retained
+    # and the AWMS plan ``risk_owner_to_actor`` folds it onto the Actor carrier.
+    # The column is retired (dropped) in a later contract step once the
+    # migration has run in every tenant.
+    owner_name = models.CharField(max_length=255, blank=True, db_column="owner")
+    # REQ-L1-029 (FMEA): proper User FK for risk assignment. Kept alongside the
+    # legacy `owner` CharField (not a replacement) so existing rows and callers
+    # relying on the free-text owner keep working — Expand phase of an
+    # expand/contract migration. Nullable because existing Risk rows have no
+    # user assigned; on_delete=SET_NULL preserves the Risk if the user is
+    # deleted.
+    owner_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="owned_risks",
+        help_text="REQ-L1-029: assigned risk owner (User FK).",
+    )
+    # REQ-L1-029 (FMEA): detectability score (1=easy to detect .. 10=impossible)
+    # feeding the Risk Priority Number. default=5 keeps the migration backward
+    # safe — existing rows receive a neutral mid-scale value.
+    detection = models.PositiveSmallIntegerField(
+        default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        help_text="REQ-L1-029: FMEA detection score (1=easy .. 10=impossible).",
+    )
+    mitigation_strategy = models.TextField(blank=True)
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
+    )
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_risk"
+        indexes = [
+            models.Index(fields=["tenant", "workspace_id"], name="idx_risk_tenant_ws"),
+            models.Index(fields=["workspace_id", "severity"], name="idx_risk_ws_severity"),
+            models.Index(fields=["workspace_id", "risk_score"], name="idx_risk_ws_score"),
+            models.Index(fields=["uid"], name="idx_risk_uid_btree"),
+        ]
+
+    def compute_score(self) -> int:
+        """Return probability × impact numeric score (1–9)."""
+        p = self._PROB_NUMERIC.get(self.probability, 1)
+        i = self._IMPACT_NUMERIC.get(self.impact, 1)
+        return p * i
+
+    @property
+    def rpn(self) -> int:
+        """Risk Priority Number (FMEA) = probability × impact × detection.
+
+        probability and impact are categorical TextChoices (low/medium/high),
+        so they are mapped to their 1–3 numeric values via the same lookup
+        tables compute_score() uses — multiplying the raw string labels would
+        fail. detection is already a 1–10 integer. Computed, not persisted;
+        needs no migration.
+        """
+        p = self._PROB_NUMERIC.get(self.probability, 1)
+        i = self._IMPACT_NUMERIC.get(self.impact, 1)
+        return p * i * (self.detection or 5)
+
+    @staticmethod
+    def score_to_severity(score: int) -> str:
+        """Map numeric score to severity label (REQ-L3-RISK-007)."""
+        if score >= 9:
+            return Risk.Severity.HIGH
+        if score >= 4:
+            return Risk.Severity.MEDIUM
+        return Risk.Severity.LOW
+
+    def __str__(self) -> str:
+        return f"Risk:{self.id}:{self.title[:40]}"
+
+
+class Goal(TenantScopedModel):
+    """REQ-L2-TE-020 — individual workspace Goal, immutable per version row.
+
+    Each edit creates a brand-new Goal row with its own dedicated Artifact
+    (Variante A). ``lineage_id`` groups all versions of the same logical
+    goal; ``sequence_number`` is a per-lineage monotonic counter.
+
+    Datenmodell-Konsolidierung Phase 2: identity, audit fields and the tenant FK
+    come from :class:`persistence.models.TenantScopedModel`.
+    """
+
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="goal",
+    )
+    workspace_id = models.UUIDField(db_index=True)
+    lineage_id = models.UUIDField(db_index=True)
+    sequence_number = models.PositiveIntegerField()
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_goal"
+        indexes = [
+            models.Index(fields=["workspace_id", "lineage_id"]),
+        ]
+        ordering = ["lineage_id", "sequence_number"]
+
+    def __str__(self) -> str:
+        return f"{self.title} (v{self.sequence_number})"
+
+
+class MainGoal(TenantScopedModel):
+    """REQ-L2-TE-020 — LLM-aggregated Haupt-Ziel, immutable per version row.
+
+    The valid MainGoal for a workspace is always the newest row in
+    ``Freigegeben`` state — never mutated in place (Variante A).
+
+    Datenmodell-Konsolidierung Phase 2: identity, audit fields and the tenant FK
+    come from :class:`persistence.models.TenantScopedModel`.
+    """
+
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="main_goal",
+    )
+    workspace_id = models.UUIDField(db_index=True)
+    sequence_number = models.PositiveIntegerField()
+    content = models.TextField()
+    source = models.CharField(
+        max_length=20,
+        choices=[("ai", "AI"), ("manual", "Manual")],
+    )
+    generated_from_goal_ids = models.JSONField(default=list, blank=True)
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_main_goal"
+        indexes = [
+            models.Index(fields=["workspace_id", "sequence_number"]),
+        ]
+        # SA-16 (Systemaudit 2026-08-27): the version number is derived with a
+        # read-then-write (``MAX(sequence_number) + 1``) in
+        # ``MainGoalService._create_row``. Two concurrent creates in the same
+        # workspace read the same MAX and would both persist that number,
+        # silently producing two rows claiming to be "v3" — and since
+        # ``get_current`` resolves the valid MainGoal as the highest
+        # sequence_number, a duplicate makes "which MainGoal is current"
+        # ambiguous. Application-side locking alone cannot close this (the
+        # first-ever insert has no row to lock), so the invariant is enforced
+        # by the database; the service catches the IntegrityError and retries
+        # with a freshly read number.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace_id", "sequence_number"],
+                name="uq_main_goal_workspace_sequence",
+            ),
+        ]
+        ordering = ["sequence_number"]
+
+    def __str__(self) -> str:
+        return f"MainGoal v{self.sequence_number} ({self.source})"
+
+
+
+class Issue(TenantScopedModel):
+    """Issue entity — COMP-AS-015 IssueService.
+
+    Tracks defects/improvements with severity, assignee management and
+    multi-filter query support.
+
+    Datenmodell-Konsolidierung Phase 2: identity, audit fields and the tenant FK
+    come from :class:`persistence.models.TenantScopedModel`.
+
+    leaf_id : COMP-AS-015
+    req_id  : REQ-L1-029
+    """
+
+    class Severity(models.TextChoices):
+        CRITICAL = "critical"
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
+
+    class Category(models.TextChoices):
+        DEFECT = "defect"
+        IMPROVEMENT = "improvement"
+        DOCUMENTATION = "documentation"
+        QUESTION = "question"
+
+    class IssueStatus(models.TextChoices):
+        OPEN = "Open"
+        IN_PROGRESS = "In Progress"
+        RESOLVED = "Resolved"
+        CLOSED = "Closed"
+        WONTFIX = "Wontfix"
+
+    # REQ-L2-TE-020: OneToOne backing Artifact so Issues participate in the
+    # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
+    # Adr.artifact — nullable to keep the schema migration additive and
+    # backward-compatible with Issue rows created before this field existed.
+    # New Issues always receive an Artifact via IssueService.create_issue.
+    # on_delete=CASCADE means deleting the backing Artifact also deletes the
+    # Issue (mirrors Requirement/ArchitectureElement/Adr). This replaces the
+    # former UUID-identity hack (Artifact.id == Issue.id) which had no
+    # referential integrity.
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="issue",
+        null=True,
+        blank=True,
+        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+    )
+    workspace_id = models.UUIDField(db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    severity = models.CharField(
+        max_length=16, choices=Severity.choices, default=Severity.MEDIUM
+    )
+    category = models.CharField(
+        max_length=32, choices=Category.choices, default=Category.DEFECT
+    )
+    assignee_id = models.UUIDField(null=True, blank=True)
+    assignee_changed_date = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateTimeField(null=True, blank=True)
+    tags = models.JSONField(default=list)
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "External import key (ReqIF); never auto-generated - the Artifact "
+            "UUID 'id' is the identity."
+        ),
+    )
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_issue"
+        indexes = [
+            models.Index(
+                fields=["workspace_id", "severity"], name="idx_issue_ws_severity"
+            ),
+            models.Index(fields=["tenant", "workspace_id"], name="idx_issue_tenant_ws"),
+            models.Index(
+                fields=["workspace_id", "assignee_id"], name="idx_issue_ws_assignee"
+            ),
+            models.Index(fields=["uid"], name="idx_issue_uid_btree"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Issue:{self.id}:{self.title[:40]}"
+
+
+class ChangeRequest(TenantScopedModel):
+    """Change Request entity — CCB approval workflow (REQ-157).
+
+    Tracks proposed changes through a formal Configuration Control Board (CCB)
+    approval process. Reuses the WorkflowEngine (ccb_approval preset) for
+    state machine transitions with role checks and change_reason enforcement.
+
+    Status lifecycle: draft → submitted → under_review → approved|rejected → implemented
+
+    leaf_id : COMP-AS-021
+    req_id  : REQ-157
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SUBMITTED = "submitted", "Submitted"
+        UNDER_REVIEW = "under_review", "Under Review"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        IMPLEMENTED = "implemented", "Implemented"
+
+    workspace_id = models.UUIDField(db_index=True)
+    # Datenmodell-Konsolidierung Phase 3 (spec §4, correction V-1): unlike the
+    # five sibling models, ChangeRequest never had a backing Artifact.
+    artifact = models.OneToOneField(
+        Artifact,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="change_request",
+    )
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    impact_assessment = models.TextField(
+        blank=True,
+        help_text="Assessment of the impact this change will have on the system.",
+    )
+    change_reason = models.TextField(
+        blank=True,
+        help_text="Reason for the change request (required for submit and reject transitions).",
+    )
+    requestor_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="UUID of the user who created this change request.",
+    )
+    assigned_reviewer_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="UUID of the user assigned as CCB reviewer.",
+    )
+    # Configuration baseline of record for this change request (ISO 15288
+    # §6.4.3/§6.4.9). Nullable on purpose:
+    #   * the ``baselines`` preset feature is off on the ``minimal`` tier, so a
+    #     CR there simply never gets a baseline (no-op, not an error);
+    #   * a CR may be raised long before any baseline exists.
+    # SET_NULL rather than CASCADE/PROTECT: BaselineSnapshot is immutable and
+    # protected by DB triggers, but if a snapshot is ever removed by
+    # maintenance the CR record itself must survive.
+    baseline = models.ForeignKey(
+        "baseline.BaselineSnapshot",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="change_requests",
+        help_text=(
+            "Configuration baseline this change request is evaluated / "
+            "implemented against. Linked on approval when the workspace "
+            "preset enables baselines."
+        ),
+    )
+    # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
+    # for AuditableModel.created_by (a User FK). db_column keeps the existing
+    # column, so this is a state-only rename with no data movement. It stays
+    # alongside the inherited created_by FK: it holds a free-text actor string,
+    # the FK holds a real User reference.
+    created_by_name = models.CharField(
+        max_length=255, blank=True, db_column="created_by"
+    )
+    # Kept next to the inherited AuditableModel.modified_at rather than folded
+    # into it: `updated_at` is part of the published REST/MCP contract for these
+    # entities, so dropping it would be a breaking API change (own decision).
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_change_request"
+        indexes = [
+            models.Index(fields=["tenant", "workspace_id"], name="idx_cr_tenant_ws"),
+            models.Index(fields=["workspace_id", "requestor_id"], name="idx_cr_ws_requestor"),
+        ]
+
+    def __str__(self) -> str:
+        return f"CR:{self.id}:{self.title[:40]}"
+
+
+class ChangeRequestAffectedItem(TenantScopedModel):
+    """One artifact affected by a :class:`ChangeRequest` (CCB impact record).
+
+    ISO 15288 §6.4.3/§6.4.9 configuration management requires a change request
+    to answer "*what* did this change, and relative to which baseline". The
+    free-text ``ChangeRequest.impact_assessment`` cannot answer that
+    machine-readably; this table does.
+
+    Schema deliberately mirrors ``baseline.models.BaselineDeltaIndexEntry``
+    (same codebase pattern for artifact-version snapshots):
+
+      * ``item_id`` is the **Artifact** UUID as a string — no cross-app FK, so
+        any artifact-backed entity type (Requirement, ArchitectureElement,
+        StakeholderNeed, TestCase, ...) can be referenced uniformly.
+      * ``entity_type`` is the same discriminator vocabulary
+        ("item" | "trace_link" | "glossary_term" | "icd" | ...).
+      * ``state_before`` / ``state_after`` hold the curated per-artifact-type
+        field set produced by ``baseline.state_capture.capture_states`` — the
+        very same helper the baseline snapshots use, so the two stay in sync
+        automatically when a new artifact type is added there.
+
+    ``version_before`` is captured when the item is attached to the CR,
+    ``version_after`` when the CR reaches ``approved`` / ``implemented``.
+
+    The inherited ``tenant`` FK reuses the physical ``tenant_id`` column that
+    ``application/0014`` created denormalised for RLS, so the row-level policy
+    ``as_change_request_affected_item_tenant_isolation`` — written against the
+    *column* — keeps matching (REQ-L2-PL-010, ADR-PL-03). The ORM manager layers
+    on top of that policy; it does not replace it.
+
+    .. warning:: Three unrelated "version" meanings meet on this model.
+       ``version_before`` / ``version_after`` are the *affected artifact's*
+       version at attach / approval time (domain data). The inherited
+       ``version`` is :class:`~persistence.models.AuditableModel`'s
+       optimistic-concurrency counter for *this impact row* and says nothing
+       about the artifact.
+
+    leaf_id : COMP-AS-021
+    req_id  : REQ-157, REQ-L2-PL-010
+    """
+
+    change_request = models.ForeignKey(
+        ChangeRequest,
+        on_delete=models.CASCADE,
+        related_name="affected_items",
+        db_index=True,
+    )
+
+    # Artifact UUID as string — mirrors BaselineDeltaIndexEntry.item_id.
+    item_id = models.CharField(max_length=64, db_index=True)
+    entity_type = models.CharField(max_length=32, default="item")
+
+    version_before = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Artifact version when the item was attached to the CR.",
+    )
+    version_after = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Artifact version when the CR was approved / implemented.",
+    )
+    state_before = models.JSONField(
+        null=True,
+        default=None,
+        help_text="Full curated entity state when attached (see state_capture).",
+    )
+    state_after = models.JSONField(
+        null=True,
+        default=None,
+        help_text="Full curated entity state at approval / implementation time.",
+    )
+
+    # Redundant with the inherited AuditableModel.modified_at (both auto_now).
+    # Unlike the six sibling models, this one has NO REST/MCP surface at all, so
+    # dropping it would break no published contract — but application/0023
+    # backfills modified_at *from* this column, so the removal has to be its own
+    # migration once that backfill is history everywhere.
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_change_request_affected_item"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["change_request", "item_id"],
+                name="uq_cr_affected_item",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["change_request", "item_id"], name="idx_cr_affected_cr_item"
+            ),
+            # ``tenant``, not the ``tenant_id`` attname: Index.create_sql resolves
+            # through Options.get_field, which is keyed on field.name only and
+            # would raise FieldDoesNotExist at migrate time (system checks pass
+            # either way). Same physical column, same index name.
+            models.Index(fields=["tenant"], name="idx_cr_affected_tenant"),
+        ]
+
+    def __str__(self) -> str:
+        return f"CRAffectedItem(cr={self.change_request_id}, item={self.item_id})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -1674,6 +3432,9 @@ __all__ = [
     "User",
     "Role",
     "Workspace",
+    "Actor",
+    "AttributeMigrationRun",
+    "AttributeMigrationSnapshot",
     "Artifact",
     "Requirement",
     "RequirementType",
@@ -1685,7 +3446,6 @@ __all__ = [
     "ArchitectureElement",
     "ASILLevel",
     "MakeOrBuy",
-    "AttributeVisibilityConfig",
     "TraceLink",
     "TestCase",
     "TestCaseType",
@@ -1695,13 +3455,24 @@ __all__ = [
     "TestRun",
     "TestRunResult",
     "GlossaryTerm",
-    "GlossaryTermVersion",
     "LlmProvider",
     "LlmSettings",
     "TokenUsageRecord",
+    "InterviewSession",
+    "InterviewSessionArtifact",
     "PromptTemplate",
     "PROMPT_TEMPLATE_DEFAULTS",
     "DEFAULT_NEED_TO_SYSREQ",
     "DEFAULT_SYSREQ_TO_ARCH_ASSIGN",
     "DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL",
+    "ReviewPolicy",
+    "REVIEW_POLICY_MODES",
+    # Datenmodell-Konsolidierung Phase 2 / Milestone M2 — moved from application.
+    "Adr",
+    "Risk",
+    "Goal",
+    "MainGoal",
+    "Issue",
+    "ChangeRequest",
+    "ChangeRequestAffectedItem",
 ]

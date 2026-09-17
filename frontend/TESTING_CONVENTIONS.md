@@ -1,6 +1,6 @@
 # Test Layout Convention
 
-This document defines the test file organization for the ReqFlow frontend.
+This document defines the test file organization for the ReqogniLoom frontend.
 
 ## Primary Pattern: Central Test Directory
 

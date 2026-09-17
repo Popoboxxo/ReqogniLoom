@@ -23,7 +23,7 @@
  * Use "archive" / "supersede" semantics via the new-version flow.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -33,7 +33,10 @@ import {
 } from "../../api/icds";
 import type { ArchitectureElement } from "../../types";
 import { SplitView } from "../SplitView/SplitView";
+import { PageHeader } from "../shared/PageHeader";
+import { Dialog } from "../shared/Dialog";
 import { IcdDetailPane } from "./IcdDetailPane";
+import { IcdList } from "./IcdList";
 import { useIcdData } from "./useIcdData";
 import {
   extractErrorMessage,
@@ -123,6 +126,23 @@ export default function IcdView(): JSX.Element {
     setShowCreate(false);
     navigate(`/icds/${icd.id}`);
   };
+
+  const openCreateForm = useCallback((): void => {
+    setShowCreate(true);
+    setShowNewVersion(false);
+    setFormError(null);
+  }, []);
+
+  // F-08 (Dialog migration): Escape / backdrop click / × must discard the
+  // draft exactly like the existing Cancel button.
+  const handleCancelCreate = useCallback((): void => {
+    setShowCreate(false);
+    resetCreateForm();
+  }, []);
+
+  // F-08: initial-focus target for Dialog's focus trap — the form's first
+  // real field (name input), not Dialog's own × close button.
+  const icdNameInputRef = useRef<HTMLInputElement | null>(null);
 
   // REQ-173: a workflow transition mutates the ICD's status server-side, so
   // refresh the detail (badge label) and the list (any status column) after it.
@@ -295,134 +315,50 @@ export default function IcdView(): JSX.Element {
       data-testid="icd-view"
       style={{
         height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
         fontFamily: "var(--font-sans)",
         color: "var(--color-text)",
       }}
     >
+      {/* 12.1: exactly one <h1>, always-visible summary, one primary action
+          — replaces the bare <h3>({count}) header that used to live inline
+          in the left panel. */}
+      <PageHeader
+        title={t("icds.title")}
+        summary={t("icds.summary", { count: icds.length })}
+        primaryAction={{
+          label: t("icds.create"),
+          prefixWithPlus: true,
+          onClick: openCreateForm,
+          testId: "create-icd-btn",
+        }}
+      />
+
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
       <SplitView
         moduleType="icds"
         leftMinWidth={280}
         leftPanel={
-          <>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-4)",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-            }}
-          >
-            {t("icds.title")} ({icds.length})
-          </h3>
-          <button
-            type="button"
-            data-testid="create-icd-btn"
-            onClick={() => {
-              setShowCreate((v) => !v);
-              setShowNewVersion(false);
-              setFormError(null);
-            }}
-            style={{
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "var(--transition-fast)",
-            }}
-          >
-            {showCreate ? t("actions.cancel") : `+ ${t("icds.create")}`}
-          </button>
-        </div>
-
-        {icds.length === 0 ? (
-          <p
-            data-testid="icds-empty"
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            {t("icds.empty")}
-          </p>
-        ) : (
-          <ul
-            data-testid="icds-list"
-            style={{ listStyle: "none", padding: 0, margin: 0 }}
-          >
-            {icds.map((icd) => {
-              const isSelected = icd.id === routeId && !showCreate;
-              return (
-                <li
-                  key={icd.id}
-                  data-testid={`icd-item-${icd.id}`}
-                  onClick={() => handleSelectIcd(icd)}
-                  style={{
-                    padding: "var(--space-3) var(--space-4)",
-                    marginBottom: "var(--space-2)",
-                    background: isSelected
-                      ? "var(--color-surface-raised)"
-                      : "var(--color-surface)",
-                    borderRadius: "var(--radius-md)",
-                    border: isSelected
-                      ? "1px solid var(--color-primary)"
-                      : "1px solid var(--color-border)",
-                    cursor: "pointer",
-                    transition: "var(--transition-fast)",
-                  }}
-                >
-                  <strong
-                    style={{
-                      display: "block",
-                      color: "var(--color-text)",
-                      fontSize: "var(--font-size-base)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {icd.name}
-                  </strong>
-                  <span
-                    style={{
-                      color: "var(--color-text-muted)",
-                      fontSize: "var(--font-size-sm)",
-                      fontFamily: "monospace",
-                    }}
-                  >
-                    {shortId(icd.source_element_id)} →{" "}
-                    {shortId(icd.target_element_id)}
-                  </span>
-                  <span
-                    style={{
-                      display: "block",
-                      color: "var(--color-text-muted)",
-                      fontSize: "var(--font-size-xs)",
-                    }}
-                  >
-                    {t("icds.source")}: {artifactLabel(icd.source_element_id)} ·{" "}
-                    {t("icds.target")}: {artifactLabel(icd.target_element_id)}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-          </>
+          <IcdList
+            items={icds}
+            selectedId={!showCreate ? routeId : undefined}
+            onSelect={handleSelectIcd}
+            onCreateNew={openCreateForm}
+          />
         }
         rightPanel={
           showCreate ? (
+          // F-08 (Dialog migration): wrapped in the shared Dialog primitive
+          // (GESAMTTEST_BERICHT 2026-08-21 §5 finding 8); form markup unchanged.
+          <Dialog
+            title={t("icds.create")}
+            onClose={handleCancelCreate}
+            initialFocusRef={icdNameInputRef}
+            size="lg"
+            testId="create-icd-dialog"
+          >
           <div data-testid="create-icd-form" style={{ maxWidth: "720px" }}>
             <h3
               style={{
@@ -459,6 +395,7 @@ export default function IcdView(): JSX.Element {
             <input
               id="icd-name"
               data-testid="icd-name-input"
+              ref={icdNameInputRef}
               type="text"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
@@ -576,7 +513,7 @@ export default function IcdView(): JSX.Element {
               onChange={(e) => setFormPre(e.target.value)}
               rows={2}
               style={{ ...inputStyle, fontFamily: "inherit" }}
-              placeholder="One per line"
+              placeholder={t("icds.onePerLinePlaceholder")}
             />
 
             <label htmlFor="icd-postconditions" style={labelStyle}>
@@ -589,7 +526,7 @@ export default function IcdView(): JSX.Element {
               onChange={(e) => setFormPost(e.target.value)}
               rows={2}
               style={{ ...inputStyle, fontFamily: "inherit" }}
-              placeholder="One per line"
+              placeholder={t("icds.onePerLinePlaceholder")}
             />
 
             <label htmlFor="icd-invariants" style={labelStyle}>
@@ -602,7 +539,7 @@ export default function IcdView(): JSX.Element {
               onChange={(e) => setFormInv(e.target.value)}
               rows={2}
               style={{ ...inputStyle, fontFamily: "inherit" }}
-              placeholder="One per line"
+              placeholder={t("icds.onePerLinePlaceholder")}
             />
 
             {formError && (
@@ -635,7 +572,7 @@ export default function IcdView(): JSX.Element {
                 }
                 style={{
                   background: "var(--color-primary)",
-                  color: "white",
+                  color: "var(--color-on-primary)",
                   border: "none",
                   borderRadius: "var(--radius-md)",
                   padding: "var(--space-2) var(--space-6)",
@@ -648,10 +585,7 @@ export default function IcdView(): JSX.Element {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setShowCreate(false);
-                  resetCreateForm();
-                }}
+                onClick={handleCancelCreate}
                 style={{
                   background: "transparent",
                   color: "var(--color-text)",
@@ -666,6 +600,7 @@ export default function IcdView(): JSX.Element {
               </button>
             </div>
           </div>
+          </Dialog>
         ) : routeId && isLoadingDetail ? (
           <p
             role="status"
@@ -711,11 +646,12 @@ export default function IcdView(): JSX.Element {
               textAlign: "center",
             }}
           >
-            {t("icds.selectIcd", "Select an ICD from the list")}
+            {t("icds.selectIcd", "Select an ICD from the list to view details.")}
           </p>
           )
         }
       />
+      </div>
     </div>
   );
 }

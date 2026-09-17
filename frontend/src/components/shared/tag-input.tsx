@@ -12,12 +12,21 @@
  */
 
 import { useState, KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface TagInputProps {
   tags: string[];
   onChange: (tags: string[]) => void;
   placeholder?: string;
   'data-testid'?: string;
+  /**
+   * Id applied to the actual text `<input>` so an external `<label htmlFor>`
+   * resolves to a real form control (WCAG 1.3.1 / 4.1.2) instead of the
+   * non-interactive pill container.
+   */
+  inputId?: string;
+  /** ArtifactForm's `mode="read"`/saving state (F-1 fix, Task 20 review round). */
+  disabled?: boolean;
 }
 
 export function TagInput({
@@ -25,7 +34,10 @@ export function TagInput({
   onChange,
   placeholder = 'tag1, tag2 ...',
   'data-testid': testId,
+  inputId,
+  disabled = false,
 }: TagInputProps): JSX.Element {
+  const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
 
   const commitTag = (raw: string) => {
@@ -73,6 +85,7 @@ export function TagInput({
         boxSizing: 'border-box',
       }}
       onClick={() => {
+        if (disabled) return;
         // Forward click on container to inner input for usability
         const el = document.querySelector<HTMLInputElement>(
           testId ? `[data-testid="${testId}-input"]` : '[data-testid="tag-input-field"]'
@@ -89,7 +102,7 @@ export function TagInput({
             alignItems: 'center',
             gap: 'var(--space-1)',
             background: 'var(--color-primary)',
-            color: 'white',
+            color: 'var(--color-on-primary)',
             borderRadius: 'var(--radius-sm)',
             padding: '2px var(--space-2)',
             fontSize: 'var(--font-size-sm)',
@@ -100,6 +113,7 @@ export function TagInput({
           <button
             type="button"
             data-testid="tag-remove-btn"
+            disabled={disabled}
             onClick={(e) => {
               e.stopPropagation();
               removeTag(i);
@@ -108,23 +122,25 @@ export function TagInput({
               background: 'none',
               border: 'none',
               color: 'inherit',
-              cursor: 'pointer',
+              cursor: disabled ? 'default' : 'pointer',
               padding: 0,
               lineHeight: 1,
               fontSize: '1em',
               opacity: 0.8,
               marginLeft: '2px',
             }}
-            aria-label={`Remove tag ${tag}`}
+            aria-label={t('actions.removeTag', { tag })}
           >
             &times;
           </button>
         </span>
       ))}
       <input
+        id={inputId}
         type="text"
         data-testid={testId ? `${testId}-input` : 'tag-input-field'}
         value={inputValue}
+        disabled={disabled}
         onChange={(e) => setInputValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}

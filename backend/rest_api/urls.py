@@ -10,12 +10,16 @@ Registers:
   /api/v1/requirements/       RequirementViewSet
   /api/v1/architecture/       ArchitectureElementViewSet
   /api/v1/testcases/          TestCaseViewSet
-  /api/v1/tracelinks/         TraceLinkViewSet
+  /api/v1/tracelinks/         TraceLinkViewSet (legacy path, kept for compat)
+  /api/v1/trace-links/        TraceLinkViewSet (kebab-case alias, fix #233)
   /api/v1/baselines/          BaselineViewSet  (preset-gated)
+  /api/v1/workspaces/{id}/baselines/  BaselineViewSet list/create, workspace-scoped (issue #49)
   /api/v1/workflows/          WorkflowDefinitionViewSet
   /api/v1/workspaces/         WorkspaceViewSet (list + retrieve, REQ-L1-017)
   /api/v1/adrs/               AdrViewSet (REQ-L1-029)
   /api/v1/risks/              RiskViewSet (REQ-L1-029)
+  /api/v1/goals/               GoalViewSet (REQ-L2-TE-020)
+  /api/v1/main-goals/          MainGoalViewSet (REQ-L2-TE-020)
   /api/v1/issues/             IssueViewSet (REQ-L1-029)
   /api/v1/admin/backups/      BackupListCreateView (REQ-L1-046)
   /api/v1/admin/restore/      AdminRestoreView   (REQ-L1-046)
@@ -36,8 +40,30 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from auth_tenancy.rest_item_permission import ItemPermissionViewSet
-from auth_tenancy.rest_workspace_members import WorkspaceMembersView
+from auth_tenancy.rest_workspace_members import (
+    WorkspaceMemberRoleTransitionView,
+    WorkspaceMembersView,
+)
+from admin_ops.banner_rest import GlobalBannerView, PublicLoginBannerView, WorkspaceBannerView
 from admin_ops.health_rest import SystemHealthView
+from admin_ops.rate_limit_rest import GlobalRateLimitsView, RateLimitsView
+from admin_ops.theme_rest import (
+    TenantThemeDefaultView,
+    ThemePaletteDetailView,
+    ThemePaletteExportView,
+    ThemePaletteListView,
+    UserThemePreferenceView,
+)
+from memory.memory_rest import (
+    MemorySelfServiceView,
+    SystemMemoryEntriesListView,
+    SystemMemoryProjectionView,
+    SystemMemorySettingsResetView,
+    SystemMemorySettingsView,
+    SystemMemoryWorkspaceDeleteView,
+    SystemMemoryWorkspaceOverviewView,
+    WorkspaceMemorySettingsView,
+)
 from rest_api.audit_views import (
     WorkspaceAuditAiReviewView,
     WorkspaceAuditRemediateView,
@@ -51,7 +77,12 @@ from rest_api.architecture_decompose_views import (
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
-from rest_api.auth_views import LoginView, LogoutView, MeView
+from rest_api.auth_views import LoginView, LogoutView, MeView, RefreshView
+from rest_api.collaboration_views import (
+    ArtifactCommentsView,
+    CommentViewSet,
+    NotificationViewSet,
+)
 from rest_api.diagram_canvas_views import (
     CanvasStrokeView,
     MermaidPreviewView,
@@ -59,12 +90,51 @@ from rest_api.diagram_canvas_views import (
 )
 from rest_api.diagram_views import DiagramViewSet
 from rest_api.icd_views import IcdViewSet
+from rest_api.interview_views import InterviewViewSet
 from rest_api.metrics_views import MetricsViewSet
+from rest_api.notification_preference_views import NotificationPreferenceView
 from rest_api.preference_views import UserPreferenceView
+from rest_api.user_management_views import UserViewSet
+from rest_api.prompt_variable_views import (
+    PromptVariableDetailView,
+    PromptVariableListView,
+)
 from rest_api.settings_views import (
+    ContextGraphRebuildView,
+    ContextGraphSettingsView,
     LlmSettingsView,
     PromptTemplateResetView,
+    PromptTemplateSlotDetailView,
+    PromptTemplateSlotListView,
     PromptTemplateView,
+    ReviewPolicyView,
+)
+from rest_api.attribute_definition_views import (
+    AttributeDefaultsDetailView,
+    AttributeDefaultsExportView,
+    AttributeDefaultsImportView,
+    AttributeDefaultsListView,
+    AttributeUsageView,
+    WorkspaceAttributeDefinitionExportView,
+    WorkspaceAttributeDefinitionImportView,
+    WorkspaceAttributeDefinitionResetView,
+    WorkspaceAttributeDefinitionView,
+)
+from rest_api.attribute_catalog_views import (
+    AttributeCatalogAddToDefinitionView,
+    AttributeCatalogDeprecateView,
+    AttributeCatalogDetailView,
+    AttributeCatalogExportView,
+    AttributeCatalogImportView,
+    AttributeCatalogListView,
+    AttributeCatalogSearchView,
+)
+from rest_api.attribute_migration_views import (
+    AttributeMigrationApplyView,
+    AttributeMigrationPlanView,
+    AttributeMigrationRollbackView,
+    AttributeMigrationRunDetailView,
+    AttributeMigrationRunListView,
 )
 from rest_api.global_default_views import (
     EnforcementFlipView,
@@ -81,19 +151,28 @@ from rest_api.global_default_views import (
     WorkspacePermissionDefinitionView,
     WorkspacePermissionResetView,
 )
+from rest_api.link_type_views import (
+    LinkTypeDefaultsDetailView,
+    LinkTypeDefaultsListView,
+    WorkspaceLinkTypeDetailView,
+    WorkspaceLinkTypeListView,
+    WorkspaceLinkTypeResetView,
+)
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
-    ArtifactCustomFieldValuesView,
     ArtifactViewSet,
-    AttributeVisibilityConfigViewSet,
+    AttributeSchemaView,
     BaselineViewSet,
+    BundleCompressionStatusView,
     ChangeRequestViewSet,
-    CustomFieldDefinitionViewSet,
+    ConsistencyStatusView,
     CsvExportView,
     CsvImportView,
     GlossaryTermViewSet,
+    GoalViewSet,
     IssueViewSet,
+    MainGoalViewSet,
     ReqifExportView,
     ReqifImportView,
     RequirementHistoryView,
@@ -120,12 +199,21 @@ router.register(r"needs", StakeholderNeedViewSet, basename="need")
 router.register(r"architecture", ArchitectureElementViewSet, basename="architecture")
 router.register(r"testcases", TestCaseViewSet, basename="testcase")
 router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
+# fix #233: "tracelinks" predates the kebab-case convention used by every
+# other multi-word route (main-goals, change-requests, test-runs, ...) and
+# POST /api/v1/trace-links/ 404ed with an HTML page instead of a JSON error.
+# Register the same ViewSet under the conventional path too; "tracelinks" is
+# kept for backward compatibility (frontend/src/api/tracelinks.ts and docs
+# reference it extensively).
+router.register(r"trace-links", TraceLinkViewSet, basename="trace-link")
 router.register(r"traceability", TraceabilityViewSet, basename="traceability")
 router.register(r"baselines", BaselineViewSet, basename="baseline")
 router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
 router.register(r"adrs", AdrViewSet, basename="adr")
 router.register(r"risks", RiskViewSet, basename="risk")
+router.register(r"goals", GoalViewSet, basename="goal")
+router.register(r"main-goals", MainGoalViewSet, basename="main-goal")
 router.register(r"issues", IssueViewSet, basename="issue")
 router.register(r"change-requests", ChangeRequestViewSet, basename="change-request")
 router.register(r"test-runs", TestRunViewSet, basename="test-run")
@@ -134,12 +222,18 @@ router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
 router.register(r"diagrams", DiagramViewSet, basename="diagram")
 router.register(r"icds", IcdViewSet, basename="icd")
 router.register(r"metrics", MetricsViewSet, basename="metrics")
-router.register(r"attribute-visibility-configs", AttributeVisibilityConfigViewSet, basename="attribute-visibility-config")
 router.register(r"glossary", GlossaryTermViewSet, basename="glossary")
+router.register(r"interviews", InterviewViewSet, basename="interview")
+# Comments (Menschen-im-System spec §4) — detail actions resolve/ and the
+# default destroy; list/create hang off the artifact-nested route below.
+router.register(r"comments", CommentViewSet, basename="comment")
+# Notifications (Menschen-im-System spec §5) — the caller's own feed; no MCP
+# counterpart by design.
+router.register(r"notifications", NotificationViewSet, basename="notification")
 
 # ---------------------------------------------------------------------------
 # URL patterns
-# /api/v1/ is the mount point (defined in reqflow/urls.py)
+# /api/v1/ is the mount point (defined in reqogniloom/urls.py)
 # Schema endpoints bypass auth (REQ-L3-RA005-001 AC, REQ-L3-RA003-001 AC)
 # ---------------------------------------------------------------------------
 
@@ -149,7 +243,17 @@ urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="api-v1-auth-login"),
     # Logout (REQ-052) — clears the httpOnly access cookie; requires auth + CSRF.
     path("auth/logout/", LogoutView.as_view(), name="api-v1-auth-logout"),
+    # Silent token refresh (GitHub #135) — public, identity via the refresh
+    # cookie only; mints a new access cookie so a mid-session expiry does not
+    # hard-log the user out.
+    path("auth/refresh/", RefreshView.as_view(), name="api-v1-auth-refresh"),
     path("auth/me/", MeView.as_view(), name="api-v1-auth-me"),
+    # System & Workspace Banners — public login-page banner (unauthenticated).
+    path(
+        "public/banners/login/",
+        PublicLoginBannerView.as_view(),
+        name="public-banner-login",
+    ),
     # Baseline scope-preview + other custom baseline views (REQ-011) — must precede
     # router.urls to avoid being swallowed by the router's baselines/<pk>/ pattern.
     path("baselines/", include(baseline_urlpatterns)),
@@ -190,25 +294,13 @@ urlpatterns = [
         StakeholderNeedViewSet.as_view({"get": "list", "post": "create"}),
         name="workspace-needs",
     ),
-    # Custom field definitions (REQ-016) — workspace-scoped list/create.
+    # Baselines routing by workspace (issue #49) — mirrors the Needs pattern
+    # above. The flat "baselines/" route (registered via the router) is kept
+    # for backward compatibility (frontend/MCP callers use ?workspace_id=).
     path(
-        "workspaces/<uuid:workspace_pk>/custom-field-definitions/",
-        CustomFieldDefinitionViewSet.as_view({"get": "list", "post": "create"}),
-        name="workspace-custom-field-definitions",
-    ),
-    # Custom field definition detail (REQ-016) — update/delete by id (admin-only).
-    path(
-        "custom-field-definitions/<uuid:pk>/",
-        CustomFieldDefinitionViewSet.as_view(
-            {"patch": "partial_update", "delete": "destroy"}
-        ),
-        name="custom-field-definition-detail",
-    ),
-    # Custom field values (REQ-016) — read/upsert values for one artifact.
-    path(
-        "artifacts/<uuid:pk>/custom-field-values/",
-        ArtifactCustomFieldValuesView.as_view(),
-        name="artifact-custom-field-values",
+        "workspaces/<uuid:workspace_pk>/baselines/",
+        BaselineViewSet.as_view({"get": "list", "post": "create"}),
+        name="workspace-baselines",
     ),
     # ItemPermission CRUD (REQ-L1-039, COMP-AT-005) — workspace-scoped, admin-only.
     path(
@@ -222,6 +314,42 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/members/",
         WorkspaceMembersView.as_view(),
         name="workspace-members",
+    ),
+    # Workspace member role suspend/reactivate (multi-user management design
+    # spec) — admin-guarded soft-suspend / reversal of a single role.
+    path(
+        "workspaces/<uuid:workspace_id>/members/<uuid:user_id>/suspend/",
+        WorkspaceMemberRoleTransitionView.as_view(),
+        {"action": "suspend"},
+        name="workspace-member-suspend",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/members/<uuid:user_id>/reactivate/",
+        WorkspaceMemberRoleTransitionView.as_view(),
+        {"action": "reactivate"},
+        name="workspace-member-reactivate",
+    ),
+    # Multi-user management (multi-user management design spec) — tenant-admin-guarded
+    # user lifecycle CRUD + activation + tenant-admin role grant/revoke.
+    path(
+        "users/",
+        UserViewSet.as_view({"get": "list", "post": "create"}),
+        name="user-list-create",
+    ),
+    path(
+        "users/<uuid:pk>/activate/",
+        UserViewSet.as_view({"post": "activate"}),
+        name="user-activate",
+    ),
+    path(
+        "users/<uuid:pk>/deactivate/",
+        UserViewSet.as_view({"post": "deactivate"}),
+        name="user-deactivate",
+    ),
+    path(
+        "users/<uuid:pk>/tenant-admin/",
+        UserViewSet.as_view({"post": "tenant_admin", "delete": "tenant_admin"}),
+        name="user-tenant-admin",
     ),
     # Disaster Recovery (REQ-L1-046) — admin-only.
     # /admin/backups/  -> GET list, POST create
@@ -243,11 +371,79 @@ urlpatterns = [
         SystemHealthView.as_view(),
         name="admin-health",
     ),
+    # Runtime-configurable rate limits (GitHub #944).
+    # /admin/rate-limits/global/ -> deployment-wide default; System-Admin only.
+    # NOTE: registered before the tenant-scoped route so the more specific
+    # path is unambiguously matched first.
+    path(
+        "admin/rate-limits/global/",
+        GlobalRateLimitsView.as_view(),
+        name="admin-rate-limits-global",
+    ),
+    # /admin/rate-limits/ -> GET any user, PUT/DELETE System-Admin only.
+    path(
+        "admin/rate-limits/",
+        RateLimitsView.as_view(),
+        name="admin-rate-limits",
+    ),
+    # System & Workspace Banners.
+    # /admin/banners/global/  -> GET/PUT, System-Admin only
+    path(
+        "admin/banners/global/",
+        GlobalBannerView.as_view(),
+        name="admin-banner-global",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/banner/",
+        WorkspaceBannerView.as_view(),
+        name="workspace-banner",
+    ),
+    # Theme Presets.
+    # /admin/theme-palettes/  -> GET any user; POST (import) System-Admin only
+    path(
+        "admin/theme-palettes/",
+        ThemePaletteListView.as_view(),
+        name="theme-palette-list",
+    ),
+    # /admin/theme-palettes/<key>/export/  -> GET any user
+    # NOTE: export/ must precede the detail route so it is not shadowed.
+    path(
+        "admin/theme-palettes/<str:key>/export/",
+        ThemePaletteExportView.as_view(),
+        name="theme-palette-export",
+    ),
+    # /admin/theme-palettes/<key>/  -> DELETE System-Admin; system rows 403
+    path(
+        "admin/theme-palettes/<str:key>/",
+        ThemePaletteDetailView.as_view(),
+        name="theme-palette-detail",
+    ),
     # User workspace preferences (REQ-L1-027) — per-user visibility overrides.
     path(
         "users/me/preferences/",
         UserPreferenceView.as_view(),
         name="user-preferences",
+    ),
+    # Notification delivery preferences (OD-1, 2026-09-15) — the caller's own
+    # opt-out switches over the four notification triggers. Same self-service
+    # shape as users/me/preferences/ directly above.
+    path(
+        "users/me/notification-preferences/",
+        NotificationPreferenceView.as_view(),
+        name="user-notification-preferences",
+    ),
+    # Theme Presets — the caller's own theme choice (GET/PUT).
+    # NOTE: must precede any other users/me/ pattern that could shadow it.
+    path(
+        "users/me/theme-preference/",
+        UserThemePreferenceView.as_view(),
+        name="user-theme-preference",
+    ),
+    # Theme Presets — tenant-wide default (GET any user; PUT System-Admin).
+    path(
+        "system/theme-default/",
+        TenantThemeDefaultView.as_view(),
+        name="tenant-theme-default",
     ),
     # LLM configuration (REQ-L2-LLM-001) — tenant-scoped singleton, admin-only.
     path(
@@ -262,10 +458,223 @@ urlpatterns = [
         PromptTemplateResetView.as_view(),
         name="prompt-templates-reset",
     ),
+    # Slot API (issue #119) — all 7 slots + per-workspace overrides. Must
+    # precede the singleton route for the same shadowing reason as reset/.
+    path(
+        "prompt-templates/slots/",
+        PromptTemplateSlotListView.as_view(),
+        name="prompt-template-slots",
+    ),
+    path(
+        "prompt-templates/slots/<str:name>/",
+        PromptTemplateSlotDetailView.as_view(),
+        name="prompt-template-slot-detail",
+    ),
     path(
         "prompt-templates/",
         PromptTemplateView.as_view(),
         name="prompt-templates",
+    ),
+    # Prompt variable catalog (spec §3.1) — admin-only, same scope semantics
+    # as the prompt-template slot API above.
+    path(
+        "prompt-variables/",
+        PromptVariableListView.as_view(),
+        name="prompt-variables",
+    ),
+    path(
+        "prompt-variables/<str:name>/",
+        PromptVariableDetailView.as_view(),
+        name="prompt-variable-detail",
+    ),
+    # Per-workspace AI-derivation review policy (Phase 5, REQ-L2-RV-001) —
+    # admin-only, mirrors the workspace-scoped permission-definition pattern.
+    path(
+        "workspaces/<uuid:workspace_id>/review-policy/",
+        ReviewPolicyView.as_view(),
+        name="workspace-review-policy",
+    ),
+    # Workspace Context Graph — per-workspace settings toggle (Issue #377,
+    # Task 9) — admin-only, mirrors the review-policy route above.
+    path(
+        "workspaces/<uuid:workspace_id>/context-graph-settings/",
+        ContextGraphSettingsView.as_view(),
+        name="workspace-context-graph-settings",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/context-graph-settings/rebuild/",
+        ContextGraphRebuildView.as_view(),
+        name="workspace-context-graph-rebuild",
+    ),
+    # AI Long-Term Memory — per-workspace settings toggle (Task 11). GET: any
+    # workspace member. PUT: editor or admin (workspace-scoped).
+    path(
+        "workspaces/<uuid:workspace_id>/memory-settings/",
+        WorkspaceMemorySettingsView.as_view(),
+        name="workspace-memory-settings",
+    ),
+    # AI Long-Term Memory — active env configuration visibility (Task 11).
+    # System-Admin only, mirrors system/theme-default/.
+    path(
+        "system/memory-settings/",
+        SystemMemorySettingsView.as_view(),
+        name="system-memory-settings",
+    ),
+    path(
+        "system/memory-settings/reset/",
+        SystemMemorySettingsResetView.as_view(),
+        name="system-memory-settings-reset",
+    ),
+    # AI Long-Term Memory — System-Admin workspace overview + delete
+    # (Memory Admin UI Phase 1, spec 2026-08-26).
+    path(
+        "system/memory/workspaces/",
+        SystemMemoryWorkspaceOverviewView.as_view(),
+        name="system-memory-workspace-overview",
+    ),
+    path(
+        "system/memory/workspaces/<uuid:workspace_id>/",
+        SystemMemoryWorkspaceDeleteView.as_view(),
+        name="system-memory-workspace-delete",
+    ),
+    # AI Long-Term Memory — System-Admin visualization: entry list +
+    # PCA/cluster projection (Memory Admin UI Phase 5, spec 2026-08-26).
+    path(
+        "system/memory/entries/",
+        SystemMemoryEntriesListView.as_view(),
+        name="system-memory-entries",
+    ),
+    path(
+        "system/memory/projection/",
+        SystemMemoryProjectionView.as_view(),
+        name="system-memory-projection",
+    ),
+    # AI Long-Term Memory — user self-service (Memory Admin UI Phase 4,
+    # spec 2026-08-26). Any authenticated user, own UserTenantMemory only.
+    path(
+        "memory/me/",
+        MemorySelfServiceView.as_view(),
+        name="memory-self-service",
+    ),
+    # -- Central attribute catalog (WS5 #942, spec section 8) — tenant-wide
+    # template library. Literal sub-paths precede the ``<uuid:entry_id>``
+    # detail route (they cannot collide: the converter only matches a UUID).
+    path(
+        "attribute-catalog/",
+        AttributeCatalogListView.as_view(),
+        name="attribute-catalog-list",
+    ),
+    path(
+        "attribute-catalog/search/",
+        AttributeCatalogSearchView.as_view(),
+        name="attribute-catalog-search",
+    ),
+    path(
+        "attribute-catalog/export/",
+        AttributeCatalogExportView.as_view(),
+        name="attribute-catalog-export",
+    ),
+    path(
+        "attribute-catalog/import/",
+        AttributeCatalogImportView.as_view(),
+        name="attribute-catalog-import",
+    ),
+    path(
+        "attribute-catalog/<uuid:entry_id>/deprecate/",
+        AttributeCatalogDeprecateView.as_view(),
+        name="attribute-catalog-deprecate",
+    ),
+    path(
+        "attribute-catalog/<uuid:entry_id>/add-to-definition/",
+        AttributeCatalogAddToDefinitionView.as_view(),
+        name="attribute-catalog-add-to-definition",
+    ),
+    path(
+        "attribute-catalog/<uuid:entry_id>/",
+        AttributeCatalogDetailView.as_view(),
+        name="attribute-catalog-detail",
+    ),
+    # -- AWMS value migrations (WS7 #940, spec section 7) — tenant-wide admin
+    # tooling. `plan/` previews (dry run), `apply/` executes; the run resource
+    # is read-only plus one rollback action.
+    path(
+        "attribute-migration/plan/",
+        AttributeMigrationPlanView.as_view(),
+        name="attribute-migration-plan",
+    ),
+    path(
+        "attribute-migration/apply/",
+        AttributeMigrationApplyView.as_view(),
+        name="attribute-migration-apply",
+    ),
+    path(
+        "attribute-migration/runs/",
+        AttributeMigrationRunListView.as_view(),
+        name="attribute-migration-run-list",
+    ),
+    path(
+        "attribute-migration/runs/<uuid:run_id>/rollback/",
+        AttributeMigrationRollbackView.as_view(),
+        name="attribute-migration-rollback",
+    ),
+    path(
+        "attribute-migration/runs/<uuid:run_id>/",
+        AttributeMigrationRunDetailView.as_view(),
+        name="attribute-migration-run-detail",
+    ),
+    path(
+        "attribute-migration/",
+        AttributeMigrationApplyView.as_view(),
+        name="attribute-migration-apply-alias",
+    ),
+    # -- Attribute definitions (spec section 5) — tenant-wide global defaults
+    # plus per-workspace materialized overrides. The reset route precedes the
+    # detail route so the two stay visually adjacent (they do not actually
+    # compete: different path depth).
+    path(
+        "attribute-defaults/",
+        AttributeDefaultsListView.as_view(),
+        name="attribute-defaults-list",
+    ),
+    path(
+        "attribute-defaults/<str:item_type>/<str:preset>/export/",
+        AttributeDefaultsExportView.as_view(),
+        name="attribute-defaults-export",
+    ),
+    path(
+        "attribute-defaults/<str:item_type>/<str:preset>/import/",
+        AttributeDefaultsImportView.as_view(),
+        name="attribute-defaults-import",
+    ),
+    path(
+        "attribute-defaults/<str:item_type>/<str:preset>/",
+        AttributeDefaultsDetailView.as_view(),
+        name="attribute-defaults-detail",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/reset/",
+        WorkspaceAttributeDefinitionResetView.as_view(),
+        name="workspace-attribute-definition-reset",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/usage/",
+        AttributeUsageView.as_view(),
+        name="workspace-attribute-definition-usage",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/export/",
+        WorkspaceAttributeDefinitionExportView.as_view(),
+        name="workspace-attribute-definition-export",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/import/",
+        WorkspaceAttributeDefinitionImportView.as_view(),
+        name="workspace-attribute-definition-import",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/attribute-definitions/<str:item_type>/",
+        WorkspaceAttributeDefinitionView.as_view(),
+        name="workspace-attribute-definition",
     ),
     # -- Global workflow defaults (REQ-178) — tenant-wide, per item_type+preset.
     # More specific sub-paths precede the {item_type}/{preset}/ detail route.
@@ -338,6 +747,35 @@ urlpatterns = [
         PermissionMismatchListView.as_view(),
         name="permission-mismatches",
     ),
+    # -- Link-type catalog (Task 19/20) — tenant-wide defaults + workspace
+    # overrides. reset/ precedes <str:key>/ so it is not shadowed.
+    path(
+        "link-type-defaults/",
+        LinkTypeDefaultsListView.as_view(),
+        name="link-type-defaults-list",
+    ),
+    path(
+        "link-type-defaults/<str:key>/",
+        LinkTypeDefaultsDetailView.as_view(),
+        name="link-type-defaults-detail",
+    ),
+    # <uuid:> deliberately, not <str:>: the lenient converter lets a non-UUID
+    # reach the view and 500 in the service instead of 404-ing at the router.
+    path(
+        "workspaces/<uuid:workspace_id>/link-type-definitions/",
+        WorkspaceLinkTypeListView.as_view(),
+        name="workspace-link-types-list",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/link-type-definitions/<str:key>/reset/",
+        WorkspaceLinkTypeResetView.as_view(),
+        name="workspace-link-types-reset",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/link-type-definitions/<str:key>/",
+        WorkspaceLinkTypeDetailView.as_view(),
+        name="workspace-link-types-detail",
+    ),
     # SE-Auditor (SysEng 2.0 Phase 3) — workspace-scoped audit dashboard.
     # remediate/ and ai-review/ must precede the audit/ run route so neither
     # is shadowed.
@@ -393,6 +831,36 @@ urlpatterns = [
         "diagrams/<uuid:pk>/mermaid-preview/",
         MermaidPreviewView.as_view(),
         name="diagram-mermaid-preview",
+    ),
+    # Attribute schema discovery (Requirement Bundle Export, Plan 1 Task 5) —
+    # lists known attribute names + visibility per entity type.
+    path(
+        "attribute-schema/",
+        AttributeSchemaView.as_view(),
+        name="api-v1-attribute-schema",
+    ),
+    # Bundle compression async polling (Requirement Bundle Export, Plan 2
+    # Task 4) — status of a requirement-bundle/?mode=compressed&async=true
+    # Celery dispatch.
+    path(
+        "bundle-compression-status/<str:task_id>/",
+        BundleCompressionStatusView.as_view(),
+        name="api-v1-bundle-compression-status",
+    ),
+    # Consistency-check async polling (GH-796) — status of a
+    # requirement.check_consistency Celery dispatch.
+    path(
+        "consistency-status/<str:task_id>/",
+        ConsistencyStatusView.as_view(),
+        name="api-v1-consistency-status",
+    ),
+    # Artifact comments (Menschen-im-System spec §4) — nested sub-resource,
+    # must precede router.urls so the artifacts/<pk>/ detail route cannot
+    # shadow it.
+    path(
+        "artifacts/<uuid:artifact_id>/comments/",
+        ArtifactCommentsView.as_view(),
+        name="api-v1-artifact-comments",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

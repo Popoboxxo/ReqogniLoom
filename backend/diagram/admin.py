@@ -3,33 +3,32 @@ Django admin registration for the diagram app (COMP-DS-001/002, REQ-L1-027).
 
 Registers:
 
-* :class:`Diagram` — mutable header record
-* :class:`DiagramVersion` — append-only immutable payload snapshot
+* :class:`Diagram` — the diagram record and its current payload
 
-Read-only:
-    ``DiagramVersion`` is immutable (REQ-L2-DS-001, REQ-L3-DM-002); the admin
-    is locked down to read-only to match.
+Datenmodell-Konsolidierung Task 28c-2 retired ``DiagramVersion`` (and with it
+its read-only admin); content history now lives in
+``persistence.ArtifactVersion`` alongside every other artifact type's.
 
 Tenant isolation:
-    Both models inherit ``TenantScopedModel``. ``get_queryset`` uses the
+    ``Diagram`` inherits ``TenantScopedModel``. ``get_queryset`` uses the
     ``unscoped()`` manager to bypass the tenant filter.
 """
 from __future__ import annotations
 
 from django.contrib import admin
 
-from .models import Diagram, DiagramVersion
+from .models import Diagram
 
 
 @admin.register(Diagram)
 class DiagramAdmin(admin.ModelAdmin):
-    """Admin view for the Diagram header (REQ-L2-DS-001)."""
+    """Admin view for the Diagram record (REQ-L2-DS-001)."""
 
     list_display = (
         "name",
         "diagram_type",
         "tenant",
-        "current_version",
+        "current_revision",
         "created_at",
     )
     list_filter = ("tenant", "diagram_type")
@@ -40,47 +39,3 @@ class DiagramAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
         return Diagram.unscoped.all()
-
-
-@admin.register(DiagramVersion)
-class DiagramVersionAdmin(admin.ModelAdmin):
-    """Admin view for the immutable DiagramVersion (REQ-L3-DM-002).
-
-    Read-only: each DiagramVersion is a frozen snapshot; updates create a new
-    version rather than mutating an existing one.
-    """
-
-    list_display = (
-        "diagram",
-        "version_number",
-        "payload_format",
-        "tenant",
-        "created_at",
-    )
-    list_filter = ("tenant", "payload_format", "diagram")
-    search_fields = ("diagram__name", "payload")
-    ordering = ("diagram", "-version_number")
-    readonly_fields = (
-        "diagram",
-        "version_number",
-        "payload_format",
-        "payload",
-        "created_at",
-        "created_by",
-        "modified_at",
-        "modified_by",
-        "version",
-        "tenant",
-    )
-
-    def get_queryset(self, request):
-        return DiagramVersion.unscoped.all()
-
-    def has_add_permission(self, request):
-        return False  # read-only
-
-    def has_change_permission(self, request, obj=None):
-        return False  # read-only
-
-    def has_delete_permission(self, request, obj=None):
-        return False  # read-only

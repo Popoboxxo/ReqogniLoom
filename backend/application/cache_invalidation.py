@@ -38,11 +38,11 @@ logger = logging.getLogger(__name__)
 
 # Signal dispatch namespace — guards against duplicate registration when
 # ``ready()`` is called more than once (e.g. autoreload).
-_DISPATCH_UID = "reqflow.cache_invalidation"
+_DISPATCH_UID = "reqogniloom.cache_invalidation"
 
 # Shared-cache key namespace. Keys are workspace-scoped so a single mutation
 # invalidates every cached view of that workspace's configuration.
-_KEY_PREFIX = "reqflow"
+_KEY_PREFIX = "reqogniloom"
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +70,15 @@ def workflow_def_cache_key(workspace_id: str) -> str:
     return f"{_KEY_PREFIX}:workflow-def:{workspace_id}"
 
 
+def attribute_def_cache_key(workspace_id: str) -> str:
+    """Return the shared-cache key for a workspace's resolved attribute definitions.
+
+    One key per workspace covers every item type: an admin edit to one type's
+    definition is rare and re-resolving the others costs one indexed query each.
+    """
+    return f"{_KEY_PREFIX}:attribute-def:{workspace_id}"
+
+
 def _workspace_keys(workspace_id: str) -> list[str]:
     """Return every shared-cache key derived from *workspace_id*."""
     return [
@@ -77,6 +86,7 @@ def _workspace_keys(workspace_id: str) -> list[str]:
         terminology_cache_key(workspace_id),
         features_cache_key(workspace_id),
         workflow_def_cache_key(workspace_id),
+        attribute_def_cache_key(workspace_id),
     ]
 
 
@@ -208,6 +218,21 @@ def _resolve_workspace_id(instance) -> Optional[str]:
     if type(instance).__name__ == "TraceLink":
         source_id = getattr(instance, "source_id", None)
         if source_id is not None:
+            # #625: this handler serves both post_save and post_delete.
+            # On post_save the creating code path has almost always just
+            # assigned the source Artifact (TraceLinkManager.create builds
+            # ``TraceLink(source=source, ...)``), so the row is already in the
+            # instance's relation cache and reading it from there costs
+            # nothing. On post_delete — and for any link loaded from the DB
+            # without select_related — the cache is empty and the values_list
+            # fallback below runs, unchanged. Touching ``instance.source``
+            # unguarded would instead *fetch* the row, which is exactly what
+            # the comment above avoids; ``_state.fields_cache`` never does.
+            state = getattr(instance, "_state", None)
+            cached_source = getattr(state, "fields_cache", {}).get("source")
+            cached_workspace_id = getattr(cached_source, "workspace_id", None)
+            if cached_workspace_id is not None:
+                return str(cached_workspace_id)
             try:
                 from persistence.models import Artifact
 
@@ -321,4 +346,5 @@ __all__ = [
     "terminology_cache_key",
     "features_cache_key",
     "workflow_def_cache_key",
+    "attribute_def_cache_key",
 ]

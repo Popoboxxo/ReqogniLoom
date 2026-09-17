@@ -10,10 +10,15 @@
  * REQ-005).
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { workspacesApi } from "../../api/workspaces";
+import { Dialog } from "../shared/Dialog";
 import type { TerminologyProfile, Workspace, WorkspacePreset } from "../../types";
+// F-04 (code review, 2026-08-19): `.inputError`/`.fieldError` live in the
+// shared module (see its own header comment) so this dialog doesn't
+// duplicate them in a component-local `.module.css`.
+import fieldHints from "../shared/FieldHints.module.css";
 
 export interface CreateWorkspaceModalProps {
   /** Controls modal visibility. */
@@ -25,54 +30,14 @@ export interface CreateWorkspaceModalProps {
 }
 
 // ---------------------------------------------------------------------------
-// Styles — mirrors the CreateTraceLinkDialog modal pattern.
+// Styles — the overlay/panel/header chrome now comes from <Dialog>; only the
+// form-content styles remain here.
 // ---------------------------------------------------------------------------
 
-const overlayStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0, 0, 0, 0.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-
-const dialogStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  borderRadius: "var(--radius-lg)",
-  boxShadow: "var(--shadow-md)",
-  width: "100%",
-  maxWidth: "420px",
-  maxHeight: "90vh",
-  display: "flex",
-  flexDirection: "column",
-  overflow: "hidden",
-};
-
-const headerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  padding: "var(--space-4) var(--space-5)",
-  borderBottom: "1px solid var(--color-border)",
-};
-
 const bodyStyle: React.CSSProperties = {
-  padding: "var(--space-4) var(--space-5)",
-  overflowY: "auto",
-  flex: 1,
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-3)",
-};
-
-const footerStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "var(--space-2)",
-  padding: "var(--space-4) var(--space-5)",
-  borderTop: "1px solid var(--color-border)",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -127,29 +92,27 @@ export function CreateWorkspaceModal({
   const [formData, setFormData] = useState<CreateWorkspaceFormData>(DEFAULT_FORM_DATA);
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // BUG-08 (Systemaudit 2026-08-18, §4): the required-name check used to
+  // surface only as a text banner elsewhere in the dialog — the input itself
+  // never indicated it was the field at fault (no border, no icon, no
+  // aria-invalid). Tracked separately from `createError` (server-side
+  // rejections) so the field-level marker only reacts to *this* client-side
+  // check and clears the moment the user starts correcting it.
+  const [nameInvalid, setNameInvalid] = useState<boolean>(false);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset form state whenever the modal opens.
   useEffect(() => {
     if (!isOpen) return;
     setFormData(DEFAULT_FORM_DATA);
     setCreateError(null);
-  }, [isOpen]);
-
-  // Prevent background scroll while the modal is open (same as CreateTraceLinkDialog).
-  useEffect(() => {
-    if (!isOpen) return;
-    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-    document.body.style.overflow = "hidden";
-    document.body.style.paddingRight = `${scrollbarWidth}px`;
-    return () => {
-      document.body.style.overflow = "";
-      document.body.style.paddingRight = "";
-    };
+    setNameInvalid(false);
   }, [isOpen]);
 
   const handleClose = (): void => {
     if (isCreating) return;
     setCreateError(null);
+    setNameInvalid(false);
     onClose();
   };
 
@@ -158,11 +121,13 @@ export function CreateWorkspaceModal({
   ): Promise<void> => {
     event.preventDefault();
     if (!formData.name.trim()) {
-      setCreateError(
-        t("workspaceCreate.errorRequired") ||
-          t("workspace.create.nameRequired") ||
-          "Name is required"
-      );
+      // F-03 (code review, 2026-08-19): a client-side check surfaces at the
+      // field itself only — never duplicated into the page-level banner
+      // too (a screen reader must not announce the identical "Name is
+      // required" message twice). Any stale banner from a previous
+      // server-side rejection is cleared here as well.
+      setCreateError(null);
+      setNameInvalid(true);
       return;
     }
     setIsCreating(true);
@@ -181,7 +146,6 @@ export function CreateWorkspaceModal({
       setCreateError(
         apiErr?.error?.message ||
           t("workspaceCreate.errorGeneric") ||
-          t("workspace.create.error") ||
           "Failed to create workspace"
       );
     } finally {
@@ -191,163 +155,152 @@ export function CreateWorkspaceModal({
 
   if (!isOpen) return null;
 
+  // The submit/cancel buttons live in <Dialog>'s `footer` slot, which renders
+  // as a sibling of the form below rather than inside it — `form` on both
+  // buttons keeps Enter-to-submit and the button click wired to the same
+  // <form data-testid="create-workspace-form">. The footer slot already is
+  // the shared button bar (flex-end + gap), so no local wrapper is needed.
+  const formId = "create-workspace-form";
+
   return (
-    <div
-      style={overlayStyle}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) handleClose();
-      }}
+    <Dialog
+      title={t("workspaceCreate.title") || "Create workspace"}
+      onClose={handleClose}
+      size="sm"
+      testId="create-workspace-modal"
+      initialFocusRef={nameInputRef}
+      footer={
+        <>
+          {/* issue #954: these two buttons used to be the last hand-styled
+              hold-outs among the admin create dialogs — no `btn-*` class,
+              just inline colour/padding, so they rendered at a different
+              height and radius than the User/Requirement/Architecture create
+              dialogs. They now use the same canonical classes (which own
+              height/radius via --btn-h-md/--radius-btn). The `:disabled`
+              styling comes from the shared classes too, replacing the
+              per-button inline opacity. */}
+          <button
+            type="button"
+            className="btn-secondary"
+            data-testid="create-workspace-cancel"
+            onClick={handleClose}
+            disabled={isCreating}
+          >
+            {t("workspaceCreate.cancel") || "Cancel"}
+          </button>
+          <button
+            type="submit"
+            form={formId}
+            className="btn-primary"
+            data-testid="new-workspace-submit"
+            disabled={isCreating}
+          >
+            {isCreating
+              ? t("workspaceCreate.creating")
+              : t("workspaceCreate.submit")}
+          </button>
+        </>
+      }
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("workspace.create.title") || "Create workspace"}
-        data-testid="create-workspace-modal"
-        style={dialogStyle}
-      >
-        <form data-testid="create-workspace-form" onSubmit={handleSubmit}>
-          <div style={headerStyle}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", color: "var(--color-text)" }}>
-              {t("workspace.create.title") || "Create workspace"}
-            </h2>
-            <button
-              type="button"
-              data-testid="create-workspace-close"
-              onClick={handleClose}
-              disabled={isCreating}
-              aria-label={t("common.close") || "Close"}
-              style={{
-                background: "transparent",
-                border: "none",
-                fontSize: "1.25rem",
-                lineHeight: 1,
-                cursor: isCreating ? "not-allowed" : "pointer",
-                color: "var(--color-text-muted)",
-              }}
+      <form id={formId} data-testid="create-workspace-form" onSubmit={handleSubmit} style={bodyStyle}>
+        <div>
+          <label style={labelStyle} htmlFor="new-workspace-name">
+            {t("workspaceCreate.namePlaceholder") || "Name"}
+          </label>
+          <input
+            ref={nameInputRef}
+            id="new-workspace-name"
+            type="text"
+            data-testid="new-workspace-name"
+            placeholder={t("workspaceCreate.namePlaceholder") || "Name"}
+            value={formData.name}
+            onChange={(e) => {
+              setFormData((d) => ({ ...d, name: e.target.value }));
+              // BUG-08: clear the field-level error the moment the user
+              // starts correcting it, same UX as the create-form hints
+              // elsewhere (#339/#412) — the message described the *previous*
+              // attempt, not the one they are now typing.
+              if (e.target.value.trim()) setNameInvalid(false);
+              // F-01 (code review, 2026-08-19): a stale banner from a
+              // previous *server-side* rejection must not keep contradicting
+              // a field the user is actively correcting — same pattern as
+              // RequirementEditors.tsx's create-form title input (#340).
+              if (createError) setCreateError(null);
+            }}
+            disabled={isCreating}
+            style={inputStyle}
+            className={nameInvalid ? fieldHints.inputError : undefined}
+            aria-invalid={nameInvalid}
+            aria-describedby={nameInvalid ? "new-workspace-name-error" : undefined}
+          />
+          {nameInvalid && (
+            <p
+              id="new-workspace-name-error"
+              role="alert"
+              data-testid="new-workspace-name-field-error"
+              className={fieldHints.fieldError}
             >
-              ×
-            </button>
+              <span aria-hidden="true">⚠</span>
+              {t("workspaceCreate.errorRequired") || "Name is required"}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label style={labelStyle} htmlFor="create-workspace-preset">
+            {t("workspaceCreate.presetLabel") || "Preset"}
+          </label>
+          <select
+            id="create-workspace-preset"
+            data-testid="create-workspace-preset"
+            value={formData.preset}
+            onChange={(e) =>
+              setFormData((d) => ({
+                ...d,
+                preset: e.target.value as WorkspacePreset,
+              }))
+            }
+            disabled={isCreating}
+            style={inputStyle}
+          >
+            <option value="minimal">minimal</option>
+            <option value="standard">standard</option>
+            <option value="extended">extended</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={labelStyle} htmlFor="create-workspace-language">
+            {t("workspaceCreate.languageLabel") || "Language"}
+          </label>
+          <select
+            id="create-workspace-language"
+            data-testid="create-workspace-language"
+            value={formData.language}
+            onChange={(e) =>
+              setFormData((d) => ({ ...d, language: e.target.value }))
+            }
+            disabled={isCreating}
+            style={inputStyle}
+          >
+            <option value="de">DE</option>
+            <option value="en">EN</option>
+          </select>
+        </div>
+
+        {createError && (
+          <div
+            role="alert"
+            data-testid="create-workspace-error"
+            style={{
+              color: "var(--color-danger)",
+              fontSize: "var(--font-size-xs)",
+            }}
+          >
+            {createError}
           </div>
-
-          <div style={bodyStyle}>
-            <div>
-              <label style={labelStyle} htmlFor="new-workspace-name">
-                {t("workspace.create.namePlaceholder") || "Name"}
-              </label>
-              <input
-                id="new-workspace-name"
-                type="text"
-                data-testid="new-workspace-name"
-                placeholder={t("workspace.create.namePlaceholder") || "Name"}
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData((d) => ({ ...d, name: e.target.value }))
-                }
-                disabled={isCreating}
-                autoFocus
-                style={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label style={labelStyle} htmlFor="create-workspace-preset">
-                {t("workspace.create.preset") || "Preset"}
-              </label>
-              <select
-                id="create-workspace-preset"
-                data-testid="create-workspace-preset"
-                value={formData.preset}
-                onChange={(e) =>
-                  setFormData((d) => ({
-                    ...d,
-                    preset: e.target.value as WorkspacePreset,
-                  }))
-                }
-                disabled={isCreating}
-                style={inputStyle}
-              >
-                <option value="minimal">minimal</option>
-                <option value="standard">standard</option>
-                <option value="extended">extended</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle} htmlFor="create-workspace-language">
-                {t("workspace.create.language") || "Language"}
-              </label>
-              <select
-                id="create-workspace-language"
-                data-testid="create-workspace-language"
-                value={formData.language}
-                onChange={(e) =>
-                  setFormData((d) => ({ ...d, language: e.target.value }))
-                }
-                disabled={isCreating}
-                style={inputStyle}
-              >
-                <option value="de">DE</option>
-                <option value="en">EN</option>
-              </select>
-            </div>
-
-            {createError && (
-              <div
-                role="alert"
-                data-testid="create-workspace-error"
-                style={{
-                  color: "var(--color-danger, #f87171)",
-                  fontSize: "0.75rem",
-                }}
-              >
-                {createError}
-              </div>
-            )}
-          </div>
-
-          <div style={footerStyle}>
-            <button
-              type="button"
-              data-testid="create-workspace-cancel"
-              onClick={handleClose}
-              disabled={isCreating}
-              style={{
-                background: "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-sm)",
-                padding: "var(--space-2) var(--space-4)",
-                cursor: isCreating ? "not-allowed" : "pointer",
-                fontSize: "var(--font-size-sm)",
-                fontFamily: "inherit",
-              }}
-            >
-              {t("workspace.create.cancel") || "Cancel"}
-            </button>
-            <button
-              type="submit"
-              data-testid="new-workspace-submit"
-              disabled={isCreating}
-              style={{
-                background: "var(--color-primary)",
-                color: "white",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                padding: "var(--space-2) var(--space-4)",
-                cursor: isCreating ? "not-allowed" : "pointer",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                fontFamily: "inherit",
-                opacity: isCreating ? 0.6 : 1,
-              }}
-            >
-              {isCreating
-                ? t("workspaceCreate.creating")
-                : t("workspaceCreate.submit")}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        )}
+      </form>
+    </Dialog>
   );
 }

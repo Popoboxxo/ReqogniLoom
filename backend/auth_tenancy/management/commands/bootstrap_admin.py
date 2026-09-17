@@ -39,6 +39,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
+from application.workspace_provisioning import provision_workspace_defaults_scoped
 from auth_tenancy.provisioning import (
     DEFAULT_ADMIN_EMAIL,
     DEFAULT_ADMIN_USERNAME,
@@ -46,6 +47,12 @@ from auth_tenancy.provisioning import (
     provision_admin,
 )
 from persistence.models import User
+
+# provision_admin()'s base workspace is always created with active_tier
+# "extended" (see auth_tenancy.provisioning._ensure_workspace) -- matches
+# application.self_init._DEFAULT_WORKSPACE_TIER, the same constant for the
+# same reason.
+_WORKSPACE_TIER = "extended"
 
 
 class Command(BaseCommand):
@@ -83,6 +90,19 @@ class Command(BaseCommand):
             )
         except ProvisioningError as exc:  # defensive: race between check + write
             raise CommandError(str(exc)) from exc
+
+        # Issue #41 (same root cause as seed_demo's fix): provision_admin()
+        # never seeded workflow definitions on the workspace it creates --
+        # left `states: []`/`transitions: []` (initialized=true, but empty)
+        # on every fresh instance's base workspace until someone separately
+        # initialized each entity type's workflow via the API. This command
+        # is the *mandatory* bootstrap (see module docstring), so this gap
+        # hit every fresh deployment, not just local dev via seed_demo.
+        provision_workspace_defaults_scoped(
+            workspace_id=result.workspace.id,
+            tenant_id=result.tenant.id,
+            requirement_preset=_WORKSPACE_TIER,
+        )
 
         if result.user_created:
             self.stdout.write(

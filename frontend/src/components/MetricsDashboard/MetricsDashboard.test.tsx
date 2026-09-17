@@ -4,7 +4,7 @@
  * Covers: Help mode toggle, help text visibility, component rendering.
  */
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { ReactNode } from "react";
 import MetricsDashboard from "./MetricsDashboard";
@@ -189,6 +189,96 @@ describe("MetricsDashboard", () => {
 
       expect(filterSelect).toBeInTheDocument();
       expect(refreshBtn).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // GESAMTTEST_BERICHT_2026-08-21.md §5 finding 7: the 5 `metric-status-*`
+  // spans carried `aria-label` with no `role`, which some screen readers do
+  // not reliably expose. Each must now carry both role="img" AND a non-empty
+  // accessible name (the previous aria-label content, unchanged).
+  // ---------------------------------------------------------------------
+  describe("Status-dot accessibility (§5 finding 7)", () => {
+    const TILE_NAMES = [
+      "coverage",
+      "volatility",
+      "workflowGap",
+      "openRisks",
+      "openRisksCritical",
+    ];
+
+    it("gives all 5 metric-status-* spans role=img and a non-empty accessible name", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metric-status-coverage");
+
+      for (const name of TILE_NAMES) {
+        const span = screen.getByTestId(`metric-status-${name}`);
+        expect(span).toHaveAttribute("role", "img");
+        expect(span.getAttribute("aria-label")).toBeTruthy();
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // GitHub #450: filter dropdown must not be disabled (mirrors ListToolbar's
+  // list pages, which never gate filters on a loading flag), and the Refresh
+  // button must re-enable ("Refresh", not stuck on "Refreshing...") once its
+  // own request settles.
+  // ---------------------------------------------------------------------
+  describe("Filter/Refresh availability (GitHub #450)", () => {
+    it("never disables the filter select, even while a request is in flight", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      const filterSelect = await screen.findByTestId("metrics-filter-select");
+      expect(filterSelect).not.toBeDisabled();
+
+      fireEvent.click(screen.getByTestId("metrics-refresh-btn"));
+      // Still not disabled while the refresh request is in flight.
+      expect(filterSelect).not.toBeDisabled();
+
+      await waitFor(() =>
+        expect(screen.getByTestId("metrics-refresh-btn")).not.toBeDisabled()
+      );
+      expect(filterSelect).not.toBeDisabled();
+    });
+
+    it("re-enables the Refresh button and restores its label after a refresh completes", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      const refreshBtn = await screen.findByTestId("metrics-refresh-btn");
+      await waitFor(() => expect(refreshBtn).not.toBeDisabled());
+      expect(refreshBtn.textContent).toBe("Refresh");
+
+      fireEvent.click(refreshBtn);
+
+      await waitFor(() => expect(refreshBtn).not.toBeDisabled());
+      expect(refreshBtn.textContent).toBe("Refresh");
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // #809/#806: the five tiles must render as children of the single,
+  // CSS-Module-owned responsive grid — not into an inline, fixed-column
+  // template (which laid the fifth tile out alone on a second row). The
+  // column contract itself is asserted in
+  // `src/test/responsive-card-grids.test.ts`.
+  // ---------------------------------------------------------------------
+  describe("KPI grid layout (#809)", () => {
+    it("renders all five tiles into one class-based grid container without inline layout", async () => {
+      render(<MetricsDashboard />, { wrapper: MockWrapper });
+
+      await screen.findByTestId("metric-tile-coverage");
+      const tiles = screen.getAllByTestId(/^metric-tile-/);
+      expect(tiles).toHaveLength(5);
+
+      const grid = tiles[0].parentElement;
+      expect(grid).not.toBeNull();
+      expect(tiles.every((tile) => tile.parentElement === grid)).toBe(true);
+      // Layout is owned by MetricsDashboard.module.css (`.tileGrid`), so the
+      // container must carry that class and no inline grid template.
+      expect(grid!.className).not.toBe("");
+      expect(grid!.getAttribute("style")).toBeNull();
     });
   });
 });

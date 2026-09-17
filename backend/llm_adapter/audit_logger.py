@@ -151,10 +151,20 @@ class LlmAuditLogger:
             if error:
                 details["error"] = error
 
+            # NOTE (fix #115/#116 follow-up): "llm_call" is not a valid
+            # AuditEntry.OP_CHOICES value (only create/update/delete/
+            # transition/baseline.create/workspace.close exist), so this
+            # write was previously *always* silently rejected by
+            # log_write()'s validation and swallowed by the except clause
+            # below — the LLM audit trail was never actually being written.
+            # OP_CREATE is the closest valid semantic fit (a new audit
+            # record documenting the completed LLM call).
+            from audit.models import AuditEntry  # noqa: PLC0415 (deferred to avoid circular import)
+
             log_write(
                 actor=self.SOURCE,
                 actor_type="agent",
-                operation="llm_call",
+                operation=AuditEntry.OP_CREATE,
                 entity_type="LlmCall",
                 entity_id=self._NIL_UUID,
                 change_reason=f"{capability} via {provider}",

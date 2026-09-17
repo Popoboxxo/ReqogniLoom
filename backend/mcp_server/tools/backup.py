@@ -46,7 +46,7 @@ from admin_ops.services import (
     BackupService,
 )
 from admin_ops.services.admin_restore_service import RESTORE_CAPTCHA
-from admin_ops.services.exceptions import BackupNotFoundError
+from admin_ops.services.exceptions import BackupNotFoundError, BackupStorageError
 
 from application.base import (
     NotFoundError,
@@ -58,6 +58,7 @@ from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
+    mcp_audit_handoff,
     require_param,
     require_uuid,
     write_mcp_audit,
@@ -238,17 +239,29 @@ class BackupToolGroup(BaseToolGroup):
             metadata["reason"] = reason
 
         try:
-            row = self._backup_service.create_backup(
-                auth_context,
-                backup_type=backup_type,
-                metadata=metadata,
-            )
+            # Codeberg #313: suppress create_backup's single internal
+            # _audit() call on the success path (same entity) —
+            # write_mcp_audit below is the sole entry. NOTE: admin.restore
+            # (below) is deliberately NOT wrapped this way — its service
+            # writes two legitimate audit entries (start + complete) for a
+            # synthetic restore_event_id that differs from the entity_id
+            # write_mcp_audit uses there; wrapping would silently drop both.
+            with mcp_audit_handoff():
+                row = self._backup_service.create_backup(
+                    auth_context,
+                    backup_type=backup_type,
+                    metadata=metadata,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except (ValidationError, ValueError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except BackupStorageError as exc:
+            # GitHub #37: clean, actionable error instead of a raw OSError
+            # ("Permission denied: /app/backups/") or a generic INTERNAL_ERROR.
+            return ToolResult.error("BACKUP_STORAGE_ERROR", str(exc))
 
         write_mcp_audit(
             ctx=auth_context,

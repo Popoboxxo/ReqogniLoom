@@ -8,6 +8,8 @@
  *   - Adopt success: POSTs remediate, removes the finding, shows a toast
  *   - Adopt 422 (not automatically fixable): finding flips into the
  *     "Modify" state in-place instead of leaving a dead Adopt button
+ *   - Modify (GitHub #451): enabled and navigates to the affected artifact's
+ *     editor; not rendered at all when that artifact cannot be resolved
  *   - Scope switch (project -> document) re-runs the audit with the
  *     selected scope_artifact_id
  *   - data-testid attributes present (E2E contract)
@@ -18,14 +20,31 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AuditDashboard } from "./audit-dashboard";
 import { auditApi } from "../../api/audit";
 import { artifactsApi } from "../../api/artifacts";
+import { traceabilityApi } from "../../api/traceability";
 import { UnprocessableEntityError } from "../../api/errors";
-import type { AuditReport } from "../../api/audit";
+import type { AuditFinding, AuditReport } from "../../api/audit";
 import type { Artifact, PaginatedResponse } from "../../types";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    // Mimics i18next's {{placeholder}} interpolation for the `truncated`
+    // banner (the only call site in this component that passes options).
+    t: (key: string, fallback?: string, options?: Record<string, unknown>) => {
+      const text = fallback ?? key;
+      if (!options) return text;
+      return Object.entries(options).reduce(
+        // split/join instead of replaceAll: replaceAll is ES2021, but
+        // tsconfig.json's `lib` is pinned to ES2020 (see frontend/tsconfig.json).
+        (acc, [k, v]) => acc.split(`{{${k}}}`).join(String(v)),
+        text
+      );
+    },
   }),
+}));
+
+const mockNavigate = vi.fn();
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => mockNavigate,
 }));
 
 vi.mock("../../context/WorkspaceContext", () => ({
@@ -36,6 +55,7 @@ vi.mock("../../context/WorkspaceContext", () => ({
 
 vi.mock("../../api/audit");
 vi.mock("../../api/artifacts");
+vi.mock("../../api/traceability");
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -46,6 +66,11 @@ const PROJECT_REPORT: AuditReport = {
   scope: "project",
   scope_artifact_id: null,
   counts: { total: 2, blockers: 1, warnings: 1 },
+  truncated: false,
+  total_findings_available: 2,
+  total_blockers_available: 1,
+  total_warnings_available: 1,
+  offset: 0,
   findings: [
     {
       rule_id: "TRACE-P1",
@@ -84,13 +109,118 @@ const PROJECT_REPORT: AuditReport = {
   ],
 };
 
+const REQ_ARTIFACT_ID = "11111111-1111-1111-1111-111111111111";
+const ARCH_ARTIFACT_ID = "33333333-3333-3333-3333-333333333333";
+const REQ_ENTITY_ID = "aaaaaaaa-1111-1111-1111-111111111111";
+const ARCH_ENTITY_ID = "cccccccc-3333-3333-3333-333333333333";
+
+/** A finding whose only artifact has no backing domain row (`resolved: false`). */
+const DANGLING_ARTIFACT_ID = "99999999-9999-9999-9999-999999999999";
+
+const DANGLING_REPORT: AuditReport = {
+  tier: "extended",
+  scope: "project",
+  scope_artifact_id: null,
+  counts: { total: 1, blockers: 1, warnings: 0 },
+  truncated: false,
+  total_findings_available: 1,
+  total_blockers_available: 1,
+  total_warnings_available: 0,
+  offset: 0,
+  findings: [
+    {
+      rule_id: "TRACE-P7",
+      severity: "blocker",
+      message: "Trace link crosses the scope boundary.",
+      artifact_ids: [DANGLING_ARTIFACT_ID],
+      scope: "project",
+      scope_artifact_id: null,
+      index: 0,
+      remediation: {
+        rule_id: "TRACE-P7",
+        automatic: false,
+        reason: "No automatic remediation is available for TRACE-P7.",
+        finding_artifact_ids: [DANGLING_ARTIFACT_ID],
+        action_kind: null,
+        params: {},
+      },
+    },
+  ],
+};
+
 const DOCUMENT_REPORT: AuditReport = {
   tier: "extended",
   scope: "document",
   scope_artifact_id: "44444444-4444-4444-4444-444444444444",
   counts: { total: 0, blockers: 0, warnings: 0 },
+  truncated: false,
+  total_findings_available: 0,
+  total_blockers_available: 0,
+  total_warnings_available: 0,
+  offset: 0,
   findings: [],
 };
+
+// BUG-15: reuse PROJECT_REPORT's 2 findings as the "shown" subset of a much
+// larger run. Mirrors the audit's 300-req stress scenario: 4,440 real
+// findings, all severity blocker.
+const TRUNCATED_REPORT: AuditReport = {
+  ...PROJECT_REPORT,
+  truncated: true,
+  total_findings_available: 4440,
+  total_blockers_available: 4440,
+  total_warnings_available: 0,
+};
+
+// ---------------------------------------------------------------------------
+// #596: paged findings (one bounded window per request, `?limit=&offset=`)
+// ---------------------------------------------------------------------------
+
+/** A single finding at the given position of a (logical) 250-finding run. */
+function findingAt(index: number): AuditFinding {
+  return {
+    rule_id: `TRACE-P${index % 3}`,
+    severity: index < 200 ? "blocker" : "warning",
+    message: `finding ${index}`,
+    artifact_ids: [],
+    scope: "project",
+    scope_artifact_id: null,
+    index,
+    remediation: {
+      rule_id: `TRACE-P${index % 3}`,
+      automatic: false,
+      reason: "Manual correction required.",
+      finding_artifact_ids: [],
+      action_kind: null,
+      params: {},
+    },
+  };
+}
+
+/** A window of `length` findings starting at `offset`, of a 250-finding run. */
+function windowReport(offset: number, length: number): AuditReport {
+  const total = 250;
+  const findings = Array.from({ length }, (_unused, i) => findingAt(offset + i));
+  const end = offset + findings.length;
+  return {
+    tier: "extended",
+    scope: "project",
+    scope_artifact_id: null,
+    counts: {
+      total: findings.length,
+      blockers: findings.filter((f) => f.severity === "blocker").length,
+      warnings: findings.filter((f) => f.severity === "warning").length,
+    },
+    // #622: with a `limit` this flag means "more findings exist past this
+    // window", not "the backend capped the result set".
+    truncated: end < total,
+    total_findings_available: total,
+    total_blockers_available: 200,
+    total_warnings_available: 50,
+    offset,
+    findings,
+  };
+}
 
 function setupDefaultMocks(): void {
   vi.mocked(auditApi.run).mockImplementation((_wsId, options) => {
@@ -114,6 +244,38 @@ function setupDefaultMocks(): void {
     previous: null,
   };
   vi.mocked(artifactsApi.list).mockResolvedValue(artifactsPage);
+
+  // #451: the Modify action needs the Artifact id -> entity id mapping from
+  // GET /traceability/resolve/ to build an editor route. Unknown ids answer
+  // `resolved: false`, which is a normal response, not an error.
+  vi.mocked(traceabilityApi.resolve).mockImplementation((ids) =>
+    Promise.resolve(
+      ids.map((artifactId) => {
+        if (artifactId === REQ_ARTIFACT_ID) {
+          return {
+            artifact_id: artifactId,
+            resolved: true,
+            entity_type: "Requirement",
+            entity_id: REQ_ENTITY_ID,
+          };
+        }
+        if (artifactId === ARCH_ARTIFACT_ID) {
+          return {
+            artifact_id: artifactId,
+            resolved: true,
+            entity_type: "ArchitectureElement",
+            entity_id: ARCH_ENTITY_ID,
+          };
+        }
+        return {
+          artifact_id: artifactId,
+          resolved: false,
+          entity_type: null,
+          entity_id: null,
+        };
+      })
+    )
+  );
 }
 
 describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
@@ -144,17 +306,149 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     expect(screen.getByTestId("audit-count-warnings").textContent).toContain("1");
   });
 
-  it("shows an Adopt button for automatic findings and a disabled Modify button otherwise", async () => {
+  it("shows an Adopt button for automatic findings and an enabled Modify button otherwise", async () => {
     render(<AuditDashboard />);
 
     expect(await screen.findByTestId("audit-adopt-0")).toBeInTheDocument();
-    const modifyBtn = screen.getByTestId("audit-modify-1");
+    const modifyBtn = await screen.findByTestId("audit-modify-1");
     expect(modifyBtn).toBeInTheDocument();
-    expect(modifyBtn).toBeDisabled();
-    expect(modifyBtn).toHaveAttribute(
-      "title",
+    // GitHub #451: the whole point — this used to be permanently disabled,
+    // leaving every finding without an automatic proposal unfixable via the UI.
+    expect(modifyBtn).not.toBeDisabled();
+  });
+
+  // GitHub #451: Modify must actually go somewhere. Findings are derived from
+  // the trace graph and never persisted, so the only way to clear one is to
+  // correct the artifact it points at — the button navigates to that editor,
+  // resolving the finding's *Artifact* id to the *entity* id the route takes.
+  it("navigates to the affected artifact's editor when Modify is clicked", async () => {
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-modify-1"));
+
+    expect(mockNavigate).toHaveBeenCalledWith(`/architecture/${ARCH_ENTITY_ID}`);
+  });
+
+  it("resolves the finding's artifact ids through the batch resolve endpoint", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-modify-1");
+    expect(traceabilityApi.resolve).toHaveBeenCalledWith(
+      expect.arrayContaining([REQ_ARTIFACT_ID, ARCH_ARTIFACT_ID])
+    );
+  });
+
+  // GitHub #451: the reason must also be visible as text, not only as a hover
+  // `title` — every finding without a registered automatic remediation lands
+  // here (the common case, not an edge case), and a hover-only tooltip is not
+  // discoverable via keyboard/touch/screen reader.
+  it("shows the not-auto-fixable reason as visible text next to the Modify button", async () => {
+    render(<AuditDashboard />);
+
+    const reason = await screen.findByTestId("audit-modify-reason-1");
+    expect(reason.textContent).toContain(
       "A dangling parent cannot be invented automatically."
     );
+  });
+
+  // GitHub #451: a control that cannot do anything is worse than no control —
+  // when the subject artifact has no editor route, render no button at all
+  // instead of a permanently disabled one.
+  it("renders no Modify button when the finding's artifact cannot be resolved", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue(DANGLING_REPORT);
+
+    render(<AuditDashboard />);
+
+    const reason = await screen.findByTestId("audit-modify-reason-0");
+    expect(reason.textContent).toContain(
+      "This finding references no artifact that can be opened"
+    );
+    expect(screen.queryByTestId("audit-modify-0")).not.toBeInTheDocument();
+  });
+
+  // GitHub #451: "Adopt" (TRACE-P5 et al.) vs "Modify" is the automatic/manual
+  // split of the backend's remediation analysis, not a per-rule inconsistency.
+  it("explains the Adopt/Modify distinction in a legend", async () => {
+    render(<AuditDashboard />);
+
+    const legend = await screen.findByTestId("audit-action-legend");
+    expect(legend.textContent).toContain("Adopt applies the correction");
+    expect(legend.textContent).toContain("Modify opens the affected artifact");
+  });
+
+  // GitHub #450: the scope selector must stay interactive (mirrors the
+  // severity selector on the same page, and ListToolbar's list pages), not
+  // gated on the in-flight audit run.
+  it("never disables the scope select, even while a request is in flight", async () => {
+    render(<AuditDashboard />);
+
+    const scopeSelect = await screen.findByTestId("audit-scope-select");
+    expect(scopeSelect).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId("audit-refresh-btn"));
+    expect(scopeSelect).not.toBeDisabled();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("audit-refresh-btn")).not.toBeDisabled()
+    );
+    expect(scopeSelect).not.toBeDisabled();
+  });
+
+  // ---- BUG-15: truncated result set ----
+
+  it("shows a truncation banner with shown/total counts when the backend caps the result", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue(TRUNCATED_REPORT);
+
+    render(<AuditDashboard />);
+
+    const banner = await screen.findByTestId("audit-truncated-banner");
+    expect(banner.textContent).toContain("2");
+    expect(banner.textContent).toContain("4440");
+  });
+
+  it("renders no truncation banner when the result set is not capped", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-finding-0");
+    expect(screen.queryByTestId("audit-truncated-banner")).not.toBeInTheDocument();
+  });
+
+  // Code review M3: the count badges must show the backend's true pre-cap
+  // totals when truncated, not the length of the (capped) findings array —
+  // otherwise a workspace with 4,440 real blockers shows "500" (or here, the
+  // 2-item fixture's "1") with no indication the number is partial.
+  it("shows the true pre-cap totals in the count badges when truncated, not the capped array length", async () => {
+    vi.mocked(auditApi.run).mockResolvedValue(TRUNCATED_REPORT);
+
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-truncated-banner");
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("4440");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("4440");
+    expect(screen.getByTestId("audit-count-warnings").textContent).toContain("0");
+  });
+
+  // ---- Failed run must never look like a clean run (GitHub #952) ----
+
+  // Defensive hardening for the reported UI false-negative (the API reported
+  // 24 blockers while the page showed "Findings: 0 · consistent"): the page
+  // must not decide "run succeeded" from the truthiness of an error *message*.
+  // An error carrying an empty message is reachable (the backend contract
+  // never validates it, and a transport failure can surface with none), and
+  // before this fix it fell straight through to the green empty state — a
+  // failed audit rendered as a successful, consistent trace graph.
+  it("renders the error banner instead of the empty state when a failed run has an empty message", async () => {
+    vi.mocked(auditApi.run).mockRejectedValue(new Error(""));
+
+    render(<AuditDashboard />);
+
+    const banner = await screen.findByTestId("audit-load-error");
+    // Non-empty fallback: the banner must still say something.
+    expect(banner.textContent?.trim()).toBe("Could not load audit findings.");
+    expect(screen.queryByTestId("audit-empty")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No findings — the trace graph is consistent for this scope.")
+    ).not.toBeInTheDocument();
   });
 
   // ---- Adopt: success ----
@@ -171,6 +465,10 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
 
     const adoptBtn = await screen.findByTestId("audit-adopt-0");
     fireEvent.click(adoptBtn);
+
+    // UI-57: Adopt now interposes a confirmation before firing the mutation.
+    const confirmBtn = await screen.findByTestId("audit-adopt-confirm-confirm");
+    fireEvent.click(confirmBtn);
 
     await waitFor(() => {
       expect(screen.queryByTestId("audit-finding-0")).not.toBeInTheDocument();
@@ -196,14 +494,24 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     const adoptBtn = await screen.findByTestId("audit-adopt-0");
     fireEvent.click(adoptBtn);
 
+    // UI-57: Adopt now interposes a confirmation before firing the mutation.
+    const confirmBtn = await screen.findByTestId("audit-adopt-confirm-confirm");
+    fireEvent.click(confirmBtn);
+
     const modifyBtn = await screen.findByTestId("audit-modify-0");
-    expect(modifyBtn).toBeDisabled();
-    expect(modifyBtn).toHaveAttribute("title", "Candidate became ambiguous; pick manually.");
+    // #451: the fallback is a usable manual action, not a dead disabled button.
+    expect(modifyBtn).not.toBeDisabled();
+    expect(screen.getByTestId("audit-modify-reason-0").textContent).toContain(
+      "Candidate became ambiguous; pick manually."
+    );
     expect(screen.getByTestId("audit-finding-error-0").textContent).toBe(
       "Candidate became ambiguous; pick manually."
     );
     // The finding is still present (not removed) — only its action state changed.
     expect(screen.getByTestId("audit-finding-0")).toBeInTheDocument();
+
+    fireEvent.click(modifyBtn);
+    expect(mockNavigate).toHaveBeenCalledWith(`/requirements/${REQ_ENTITY_ID}`);
   });
 
   // ---- Scope switch ----
@@ -232,5 +540,110 @@ describe("AuditDashboard (SysEng 2.0 Phase 3)", () => {
     });
 
     expect(await screen.findByTestId("audit-empty")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #596 — the findings list is mounted in bounded windows and can page past the
+// first one, instead of rendering the whole (480 KB at 500 findings) run.
+// ---------------------------------------------------------------------------
+
+describe("AuditDashboard — paged findings (#596)", () => {
+  /** Mocks `run` as a real #622-style windowed endpoint over a 250-finding run. */
+  function setupWindowedEndpoint(): void {
+    vi.mocked(auditApi.run).mockImplementation((_wsId, options) => {
+      const offset = options?.offset ?? 0;
+      const limit = options?.limit ?? 250;
+      return Promise.resolve(
+        windowReport(offset, Math.max(0, Math.min(limit, 250 - offset)))
+      );
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    setupWindowedEndpoint();
+  });
+
+  it("requests only the first window on load instead of the whole run", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-finding-0");
+
+    expect(auditApi.run).toHaveBeenCalledWith(
+      "ws-001",
+      expect.objectContaining({ limit: 100, offset: 0 })
+    );
+    // The DOM holds one window: findings 0..99, not all 250.
+    expect(screen.getByTestId("audit-finding-99")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-finding-100")).not.toBeInTheDocument();
+  });
+
+  it("shows the banner and the load-more control while more findings exist", async () => {
+    render(<AuditDashboard />);
+
+    const banner = await screen.findByTestId("audit-truncated-banner");
+    expect(banner.textContent).toContain("100");
+    expect(banner.textContent).toContain("250");
+    expect(screen.getByTestId("audit-load-more-btn")).toBeInTheDocument();
+  });
+
+  it("appends the next window and drops the control once every finding is mounted", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+
+    // Second window: 100..199, appended (the first window stays mounted).
+    expect(await screen.findByTestId("audit-finding-100")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-finding-0")).toBeInTheDocument();
+    expect(auditApi.run).toHaveBeenLastCalledWith(
+      "ws-001",
+      expect.objectContaining({ limit: 100, offset: 100 })
+    );
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+
+    // Third and last window: 200..249 — `truncated` is false now, so the
+    // banner and the button disappear again.
+    await waitFor(() => {
+      expect(screen.getByTestId("audit-finding-249")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("audit-load-more-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("audit-truncated-banner")).not.toBeInTheDocument();
+  });
+
+  it("keeps the true totals in the count badges until every window is loaded", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    // Only 100 of 250 findings are mounted, but the badges must not understate
+    // the run: they show the backend's pre-window totals (code review M3).
+    expect(screen.getByTestId("audit-count-total").textContent).toContain("250");
+    expect(screen.getByTestId("audit-count-blockers").textContent).toContain("200");
+  });
+
+  it("keeps the loaded findings readable when loading the next window fails", async () => {
+    render(<AuditDashboard />);
+
+    await screen.findByTestId("audit-load-more-btn");
+    vi.mocked(auditApi.run).mockRejectedValueOnce(new Error("network down"));
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+
+    const banner = await screen.findByTestId("audit-load-error");
+    expect(banner.textContent).toContain("network down");
+    // The page the user was working through is still there — a failed
+    // "Load more" must not discard it.
+    expect(screen.getByTestId("audit-finding-0")).toBeInTheDocument();
+    // ...and the failed window stays retryable (a Refresh would jump back to
+    // page 1 and throw the loaded pages away).
+    expect(screen.getByTestId("audit-load-more-btn")).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId("audit-load-more-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("audit-finding-100")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("audit-load-error")).not.toBeInTheDocument();
   });
 });

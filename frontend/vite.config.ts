@@ -14,13 +14,16 @@ export default defineConfig({
     port: 5173,
     allowedHosts: process.env.VITE_ALLOWED_HOSTS === 'true' ? true : (process.env.VITE_ALLOWED_HOSTS ? process.env.VITE_ALLOWED_HOSTS.split(',') : true),
     proxy: {
-      // Proxy API requests to Django backend during development
+      // Proxy API requests to Django backend during development.
+      // Defaults to the Docker Compose service hostname; override via
+      // VITE_API_BASE_URL when "backend" isn't resolvable (e.g. bare-process
+      // CI runners where Django listens on localhost).
       "/api": {
-        target: "http://backend:8000",
+        target: process.env.VITE_API_BASE_URL || "http://backend:8000",
         changeOrigin: true,
       },
       "/mcp": {
-        target: "http://backend:8000",
+        target: process.env.VITE_API_BASE_URL || "http://backend:8000",
         changeOrigin: true,
       },
     },

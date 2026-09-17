@@ -59,7 +59,7 @@ VIEWER_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
-VALID_API_KEY = "rf_testkey1234"
+VALID_API_KEY = "reqlo_testkey1234"
 WORKSPACE_UUID = UUID("00000000-0000-0000-0000-000000000010")
 
 
@@ -76,15 +76,19 @@ def _mock_requirement(id_val=None, title="Test Req", description="", category=""
     return req
 
 
-def _mock_arch_element(id_val=None, title="Arch El", element_type="component"):
+def _mock_arch_element(id_val=None, title="Arch El", element_type="component", artifact_id=None):
     el = MagicMock()
     el.id = id_val or UUID("00000000-0000-0000-0000-000000000030")
     el.title = title
     el.description = ""
     el.element_type = element_type
     el.version = 1
+    el.parent_id = None
     el.artifact = MagicMock()
     el.artifact.workspace_id = WORKSPACE_UUID
+    # Backing Artifact FK id (ArchitectureElement.artifact_id) — distinct from
+    # el.id, mirrors the real Django OneToOneField auto-attribute.
+    el.artifact_id = artifact_id or UUID("00000000-0000-0000-0000-000000000031")
     return el
 
 
@@ -170,6 +174,44 @@ class TestRequirementsToolGroup:
         svc.get_requirement.assert_called_once_with(mock_req.id, EDITOR_CTX)
         mock_audit.assert_not_called()  # read tool → no audit
 
+    @pytest.mark.parametrize("suspect", [True, False])
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_get_exposes_suspect_flag(self, mock_audit, suspect):
+        """Response fidelity (same class of gap as #409): the MCP surface must
+        expose `suspect`, which REST already returns. Without it an agent
+        cannot see that TraceLinkService.propagate_suspect_status flagged the
+        requirement."""
+        group, svc = self._group()
+        mock_req = _mock_requirement()
+        mock_req.suspect = suspect
+        svc.get_requirement.return_value = mock_req
+
+        result = group.execute_tool(
+            tool_name="requirement.get",
+            params={"id": str(mock_req.id)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert result.data["requirement"]["suspect"] is suspect
+
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_query_exposes_suspect_flag(self, mock_audit):
+        group, svc = self._group()
+        mock_req = _mock_requirement()
+        mock_req.suspect = True
+        svc.list_requirements.return_value = [mock_req]
+
+        result = group.execute_tool(
+            tool_name="requirement.query",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert result.data["requirements"][0]["suspect"] is True
+
+    @pytest.mark.django_db
     @patch("mcp_server.tools.requirements.write_mcp_audit")
     def test_requirement_create_calls_service_and_audits(self, mock_audit):
         group, svc = self._group()
@@ -189,6 +231,7 @@ class TestRequirementsToolGroup:
         assert call_kwargs["tool_name"] == "requirement.create"
         assert call_kwargs["operation"] == "create"
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.requirements.write_mcp_audit")
     def test_requirement_update_calls_service_and_audits(self, mock_audit):
         group, svc = self._group()
@@ -204,6 +247,37 @@ class TestRequirementsToolGroup:
         assert result.success is True
         mock_audit.assert_called_once()
 
+    @pytest.mark.django_db
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_update_accepts_flat_top_level_change_reason(self, mock_audit):
+        """Issue #601: requirement.update's documented contract nests fields
+        under `data` (issue #21), but need.update accepts flat top-level
+        params -- the cross-tool inconsistency led real callers to send
+        change_reason at the top level, where it was silently dropped
+        (data.get("change_reason") saw None even though the client did send
+        it), producing a confusing "change_reason required" error. The
+        handler must fall back to top-level params when `data` omits a
+        field, without breaking the documented nested contract."""
+        group, svc = self._group()
+        mock_req = _mock_requirement()
+        svc.update_requirement.return_value = mock_req
+
+        result = group.execute_tool(
+            tool_name="requirement.update",
+            params={
+                "id": str(mock_req.id),
+                "title": "renamed",
+                "change_reason": "QA-Test",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        svc.update_requirement.assert_called_once()
+        call_kwargs = svc.update_requirement.call_args.kwargs
+        assert call_kwargs["title"] == "renamed"
+        assert call_kwargs["change_reason"] == "QA-Test"
+
     def test_requirement_get_not_found_returns_error(self):
         group, svc = self._group()
         svc.get_requirement.side_effect = NotFoundError("not found")
@@ -217,6 +291,7 @@ class TestRequirementsToolGroup:
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
 
+    @pytest.mark.django_db
     def test_requirement_create_permission_denied(self):
         group, svc = self._group()
         svc.create_requirement.side_effect = PermissionDeniedError("no write")
@@ -318,6 +393,42 @@ class TestRequirementsToolGroup:
         assert result.error_code == "LLM_NOT_CONFIGURED"
         svc.check_consistency.assert_not_called()
 
+    def test_requirement_check_consistency_status_delegates_to_service(self):
+        """GH-796: the status tool delegates to the service's status query."""
+        group, svc = self._group()
+        svc.get_consistency_status.return_value = {
+            "task_id": "task-123",
+            "status": "done",
+            "result": {"score": 0.9},
+        }
+
+        result = group.execute_tool(
+            tool_name="requirement.check_consistency_status",
+            params={"task_id": "task-123"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        svc.get_consistency_status.assert_called_once_with("task-123", EDITOR_CTX)
+        assert result.data == {
+            "task_id": "task-123",
+            "status": "done",
+            "result": {"score": 0.9},
+        }
+
+    def test_requirement_check_consistency_status_requires_task_id(self):
+        group, svc = self._group()
+        result = group.execute_tool(
+            tool_name="requirement.check_consistency_status",
+            params={},  # no task_id
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "INVALID_PARAMS"
+        svc.get_consistency_status.assert_not_called()
+
     def test_requirement_query_requires_workspace_id(self):
         group, svc = self._group()
         result = group.execute_tool(
@@ -353,6 +464,75 @@ class TestRequirementsToolGroup:
         assert result.success is False
         assert result.error_code == "UNKNOWN_TOOL"
 
+    # -----------------------------------------------------------------
+    # requirement.derive (Issue #459 finding 2: the MCP handler forwards
+    # description as-is — the inherit-from-parent-if-omitted fallback lives
+    # in RequirementService.derive_requirement, covered by
+    # application/tests/test_requirement_service.py
+    # TestDeriveRequirementDescriptionInheritance)
+    # -----------------------------------------------------------------
+
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_derive_without_description_forwards_empty_string(self, mock_audit):
+        group, svc = self._group()
+        child = _mock_requirement(
+            id_val=UUID("00000000-0000-0000-0000-000000000021"),
+            title="Child",
+            description="Inherited parent description",
+        )
+        derive_result = MagicMock()
+        derive_result.children = [child]
+        derive_result.parent_id = UUID("00000000-0000-0000-0000-000000000020")
+        derive_result.trace_link_ids = [UUID("00000000-0000-0000-0000-000000000050")]
+        svc.derive_requirement.return_value = derive_result
+
+        result = group.execute_tool(
+            tool_name="requirement.derive",
+            params={
+                "parent_requirement_id": "00000000-0000-0000-0000-000000000020",
+                "architecture_element_id": "00000000-0000-0000-0000-000000000030",
+                "title": "Child",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        # No description passed by the caller → MCP layer forwards "" and
+        # relies on RequirementService.derive_requirement to inherit the
+        # parent's description (it must NOT invent one itself here).
+        assert svc.derive_requirement.call_args.kwargs["description"] == ""
+        # The response reflects whatever the service actually persisted.
+        assert result.data["requirement"]["description"] == "Inherited parent description"
+        mock_audit.assert_called_once()
+
+    @patch("mcp_server.tools.requirements.write_mcp_audit")
+    def test_requirement_derive_with_explicit_description_forwards_it(self, mock_audit):
+        group, svc = self._group()
+        child = _mock_requirement(
+            id_val=UUID("00000000-0000-0000-0000-000000000021"),
+            title="Child",
+            description="Explicit description",
+        )
+        derive_result = MagicMock()
+        derive_result.children = [child]
+        derive_result.parent_id = UUID("00000000-0000-0000-0000-000000000020")
+        derive_result.trace_link_ids = []
+        svc.derive_requirement.return_value = derive_result
+
+        result = group.execute_tool(
+            tool_name="requirement.derive",
+            params={
+                "parent_requirement_id": "00000000-0000-0000-0000-000000000020",
+                "architecture_element_id": "00000000-0000-0000-0000-000000000030",
+                "title": "Child",
+                "description": "Explicit description",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert svc.derive_requirement.call_args.kwargs["description"] == "Explicit description"
+
 
 # ---------------------------------------------------------------------------
 # ArchitectureToolGroup tests
@@ -380,6 +560,31 @@ class TestArchitectureToolGroup:
         assert result.success is True
         svc.get_architecture_element.assert_called_once_with(el.id, EDITOR_CTX)
 
+    def test_architecture_get_includes_artifact_id(self):
+        """Follow-up fix: _arch_el_to_dict must expose 'artifact_id' (the
+        ArchitectureElement's backing Artifact id) so MCP callers can resolve
+        requirement_bundle.export's item-level 'found_under_element_id',
+        which is documented as being that same artifact_id, not an
+        ArchitectureElement id. Restores parity with
+        ArchitectureElementSerializer (rest_api/serializers.py), which
+        already exposes this field."""
+        group, svc, _ = self._group()
+        artifact_id = UUID("00000000-0000-0000-0000-0000000000aa")
+        el = _mock_arch_element(artifact_id=artifact_id)
+        svc.get_architecture_element.return_value = el
+
+        result = group.execute_tool(
+            tool_name="architecture.get",
+            params={"id": str(el.id)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        assert result.data["architecture_element"]["artifact_id"] == str(artifact_id)
+        # It must be the Artifact id, not the ArchitectureElement id itself.
+        assert result.data["architecture_element"]["artifact_id"] != str(el.id)
+
+    @pytest.mark.django_db
     @patch("mcp_server.tools.architecture.write_mcp_audit")
     def test_architecture_create_calls_service_and_audits(self, mock_audit):
         group, svc, _ = self._group()
@@ -395,6 +600,79 @@ class TestArchitectureToolGroup:
         assert result.success is True
         assert "architecture_element" in result.data
         mock_audit.assert_called_once()
+        # Backward compatibility: omitting parent_id forwards None (root).
+        assert svc.create_architecture_element.call_args.kwargs["parent_id"] is None
+
+    @pytest.mark.django_db
+    @patch("mcp_server.tools.architecture.write_mcp_audit")
+    def test_architecture_create_forwards_parent_id_to_service(self, mock_audit):
+        """#fix: architecture.create previously dropped 'parent_id' silently.
+        Confirm it now reaches the ArchitectureService call, matching the
+        REST API's ArchitectureElementViewSet.create behaviour."""
+        group, svc, _ = self._group()
+        el = _mock_arch_element()
+        svc.create_architecture_element.return_value = el
+        parent_id = "00000000-0000-0000-0000-000000000099"
+
+        result = group.execute_tool(
+            tool_name="architecture.create",
+            params={
+                "title": "Child",
+                "workspace_id": str(WORKSPACE_UUID),
+                "parent_id": parent_id,
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        svc.create_architecture_element.assert_called_once_with(
+            workspace_id=WORKSPACE_UUID,
+            title="Child",
+            ctx=EDITOR_CTX,
+            description="",
+            element_type="component",
+            parent_id=UUID(parent_id),
+            # Epic #934 WS1: the writable defined attributes are forwarded too.
+            asil_level=None,
+            make_or_buy=None,
+            custom_fields=None,
+        )
+
+    @pytest.mark.django_db
+    @patch("mcp_server.tools.architecture.write_mcp_audit")
+    def test_architecture_update_forwards_parent_id_to_service(self, mock_audit):
+        """architecture.update must forward an explicit 'parent_id' (including
+        null, to detach to root) for re-parenting via MCP, matching REST's
+        partial_update contract.
+
+        Epic #934 WS1: the update response now resolves the read-only ``status``
+        system attribute from the workflow engine, so this path needs DB access
+        like its create siblings above.
+        """
+        group, svc, _ = self._group()
+        el = _mock_arch_element()
+        svc.update_architecture_element.return_value = el
+        parent_id = "00000000-0000-0000-0000-000000000088"
+
+        result = group.execute_tool(
+            tool_name="architecture.update",
+            params={
+                "id": str(el.id),
+                "data": {"expected_version": 1, "parent_id": parent_id},
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        svc.update_architecture_element.assert_called_once_with(
+            arch_el_id=el.id,
+            ctx=EDITOR_CTX,
+            expected_version=1,
+            title=None,
+            description=None,
+            element_type=None,
+            parent_id=UUID(parent_id),
+        )
 
     @patch("mcp_server.tools.architecture.write_mcp_audit")
     def test_architecture_link_with_valid_type_calls_trace_service(self, mock_audit):
@@ -407,7 +685,7 @@ class TestArchitectureToolGroup:
             params={
                 "arch_id": "00000000-0000-0000-0000-000000000030",
                 "target_id": "00000000-0000-0000-0000-000000000020",
-                "link_type": "implements",
+                "link_type": "allocated-to",
             },
             auth_context=EDITOR_CTX,
             api_key=VALID_API_KEY,
@@ -417,20 +695,36 @@ class TestArchitectureToolGroup:
         trace_svc.create_trace_link.assert_called_once()
         mock_audit.assert_called_once()
 
-    def test_architecture_link_invalid_type_returns_validation_error(self):
-        group, _, _ = self._group()
-        result = group.execute_tool(
-            tool_name="architecture.link",
-            params={
-                "arch_id": "00000000-0000-0000-0000-000000000030",
-                "target_id": "00000000-0000-0000-0000-000000000020",
-                "link_type": "invalid_link_type",
-            },
-            auth_context=EDITOR_CTX,
-            api_key=VALID_API_KEY,
+    def test_architecture_link_no_longer_pre_rejects_an_unknown_type(self):
+        """The hardcoded pre-check is gone; the catalog is the only authority.
+
+        Same treatment Task 21 gave ``traceability.create_link``: an
+        unrecognized key must reach ``TraceLinkService.create_trace_link``
+        (mocked here) instead of being rejected by a fixed set that cannot
+        know about tenant-invented types. The real rejection still happens —
+        one layer deeper, against the resolved workspace catalog — which
+        ``test_e2e_architecture_link_invalid_link_type_returns_validation_error``
+        pins end-to-end against a real database.
+        """
+        group, _, trace_svc = self._group()
+        trace_svc.create_trace_link.return_value = _mock_trace_link()
+
+        with patch("mcp_server.tools.architecture.write_mcp_audit"):
+            result = group.execute_tool(
+                tool_name="architecture.link",
+                params={
+                    "arch_id": "00000000-0000-0000-0000-000000000030",
+                    "target_id": "00000000-0000-0000-0000-000000000020",
+                    "link_type": "conflicts-with",
+                },
+                auth_context=EDITOR_CTX,
+                api_key=VALID_API_KEY,
+            )
+
+        assert result.success is True
+        assert trace_svc.create_trace_link.call_args.kwargs["link_type"] == (
+            "conflicts-with"
         )
-        assert result.success is False
-        assert result.error_code == "VALIDATION_ERROR"
 
     def test_architecture_query_requires_workspace_id(self):
         group, _, _ = self._group()
@@ -442,6 +736,30 @@ class TestArchitectureToolGroup:
         )
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
+
+    def test_architecture_link_schema_publishes_no_enum(self):
+        """architecture.link's link_type is a free string, like create_link's.
+
+        #33 originally asked for a published enum so callers could discover
+        the valid values without a failed round-trip. The link-type catalog
+        is tenant- and workspace-configurable, so no enum can be both correct
+        and static — a published one would make the tools/list manifest
+        tenant-specific. Discovery moved to ``link_type.list``, which the
+        description points at; validation is server-side against the resolved
+        catalog. Mirrors
+        ``test_create_link_no_longer_publishes_an_enum`` for
+        ``traceability.create_link``, so the two link-creating tools cannot
+        drift into contradictory contracts again.
+        """
+        schema = next(
+            s
+            for s in ArchitectureToolGroup._TOOL_SCHEMAS
+            if s["name"] == "architecture.link"
+        )
+        link_type_prop = schema["inputSchema"]["properties"]["link_type"]
+        assert link_type_prop["type"] == "string"
+        assert "enum" not in link_type_prop
+        assert "link_type.list" in link_type_prop["description"]
 
     def test_architecture_get_not_found(self):
         group, svc, _ = self._group()
@@ -492,6 +810,7 @@ class TestTestToolGroup:
         assert result.success is True
         svc.get_test_case.assert_called_once_with(tc.id, EDITOR_CTX)
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.tests.write_mcp_audit")
     def test_test_create_calls_service_and_audits(self, mock_audit):
         group, svc, trace_svc, _ = self._group()
@@ -508,6 +827,7 @@ class TestTestToolGroup:
         svc.create_test_case.assert_called_once()
         mock_audit.assert_called()
 
+    @pytest.mark.django_db
     @patch("mcp_server.tools.tests.write_mcp_audit")
     def test_test_create_with_linked_req_creates_trace_link(self, mock_audit):
         group, svc, trace_svc, _ = self._group()
@@ -594,6 +914,94 @@ class TestTestToolGroup:
         assert result.error_code == "VALIDATION_ERROR"
 
     # -----------------------------------------------------------------
+    # test.run_create (Issue #459 finding 1: unknown params must be rejected,
+    # not silently ignored)
+    # -----------------------------------------------------------------
+
+    @patch("mcp_server.tools.tests.write_mcp_audit")
+    def test_run_create_with_correct_test_case_ids_succeeds(self, mock_audit):
+        # test.run_create uses a dedicated `run_service` (TestRunService),
+        # not the `service` (TestService) constructed by self._group() —
+        # must be mocked explicitly here.
+        run_service = MagicMock()
+        group = TestToolGroup(
+            service=MagicMock(),
+            trace_service=MagicMock(),
+            run_service=run_service,
+            ai_derivation_service=MagicMock(),
+        )
+        tr = MagicMock()
+        tr.id = UUID("00000000-0000-0000-0000-000000000099")
+        tr.workspace_id = WORKSPACE_UUID
+        run_service.create_test_run.return_value = tr
+
+        tc_id = "00000000-0000-0000-0000-000000000042"
+        result = group.execute_tool(
+            tool_name="test.run_create",
+            params={
+                "workspace_id": str(WORKSPACE_UUID),
+                "name": "Run 1",
+                "test_case_ids": [tc_id],
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        run_service.create_test_run.assert_called_once()
+        assert run_service.create_test_run.call_args.kwargs["test_case_ids"] == [UUID(tc_id)]
+
+    def test_run_create_rejects_unknown_singular_test_case_id_param(self):
+        """A caller sending 'test_case_id' (singular, the wrong/undocumented
+        name) instead of 'test_case_ids' must get a VALIDATION_ERROR naming
+        the unknown parameter, instead of the run silently being created
+        without any test cases attached."""
+        run_service = MagicMock()
+        group = TestToolGroup(
+            service=MagicMock(),
+            trace_service=MagicMock(),
+            run_service=run_service,
+            ai_derivation_service=MagicMock(),
+        )
+
+        result = group.execute_tool(
+            tool_name="test.run_create",
+            params={
+                "workspace_id": str(WORKSPACE_UUID),
+                "name": "Run 1",
+                "test_case_id": "00000000-0000-0000-0000-000000000042",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "test_case_id" in result.message
+        assert "test_case_ids" in result.message
+        run_service.create_test_run.assert_not_called()
+
+    def test_run_create_with_title_instead_of_name_names_unknown_param(self):
+        """A caller sending 'title' instead of the documented 'name' must be
+        told which parameter is unknown, not just that 'name' is missing."""
+        run_service = MagicMock()
+        group = TestToolGroup(
+            service=MagicMock(),
+            trace_service=MagicMock(),
+            run_service=run_service,
+            ai_derivation_service=MagicMock(),
+        )
+
+        result = group.execute_tool(
+            tool_name="test.run_create",
+            params={"workspace_id": str(WORKSPACE_UUID), "title": "Run 1"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "title" in result.message
+        run_service.create_test_run.assert_not_called()
+
+    # -----------------------------------------------------------------
     # test.derive_from_requirement (SysEng 2.0 N5)
     # -----------------------------------------------------------------
 
@@ -648,12 +1056,17 @@ class TestTestToolGroup:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
 
-    def test_derive_from_requirement_is_not_a_write_tool(self):
-        """SysEng 2.0 N5: draft-only, must not require write RBAC (no persistence)."""
+    def test_derive_from_requirement_is_registered_as_write_tool(self):
+        """Phase 3 (REQ-L2-AI-003): mode='write' makes this tool capable of
+        mutation, so it is now registered in tool_registry._WRITE_TOOL_PREFIXES
+        (name-based gate, not mode-aware — see mcp_server/tools/tests.py
+        module docstring). Supersedes the pre-Phase-3
+        test_derive_from_requirement_is_not_a_write_tool assumption.
+        """
         from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
 
         tool_name = "test.derive_from_requirement"
-        assert not any(
+        assert any(
             tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES
         )
 
@@ -733,6 +1146,54 @@ class TestTestToolGroup:
         assert result.error_code == "VALIDATION_ERROR"
         run_svc.add_results_bulk.assert_not_called()
 
+    # ------------------------------------------------------------------
+    # test.run_complete (GH-403: lifecycle had no way to leave in_progress)
+    # ------------------------------------------------------------------
+
+    @patch("mcp_server.tools.tests.write_mcp_audit")
+    def test_run_complete_calls_close_test_run(self, mock_audit):
+        group, run_svc = self._group_with_run_service()
+        run_id = UUID("00000000-0000-0000-0000-000000000070")
+        tr = MagicMock()
+        tr.id = run_id
+        tr.workspace_id = WORKSPACE_UUID
+        tr.name = "Run 1"
+        tr.status = "passed"
+        tr.ci_job_id = ""
+        tr.started_at = None
+        tr.finished_at = None
+        run_svc.close_test_run.return_value = tr
+
+        result = group.execute_tool(
+            tool_name="test.run_complete",
+            params={"run_id": str(run_id)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        run_svc.close_test_run.assert_called_once_with(
+            test_run_id=run_id, ctx=EDITOR_CTX
+        )
+        assert result.data["test_run"]["status"] == "passed"
+        mock_audit.assert_called_once()
+
+    def test_run_complete_not_found_returns_error(self):
+        from application.base import NotFoundError
+
+        group, run_svc = self._group_with_run_service()
+        run_svc.close_test_run.side_effect = NotFoundError("TestRun not found")
+
+        result = group.execute_tool(
+            tool_name="test.run_complete",
+            params={"run_id": "00000000-0000-0000-0000-000000000070"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
 
 # ---------------------------------------------------------------------------
 # CrossCuttingToolGroup tests (basic routing, no DB)
@@ -776,6 +1237,21 @@ class TestCrossCuttingToolGroup:
         )
         assert result.success is True
         search_svc.search.assert_called_once()
+
+    def test_artifact_search_schema_publishes_full_type_filter_enum(self):
+        """#345 Finding 2b: `type_filter` used to accept only Requirement/
+        ArchitectureElement/TestCase — Needs, Goals and ADRs 400ed. The
+        published enum must be exactly what the service accepts."""
+        from application.search_service import SEARCHABLE_ARTIFACT_TYPES
+
+        group, _, _, _ = self._group()
+        schema = next(
+            s for s in group.get_tool_schemas() if s["name"] == "artifact.search"
+        )["inputSchema"]
+
+        enum_values = schema["properties"]["type_filter"]["items"]["enum"]
+        assert set(enum_values) == set(SEARCHABLE_ARTIFACT_TYPES)
+        assert {"StakeholderNeed", "Goal", "Adr"} <= set(enum_values)
 
     def test_artifact_search_requires_query(self):
         group, _, _, _ = self._group()

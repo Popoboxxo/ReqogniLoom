@@ -1,0 +1,7 @@
+/* IcdList — row list container (ch. 12.3), mirrors AdrList.module.css. */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}

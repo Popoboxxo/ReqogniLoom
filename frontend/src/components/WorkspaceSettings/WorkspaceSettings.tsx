@@ -15,27 +15,35 @@
  * (Llm/PromptTemplate/Workflows/Permissions/BackupRestore) already render their
  * own consistently-styled <section> cards, so they are embedded unchanged.
  *
- * TODO(REQ-follow-up): the workspace folder also contains an unused
- * `AiPromptsSection.tsx` ("AI Derivation Prompts", per-level workspace.ai_prompts)
- * which overlaps conceptually with `PromptTemplateSection` ("AI Prompt Templates").
- * The user reported this as confusing/duplicated content. Resolving that overlap
- * is a functional change and out of scope for the REQ-015 layout redesign.
+ * Issue #119 resolved the former overlap between the (unused, `ai_prompts`-blob
+ * based) `AiPromptsSection` and `PromptTemplateSection`: there is now a single
+ * `AiPromptsSection` backed by the `/prompt-templates/slots/` API, covering
+ * every prompt slot at both the global and the per-workspace scope.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
+import { useTheme } from "../../context/ThemeContext";
 import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
 import { WorkflowPermissionsSection } from "./WorkflowPermissionsSection";
+import { AttributeEditorPage } from "../AttributeEditor";
 import { PermissionsSection } from "./PermissionsSection";
-import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { LlmSettingsSection } from "./LlmSettingsSection";
-import { PromptTemplateSection } from "./PromptTemplateSection";
-import { CustomFieldsSection } from "./CustomFieldsSection";
-import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
+import { AiPromptsSection } from "./AiPromptsSection";
+import { PromptVariablesSection } from "./PromptVariablesSection";
+import { McpConnectionSection } from "./McpConnectionSection";
+import { ContextGraphSettingsSection } from "./ContextGraphSettingsSection";
+import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
+import { MemorySettingsSection } from "./MemorySettingsSection";
+import { useLinkTypes } from "../../context/LinkTypeContext";
+import { PageHeader } from "../shared/PageHeader";
+import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -43,33 +51,102 @@ const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReaso
   extended: { baselines: true,  changeReason: "required", workflow: "Full + Approval workflow" },
 };
 
+/** Ordinal rank for rigor comparison — a switch to a lower rank is a
+ * downgrade (UI-22: extended→minimal used to fire on the radio's onChange
+ * with no warning that it drops rigor-gated behaviour like baselines and
+ * the approval workflow). */
+const PRESET_RANK: Record<WorkspacePreset, number> = {
+  minimal: 0,
+  standard: 1,
+  extended: 2,
+};
+
 /**
  * Tab identifiers for the settings surface (REQ-015; REQ-184/185 IA split).
  * The former ``governance`` tab is rebuilt as ``workflows-permissions``; the
  * former ``admin`` tab relocated to System Settings (SCR-204).
+ *
+ * M-03: ``appearance`` splits the two *presentation* preferences (interface
+ * language and theme) out of ``general``. They were sitting between the
+ * workspace's rigor preset, terminology profile and data-management actions —
+ * settings that change how the product behaves — even though they only change
+ * how it looks, and are the two a user is most likely to go looking for.
+ * ``general`` keeps everything that configures the workspace itself.
  */
 type SettingsTabId =
   | "general"
+  | "appearance"
   | "traceability"
-  | "visibility"
   | "llm"
-  | "workflows-permissions";
+  | "workflows-permissions"
+  | "attributes";
+
+/** Keyboard (arrow-key) traversal order — must mirror the rendered order. */
+const SETTINGS_TAB_IDS: SettingsTabId[] = [
+  "general",
+  "appearance",
+  "traceability",
+  "llm",
+  "workflows-permissions",
+  "attributes",
+];
+
+function isSettingsTabId(value: string | null): value is SettingsTabId {
+  return value !== null && (SETTINGS_TAB_IDS as string[]).includes(value);
+}
 
 export default function WorkspaceSettings(): JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n: i18nInstance } = useTranslation();
+  // Same DE/EN resolution convention as CreateTraceLinkDialog (triLabelLang).
+  const triLabelLang = i18nInstance?.language?.startsWith("de") ? "de" : "en";
+  const navigate = useNavigate();
   const {
     activeWorkspace,
     reloadWorkspaces,
   } = useWorkspace();
   const { roles } = useAuth();
+  const { creatableLinkTypes, labelFor } = useLinkTypes();
+  // A <select> silently falls back to option[0] for a value it does not
+  // carry — render the stored value as an extra disabled option when it is
+  // absent from the catalog, otherwise saving an untouched form downgrades
+  // a working configuration (e.g. a retired pre-catalog default).
+  const decompositionTypeIsKnown = creatableLinkTypes.some(
+    (row) => row.key === activeWorkspace?.decomposition_link_type,
+  );
+  const defaultTypeIsKnown = creatableLinkTypes.some(
+    (row) => row.key === activeWorkspace?.default_link_type,
+  );
 
   const [name, setName] = useState(activeWorkspace?.name ?? "");
+  // `activeWorkspace` often carries a stale/placeholder `name` on this
+  // component's first render even though its `id` is already the real
+  // workspace id (WorkspaceContext seeds `DEFAULT_WORKSPACE.id` from
+  // sessionStorage before the real workspace object resolves) —
+  // `useState`'s initializer only runs once, so keying this resync on `id`
+  // alone misses that transition entirely and the field stays permanently
+  // empty. Depending on `name` too re-syncs the moment the real value
+  // arrives. This still never clobbers an in-progress edit: after a save,
+  // `activeWorkspace.name` becomes exactly what `name` already holds, so
+  // the resync is a same-value no-op.
+  useEffect(() => {
+    setName(activeWorkspace?.name ?? "");
+  }, [activeWorkspace?.id, activeWorkspace?.name]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
-  const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
+  // #609: allow deep-linking a tab via ?tab=llm (e.g. the /prompts redirect)
+  // instead of always landing on "general".
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(() => {
+    const requested = searchParams.get("tab");
+    return isSettingsTabId(requested) ? requested : "general";
+  });
 
   const isAdmin = roles.includes("admin");
+
+  // UI-22: a pending downgrade waits here for confirmation instead of
+  // switching the preset straight from the radio's onChange.
+  const [pendingPresetDowngrade, setPendingPresetDowngrade] = useState<WorkspacePreset | null>(null);
 
   const handlePresetChange = useCallback(async (preset: WorkspacePreset): Promise<void> => {
     if (!activeWorkspace || preset === activeWorkspace.preset) return;
@@ -83,6 +160,23 @@ export default function WorkspaceSettings(): JSX.Element {
       setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
     }
   }, [activeWorkspace, reloadWorkspaces]);
+
+  const requestPresetChange = useCallback((preset: WorkspacePreset): void => {
+    if (!activeWorkspace) return;
+    const isDowngrade = PRESET_RANK[preset] < PRESET_RANK[activeWorkspace.preset as WorkspacePreset];
+    if (isDowngrade) {
+      setPendingPresetDowngrade(preset);
+      return;
+    }
+    void handlePresetChange(preset);
+  }, [activeWorkspace, handlePresetChange]);
+
+  const confirmPresetDowngrade = useCallback((): void => {
+    if (!pendingPresetDowngrade) return;
+    const preset = pendingPresetDowngrade;
+    setPendingPresetDowngrade(null);
+    void handlePresetChange(preset);
+  }, [pendingPresetDowngrade, handlePresetChange]);
 
   const handleProfileChange = useCallback(async (profile: TerminologyProfile): Promise<void> => {
     if (!activeWorkspace || profile === activeWorkspace.terminology_profile) return;
@@ -111,6 +205,10 @@ export default function WorkspaceSettings(): JSX.Element {
       setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
     }
   }, [activeWorkspace, reloadWorkspaces]);
+
+  // Theme Presets: two independent axes (palette x mode), resolved and
+  // persisted by ThemeContext — no longer a workspace-owned `theme` field.
+  const { paletteKey, mode, palettes, setPreference } = useTheme();
 
   const handleSaveName = useCallback(async (): Promise<void> => {
     if (!activeWorkspace || !name.trim() || name === activeWorkspace.name) return;
@@ -161,6 +259,18 @@ export default function WorkspaceSettings(): JSX.Element {
     fontSize: "var(--font-size-base)",
   };
 
+  const palettePickerStyle: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: "var(--space-1)",
+  };
+
+  const modePickerStyle: React.CSSProperties = {
+    display: "flex",
+    gap: "var(--space-2)",
+    marginTop: "var(--space-2)",
+  };
+
   const fieldLabelStyle: React.CSSProperties = {
     display: "block",
     marginBottom: "var(--space-2)",
@@ -174,14 +284,14 @@ export default function WorkspaceSettings(): JSX.Element {
     padding: "var(--space-2) var(--space-3)",
     borderRadius: "var(--radius-md)",
     border: "1px solid var(--color-border)",
-    background: "var(--color-background)",
+    background: "var(--color-surface-raised)",
     color: "var(--color-text)",
     fontSize: "var(--font-size-sm)",
   };
 
   const primaryButtonStyle: React.CSSProperties = {
     background: "var(--color-primary)",
-    color: "white",
+    color: "var(--color-on-primary)",
     border: "none",
     borderRadius: "var(--radius-md)",
     padding: "var(--space-2) var(--space-4)",
@@ -198,7 +308,7 @@ export default function WorkspaceSettings(): JSX.Element {
   if (!isAdmin) {
     return (
       <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
-        <h2>{t("nav.settings")}</h2>
+        <PageHeader title={t("nav.settings")} />
         <p style={{ color: "var(--color-warning)" }}>
           {t("settings.adminOnly", "You must be an admin to view or edit Workspace Settings. Please visit the Profile dialog for personal preferences.")}
         </p>
@@ -210,23 +320,29 @@ export default function WorkspaceSettings(): JSX.Element {
 
   const TABS: { id: SettingsTabId; label: string }[] = [
     { id: "general", label: t("settings.tabs.general", "Allgemein") },
+    { id: "appearance", label: t("settings.tabs.appearance", "Darstellung") },
     { id: "traceability", label: t("settings.tabs.traceability", "Traceability") },
-    { id: "visibility", label: t("settings.tabs.visibility", "Sichtbarkeit") },
     { id: "llm", label: t("settings.tabs.llm", "LLM & Prompts") },
     { id: "workflows-permissions", label: t("settings.tabs.governanceReplacement", "Workflows & Permissions") },
+    { id: "attributes", label: t("settings.tabs.attributes", "Attributes") },
   ];
 
   return (
     <div data-testid="workspace-settings" style={{ maxWidth: "860px", margin: "0 auto", padding: "var(--space-6)" }}>
-      <h2 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, color: "var(--color-text)", marginBottom: "var(--space-5)" }}>
-        {t("nav.settings")}
-      </h2>
+      <PageHeader
+        title={t("nav.settings")}
+        summary={t(
+          "settings.pageSummary",
+          "Workspace-Konfiguration: Preset, Traceability, Sichtbarkeit, LLM-Einstellungen und Workflows.",
+        )}
+      />
 
       {/* Tab navigation (REQ-015) */}
       <div
         role="tablist"
         aria-label={t("nav.settings")}
         data-testid="settings-tablist"
+        onKeyDown={(e) => handleTablistKeyDown(e, SETTINGS_TAB_IDS, activeTab, setActiveTab)}
         style={{
           display: "flex",
           flexWrap: "wrap",
@@ -246,6 +362,7 @@ export default function WorkspaceSettings(): JSX.Element {
               data-testid={`settings-tab-${tab.id}`}
               aria-selected={isTabActive}
               aria-controls={`settings-panel-${tab.id}`}
+              tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setActiveTab(tab.id)}
               style={{
                 appearance: "none",
@@ -280,15 +397,16 @@ export default function WorkspaceSettings(): JSX.Element {
           <>
             {/* Workspace Name */}
             <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.workspaceName", "Workspace Name")}</h3>
+              <h3 id="workspace-name-heading" style={headingStyle}>{t("settings.workspaceName", "Workspace Name")}</h3>
               <div style={{ display: "flex", gap: "var(--space-2)" }}>
                 <input
                   data-testid="workspace-name-input"
+                  aria-labelledby="workspace-name-heading"
                   value={name}
                   onChange={(e) => { setName(e.target.value); setSavedOk(false); }}
                   style={{
                     flex: 1,
-                    background: "var(--color-background)",
+                    background: "var(--color-surface-raised)",
                     border: "1px solid var(--color-border)",
                     borderRadius: "var(--radius-md)",
                     padding: "var(--space-2) var(--space-3)",
@@ -299,10 +417,10 @@ export default function WorkspaceSettings(): JSX.Element {
                 <button
                   data-testid="workspace-name-save"
                   onClick={() => void handleSaveName()}
-                  disabled={isSaving || name === activeWorkspace.name}
+                  disabled={isSaving || !name.trim() || name === activeWorkspace.name}
                   style={{
                     ...primaryButtonStyle,
-                    opacity: (isSaving || name === activeWorkspace.name) ? 0.5 : 1,
+                    opacity: (isSaving || !name.trim() || name === activeWorkspace.name) ? 0.5 : 1,
                   }}
                 >
                   {isSaving ? "…" : t("actions.save")}
@@ -322,7 +440,7 @@ export default function WorkspaceSettings(): JSX.Element {
                       key={preset}
                       style={{
                         ...labelStyle,
-                        background: isActive ? "rgba(var(--color-primary-rgb, 79,70,229), 0.08)" : "transparent",
+                        background: isActive ? "rgba(var(--color-primary-rgb), 0.08)" : "transparent",
                         borderRadius: "var(--radius-md)",
                         padding: "var(--space-3)",
                         border: isActive ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
@@ -334,15 +452,22 @@ export default function WorkspaceSettings(): JSX.Element {
                         name="preset"
                         value={preset}
                         checked={isActive}
-                        onChange={() => void handlePresetChange(preset)}
+                        onChange={() => requestPresetChange(preset)}
                         data-testid={`preset-option-${preset}`}
                       />
                       <div>
                         <div style={{ fontWeight: 600, textTransform: "capitalize" }}>{preset}</div>
-                        <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginTop: "2px" }}>
-                          Baselines: {features.baselines ? "✓" : "✗"} &nbsp;|&nbsp;
-                          change_reason: {features.changeReason} &nbsp;|&nbsp;
-                          {features.workflow}
+                        <div
+                          data-testid={`preset-features-${preset}`}
+                          style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginTop: "2px" }}
+                        >
+                          <div>{features.baselines ? "✓" : "✗"} {t("settings.presets.baselines", "Baselines")}</div>
+                          <div>
+                            {features.changeReason === "required" ? "✓" : "✗"}{" "}
+                            {t("settings.presets.changeReason", "Change Reason")}{" "}
+                            ({features.changeReason === "required" ? t("settings.presets.required", "required") : t("settings.presets.optional", "optional")})
+                          </div>
+                          <div>✓ {t("settings.presets.workflow", "Workflow")}: {features.workflow}</div>
                         </div>
                       </div>
                     </label>
@@ -387,6 +512,84 @@ export default function WorkspaceSettings(): JSX.Element {
               ))}
             </section>
 
+            {/* Ziele (Goal/MainGoal, REQ-L2-TE-020) — feature + AI-generation toggle */}
+            <section style={cardStyle}>
+              <h3 style={headingStyle}>{t("settings.goals", "Ziele")}</h3>
+              <label style={labelStyle}>
+                <input
+                  type="checkbox"
+                  data-testid="goals-enabled-checkbox"
+                  checked={!!activeWorkspace.goals_enabled}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setSaveError(null);
+                    setSavedOk(false);
+                    workspacesApi.update(activeWorkspace.id, { goals_enabled: val })
+                      .then(() => reloadWorkspaces(activeWorkspace.id))
+                      .then(() => setSavedOk(true))
+                      .catch((err) => setSaveError(err?.error?.message ?? String(err)));
+                  }}
+                />
+                {t("settings.goalsEnabled", "Ziele-Feature aktivieren")}
+              </label>
+              <label style={labelStyle}>
+                <input
+                  type="checkbox"
+                  data-testid="goals-ai-enabled-checkbox"
+                  checked={!!activeWorkspace.goals_ai_enabled}
+                  disabled={!activeWorkspace.goals_enabled}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setSaveError(null);
+                    setSavedOk(false);
+                    workspacesApi.update(activeWorkspace.id, { goals_ai_enabled: val })
+                      .then(() => reloadWorkspaces(activeWorkspace.id))
+                      .then(() => setSavedOk(true))
+                      .catch((err) => setSaveError(err?.error?.message ?? String(err)));
+                  }}
+                />
+                {t("settings.goalsAiEnabled", "KI-Generierung für Haupt-Ziel aktivieren")}
+              </label>
+            </section>
+
+            {/* Data Management — link to the CSV import page (REQ-L0-013) */}
+            <section style={cardStyle}>
+              <h3 style={headingStyle}>{t("settings.dataManagement", "Datenmanagement")}</h3>
+              <button
+                type="button"
+                data-testid="settings-csv-import-btn"
+                onClick={() => navigate("/import")}
+                style={{
+                  appearance: "none",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-4)",
+                  cursor: "pointer",
+                }}
+              >
+                {t("settings.csvImport", "CSV-Import")}
+              </button>
+            </section>
+
+            {/* MCP connection info — read-only, everything an MCP client needs
+                to address this workspace (endpoints, workspace_id, auth). */}
+            <McpConnectionSection
+              workspaceId={activeWorkspace.id}
+              workspaceName={activeWorkspace.name}
+            />
+
+            <WorkspaceBannerSection workspaceId={activeWorkspace.id} />
+          </>
+        )}
+
+        {/* ---------------- Darstellung (M-03) ----------------
+            Interface language and theme: the two settings that change how the
+            product looks rather than how it behaves. Split out of "Allgemein",
+            where they were interleaved with the rigor preset, terminology
+            profile and data-management actions. */}
+        {activeTab === "appearance" && (
+          <>
             {/* Language */}
             <section style={cardStyle}>
               <h3 style={headingStyle}>{t("settings.language")}</h3>
@@ -405,8 +608,42 @@ export default function WorkspaceSettings(): JSX.Element {
               ))}
             </section>
 
-            {/* Custom Fields (REQ-016) — workspace-wide field definitions, admin-managed */}
-            {isAdmin && <CustomFieldsSection workspaceId={activeWorkspace.id} />}
+            {/* Theme (Theme Presets): independent palette + mode pickers */}
+            <section style={cardStyle}>
+              <h3 style={headingStyle}>{t("settings.theme")}</h3>
+              <div data-testid="theme-palette-picker" style={palettePickerStyle}>
+                {palettes.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    data-testid={`theme-palette-option-${p.key}`}
+                    aria-pressed={p.key === paletteKey}
+                    onClick={() => setPreference(p.key, mode)}
+                    style={labelStyle}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <div data-testid="theme-mode-picker" style={modePickerStyle}>
+                <button
+                  type="button"
+                  data-testid="theme-mode-dark"
+                  aria-pressed={mode === "dark"}
+                  onClick={() => setPreference(paletteKey, "dark")}
+                >
+                  {t("nav.darkMode")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="theme-mode-light"
+                  aria-pressed={mode === "light"}
+                  onClick={() => setPreference(paletteKey, "light")}
+                >
+                  {t("nav.lightMode")}
+                </button>
+              </div>
+            </section>
           </>
         )}
 
@@ -422,7 +659,7 @@ export default function WorkspaceSettings(): JSX.Element {
                 {t("settings.decompositionLinkType", "Decomposition Link Typ")}
               </label>
               <select
-                value={activeWorkspace.decomposition_link_type || "parent-child"}
+                value={activeWorkspace.decomposition_link_type || "decomposes"}
                 onChange={(e) => {
                   const val = e.target.value;
                   setSaveError(null);
@@ -435,8 +672,14 @@ export default function WorkspaceSettings(): JSX.Element {
                 style={selectStyle}
                 data-testid="decomposition-link-type-select"
               >
-                <option value="parent-child">parent-child (Strukturell)</option>
-                <option value="derives-from">derives-from (Ableitung)</option>
+                {creatableLinkTypes.map((row) => (
+                  <option key={row.key} value={row.key}>{labelFor(row.key, triLabelLang, "neutral")}</option>
+                ))}
+                {!decompositionTypeIsKnown && activeWorkspace.decomposition_link_type && (
+                  <option value={activeWorkspace.decomposition_link_type} disabled>
+                    {activeWorkspace.decomposition_link_type} (unavailable)
+                  </option>
+                )}
               </select>
             </div>
 
@@ -459,23 +702,20 @@ export default function WorkspaceSettings(): JSX.Element {
                 style={selectStyle}
                 data-testid="default-link-type-select"
               >
-                {ALL_LINK_TYPES.map((lt) => (
-                  <option key={lt} value={lt}>{getLinkTypeLabel(lt)}</option>
+                {creatableLinkTypes.map((row) => (
+                  <option key={row.key} value={row.key}>{labelFor(row.key, triLabelLang, "neutral")}</option>
                 ))}
+                {!defaultTypeIsKnown && activeWorkspace.default_link_type && (
+                  <option value={activeWorkspace.default_link_type} disabled>
+                    {activeWorkspace.default_link_type} (unavailable)
+                  </option>
+                )}
               </select>
             </div>
           </section>
         )}
-
-        {/* ---------------- Visibility ---------------- */}
-        {activeTab === "visibility" && (
-          <section style={cardStyle}>
-            <h3 style={headingStyle}>{t("settings.attributeVisibility", "Attribut-Sichtbarkeit")}</h3>
-            <p style={hintStyle}>
-              {t("settings.attributeVisibilityHint", "Konfiguriere, welche Attribute für die jeweiligen Elementtypen im Workspace sichtbar sind.")}
-            </p>
-            <AttributeVisibilityAdmin />
-          </section>
+        {activeTab === "traceability" && (
+          <ContextGraphSettingsSection workspaceId={activeWorkspace.id} />
         )}
 
         {/* ---------------- LLM & Prompts ---------------- */}
@@ -483,8 +723,16 @@ export default function WorkspaceSettings(): JSX.Element {
           <>
             {/* LLM Provider configuration (REQ-L2-LLM-001) */}
             <LlmSettingsSection />
-            {/* AI Prompt Templates (REQ-L2-PT-001) */}
-            <PromptTemplateSection />
+            {/* AI Prompt Templates (REQ-L2-PT-001, issue #119) — every slot,
+                global default + per-workspace override. */}
+            <AiPromptsSection workspaceId={activeWorkspace.id} />
+            {/* Prompt variable catalog (spec §5): the central place every
+                {placeholder} value is managed, across all prompt slots. */}
+            <PromptVariablesSection workspaceId={activeWorkspace.id} />
+            {/* M-03: "KI-Gedächtnis" configures what the LLM is allowed to
+                remember across sessions, so it belongs with the rest of the
+                LLM configuration rather than at the bottom of "Allgemein". */}
+            <MemorySettingsSection workspaceId={activeWorkspace.id} />
           </>
         )}
 
@@ -498,6 +746,9 @@ export default function WorkspaceSettings(): JSX.Element {
             <PermissionsSection workspaceId={activeWorkspace.id} />
           </>
         )}
+
+        {/* ---------------- Attributes (Task 26) ---------------- */}
+        {activeTab === "attributes" && <AttributeEditorPage />}
       </div>
 
       {/* Status (shared across tabs) */}
@@ -507,9 +758,27 @@ export default function WorkspaceSettings(): JSX.Element {
         </div>
       )}
       {savedOk && (
-        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success, #16a34a)", padding: "var(--space-3)" }}>
+        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success)", padding: "var(--space-3)" }}>
           {t("settings.saved")}
         </div>
+      )}
+
+      {/* UI-22: extended→minimal (or extended→standard, standard→minimal)
+          drops rigor-gated behaviour (baselines, mandatory change reason,
+          the approval workflow) — confirm before it fires. */}
+      {pendingPresetDowngrade && (
+        <ConfirmDialog
+          title={t("settings.presetDowngradeConfirmTitle", "Downgrade preset?")}
+          message={t(
+            "settings.presetDowngradeConfirmMessage",
+            "Switching to \"{{preset}}\" disables rigor features the current preset provides (e.g. baselines, mandatory change reason, or the approval workflow). This can be reverted later, but any data that depended on the disabled features stays as-is.",
+            { preset: pendingPresetDowngrade },
+          )}
+          confirmLabel={t("settings.presetDowngradeConfirm", "Downgrade")}
+          onConfirm={confirmPresetDowngrade}
+          onCancel={() => setPendingPresetDowngrade(null)}
+          testId="preset-downgrade-confirm"
+        />
       )}
     </div>
   );

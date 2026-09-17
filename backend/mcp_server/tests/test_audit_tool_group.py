@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
+import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
@@ -70,8 +71,9 @@ VIEWER_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
-VALID_API_KEY = "rf_admin_audit_key"
+VALID_API_KEY = "reqlo_admin_audit_key"
 EVENT_UUID = UUID("00000000-0000-0000-0000-0000000000aa")
+WORKSPACE_ID = UUID("00000000-0000-0000-0000-0000000000bb")
 WORKSPACE_UUID = UUID("00000000-0000-0000-0000-0000000000bb")
 ENTITY_UUID = UUID("00000000-0000-0000-0000-0000000000cc")
 
@@ -212,7 +214,7 @@ class TestAuditToolGroup:
         group, dlq = self._group()
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=EDITOR_CTX,
             api_key=VALID_API_KEY,
         )
@@ -445,7 +447,7 @@ class TestAuditToolGroup:
 
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={},
+            params={"workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -455,7 +457,7 @@ class TestAuditToolGroup:
         assert len(result.data["events"]) == 2
         assert result.data["events"][0]["event_id"] == str(r1.event_id)
         dlq.list_dlq.assert_called_once_with(
-            ADMIN_CTX, event_type=None, limit=100
+            ADMIN_CTX, workspace_id=WORKSPACE_ID, event_type=None, limit=100
         )
 
     def test_dlq_list_with_event_type_filter(self):
@@ -464,21 +466,37 @@ class TestAuditToolGroup:
 
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={"event_type": "RequirementDeleted", "limit": 25},
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "event_type": "RequirementDeleted",
+                "limit": 25,
+            },
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
 
         assert result.success is True
         dlq.list_dlq.assert_called_once_with(
-            ADMIN_CTX, event_type="RequirementDeleted", limit=25
+            ADMIN_CTX, workspace_id=WORKSPACE_ID, event_type="RequirementDeleted", limit=25
         )
+
+    def test_dlq_list_missing_workspace_id_returns_validation_error(self):
+        group, dlq = self._group()
+        result = group.execute_tool(
+            tool_name="events.dlq_list",
+            params={},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        dlq.list_dlq.assert_not_called()
 
     def test_dlq_list_invalid_limit_returns_validation_error(self):
         group, dlq = self._group()
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={"limit": 5000},
+            params={"workspace_id": str(WORKSPACE_ID), "limit": 5000},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -490,7 +508,7 @@ class TestAuditToolGroup:
         group, dlq = self._group()
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={"limit": "abc"},
+            params={"workspace_id": str(WORKSPACE_ID), "limit": "abc"},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -502,7 +520,7 @@ class TestAuditToolGroup:
         group, dlq = self._group()
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={"event_type": 42},
+            params={"workspace_id": str(WORKSPACE_ID), "event_type": 42},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -515,7 +533,7 @@ class TestAuditToolGroup:
         dlq.list_dlq.side_effect = PermissionDeniedError("admin required")
         result = group.execute_tool(
             tool_name="events.dlq_list",
-            params={},
+            params={"workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -528,7 +546,7 @@ class TestAuditToolGroup:
         with patch("mcp_server.tools.audit.write_mcp_audit") as mock_audit:
             result = group.execute_tool(
                 tool_name="events.dlq_list",
-                params={},
+                params={"workspace_id": str(WORKSPACE_ID)},
                 auth_context=ADMIN_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -546,7 +564,7 @@ class TestAuditToolGroup:
 
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -556,12 +574,14 @@ class TestAuditToolGroup:
         assert result.data["event"]["event_id"] == str(EVENT_UUID)
         assert result.data["event"]["retry_count"] == 5
         dlq.replay_dlq_event.assert_called_once_with(
-            ADMIN_CTX, event_id=EVENT_UUID
+            ADMIN_CTX, event_id=EVENT_UUID, workspace_id=WORKSPACE_ID
         )
         mock_audit.assert_called_once()
         audit_kwargs = mock_audit.call_args.kwargs
         assert audit_kwargs["tool_name"] == "events.dlq_replay"
-        assert audit_kwargs["operation"] == "replay"
+        # #626: "replay" was an undeclared op, silently swallowed by
+        # write_mcp_audit -- now "events.replay", a real declared choice.
+        assert audit_kwargs["operation"] == "events.replay"
         assert audit_kwargs["entity_type"] == "DomainEventDLQ"
         assert audit_kwargs["entity_id"] == EVENT_UUID
         assert audit_kwargs["details"]["previous_retry_count"] == 5
@@ -598,7 +618,7 @@ class TestAuditToolGroup:
         )
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -610,7 +630,7 @@ class TestAuditToolGroup:
         dlq.replay_dlq_event.side_effect = PermissionDeniedError("admin required")
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -623,7 +643,7 @@ class TestAuditToolGroup:
         dlq.replay_dlq_event.side_effect = NotFoundError("not found")
         result = group.execute_tool(
             tool_name="events.dlq_replay",
-            params={"event_id": str(EVENT_UUID)},
+            params={"event_id": str(EVENT_UUID), "workspace_id": str(WORKSPACE_ID)},
             auth_context=ADMIN_CTX,
             api_key=VALID_API_KEY,
         )
@@ -767,21 +787,33 @@ def _build_registry(*, roles=("admin",), dlq: MagicMock = None):
 
 
 def _post(handler: ProtocolHandler, method: str, params: dict, request_id: int = 1, *, api_key: str = VALID_API_KEY):
-    payload = {"api_key": api_key}
-    payload.update(params)
+    """Build a JSON-RPC body and run it through ProtocolHandler.
+
+    The key is supplied via the ``Authorization`` header, not the JSON-RPC
+    body: the HTTP transport no longer honours ``params.api_key`` (D-1 /
+    REQ-018 — see TestApiKeyTransportRestriction in test_protocol_handler.py).
+    """
     body = json.dumps({
         "jsonrpc": "2.0",
         "method": method,
         "id": request_id,
-        "params": payload,
+        "params": params,
     }).encode()
-    return handler.handle_http_request(body=body)
+    headers = {"HTTP_AUTHORIZATION": f"Bearer {api_key}"}
+    return handler.handle_http_request(body=body, headers=headers)
 
 
 def _handler(registry: ToolRegistry) -> ProtocolHandler:
     return ProtocolHandler(tool_registry=registry)
 
 
+# ``django_db``: these E2E classes drive the real
+# ``ToolRegistry.dispatch_request``, which arms the PostgreSQL RLS session
+# variable via ``persistence.middleware.set_request_tenant`` (``SET
+# app.current_tenant``, COMP-PL-006 / fix #110) and resets it in the
+# ``finally``. That is a real DB round-trip on the production path, so the
+# tests need DB access even though every collaborator below is mocked.
+@pytest.mark.django_db
 class TestE2EAuditQuery:
     @patch("mcp_server.tools.audit.TenantContext.set_tenant")
     @patch("mcp_server.tools.audit.audit_query")
@@ -836,13 +868,14 @@ class TestE2EAuditQuery:
             handler,
             "audit.query",
             {"workspace_id": str(WORKSPACE_UUID)},
-            api_key="rf_bad_key",
+            api_key="reqlo_bad_key",
         )
 
         assert "error" in response
         assert response["error"]["code"] == ERROR_CODE_MAP["AUTH_FAILED"]
 
 
+@pytest.mark.django_db
 class TestE2EDlqReplay:
     @patch("mcp_server.tools.audit.write_mcp_audit")
     def test_successful_replay_returns_jsonrpc_result_envelope(self, mock_audit):

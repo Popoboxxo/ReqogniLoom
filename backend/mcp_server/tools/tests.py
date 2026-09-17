@@ -14,8 +14,11 @@ Tools implemented:
   test.link     — create a 'verifies' TraceLink between TestCase and Requirement (write, audited)
   test.derive_from_requirement — SysEng 2.0 N5: propose a TestCase draft (title,
                   description, steps) for a Requirement via the LLM adapter.
-                  Draft/Accept pattern (REQ-L2-AI-001): read-only, nothing is
-                  persisted; the caller re-uses test.create to accept the draft.
+                  Draft/Accept pattern (REQ-L2-AI-001), now with mode="write"
+                  support (Phase 3, REQ-L2-AI-003): mode="preview" (default)
+                  returns the draft only; mode="write" persists it as a
+                  TestCase and creates a 'verifies' TraceLink back to the
+                  source Requirement (write, audited).
 
 Interface contracts implemented:
   IF-MC-INT-004  — inbound: execute_tool(tool_name, params, auth_context) -> ToolResult
@@ -29,7 +32,15 @@ Architecture:
 
 ADR-L3-MC005-01: test.create auto-links to linked_req_id via 'verifies' TraceLink.
 ADR-L3-MC005-02: Test-status written via test.update as data field.
-ADR-L3-MC005-03: TraceLinks only via test.link or test.create.
+ADR-L3-MC005-03: TraceLinks only via test.link, test.create, or (Phase 3)
+  test.derive_from_requirement's mode="write" path.
+
+REQ-L2-MC-007: because mode="write" makes test.derive_from_requirement capable
+of mutation, it is registered in mcp_server.tool_registry's
+_WRITE_TOOL_PREFIXES (Phase 3). That RBAC gate is name-based (not mode-aware),
+so — mirroring the same deliberate restriction documented in
+mcp_server/tools/ai_derivation.py — a Viewer can no longer call this tool at
+all, including mode="preview".
 """
 from __future__ import annotations
 
@@ -50,39 +61,106 @@ from application.services import (
 )
 
 from mcp_server.protocol_handler import ToolResult
+from mcp_server.tools.ai_derivation import (
+    _MODE_POLICY_SCHEMA_PROPERTIES,
+    _parse_mode_policy,
+)
 from mcp_server.tools.base import (
     BaseToolGroup,
+    artifact_custom_fields,
+    mcp_audit_handoff,
     optional_uuid,
+    reject_unknown_params,
     require_param,
     require_uuid,
+    resolve_engine_status,
+    resolve_status_map,
+    validate_artifact_write,
     write_mcp_audit,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
+from persistence.models import TestCase, TestCaseType
+from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
 
 _VALID_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
 _VALID_RUN_RESULT_STATUSES = frozenset({"passed", "failed", "blocked", "not_run"})
 
+#: Real ``TestCase.test_type`` column values (migration 0041, lowercase
+#: ``TestCaseType``). The resolved attribute definition exposes exactly these
+#: as the ``test_type`` enum options, so MCP must accept them — the legacy
+#: TitleCase set (``TestService.VALID_TEST_TYPES``) only ever tagged
+#: ``artifact.artifact_type`` and rejected the definition's own value.
+_VALID_MODEL_TEST_TYPES = frozenset(value for value, _label in TestCaseType.choices)
 
-def _test_case_to_dict(tc: Any) -> Dict[str, Any]:
-    """Serialise a TestCase ORM object to a dict."""
+#: TestCase *lifecycle* states — a different axis from the execution statuses
+#: above. Derived from the model so it cannot drift from
+#: ``testcase_default``'s preset states; ``"outdated"`` is the soft-delete
+#: state written by ``workflow.services.outdate`` outside that list. Used only
+#: to produce a better error message when a caller confuses the two (GH-453).
+_LIFECYCLE_STATES = frozenset(
+    {choice.value for choice in TestCase.Status} | {"outdated"}
+)
+
+
+def _test_case_to_dict(
+    tc: Any, status_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Serialise a TestCase ORM object to a dict.
+
+    GH-453: ``status`` and ``version`` are included, matching
+    ``_requirement_to_dict`` (mcp_server/tools/requirements.py) and
+    ``_need_to_dict`` (mcp_server/tools/needs.py). TestCase was the only
+    workflow-backed entity whose MCP payload omitted the lifecycle state
+    entirely, so an agent asking "list every draft item" could not evaluate
+    test cases at all — the case mismatch this issue is about was only the
+    second half of the problem. Additive: existing keys are unchanged.
+
+    The value is the raw lowercase state (``"draft"``/``"ready"``/
+    ``"approved"``/``"deprecated"``, or ``"outdated"`` for soft-deleted rows),
+    i.e. the same vocabulary the REST ``TestCaseSerializer`` returns.
+    """
     result: Dict[str, Any] = {
         "id": str(tc.id),
+        # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
+        # TestCase definition (the REST serializer returns it); the MCP
+        # projection omitted it.
+        "uid": getattr(tc, "uid", None),
         "title": tc.title,
         "description": tc.description,
+        "status": resolve_engine_status("TestCase", tc.id, status_map=status_map),
+        "version": tc.version,
         "steps": tc.steps if hasattr(tc, "steps") else [],
+        # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
+        # backing Artifact and must round-trip through test.get/test.query.
+        "custom_fields": artifact_custom_fields(tc),
     }
     if hasattr(tc, "artifact") and tc.artifact:
         result["workspace_id"] = str(tc.artifact.workspace_id)
-        # Decode test_type from artifact_type tag (e.g. "TestCase:Unit")
+        # `test_type` is the canonical lowercase ``TestCaseType`` column
+        # (migration 0041) and is what the resolved definition exposes. The
+        # fallback reads the deprecated "TestCase:<Type>" artifact tag, which
+        # only pre-0093 rows still carry (#816) — kept so old rows keep
+        # round-tripping a value instead of reporting NULL.
+        model_test_type = getattr(tc, "test_type", None)
         artifact_type = tc.artifact.artifact_type or ""
-        if ":" in artifact_type:
+        if isinstance(model_test_type, str) and model_test_type:
+            result["test_type"] = model_test_type
+        elif ":" in artifact_type:
             result["test_type"] = artifact_type.split(":", 1)[1]
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, tc)
     return result
 
 
 class McpTestToolGroup(BaseToolGroup):
-    """COMP-MC-005 — Test tool group (8 tools)."""
+    """COMP-MC-005 — Test tool group (12 tools)."""
     __test__ = False
 
     _TOOL_MAP = {
@@ -94,13 +172,21 @@ class McpTestToolGroup(BaseToolGroup):
         "test.run_create": "_handle_run_create",
         "test.run_get": "_handle_run_get",
         "test.run_report_results": "_handle_run_report_results",
+        "test.run_complete": "_handle_run_complete",
         "test.derive_from_requirement": "_handle_derive_from_requirement",
+        "test.outdate": "_handle_outdate",
+        "test.reactivate": "_handle_reactivate",
     }
 
     _TOOL_SCHEMAS = [
         {
             "name": "test.get",
-            "description": "Fetch a single TestCase by ID.",
+            "description": (
+                "Fetch a single TestCase by ID. The returned 'status' is the "
+                "lifecycle state: draft|ready|approved|deprecated, or "
+                "'outdated' for a soft-deleted test case. Change it via "
+                "review/workflow transitions, not test.update."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -111,11 +197,22 @@ class McpTestToolGroup(BaseToolGroup):
         },
         {
             "name": "test.query",
-            "description": "List TestCases in a workspace.",
+            "description": (
+                "List TestCases in a workspace. Each entry carries 'status', "
+                "the lifecycle state: draft|ready|approved|deprecated, or "
+                "'outdated' for a soft-deleted test case. These values are "
+                "lowercase, matching requirement and stakeholder-need status "
+                "values, so one case-sensitive comparison works across "
+                "entity types."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "If true, include outdated (soft-deleted) test cases. Defaults to false.",
+                    },
                 },
                 "required": ["workspace_id"],
             },
@@ -130,6 +227,25 @@ class McpTestToolGroup(BaseToolGroup):
                     "title": {"type": "string", "description": "Test case title."},
                     "description": {"type": "string", "description": "Test case description."},
                     "type": {"type": "string", "description": "Test type (default 'Unit')."},
+                    "test_type": {
+                        "type": "string",
+                        "enum": sorted(_VALID_MODEL_TEST_TYPES),
+                        "description": (
+                            "Real TestCase.test_type column value (lowercase, "
+                            "matches the attribute definition's enum options). "
+                            "Distinct from the legacy TitleCase `type` tag."
+                        ),
+                    },
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map) defined by this workspace's attribute definition."
+                        ),
+                    },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                     "linked_req_id": {
                         "type": "string",
                         "description": "Optional requirement UUID to create a 'verifies' TraceLink.",
@@ -140,14 +256,52 @@ class McpTestToolGroup(BaseToolGroup):
         },
         {
             "name": "test.update",
-            "description": "Update TestCase fields including execution_status (write, audited).",
+            "description": (
+                "Update TestCase fields including execution_status (write, "
+                "audited). NOTE: the 'status' key here is the EXECUTION "
+                "status (Passed|Failed|Not Run) — not the lifecycle status "
+                "returned by test.get/test.query "
+                "(draft|ready|approved|deprecated). Prefer the explicit "
+                "'execution_status' key; move the lifecycle state with the "
+                "review/workflow transition tools instead."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the test case."},
                     "data": {
                         "type": "object",
-                        "description": "Fields to update (title, description, steps, status).",
+                        "description": (
+                            "Fields to update (title, description, steps, "
+                            "test_type, custom_fields, execution_status). "
+                            "'status' is accepted as a legacy alias for "
+                            "execution_status."
+                        ),
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "steps": {"type": "array", "items": {"type": "object"}},
+                            "test_type": {
+                                "type": "string",
+                                "enum": sorted(_VALID_MODEL_TEST_TYPES),
+                                "description": "Real lowercase TestCase.test_type value.",
+                            },
+                            "custom_fields": {
+                                "type": "object",
+                                "additionalProperties": True,
+                                "description": (
+                                    "Extended user-defined attributes (flat "
+                                    "key/value map). Replaces the stored map."
+                                ),
+                            },
+                            "execution_status": {
+                                "type": "string",
+                                "enum": sorted(_VALID_STATUSES),
+                            },
+                            # Attribut v3 WS2 (#936): Artifact-level system
+                            # fields are applied through the gateway.
+                            **SYSTEM_FIELD_SCHEMA,
+                        },
                     },
                 },
                 "required": ["id"],
@@ -226,11 +380,32 @@ class McpTestToolGroup(BaseToolGroup):
             },
         },
         {
+            "name": "test.run_complete",
+            "description": (
+                "Finalize a TestRun (write, audited): recomputes the "
+                "aggregate status from its recorded results (passed if all "
+                "results passed, failed if any failed, partial if any is "
+                "blocked/not_run, closed if it has no results at all) and "
+                "sets finished_at. GH-403: closes the gap where the "
+                "advertised created -> in_progress -> completed/failed "
+                "lifecycle had no MCP tool to leave in_progress."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "run_id": {"type": "string", "description": "UUID of the test run."},
+                },
+                "required": ["run_id"],
+            },
+        },
+        {
             "name": "test.derive_from_requirement",
             "description": (
                 "SysEng 2.0 N5: propose a TestCase draft (title, description, "
-                "steps) for a Requirement via the LLM adapter. Read-only — "
-                "nothing is persisted; accept the draft via test.create."
+                "steps) for a Requirement via the LLM adapter. mode='preview' "
+                "(default) returns the draft only; mode='write' persists it as "
+                "a TestCase and links it back to the requirement via a "
+                "'verifies' trace link."
             ),
             "inputSchema": {
                 "type": "object",
@@ -239,8 +414,32 @@ class McpTestToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "UUID of the source requirement.",
                     },
+                    **_MODE_POLICY_SCHEMA_PROPERTIES,
                 },
                 "required": ["requirement_id"],
+            },
+        },
+        {
+            "name": "test.outdate",
+            "description": "Soft-delete a TestCase via the workflow engine's outdate escape hatch (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the test case."},
+                    "reason": {"type": "string", "description": "Optional audit reason."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "test.reactivate",
+            "description": "Restore an outdated TestCase to its previous state (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the test case."},
+                },
+                "required": ["id"],
             },
         },
     ]
@@ -288,12 +487,22 @@ class McpTestToolGroup(BaseToolGroup):
                 "VALIDATION_ERROR",
                 "Parameter 'workspace_id' is required for test.query.",
             )
+        include_outdated = bool(params.get("include_outdated", False))
         try:
-            test_cases = self._service.list_test_cases(workspace_id, auth_context)
+            test_cases = list(
+                self._service.list_test_cases(
+                    workspace_id, auth_context, include_deleted=include_outdated
+                )
+            )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance).
+        status_map = resolve_status_map(
+            "TestCase", [tc.id for tc in test_cases]
+        )
         return ToolResult.ok({
-            "test_cases": [_test_case_to_dict(tc) for tc in test_cases],
+            "test_cases": [_test_case_to_dict(tc, status_map) for tc in test_cases],
             "count": len(test_cases),
         })
 
@@ -311,17 +520,61 @@ class McpTestToolGroup(BaseToolGroup):
         """
         title = require_param(params, "title")
         workspace_id = require_uuid(params, "workspace_id")
-        test_type: str = params.get("type") or params.get("test_type") or "Unit"
+        # Epic #934 WS1 / #816: `test_type` is the canonical (lowercase)
+        # ``TestCase.test_type`` column value the resolved definition exposes,
+        # while the legacy TitleCase `type` alias is accepted by the same
+        # service parameter and folded onto canonical form there. Route by
+        # value so both spellings keep working and the definition's own enum
+        # value is no longer rejected.
+        legacy_test_type = "Unit"
+        model_test_type_value: Optional[str] = None
+        raw_test_type = params.get("test_type")
+        if raw_test_type is not None:
+            if raw_test_type in _VALID_MODEL_TEST_TYPES:
+                model_test_type_value = raw_test_type
+            else:
+                legacy_test_type = raw_test_type
+        if params.get("type") is not None:
+            legacy_test_type = params["type"]
         description: str = params.get("description", "")
         linked_req_id = optional_uuid(params, "linked_req_id")
+        # REQ-L2-AS-037: TestService.create_test_case already accepts
+        # custom_fields; the handler used to drop it.
+        custom_fields = params.get("custom_fields")
+
+        # Ledger gap #1 / issue #881: same central gate as
+        # TestCaseViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "TestCase", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
+
+        # #953: only forward the deprecated `test_type_value` alias when the
+        # caller actually named a canonical column value. Passing an explicit
+        # ``None`` would mean "leave the column NULL" and would suppress the
+        # documented default (issue #953) for every plain test.create call.
+        create_kwargs: Dict[str, Any] = {}
+        if model_test_type_value is not None:
+            create_kwargs["test_type_value"] = model_test_type_value
 
         try:
-            tc = self._service.create_test_case(
-                workspace_id=workspace_id,
-                title=str(title),
-                ctx=auth_context,
-                description=description,
-                test_type=test_type,
+            # Codeberg #313: suppress create_test_case's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                tc = self._service.create_test_case(
+                    workspace_id=workspace_id,
+                    title=str(title),
+                    ctx=auth_context,
+                    description=description,
+                    test_type=legacy_test_type,
+                    custom_fields=custom_fields,
+                    **create_kwargs,
+                )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "TestCase", tc, system_field_values(params), auth_context
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -342,12 +595,16 @@ class McpTestToolGroup(BaseToolGroup):
         trace_link_id: Optional[str] = None
         if linked_req_id:
             try:
-                tl = self._trace_service.create_trace_link(
-                    source_id=tc.artifact_id,
-                    target_id=linked_req_id,
-                    link_type="verifies",
-                    ctx=auth_context,
-                )
+                # Codeberg #313: suppress create_trace_link's single
+                # internal _audit() call for the same TraceLink —
+                # write_mcp_audit below is the sole entry.
+                with mcp_audit_handoff():
+                    tl = self._trace_service.create_trace_link(
+                        source_id=tc.artifact_id,
+                        target_id=linked_req_id,
+                        link_type="verifies",
+                        ctx=auth_context,
+                    )
                 trace_link_id = str(tl.id) if hasattr(tl, "id") else None
                 write_mcp_audit(
                     ctx=auth_context,
@@ -383,21 +640,45 @@ class McpTestToolGroup(BaseToolGroup):
         """
         tc_id = require_uuid(params, "id")
         data: Dict[str, Any] = params.get("data") or {}
+        # Attribut v3 WS2 (#936): owner/reporter/priority live on the Artifact;
+        # the nested `data` object carries them for this group. Applied inside
+        # each branch's try block (below) so a rejected value maps to
+        # VALIDATION_ERROR instead of the dispatcher's blanket INTERNAL_ERROR.
+        system_values = system_field_values(data)
 
         # Handle execution_status update path
         status = data.get("status") or data.get("execution_status")
         if status:
             if status not in _VALID_STATUSES:
+                # GH-453: test.get/test.query now return the *lifecycle*
+                # status, so "read a test case, send it back" lands here with
+                # a lifecycle value. Say so explicitly instead of only listing
+                # the execution statuses, which reads like the caller invented
+                # the value.
+                hint = ""
+                if status in _LIFECYCLE_STATES:
+                    hint = (
+                        f" '{status}' is the lifecycle status returned by "
+                        "test.get/test.query, which test.update cannot "
+                        "change — use the review/workflow transition tools "
+                        "for that."
+                    )
                 return ToolResult.error(
                     "VALIDATION_ERROR",
-                    f"Invalid status '{status}'. Valid: {sorted(_VALID_STATUSES)}",
+                    f"Invalid status '{status}'. Valid: {sorted(_VALID_STATUSES)}."
+                    f"{hint}",
                 )
             try:
-                tc = self._service.update_test_status(
-                    test_case_id=tc_id,
-                    execution_status=status,
-                    ctx=auth_context,
-                )
+                # Codeberg #313: suppress update_test_status's single
+                # internal _audit() call for the same entity —
+                # write_mcp_audit below is the sole entry.
+                with mcp_audit_handoff():
+                    tc = self._service.update_test_status(
+                        test_case_id=tc_id,
+                        execution_status=status,
+                        ctx=auth_context,
+                    )
+                apply_system_fields("TestCase", tc, system_values, auth_context)
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             except ValidationError as exc:
@@ -407,13 +688,48 @@ class McpTestToolGroup(BaseToolGroup):
         else:
             # General field update
             try:
-                tc = self._service.update_test_case(
-                    test_case_id=tc_id,
-                    ctx=auth_context,
-                    title=data.get("title"),
-                    description=data.get("description"),
-                    steps=data.get("steps"),
+                # Ledger gap #1 / issue #881: same central gate as
+                # TestCaseViewSet.partial_update. workspace_id is not part of
+                # this tool's params, so it is resolved via a lookup first.
+                existing_tc = self._service.get_test_case(tc_id, auth_context)
+                changed_fields = {
+                    name: data[name]
+                    for name in ("title", "description", "steps", "test_type", "custom_fields")
+                    if name in data
+                }
+                changed_fields.update(system_values)
+                definition_error = validate_artifact_write(
+                    auth_context,
+                    "TestCase",
+                    getattr(getattr(existing_tc, "artifact", None), "workspace_id", None),
+                    changed_fields,
+                    {"__exists__": True},
                 )
+                if definition_error is not None:
+                    return definition_error
+
+                # Only forward optional fields the caller actually sent: both
+                # use an `_UNSET` sentinel, so an absent key must not clear the
+                # stored value.
+                optional_kwargs: Dict[str, Any] = {}
+                if "test_type" in data:
+                    optional_kwargs["test_type"] = data["test_type"]
+                if "custom_fields" in data:
+                    optional_kwargs["custom_fields"] = data["custom_fields"]
+
+                # Codeberg #313: suppress update_test_case's single internal
+                # _audit() call for the same entity — write_mcp_audit below
+                # is the sole entry.
+                with mcp_audit_handoff():
+                    tc = self._service.update_test_case(
+                        test_case_id=tc_id,
+                        ctx=auth_context,
+                        title=data.get("title"),
+                        description=data.get("description"),
+                        steps=data.get("steps"),
+                        **optional_kwargs,
+                    )
+                apply_system_fields("TestCase", tc, system_values, auth_context)
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             except ValidationError as exc:
@@ -454,12 +770,16 @@ class McpTestToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
         try:
-            tl = self._trace_service.create_trace_link(
-                source_id=UUID(str(tc.artifact_id)),
-                target_id=req_id,
-                link_type="verifies",
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress create_trace_link's single internal
+            # _audit() call for the same TraceLink — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                tl = self._trace_service.create_trace_link(
+                    source_id=UUID(str(tc.artifact_id)),
+                    target_id=req_id,
+                    link_type="verifies",
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -500,6 +820,19 @@ class McpTestToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """test.run_create — create a TestRun."""
+        # Issue #459 (finding 1): a client-supplied but unrecognised parameter
+        # (e.g. a singular "test_case_id" typo for the documented array
+        # "test_case_ids") used to be silently dropped — the run was still
+        # created, just without the intended test cases attached. Reject it
+        # explicitly instead, naming the allowed parameters.
+        # The allow-list is derived from the published inputSchema rather than
+        # duplicated here, so a new schema property can never turn a
+        # documented call into a VALIDATION_ERROR.
+        reject_unknown_params(
+            params,
+            allowed=self.schema_param_names("test.run_create"),
+            tool_name="test.run_create",
+        )
         workspace_id = require_uuid(params, "workspace_id")
         name = require_param(params, "name")
         ci_job_id: str = params.get("ci_job_id", "")
@@ -514,13 +847,17 @@ class McpTestToolGroup(BaseToolGroup):
             )
 
         try:
-            tr = self._run_service.create_test_run(
-                workspace_id=workspace_id,
-                name=str(name),
-                ctx=auth_context,
-                ci_job_id=str(ci_job_id),
-                test_case_ids=test_case_ids,
-            )
+            # Codeberg #313: suppress create_test_run's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                tr = self._run_service.create_test_run(
+                    workspace_id=workspace_id,
+                    name=str(name),
+                    ctx=auth_context,
+                    ci_job_id=str(ci_job_id),
+                    test_case_ids=test_case_ids,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -637,11 +974,15 @@ class McpTestToolGroup(BaseToolGroup):
             })
 
         try:
-            created = self._run_service.add_results_bulk(
-                test_run_id=run_id,
-                results=normalized,
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress add_results_bulk's single internal
+            # _audit() call (one batch-level "update"/TestRun entry, not
+            # per-result) — write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                created = self._run_service.add_results_bulk(
+                    test_run_id=run_id,
+                    results=normalized,
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:
@@ -673,21 +1014,73 @@ class McpTestToolGroup(BaseToolGroup):
         })
 
     # ------------------------------------------------------------------
+    # test.run_complete
+    # ------------------------------------------------------------------
+
+    def _handle_run_complete(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.run_complete — finalize a TestRun (GH-403).
+
+        Delegates to the same ``TestRunService.close_test_run`` the REST
+        ``POST /api/v1/test-runs/{id}/close/`` (and ``/complete/`` alias)
+        endpoints already use, so MCP and REST callers observe identical
+        aggregate-status semantics.
+        """
+        run_id = require_uuid(params, "run_id")
+        try:
+            with mcp_audit_handoff():
+                tr = self._run_service.close_test_run(
+                    test_run_id=run_id, ctx=auth_context
+                )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="TestRun",
+            entity_id=tr.id,
+            tool_name="test.run_complete",
+            api_key=api_key,
+            details={"status": tr.status},
+        )
+
+        return ToolResult.ok({
+            "test_run": {
+                "id": str(tr.id),
+                "workspace_id": str(tr.workspace_id),
+                "name": tr.name,
+                "status": tr.status,
+                "ci_job_id": tr.ci_job_id,
+                "started_at": tr.started_at.isoformat() if tr.started_at else None,
+                "finished_at": tr.finished_at.isoformat() if tr.finished_at else None,
+            }
+        })
+
+    # ------------------------------------------------------------------
     # test.derive_from_requirement (SysEng 2.0 N5)
     # ------------------------------------------------------------------
 
     def _handle_derive_from_requirement(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """test.derive_from_requirement — propose a TestCase draft (read-only).
+        """test.derive_from_requirement — propose (or persist) a TestCase draft.
 
-        Draft/Accept pattern (REQ-L2-AI-001): nothing is persisted here. The
-        caller reviews the returned draft and calls test.create to accept it.
-        Standard feature — no rigor-preset / RuleEngine gate.
+        Draft/Accept pattern (REQ-L2-AI-001), extended with mode/policy
+        (Phase 3, REQ-L2-AI-003): mode="preview" (default, unchanged Phase-2
+        behaviour) returns the draft only; mode="write" persists it as a
+        TestCase via TestService.create_test_case and creates the 'verifies'
+        TraceLink back to the source requirement via
+        AiDerivationService._write_derived_entity.
         """
         requirement_id = require_uuid(params, "requirement_id")
+        mode, policy = _parse_mode_policy(params)
+
         try:
-            result = self._ai_derivation_service.derive_testcase_from_requirement(
+            preview = self._ai_derivation_service.derive_testcase_from_requirement(
                 auth_context, requirement_id
             )
         except NotFoundError as exc:
@@ -698,7 +1091,161 @@ class McpTestToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except LlmResponseError as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
-        return ToolResult.ok(result)
+
+        if mode == "preview":
+            return ToolResult.ok(preview)
+
+        try:
+            req = self._ai_derivation_service._get_requirement(requirement_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        workspace_id = req.artifact.workspace_id
+        draft = preview["draft"]
+
+        # The TestCase model already has a structured JSONField `steps`
+        # (list of {step, expected_result}) — see persistence.models.TestCase
+        # — so the draft's steps are persisted as-is via TestService, no
+        # folding into `description` needed.
+        try:
+            result = self._ai_derivation_service._write_derived_entity(
+                ctx=auth_context,
+                workspace_id=workspace_id,
+                item_type="TestCase",
+                create_fn=lambda: self._service.create_test_case(
+                    workspace_id=workspace_id,
+                    title=draft["title"],
+                    ctx=auth_context,
+                    description=draft["description"],
+                    steps=draft["steps"],
+                ),
+                # SE endpoint semantics fix TestCase as the link *source* for
+                # 'verifies' (traceability.types.SE_LINK_SEMANTICS), so the
+                # new TestCase — not the requirement — must be the source.
+                source_entity_id=requirement_id,
+                source_item_type="Requirement",
+                link_type=LinkType.VERIFIES.value,
+                policy=policy,
+                new_entity_is_link_source=True,
+            )
+        except (ValidationError, NotFoundError) as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #626: this tool creates exactly one new TestCase -- reuse
+            # "create", the REST pendant (was the undeclared
+            # "derive_from_requirement", silently rejected by full_clean()).
+            operation="create",
+            entity_type="TestCase",
+            entity_id=UUID(result["id"]),
+            tool_name="test.derive_from_requirement",
+            api_key=api_key,
+            details={"source_requirement_id": str(requirement_id), "policy": policy},
+        )
+        # Systemaudit 2026-08-27 item 11: mode="preview" forwards the
+        # service's dict verbatim (so its `is_mock_fallback` reaches the
+        # client for free), but this write-mode response is a fixed literal
+        # that would silently drop the flag — and knowing that the TestCase
+        # just persisted came from the mock fallback rather than a real
+        # provider matters more, not less, than knowing it about a draft.
+        # `.get` with a default keeps this tolerant of a service double that
+        # returns only `draft`.
+        return ToolResult.ok(
+            {
+                "written": result,
+                "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # test.outdate
+    # ------------------------------------------------------------------
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.outdate — soft-delete via the workflow engine (write, audited)."""
+        tc_id = require_uuid(params, "id")
+        reason: str = params.get("reason", "")
+
+        try:
+            tc = self._service.get_test_case(tc_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=tc_id,
+                item_type="TestCase",
+                workspace_id=tc.artifact.workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("testcase.outdate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #626: reuse "delete", the REST pendant for a soft-delete (was
+            # the undeclared "outdate", silently rejected by full_clean()).
+            operation="delete",
+            entity_type="TestCase",
+            entity_id=tc_id,
+            tool_name="test.outdate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(tc_id), "status": "outdated"})
+
+    # ------------------------------------------------------------------
+    # test.reactivate
+    # ------------------------------------------------------------------
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.reactivate — restore a previously outdated TestCase (write, audited)."""
+        tc_id = require_uuid(params, "id")
+
+        try:
+            tc = self._service.get_test_case(tc_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import reactivate
+
+        try:
+            result = reactivate(
+                item_id=tc_id,
+                item_type="TestCase",
+                workspace_id=tc.artifact.workspace_id,
+                ctx=auth_context,
+            )
+        except ValueError as exc:
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("testcase.reactivate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #626: reuse "transition" (was the undeclared "reactivate",
+            # silently rejected by full_clean()) -- same convention as #573.
+            operation="transition",
+            entity_type="TestCase",
+            entity_id=tc_id,
+            tool_name="test.reactivate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(tc_id), "status": result.new_state})
 
 
 # Backward-compatible alias (canonical public name)

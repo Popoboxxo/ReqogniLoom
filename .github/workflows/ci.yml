@@ -12,18 +12,18 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm install
 
       - name: Run ESLint
         working-directory: frontend
@@ -31,11 +31,32 @@ jobs:
 
   backend-test:
     runs-on: ubuntu-latest
+    # 10 min used to be enough on a warm pip cache, but set-3-mcp installs the
+    # full heavy dependency set (torch/transformers/sentence-transformers,
+    # multi-GB) and then runs 1286 tests. When GitHub evicts the pip cache the
+    # cold install alone takes ~8.5 min and the job was killed mid-pytest by the
+    # old 10-min cap (flake on PR #943). 20 min leaves headroom for the cold
+    # path; the other test sets still finish in well under 8 min.
     timeout-minutes: 20
+    strategy:
+      matrix:
+        test-set:
+          - id: set-1-core
+            name: "Core Domain Logic (application, persistence)"
+            paths: "application/tests persistence/tests"
+          - id: set-2-api
+            name: "REST API Layer (rest_api, auth_tenancy, presets, reqogniloom, test_runs)"
+            paths: "attribute_definitions/tests rest_api/tests auth_tenancy/tests presets/tests reqogniloom/tests test_runs/tests"
+          - id: set-3-mcp
+            name: "MCP Server (mcp_server)"
+            paths: "mcp_server/tests"
+          - id: set-4-features
+            name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, se_metrics, baseline, admin_ops, icd, resilience, audit)"
+            paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests"
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: reqflow_test
           POSTGRES_USER: reqflow
@@ -59,15 +80,15 @@ jobs:
           - 6379:6379
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
       - name: Cache pip packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
@@ -78,46 +99,221 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
-      - name: Run pytest
+      - name: Lint backend with ruff (SA-45)
+        if: matrix.test-set.id == 'set-1-core'
+        working-directory: backend
+        run: |
+          pip install ruff==0.16.5
+          echo "Running ruff linter (Pyflakes only - F rules)..."
+          # H1: First merge: lint F (Pyflakes) only — detects undefined names, unused imports.
+          # E/W (style) rules will be ratcheted in gradually after the codebase is clean.
+          # Line-length now configured in pyproject.toml (line-length=100 matches code style).
+          # Narrow scope: only real interpreter-level bugs (undefined names — the two concrete cases
+          # this closed were ValidationResult/VCRMRow). Broader F401/F811/F405/F841/F541 cleanup
+          # needs its own dedicated PR with careful per-file review — see
+          # docs/SYSTEMAUDIT_2026-08-27_RESTPLAN.md AP-4/H1.
+          ruff check . --select=F821,F822
+        continue-on-error: false
+
+      - name: Run pytest for ${{ matrix.test-set.id }}
         working-directory: backend
         env:
-          DJANGO_SETTINGS_MODULE: reqflow.settings_test
+          DJANGO_SETTINGS_MODULE: reqogniloom.settings_test
           SECRET_KEY: ci-test-secret-key
           AUTH_JWT_SECRET: ci-test-auth-jwt-secret
           DEBUG: 'True'
           DB_NAME: reqflow_test
           DB_USER: reqflow
           DB_PASSWORD: reqflow
+          # Read by migration 0048_app_role.py to create the least-privilege
+          # app role (REQ-L2-PL-010) — required, no default, even though this
+          # job connects as the superuser above.
+          DB_APP_PASSWORD: ci-test-app-role-password
           DB_HOST: localhost
           DB_PORT: '5432'
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
           REDIS_URL: redis://localhost:6379
-          # REQ-081: fixed Fernet key so CI never depends on an ambient value.
-          # Matches the settings_test.py fallback; explicit here for parity
-          # with the other required vars in this job.
-          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
-        run: pytest
+          # REQ-081 / issue #151: no Fernet key literal in the repository.
+          # settings_test.py generates an ephemeral key per process when the
+          # variable is unset, which is all the suite needs (encrypted columns
+          # are written and read back within the same run). An optional
+          # repository secret still wins if one is configured.
+          FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+        run: pytest ${{ matrix.test-set.paths }}
+
+      - name: Security scan - pip-audit (fixes #153)
+        if: matrix.test-set.id == 'set-1-core'
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          echo "Scanning backend dependencies for known vulnerabilities..."
+          pip-audit --desc
+        continue-on-error: false
+
+  requirements-drift-check:
+    name: "Backend Requirements Drift Check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Validate security-critical version floors in requirements.txt
+        working-directory: backend
+        run: |
+          python3 << 'EOF'
+          import re
+          import sys
+
+          # Read requirements.txt
+          with open('requirements.txt', 'r') as f:
+              content = f.read()
+
+          # Security-critical package minimum versions (from CVE/PYSEC fixes)
+          required_floors = {
+              'Django': (5, 2, 17),        # CVE-2026-48587,6873,8404,48588,53877,53878 fixed in 5.2.15+
+              'cryptography': (50, 0, 0),  # PYSEC-2026-3552 (pkcs7 oracle) fixed in 50.0.0
+              'pytest': (9, 1, 1),         # CVE-2025-71176 / PYSEC-2026-1845 fixed in 9.0.3+
+              'pytest-django': (4, 14, 0), # Must support pytest>=9 and Django>=5.2
+              'sentence-transformers': (6, 0, 0),  # transformers>=5.0.0 requirement (RCE CVEs in <5.0)
+          }
+
+          failures = []
+
+          for package, (major, minor, patch) in required_floors.items():
+              # Find package line in requirements.txt
+              pattern = rf'^{re.escape(package)}[>=].*$'
+              matches = re.findall(pattern, content, re.MULTILINE | re.IGNORECASE)
+
+              if not matches:
+                  failures.append(f"[MISSING] {package} not found in requirements.txt")
+                  continue
+
+              match_line = matches[0]
+
+              # Parse version constraint (e.g., "Django>=5.2.17,<5.3")
+              version_match = re.search(r'[>=<]+([0-9.]+)', match_line)
+              if not version_match:
+                  failures.append(f"[PARSE ERROR] Cannot parse version from: {match_line}")
+                  continue
+
+              constraint_version_str = version_match.group(1)
+              try:
+                  constraint_parts = [int(x) for x in constraint_version_str.split('.')[:3]]
+                  # Pad with zeros if needed
+                  while len(constraint_parts) < 3:
+                      constraint_parts.append(0)
+                  constraint_version = tuple(constraint_parts)
+              except ValueError:
+                  failures.append(f"[PARSE ERROR] Invalid version format in: {match_line}")
+                  continue
+
+              # Check if constraint_version >= required_floor
+              if constraint_version < (major, minor, patch):
+                  failures.append(
+                      f"[SECURITY FLOOR VIOLATION] {package}: "
+                      f"requires >={major}.{minor}.{patch}, "
+                      f"but constraint is {constraint_version_str}"
+                  )
+
+          if failures:
+              print("DRIFT CHECK FAILED:")
+              for failure in failures:
+                  print(f"  {failure}")
+              sys.exit(1)
+          else:
+              print("✓ All security-critical packages meet minimum version floors")
+              sys.exit(0)
+          EOF
+
+  agent-templates-test:
+    name: "Agent Templates & Distribution (docs/agent-templates, dist)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: pip install pytest pyyaml
+
+      - name: Run pytest for docs/agent-templates and dist
+        run: pytest docs/agent-templates dist
 
   frontend-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm install
 
       - name: Run Vitest
         working-directory: frontend
         run: npm run test
+
+      - name: Security scan - npm audit (fixes #153)
+        working-directory: frontend
+        run: |
+          echo "Scanning frontend dependencies for known vulnerabilities..."
+          npm audit --audit-level=high
+        continue-on-error: false
+
+  hermes-plugin-test:
+    name: "Hermes IDE Plugin (integrations/hermes-plugin)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: integrations/hermes-plugin/reqogniloom/package-lock.json
+
+      - name: Install hermes-plugin dependencies
+        working-directory: integrations/hermes-plugin/reqogniloom
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: integrations/hermes-plugin/reqogniloom
+        run: npx tsc --noEmit
+
+      - name: Run Vitest
+        working-directory: integrations/hermes-plugin/reqogniloom
+        run: npm run test
+
+      # "npm run build" also runs the verify-build guard as a postbuild step
+      # (fixes #545) -- it fails the job if the production bundle inlines
+      # React/its JSX runtime instead of keeping it external (the class of
+      # bug that silently broke this plugin in the
+      # feat/interview-management-hermes-plugin branch, undetected by both
+      # tsc --noEmit and vitest since neither exercises the real Vite build).
+      - name: Build and verify plugin bundle
+        working-directory: integrations/hermes-plugin/reqogniloom
+        run: npm run build

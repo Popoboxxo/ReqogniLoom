@@ -1,0 +1,61 @@
+/*
+ * BaselinesView — static (non-dynamic) styles extracted from the override
+ * panel's inline style={{...}} blocks (PR #554 review finding B1, UI
+ * ratchet ui-ratchet.test.ts). Values reference styles/tokens.css custom
+ * properties exclusively; the button's disabled-dependent cursor/opacity
+ * stay expressed as a second, mutually-exclusive class (same pattern as
+ * BaselinesPanels.module.css's compareRunBtnEnabled/Disabled).
+ */
+
+.overridePanel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  background: var(--color-surface-raised);
+}
+
+.overrideLabel {
+  display: block;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+.overrideHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.overrideReasonInput {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  margin-bottom: var(--space-2);
+}
+
+.overrideSubmitBtn {
+  background: var(--color-danger);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+}
+
+.overrideSubmitBtnEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.overrideSubmitBtnDisabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}

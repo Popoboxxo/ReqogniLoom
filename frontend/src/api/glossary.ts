@@ -1,4 +1,4 @@
-import { apiClient, getList } from './client';
+import { apiClient, getAllPages } from './client';
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
@@ -14,9 +14,13 @@ export interface GlossaryTermPayload {
 }
 
 export const glossaryApi = {
+  /**
+   * Fetch all glossary terms for a workspace, following pagination links
+   * until exhaustion (issue #177 — list() only returned the first page,
+   * capped at PAGE_SIZE=25, silently hiding the rest of the glossary).
+   */
   list: async (workspaceId: string): Promise<GlossaryTerm[]> => {
-    const response = await getList<GlossaryTerm>('/glossary/', { workspace_id: workspaceId });
-    return response.results;
+    return getAllPages<GlossaryTerm>('/glossary/', { workspace_id: workspaceId });
   },
 
   get: async (id: string): Promise<GlossaryTerm> => {

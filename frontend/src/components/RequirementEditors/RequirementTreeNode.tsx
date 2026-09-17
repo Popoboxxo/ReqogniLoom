@@ -1,50 +1,198 @@
 /**
- * RequirementTreeNode — Recursive tree node for requirement parent-child hierarchy.
+ * RequirementTreeNode — recursive tree node for the requirement hierarchy.
  *
- * Displays derives-from / derived-by trace links as an expandable tree,
- * bounded by MAX_DEPTH to prevent infinite recursion in cyclic graphs.
- * Used by ReqTraceLinkPanel for hierarchical requirement visualization.
+ * Renders the decomposition neighbourhood (`derives-from`, `decomposes`,
+ * `parent-child`) of one artifact as an expandable tree, bounded by MAX_DEPTH.
+ * Used by ReqTraceLinkPanel for the "hierarchical view" block.
+ *
+ * Issue #416 — two independent defects lived here:
+ *
+ *  1. **Wrong identity.** TraceLink endpoints are *Artifact* ids, but the node
+ *     compared them against a *Requirement* id. Neither endpoint matched, so
+ *     `isSource` was always false and every link resolved back to its source —
+ *     i.e. the current requirement itself. The block dutifully rendered the
+ *     artifact it was supposed to navigate away from. Nodes therefore carry
+ *     both ids now and delegate endpoint resolution to `utils/traceEndpoints`.
+ *  2. **Wrong link types.** The filter accepted `derives-from` and
+ *     `derived-by` — the latter does not exist in the backend enum
+ *     (`backend/traceability/types.py::LinkType`), while the real hierarchy
+ *     types `decomposes` and `parent-child` were dropped. A decomposed
+ *     requirement showed no children at all.
+ *
+ * The expand toggle was additionally disabled whenever children were not yet
+ * known, which is the state every collapsed node starts in — so the tree could
+ * never be opened in the first place. Cycle handling mirrors ImpactView
+ * (#415): ids already on the path from the root are rendered once and marked,
+ * never traversed again.
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { tracelinksApi } from '../../api/tracelinks';
-import type { Requirement, TraceLink, UUID } from '../../types';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
+import {
+  formatShortId,
+  hierarchyRelation,
+  type HierarchyRelation,
+} from '../../utils/traceEndpoints';
+import type { UUID } from '../../types';
 
-/** Max depth — bounds recursion for cyclic trace graphs */
+/** Max depth — bounds recursion for deep decomposition chains */
 const MAX_DEPTH = 3;
+
+/** One artifact in the hierarchy tree. */
+export interface HierarchyNode {
+  /** Artifact id — the id space TraceLink endpoints live in. */
+  artifactId: UUID;
+  /** Domain entity id, when known — the id the editor routes to. */
+  entityId?: UUID;
+  title: string;
+  /** Backend artifact type ("Requirement", "ArchitectureElement", ...). */
+  artifactType: string;
+  /** Position relative to the node above it; undefined for a root. */
+  relation?: HierarchyRelation;
+  /**
+   * UI-P3: the artifact was soft-deleted (`workflow.services.outdate()`) but
+   * its TraceLink survives for the audit trail, so it still shows up here.
+   * Rendered as a dead node instead of a normal, clickable neighbour.
+   */
+  isOutdated?: boolean;
+}
 
 interface RequirementTreeNodeProps {
   workspaceId: UUID;
-  requirement: Requirement;
+  node: HierarchyNode;
   depth: number;
+  /** Artifact ids already on the path from the root (cycle guard). */
+  visitedIds?: ReadonlySet<UUID>;
+  /** This node closes a cycle — rendered, but never expanded. */
+  isCycle?: boolean;
+  /** `artifactId -> entityId` map so children can route to their editor. */
+  entityIdByArtifactId?: Readonly<Record<UUID, UUID>>;
   onSelectRequirement?: (id: UUID) => void;
 }
 
-interface ChildNode {
-  requirement: Requirement;
-  link: TraceLink;
-  direction: 'parent' | 'child';
-}
+const EMPTY_VISITED: ReadonlySet<UUID> = new Set<UUID>();
+const NO_ENTITY_IDS: Readonly<Record<UUID, UUID>> = {};
+
+/* Hoisted out of JSX: the inline-style ratchet (`ui-ratchet.test.ts`) counts
+   `style={{` literals under components/ and only allows the frozen baseline. */
+const TREE_ERROR_STYLE: CSSProperties = {
+  color: 'var(--color-danger)',
+  fontSize: 'var(--font-size-sm)',
+  margin: 'var(--space-2) 0 var(--space-2) var(--space-5)',
+};
+
+const TREE_RETRY_BUTTON_STYLE: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  color: 'var(--color-primary)',
+  fontSize: 'var(--font-size-sm)',
+  fontFamily: 'inherit',
+  textDecoration: 'underline',
+  cursor: 'pointer',
+};
+
+/** UI-P3: dead, non-navigable label for a soft-deleted neighbour. */
+const TREE_OUTDATED_TITLE_STYLE: CSSProperties = {
+  fontSize: 'var(--font-size-sm)',
+  fontFamily: 'inherit',
+  color: 'var(--color-text-muted)',
+  textDecoration: 'line-through',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  flex: 1,
+};
+
+/** UI-P3: badge naming the reason the node above is dead. */
+const TREE_OUTDATED_BADGE_STYLE: CSSProperties = {
+  fontSize: 'var(--font-size-xs)',
+  background: 'var(--color-badge-neutral-bg)',
+  color: 'var(--color-badge-neutral-text)',
+  padding: '2px 8px',
+  borderRadius: 'var(--radius-full)',
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+};
 
 export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
   workspaceId,
-  requirement,
+  node,
   depth,
+  visitedIds = EMPTY_VISITED,
+  isCycle = false,
+  entityIdByArtifactId = NO_ENTITY_IDS,
   onSelectRequirement,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
-  const [childNodes, setChildNodes] = useState<ChildNode[] | null>(null);
+  const [childNodes, setChildNodes] = useState<HierarchyNode[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const atMaxDepth = depth >= MAX_DEPTH;
+  const toggleDisabled = atMaxDepth || isCycle;
+
+  const selfIds = useMemo(() => {
+    const ids = new Set<UUID>([node.artifactId]);
+    if (node.entityId) ids.add(node.entityId);
+    return ids;
+  }, [node.artifactId, node.entityId]);
+
+  const childVisitedIds = useMemo(
+    () => new Set<UUID>([...visitedIds, node.artifactId]),
+    [visitedIds, node.artifactId]
+  );
+
+  /**
+   * Fetches this node's hierarchy neighbours.
+   *
+   * On failure `childNodes` deliberately stays `null`: it is the "not loaded
+   * yet" marker that `toggle` checks, so writing `[]` here (as this used to)
+   * made the failure permanent — collapsing and re-expanding took the
+   * already-loaded path and the node stayed empty for the rest of its life
+   * with no way to retry short of a page reload (UI-58).
+   */
+  const loadChildren = async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await tracelinksApi.listForArtifact(workspaceId, node.artifactId);
+      const links = resp.results;
+      const nodes: HierarchyNode[] = [];
+      const seen = new Set<UUID>();
+      for (const link of links) {
+        // `selfIds` always contains this node's Artifact id (it is what the
+        // request was made with), so no inference is needed here.
+        const hierarchy = hierarchyRelation(link, selfIds);
+        if (!hierarchy) continue;
+        const { relation, neighbor } = hierarchy;
+        if (seen.has(neighbor.endpoint.id)) continue;
+        seen.add(neighbor.endpoint.id);
+        nodes.push({
+          artifactId: neighbor.endpoint.id,
+          entityId: entityIdByArtifactId[neighbor.endpoint.id],
+          title: neighbor.endpoint.title,
+          artifactType: neighbor.endpoint.artifactType,
+          relation,
+          isOutdated: neighbor.endpoint.isOutdated,
+        });
+      }
+      setChildNodes(nodes);
+    } catch (err: unknown) {
+      const msg = (err as { error?: { message?: string } })?.error?.message ?? String(err);
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const toggle = async (): Promise<void> => {
-    if (atMaxDepth) return;
+    if (toggleDisabled) return;
 
     if (expanded) {
       setExpanded(false);
@@ -52,78 +200,40 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
     }
 
     if (childNodes === null) {
-      setLoading(true);
-      setError(null);
-      try {
-        const resp = await tracelinksApi.listForArtifact(workspaceId, requirement.id);
-        // Fetch full requirement objects for all linked targets
-        // For now, use backend-supplied titles as fallback
-        const nodes: ChildNode[] = [];
-        for (const link of resp.results) {
-          if (!['derives-from', 'derived-by'].includes(link.link_type)) continue;
-
-          const isSource = link.source_id === requirement.id;
-          const targetId = isSource ? link.target_id : link.source_id;
-          const direction =
-            (isSource && link.link_type === 'derives-from') ||
-            (!isSource && link.link_type === 'derived-by')
-              ? 'parent'
-              : 'child';
-
-          // Create minimal Requirement from TraceLink data
-          nodes.push({
-            requirement: {
-              id: targetId,
-              title: isSource ? link.target_title ?? '' : link.source_title ?? '',
-              description: '',
-              category: 'functional',
-              type: 'SyReq',
-              status: 'draft',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              version: 1,
-              workspace_id: workspaceId,
-            },
-            link,
-            direction,
-          });
-        }
-        setChildNodes(nodes);
-      } catch (err: unknown) {
-        const msg =
-          (err as { error?: { message?: string } })?.error?.message ?? String(err);
-        setError(msg);
-        setChildNodes([]);
-      } finally {
-        setLoading(false);
-      }
+      setExpanded(true);
+      await loadChildren();
+      return;
     }
     setExpanded(true);
   };
 
-  // Group child nodes by direction (parent/child)
-  const groups = new Map<'parent' | 'child', ChildNode[]>();
-  for (const node of childNodes ?? []) {
-    const bucket = groups.get(node.direction) ?? [];
-    bucket.push(node);
-    groups.set(node.direction, bucket);
+  // Group neighbours by direction (parents above, children below).
+  const groups = new Map<HierarchyRelation, HierarchyNode[]>();
+  for (const child of childNodes ?? []) {
+    const relation = child.relation ?? 'child';
+    const bucket = groups.get(relation) ?? [];
+    bucket.push(child);
+    groups.set(relation, bucket);
   }
 
-  const hasParents = (groups.get('parent') ?? []).length > 0;
-  const hasChildren = (groups.get('child') ?? []).length > 0;
+  const displayTitle = node.title || formatShortId(node.artifactId);
+  const routeId = node.entityId ?? node.artifactId;
 
   const handleTitleClick = (): void => {
     if (onSelectRequirement) {
-      onSelectRequirement(requirement.id);
+      onSelectRequirement(routeId);
     } else {
-      navigate(`/requirements/${requirement.id}`);
+      navigate(getArtifactRoute(node.artifactType || 'Requirement', routeId));
     }
   };
 
   return (
     <div
       data-testid="req-tree-node"
-      data-req-id={requirement.id}
+      data-req-id={routeId}
+      data-artifact-id={node.artifactId}
+      data-relation={node.relation}
+      data-cycle={isCycle ? 'true' : undefined}
       data-depth={depth}
       style={{ marginLeft: depth === 0 ? 0 : 'var(--space-5)' }}
     >
@@ -140,22 +250,25 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           type="button"
           data-testid="req-tree-toggle"
           onClick={() => void toggle()}
-          disabled={atMaxDepth || (!hasParents && !hasChildren)}
+          disabled={toggleDisabled}
           aria-expanded={expanded}
+          aria-label={expanded ? t('editor.collapseNode', 'Collapse') : t('editor.expandNode', 'Expand')}
+          title={isCycle ? t('traceability.cycleNode') : undefined}
           style={{
             background: 'none',
             border: 'none',
-            cursor: atMaxDepth || (!hasParents && !hasChildren) ? 'not-allowed' : 'pointer',
+            cursor: toggleDisabled ? 'not-allowed' : 'pointer',
             fontSize: 'var(--font-size-sm)',
             color: 'var(--color-text-muted)',
             width: '1.25em',
             padding: 0,
           }}
         >
-          {!hasParents && !hasChildren ? '·' : expanded ? '▼' : '▶'}
+          {toggleDisabled ? '·' : expanded ? '▼' : '▶'}
         </button>
 
         <span
+          data-testid="req-tree-type"
           style={{
             fontSize: 'var(--font-size-xs)',
             background: 'var(--color-surface-raised)',
@@ -165,32 +278,57 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
             fontWeight: 500,
           }}
         >
-          Req
+          {node.artifactType || 'Req'}
         </span>
 
-        <button
-          type="button"
-          onClick={handleTitleClick}
-          data-testid="req-tree-title"
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            color: 'var(--color-primary)',
-            cursor: 'pointer',
-            textDecoration: 'underline',
-            fontSize: 'var(--font-size-sm)',
-            fontFamily: 'inherit',
-            textAlign: 'left',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1,
-          }}
-          title={requirement.title}
-        >
-          {requirement.title || requirement.id.slice(0, 8)}
-        </button>
+        {node.isOutdated ? (
+          // UI-P3: the artifact is soft-deleted. Every detail route filters
+          // outdated rows out, so a link here would only 404 — render a dead
+          // label plus an explicit badge rather than a live-looking neighbour.
+          <>
+            <span
+              data-testid="req-tree-title-outdated"
+              style={TREE_OUTDATED_TITLE_STYLE}
+              title={displayTitle}
+            >
+              {displayTitle}
+            </span>
+            <span
+              data-testid="req-tree-outdated-badge"
+              style={TREE_OUTDATED_BADGE_STYLE}
+              title={t(
+                'tracelinks.outdatedHint',
+                'Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten.'
+              )}
+            >
+              {t('tracelinks.outdated', 'Gelöscht')}
+            </span>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={handleTitleClick}
+            data-testid="req-tree-title"
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              color: 'var(--color-primary)',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              fontSize: 'var(--font-size-sm)',
+              fontFamily: 'inherit',
+              textAlign: 'left',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+            }}
+            title={displayTitle}
+          >
+            {displayTitle}
+          </button>
+        )}
       </div>
 
       {expanded && (
@@ -209,20 +347,27 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           )}
 
           {error && (
-            <p
+            <div
               role="alert"
-              style={{
-                color: 'var(--color-danger)',
-                fontSize: 'var(--font-size-sm)',
-                margin: 'var(--space-2) 0 var(--space-2) var(--space-5)',
-              }}
+              data-testid="req-tree-error"
+              style={TREE_ERROR_STYLE}
             >
-              {error}
-            </p>
+              <span>{error}</span>{' '}
+              <button
+                type="button"
+                data-testid="req-tree-retry"
+                onClick={() => void loadChildren()}
+                disabled={loading}
+                style={TREE_RETRY_BUTTON_STYLE}
+              >
+                {t('editor.retryLoadChildren')}
+              </button>
+            </div>
           )}
 
           {!loading && !error && childNodes && childNodes.length === 0 && (
             <p
+              data-testid="req-tree-empty"
               style={{
                 fontSize: 'var(--font-size-sm)',
                 color: 'var(--color-text-muted)',
@@ -236,8 +381,12 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           {!loading &&
             !error &&
             childNodes &&
-            Array.from(groups.entries()).map(([dir, nodes]) => (
-              <div key={dir} data-testid={`req-tree-group-${dir}`} style={{ marginLeft: 'var(--space-5)' }}>
+            Array.from(groups.entries()).map(([relation, nodes]) => (
+              <div
+                key={relation}
+                data-testid={`req-tree-group-${relation}`}
+                style={{ marginLeft: 'var(--space-5)' }}
+              >
                 <div
                   style={{
                     fontSize: 'var(--font-size-xs)',
@@ -248,15 +397,20 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
                     padding: 'var(--space-2) 0 var(--space-1)',
                   }}
                 >
-                  {dir === 'parent' ? '↑ Parents' : '↓ Children'}
+                  {relation === 'parent'
+                    ? `↑ ${t('traceability.upstream')}`
+                    : `↓ ${t('traceability.downstream')}`}
                 </div>
 
-                {nodes.map((node) => (
+                {nodes.map((child) => (
                   <RequirementTreeNode
-                    key={node.link.id}
+                    key={`${relation}:${child.artifactId}`}
                     workspaceId={workspaceId}
-                    requirement={node.requirement}
+                    node={child}
                     depth={depth + 1}
+                    visitedIds={childVisitedIds}
+                    isCycle={childVisitedIds.has(child.artifactId)}
+                    entityIdByArtifactId={entityIdByArtifactId}
                     onSelectRequirement={onSelectRequirement}
                   />
                 ))}

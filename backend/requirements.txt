@@ -1,49 +1,171 @@
 # ReqFlow Backend Dependencies
 # ARCH-L1: All backend systems
+#
+# NOTE: requirements.lock is auto-generated and MUST be regenerated whenever this
+# file changes. See REGENERATING_LOCK_FILE.md for instructions. The lock file is
+# maintained for reference/documentation and is NOT used by Docker builds or CI
+# (which install directly from this file). CI includes a drift-check job that
+# validates security-critical minimum versions are met here.
 
 # Core Framework
-Django>=4.2,<5.0
-djangorestframework>=3.15,<4.0
-drf-spectacular>=0.27,<1.0
+# Django 5.2 LTS. 4.2 LTS reached end of life, so upstream no longer backports
+# security fixes to the 4.2.x series — every newly disclosed Django CVE stays
+# permanently unfixed there and the CI `pip-audit --desc` gate fails forever.
+# The 4.2 pin was already blocking on six advisories at once:
+#   CVE-2026-48587, CVE-2026-6873,  CVE-2026-8404  (fixed in 5.2.15)
+#   CVE-2026-48588, CVE-2026-53877, CVE-2026-53878 (fixed in 5.2.16)
+# 5.2 is the next LTS in Django's 2-year cadence (2.2 → 3.2 → 4.2 → 5.2) and is
+# supported until April 2028. Floor set to the newest 5.2.x patch so all six
+# advisories are covered; capped below 5.3 to stay on the LTS series.
+# Requires Python >=3.10 (backend/Dockerfile runs 3.12) and PostgreSQL >=14
+# (docker-compose runs pgvector/pgvector:pg16).
+#
+# Bumped 5.2 LTS -> 6.1 (Dependabot PR #501). Django 6.1 raises the floors to
+# Python >=3.12 and PostgreSQL >=15 — both already satisfied (backend/Dockerfile
+# runs python:3.12-slim, docker-compose runs pgvector/pgvector:pg16).
+#
+# Three incompatibilities had to be fixed in this codebase for the bump; all
+# three are documented at their call sites:
+#   1. `CheckConstraint(check=)` -> `condition=` (renamed in 5.1, removed in
+#      6.0) in admin_ops/models.py + admin_ops/migrations/0002_banner.py.
+#   2. The new `postgres.E005` system check requires `django.contrib.postgres`
+#      in INSTALLED_APPS for anything deriving from `PostgresIndex` — pgvector's
+#      HnswIndex does (reqogniloom/settings.py).
+#   3. `persistence.User` implements the auth interface by hand; 6.1 removed
+#      the `hasattr` shims in `django.contrib.auth` and now calls
+#      `get_session_auth_hash()` unconditionally (persistence/models.py).
+#      NOTE this is a real behaviour change, not just a shim — see the security
+#      note there: pre-existing admin sessions are invalidated once on rollout.
+Django>=6.1.1,<6.2
+# 3.17.2+ declares Django 5.2 support; the existing range already resolves
+# there, so no floor change is required.
+djangorestframework>=3.18.0,<4.0
+drf-spectacular>=0.30.0,<1.0
 
 # Database
-psycopg2-binary>=2.9,<3.0
+psycopg2-binary>=2.9.13,<3.0
 
 # Vector similarity search (REQ-L2-VS-004) — pgvector Django integration
 # (VectorField, HnswIndex, CosineDistance). Requires the pgvector Postgres
 # extension in the DB image (pgvector/pgvector:pg16, provisioned by devops).
-pgvector>=0.3.0,<0.4.0
+pgvector>=0.5.0,<0.6.0
 
 # Async task queue (ARCH-L1-016 ResilienceOrchestrator)
-celery>=5.3,<6.0
-django-celery-beat>=2.5,<3.0
-redis>=5.0,<6.0
+celery>=5.6.3,<6.0
+# TEMPORARY VCS PIN — revert to a normal PyPI range once a release ships.
+# The newest published release (2.9.0) declares `Django<6.1,>=2.2`, so with the
+# `Django>=6.1` above pip ends in ResolutionImpossible and the CI
+# `pip-audit --desc` gate fails before it can audit anything. The dependency is
+# not optional here: `django_celery_beat` is in INSTALLED_APPS, provides the
+# `CELERY_BEAT_SCHEDULER = django_celery_beat.schedulers:DatabaseScheduler`
+# that the celery-beat compose service runs on, and backs the PeriodicTask
+# probe in admin_ops/health_rest.py.
+# Upstream fixed it on `main` (requirements/runtime.txt now reads
+# `Django>=3.2.25,<6.2`) but has not cut a release yet. Tracking:
+# celery/django-celery-beat#1079 ("Django 6.1 Support"). Pinned to an exact
+# commit, never a branch name, so the build stays reproducible.
+# WHEN #1079 IS RELEASED: replace this line with `django-celery-beat>=<rel>,<3.0`
+# and drop `git` from the builder stage of backend/Dockerfile if nothing else
+# needs it.
+django-celery-beat @ git+https://github.com/celery/django-celery-beat.git@6767df6f6f723a96ebd38269a073a11cde124850
+redis>=8.1.0,<9.0
 
 # Testing
-pytest>=8.0,<9.0
-pytest-django>=4.8,<5.0
-pypdf>=4.0,<6.0
+# pytest floor raised to 9.0.3 for CVE-2025-71176 / PYSEC-2026-1845 (CWE-379):
+# predictable /tmp/pytest-of-{user} basetemp directories on UNIX allow a local
+# user to cause a DoS or possibly escalate privileges. Fixed only in 9.0.3 —
+# there is no 8.x backport, so the CI pip-audit gate forces the major bump.
+pytest>=9.1.1,<10.0
+# pytest-django 4.12.0 is the first release whose own test matrix runs against
+# pytest>=9; earlier 4.x releases predate pytest 9 entirely. Its install
+# requirement is only `pytest>=7`, so the floor has to be pinned here.
+# The former <4.12.1 cap existed only because pytest-django 4.12.1+ drops
+# Django 4.2 support, and 4.13.0 against Django 4.2 blew up every
+# @pytest.mark.django_db test with `AttributeError: type object
+# 'PytestDjangoTestCase' has no attribute '_pre_setup_ran_eagerly'` — an
+# internal hook that only exists on pytest-django builds targeting
+# Django>=5.0. That cap was explicitly documented as a stopgap to be removed
+# in the same change that upgrades Django; the Django 5.2 bump above is that
+# change, so the cap is gone and the floor is raised to the first release that
+# declares Django 5.2 support.
+pytest-django>=4.14.0,<5.0
+pypdf>=6.16.2,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
-reportlab>=4.0,<5.0
+reportlab>=5.0.1,<6.0
 
 # WSGI/ASGI HTTP Server (production deployment)
 # gunicorn runs the ASGI app via uvicorn workers so the async MCP SSE
 # transport streams without blocking a sync worker per client (REQ-044).
-gunicorn>=21.2,<22.0
-uvicorn[standard]>=0.30,<1.0
+# Removed <22.0 cap: 22.0+ includes CVE-2024-1135 (Request-Smuggling) fix
+gunicorn>=26.2.0
+uvicorn[standard]>=0.52.4,<1.0
 
 # Utilities
 python-decouple>=3.8,<4.0
-requests>=2.31,<3.0
+requests>=2.34.2,<3.0
 
 # Field-level encryption (REQ-081) — Fernet symmetric encryption for
 # persistence.LlmSettings.api_key at rest.
-cryptography>=42.0,<45.0
+# Floor raised to 50.0.0 for PYSEC-2026-3552: pkcs7_decrypt_der/pem/smime
+# leaked RecipientInfo decryption outcome via distinguishable errors and
+# timing (Bleichenbacher oracle against the content-encryption key),
+# introduced in 44.0.0, fixed in 50.0.0. Not exploitable via this app's
+# own Fernet usage (no attacker-supplied PKCS#7 EnvelopedData is ever
+# decrypted here) but the CI pip-audit gate forces the floor regardless.
+cryptography>=50.0.0,<51.0
+
+# Static files serving — production deployment (SA-40)
+# WhiteNoise serves /static/ directly without requiring nginx/separate server.
+# Compresses assets (CSS/JS) on the fly and adds versioning via manifest.
+whitenoise[brotli]>=6.12.0,<7.0
 
 # Observability (REQ-063)
-python-json-logger>=2.0.7,<3.0
+python-json-logger>=4.2.0,<5.0
 
 # ReqIF 1.2 export (REQ-146) — DOORS/Polarion interoperability.
 # StrictDoc project, Apache-2.0 license (verified via `pip show reqif`).
-reqif>=0.0.52,<0.1
+reqif>=0.1.0,<0.2
+
+# LLM provider SDKs (REQ-L3-LA002-001, fix #111) — without these every
+# LLM_PROVIDER=anthropic|openai call crashed with a raw RuntimeError; only
+# `mock` was actually usable. Pinned consistent with the other deps above.
+anthropic>=1.5.0,<2.0
+openai>=3.6.0,<4.0
+# Embedding provider (REQ-L2-VS-004) — sentence-transformers is the new default
+# embedding provider (384 dims, in-process, no external service). Optional
+# providers: ollama (768 dims) and openai (1536 dims, already listed above).
+# Floor raised to 6.0 (from the original 3.2-3.x range) because every
+# sentence-transformers release through 5.x pins transformers<5.0.0, and
+# transformers 4.57.6 (the version pip resolved under the old floor) carries
+# 5 known CVEs (PYSEC-2025-217, PYSEC-2026-2288/2289/2290 — RCE via
+# checkpoint/config deserialization), all fixed only in transformers>=5.0.0.
+# sentence-transformers==6.0.0 is the first release requiring
+# transformers>=5.0.0,<6.0.0. The only API this codebase uses
+# (SentenceTransformer(model_name).encode(text, normalize_embeddings=True))
+# is unchanged across this range (llm_adapter/embedding_service.py).
+sentence-transformers>=6.0.1,<7.0
+
+# PCA + cosine-similarity clustering for the Memory Admin UI Phase 5
+# visualization endpoint (application/memory_admin_service.py::_pca_2d/
+# _cluster_ids). The Phase 5 plan deliberately left this off requirements.txt,
+# betting on numpy already being present transitively via sentence-transformers/
+# torch — confirmed in practice to NOT hold reliably (a numpy-less container
+# state was observed making GET /api/v1/system/memory/projection/ 500), so
+# pinning it explicitly per that same plan's own escape hatch ("add it only if
+# the transitive-dependency assumption fails").
+numpy>=2.5.3,<3.0
+
+# Optional external memory backend (MEMORY_BACKEND=honcho, memory/honcho_backend.py).
+# NOTE: "honcho-ai" is the Plastic Labs agent-memory SDK (github.com/plastic-labs/honcho).
+# Do NOT substitute the PyPI package named plain "honcho" — that is an unrelated
+# legacy Procfile process manager and would import as the same `honcho` module name.
+# SYSTEMAUDIT-2026-08-27 AP-6 L-2: exact-pinned, not a range. The open range
+# (`>=2.3.0,<3.0`) previously let pip resolve 2.4.0, which renamed
+# `honcho.conclusions.ConclusionScope` -> `ConclusionsView` and broke 5 tests
+# in memory/tests/test_honcho_backend.py with an ImportError. 2.3.0 is the
+# highest published release (verified via `pip index versions honcho-ai`)
+# that still exposes `ConclusionScope`; this backend's honcho_backend.py is
+# written against that surface (create/query/list/delete). Bump deliberately
+# and re-verify the import + the memory test suite, do not widen the range.
+honcho-ai==2.3.0

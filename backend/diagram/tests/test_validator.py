@@ -245,3 +245,41 @@ class TestMermaidSourceValidation:
             diagram_type="flowchart",
         )
         assert result.is_valid
+
+
+# ---------------------------------------------------------------------------
+# GH-353 (Task 1): validate_payload() routes payload_format=node_graph to
+# diagram.node_graph.validate_node_graph — deep invariant coverage lives in
+# test_node_graph.py; this class only exercises the wiring itself.
+# ---------------------------------------------------------------------------
+
+class TestNodeGraphWiring:
+    """DiagramValidator.validate_payload() — node_graph branch."""
+
+    _VALID_CONTENT = (
+        '{"schema_version": 1, "nodes": [{"id": "n-1", "type": "box", '
+        '"label": "A", "position": {"x": 0, "y": 0}}], "edges": []}'
+    )
+
+    def test_valid_node_graph_passes(self, validator: DiagramValidator) -> None:
+        # Any diagram_type is accepted for node_graph (mirrors canvas_stroke,
+        # which is likewise not diagram_type-restricted).
+        validator.validate_payload("block", "node_graph", self._VALID_CONTENT)
+
+    def test_empty_content_raises(self, validator: DiagramValidator) -> None:
+        with pytest.raises(DiagramValidationError, match="must not be empty"):
+            validator.validate_payload("block", "node_graph", "")
+
+    def test_malformed_json_raises(self, validator: DiagramValidator) -> None:
+        with pytest.raises(DiagramValidationError, match="not valid JSON"):
+            validator.validate_payload("block", "node_graph", "{not json")
+
+    def test_invariant_violation_raises(self, validator: DiagramValidator) -> None:
+        content = (
+            '{"schema_version": 1, "nodes": [{"id": "n-1", "type": "box", '
+            '"label": "A", "position": {"x": 0, "y": 0}}], '
+            '"edges": [{"id": "e-1", "source": "n-1", "target": "does-not-exist", '
+            '"type": "flow"}]}'
+        )
+        with pytest.raises(DiagramValidationError, match="Node graph validation failed"):
+            validator.validate_payload("block", "node_graph", content)

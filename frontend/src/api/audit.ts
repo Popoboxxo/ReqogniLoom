@@ -60,6 +60,24 @@ export interface AuditReport {
   scope: AuditScopeKind | null;
   scope_artifact_id: string | null;
   counts: AuditCounts;
+  /**
+   * Without `limit`: true when the backend capped the result set
+   * (AuditService.MAX_REPORT_FINDINGS). With `limit` (#622/#596): true when
+   * more findings exist *past* this window — i.e. the client should request
+   * the next one.
+   */
+  truncated: boolean;
+  /** Total findings the run actually produced, before any truncation/windowing. */
+  total_findings_available: number;
+  /** True blocker count before truncation (code review M3 — counts.blockers only covers the returned/capped subset). */
+  total_blockers_available: number;
+  /** True warning count before truncation (see total_blockers_available). */
+  total_warnings_available: number;
+  /**
+   * #622: position of `findings[0]` within the full (pre-cap) run — always 0
+   * for a request without `limit`. Next window start: `offset + findings.length`.
+   */
+  offset: number;
   findings: AuditFinding[];
 }
 
@@ -80,6 +98,15 @@ export interface RemediateResult {
 export interface RunAuditOptions {
   scope?: AuditScopeKind;
   scopeArtifactId?: string;
+  /**
+   * #622/#596: return a plain sequential window of the full result set
+   * (`findings[offset:offset+limit]`) instead of the default BLOCKER-first
+   * capped view — lets the dashboard page through thousands of findings
+   * without mounting them all. Capped server-side at MAX_REPORT_FINDINGS.
+   */
+  limit?: number;
+  /** Start position of the requested window; only meaningful with `limit`. */
+  offset?: number;
 }
 
 export const auditApi = {
@@ -90,6 +117,8 @@ export const auditApi = {
     if (options.scopeArtifactId) {
       params.set("scope_artifact_id", options.scopeArtifactId);
     }
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    if (options.offset !== undefined) params.set("offset", String(options.offset));
     const qs = params.toString();
     return apiClient.get<AuditReport>(
       `/workspaces/${workspaceId}/audit/${qs ? `?${qs}` : ""}`

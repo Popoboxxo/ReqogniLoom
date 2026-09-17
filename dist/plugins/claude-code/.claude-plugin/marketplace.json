@@ -1,0 +1,13 @@
+{
+  "name": "reqogniloom-marketplace",
+  "owner": {
+    "name": "ReqogniLoom"
+  },
+  "plugins": [
+    {
+      "name": "reqogniloom",
+      "source": "./reqogniloom",
+      "description": "ReqogniLoom SE agent roles + MCP connection"
+    }
+  ]
+}

@@ -7,6 +7,7 @@
  */
 
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { WorkflowModal } from "./WorkflowModal";
 import styles from "./WorkflowEditor.module.css";
 
@@ -27,7 +28,7 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({
   title,
   message,
-  confirmLabel = "Delete",
+  confirmLabel,
   onConfirm,
   onClose,
   busy = false,
@@ -35,10 +36,12 @@ export function ConfirmDialog({
   children,
   confirmDisabled = false,
 }: ConfirmDialogProps): JSX.Element {
+  const { t } = useTranslation();
   return (
     <WorkflowModal
       title={title}
       onClose={onClose}
+      preventClose={busy}
       testId="workflow-confirm-dialog"
       footer={
         <>
@@ -48,7 +51,7 @@ export function ConfirmDialog({
             onClick={onClose}
             data-testid="workflow-confirm-cancel"
           >
-            Cancel
+            {t("actions.cancel")}
           </button>
           <button
             type="button"
@@ -57,7 +60,7 @@ export function ConfirmDialog({
             disabled={busy || confirmDisabled}
             data-testid="workflow-confirm-submit"
           >
-            {confirmLabel}
+            {confirmLabel ?? t("workflow.confirmDialog.defaultConfirmLabel")}
           </button>
         </>
       }

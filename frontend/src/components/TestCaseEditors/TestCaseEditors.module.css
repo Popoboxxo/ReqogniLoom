@@ -1,0 +1,27 @@
+/*
+ * S-3 (attribute-definitions Task 22 review round 1): the sibling
+ * CustomFieldsEditor section and the "select a test case" placeholder were
+ * added as inline `style={{...}}` literals (frontend/src/test/ui-ratchet.test.ts
+ * freezes the total count) instead of CSS classes — `TestCaseForm.module.css`
+ * (deleted in this same wave) used to supply the equivalent chrome for the
+ * hand-written form this replaces. Minimal, TestCaseEditors-local module
+ * (no matching classes existed in `shared/FieldHints.module.css` to reuse).
+ */
+
+.customFieldsSection {
+  margin-top: var(--space-4);
+}
+
+.customFieldsSectionHeading {
+  font-size: var(--font-size-md);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-2);
+}
+
+.selectPlaceholder {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  text-align: center;
+  padding: var(--space-8);
+}

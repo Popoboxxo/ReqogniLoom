@@ -1,7 +1,7 @@
 # L2 AiOrchestration Architecture
 
 > **Level:** L2 (Subsystem white-box)
-> **System:** AiOrchestrationSystem (ARCH-L1-008)
+> **System:** AiOrchestrationSystem (ARCH-L1-017)
 > **Parent:** L1_Gesamtsystem_Architecture.md
 > **Datum:** 2026-07-12
 > **Status:** entworfen

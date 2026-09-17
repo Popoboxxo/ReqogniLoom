@@ -22,11 +22,23 @@ from .authentication import (
 from .authorization import (
     AuthorizationDecision,
     AuthorizationService,
+    GOVERNANCE_OPERATIONS,
     Operation,
     PresetPolicyValidator,
+    READ_ONLY_SCOPE,
+    SCOPE_ADMIN,
+    SCOPE_AUTHOR,
+    SCOPE_READ_ONLY,
+    SCOPE_TIERS,
+    WRITE_SCOPE,
     WorkspaceMember,
+    operation_for_method,
+    required_scope_tier,
+    scope_allows,
+    scope_denial_reason,
+    scope_tier,
 )
-from .item_permission import ItemPermissionService, PermissionDecision
+from .item_permission import ItemPermissionService, NO_RULE_REASON, PermissionDecision
 from .password_authentication import PasswordAuthenticationService
 from .permission_cache import (
     DEFAULT_TTL_SECONDS,
@@ -36,6 +48,7 @@ from .permission_cache import (
 from .preference_service import PreferenceService
 from .profile_service import UserProfileService
 from .tenant_context import TenantContextService
+from .user_account import UserAccountService
 
 __all__ = [
     "AuthenticationService",
@@ -48,12 +61,26 @@ __all__ = [
     "WorkspaceMember",
     "Operation",
     "PresetPolicyValidator",
+    "GOVERNANCE_OPERATIONS",
+    "READ_ONLY_SCOPE",
+    "SCOPE_ADMIN",
+    "SCOPE_AUTHOR",
+    "SCOPE_READ_ONLY",
+    "SCOPE_TIERS",
+    "WRITE_SCOPE",
+    "operation_for_method",
+    "required_scope_tier",
+    "scope_allows",
+    "scope_denial_reason",
+    "scope_tier",
     "TenantContextService",
     "ItemPermissionService",
     "PermissionDecision",
+    "NO_RULE_REASON",
     "PermissionCache",
     "DEFAULT_TTL_SECONDS",
     "CacheEntry",
     "PreferenceService",
     "UserProfileService",
+    "UserAccountService",
 ]

@@ -25,7 +25,7 @@ import pytest
 
 from diagram.manager import DiagramManager, DiagramResult
 from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData
-from diagram.models import Diagram, DiagramType, DiagramVersion, PayloadFormat
+from diagram.models import Diagram, DiagramRevision, DiagramType, PayloadFormat
 from diagram.renderer import DiagramRenderer, RenderHints
 from diagram.validator import DiagramValidator, DiagramValidationError, ValidationResult
 
@@ -78,8 +78,8 @@ def sample_diagram() -> MagicMock:
 
 @pytest.fixture
 def sample_version() -> MagicMock:
-    """Mock DiagramVersion object."""
-    version = MagicMock(spec=DiagramVersion)
+    """Mock DiagramRevision object."""
+    version = MagicMock(spec=DiagramRevision)
     version.version_number = 1
     version.payload_format = PayloadFormat.MERMAID
     version.payload = "flowchart TD\n  A --> B"

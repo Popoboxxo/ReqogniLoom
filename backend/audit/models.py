@@ -116,6 +116,94 @@ class AuditEntry(TenantScopedModel):
     OP_TRANSITION = "transition"
     OP_BASELINE_CREATE = "baseline.create"
     OP_WORKSPACE_CLOSE = "workspace.close"
+    OP_WORKSPACE_REACTIVATE = "workspace.reactivate"
+    OP_WORKSPACE_DELETE = "workspace.delete"
+    OP_CLONE = "clone"
+    OP_ASSIGN = "assign"
+    OP_ADMIN_BACKUP_CREATE = "admin.backup_create"
+    OP_ADMIN_RESTORE = "admin.restore"
+    OP_PERMISSIONS_SET_RULE = "permissions.set_rule"
+    OP_PERMISSIONS_REVOKE = "permissions.revoke"
+    OP_USER_CREATE = "user.create"
+    OP_USER_ASSIGN_ROLE = "user.assign_role"
+    OP_USER_DEACTIVATE = "user.deactivate"
+    # Multi-user management Task 9 (#539 follow-up): these 5 ops were added
+    # to ``UsersToolGroup`` without being declared here, so ``write_mcp_audit``
+    # silently produced zero audit rows for all of them (see #539 above).
+    OP_USER_ACTIVATE = "user.activate"
+    OP_USER_SUSPEND_ROLE = "user.suspend_role"
+    OP_USER_REACTIVATE_ROLE = "user.reactivate_role"
+    OP_USER_ASSIGN_TENANT_ADMIN = "user.assign_tenant_admin"
+    OP_USER_REVOKE_TENANT_ADMIN = "user.revoke_tenant_admin"
+    # #573: LLM-backed analyses exposed as MCP tools. They have no REST
+    # pendant whose op could be reused, so they get their own namespace —
+    # consistent with the ``baseline.``/``workspace.``/``admin.``/
+    # ``permissions.``/``user.`` families above. The MCP soft-delete
+    # (``requirement.outdate`` / ``needs.outdate``) and restore
+    # (``*.reactivate``) deliberately do NOT appear here: they reuse the ops
+    # their REST pendants already write (``delete`` / ``transition``) so a
+    # single audit query answers "who deleted this" across both surfaces.
+    OP_AI_DECOMPOSE = "ai.decompose"
+    OP_AI_VALIDATE = "ai.validate"
+    OP_AI_CHECK_CONSISTENCY = "ai.check_consistency"
+    # AWMS (Epic #934 WS7, #940): a value migration is its own auditable
+    # operation, per changed artifact (spec §6). Two distinct namespaces rather
+    # than reusing "update"/"transition": an audit query for "what did the
+    # migration change" must not be drowned by ordinary edits, and a rollback
+    # is a first-class repair action. Both fit the varchar(32) ``op`` column.
+    OP_ATTRIBUTE_MIGRATION_APPLY = "attribute_migration.apply"
+    OP_ATTRIBUTE_MIGRATION_ROLLBACK = "attribute_migration.rollback"
+    # #626: DLQ event replay has no REST pendant (it is admin/ops machinery
+    # over a DomainEventDLQ row, not a CRUD op on a business entity), so it
+    # gets its own namespace — same reasoning as the ``ai.*`` family above.
+    OP_EVENTS_REPLAY = "events.replay"
+    # #821: granting a per-blocker waiver on the SE-Auditor baseline gate is
+    # its own governed act, not an ordinary baseline create: the audit query
+    # "who accepted this deviation, when and why" must be answerable without
+    # reconstructing it from ``baseline.create`` details. Reuses the
+    # ``baseline.`` namespace of ``OP_BASELINE_CREATE`` above.
+    OP_BASELINE_WAIVER_CREATE = "baseline.waiver_create"
+    # NOTE (#265): ``op`` is validated against this list by
+    # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
+    # re-raises the resulting ValidationError — so a service that audits an
+    # operation missing here fails its whole transaction with a 500 *after*
+    # the business mutation already succeeded. Any new ``operation=`` string
+    # passed to ``ServiceBase._audit`` MUST be added here (guarded by
+    # ``audit/tests/test_op_vocabulary.py``).
+    #
+    # NOTE (#539): the same failure mode applies to ``write_mcp_audit``
+    # (mcp_server/tools/base.py) — its ``operation=`` argument goes through
+    # the identical ``full_clean()`` validation, but the resulting
+    # ValidationError is caught and only logged (never re-raised), so an
+    # undeclared op there silently produces zero audit rows instead of a
+    # loud 500. The admin/user/permissions op values below were added for
+    # that reason; any new MCP admin-style tool op must be added here too.
+    #
+    # NOTE (#573): the requirements/needs lifecycle + AI tools hit the same
+    # silent-drop path — ``requirement.outdate|reactivate|validate|
+    # check_consistency|decompose`` and ``needs.outdate|reactivate`` all
+    # returned 200 while writing zero audit rows. Two different remedies were
+    # applied, on purpose: operations with a REST pendant now emit that
+    # pendant's op (outdate -> ``delete``, reactivate -> ``transition``), and
+    # only the LLM analyses, which have no REST pendant, got new ``ai.*``
+    # choices below.
+    #
+    # NOTE (#626): the remaining 17 call-sites from the #573 follow-up list
+    # (ai_derivation.py's 6 derive/suggest tools, review.py's
+    # approve/reject/request_changes, tests.py's outdate/reactivate/
+    # derive_from_requirement, architecture.py's outdate/reactivate,
+    # diagram.py's outdate/reactivate, audit.py's replay) hit the identical
+    # gap. All but one reuse an existing pendant: the 6 ai_derivation.py
+    # tools plus tests.py's derive_from_requirement each write exactly one
+    # audit entry for the ONE entity they just created (a Requirement/Adr/
+    # GlossaryTerm/Risk/TraceLink/TestCase row) -> ``create``, same
+    # "who created this" query as their REST siblings. outdate/reactivate on
+    # architecture.py/diagram.py/tests.py -> ``delete``/``transition``, same
+    # convention as #573. review.py's approve/request_changes call
+    # WorkflowFacade.transition() directly -> ``transition``; reject calls
+    # the outdate() escape hatch -> ``delete``. Only audit.py's DLQ replay
+    # has no REST pendant (it is admin/ops machinery, not a CRUD op on a
+    # business entity) -> the new ``events.replay`` above.
     OP_CHOICES = [
         (OP_CREATE, "Create"),
         (OP_UPDATE, "Update"),
@@ -123,6 +211,29 @@ class AuditEntry(TenantScopedModel):
         (OP_TRANSITION, "Transition"),
         (OP_BASELINE_CREATE, "Baseline Create"),
         (OP_WORKSPACE_CLOSE, "Workspace Close"),
+        (OP_WORKSPACE_REACTIVATE, "Workspace Reactivate"),
+        (OP_WORKSPACE_DELETE, "Workspace Delete"),
+        (OP_CLONE, "Clone"),
+        (OP_ASSIGN, "Assign"),
+        (OP_ADMIN_BACKUP_CREATE, "Admin Backup Create"),
+        (OP_ADMIN_RESTORE, "Admin Restore"),
+        (OP_PERMISSIONS_SET_RULE, "Permissions Set Rule"),
+        (OP_PERMISSIONS_REVOKE, "Permissions Revoke"),
+        (OP_USER_CREATE, "User Create"),
+        (OP_USER_ASSIGN_ROLE, "User Assign Role"),
+        (OP_USER_DEACTIVATE, "User Deactivate"),
+        (OP_USER_ACTIVATE, "User Activate"),
+        (OP_USER_SUSPEND_ROLE, "User Suspend Role"),
+        (OP_USER_REACTIVATE_ROLE, "User Reactivate Role"),
+        (OP_USER_ASSIGN_TENANT_ADMIN, "User Assign Tenant Admin"),
+        (OP_USER_REVOKE_TENANT_ADMIN, "User Revoke Tenant Admin"),
+        (OP_AI_DECOMPOSE, "AI Decompose"),
+        (OP_AI_VALIDATE, "AI Validate"),
+        (OP_AI_CHECK_CONSISTENCY, "AI Consistency Check"),
+        (OP_ATTRIBUTE_MIGRATION_APPLY, "Attribute Migration Apply"),
+        (OP_ATTRIBUTE_MIGRATION_ROLLBACK, "Attribute Migration Rollback"),
+        (OP_EVENTS_REPLAY, "Events Replay"),
+        (OP_BASELINE_WAIVER_CREATE, "Baseline Waiver Create"),
     ]
 
     SOURCE_REST = "rest"
@@ -224,8 +335,17 @@ class AuditEntry(TenantScopedModel):
         trigger (see migration 0002_audit_append_only_trigger) is the
         authoritative constraint; this guard provides application-layer
         early-fail.
+
+        SA-39 (Systemaudit 2026-08-27 §4.1 #14): the guard used to be
+        ``self.pk is not None and AuditEntry.unscoped.filter(pk=...).exists()``.
+        The pk is a UUID with a ``default`` (``AuditableModel.id``), so it is
+        *never* None — not even on a brand-new instance — and every single audit
+        INSERT therefore paid for an extra SELECT. ``_state.adding`` answers the
+        actual question ("did this instance come from the database?") without a
+        query: Django clears it after a save or a load, and it stays True for a
+        freshly constructed row regardless of its pk.
         """
-        if self.pk is not None and AuditEntry.unscoped.filter(pk=self.pk).exists():
+        if not self._state.adding:
             raise RuntimeError(
                 "AuditEntry is append-only. Modifying an existing entry is not permitted."
             )

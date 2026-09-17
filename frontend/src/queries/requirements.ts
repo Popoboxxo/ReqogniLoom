@@ -12,7 +12,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { requirementsApi } from "../api/requirements";
 import { tracelinksApi } from "../api/tracelinks";
-import { resolveArtifactRef } from "../api/artifactRefs";
+import { resolveArtifactRefs } from "../api/artifactRefs";
 import type { Requirement, TraceLink, UUID } from "../types";
 
 export const requirementKeys = {
@@ -23,10 +23,22 @@ export const requirementKeys = {
   detail: (id: UUID) => [...requirementKeys.details(), id] as const,
 };
 
-export function useRequirementsList(workspaceId: UUID | undefined) {
+/**
+ * GH-443: `includeDeleted` opts into soft-deleted (`status === "outdated"`)
+ * requirements. It is part of the query key — the two variants are different
+ * result sets and must not share a cache entry — but appended *after*
+ * `requirementKeys.list(workspaceId)`, so the existing
+ * `invalidateQueries({ queryKey: requirementKeys.list(ws) })` calls still match
+ * both by prefix.
+ */
+export function useRequirementsList(
+  workspaceId: UUID | undefined,
+  includeDeleted = false,
+) {
   return useQuery({
-    queryKey: requirementKeys.list(workspaceId ?? ""),
-    queryFn: () => requirementsApi.listAll(workspaceId as UUID),
+    queryKey: [...requirementKeys.list(workspaceId ?? ""), { includeDeleted }],
+    queryFn: () =>
+      requirementsApi.listAll(workspaceId as UUID, { includeDeleted }),
     enabled: !!workspaceId,
   });
 }
@@ -54,15 +66,18 @@ async function fetchRequirementDetail(
 
   // Linked artifacts are not always Requirements — satisfies/verifies/implements
   // links can point at ArchitectureElements or TestCases too (REQ-L1-003).
+  //
+  // #414: these ids are TraceLink endpoints, i.e. **Artifact** ids, while the
+  // routes handed to the editor take domain-entity ids. resolveArtifactRefs
+  // bridges the two spaces in a single batched request; resolving them per id
+  // (and treating an Artifact id as an entity id) is what produced the 404s.
   const linkedTitles: Record<string, string> = {};
   const linkedRoutes: Record<string, string> = {};
-  await Promise.all(
-    Array.from(linkedIds).map(async (linkedId) => {
-      const ref = await resolveArtifactRef(linkedId);
-      linkedTitles[linkedId] = ref.title;
-      linkedRoutes[linkedId] = ref.route;
-    })
-  );
+  const linkedRefs = await resolveArtifactRefs(Array.from(linkedIds));
+  for (const [linkedId, ref] of Object.entries(linkedRefs)) {
+    linkedTitles[linkedId] = ref.title;
+    linkedRoutes[linkedId] = ref.route;
+  }
 
   return { requirement, upstreamLinks, downstreamLinks, linkedTitles, linkedRoutes };
 }
@@ -115,13 +130,33 @@ export function useUpdateRequirement() {
 export function useDeleteRequirement() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id }: { id: UUID; workspaceId: UUID }) =>
-      requirementsApi.delete(id),
+    mutationFn: ({ id, changeReason }: { id: UUID; workspaceId: UUID; changeReason?: string }) =>
+      requirementsApi.delete(id, changeReason),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({
         queryKey: requirementKeys.list(variables.workspaceId),
       });
+      // GH-443: the detail cache entry is *removed*, not invalidated. The
+      // requirement still resolves after the soft-delete, so an invalidate
+      // would refetch it and leave a deleted item rendered in the detail pane.
       queryClient.removeQueries({ queryKey: requirementKeys.detail(variables.id) });
+    },
+  });
+}
+
+/** GH-443: undo a soft-delete and refresh both list variants + the detail. */
+export function useReactivateRequirement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: UUID; workspaceId: UUID }) =>
+      requirementsApi.reactivate(id),
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: requirementKeys.list(variables.workspaceId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: requirementKeys.detail(variables.id),
+      });
     },
   });
 }

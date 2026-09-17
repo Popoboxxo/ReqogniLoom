@@ -1,45 +1,117 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
+import { PageHeader } from '../shared/PageHeader';
+import { useInterviewStartCta } from '../shared/useInterviewStartCta';
+import { Dialog } from '../shared/Dialog';
 import { AdrList } from './AdrList';
-import { AdrForm } from './AdrForm';
+import { AdrArtifactForm } from './AdrArtifactForm';
+import { AdrSupersedePanel } from './AdrSupersedePanel';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
+import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
+import type { ChainArtifact } from '../shared/TraceSpine';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useAdrData } from './useAdrData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { adrsApi } from '../../api/adrs';
+import type { Adr } from '../../types';
+// F-04 (code review, 2026-08-19): shared create-form field styles (see
+// frontend/src/components/shared/FieldHints.module.css header comment) —
+// keeping them in one shared place instead of duplicating them per component.
+import fieldHints from '../shared/FieldHints.module.css';
 
 export default function AdrEditors(): JSX.Element {
   const { t } = useTranslation();
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta('Adr');
   const { items, item, isLoading, error, refresh } = useAdrData(selectedId);
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): `description` is an ordinary
+  // adrsApi.create() field the backend already accepts — it had no editor
+  // in this create dialog.
+  const [newDescription, setNewDescription] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
-  const handleCreateNew = async () => {
+  // 12.1/14.2: named after the result ("New ADR"), not the gesture ("+ New");
+  // also the dialog title, matching ch. 12.8 ("dialog title repeats the
+  // label of the button that opened it").
+  const newAdrLabel = t('adrs.newAdr', 'New ADR');
+
+  const openCreateDialog = useCallback((): void => {
+    setCreateError(null);
+    setNewTitle('');
+    setNewDescription('');
+    setShowCreateDialog(true);
+  }, []);
+
+  // Stable identity is required here, not just tidiness: <Dialog>'s focus
+  // trap re-runs its setup effect whenever `onClose` changes identity
+  // (useFocusTrap depends on it to keep `onEscape` current), which
+  // re-focuses the dialog's first element on every call. An inline arrow
+  // here would recreate on every keystroke in the title input below and
+  // fight the user for focus after each character.
+  const closeCreateDialog = useCallback((): void => {
+    setShowCreateDialog(false);
+    setCreateError(null);
+  }, []);
+
+  const handleCreateNew = async (): Promise<void> => {
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
     setCreateError(null);
+    setIsCreating(true);
     try {
-      const resp = await adrsApi.create({ workspace_id: activeWorkspace.id, title: newTitle.trim() });
+      const resp = await adrsApi.create({
+        workspace_id: activeWorkspace.id,
+        title: newTitle.trim(),
+        // BUG-11: only send what was actually typed.
+        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
+      });
       setNewTitle('');
-      setShowCreate(false);
+      setNewDescription('');
+      setShowCreateDialog(false);
       refresh();
       navigate(`/adrs/${resp.id}`);
     } catch (e) {
       console.error(e);
       const msg = (e as { error?: { message?: string } })?.error?.message ?? t('adrs.createFailed');
       setCreateError(msg);
+    } finally {
+      setIsCreating(false);
     }
   };
 
-  const handleSaved = () => { refresh(); };
+  // UI-LOW-3 (Systemaudit, LOW finding): `updated` is set only by the
+  // ADR-Supersede flow (AdrSupersedePanel.handleSupersede) — see
+  // useAdrData.refresh's doc comment for why that path needs a synchronous
+  // cache write instead of only an invalidate-triggered refetch.
+  const handleSaved = (updated?: Adr) => { refresh(updated); };
   const handleDeleted = () => { navigate('/adrs'); refresh(); };
+
+  // Trace spine (Task 3.3 — UI concept ch. 5).
+  const derivationChain = useDerivationChain(
+    item?.artifact_id ?? item?.id ?? null,
+    'Adr',
+    null,
+    { enabled: !!item },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
 
   // Page-level loading / error states — only gate the full view on the
   // initial load (no data yet), keeping the list visible on detail reloads.
@@ -57,44 +129,191 @@ export default function AdrEditors(): JSX.Element {
         <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
           {error.message}
         </p>
-        <button className="btn-secondary" onClick={refresh}>
-          {t('actions.reload', 'Erneut versuchen')}
+        {/* UI-LOW-3 follow-up (code review): `refresh` now takes an optional
+            `updated` entity, so it must NOT be passed as a bare event handler
+            — React would hand it the click's SyntheticEvent, which
+            `useAdrData.refresh` would then write into the detail cache via
+            setQueryData. Explicit zero-arg call instead. */}
+        <button
+          className="btn-secondary"
+          onClick={() => refresh()}
+          data-testid="adr-reload-btn"
+        >
+          {t('actions.retry')}
         </button>
       </div>
     );
   }
 
   return (
-    <SplitView
-      leftPanel={
-        <AdrList
-          items={items}
-          selectedId={selectedId}
-          onCreateNew={() => { setCreateError(null); setShowCreate(true); }}
-          showCreateForm={showCreate}
-          setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
-          newTitle={newTitle}
-          setNewTitle={setNewTitle}
-          onSubmitCreate={handleCreateNew}
-          createError={createError}
+    <div data-testid="adrs-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* 12.1: exactly one <h1>, always-visible summary, one primary action —
+          replaces the bare <h3> that used to live inside AdrList (issue: the
+          "+ New" button sat in the list toolbar, in violation of 12.2). */}
+      <PageHeader
+        title={t('nav.adrs')}
+        summary={t('adrs.summary', { count: items.length })}
+        primaryAction={{
+          label: newAdrLabel,
+          prefixWithPlus: true,
+          onClick: openCreateDialog,
+          testId: 'create-adr-btn',
+        }}
+        // #797: the guided-interview start is a second *create path*, not a
+        // variant of the primary one — as a visible secondary button it made
+        // this route show two create buttons where Glossary/ICD/Diagram show
+        // one. Secondary actions belong in the overflow menu (ch. 12.1), so
+        // it moved there: same action, same `interview-start-cta` testid,
+        // exactly one visible create CTA per route.
+        overflowActions={[interviewCta]}
+      />
+
+      <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
+        <SplitView
+          leftPanel={
+            <AdrList
+              items={items}
+              selectedId={selectedId}
+              onSelect={(id) => navigate(`/adrs/${id}`)}
+              onCreateNew={openCreateDialog}
+            />
+          }
+          rightPanel={
+            <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+                {item && (
+                  <TraceSpine
+                    stations={derivationChain.stations}
+                    isLoading={derivationChain.isLoading}
+                    error={derivationChain.error}
+                    onOpenArtifact={handleOpenChainArtifact}
+                    isOpenable={derivationChain.isOpenable}
+                  />
+                )}
+                {/* DEVIATION from the plan brief: the brief's AdrArtifactForm
+                    takes a non-nullable `adr: Adr` (unlike the deleted
+                    AdrForm, which accepted `adr: Adr | null` and rendered the
+                    "select an ADR" placeholder itself). `item` here is
+                    `Adr | null` (no row selected yet), so that null-guard
+                    moves to this call site instead of being lost — same
+                    pattern as RiskEditors/IssueEditors (Tasks 19/20). The
+                    ADR-Supersede-Flow has no equivalent inside ArtifactForm,
+                    so it stays a standalone sibling (see AdrSupersedePanel's
+                    doc comment) rendered right below the form. */}
+                {item ? (
+                  // F-2 (code review, Task 21 fix round): `key` forces
+                  // ArtifactForm's internal `useEntityReset` to remount on
+                  // status change too, not just `entityId` change — without
+                  // it, a Supersede leaves the form showing the pre-Supersede
+                  // status (e.g. stale "Approved") because `initialValues`'s
+                  // object identity change alone isn't enough to trigger a
+                  // reset (regression of UI-LOW-3).
+                  <>
+                    <AdrArtifactForm key={`${item.id}:${item.status}`} adr={item} onSaved={() => handleSaved()} onDeleted={handleDeleted} />
+                    <AdrSupersedePanel adr={item} otherAdrs={items} onSaved={handleSaved} />
+                  </>
+                ) : (
+                  <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+                    {t('adrs.selectAdr')}
+                  </p>
+                )}
+                {/* TraceLinkPanel stays: it is the create/delete CRUD surface
+                    for trace links (Task 3.3 decision — the Spine above is a
+                    read-only derivation-chain view, not a link editor). */}
+                {item && activeWorkspace && (
+                  <TraceLinkPanel workspaceId={activeWorkspace.id} artifactId={item.id} />
+                )}
+              </div>
+              {item && (() => {
+                const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
+                return <RightSidebar kind="adr" artifactId={item.id} currentVersion={ver} hideTraceLinks />;
+              })()}
+            </div>
+          }
+          initialLeftWidth={350}
+          moduleType="adrs"
         />
-      }
-      rightPanel={
-        <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
-          <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
-            <AdrForm adr={item} onSaved={handleSaved} onDeleted={handleDeleted} />
-            {item && activeWorkspace && (
-              <TraceLinkPanel workspaceId={activeWorkspace.id} artifactId={item.id} />
+      </div>
+
+      {showCreateDialog && (
+        <Dialog
+          title={newAdrLabel}
+          onClose={closeCreateDialog}
+          testId="adr-create-dialog"
+          // The dialog's own focusable-order default would land on the close
+          // (×) button, not the title field — same as CreateWorkspaceModal,
+          // point the trap at the field the user actually wants to type into.
+          initialFocusRef={titleInputRef}
+          footer={
+            <>
+              <button
+                type="button"
+                data-testid="adr-create-cancel-btn"
+                className="btn-secondary"
+                onClick={closeCreateDialog}
+                disabled={isCreating}
+              >
+                {t('actions.cancel', 'Cancel')}
+              </button>
+              <button
+                type="submit"
+                form="adr-create-form"
+                data-testid="adr-new-save-btn"
+                className="btn-primary"
+                disabled={isCreating || !newTitle.trim()}
+              >
+                {isCreating ? t('actions.saving', 'Saving...') : t('actions.create', 'Erstellen')}
+              </button>
+            </>
+          }
+        >
+          <form
+            id="adr-create-form"
+            onSubmit={(e) => { e.preventDefault(); void handleCreateNew(); }}
+          >
+            <label
+              htmlFor="adr-new-title"
+              style={{ display: 'block', fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)', marginBottom: 'var(--space-1)' }}
+            >
+              {t('editor.title', 'Title')}
+            </label>
+            <input
+              ref={titleInputRef}
+              id="adr-new-title"
+              data-testid="adr-new-title-input"
+              type="text"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder={t('adr.newTitlePlaceholder', 'e.g. Use PostgreSQL as the primary datastore')}
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
+                borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',
+                fontSize: 'var(--font-size-sm)', background: 'var(--color-surface)', color: 'var(--color-text)',
+              }}
+            />
+
+            {/* BUG-11: description — an ordinary adrsApi.create() field the
+                backend already accepts, previously missing here. */}
+            <label htmlFor="adr-new-description" className={fieldHints.createLabel}>
+              {t('editor.description', 'Description')}
+            </label>
+            <textarea
+              id="adr-new-description"
+              data-testid="adr-new-description-input"
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              rows={3}
+              className={fieldHints.createInput}
+            />
+
+            {createError && (
+              <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-2)' }}>
+                {createError}
+              </p>
             )}
-          </div>
-          {item && (() => {
-            const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-            return <RightSidebar kind="adr" artifactId={item.id} currentVersion={ver} />;
-          })()}
-        </div>
-      }
-      initialLeftWidth={350}
-      moduleType="adrs"
-    />
+          </form>
+        </Dialog>
+      )}
+    </div>
   );
 }

@@ -1,0 +1,1 @@
+import{n as e}from"./client-EWjGZe-7.js";function t(t){return t instanceof Error?t:Error(e(t))}export{t};

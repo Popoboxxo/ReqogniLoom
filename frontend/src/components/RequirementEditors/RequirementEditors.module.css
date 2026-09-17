@@ -1,0 +1,84 @@
+/* RequirementEditors — list-panel controls above <RequirementList>. */
+
+/*
+ * GH-443: "show deleted" opt-in. DELETE is a soft-delete, so without this the
+ * outdated requirements are neither listed nor offered by the status filter.
+ */
+.includeDeletedToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+/*
+ * #412: preset-driven "required" marker / hint for a field that has no
+ * dedicated <AttributeVisibilityConfig> row (e.g. acceptance_criteria),
+ * kept as classes (not inline style={{ ) to stay under the UI-concept
+ * inline-style ratchet (src/test/ui-ratchet.test.ts).
+ */
+.requiredMarker {
+  color: var(--color-danger);
+}
+
+/*
+ * #339/#340: server-rejection banners for the list panel. Classes (not
+ * `style={{ }}`) because `src/test/ui-ratchet.test.ts` freezes the number of
+ * inline styles under `src/components` at an exact count.
+ *
+ * `.formError` sits inside the inline create form, under the title input;
+ * `.actionError` is the page-level banner for delete / PDF export.
+ */
+.formError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.actionError {
+  margin: 0 0 var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.fieldHint {
+  margin-top: calc(-1 * var(--space-3));
+  margin-bottom: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/*
+ * Task 25: sibling `CustomFieldsEditor` section wrapper for
+ * `RequirementArtifactForm` (custom_fields has no `kind: "extended"`
+ * attribute, so the definition-driven renderer cannot draw it). Classes, not
+ * inline `style={{ }}`, for the same ui-ratchet reason as the rest of this
+ * file — mirrors `TestCaseEditors.module.css`'s
+ * `.customFieldsSection`/`.customFieldsSectionHeading` (Task 22).
+ */
+.customFieldsSection {
+  margin-bottom: var(--space-6);
+}
+
+.customFieldsSectionHeading {
+  font-size: var(--font-size-md);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-2);
+}
+
+/*
+ * F-04 (code review, 2026-08-19): the BUG-08 field-error styles
+ * (`.inputError`/`.fieldError`) and the BUG-11 create-form field styles
+ * (`.createLabel`/`.createInput`) belong in the shared
+ * `frontend/src/components/shared/FieldHints.module.css` instead — this
+ * component imports it as `fieldHints`, keeping the declarations in one
+ * place rather than duplicating them here. (Task 25: the deleted
+ * `RequirementForm.tsx` used to be the other importer.)
+ */

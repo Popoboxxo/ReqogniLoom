@@ -1,0 +1,147 @@
+/**
+ * TraceabilityView — styles for the readable endpoint rendering and the
+ * coverage surface added by issue #413.
+ *
+ * The remaining markup of this component still uses inline styles (frozen by
+ * the `ui-ratchet` baseline); everything new goes through CSS Modules and uses
+ * design tokens from `styles/tokens.css` exclusively.
+ */
+
+.endpoint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6/§10.2 "Traceability: ~1100px
+     unused space alongside a hard-truncated target-id": as a flex item of
+     the tracelink-item <li> row, this used the default `flex: 0 1 auto`
+     (no grow), so source/target endpoints stayed at their natural content
+     width no matter how much free row width was left unused. Letting both
+     endpoints (source and target) grow evenly absorbs that free space
+     instead, so .endpointTitle's ellipsis (below) only engages once the
+     title genuinely doesn't fit — not at some fixed, space-independent
+     JS truncation length (see TraceabilityView.tsx's EndpointCell). */
+  flex: 1 1 0;
+}
+
+/* #425: source/target endpoints are now real <button>s so they're keyboard-
+   focusable and operable, not just visually clickable — reset the browser's
+   default button chrome to keep the existing text-row appearance. */
+.endpointButton {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--radius-sm);
+}
+
+.endpointButton:hover {
+  text-decoration: underline;
+}
+
+.endpointButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.endpointType {
+  font-size: var(--font-size-xs);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.endpointTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endpointId {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.coverageBadge {
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.covered {
+  background: var(--color-surface-raised);
+  color: var(--color-success, var(--color-text-muted));
+}
+
+.uncovered {
+  background: var(--color-surface-raised);
+  color: var(--color-danger);
+}
+
+.coveragePanel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.coverageSummary {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.coverageToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.uncoveredList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.uncoveredItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
+
+.uncoveredItem:last-child {
+  border-bottom: none;
+}
+
+.uncoveredUid {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}

@@ -31,8 +31,6 @@ export interface DeriveTestCasePanelProps {
   requirement: { id: string; title: string };
   /** Called after the draft was successfully persisted. */
   onCreated?: (testCase: TestCase) => void;
-  /** Called when the user closes the panel. */
-  onClose?: () => void;
 }
 
 type Phase = "idle" | "generating" | "review" | "creating" | "done";
@@ -53,12 +51,6 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid var(--color-border)",
     borderRadius: "var(--radius-lg)",
     color: "var(--color-text)",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "var(--space-3)",
   },
   field: { display: "flex", flexDirection: "column", gap: "var(--space-1)" },
   input: {
@@ -102,7 +94,6 @@ export function DeriveTestCasePanel({
   workspaceId,
   requirement,
   onCreated,
-  onClose,
 }: DeriveTestCasePanelProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -192,24 +183,6 @@ export function DeriveTestCasePanel({
 
   return (
     <section style={styles.panel} data-testid="derive-testcase-panel">
-      <header style={styles.header}>
-        <div>
-          <strong>{t("deriveTestcase.title")}</strong>
-          <div style={styles.muted} data-testid="derive-testcase-req-title">
-            {requirement.title}
-          </div>
-        </div>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            data-testid="derive-testcase-close"
-          >
-            {t("deriveTestcase.close")}
-          </button>
-        )}
-      </header>
-
       {error && (
         <div style={styles.error} role="alert" data-testid="derive-testcase-error">
           {error}

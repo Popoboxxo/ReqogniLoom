@@ -11,12 +11,14 @@ the count + sample that would be captured by a Baseline of the requested
 scope.
 
 Permission semantics:
-  - ``scope == "global"`` requires staff/superuser; the view returns 403
-    otherwise.
-  - For all other scopes, a workspace member with read access to the
-    workspace can preview. The current implementation is intentionally
-    permissive within a tenant (matches the rest of the baseline service
-    surface); tighter per-workspace checks are delegated to the
+  - The endpoint requires authentication like every other endpoint in the
+    project (SA-23 fix): no ``AllowAny`` override, so it falls back to the
+    project-wide ``DEFAULT_PERMISSION_CLASSES`` (``RbacPermission``), which
+    maps GET to ``Operation.READ`` and returns 401 for anonymous callers.
+  - ``scope == "global"`` additionally requires staff/superuser; the view
+    returns 403 otherwise.
+  - For all other scopes, any authenticated user with read access is
+    permitted to preview. Tighter per-workspace checks are delegated to the
     AuthAndTenancy layer (REQ-L1-039).
 """
 from __future__ import annotations
@@ -26,8 +28,7 @@ import uuid
 from typing import Any, Mapping
 
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -70,7 +71,6 @@ def _parse_uuid(value: Any, field_name: str) -> uuid.UUID | None:
 
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
 def scope_preview(request: Request) -> Response:
     """Read-only preview of items that would be included in a Baseline.
 
@@ -90,6 +90,7 @@ def scope_preview(request: Request) -> Response:
 
     Errors:
         400 — missing/invalid parameters, document scope without artifact_id
+        401 — unauthenticated caller (SA-23: no anonymous access)
         403 — global scope requested by non-admin user
     """
     params: Mapping[str, str] = request.query_params

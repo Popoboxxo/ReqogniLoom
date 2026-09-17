@@ -5,25 +5,41 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  createIsolatedWorkspace,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // "+ New" only opens an inline quick-create form; the full editor only
 // renders after Save/Create navigates to the created artifact's detail route.
-async function createRequirementViaQuickForm(page: Page): Promise<void> {
+async function createRequirementViaQuickForm(page: Page, title = 'E2E Requirement'): Promise<void> {
   await page.locator('[data-testid="create-req-btn"]').click();
+  await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 }
 
 async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {
   await page.locator('[data-testid="create-arch-btn"]').click();
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
-  await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+}
+
+// [I5] A workspace tree may have exactly one root ArchitectureElement, and
+// seed_demo pre-seeds one for SEEDED_WORKSPACE_ID — so any "+ New" (root,
+// no parent_id) creation against it 400s. Re-point the page at a fresh,
+// element-free workspace right before navigating to /architecture, matching
+// the pattern already used by architecture.spec.ts / architecture-editor.spec.ts.
+// setWorkspaceId only registers an init script (applied on next navigation),
+// so calling it again here — after the describe-level beforeEach already set
+// SEEDED_WORKSPACE_ID — correctly overrides it for the page.goto() that follows.
+async function useIsolatedArchWorkspace(page: Page): Promise<void> {
+  const token = await getAuthToken();
+  const workspaceId = await createIsolatedWorkspace(token);
+  await setWorkspaceId(page, workspaceId);
 }
 
 test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
@@ -36,13 +52,14 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   // REQ-L0-002 — Architecture editor has element_type selector with correct options
   // -------------------------------------------------------------------------
   test('[REQ-L0-002] architecture editor element_type selector has correct testid and 5 options', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
-    // Bug A3: correct testid is "arch-element-type-select". REQ-006/D5
+    // Bug A3: correct testid is "artifact-field-element_type". REQ-006/D5
     // later replaced the fixed 5-option <select> with a free-text
     // autocomplete input (types can be extended freely).
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 8000 });
 
     await typeInput.fill('Subsystem');
@@ -55,18 +72,19 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   test('[REQ-L0-002] workflow status is visible in requirement editor', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
-    // REQ-143: current state is always shown read-only; a transitions
-    // <select> ("req-workflow") only renders when transitions are available
-    // from the current state, otherwise "req-workflow-locked" is shown.
-    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 10000 });
+    // REQ-161: current state is always shown read-only via the
+    // WorkflowStatusEditor status badge; a "Change status" trigger only
+    // renders when transitions are available from the current state,
+    // otherwise "workflow-no-transitions" is shown.
+    await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible({ timeout: 10000 });
 
-    const workflow = page.locator('[data-testid="req-workflow"]');
-    const locked = page.locator('[data-testid="req-workflow-locked"]');
-    await expect(workflow.or(locked)).toBeVisible({ timeout: 6000 });
+    const trigger = page.locator('[data-testid="workflow-transition-trigger"]');
+    const noTransitions = page.locator('[data-testid="workflow-no-transitions"]');
+    await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 6000 });
 
-    if (await workflow.count()) {
-      const tagName = await workflow.evaluate((el) => el.tagName.toLowerCase());
-      expect(tagName).toBe('select');
+    if (await trigger.count()) {
+      const tagName = await trigger.evaluate((el) => el.tagName.toLowerCase());
+      expect(tagName).toBe('button');
     }
   });
 
@@ -77,7 +95,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
-    const changeReasonInput = page.locator('[data-testid="change-reason-input"]');
+    const changeReasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
     const count = await changeReasonInput.count();
 
     if (count === 0) {
@@ -92,7 +110,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
-    const changeReason = page.locator('[data-testid="change-reason-input"]');
+    const changeReason = page.locator('[data-testid="artifact-form-change-reason"]');
     const count = await changeReason.count();
 
     if (count === 0) {
@@ -109,12 +127,13 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   // REQ-L2-RF-005 — Architecture editor shows element_type and tracelink panel
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-005] architecture editor shows element_type selector', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
     // REQ-006/D5: element type is now a free-text autocomplete input, not a
     // fixed <select> — verify it can be changed via typing.
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 8000 });
 
     await typeInput.fill('Interface');
@@ -122,6 +141,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   });
 
   test('[REQ-L2-RF-005] architecture editor shows tracelink panel (Bug A2)', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
@@ -137,6 +157,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   });
 
   test('[REQ-L2-RF-005] architecture editor change_reason input is present (extended preset)', async ({ page }) => {
+    await useIsolatedArchWorkspace(page);
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 

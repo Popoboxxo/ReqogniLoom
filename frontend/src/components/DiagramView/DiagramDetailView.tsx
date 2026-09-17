@@ -9,20 +9,48 @@
  * Right-panel detail view for a single diagram. Data (detail row, persisted
  * canvas, save/delete) is owned by useDiagramDetail; this component keeps only
  * view state (edit mode, source draft, Code/Visual toggle, mermaid render).
+ *
+ * Phase 6 / decision E2-D4 — preview instead of inline edit detail: the pane
+ * answers "what does it look like?", not "how do I change it?". Formats that
+ * own a fullscreen editor route render read-only here and their primary
+ * action navigates to that route (D3: /diagrams/:id/canvas and
+ * /diagrams/:id/mermaid stay fullscreen, without the list):
+ *   - canvas_stroke -> server-rendered SVG export (IF-L1-060), NOT a mounted
+ *     <CanvasEditor>. Mounting the editable Fabric surface in a 40%-wide
+ *     preview pane was both the wrong affordance and the reason this presenter
+ *     needed a canvas/WebGL stub in every test that rendered it.
+ *   - mermaid -> client-side mermaid.render of the persisted source, with the
+ *     Code/Visual toggle kept as a read-only view switch (REQ-L1-057).
+ * Formats with NO fullscreen editor (plantuml, json) keep the inline source
+ * editor: removing it would drop the only way to edit them at all, which
+ * ch. 4 (funktionale Untergrenze) forbids. That fallback is the only path on
+ * which `isEditing` can still become true.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CanvasEditor } from "../canvas/CanvasEditor";
+import { useNavigate } from "react-router-dom";
+import { sanitizeSvg } from "../../utils/sanitizeSvg";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
+import { GraphCanvas } from "../DiagramGraphEditor/GraphCanvas";
+import {
+  parseNodeGraphContentStrict,
+  payloadToFlowEdges,
+  payloadToFlowNodes,
+} from "../DiagramGraphEditor/useGraphPayload";
 import { useDiagramDetail } from "./useDiagramData";
+import type { NodeGraphPayload } from "../../types";
 import {
   diagramVersionLabel,
   formCancelButtonStyle,
   formDangerButtonStyle,
   formPrimaryButtonStyle,
+  previewBoxStyle,
+  previewErrorStyle,
+  previewEmptyStyle,
 } from "./diagram-view-shared";
 
 export interface DiagramDetailViewProps {
@@ -31,17 +59,63 @@ export interface DiagramDetailViewProps {
   onChanged: () => Promise<void> | void;
 }
 
+/**
+ * What this pane renders for a given ``payload_format``, and which
+ * fullscreen editor route (if any) its primary action navigates to.
+ *
+ * GH-353 Task 9 / final-review T9: replaces the three independently-computed
+ * `isCanvas`/`isNodeGraph`/`canRenderVisual` booleans (each re-deriving
+ * `payload_format === "..."`) and the nested `editorRoute` ternary chain with
+ * a single lookup keyed by `payload_format` — one place to add a future
+ * format instead of three-plus scattered equality checks.
+ */
+type PreviewKind = "node_graph" | "canvas" | "mermaid" | "source";
+
+interface PayloadFormatPreviewConfig {
+  previewKind: PreviewKind;
+  /** Fullscreen editor route for this format, or null when it has none
+   * (plantuml/json keep the inline source editor — D3/E2-D4). */
+  editorRoute: (diagramId: string) => string | null;
+}
+
+const PAYLOAD_FORMAT_PREVIEW: Record<string, PayloadFormatPreviewConfig> = {
+  node_graph: {
+    previewKind: "node_graph",
+    editorRoute: (id) => `/diagrams/${id}/graph`,
+  },
+  canvas_stroke: {
+    previewKind: "canvas",
+    editorRoute: (id) => `/diagrams/${id}/canvas`,
+  },
+  mermaid: {
+    previewKind: "mermaid",
+    editorRoute: (id) => `/diagrams/${id}/mermaid`,
+  },
+};
+
+/** plantuml/json (and any unrecognised future format) fall back to the
+ * inline source editor — no fullscreen route. */
+const DEFAULT_PREVIEW_CONFIG: PayloadFormatPreviewConfig = {
+  previewKind: "source",
+  editorRoute: () => null,
+};
+
+function previewConfigFor(payloadFormat: string | null | undefined): PayloadFormatPreviewConfig {
+  if (!payloadFormat) return DEFAULT_PREVIEW_CONFIG;
+  return PAYLOAD_FORMAT_PREVIEW[payloadFormat] ?? DEFAULT_PREVIEW_CONFIG;
+}
+
 export function DiagramDetailView({
   diagramId,
   onBack,
   onChanged,
 }: DiagramDetailViewProps): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const {
     detail,
     isLoading,
-    canvasJson,
-    canvasStrokes,
+    canvasSvg,
     isCanvasLoading,
     saveContent,
     deleteDiagram,
@@ -52,12 +126,18 @@ export function DiagramDetailView({
 
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Code/Visual toggle (REQ-L1-057) — mermaid sources can be rendered
   // client-side via mermaid.js; other payload formats stay code-only.
   const [viewMode, setViewMode] = useState<"code" | "visual">("visual");
   const [renderedSvg, setRenderedSvg] = useState<string>("");
   const [renderError, setRenderError] = useState<string>("");
+
+  // Node graph payload parsing for read-only preview (GH-353 Task 9)
+  const [nodeGraphPayload, setNodeGraphPayload] = useState<NodeGraphPayload | null>(null);
+  const [nodeGraphError, setNodeGraphError] = useState<string>("");
 
   // Reset the view when switching diagrams and seed the source draft once the
   // detail row is (re)loaded.
@@ -69,6 +149,29 @@ export function DiagramDetailView({
   useEffect(() => {
     if (detail) setEditContent(detail.content ?? "");
   }, [detail]);
+
+  // Parse node_graph payload for read-only preview (GH-353 Task 9).
+  // I4 (final review): uses the canonical, shape-validating
+  // parseNodeGraphContentStrict (useGraphPayload.ts) instead of a bespoke
+  // inline JSON.parse that only caught syntax errors, not e.g. a valid JSON
+  // object missing 'nodes'/'edges' arrays — that weaker check let this
+  // pane's other read-only-preview bug (C1: raw domain objects handed to
+  // GraphCanvas) through a task-scoped review undetected.
+  useEffect(() => {
+    if (detail?.payload_format === "node_graph" && detail?.content) {
+      try {
+        const payload = parseNodeGraphContentStrict(detail.content);
+        setNodeGraphPayload(payload);
+        setNodeGraphError("");
+      } catch (err) {
+        setNodeGraphPayload(null);
+        setNodeGraphError(err instanceof Error ? err.message : String(err));
+      }
+    } else {
+      setNodeGraphPayload(null);
+      setNodeGraphError("");
+    }
+  }, [detail?.payload_format, detail?.content]);
 
   // Current-version ref for the ArtifactInspector (REQ-L2-RF-035).
   const currentVersion: VersionRef | undefined = useMemo(() => {
@@ -87,8 +190,23 @@ export function DiagramDetailView({
     };
   }, [detail]);
 
-  const canRenderVisual = detail?.payload_format === "mermaid";
+  // Both SVG strings are rendered via dangerouslySetInnerHTML below, so they
+  // pass through DOMPurify first (see utils/sanitizeSvg).
+  const safeCanvasSvg = useMemo(() => sanitizeSvg(canvasSvg ?? ""), [canvasSvg]);
+  const safeRenderedSvg = useMemo(() => sanitizeSvg(renderedSvg), [renderedSvg]);
+
+  // GH-353 Task 9 / final-review T9: previewKind + editorRoute are both
+  // derived from the single PAYLOAD_FORMAT_PREVIEW map above, keyed on
+  // `payload_format` (not `diagram_type`: the editors are bound to the
+  // payload endpoints — canvas-strokes / mermaid-source / node_graph content
+  // — and a diagram of type "flow" may well carry a mermaid payload).
+  const previewConfig = previewConfigFor(detail?.payload_format);
+  const previewKind = previewConfig.previewKind;
+  const isCanvas = previewKind === "canvas";
+  const isNodeGraph = previewKind === "node_graph";
+  const canRenderVisual = previewKind === "mermaid";
   const activeSource = isEditing ? editContent : detail?.content ?? "";
+  const editorRoute: string | null = previewConfig.editorRoute(diagramId);
 
   // Client-side Mermaid rendering for the Visual view.
   useEffect(() => {
@@ -113,6 +231,10 @@ export function DiagramDetailView({
           startOnLoad: false,
           theme: "default",
           securityLevel: "strict",
+          // Labels must be plain SVG <text>: the rendered markup passes
+          // through sanitizeSvg, which drops <foreignObject> (mXSS vector).
+          htmlLabels: false,
+          flowchart: { htmlLabels: false },
         });
         const id = `diagram-mermaid-${diagramId}-${Date.now()}`;
         const { svg } = await mermaid.render(id, activeSource);
@@ -145,11 +267,6 @@ export function DiagramDetailView({
   };
 
   const handleDelete = async (): Promise<void> => {
-    if (
-      !window.confirm(t("diagrams.deleteConfirm", "Really delete this diagram?"))
-    ) {
-      return;
-    }
     try {
       await deleteDiagram();
       await onChanged();
@@ -157,6 +274,11 @@ export function DiagramDetailView({
     } catch (err) {
       console.error("Failed to delete diagram", err);
     }
+  };
+
+  const confirmDelete = (): void => {
+    setShowDeleteConfirm(false);
+    void handleDelete();
   };
 
   if (isLoading) {
@@ -237,7 +359,18 @@ export function DiagramDetailView({
             marginBottom: "var(--space-4)",
           }}
         >
-          {!isEditing ? (
+          {/* D4: for formats with a fullscreen editor the primary action
+              navigates there instead of turning this pane into a form. */}
+          {editorRoute ? (
+            <button
+              type="button"
+              data-testid="diagram-open-editor-btn"
+              onClick={() => navigate(editorRoute)}
+              style={formPrimaryButtonStyle}
+            >
+              {t("diagrams.openEditor", "Open editor")}
+            </button>
+          ) : !isEditing ? (
             <button
               type="button"
               data-testid="diagram-edit-btn"
@@ -246,8 +379,6 @@ export function DiagramDetailView({
                 setViewMode("code");
               }}
               style={formPrimaryButtonStyle}
-              // For canvas diagrams the button opens the canvas editor; hide when already in canvas mode
-              hidden={detail.payload_format === "canvas_stroke"}
             >
               {t("diagrams.edit", "Edit Source")}
             </button>
@@ -281,7 +412,7 @@ export function DiagramDetailView({
           <button
             type="button"
             data-testid="diagram-delete-btn"
-            onClick={() => void handleDelete()}
+            onClick={() => setShowDeleteConfirm(true)}
             style={formDangerButtonStyle}
           >
             {t("diagrams.delete", "Delete")}
@@ -298,29 +429,57 @@ export function DiagramDetailView({
           </p>
         )}
 
-        {/* Canvas diagrams use the CanvasEditor surface (REQ-L2-DS-006, IF-L1-058/060) */}
-        {detail.payload_format === "canvas_stroke" ? (
-          <div
-            data-testid="diagram-canvas-section"
-            style={{
-              height: "calc(100vh - 260px)",
-              minHeight: "560px",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
+        {/* GH-353 Task 9: node_graph diagrams show the read-only React Flow
+            preview; editing happens on the fullscreen /diagrams/:id/graph route. */}
+        {isNodeGraph ? (
+          <div data-testid="diagram-node-graph-section" style={previewBoxStyle}>
+            {nodeGraphError ? (
+              <p role="alert" data-testid="diagram-node-graph-error" style={previewErrorStyle}>
+                {nodeGraphError}
+              </p>
+            ) : nodeGraphPayload ? (
+              // C1 (final review): GraphCanvas needs React-Flow-shaped nodes
+              // (data.node.label, type="graphNode"/"graphEdge") — passing the
+              // raw domain NodeGraphPayload.nodes/edges directly both fails
+              // `tsc` (GraphCanvasProps expects GraphFlowNode[]/GraphFlowEdge[])
+              // and, even where a loose type let it through, renders unlabeled
+              // default nodes because React Flow finds no NODE_TYPES/EDGE_TYPES
+              // match for a raw domain object.
+              <GraphCanvas
+                nodes={payloadToFlowNodes(nodeGraphPayload)}
+                edges={payloadToFlowEdges(nodeGraphPayload)}
+                isLoading={false}
+                error={null}
+                selection={{ kind: "none" }}
+                onSelect={() => {}}
+                editMode={false}
+                elementsSelectable={false}
+                onConnectNodes={() => {}}
+                onRenameNode={() => {}}
+                onNodeDragStop={() => {}}
+                onDeleteSelection={() => {}}
+                onAddNode={() => {}}
+                onAutoLayout={() => {}}
+              />
+            ) : (
+              <p style={previewEmptyStyle}>
+                {t("diagrams.emptySource", "(no source)")}
+              </p>
+            )}
+          </div>
+        ) : isCanvas ? (
+          <div data-testid="diagram-canvas-section" style={previewBoxStyle}>
             {isCanvasLoading ? (
               <p role="status">{t("loading", "Loading...")}</p>
-            ) : (
-              <CanvasEditor
-                diagramId={diagramId}
-                initialCanvasJson={canvasJson}
-                initialStrokes={canvasStrokes}
-                onAutoSave={(strokes) => {
-                  // Optimistically mark diagram as having saved content
-                  console.debug("Canvas auto-saved", strokes.length, "strokes");
-                }}
+            ) : canvasSvg ? (
+              <div
+                data-testid="diagram-canvas-svg"
+                dangerouslySetInnerHTML={{ __html: safeCanvasSvg }}
               />
+            ) : (
+              <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+                {t("diagrams.emptyCanvas", "This canvas is still empty.")}
+              </p>
             )}
           </div>
         ) : (
@@ -341,7 +500,7 @@ export function DiagramDetailView({
                   ...(viewMode === "code" ? formPrimaryButtonStyle : {}),
                 }}
               >
-                {t("diagrams.viewMode.code", "Code")}
+                {t("diagrams.viewModeLabels.code", "Code")}
               </button>
               <button
                 type="button"
@@ -353,23 +512,12 @@ export function DiagramDetailView({
                   ...(viewMode === "visual" ? formPrimaryButtonStyle : {}),
                 }}
               >
-                {t("diagrams.viewMode.visual", "Visual")}
+                {t("diagrams.viewModeLabels.visual", "Visual")}
               </button>
             </div>
           )}
           {canRenderVisual && viewMode === "visual" ? (
-            <div
-              data-testid="diagram-visual-preview"
-              style={{
-                padding: "var(--space-4)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface-raised)",
-                overflow: "auto",
-                maxHeight: "480px",
-                minHeight: "160px",
-              }}
-            >
+            <div data-testid="diagram-visual-preview" style={previewBoxStyle}>
               {renderError ? (
                 <p role="alert" data-testid="diagram-visual-error" style={{ color: "var(--color-danger)", margin: 0 }}>
                   {renderError}
@@ -377,7 +525,7 @@ export function DiagramDetailView({
               ) : renderedSvg ? (
                 <div
                   data-testid="diagram-visual-svg"
-                  dangerouslySetInnerHTML={{ __html: renderedSvg }}
+                  dangerouslySetInnerHTML={{ __html: safeRenderedSvg }}
                 />
               ) : (
                 <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
@@ -447,6 +595,17 @@ export function DiagramDetailView({
         artifactId={diagramId}
         currentVersion={currentVersion}
       />
+
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title={t("diagrams.deleteConfirmTitle", "Delete diagram?")}
+          message={t("diagrams.deleteConfirm", "Really delete this diagram?")}
+          confirmLabel={t("diagrams.delete", "Delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+          testId="diagram-delete-confirm"
+        />
+      )}
     </div>
   );
 }

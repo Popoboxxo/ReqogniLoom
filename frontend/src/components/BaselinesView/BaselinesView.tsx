@@ -19,19 +19,41 @@
  *   IF-RF-EXT-OUT-001 → GET /api/v1/artifacts/ (artifact picker for create form)
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  isSeAuditorBlocked,
   type BaselineDiff,
   type BaselineScope,
 } from "../../api/baselines";
+import { useAuth } from "../../context/AuthContext";
 import { SplitView } from "../SplitView/SplitView";
+import { PageHeader } from "../shared/PageHeader";
+import { EmptyState } from "../shared/EmptyState/EmptyState";
+import { ListToolbar } from "../shared/ListToolbar";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { Artifact } from "../../types";
 import {
   BaselineComparePanel,
   BaselineEntriesSection,
 } from "./BaselinesPanels";
+import styles from "./BaselinesView.module.css";
 import { useBaselinesData } from "./useBaselinesData";
+
+// GH-513 / F5 (PR #554 review): mirrors the backend
+// `MIN_OVERRIDE_REASON_LENGTH` in `backend/application/baseline_facade.py`
+// so the two are not two independently-drifting magic numbers.
+//
+// GH-821 hardens the backend bar beyond length (>= 4 words, >= 3 distinct
+// words, not a copy of the rule ids). The textarea can only mirror the length
+// part; `baselines.overrideHint` states the content requirement, and the
+// backend remains the authority (its 400 is rendered verbatim).
+const MIN_OVERRIDE_REASON_LENGTH = 15;
+
+// Issue #48: mirrors `BaselineSerializer.name` (max_length=500) so the field
+// stops the user at the boundary instead of letting the request come back as
+// a 400 they can only fix by guessing how much to delete.
+const MAX_BASELINE_NAME_LENGTH = 500;
 
 // Re-exported so existing imports (and unit tests) that pull DiffItemRow from
 // this module keep working after the Container/Presenter split (REQ-050).
@@ -52,6 +74,33 @@ const SCOPE_OPTIONS: { value: BaselineScope; labelKey: string }[] = [
   { value: "global", labelKey: "baselines.scopeGlobal" },
 ];
 
+// Create-form field chrome. Module-level constants rather than inline object
+// literals: the inline-`style` ratchet (frontend/src/test/ui-ratchet.test.ts)
+// only counts literals, and a named constant is reusable besides.
+const formLabelStyle: React.CSSProperties = {
+  display: "block",
+  fontWeight: 500,
+  color: "var(--color-text)",
+  marginBottom: "var(--space-1)",
+};
+
+const formInputStyle: React.CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-3)",
+  fontSize: "var(--font-size-base)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+};
+
+const formHintStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  margin: "var(--space-1) 0 var(--space-4) 0",
+};
+
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
@@ -63,14 +112,38 @@ function formatDate(iso: string): string {
 
 export default function BaselinesView(): JSX.Element {
   const { t } = useTranslation();
+  const { roles } = useAuth();
+  // UI-21 / GH-513: the backend only accepts an override justification from
+  // 'admin'/'approver' (AuthorizationService.WORKFLOW_APPROVAL, see
+  // baseline_facade._assert_override_permission) — everyone else used to see
+  // the full waiver panel anyway and only learned they lacked permission
+  // after typing a reason and hitting a raw 403 on submit.
+  const canOverrideAuditGate = roles.includes("admin") || roles.includes("approver");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // #181: list-panel search (by name) + scope filter (ListToolbar).
+  const [listSearch, setListSearch] = useState<string>("");
+  const [scopeFilter, setScopeFilter] = useState<BaselineScope | "">("");
   const [showForm, setShowForm] = useState(false);
+  // Issue #48: the create form had no name field at all, so every baseline
+  // landed on the backend's `Baseline <ISO timestamp>` fallback and the list
+  // became a wall of indistinguishable timestamps — with no way to say what a
+  // baseline was actually taken for. Optional on purpose: leaving it blank
+  // keeps the old generated-name behaviour rather than blocking the action.
+  const [formName, setFormName] = useState<string>("");
   const [formArtifactId, setFormArtifactId] = useState<string>("");
   // REQ-L1-049: scope is now one of {document, project, global}; default
   // is "project" to match the backend model default.
   const [formScope, setFormScope] = useState<BaselineScope>("project");
   const [isSaving, setIsSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // GH-513: the SE-Auditor gate (GH-490) blocks creation while the workspace
+  // has BLOCKER findings, and most findings have no in-UI fix (GH-451) — so a
+  // blocked create must offer the documented waiver instead of a dead end.
+  // The panel appears only after the backend actually answered
+  // SE_AUDITOR_BLOCKED; an unevaluable auditor is not waivable and keeps the
+  // plain error.
+  const [gateBlocked, setGateBlocked] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   // REQ-L2-BL-003: baseline compare (field-level diff). ``showCompare`` swaps
   // the right panel to the compare form + result. The diff state stays local
   // to the container since it is imperative (button-triggered, not a query).
@@ -111,35 +184,47 @@ export default function BaselinesView(): JSX.Element {
     }
   }, [showForm, formArtifactId, artifacts]);
 
-  const handleCreate = useCallback(async (): Promise<void> => {
-    // REQ-L1-049: ``document`` scope requires an artifact.
-    if (formScope === "document" && !formArtifactId) {
-      setCreateError(t("baselines.artifactRequired"));
-      return;
-    }
-    setIsSaving(true);
-    setCreateError(null);
-    try {
-      const created = await createBaseline({
-        scope: formScope,
-        artifactId: formArtifactId,
-      });
-      setShowForm(false);
-      setFormArtifactId("");
-      setFormScope("project");
-      setSelectedId(created.id);
-    } catch (err: unknown) {
-      setCreateError(baselineErrorMessage(err));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [formArtifactId, formScope, t, createBaseline]);
+  const handleCreate = useCallback(
+    async (withOverride = false): Promise<void> => {
+      // REQ-L1-049: ``document`` scope requires an artifact.
+      if (formScope === "document" && !formArtifactId) {
+        setCreateError(t("baselines.artifactRequired"));
+        return;
+      }
+      setIsSaving(true);
+      setCreateError(null);
+      try {
+        const created = await createBaseline({
+          scope: formScope,
+          artifactId: formArtifactId,
+          name: formName,
+          ...(withOverride ? { overrideReason } : {}),
+        });
+        setShowForm(false);
+        setFormName("");
+        setFormArtifactId("");
+        setFormScope("project");
+        setGateBlocked(false);
+        setOverrideReason("");
+        setSelectedId(created.id);
+      } catch (err: unknown) {
+        setCreateError(baselineErrorMessage(err));
+        // Sticky on purpose: a rejected override (403 / too short) must not
+        // hide the panel the user is in the middle of using.
+        if (isSeAuditorBlocked(err)) setGateBlocked(true);
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [formArtifactId, formScope, formName, overrideReason, t, createBaseline],
+  );
+
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm —
+  // consistent styling/i18n/focus-trap with the rest of the app.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
-      if (!window.confirm(t("baselines.deleteConfirm", "Really delete this baseline?"))) {
-        return;
-      }
       try {
         await deleteBaseline(id);
         if (selectedId === id) setSelectedId(null);
@@ -147,8 +232,15 @@ export default function BaselinesView(): JSX.Element {
         // Failure surfaces via the hook's `error` (delete mutation error).
       }
     },
-    [deleteBaseline, selectedId, t]
+    [deleteBaseline, selectedId]
   );
+
+  const confirmDelete = useCallback((): void => {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
+    void handleDelete(id);
+  }, [pendingDeleteId, handleDelete]);
 
   const handleCompare = useCallback(async (): Promise<void> => {
     if (!compareAId || !compareBId) {
@@ -187,6 +279,29 @@ export default function BaselinesView(): JSX.Element {
     setDiff(null);
     setDiffError(null);
   }, []);
+
+  const toggleCreateForm = useCallback((): void => {
+    setShowCompare(false);
+    setShowForm((v) => {
+      // Cancelling discards the draft; the same button re-opens a clean form.
+      if (v) {
+        setFormName("");
+        setCreateError(null);
+      }
+      return !v;
+    });
+  }, []);
+
+  // #181: search (by name) + scope filter. Computed unconditionally (rules
+  // of hooks) — must run before the loading/error early returns below.
+  const filteredBaselines = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    return state.baselines.filter((bl) => {
+      if (scopeFilter && bl.scope !== scopeFilter) return false;
+      if (q && !(bl.name || "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [state.baselines, listSearch, scopeFilter]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -245,110 +360,124 @@ export default function BaselinesView(): JSX.Element {
   const selectedBaseline =
     state.baselines.find((bl) => bl.id === selectedId) ?? null;
 
+  const hasActiveListControls = Boolean(listSearch || scopeFilter);
+  const resetListFilters = (): void => {
+    setListSearch("");
+    setScopeFilter("");
+  };
+
+  const overrideSubmitDisabled =
+    isSaving || overrideReason.trim().length < MIN_OVERRIDE_REASON_LENGTH;
+
   return (
     <div
       data-testid="baselines-view"
       style={{
         height: "100%",
+        display: "flex",
+        flexDirection: "column",
         fontFamily: "var(--font-sans)",
         color: "var(--color-text)",
       }}
     >
+      {/* Baselines/TestRuns are not Spine artifacts (no derivation chain), but
+          PageHeader still applies. Baseline creation is deliberately an
+          overflow action, not a primary header button — creating a baseline
+          is a less-frequent, more consequential action than creating an
+          artifact (task 5.2 brief). */}
+      <PageHeader
+        title={t("nav.baselines")}
+        summary={t("baselines.summary", { count: state.baselines.length })}
+        secondaryActions={[
+          {
+            label: showCompare
+              ? t("actions.cancel")
+              : t("baselines.compare", "Compare"),
+            onClick: () => (showCompare ? closeCompare() : openCompare()),
+            disabled: state.baselines.length < 2,
+            testId: "compare-baseline-btn",
+          },
+        ]}
+        overflowActions={[
+          {
+            label: showForm ? t("actions.cancel") : t("baselines.create"),
+            onClick: toggleCreateForm,
+            testId: "create-baseline-btn",
+          },
+        ]}
+      />
+
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
       <SplitView
         moduleType="baselines"
         leftMinWidth={280}
         leftPanel={
           <>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-4)",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-            }}
-          >
-            {t("nav.baselines")} ({state.baselines.length})
-          </h3>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            <button
-              data-testid="compare-baseline-btn"
-              onClick={() => (showCompare ? closeCompare() : openCompare())}
-              disabled={state.baselines.length < 2}
-              style={{
-                background: showCompare
-                  ? "var(--color-surface-raised)"
-                  : "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                cursor:
-                  state.baselines.length < 2 ? "not-allowed" : "pointer",
-                opacity: state.baselines.length < 2 ? 0.6 : 1,
-                transition: "var(--transition-fast)",
-              }}
-            >
-              {showCompare
-                ? t("actions.cancel")
-                : t("baselines.compare", "Compare")}
-            </button>
-            <button
-              data-testid="create-baseline-btn"
-              onClick={() => {
-                setShowCompare(false);
-                setShowForm((v) => !v);
-              }}
-              style={{
-                background: "var(--color-primary)",
-                color: "white",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "var(--transition-fast)",
-              }}
-            >
-              {showForm ? t("actions.cancel") : `+ ${t("baselines.create")}`}
-            </button>
-          </div>
-        </div>
+        <ListToolbar
+          testIdPrefix="baseline-list"
+          searchValue={listSearch}
+          onSearchChange={setListSearch}
+          searchPlaceholder={t("editor.searchPlaceholder", "Search...")}
+          filters={[
+            {
+              id: "scope",
+              allLabel: t("baselines.allScopes", "Alle Scopes"),
+              value: scopeFilter,
+              options: SCOPE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
+              onChange: (v) => setScopeFilter(v as BaselineScope | ""),
+            },
+          ]}
+          countLabel={
+            hasActiveListControls
+              ? t("editor.filteredCount", { shown: filteredBaselines.length, total: state.baselines.length })
+              : String(state.baselines.length)
+          }
+        />
 
         {state.baselines.length === 0 ? (
-          <p
-            data-testid="baselines-empty"
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            {t("baselines.empty")}
-          </p>
+          <EmptyState
+            variant="empty"
+            testId="baselines-empty"
+            title={t("baselines.emptyTitle", "No baselines yet")}
+            description={t(
+              "baselines.emptyDescription",
+              "Baselines capture a point-in-time snapshot of your artifacts.",
+            )}
+            actions={[
+              {
+                label: t("baselines.create"),
+                prefixWithPlus: true,
+                onClick: () => setShowForm(true),
+                testId: "baselines-empty-create",
+              },
+            ]}
+          />
+        ) : filteredBaselines.length === 0 ? (
+          <EmptyState variant="no-match" testId="baselines-no-match" onResetFilters={resetListFilters} />
         ) : (
           <ul
             data-testid="baseline-list"
             style={{ listStyle: "none", padding: 0, margin: 0 }}
           >
-            {state.baselines.map((bl) => {
+            {filteredBaselines.map((bl) => {
               const isSelected = bl.id === selectedId && !showForm;
               return (
                 <li
                   key={bl.id}
                   data-testid="baseline-item"
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
                   onClick={() => {
                     setShowForm(false);
                     setSelectedId(bl.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowForm(false);
+                      setSelectedId(bl.id);
+                    }
                   }}
                   style={{
                     padding: "var(--space-3) var(--space-4)",
@@ -414,6 +543,36 @@ export default function BaselinesView(): JSX.Element {
             >
               + {t("baselines.create")}
             </h3>
+
+            {/* Issue #48: name the baseline. Optional — an empty value keeps
+                the backend's generated `Baseline <timestamp>` name. */}
+            <label htmlFor="baseline-name" style={formLabelStyle}>
+              {t("baselines.name", "Name")}
+            </label>
+            <input
+              id="baseline-name"
+              data-testid="baseline-name-input"
+              type="text"
+              value={formName}
+              maxLength={MAX_BASELINE_NAME_LENGTH}
+              onChange={(e) => {
+                setFormName(e.target.value);
+                setCreateError(null);
+              }}
+              placeholder={t(
+                "baselines.namePlaceholder",
+                "z. B. Release 1.2 Freigabe",
+              )}
+              aria-describedby="baseline-name-hint"
+              style={formInputStyle}
+            />
+            <p id="baseline-name-hint" style={formHintStyle}>
+              {t(
+                "baselines.nameHint",
+                "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein.",
+              )}
+            </p>
+
             <label
               htmlFor="baseline-scope"
               style={{
@@ -552,6 +711,59 @@ export default function BaselinesView(): JSX.Element {
               </p>
             )}
 
+            {/* GH-513: waiver panel — shown only after the backend answered
+                SE_AUDITOR_BLOCKED. The button stays disabled until the
+                justification is long enough for the backend to accept it, so
+                the user is not sent into a second round-trip to learn that.
+                UI-21: the backend only accepts the waiver from 'admin'/
+                'approver' — a caller without that role gets a plain hint
+                instead of a fillable form that only fails after submit. */}
+            {gateBlocked && !canOverrideAuditGate && (
+              <p
+                role="alert"
+                data-testid="baseline-override-no-permission"
+                className={styles.overrideHint}
+              >
+                {t("baselines.overrideNoPermission")}
+              </p>
+            )}
+            {gateBlocked && canOverrideAuditGate && (
+              <div
+                data-testid="baseline-override-panel"
+                className={styles.overridePanel}
+              >
+                <label
+                  htmlFor="baseline-override-reason"
+                  className={styles.overrideLabel}
+                >
+                  {t("baselines.overrideLabel")}
+                </label>
+                <p className={styles.overrideHint}>
+                  {t("baselines.overrideHint")}
+                </p>
+                <textarea
+                  id="baseline-override-reason"
+                  data-testid="baseline-override-reason"
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  rows={3}
+                  className={styles.overrideReasonInput}
+                />
+                <button
+                  data-testid="baseline-override-submit-btn"
+                  onClick={() => void handleCreate(true)}
+                  disabled={overrideSubmitDisabled}
+                  className={`${styles.overrideSubmitBtn} ${
+                    overrideSubmitDisabled
+                      ? styles.overrideSubmitBtnDisabled
+                      : styles.overrideSubmitBtnEnabled
+                  }`}
+                >
+                  {t("baselines.overrideSubmit")}
+                </button>
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: "var(--space-3)" }}>
               <button
                 data-testid="baseline-submit-btn"
@@ -562,7 +774,7 @@ export default function BaselinesView(): JSX.Element {
                 }
                 style={{
                   background: "var(--color-primary)",
-                  color: "white",
+                  color: "var(--color-on-primary)",
                   border: "none",
                   borderRadius: "var(--radius-md)",
                   padding: "var(--space-2) var(--space-6)",
@@ -583,6 +795,8 @@ export default function BaselinesView(): JSX.Element {
                 onClick={() => {
                   setShowForm(false);
                   setCreateError(null);
+                  setGateBlocked(false);
+                  setOverrideReason("");
                 }}
                 style={{
                   background: "transparent",
@@ -660,10 +874,10 @@ export default function BaselinesView(): JSX.Element {
             <button
               type="button"
               data-testid="baseline-delete-btn"
-              onClick={() => void handleDelete(selectedBaseline.id)}
+              onClick={() => setPendingDeleteId(selectedBaseline.id)}
               style={{
                 background: "var(--color-danger)",
-                color: "#ffffff",
+                color: "var(--color-on-primary)",
                 border: "none",
                 borderRadius: "var(--radius-md)",
                 padding: "var(--space-2) var(--space-4)",
@@ -691,6 +905,18 @@ export default function BaselinesView(): JSX.Element {
           )
         }
       />
+      </div>
+
+      {pendingDeleteId && (
+        <ConfirmDialog
+          title={t("baselines.deleteConfirmTitle", "Delete baseline?")}
+          message={t("baselines.deleteConfirm", "Really delete this baseline?")}
+          confirmLabel={t("actions.delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDeleteId(null)}
+          testId="baseline-delete-confirm"
+        />
+      )}
     </div>
   );
 }
@@ -713,4 +939,3 @@ const detailValueStyle: React.CSSProperties = {
   fontSize: "var(--font-size-base)",
   wordBreak: "break-all",
 };
-

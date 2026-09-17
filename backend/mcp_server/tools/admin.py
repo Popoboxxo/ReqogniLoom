@@ -50,6 +50,7 @@ from application.services import (
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    mcp_audit_handoff,
     require_param,
     require_uuid,
     write_mcp_audit,
@@ -96,6 +97,7 @@ class AdminToolGroup(BaseToolGroup):
         "workspace.close": "_handle_close",
         "workspace.reactivate": "_handle_reactivate",
         "workspace.delete": "_handle_delete",
+        "workspace.get_preferences": "_handle_get_preferences",
     }
 
     _TOOL_SCHEMAS = [
@@ -134,6 +136,17 @@ class AdminToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["workspace_id", "confirmation_text"],
+            },
+        },
+        {
+            "name": "workspace.get_preferences",
+            "description": "Retrieve workspace configuration preferences (read-only).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                },
+                "required": ["workspace_id"],
             },
         },
     ]
@@ -197,7 +210,11 @@ class AdminToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
 
         try:
-            workspace = self._service.close_workspace(workspace_id, auth_context)
+            # Codeberg #313: suppress close_workspace's single internal
+            # _audit() call (same operation/entity) — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                workspace = self._service.close_workspace(workspace_id, auth_context)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -230,7 +247,11 @@ class AdminToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
 
         try:
-            workspace = self._service.reactivate_workspace(workspace_id, auth_context)
+            # Codeberg #313: suppress reactivate_workspace's single internal
+            # _audit() call (same operation/entity) — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                workspace = self._service.reactivate_workspace(workspace_id, auth_context)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -266,11 +287,15 @@ class AdminToolGroup(BaseToolGroup):
         confirmation_text = require_param(params, "confirmation_text")
 
         try:
-            self._service.delete_workspace(
-                workspace_id=workspace_id,
-                confirmation_text=str(confirmation_text),
-                ctx=auth_context,
-            )
+            # Codeberg #313: suppress delete_workspace's single internal
+            # _audit() call (same operation/entity) — write_mcp_audit below
+            # is the sole entry.
+            with mcp_audit_handoff():
+                self._service.delete_workspace(
+                    workspace_id=workspace_id,
+                    confirmation_text=str(confirmation_text),
+                    ctx=auth_context,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -289,6 +314,37 @@ class AdminToolGroup(BaseToolGroup):
         return ToolResult.ok(
             {"deleted": True, "workspace_id": str(workspace_id)}
         )
+
+    # ------------------------------------------------------------------
+    # workspace.get_preferences (read-only)
+    # ------------------------------------------------------------------
+
+    def _handle_get_preferences(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """workspace.get_preferences — retrieve workspace config preferences (read-only).
+
+        Returns the 5 configuration fields: preset, ai_prompts,
+        decomposition_link_type, default_link_type, language.
+        No audit is written (read-only tool).
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+
+        try:
+            workspace = self._service.get_workspace(workspace_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+
+        return ToolResult.ok({
+            "result": {
+                "workspace_id": str(workspace_id),
+                "preset": workspace.preset,
+                "ai_prompts": workspace.ai_prompts,
+                "decomposition_link_type": workspace.decomposition_link_type,
+                "default_link_type": workspace.default_link_type,
+                "language": workspace.language,
+            }
+        })
 
 
 __all__ = ["AdminToolGroup"]

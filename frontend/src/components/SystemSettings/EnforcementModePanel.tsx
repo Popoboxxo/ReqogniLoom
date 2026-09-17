@@ -11,11 +11,13 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   permissionDefaultsApi,
   type EnforcementStatus,
 } from "../../api/permission-defaults";
 import { EnforcementFlipDialog } from "./EnforcementFlipDialog";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -56,7 +58,7 @@ const pillBase: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
@@ -65,19 +67,22 @@ const primaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-function fmtRelative(iso: string | null | undefined): string {
-  if (!iso) return "never";
+function fmtRelative(iso: string | null | undefined, neverLabel: string): string {
+  if (!iso) return neverLabel;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
 }
 
 export function EnforcementModePanel(): JSX.Element {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<EnforcementStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
   const [showFlipDialog, setShowFlipDialog] = useState(false);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -97,13 +102,6 @@ export function EnforcementModePanel(): JSX.Element {
   }, [load]);
 
   const handleRollback = useCallback(async (): Promise<void> => {
-    if (
-      !window.confirm(
-        "Roll back to shadow enforcement? The new permission model will stop being authoritative."
-      )
-    ) {
-      return;
-    }
     setRollingBack(true);
     setError(null);
     try {
@@ -121,11 +119,16 @@ export function EnforcementModePanel(): JSX.Element {
     void load();
   }, [load]);
 
+  const confirmRollback = useCallback((): void => {
+    setShowRollbackConfirm(false);
+    void handleRollback();
+  }, [handleRollback]);
+
   const isAuthoritative = status?.enforcement_mode === "authoritative";
 
   return (
     <section style={cardStyle} data-testid="enforcement-mode-section">
-      <h3 style={headingStyle}>Enforcement Mode</h3>
+      <h3 style={headingStyle}>{t("systemSettings.enforcementMode.title")}</h3>
 
       {loading ? (
         <p style={{ color: "var(--color-text-muted)" }}>…</p>
@@ -143,31 +146,32 @@ export function EnforcementModePanel(): JSX.Element {
                 style={{
                   ...pillBase,
                   background: isAuthoritative
-                    ? "rgba(22,163,74,0.12)"
+                    ? "rgba(var(--color-success-rgb), 0.12)"
                     : "var(--color-surface-raised)",
                   color: isAuthoritative
-                    ? "var(--color-success, #16a34a)"
+                    ? "var(--color-success)"
                     : "var(--color-text-muted)",
                 }}
               >
-                {isAuthoritative ? "Authoritative" : "Shadow"}
+                {isAuthoritative ? t("systemSettings.enforcementMode.authoritative") : t("systemSettings.enforcementMode.shadow")}
               </span>
               {status.ready_for_authoritative ? (
-                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-success, #16a34a)" }}>
-                  0 pending mismatches — ready to flip
+                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-success)" }}>
+                  {t("systemSettings.enforcementMode.zeroMismatches")}
                 </span>
               ) : (
-                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-warning, #f59e0b)" }}>
-                  {status.pending_mismatch_count} pending — review recommended before flipping
+                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-warning)" }}>
+                  {t("systemSettings.enforcementMode.pendingMismatches", { count: status.pending_mismatch_count })}
                 </span>
               )}
             </div>
 
             <p style={hintStyle} data-testid="enforcement-meta">
-              {status.pending_mismatch_count} mismatch
-              {status.pending_mismatch_count === 1 ? "" : "es"} in the last{" "}
-              {status.mismatch_window_days} days · last at{" "}
-              {fmtRelative(status.last_mismatch_at)}
+              {t("systemSettings.enforcementMode.meta", {
+                count: status.pending_mismatch_count,
+                days: status.mismatch_window_days,
+                lastAt: fmtRelative(status.last_mismatch_at, t("systemSettings.enforcementMode.never")),
+              })}
             </p>
             {status.advisory_note && (
               <p style={hintStyle} data-testid="enforcement-advisory">
@@ -186,12 +190,12 @@ export function EnforcementModePanel(): JSX.Element {
                 <button
                   type="button"
                   data-testid="enforcement-rollback-btn"
-                  onClick={() => void handleRollback()}
+                  onClick={() => setShowRollbackConfirm(true)}
                   disabled={rollingBack}
                   style={{
                     background: "transparent",
-                    color: "var(--color-warning, #f59e0b)",
-                    border: "1px solid var(--color-warning, #f59e0b)",
+                    color: "var(--color-warning)",
+                    border: "1px solid var(--color-warning)",
                     borderRadius: "var(--radius-md)",
                     padding: "var(--space-2) var(--space-4)",
                     fontSize: "var(--font-size-sm)",
@@ -200,7 +204,7 @@ export function EnforcementModePanel(): JSX.Element {
                     opacity: rollingBack ? 0.5 : 1,
                   }}
                 >
-                  {rollingBack ? "…" : "Roll Back to Shadow"}
+                  {rollingBack ? "…" : t("systemSettings.enforcementMode.rollbackButton")}
                 </button>
               ) : (
                 <button
@@ -209,7 +213,7 @@ export function EnforcementModePanel(): JSX.Element {
                   onClick={() => setShowFlipDialog(true)}
                   style={primaryButtonStyle}
                 >
-                  Review &amp; Flip to Authoritative
+                  {t("systemSettings.enforcementMode.flipButton")}
                 </button>
               )}
             </div>
@@ -222,6 +226,17 @@ export function EnforcementModePanel(): JSX.Element {
           windowDays={WINDOW_DAYS}
           onClose={() => setShowFlipDialog(false)}
           onFlipped={handleFlipped}
+        />
+      )}
+
+      {showRollbackConfirm && (
+        <ConfirmDialog
+          title={t("systemSettings.enforcementMode.rollbackButton")}
+          message={t("systemSettings.enforcementMode.confirmRollback")}
+          confirmLabel={t("systemSettings.enforcementMode.rollbackButton")}
+          onConfirm={confirmRollback}
+          onCancel={() => setShowRollbackConfirm(false)}
+          testId="enforcement-rollback-confirm"
         />
       )}
     </section>

@@ -9,7 +9,9 @@ req_id  : REQ-L2-MC-006 (API-key auth), REQ-L2-MC-007 (RBAC),
 Responsibilities:
 - Validate API key via AuthAndTenancy (IF-MC-EXT-OUT-002).
 - Build AuthContext from validated identity claims + role resolution.
-- Enforce RBAC for write operations (IF-MC-EXT-OUT-002).
+- Enforce RBAC against the workspace a call targets, for writes AND reads
+  (IF-MC-EXT-OUT-002; read scoping added by Systemaudit 2026-08-29 §6.5 —
+  see ``mcp_server/workspace_scope.py``).
 - Check preset-based tool visibility via PresetConfigEngine (IF-MC-EXT-OUT-004).
 - Route tool calls to the correct ToolGroup (IF-MC-INT-002..005).
 - Return ToolResult from the group or a structured error.
@@ -41,14 +43,25 @@ from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.models import ROLE_ADMIN
 from auth_tenancy.services.authentication import AuthenticationService
-from auth_tenancy.services.authorization import AuthorizationService, Operation
+from auth_tenancy.services.authorization import (
+    AuthorizationService,
+    Operation,
+    scope_allows,
+    scope_denial_reason,
+)
 
 from mcp_server.protocol_handler import ToolResult
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Write operations that require at least editor role (REQ-L2-MC-007)
+# Historical write-operation catalogue (REQ-L2-MC-007).
+#
+# No longer the runtime source of truth for _is_write_tool() (see
+# _READ_ONLY_TOOL_NAMES / _is_write_tool below for the fail-closed gate) —
+# kept as a documented catalogue of known write tools and for the structural
+# regression test (test_generic_crud_write_tools_all_covered_by_write_prefixes)
+# that checks every GenericCrudToolGroup write tool is accounted for here.
 # ---------------------------------------------------------------------------
 
 _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
@@ -57,15 +70,25 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "requirement.decompose",
     "requirement.validate",
     "requirement.derive",
+    "requirement.outdate",
+    "requirement.reactivate",
     "architecture.create",
     "architecture.update",
     "architecture.link",
     "architecture.decompose_commit",
+    # Fix #121: generic TraceLink creation (CrossCuttingToolGroup).
+    "traceability.create_link",
+    "architecture.outdate",
+    "architecture.reactivate",
     "test.create",
     "test.update",
     "test.link",
     "test.run_create",
     "test.run_report_results",
+    "test.run_complete",
+    "test.derive_from_requirement",
+    "test.outdate",
+    "test.reactivate",
     "workspace.close",
     "workspace.reactivate",
     "workspace.delete",
@@ -77,24 +100,379 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "user.create",
     "user.assign_role",
     "user.deactivate",
+    "user.activate",
+    "user.suspend_role",
+    "user.reactivate_role",
+    "user.assign_tenant_admin",
+    "user.revoke_tenant_admin",
     "needs.create",
     "needs.update",
     "needs.delete",
+    "needs.outdate",
+    "needs.reactivate",
     "adr.create",
     "adr.update",
     "adr.delete",
+    "adr.outdate",
+    "adr.reactivate",
     "risk.create",
     "risk.update",
     "risk.delete",
+    "risk.outdate",
+    "risk.reactivate",
     "issue.create",
     "issue.update",
     "issue.delete",
+    "issue.outdate",
+    "issue.reactivate",
     "glossary.create",
     "glossary.update",
     "glossary.delete",
+    "glossary.outdate",
+    "glossary.reactivate",
+    "change_request.create",
+    "change_request.update",
+    "change_request.delete",
+    "change_request.outdate",
+    "change_request.reactivate",
+    # Epic #934 WS1: Icd MCP tool group (Transport-Parität). create/update are
+    # the only mutating tools — icd.read/icd.query are read-only via the
+    # ".read"/".query" suffix below.
+    "icd.create",
+    "icd.update",
     "prompt_template.create",
     "prompt_template.update",
     "prompt_template.delete",
+    "prompt_variable.set",
+    "prompt_variable.clear",
+    "diagram.create",
+    "diagram.update",
+    "diagram.outdate",
+    "diagram.reactivate",
+    # Issue #114: BaselineToolGroup — baseline.create is the only mutating tool.
+    "baseline.create",
+    # REQ-L2-AI-003 (Phase 3): mode="write" makes these previously
+    # preview-only tools capable of mutation, so they now require Editor+
+    # (the RBAC gate is name-based, not mode-aware — mode="preview" calls by
+    # these tool names are gated too; see mcp_server/tools/ai_derivation.py).
+    "ai_derivation.derive_requirements_from_need",
+    "ai_derivation.suggest_architecture_for_requirement",
+    "ai_derivation.decompose_requirement_next_level",
+    "ai_derivation.derive_risks_from_architecture",
+    "ai_derivation.derive_glossary_from_workspace",
+    "ai_derivation.derive_adr_from_decision",
+    # REQ-L2-RV-001 (Phase 5): review.list_pending is read-only.
+    "review.approve",
+    "review.reject",
+    "review.request_changes",
+    # Interview-Management-Engine Task 4: interview.start creates a new
+    # InterviewSession, interview.answer mutates its collected_fields.
+    # interview.get_state/list/get are reads (see _READ_ONLY_TOOL_NAMES).
+    # Task 7: interview.formalize creates/updates the resulting Requirement
+    # and completes the session -- a write.
+    "interview.start",
+    "interview.answer",
+    "interview.formalize",
+    # Post-hoc fix (final-review batch): interview.grounding_context was
+    # exempted here as read-only in Task 5 when it was pure structural
+    # matching, but Task 6 added a real LLM provider call inside it without
+    # revisiting this gate. Every other LLM-invoking MCP tool (e.g.
+    # ai_derivation.*) is deliberately write-gated so a Viewer-role API key
+    # cannot drive LLM spend -- interview.grounding_context must be too.
+    "interview.grounding_context",
+    # Issue #540: interview.set_target writes InterviewSession.target_artifact_id
+    # -- gated the same way as interview.start/answer/formalize above.
+    "interview.set_target",
+    # 2026-08-20 UI-visibility fix: interview.abandon writes a workflow
+    # transition (in_progress -> abandoned) -- same write gate as formalize.
+    "interview.abandon",
+    # Task 7 of the AI-memory spec: memory.forget deletes a WorkspaceMemory/
+    # UserTenantMemory row -- memory.query/memory.list are read-only (see
+    # _READ_ONLY_TOOL_NAMES below).
+    "memory.forget",
+    # Attribut v3 WS5 (#942): central attribute catalog. create/update/
+    # deprecate/add_to_definition/import are writes; list/search/export are
+    # read-only via _READ_ONLY_TOOL_NAMES below. Listed here as the documented
+    # write catalogue (the actual gate is the fail-closed default).
+    "attribute_catalog.create",
+    "attribute_catalog.update",
+    "attribute_catalog.deprecate",
+    "attribute_catalog.add_to_definition",
+    "attribute_catalog.import",
+    # Attribut v3 WS7 (#940): AWMS value migrations. apply/rollback mutate
+    # artifacts; dry_run writes the run row but no artifact/definition
+    # (still fail-closed write so a Viewer key cannot drive a migration).
+    "attribute_migration.apply",
+    "attribute_migration.rollback",
+    "attribute_migration.dry_run",
+    # Menschen-im-System spec §4: comment.create/comment.resolve mutate the
+    # artifact's comment thread. comment.list is read-only (see
+    # _READ_ONLY_TOOL_NAMES below); comment.delete is deliberately not an MCP
+    # tool at all -- spec §4 keeps deletion author-or-admin only.
+    "comment.create",
+    "comment.resolve",
+)
+
+# ---------------------------------------------------------------------------
+# Explicit read-only tool inventory (REQ-L2-MC-007, fail-closed default,
+# Systemaudit 2026-07-28 #99)
+# ---------------------------------------------------------------------------
+#
+# _is_write_tool() used to be allowlist-based: only names matching
+# _WRITE_TOOL_PREFIXES above were RBAC-checked, so any *new* write tool
+# silently bypassed the gate until someone remembered to extend the prefix
+# list (this already happened once for change_request.delete, see the
+# regression test below, and again for the whole diagram.* group, cf.
+# Systemaudit #102). That is fail-open.
+#
+# The gate is now inverted: every tool name is treated as WRITE (RBAC
+# checked) unless it is explicitly listed here as read-only, or ends in one
+# of the two suffixes dynamically-generated tool groups use for reads
+# (``GenericCrudToolGroup`` emits "{prefix}.read"/"{prefix}.query" for every
+# entity it wraps, so new entities registered there stay read-exempt without
+# a code change here). Any tool name this module has never seen — including
+# ones added later without touching this file — defaults to write-protected.
+_READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "requirement.get",
+        "requirement.query",
+        "requirement.check_consistency",
+        "needs.read",
+        "needs.query",
+        "needs.get_traces",
+        "architecture.get",
+        "architecture.query",
+        "test.get",
+        "test.query",
+        "test.run_get",
+        "traceability.query",
+        "traceability.suggest_links",
+        "artifact.search",
+        "artifact.get_tree",
+        "context.change_impact",
+        "context.test_coverage",
+        "workspace.get_context",
+        "workspace.get_preferences",
+        "workspace.list",
+        "workspace.llm_system_prompt",
+        "permissions.check",
+        "permissions.list",
+        "audit.query",
+        "audit.ai_review",
+        "events.dlq_list",
+        "user.list",
+        "prompt_template.get",
+        "prompt_template.list",
+        "prompt_variable.list",
+        "prompt_variable.get",
+        "diagram.get",
+        "diagram.query",
+        "admin.backup_list",
+        "review.list_pending",
+        # Issue #114: BaselineToolGroup read-only tools (baseline.create is
+        # the only mutating one — deliberately absent from this set so it
+        # stays fail-closed WRITE-gated).
+        "baseline.list",
+        "baseline.get",
+        "baseline.compare",
+        # Task 7 of feat/ziele-hauptziel-design: goal.read/main_goal.read are
+        # already exempt via the ".read" suffix below and deliberately not
+        # duplicated here.
+        "goal.list_versions",
+        "main_goal.list_versions",
+        # Requirement Bundle Export, Plan 1 Task 6: both tools are read-only
+        # exports/discovery, no persistence — same class as artifact.search.
+        "requirement_bundle.export",
+        "requirement_bundle.attribute_schema",
+        # Requirement Bundle Export, Plan 2 Task 5: status polling only reads
+        # a Celery task result (via the tenant-ownership cache mapping) —
+        # mirrors BundleCompressionStatusView (REST), which is a plain GET
+        # with no write-role requirement. Same class as admin.backup_list.
+        "requirement_bundle.compression_status",
+        # Interview-Management-Engine Task 4: interview.get_state/list/get
+        # are plain reads of InterviewSession state, same class as
+        # needs.get_traces/architecture.get — interview.start/answer stay
+        # fail-closed WRITE-gated via _WRITE_TOOL_PREFIXES above.
+        "interview.get_state",
+        "interview.list",
+        "interview.get",
+        # Multi-artifact plan Task 6: interview.propose only reads
+        # grounding_snapshot["pending_proposal"] — same read-only class as
+        # interview.get_state above.
+        "interview.propose",
+        # interview.grounding_context moved to _WRITE_TOOL_PREFIXES above
+        # (post-hoc fix, final-review batch) once it started making real LLM
+        # calls -- no longer exempt here.
+        # Task 7 of the AI-memory spec: memory.query/memory.list are plain
+        # reads over MemoryBackend -- memory.forget stays fail-closed
+        # WRITE-gated via _WRITE_TOOL_PREFIXES above.
+        "memory.query",
+        "memory.list",
+        # Task 21 of the traceability-semantik plan: link_type.list/get are
+        # plain catalog reads -- link_type.create/update/reset stay
+        # fail-closed WRITE-gated (admin-only, enforced again inside
+        # LinkTypeFacade._require_admin).
+        "link_type.list",
+        "link_type.get",
+        # Attribute-Definition spec section 5, Task 12: attribute_definition.list
+        # (admin-gated in the service, tenant-wide) and attribute_definition.get
+        # (workspace_id required in its inputSchema, same class as
+        # requirement.get) are both plain reads over attribute_definitions rows
+        # -- attribute_definition.update/.reset stay fail-closed WRITE-gated.
+        "attribute_definition.list",
+        "attribute_definition.get",
+        # Attribut v3 WS5 (#942): attribute_catalog.list/search/export are plain
+        # reads over the tenant's catalog -- create/update/deprecate/
+        # add_to_definition/import stay fail-closed WRITE-gated. The service
+        # asserts admin on every operation either way.
+        "attribute_catalog.list",
+        "attribute_catalog.search",
+        "attribute_catalog.export",
+        # Attribut v3 WS7 (#940): attribute_migration.plan is a pure schema
+        # validation + hash and list_runs/get_run are plain run-history reads.
+        # apply/rollback/dry_run stay fail-closed WRITE-gated (see
+        # _WRITE_TOOL_PREFIXES above).
+        "attribute_migration.plan",
+        "attribute_migration.list_runs",
+        "attribute_migration.get_run",
+        # Menschen-im-System spec §4: comment.list is a plain read over the
+        # artifact's comments (CommentService.list_for_artifact asserts no
+        # write permission; the REST ArtifactCommentsView GET is equally
+        # ungated). comment.create/comment.resolve stay fail-closed
+        # WRITE-gated via _WRITE_TOOL_PREFIXES above.
+        "comment.list",
+    }
+)
+
+_READ_ONLY_TOOL_SUFFIXES: Tuple[str, ...] = (".read", ".query")
+
+# ---------------------------------------------------------------------------
+# Governance tool namespaces (#865)
+#
+# The API-key capability tiers (see ``auth_tenancy.services.authorization``)
+# distinguish ordinary content writes (AUTHOR) from governance operations
+# (ADMIN). On the MCP surface the split follows the tool *namespace*, chosen so
+# that it mirrors the REST rule exactly: REST views that declare one of the
+# admin-/approver-reserved operations (``WORKSPACE_CONFIG``, ``ASSIGN_ROLE``,
+# ``WORKFLOW_APPROVAL``) are ADMIN-tier, and these are the namespaces whose
+# tools are gated by exactly those operations — admin_ops disaster recovery,
+# user/role management, item-permission rules, workspace lifecycle/preset
+# config, DLQ replay, and baselines (whose gate override/waiver is an
+# approval-authority act, see ``BaselineFacade``). Key management is the
+# seventh governance path named by the issue and lives on REST only
+# (``ApiKeyViewSet``); MCP exposes no key-management tool.
+#
+# Classification is by namespace prefix and applies to WRITE tools only: every
+# read tool (``admin.backup_list``, ``user.list``, ``baseline.get``,
+# ``events.dlq_list``, ``workspace.get_context``, ``permissions.check``) stays
+# READ-tier, exactly as before.
+#
+# Follow-up to #865 (security review of that change): six more namespaces are
+# ADMIN-tier here, closing the *drift hole* between the transports. Their tools
+# are protected on REST by ``rest_api.settings_views`` (LLM settings, prompt
+# templates, review policy, context-graph configuration) and, inside their
+# services, by an admin-role assertion — but an admin-*role* check does not
+# narrow an AUTHOR-tier key whose owner legitimately holds that role. Prompt
+# templates are the canonical persistent prompt-injection vector (REQ-043):
+# whoever controls their content controls every future LLM derivation, so an
+# AUTHOR key must not reach them, symmetrically on both transports.
+#   attribute_definition / attribute_catalog / attribute_migration — tenant-wide
+#     schema metadata; every write re-shapes what later derivations may emit,
+#   link_type   — the tenant-extensible trace-link catalog,
+#   prompt_template / prompt_variable — LLM prompt content and its variables.
+# The service-level admin re-checks stay in place unchanged; the tier gate can
+# only ever narrow further.
+#
+# This narrows the scope gate only for the new AUTHOR tier; the RBAC matrix and
+# the per-service admin re-checks remain untouched, and legacy ``write`` keys
+# (= ADMIN tier) are unaffected.
+# ---------------------------------------------------------------------------
+
+_GOVERNANCE_TOOL_NAMESPACES: frozenset[str] = frozenset(
+    {
+        "admin",  # admin_ops: backup / restore (instance-level)
+        "user",  # user + role management
+        "permissions",  # item-level permission rules
+        "workspace",  # workspace lifecycle + config
+        "events",  # dead-letter-queue replay
+        "baseline",  # immutable baselines incl. gate override/waiver
+        # #865 follow-up: governance surfaces previously only author-tier
+        # because their protection was a service-internal admin-role check.
+        "prompt_template",  # LLM prompt content (REQ-043 injection vector)
+        "prompt_variable",  # variables substituted into prompt content
+        "link_type",  # tenant-extensible trace-link catalog
+        "attribute_definition",  # tenant-wide attribute schema
+        "attribute_catalog",  # attribute-schema catalog
+        "attribute_migration",  # attribute-schema migrations
+    }
+)
+
+# ---------------------------------------------------------------------------
+# Instance-level tools exempt from workspace-scoped role narrowing
+# (GitHub #37, same bug class as #103 but inverted: #103 narrowed roles to
+# the target workspace to STOP cross-workspace escalation; this narrowing is
+# wrong for tools whose target is not a workspace at all).
+#
+# ``BackupMetadata`` (admin_ops) is instance-level — not even tenant-scoped,
+# let alone workspace-scoped (see admin_ops/rest.py). A caller's admin
+# authority for these tools must therefore be evaluated tenant-wide
+# (``active_roles_across_workspaces``), never against a single workspace.
+#
+# Without this exemption, a request that happens to carry an incidental
+# ``workspace_id`` param (e.g. a UI/MCP client that always attaches the
+# "currently active workspace" to every call) would narrow the caller's
+# roles to that one workspace via ``_resolve_roles``. A tenant admin who
+# holds the Admin role in a *different* workspace (or in none at all, if
+# they were provisioned as a superuser) is then wrongly denied
+# PERMISSION_DENIED for an operation that has nothing to do with workspaces.
+# ---------------------------------------------------------------------------
+
+_INSTANCE_LEVEL_TOOLS: frozenset[str] = frozenset(
+    {
+        "admin.backup_create",
+        "admin.backup_list",
+        "admin.restore",
+    }
+)
+
+# ---------------------------------------------------------------------------
+# Tenant-admin-elevated user.* tools (multi-user management design spec §3).
+#
+# Step 3's blanket write-RBAC gate (``_check_rbac``) below decides purely
+# from ``ctx.active_roles`` — which is resolved WORKSPACE-scoped (via
+# ``_resolve_roles``) whenever the call carries a ``workspace_id`` param, or
+# tenant-wide-but-still-``UserRole``-only (``_resolve_global_roles``)
+# otherwise. Neither path ever looks at ``TenantRole``, so a pure
+# tenant-admin (a caller holding only ``TenantRole(admin)``, zero
+# workspace-level ``UserRole`` anywhere) resolves to ``active_roles=()`` and
+# was denied here BEFORE the request ever reached a tool group — even for
+# tools whose own handler (and the ``AuthorizationService`` method it calls)
+# already has a tenant-admin elevation branch built in. This is the
+# registry-level twin of the ``UsersToolGroup._check_admin`` gap fixed in
+# the same change (see that class's docstring) — mirrors how the REST layer
+# dropped its own coarse ``HasOperationPermission`` pre-gate for these exact
+# actions (``rest_api.user_management_views.UserViewSet``,
+# ``auth_tenancy.rest_workspace_members.WorkspaceMemberRoleTransitionView``)
+# and let the service layer's own admin/tenant-admin re-check be the sole
+# authority instead.
+#
+# Every tool listed here performs its OWN tenant-admin-aware authorization
+# inside its handler (``UsersToolGroup``) or the ``AuthorizationService``
+# method it delegates to — bypassing this coarse gate for a genuine
+# tenant-admin loses no defense, it only removes a false negative. A caller
+# who is NOT a tenant-admin still falls through to the normal
+# ``_check_rbac`` check below unchanged.
+_TENANT_ADMIN_ELEVATED_USER_TOOLS: frozenset[str] = frozenset(
+    {
+        "user.create",
+        "user.deactivate",
+        "user.activate",
+        "user.assign_role",
+        "user.suspend_role",
+        "user.reactivate_role",
+        "user.assign_tenant_admin",
+        "user.revoke_tenant_admin",
+    }
 )
 
 # ---------------------------------------------------------------------------
@@ -277,10 +655,25 @@ class ToolRegistry:
         from mcp_server.tools.ai_derivation import AiDerivationToolGroup
         from mcp_server.tools.generic import GenericCrudToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
+        from mcp_server.tools.prompt_variable import PromptVariableToolGroup
+        from mcp_server.tools.diagram import DiagramToolGroup
+        from mcp_server.tools.review import ReviewToolGroup
+        from mcp_server.tools.baseline import BaselineToolGroup
+        from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
+        from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
+        from mcp_server.tools.interview import InterviewToolGroup
+        from mcp_server.tools.memory import MemoryToolGroup
+        from mcp_server.tools.link_type import LinkTypeToolGroup
+        from mcp_server.tools.attribute_definition import AttributeDefinitionToolGroup
+        from mcp_server.tools.attribute_catalog import AttributeCatalogToolGroup
+        from mcp_server.tools.attribute_migration import AttributeMigrationToolGroup
+        from mcp_server.tools.icd import IcdToolGroup
+        from mcp_server.tools.comment import CommentToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
         from application.glossary_service import GlossaryService
+        from application.change_request_service import ChangeRequestService
 
         # REQ-129: share ONE instance across prefixes that belong to the same
         # tool group. CrossCuttingToolGroup owns both the ``traceability`` and
@@ -296,6 +689,7 @@ class ToolRegistry:
             "test": TestToolGroup(),
             "traceability": cross_cutting_tool_group,
             "artifact": cross_cutting_tool_group,
+            "context": cross_cutting_tool_group,
             "workspace": AdminToolGroup(),
             "permissions": PermissionsToolGroup(),
             "admin": BackupToolGroup(),
@@ -305,9 +699,61 @@ class ToolRegistry:
             "adr": GenericCrudToolGroup("adr", AdrService),
             "risk": GenericCrudToolGroup("risk", RiskService),
             "issue": GenericCrudToolGroup("issue", IssueService),
-            "glossary": GenericCrudToolGroup("glossary", GlossaryService),
+            "glossary": GenericCrudToolGroup("glossary", GlossaryService, item_type="GlossaryTerm"),
+            "change_request": GenericCrudToolGroup(
+                "change_request", ChangeRequestService, item_type="ChangeRequest"
+            ),
             "prompt_template": PromptTemplateToolGroup(),
+            # Prompt variable catalog (spec §3.1): the config layer the
+            # prompt_template group's bodies reference via {placeholders}.
+            "prompt_variable": PromptVariableToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
+            "diagram": DiagramToolGroup(),
+            "review": ReviewToolGroup(),
+            # Issue #114: BaselineFacade was REST/UI-only — wraps it for MCP.
+            "baseline": BaselineToolGroup(),
+            # Task 7 of feat/ziele-hauptziel-design: Goal/MainGoal MCP tools.
+            "goal": GoalToolGroup(),
+            "main_goal": MainGoalToolGroup(),
+            # Requirement Bundle Export, Plan 1 Task 6: raw (non-AI) bundle
+            # export + attribute discovery, both read-only.
+            "requirement_bundle": RequirementBundleToolGroup(),
+            # Interview-Management-Engine Task 4: cross-host structured
+            # interviews (start/get_state/answer/list/get). Grounding and
+            # formalize land on the same prefix in Tasks 6-7.
+            "interview": InterviewToolGroup(),
+            # Task 7 of the AI-memory spec: memory.query/memory.list/memory.forget
+            # over the Task 3 MemoryBackend abstraction. Standalone prefix (no
+            # sharing, unlike e.g. "traceability"/"artifact"/"context").
+            "memory": MemoryToolGroup(),
+            # Task 21 of the traceability-semantik plan: read/write access to
+            # the per-tenant/per-workspace link-type catalog (Task 19's
+            # LinkTypeFacade). link_type.list/get are read-exempt below.
+            "link_type": LinkTypeToolGroup(),
+            # Attribute-Definition spec section 5, Task 12: manages
+            # attribute_definitions rows themselves (list/get/update/reset) --
+            # NOT to be confused with validate_artifact_fields, which is
+            # wired into the artifact ViewSets (Task 11), MCP artifact writes
+            # (mcp_server/tools/base.py::validate_artifact_write), and the CSV
+            # bulk importer (ImportService._validate_attribute_definitions).
+            "attribute_definition": AttributeDefinitionToolGroup(),
+            # Attribut v3 WS5 (#942, spec section 8): the central
+            # item-type-independent attribute-catalog template library. list/
+            # search/export are read-exempt; the five mutating tools are
+            # fail-closed write-gated and the service re-asserts admin.
+            "attribute_catalog": AttributeCatalogToolGroup(),
+            # Attribut v3 WS7 (#940, spec section 7): AWMS value migrations.
+            # plan/list_runs/get_run are read-exempt; dry_run/apply/rollback are
+            # fail-closed write-gated and the service re-asserts admin.
+            "attribute_migration": AttributeMigrationToolGroup(),
+            # Epic #934 WS1: ICD CRUD parity on MCP (previously REST-only).
+            # Writes run the shared validate_artifact_write gate.
+            "icd": IcdToolGroup(),
+            # Menschen-im-System spec §4: comments are the one collaboration
+            # feature agents do use (notifications deliberately have no group).
+            # comment.list is read-exempt below; create/resolve stay
+            # write-gated (the service re-asserts write permission too).
+            "comment": CommentToolGroup(),
         })
 
     def list_tools(
@@ -319,6 +765,11 @@ class ToolRegistry:
         caller without WRITE permission (e.g. a Viewer) does not see write
         tools, so the advertised tool surface matches what the caller may
         actually execute. Preset feature gating stays an execution-time concern.
+
+        #865 adds the capability tier on top: a READ_ONLY-scoped key sees no
+        write tools at all and an AUTHOR-scoped key sees no governance tools
+        (``admin.*``, ``user.*``, ``baseline.create``, ...), matching the gate
+        :meth:`dispatch_request` applies.
 
         Args:
             api_key: Raw API key for validation.
@@ -335,15 +786,28 @@ class ToolRegistry:
             # tools" and hides invalid/missing credentials from the caller.
             raise McpAuthenticationError(auth_error or "invalid_api_key")
 
-        from persistence.tenancy import TenantContext
+        # fix #110: use set_request_tenant, not the bare TenantContext
+        # thread-local, so the DB-level RLS session variable (COMP-PL-006)
+        # is armed as a backstop for the MCP path too — previously only the
+        # app-layer thread-local filter was active here.
+        from persistence.middleware import set_request_tenant, clear_request_tenant
         try:
             if auth_ctx.tenant_id is not None:
-                TenantContext.set_tenant(auth_ctx.tenant_id)
+                set_request_tenant(auth_ctx.tenant_id)
 
             roles = self._resolve_list_roles(auth_ctx, workspace_id)
-            can_write = self._authz_service.decide_access(
-                roles, Operation.WRITE
-            ).allow
+            can_write = (
+                scope_allows(auth_ctx.scope, Operation.WRITE)
+                and self._authz_service.decide_access(roles, Operation.WRITE).allow
+            )
+            # #865: a governance tool the key's scope can never execute must not
+            # be advertised either — same "advertised surface matches what the
+            # caller may actually execute" invariant as the WRITE filter below.
+            # Deliberately scope-only (not the RBAC matrix): role-based
+            # visibility stays exactly as it was, the tiers only narrow what the
+            # key itself was issued for. Legacy ``write`` keys are the ADMIN
+            # tier, so their tool list is unchanged.
+            can_govern = scope_allows(auth_ctx.scope, Operation.WORKSPACE_CONFIG)
 
             # Deduplicate by group object identity (REQ-129): several prefixes
             # intentionally share a single instance (e.g. "audit"/"events" →
@@ -361,14 +825,36 @@ class ToolRegistry:
                     tools.extend(group.get_tool_schemas())
 
             if not can_write:
-                # Hide write tools from read-only callers (Viewer role).
+                # Hide write tools from read-only callers (Viewer role) —
+                # except the tenant-admin-elevated ``user.*`` tools
+                # (_TENANT_ADMIN_ELEVATED_USER_TOOLS), which a pure
+                # tenant-admin (TenantRole(admin), zero workspace-level
+                # UserRole) can actually execute via the same
+                # ``_is_tenant_admin_exempt`` bypass ``dispatch_request``'s
+                # Step 3 RBAC gate already applies. Without this, tools/list
+                # advertised none of the 8 tools such a caller can run.
                 tools = [
-                    t for t in tools if not self._is_write_tool(t.get("name", ""))
+                    t
+                    for t in tools
+                    if not self._is_write_tool(t.get("name", ""))
+                    or self._is_tenant_admin_exempt(t.get("name", ""), auth_ctx)
+                ]
+            if not can_govern:
+                # AUTHOR-tier key: everything it may not execute is hidden,
+                # including the tenant-admin-elevated ``user.*`` tools — those
+                # are exempt from the *role* matrix, never from the capability
+                # tier (same rule dispatch_request applies above its own
+                # exemptions, security review B2).
+                tools = [
+                    t
+                    for t in tools
+                    if self._required_scope_operation(t.get("name", ""))
+                    is not Operation.WORKSPACE_CONFIG
                 ]
             return tools
         finally:
             if auth_ctx.tenant_id is not None:
-                TenantContext.clear_tenant()
+                clear_request_tenant()
 
     def dispatch_request(
         self,
@@ -397,7 +883,7 @@ class ToolRegistry:
             return ToolResult.error("AUTH_FAILED", auth_error)
 
         # --- Activate TenantContext for tenant-scoped queries ---
-        # Subsequent steps (role resolution via UserRole.objects, RBAC, preset
+        # Subsequent steps (role resolution via AuthorizationService, RBAC, preset
         # lookup, tool execution) all hit tenant-scoped models whose default
         # manager requires an active TenantContext. We must set the context
         # INSIDE this method — the View layer cannot do it earlier because
@@ -407,26 +893,90 @@ class ToolRegistry:
         # The try/finally guarantees the context is cleared on every
         # exit path (success, early-return error, or unhandled exception).
         try:
-            from persistence.tenancy import TenantContext
+            from persistence.middleware import set_request_tenant, clear_request_tenant
 
             if auth_ctx is not None and auth_ctx.tenant_id is not None:
-                TenantContext.set_tenant(auth_ctx.tenant_id)
+                set_request_tenant(auth_ctx.tenant_id)
 
             # --- Step 2: Resolve active roles ---
             workspace_id: Optional[str] = params.get("workspace_id")
             if workspace_id and not self._workspace_exists_fn(workspace_id):
                 return ToolResult.error(
-                    "WORKSPACE_NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
+                    "NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
                 )
-            auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
+            # GitHub #37: instance-level tools (e.g. admin.backup_create) are
+            # not workspace-bound; an incidental workspace_id in params must
+            # not narrow the caller's roles to that single workspace.
+            role_workspace_id = (
+                None if tool_name in _INSTANCE_LEVEL_TOOLS else workspace_id
+            )
+            auth_ctx = self._resolve_roles(auth_ctx, role_workspace_id)  # type: ignore[arg-type]
 
-            # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
-            if self._is_write_tool(tool_name) and not self._is_bootstrap_candidate(
-                tool_name, params, auth_ctx  # type: ignore[arg-type]
-            ):
-                rbac_error = self._check_rbac(auth_ctx)  # type: ignore[arg-type]
-                if rbac_error:
-                    return ToolResult.error("PERMISSION_DENIED", rbac_error)
+            # --- Step 2b: Existence check (ADR-L3-MC002-03) ---
+            # Resolved before the RBAC gate: an unrecognised tool name never
+            # reaches a handler regardless of the RBAC outcome, so gating it
+            # on WRITE first would (a) leak PERMISSION_DENIED for names that
+            # don't exist and (b) since #99's fail-closed default treats any
+            # unrecognised name as a write tool, would mask UNKNOWN_TOOL
+            # behind a 403 for callers without write roles. Route once here;
+            # the resolved group is reused by Step 5 (no double routing).
+            assert self._router is not None
+            group, route_error = self._router.route(tool_name)
+            if route_error:
+                return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
+
+            # --- Step 3: RBAC (REQ-L2-MC-007, Systemaudit 2026-08-29 §6.5) ---
+            # The gate is evaluated against the workspace the call actually
+            # targets. When that workspace is not named in ``workspace_id``,
+            # ``mcp_server.workspace_scope`` derives it from the object the
+            # call addresses by id; see that module for why both the read and
+            # the write path need it.
+            gate_ctx, scope_workspace_id = self._scoped_gate_context(
+                tool_name, params, auth_ctx, role_workspace_id  # type: ignore[arg-type]
+            )
+
+            # --- Step 3a: API-key workspace fence (security review B3) ---
+            # Runs before every other gate, including the RBAC exemptions: a
+            # key fenced to workspace A must not reach workspace B through any
+            # path. REST gets this for free because it builds its AuthContext
+            # via ``TenantContextService.build_auth_context``; MCP constructs
+            # the context itself (see ``_validate_api_key``/``_resolve_roles``)
+            # and therefore never inherited the fence.
+            fence_error = self._check_workspace_fence(gate_ctx, scope_workspace_id)
+            if fence_error:
+                return ToolResult.error("PERMISSION_DENIED", fence_error)
+
+            if self._is_write_tool(tool_name):
+                # Security review B2: the key-scope gate is evaluated BEFORE
+                # the two RBAC exemptions, not inside ``_check_rbac`` which
+                # they skip. Scope and RBAC-exemption are orthogonal: being
+                # exempt from the *role* matrix (bootstrap, tenant-admin) must
+                # never exempt a caller from the capability tier their key was
+                # issued with, or a read-scoped bootstrap/tenant-admin key
+                # could write freely.
+                #
+                # #865: the required tier depends on the tool — governance
+                # namespaces need the ADMIN tier, ordinary content writes only
+                # the AUTHOR tier (see ``_required_scope_operation``). Legacy
+                # ``write`` keys are the ADMIN tier and are unaffected.
+                scope_error = scope_denial_reason(
+                    gate_ctx.scope, self._required_scope_operation(tool_name)
+                )
+                if scope_error:
+                    return ToolResult.error("PERMISSION_DENIED", scope_error)
+
+                if not self._is_bootstrap_candidate(
+                    tool_name, params, auth_ctx  # type: ignore[arg-type]
+                ) and not self._is_tenant_admin_exempt(
+                    tool_name, auth_ctx  # type: ignore[arg-type]
+                ):
+                    rbac_error = self._check_rbac(gate_ctx, tool_name)
+                    if rbac_error:
+                        return ToolResult.error("PERMISSION_DENIED", rbac_error)
+            elif scope_workspace_id is not None:
+                read_error = self._check_read_rbac(gate_ctx, tool_name)
+                if read_error:
+                    return ToolResult.error("PERMISSION_DENIED", read_error)
 
             # --- Step 4: Preset feature gate (REQ-L2-MC-008) ---
             if workspace_id:
@@ -438,10 +988,7 @@ class ToolRegistry:
                     )
 
             # --- Step 5: Route to tool group (ADR-L3-MC002-03) ---
-            assert self._router is not None
-            group, route_error = self._router.route(tool_name)
-            if route_error:
-                return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
+            # (already resolved in Step 2b above)
 
             # --- Step 6: Execute tool ---
             try:
@@ -453,12 +1000,15 @@ class ToolRegistry:
                 )
                 return result
             except Exception as exc:
+                # fix #108: outer safety net — same masking as
+                # BaseToolGroup.execute_tool's inner catch-all, in case a
+                # tool group's execute_tool override raises before reaching it.
                 logger.exception("Unexpected error in tool group for tool=%s", tool_name)
-                return ToolResult.error("INTERNAL_ERROR", str(exc))
+                return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         finally:
-            from persistence.tenancy import TenantContext
+            from persistence.middleware import clear_request_tenant
 
-            TenantContext.clear_tenant()
+            clear_request_tenant()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -473,8 +1023,8 @@ class ToolRegistry:
             (partial_auth_ctx, None) on success.
             (None, error_message) on failure.
         """
-        if not api_key.startswith("rf_"):
-            # By design, MCP only accepts API keys (rf_...), never JWT bearer
+        if not api_key.startswith("reqlo_"):
+            # By design, MCP only accepts API keys (reqlo_...), never JWT bearer
             # tokens: REQ-L2-MC-006 mandates API-key auth for the MCP server,
             # and REQ-052 confines cookie/JWT auth to the REST adapter. This
             # is unrelated to REQ-126 (symmetric role resolution for the REST
@@ -485,7 +1035,7 @@ class ToolRegistry:
             logger.debug("MCP auth: credential does not match API-key format")
             return None, (
                 "Authentication failed: bearer_not_supported — MCP requires an "
-                "API key (X-API-Key header or 'Authorization: Bearer rf_...'), "
+                "API key (X-API-Key header or 'Authorization: Bearer reqlo_...'), "
                 "not a JWT bearer token. This is intentional (REQ-L2-MC-006, "
                 "REQ-052) and independent of REQ-126, which only concerns the "
                 "REST Bearer-token role-resolution path."
@@ -496,9 +1046,14 @@ class ToolRegistry:
         except AuthenticationFailed as exc:
             logger.debug("MCP API key validation failed: %s", exc.code)
             return None, f"Authentication failed: {exc.code}"
-        except Exception as exc:
+        except Exception:
+            # D-3 (CWE-209): mirror the masking already used at the outer
+            # dispatch_request safety net (see "An internal error occurred."
+            # above) — the raw exception must not reach the caller under
+            # AUTH_FAILED, since that can leak infra details (DSN fragments
+            # etc.) to an unauthenticated-or-wrongly-authenticated caller.
             logger.exception("Unexpected auth error")
-            return None, str(exc)
+            return None, "An internal error occurred."
 
         # Build a partial AuthContext (roles resolved separately)
         ctx = AuthContext(
@@ -507,6 +1062,10 @@ class ToolRegistry:
             active_roles=(),  # resolved in step 2
             auth_method=AuthMethod.API_KEY,
             api_key_id=claims.api_key_id,
+            actor_type=claims.actor_type,
+            agent_label=claims.agent_label,
+            scope=claims.scope,
+            api_key_workspace_ids=claims.api_key_workspace_ids,
         )
         return ctx, None
 
@@ -532,6 +1091,10 @@ class ToolRegistry:
                     active_roles=roles,
                     auth_method=ctx.auth_method,
                     api_key_id=ctx.api_key_id,
+                    actor_type=ctx.actor_type,
+                    agent_label=ctx.agent_label,
+                    scope=ctx.scope,
+                    api_key_workspace_ids=ctx.api_key_workspace_ids,
                 )
             return ctx
 
@@ -550,6 +1113,10 @@ class ToolRegistry:
             active_roles=roles,
             auth_method=ctx.auth_method,
             api_key_id=ctx.api_key_id,
+            actor_type=ctx.actor_type,
+            agent_label=ctx.agent_label,
+            scope=ctx.scope,
+            api_key_workspace_ids=ctx.api_key_workspace_ids,
         )
 
     def _resolve_global_roles(self, ctx: AuthContext) -> Tuple[str, ...]:
@@ -559,12 +1126,13 @@ class ToolRegistry:
         an empty tuple if the lookup fails.
         """
         try:
-            from auth_tenancy.models import UserRole
-
-            assignments = UserRole.objects.filter(
-                user_id=ctx.user_id, suspended_at__isnull=True
-            ).values_list("role", flat=True)
-            return tuple(sorted(set(assignments)))
+            roles = self._authz_service.active_roles_across_workspaces(
+                user_id=ctx.user_id
+            )
+            # Coerce defensively: a stubbed/partial service must degrade to the
+            # fail-closed empty tuple rather than leak a non-role object into
+            # the RBAC gate.
+            return tuple(sorted({str(role) for role in roles}))
         except Exception:
             logger.debug("Global role resolution failed for user=%s", ctx.user_id)
             return ()
@@ -580,14 +1148,57 @@ class ToolRegistry:
         that may write anywhere still sees the write tools while a pure Viewer
         does not (REQ-108).
         """
+        # Security review B3: a workspace-fenced key gets no roles outside its
+        # fence, so ``tools/list`` advertises it the read-only tool set rather
+        # than write tools it would be denied at dispatch. Same rule and same
+        # fail-closed workspace-less branch as ``_check_workspace_fence``.
+        if self._check_workspace_fence(ctx, workspace_id):
+            return ()
+
         if workspace_id:
             return self._resolve_roles(ctx, workspace_id).active_roles
 
         return self._resolve_global_roles(ctx)
 
     def _is_write_tool(self, tool_name: str) -> bool:
-        """Return True if tool_name is a write operation."""
-        return any(tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES)
+        """Return True if tool_name requires the WRITE RBAC gate.
+
+        Fail-closed default (#99): a tool is write-protected unless it is
+        explicitly known to be read-only, either by exact name
+        (:data:`_READ_ONLY_TOOL_NAMES`) or by one of the read-only suffixes
+        emitted by dynamically generated tool groups
+        (:data:`_READ_ONLY_TOOL_SUFFIXES`). Unrecognised/new tool names are
+        therefore RBAC-checked by default instead of silently passing
+        through, unlike the previous allowlist-of-write-prefixes approach.
+        """
+        if tool_name in _READ_ONLY_TOOL_NAMES:
+            return False
+        if tool_name.endswith(_READ_ONLY_TOOL_SUFFIXES):
+            return False
+        return True
+
+    def _required_scope_operation(self, tool_name: str) -> Operation:
+        """Return the operation the key-scope gate must evaluate for *tool_name*.
+
+        Maps an MCP tool onto the same :class:`Operation` vocabulary the REST
+        adapters use, so one shared gate
+        (``auth_tenancy.services.authorization.scope_denial_reason``) decides
+        both transports (#865):
+
+        * read tools -> :attr:`Operation.READ` (any tier may read),
+        * write tools in a governance namespace
+          (:data:`_GOVERNANCE_TOOL_NAMESPACES`, e.g. ``user.create``,
+          ``admin.restore``, ``baseline.create``, ``prompt_template.update``,
+          ``link_type.create``) ->
+          :attr:`Operation.WORKSPACE_CONFIG`, i.e. the ADMIN tier,
+        * every other write tool -> :attr:`Operation.WRITE` (AUTHOR tier).
+        """
+        if not self._is_write_tool(tool_name):
+            return Operation.READ
+        namespace = tool_name.split(".", 1)[0]
+        if namespace in _GOVERNANCE_TOOL_NAMESPACES:
+            return Operation.WORKSPACE_CONFIG
+        return Operation.WRITE
 
     def _is_bootstrap_candidate(
         self, tool_name: str, params: Dict[str, Any], ctx: AuthContext
@@ -609,17 +1220,160 @@ class ToolRegistry:
         except (ValueError, TypeError):
             return False
 
-    def _check_rbac(self, ctx: AuthContext) -> Optional[str]:
+    def _is_tenant_admin_exempt(self, tool_name: str, ctx: AuthContext) -> bool:
+        """Let a pure tenant-admin caller past the blanket write-RBAC gate.
+
+        Only applies to :data:`_TENANT_ADMIN_ELEVATED_USER_TOOLS`, whose
+        handlers/services already re-check tenant-admin standing themselves
+        (defense in depth is not lost). Fails closed (returns ``False``) on
+        any lookup error, matching :meth:`_resolve_global_roles`'s own
+        fail-closed default.
+        """
+        if tool_name not in _TENANT_ADMIN_ELEVATED_USER_TOOLS:
+            return False
+        try:
+            return self._authz_service.is_tenant_admin(
+                user_id=ctx.user_id, tenant_id=ctx.tenant_id
+            )
+        except Exception:
+            logger.debug(
+                "Tenant-admin lookup failed for user=%s tool=%s",
+                ctx.user_id,
+                tool_name,
+            )
+            return False
+
+    def _scoped_gate_context(
+        self,
+        tool_name: str,
+        params: Dict[str, Any],
+        ctx: AuthContext,
+        role_workspace_id: Optional[str],
+    ) -> Tuple[AuthContext, Optional[str]]:
+        """Return ``(ctx to gate on, workspace the call targets)``.
+
+        Three cases, in order:
+
+        1. ``role_workspace_id`` is set — Step 2 already narrowed ``ctx`` to
+           that workspace, so it is returned unchanged.
+        2. The tool names an object whose owning workspace resolves (see
+           :func:`mcp_server.workspace_scope.resolve_target_workspace_id`) —
+           roles are re-resolved against *that* workspace for the gate only.
+        3. Nothing resolves — the caller's tenant-wide role aggregate is used,
+           exactly as before.
+
+        Case 2 deliberately does **not** replace the ``AuthContext`` the tool
+        is executed with. Narrowing the executing context is a separate,
+        much larger behaviour change (several tool groups re-check
+        ``has_role("admin")`` against it), and this gate needs none of it: it
+        only has to decide admittance. Residual, therefore: inside a tool the
+        caller still carries their tenant-wide roles.
+        """
+        if role_workspace_id is not None:
+            return ctx, role_workspace_id
+        if tool_name in _INSTANCE_LEVEL_TOOLS:
+            # Not workspace-bound at all — narrowing would be the #37 bug.
+            return ctx, None
+
+        from mcp_server.workspace_scope import resolve_target_workspace_id
+
+        target_workspace_id = resolve_target_workspace_id(tool_name, params)
+        if target_workspace_id is None:
+            return ctx, None
+        return self._resolve_roles(ctx, target_workspace_id), target_workspace_id
+
+    @staticmethod
+    def _check_workspace_fence(
+        ctx: AuthContext, target_workspace_id: Optional[str]
+    ) -> Optional[str]:
+        """Return why the key may not act on *target_workspace_id*, else None.
+
+        ``ApiKey.workspace_ids`` fences a key to an explicit set of workspaces.
+        An empty tuple means "no fence" (the common, unrestricted key) and is
+        always allowed.
+
+        A fenced key with **no** resolvable target workspace is denied too.
+        That mirrors ``TenantContextService.build_auth_context``, which blanks
+        the roles of a fenced key on the workspace-less path for the same
+        reason: without a target there is nothing to check the fence against,
+        and the tenant-wide fallback would hand the key exactly the workspaces
+        it was fenced out of. Fail closed.
+
+        Args:
+            ctx: The caller's resolved context.
+            target_workspace_id: Workspace the call addresses, or None when the
+                tool names no workspace and none could be derived from it.
+
+        Returns:
+            A denial reason, or ``None`` when the call is within the fence.
+        """
+        allowed = ctx.api_key_workspace_ids
+        if not allowed:
+            return None
+        if target_workspace_id is not None and str(target_workspace_id) in allowed:
+            return None
+        return (
+            "This API key is restricted to specific workspaces and may not be "
+            "used for this call. Target the workspace the key was issued for, "
+            "or use a key without a workspace restriction."
+        )
+
+    def _check_rbac(self, ctx: AuthContext, tool_name: Optional[str] = None) -> Optional[str]:
         """Return error message if write is not permitted, else None.
 
         REQ-L2-MC-007: Viewer-only role must not write.
+
+        ``tool_name`` is optional so the check stays callable standalone (as
+        several tests do); when supplied, the capability gate is evaluated for
+        that tool's tier, otherwise for a plain WRITE (#865).
         """
+        # E2.1: read-only key. Independent of and above the RBAC matrix, same
+        # rule as rest_api.auth_enforcer.RbacPermission. Kept here as well as
+        # at the caller (which checks it before the RBAC exemptions, see B2)
+        # so this method stays safe to call on its own.
+        scope_error = scope_denial_reason(
+            ctx.scope,
+            self._required_scope_operation(tool_name)
+            if tool_name
+            else Operation.WRITE,
+        )
+        if scope_error:
+            return scope_error
 
         decision = self._authz_service.decide_access(ctx.active_roles, Operation.WRITE)
         if not decision.allow:
             return (
                 f"Role '{ctx.active_roles}' does not permit write operations. "
                 "Editor or Admin role required."
+            )
+        return None
+
+    def _check_read_rbac(self, ctx: AuthContext, tool_name: str) -> Optional[str]:
+        """Return an error message if the caller may not read here, else None.
+
+        Systemaudit 2026-08-29 §6.5. Only reached once the target workspace is
+        known, so an empty role tuple means "holds no role in the workspace
+        this call names" — a deny, not a fallback. Every RBAC role grants
+        ``Operation.READ`` (``_RBAC_MATRIX``), so this rejects exactly the
+        non-members and nobody else.
+
+        There is deliberately **no exemption list here.** An earlier revision
+        skipped the check for ``workspace_scope.TENANT_SCOPED_READ_TOOLS``,
+        which silently punched a hole straight back through the finding: that
+        set documents which tools are safe *when no workspace is named*, and
+        several of its members (``requirement.query``, ``audit.query``,
+        ``artifact.search``, ...) do accept a ``workspace_id``. Reusing it as a
+        runtime bypass re-opened ``requirement.query`` against a foreign
+        workspace — caught by this file's own regression test. Classification
+        and enforcement are separate concerns; keep them separate. Tools that
+        genuinely must not be narrowed are handled earlier, by
+        ``_INSTANCE_LEVEL_TOOLS`` in :meth:`_scoped_gate_context`.
+        """
+        decision = self._authz_service.decide_access(ctx.active_roles, Operation.READ)
+        if not decision.allow:
+            return (
+                f"Role '{ctx.active_roles}' does not permit read access to the "
+                "targeted workspace. An active role in that workspace is required."
             )
         return None
 
@@ -645,7 +1399,7 @@ class ToolRegistry:
                 features = preset_rules.features
                 self._preset_cache.set(workspace_id, features)
             except Exception:
-                logger.debug("Preset lookup failed for workspace=%s", workspace_id)
+                logger.warning("Preset lookup failed for workspace=%s", workspace_id)
                 # On failure, allow (fail-open for preset; auth is the hard gate)
                 return False
 

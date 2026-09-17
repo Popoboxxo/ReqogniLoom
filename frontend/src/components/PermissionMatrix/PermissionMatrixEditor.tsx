@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   CAPABILITY_KEYS,
   ROLE_KEYS,
@@ -19,6 +20,7 @@ import {
   type PermissionMatrix,
   type RoleKey,
 } from "../../api/permission-defaults";
+import { Spinner } from "../shared/Spinner/Spinner";
 
 interface PermissionMatrixEditorProps {
   /** Current effective matrix (pre-fills the grid). */
@@ -32,15 +34,6 @@ interface PermissionMatrixEditorProps {
   /** Prefix for data-testids so multiple editors on one page stay distinct. */
   testIdPrefix?: string;
 }
-
-const CAPABILITY_LABELS: Record<CapabilityKey, string> = {
-  read: "Read",
-  write: "Write",
-  workflow_transition: "Transition",
-  workflow_approval: "Approval",
-  workspace_config: "Config",
-  assign_role: "Assign Role",
-};
 
 const thStyle: React.CSSProperties = {
   textAlign: "center",
@@ -64,7 +57,7 @@ const tdStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
@@ -98,6 +91,7 @@ export function PermissionMatrixEditor({
   savedOk = false,
   testIdPrefix = "permission-matrix",
 }: PermissionMatrixEditorProps): JSX.Element {
+  const { t } = useTranslation();
   const normalized = useMemo(() => normalizeMatrix(value), [value]);
   const [draft, setDraft] = useState<PermissionMatrix>(normalized);
 
@@ -107,6 +101,26 @@ export function PermissionMatrixEditor({
   }, [value]);
 
   const dirty = !matricesEqual(draft, normalized);
+
+  // UI-40: unlike the Requirement/Need/TestCase forms (issue #672), this
+  // editor is not embedded in a SplitView with in-app entity-to-entity
+  // navigation to guard — its two hosts (Global Permission Defaults /
+  // workspace override settings) are standalone settings pages. The
+  // realistic loss path here is a tab close/reload with pending checkbox
+  // edits, so this mirrors the same `beforeunload` guard already
+  // established for `useGraphAutosave` (DiagramGraphEditor), registered
+  // only while `dirty` is true.
+  useEffect(() => {
+    if (!dirty) return undefined;
+
+    function handleBeforeUnload(event: BeforeUnloadEvent): void {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirty]);
 
   const toggle = (role: RoleKey, cap: CapabilityKey): void => {
     setDraft((prev) => ({
@@ -125,11 +139,11 @@ export function PermissionMatrixEditor({
           <thead>
             <tr>
               <th style={{ ...thStyle, textAlign: "left" }} scope="col">
-                Role
+                {t("permissionMatrix.roleColumn")}
               </th>
               {CAPABILITY_KEYS.map((cap) => (
                 <th key={cap} style={thStyle} scope="col" title={cap}>
-                  {CAPABILITY_LABELS[cap]}
+                  {t("permissionMatrix.capability." + cap)}
                 </th>
               ))}
             </tr>
@@ -183,12 +197,16 @@ export function PermissionMatrixEditor({
         <p
           data-testid={`${testIdPrefix}-saved`}
           style={{
-            color: "var(--color-success, #16a34a)",
+            // Theming phase 2, checkpoint 3: dropped the raw-hex var()
+            // fallback that used to sit here — --color-success is always
+            // defined in tokens.css, so the fallback was unreachable dead
+            // code, not a real color choice.
+            color: "var(--color-success)",
             fontSize: "var(--font-size-sm)",
             marginTop: "var(--space-2)",
           }}
         >
-          Saved.
+          {t("actions.saved")}
         </p>
       )}
 
@@ -210,7 +228,7 @@ export function PermissionMatrixEditor({
             cursor: saving || !dirty ? "not-allowed" : "pointer",
           }}
         >
-          {saving ? "…" : "Save"}
+          {saving ? <Spinner label={t("actions.saving")} /> : t("actions.save")}
         </button>
         {onCancel && (
           <button
@@ -220,7 +238,7 @@ export function PermissionMatrixEditor({
             disabled={saving}
             style={cancelButtonStyle}
           >
-            Cancel
+            {t("actions.cancel")}
           </button>
         )}
       </div>

@@ -9,7 +9,7 @@ Coverage (all acceptance criteria from REQ-L2-ICD-*):
                   immutable version (no in-place update via Python layer)
   REQ-L2-ICD-002: All DbC fields present (direction, type, desc, pre/post/inv)
   REQ-L2-ICD-003: Breaking-change detection — compatible and incompatible changes
-  REQ-L2-ICD-004: 'realizes' TraceLink created on ICD creation
+  REQ-L2-ICD-004: 'decomposes' TraceLink created on ICD creation
   REQ-L2-ICD-005: get_icd_versions returns correct workspace snapshot
   REQ-L2-ICD-006: AuditLog entry written on breaking change
   Tenant isolation: ICDs from other tenants not visible
@@ -68,8 +68,18 @@ def tenant_b(db: None) -> "Tenant":
 
 
 @pytest.fixture
-def workspace_id() -> uuid.UUID:
-    return uuid.uuid4()
+def workspace_id(tenant_a: "Tenant") -> uuid.UUID:
+    """A real Workspace row's id.
+
+    Datenmodell-Konsolidierung Phase 3 (Task 19): ``create_icd`` now calls
+    ``ensure_artifact``, which inserts a ``persistence.Artifact`` row with a
+    real (non-nullable) FK to ``Workspace`` — a bare random UUID here would
+    violate that FK (only caught at the deferred constraint check on test
+    teardown, not at insert time). Which tenant owns the row does not matter
+    for this fixture's purpose: it exists purely to satisfy the FK, and tests
+    below deliberately reuse the same workspace_id across tenant_a/tenant_b.
+    """
+    return Workspace.unscoped.create(tenant=tenant_a, name="ws-icd").id
 
 
 @pytest.fixture
@@ -372,7 +382,8 @@ class TestIcdCreate:
         assert v.direction == "unidirectional"
         assert v.interface_type == "REST"
 
-    def test_create_icd_header_points_at_version(self, tenant_a, workspace_id, src_id, tgt_id):
+    def test_create_icd_header_carries_the_contract(self, tenant_a, workspace_id, src_id, tgt_id):
+        """Task 28c-2: the Icd row IS the current contract, not a pointer."""
         from icd.services import create_icd
 
         with active_tenant(tenant_a):
@@ -380,7 +391,71 @@ class TestIcdCreate:
             with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
                 result = create_icd(dto)
 
-        assert result.icd.current_version_id == result.current_version.id
+        assert result.icd.current_revision == result.current_version.version_number
+        assert result.icd.interface_type == result.current_version.interface_type
+
+
+@pytest.mark.django_db
+class TestIcdEmbeddingDimensionGuard:
+    """Regression guard for the Task 12 fix: a vector whose width differs from
+    ``Icd.embedding``'s column width must never be assigned.
+
+    Unlike ``RequirementService``/``TraceLinkService`` (which use a bare
+    ``.update()`` after the row already exists), ``icd_manager._apply_embedding``
+    only sets ``icd.embedding`` in-memory -- the actual write happens later,
+    entirely outside its ``try/except``. Before the fix, an unguarded dimension
+    mismatch here surfaced as an *uncaught* ``DataError`` at that write, not
+    just a swallowed one -- see the Task 12 report.
+
+    #794: widths are derived from the column now; the previous literals
+    (384-dim provider vs ``vector(1536)`` column) were the shipped default,
+    so this class asserted that no ICD version ever got an embedding.
+    """
+
+    def _create(self, monkeypatch, dimensions, tenant_a, workspace_id, src_id, tgt_id):
+        from icd.services import create_icd
+
+        # Patched at the source module because ``_apply_embedding`` imports
+        # ``generate_embedding`` lazily, inside the function body.
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.generate_embedding",
+            lambda text: [0.1] * dimensions,
+        )
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                return create_icd(dto)
+
+    def test_dimension_mismatch_is_skipped_not_written(
+        self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        from icd.models import Icd
+
+        column_dimensions = Icd._meta.get_field("embedding").dimensions
+        result = self._create(
+            monkeypatch, column_dimensions + 8, tenant_a, workspace_id, src_id, tgt_id
+        )
+
+        # (1) No exception propagated. (2) Mismatched vector never assigned.
+        assert result.icd.embedding is None
+        # (3) The rest of the save completed, with its real data intact.
+        assert result.icd.current_revision == 1
+
+    def test_matching_dimension_is_written(
+        self, monkeypatch, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """#794: a provider-shaped vector must actually land in the column."""
+        from icd.models import Icd
+
+        column_dimensions = Icd._meta.get_field("embedding").dimensions
+        result = self._create(
+            monkeypatch, column_dimensions, tenant_a, workspace_id, src_id, tgt_id
+        )
+
+        result.icd.refresh_from_db()
+        assert result.icd.embedding is not None
+        assert len(result.icd.embedding) == column_dimensions
 
 
 @pytest.mark.django_db
@@ -414,11 +489,10 @@ class TestIcdGetAndDelete:
             with pytest.raises(Icd.DoesNotExist):
                 get_icd(result.icd.id, tenant_b.id)
 
-    @pytest.mark.django_db(transaction=True)
     def test_delete_icd_removes_row(self, tenant_a, workspace_id, src_id, tgt_id):
-        # transaction=True: delete_icd toggles the icd_version immutability
-        # trigger via ALTER TABLE, which cannot run with pending trigger events
-        # inside the default wrapping test transaction.
+        # Task 28c-2: a plain cascading delete. The transaction-local
+        # app.allow_icd_version_delete GUC this used to need went away with
+        # the icd_version table and its immutability trigger.
         from icd.models import Icd
         from icd.services import delete_icd
 
@@ -428,14 +502,47 @@ class TestIcdGetAndDelete:
 
         assert not Icd.unscoped.filter(id=result.icd.id).exists()
 
+    def test_delete_icd_removes_child_parameters(
+        self, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """delete_icd must cascade to the ICD's structured parameters.
+
+        Task 28c-2: this used to guard the icd_version cascade through the
+        immutability trigger's allow-path. IcdParameter is now the only child
+        table, and its FK is on_delete=CASCADE.
+        """
+        from icd.models import IcdParameter
+        from icd.services import create_icd_parameter, delete_icd
+        from icd.icd_parameter_service import IcdParameterCreateDTO
+
+        with active_tenant(tenant_a):
+            result = self._create(tenant_a, workspace_id, src_id, tgt_id)
+            create_icd_parameter(
+                IcdParameterCreateDTO(icd_id=result.icd.id, name="voltage"),
+                tenant_id=tenant_a.id,
+            )
+            assert IcdParameter.unscoped.filter(icd_id=result.icd.id).exists()
+
+            delete_icd(result.icd.id, tenant_a.id)
+
+        assert not IcdParameter.unscoped.filter(icd_id=result.icd.id).exists()
+
+    # Task 28c-2 deleted two tests here that drove raw SQL against
+    # ``icd_version`` to prove its BEFORE DELETE/UPDATE immutability trigger
+    # still fired outside ``delete_icd``. Both the table and the trigger are
+    # gone; contract history is append-only ``ArtifactVersion`` rows now, and
+    # ``TestIcdRevisionAppendOnly`` below covers that guarantee at the level
+    # it still exists.
+
 
 @pytest.mark.django_db
-class TestIcdVersionImmutability:
-    """REQ-L2-ICD-001: versions cannot be modified (Python-layer guard).
+class TestIcdRevisionAppendOnly:
+    """REQ-L2-ICD-001: recorded contract revisions are never rewritten.
 
-    DB trigger is only enforced in a real PostgreSQL environment; here we
-    verify the Python-layer append-only contract: update_icd never modifies
-    an existing IcdVersion row, it always INSERTs a new one.
+    Task 28c-2: the immutability guarantee moved from a DB trigger on
+    ``icd_version`` to the append-only ``persistence.ArtifactVersion`` store.
+    ``update_icd`` overwrites the current contract on the ``Icd`` row and
+    appends a new snapshot; it never touches an already-recorded one.
     """
 
     def test_update_increments_version_number(self, tenant_a, workspace_id, src_id, tgt_id):
@@ -447,33 +554,30 @@ class TestIcdVersionImmutability:
                 r1 = create_icd(dto)
 
             update = IcdUpdateDTO(postconditions=["200", "audit_logged"])
-            r2 = update_icd(icd_id=r1.icd.id, payload=update)
+            r2 = update_icd(icd_id=r1.icd.id, payload=update, tenant_id=tenant_a.id)
 
         assert r2.current_version.version_number == 2
-        assert r2.current_version.id != r1.current_version.id
+        assert r2.icd.current_revision == 2
 
     def test_old_version_still_exists_after_update(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.models import IcdVersion
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import create_icd, get_icd_history, update_icd, IcdUpdateDTO
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
             with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
                 r1 = create_icd(dto)
             update = IcdUpdateDTO(postconditions=["200", "extra"])
-            r2 = update_icd(icd_id=r1.icd.id, payload=update)
+            update_icd(icd_id=r1.icd.id, payload=update, tenant_id=tenant_a.id)
 
-        # Both versions exist in the DB
-        versions = list(
-            IcdVersion.unscoped.filter(icd_id=r1.icd.id).order_by("version_number")
-        )
+            # Both revisions are recorded in the shared ArtifactVersion store.
+            versions = get_icd_history(icd_id=r1.icd.id, tenant_id=tenant_a.id)
+
         assert len(versions) == 2
         assert versions[0].version_number == 1
         assert versions[1].version_number == 2
 
     def test_original_version_fields_unchanged(self, tenant_a, workspace_id, src_id, tgt_id):
-        from icd.models import IcdVersion
-        from icd.services import create_icd, update_icd, IcdUpdateDTO
+        from icd.services import create_icd, get_icd_history, update_icd, IcdUpdateDTO
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(
@@ -481,12 +585,12 @@ class TestIcdVersionImmutability:
             )
             with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
                 r1 = create_icd(dto)
-            original_id = r1.current_version.id
             update = IcdUpdateDTO(postconditions=["200", "extra"])
-            update_icd(icd_id=r1.icd.id, payload=update)
+            update_icd(icd_id=r1.icd.id, payload=update, tenant_id=tenant_a.id)
 
-        # Reload the original version row directly
-        original = IcdVersion.unscoped.get(pk=original_id)
+            # Reload revision 1's recorded snapshot.
+            original = get_icd_history(icd_id=r1.icd.id, tenant_id=tenant_a.id)[0]
+
         assert original.postconditions == ["200"]
 
 
@@ -513,6 +617,7 @@ class TestBreakingChangeDetection:
             r2 = update_icd(
                 icd_id=r1.icd.id,
                 payload=IcdUpdateDTO(postconditions=["200", "audit"]),
+                tenant_id=tenant_a.id,
             )
 
         assert r2.validation_result is not None
@@ -538,6 +643,7 @@ class TestBreakingChangeDetection:
                 r2 = update_icd(
                     icd_id=r1.icd.id,
                     payload=IcdUpdateDTO(preconditions=["auth", "new_req"]),
+                    tenant_id=tenant_a.id,
                 )
 
         assert r2.validation_result.is_breaking is True
@@ -545,8 +651,7 @@ class TestBreakingChangeDetection:
 
     def test_validate_compatibility_dry_run(self, tenant_a, workspace_id, src_id, tgt_id):
         """validate_compatibility does not persist anything."""
-        from icd.models import IcdVersion
-        from icd.services import create_icd, validate_compatibility
+        from icd.services import create_icd, get_icd_history, validate_compatibility
 
         with active_tenant(tenant_a):
             dto = _make_create_dto(
@@ -561,6 +666,7 @@ class TestBreakingChangeDetection:
 
             result = validate_compatibility(
                 icd_id=r1.icd.id,
+                tenant_id=tenant_a.id,
                 new_payload={
                     "direction": "unidirectional",
                     "interface_type": "REST",
@@ -572,14 +678,15 @@ class TestBreakingChangeDetection:
             )
 
         assert result.is_breaking is True
-        # Confirm no new version was created
-        count = IcdVersion.unscoped.filter(icd_id=r1.icd.id).count()
-        assert count == 1
+        # Confirm no new revision was recorded
+        with active_tenant(tenant_a):
+            history = get_icd_history(icd_id=r1.icd.id, tenant_id=tenant_a.id)
+        assert len(history) == 1
 
 
 @pytest.mark.django_db
 class TestTraceabilityConnector:
-    """REQ-L2-ICD-004: 'realizes' TraceLink is created on ICD creation."""
+    """REQ-L2-ICD-004: 'decomposes' TraceLink is created on ICD creation."""
 
     def test_create_icd_calls_link_to_architecture(
         self, tenant_a, workspace_id, src_id, tgt_id
@@ -615,8 +722,8 @@ class TestTraceabilityConnector:
         # Verify the method signature matches the contract
         m.assert_called_once()
 
-    def test_link_creates_realizes_link_type(self):
-        """TraceabilityConnector passes link_type='realizes' to the engine."""
+    def test_link_creates_decomposes_link_type(self):
+        """TraceabilityConnector passes link_type='decomposes' to the engine."""
         from icd.traceability_connector import TraceabilityConnector
 
         connector = TraceabilityConnector()
@@ -634,7 +741,7 @@ class TestTraceabilityConnector:
         mock_create.assert_called_once_with(
             source_id=src,
             target_id=tgt,
-            link_type="realizes",
+            link_type="decomposes",
             created_by_id=None,
         )
 
@@ -663,15 +770,16 @@ class TestGetIcdVersions:
             r1_v2 = update_icd(
                 icd_id=r1.icd.id,
                 payload=IcdUpdateDTO(semantic_description="updated"),
+                tenant_id=tenant_a.id,
             )
 
             versions = get_icd_versions(workspace_id)
 
-        version_ids = {v.id for v in versions}
+        version_ids = {(v.icd_id, v.version_number) for v in versions}
         # Should include ICD-1 v2 and ICD-2 v1 (current for each)
-        assert r1_v2.current_version.id in version_ids
-        assert r2.current_version.id in version_ids
-        assert r1.current_version.id not in version_ids  # v1 no longer current
+        assert (r1_v2.icd.id, 2) in version_ids
+        assert (r2.icd.id, 1) in version_ids
+        assert (r1.icd.id, 1) not in version_ids  # revision 1 is no longer current
 
     def test_get_icd_versions_excludes_other_workspace(
         self, tenant_a, workspace_id, src_id, tgt_id
@@ -708,6 +816,7 @@ class TestAuditLogger:
                 update_icd(
                     icd_id=r1.icd.id,
                     payload=IcdUpdateDTO(preconditions=["auth", "new_breaking_req"]),
+                    tenant_id=tenant_a.id,
                 )
 
         mock_log.assert_called_once()
@@ -731,6 +840,7 @@ class TestAuditLogger:
                 update_icd(
                     icd_id=r1.icd.id,
                     payload=IcdUpdateDTO(postconditions=["200", "extra_guarantee"]),
+                    tenant_id=tenant_a.id,
                 )
 
         mock_log.assert_not_called()
@@ -766,10 +876,10 @@ class TestGetIcdHistory:
             dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
             with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
                 r1 = create_icd(dto)
-            update_icd(r1.icd.id, IcdUpdateDTO(semantic_description="v2"))
-            update_icd(r1.icd.id, IcdUpdateDTO(semantic_description="v3"))
+            update_icd(r1.icd.id, IcdUpdateDTO(semantic_description="v2"), tenant_a.id)
+            update_icd(r1.icd.id, IcdUpdateDTO(semantic_description="v3"), tenant_a.id)
 
-            history = get_icd_history(r1.icd.id)
+            history = get_icd_history(r1.icd.id, tenant_a.id)
 
         assert len(history) == 3
         assert [v.version_number for v in history] == [1, 2, 3]
@@ -818,6 +928,66 @@ class TestTenantIsolation:
             result = get_icd_versions(other_ws)
         assert result == []
 
+    def test_update_icd_rejects_foreign_tenant_id(
+        self, tenant_a, tenant_b, workspace_id, src_id, tgt_id
+    ):
+        """Security regression: update_icd() must not let tenant_b mutate
+        (or even find) an ICD that belongs to tenant_a, just by supplying its
+        UUID and tenant_b's own tenant_id. Previously used `.unscoped` with
+        no tenant filter at all."""
+        from icd.models import Icd
+        from icd.services import create_icd, update_icd, IcdUpdateDTO
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                r = create_icd(dto)
+
+        update = IcdUpdateDTO(semantic_description="mutated by tenant_b")
+        with active_tenant(tenant_b):
+            with pytest.raises(Icd.DoesNotExist):
+                update_icd(icd_id=r.icd.id, payload=update, tenant_id=tenant_b.id)
+
+    def test_get_icd_history_rejects_foreign_tenant_id(
+        self, tenant_a, tenant_b, workspace_id, src_id, tgt_id
+    ):
+        from icd.services import create_icd, get_icd_history
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                r = create_icd(dto)
+
+        with active_tenant(tenant_b):
+            history = get_icd_history(icd_id=r.icd.id, tenant_id=tenant_b.id)
+        assert history == []
+
+    def test_validate_compatibility_rejects_foreign_tenant_id(
+        self, tenant_a, tenant_b, workspace_id, src_id, tgt_id
+    ):
+        from icd.models import Icd
+        from icd.services import create_icd, validate_compatibility
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                r = create_icd(dto)
+
+        with active_tenant(tenant_b):
+            with pytest.raises(Icd.DoesNotExist):
+                validate_compatibility(
+                    icd_id=r.icd.id,
+                    tenant_id=tenant_b.id,
+                    new_payload={
+                        "direction": "unidirectional",
+                        "interface_type": "REST",
+                        "semantic_description": "x",
+                        "preconditions": [],
+                        "postconditions": [],
+                        "invariants": [],
+                    },
+                )
+
 
 @pytest.mark.django_db
 class TestIcdInterfaceTypeChoices:
@@ -840,7 +1010,7 @@ class TestIcdInterfaceTypeChoices:
 
             assert result.current_version.interface_type == "control"
 
-    def test_icd_version_persists_interface_type(self, tenant_a, workspace_id, src_id, tgt_id):
+    def test_icd_revision_persists_interface_type(self, tenant_a, workspace_id, src_id, tgt_id):
         from icd.services import create_icd
 
         with active_tenant(tenant_a):
@@ -867,6 +1037,7 @@ class TestIcdInterfaceTypeChoices:
             r2 = update_icd(
                 icd_id=r1.icd.id,
                 payload=IcdUpdateDTO(interface_type="event-in"),
+                tenant_id=tenant_a.id,
             )
 
         assert r1.current_version.interface_type == "data"

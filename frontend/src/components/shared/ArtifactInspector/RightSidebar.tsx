@@ -28,9 +28,11 @@ import {
   type CSSProperties,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { InterviewProvenanceBadge } from "../InterviewProvenanceBadge";
 import { VersionPanel } from "./VersionPanel";
 import { DiffPanel } from "./DiffPanel";
 import { TracePanel } from "./TracePanel";
+import { CommentPanel } from "./CommentPanel";
 import type { ArtifactKind, VersionRef } from "./types";
 import styles from "./RightSidebar.module.css";
 
@@ -42,6 +44,14 @@ export interface RightSidebarProps {
   kind: ArtifactKind;
   artifactId: string | number;
   currentVersion?: VersionRef;
+  /**
+   * Hides the TracePanel section (REQ-L2-RF-037 / Task 3.3). Trace-link
+   * display now lives in `<TraceSpine>` on every route that has one — the
+   * shell must not show the same links twice (UI concept ch. 3.4 "Eine
+   * Fläche, eine Aufgabe"). Pages without a Spine yet (Glossary, ICD) keep
+   * the default `false` so they don't lose their only trace-link view.
+   */
+  hideTraceLinks?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,10 +62,27 @@ const DEFAULT_WIDTH_PX = 360;
 const MIN_WIDTH_PX = 280;
 const MAX_WIDTH_PX = 520;
 const COLLAPSED_WIDTH_PX = 40;
+/**
+ * Upper bound on the share of the surrounding detail pane the expanded
+ * inspector may occupy (see `asideStyle`). Keeps the editor column itself
+ * usable on narrow viewports, where the pane is only about half the window.
+ */
+const MAX_WIDTH_SHARE_PERCENT = 45;
 
 const COLLAPSE_KEY = (kind: ArtifactKind): string => `reqflow_inspector_collapsed_${kind}`;
 const PIN_KEY = (kind: ArtifactKind): string => `reqflow_inspector_pinned_${kind}`;
 const WIDTH_KEY = (kind: ArtifactKind): string => `reqflow_inspector_width_${kind}`;
+
+/**
+ * #419: below this viewport width, the expanded inspector (plus its
+ * surrounding detail pane) leaves too little room for the editor — at
+ * 1366px the Save button and every "Classification & Properties" field
+ * became unreachable. Collapsing the aside by default on first load below
+ * this threshold restores a usable editor without removing the option to
+ * expand it again (collapsing the earlier 45%-width cap does not by itself
+ * fix this — the editor's *remaining* share still has to stay usable).
+ */
+const DEFAULT_COLLAPSE_BREAKPOINT_PX = 1600;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,6 +98,24 @@ function readBool(key: string, fallback: boolean): boolean {
     /* localStorage may be disabled (private mode, etc.) */
   }
   return fallback;
+}
+
+/**
+ * #419: like `readBool`, but when there is no stored preference yet, the
+ * fallback is viewport-aware instead of a fixed constant — collapsed on
+ * narrow viewports, expanded otherwise. An explicit prior choice (any
+ * stored "true"/"false") always wins over this heuristic.
+ */
+function readCollapsedDefault(key: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {
+    /* localStorage may be disabled (private mode, etc.) */
+  }
+  return window.innerWidth < DEFAULT_COLLAPSE_BREAKPOINT_PX;
 }
 
 function writeBool(key: string, value: boolean): void {
@@ -112,6 +157,7 @@ export function RightSidebar({
   kind,
   artifactId,
   currentVersion,
+  hideTraceLinks = false,
 }: RightSidebarProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -119,7 +165,7 @@ export function RightSidebar({
   // State — collapsed / pinned / width (all per-kind, persisted)
   // -------------------------------------------------------------------------
 
-  const [collapsed, setCollapsed] = useState<boolean>(() => readBool(COLLAPSE_KEY(kind), false));
+  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsedDefault(COLLAPSE_KEY(kind)));
   const [pinned, setPinned] = useState<boolean>(() => readBool(PIN_KEY(kind), false));
   const [width, setWidth] = useState<number>(() =>
     readNumber(WIDTH_KEY(kind), DEFAULT_WIDTH_PX)
@@ -134,6 +180,14 @@ export function RightSidebar({
   // Diff state — left/right version selection owned by the shell
   // -------------------------------------------------------------------------
 
+  // M-04: `diffLeft` starts equal to `diffRight` — an empty range that names
+  // no comparison at all. That is deliberate and means "no explicit choice
+  // yet": DiffPanel forwards it as a *request*, and ArtifactDiff discards any
+  // value that is not a real version below the right-hand side, falling back
+  // to its own seeding. It only becomes a real selection once the user picks
+  // "Compare to current" on a version row (handleCompareVersions below).
+  // What must never happen again is a caller *describing* this placeholder
+  // range to the user as though it were the comparison on screen.
   const [diffLeft, setDiffLeft] = useState<number>(() => currentVersion?.version ?? 1);
   const [diffRight, setDiffRight] = useState<number>(() => currentVersion?.version ?? 1);
 
@@ -178,6 +232,26 @@ export function RightSidebar({
     [width]
   );
 
+  // UI-27 (systemaudit 2026-08-27): the handle was mouse-only (WCAG 2.1.1
+  // Keyboard). ARIA APG "window splitter" pattern: Left/Right adjust in
+  // fixed steps (mirroring the mouse's "dragging left widens" direction —
+  // the handle sits on the sidebar's left edge), Home/End snap to the
+  // configured bounds.
+  const RESIZE_STEP_PX = 20;
+  const onResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      let next: number | null = null;
+      if (e.key === "ArrowLeft") next = width + RESIZE_STEP_PX;
+      else if (e.key === "ArrowRight") next = width - RESIZE_STEP_PX;
+      else if (e.key === "Home") next = MIN_WIDTH_PX;
+      else if (e.key === "End") next = MAX_WIDTH_PX;
+      if (next === null) return;
+      e.preventDefault();
+      setWidth(Math.max(MIN_WIDTH_PX, Math.min(MAX_WIDTH_PX, next)));
+    },
+    [width]
+  );
+
   useEffect(() => {
     function onMove(e: MouseEvent): void {
       if (!isResizingRef.current) return;
@@ -211,6 +285,42 @@ export function RightSidebar({
   const asideStyle: CSSProperties = {
     width: `${effectiveWidth}px`,
     flex: `0 0 ${effectiveWidth}px`,
+    // The inspector is nested *inside* the detail pane of a SplitView, so the
+    // width it may claim is not the viewport's but whatever the split leaves
+    // over — roughly half of it. `flex: 0 0 <w>px` alone is rigid: on a 1280px
+    // viewport the 360px default ate the entire ~440px detail pane and left
+    // the editor column ~69px wide, at which point the forms inside it
+    // overflow their container to the left (they are `justify-content:
+    // flex-end`) and end up underneath the SplitView divider, which then
+    // swallows every click on them.
+    //
+    // Clamping to a share of the *available* width caps the sidebar without
+    // touching the user's stored preference: the flex base size is clamped by
+    // max-width, so the used width is min(storedWidth, 45% of the pane). Wide
+    // viewports leave the pane well above 800px and therefore keep the full
+    // preferred width — nothing changes there.
+    //
+    // H-03: the bare `45%` had no floor, so on a narrow pane the cap won
+    // outright and the *expanded* inspector rendered far below its own
+    // MIN_WIDTH_PX — measured live at 237px on a 1425px viewport (version
+    // timestamps overlapping the row's overflow button) and 91px at 1100px,
+    // where every panel degenerated to a one-character-wide sliver.
+    //
+    // Read outside-in: `max(MIN, 45%)` keeps the 45% cap wherever it is the
+    // wider of the two and otherwise holds the panel at the width its
+    // contents are designed for; the outer `min(…, 100%)` then stops that
+    // floor from pushing the panel out past the pane it lives in, which
+    // would only trade a clipped panel for a clipped page. On a pane too
+    // narrow for even the minimum, the panel takes the whole pane and its
+    // contents wrap (see VersionPanel.module.css) instead of overflowing.
+    //
+    // Narrow viewports still default to *collapsed* (see
+    // DEFAULT_COLLAPSE_BREAKPOINT_PX / #419), so this only affects a user
+    // who deliberately expanded the inspector — for whom an unreadable
+    // sliver was never the more useful outcome.
+    maxWidth: collapsed
+      ? undefined
+      : `min(max(${MIN_WIDTH_PX}px, ${MAX_WIDTH_SHARE_PERCENT}%), 100%)`,
   };
 
   // -------------------------------------------------------------------------
@@ -230,11 +340,22 @@ export function RightSidebar({
         >
           «
         </button>
+        {/* UI-27 (systemaudit 2026-08-27): these three icons had no onClick
+            at all — dead buttons, unreachable by mouse or keyboard alike.
+            The panels below have no per-section tab/anchor concept (they are
+            simply stacked — VersionPanel/DiffPanel/TracePanel render in a
+            fixed order, see the expanded return below), so "jump to this
+            section" cannot be wired without inventing that concept. Restoring
+            the one behavior that *is* well-defined — open the sidebar, same
+            as the "«" expand button — is the minimal, non-speculative fix;
+            a real deep-link-to-section affordance is a UX decision for
+            ui-ux-designer, not an a11y-only pass. */}
         <button
           type="button"
           className={styles.collapsedIconButton}
           aria-label={t("sidebar.version.title", "Version")}
           title={t("sidebar.version.title", "Version")}
+          onClick={(): void => setCollapsed(false)}
         >
           ⏱
         </button>
@@ -243,17 +364,21 @@ export function RightSidebar({
           className={styles.collapsedIconButton}
           aria-label={t("sidebar.diff.title", "Diff")}
           title={t("sidebar.diff.title", "Diff")}
+          onClick={(): void => setCollapsed(false)}
         >
           ≅
         </button>
-        <button
-          type="button"
-          className={styles.collapsedIconButton}
-          aria-label={t("sidebar.trace.title", "Trace Links")}
-          title={t("sidebar.trace.title", "Trace Links")}
-        >
-          🔗
-        </button>
+        {!hideTraceLinks && (
+          <button
+            type="button"
+            className={styles.collapsedIconButton}
+            aria-label={t("sidebar.trace.title", "Trace Links")}
+            title={t("sidebar.trace.title", "Trace Links")}
+            onClick={(): void => setCollapsed(false)}
+          >
+            🔗
+          </button>
+        )}
       </div>
     );
   }
@@ -306,7 +431,12 @@ export function RightSidebar({
         role="separator"
         aria-orientation="vertical"
         aria-label={t("sidebar.inspector.resize", "Resize inspector")}
+        aria-valuenow={width}
+        aria-valuemin={MIN_WIDTH_PX}
+        aria-valuemax={MAX_WIDTH_PX}
+        tabIndex={0}
         onMouseDown={onResizeMouseDown}
+        onKeyDown={onResizeKeyDown}
         data-testid="artifact-inspector-resize"
       />
     );
@@ -327,6 +457,7 @@ export function RightSidebar({
         <>
           {renderHeader()}
           <div className={styles.panels}>
+            <InterviewProvenanceBadge artifactId={String(artifactId)} />
             <VersionPanel
               kind={kind}
               artifactId={artifactId}
@@ -340,7 +471,8 @@ export function RightSidebar({
               leftVersion={diffLeft}
               rightVersion={diffRight}
             />
-            <TracePanel kind={kind} artifactId={artifactId} />
+            {!hideTraceLinks && <TracePanel kind={kind} artifactId={artifactId} />}
+            <CommentPanel kind={kind} artifactId={String(artifactId)} />
           </div>
           {renderResizeHandle()}
         </>

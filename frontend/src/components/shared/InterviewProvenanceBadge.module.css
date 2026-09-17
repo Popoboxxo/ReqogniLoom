@@ -1,0 +1,20 @@
+/* Geometry only. Colour comes from the shared badge tokens so the badge
+   follows every theme without a per-theme override here. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  line-height: var(--leading-tight);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.badge:hover,
+.badge:focus-visible {
+  color: var(--color-text);
+  text-decoration: underline;
+}

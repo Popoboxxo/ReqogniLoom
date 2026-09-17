@@ -17,7 +17,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import React from "react";
 import { ArtifactDiff } from "./ArtifactDiff";
 import type { ArtifactVersion } from "../../types";
 
@@ -31,21 +30,18 @@ const CURRENT_VERSION = 3;
 const MOCK_VERSIONS: ArtifactVersion[] = [
   {
     version: 1,
-    created_at: "2026-01-10T09:00:00Z",
-    created_by: "alice@example.com",
-    change_note: "Initial draft",
+    label: "v1 — Initial draft",
+    modified_at: "2026-01-10T09:00:00Z",
   },
   {
     version: 2,
-    created_at: "2026-01-20T14:00:00Z",
-    created_by: "bob@example.com",
-    change_note: "Clarified acceptance criteria",
+    label: "v2 — Clarified acceptance criteria",
+    modified_at: "2026-01-20T14:00:00Z",
   },
   {
     version: 3,
-    created_at: "2026-02-01T11:30:00Z",
-    created_by: "alice@example.com",
-    change_note: "Approved after CDR",
+    label: "v3 — Approved after CDR",
+    modified_at: "2026-02-01T11:30:00Z",
   },
 ];
 
@@ -86,9 +82,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher}
-        versionsFetcher={versionsFetcher}
-        onClose={onClose}
+        diffFetcher={diffFetcher as any}
+        versionsFetcher={versionsFetcher as any}
+        onClose={onClose as any}
       />
     );
 
@@ -105,9 +101,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher}
-        versionsFetcher={versionsFetcher}
-        onClose={onClose}
+        diffFetcher={diffFetcher as any}
+        versionsFetcher={versionsFetcher as any}
+        onClose={onClose as any}
       />
     );
 
@@ -122,9 +118,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher}
-        versionsFetcher={versionsFetcher}
-        onClose={onClose}
+        diffFetcher={diffFetcher as any}
+        versionsFetcher={versionsFetcher as any}
+        onClose={onClose as any}
       />
     );
 
@@ -143,9 +139,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher}
-        versionsFetcher={versionsFetcher}
-        onClose={onClose}
+        diffFetcher={diffFetcher as any}
+        versionsFetcher={versionsFetcher as any}
+        onClose={onClose as any}
       />
     );
 
@@ -164,6 +160,30 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
     });
   });
 
+  it("[REQ-053] From/To selects still list the sole version when only one version exists", async () => {
+    // Freshly created artifacts (e.g. a just-added Glossary term) have
+    // exactly one version. The From/To dropdowns must not end up empty.
+    versionsFetcher.mockResolvedValue([
+      { version: 1, label: "v1", modified_at: "2026-01-10T09:00:00Z" },
+    ]);
+
+    render(
+      <ArtifactDiff
+        entityId={ENTITY_ID}
+        entityType="requirement"
+        currentVersion={1}
+        diffFetcher={diffFetcher as any}
+        versionsFetcher={versionsFetcher as any}
+        onClose={onClose as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("diff-from-version")).toHaveTextContent("v1");
+      expect(screen.getByTestId("diff-to-version")).toHaveTextContent("v1");
+    });
+  });
+
   it("[REQ-053] renders error element when versionsFetcher rejects", async () => {
     versionsFetcher.mockRejectedValue({ error: { message: "artifact history unavailable" } });
 
@@ -172,9 +192,9 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
         entityId={ENTITY_ID}
         entityType="requirement"
         currentVersion={CURRENT_VERSION}
-        diffFetcher={diffFetcher}
-        versionsFetcher={versionsFetcher}
-        onClose={onClose}
+        diffFetcher={diffFetcher as any}
+        versionsFetcher={versionsFetcher as any}
+        onClose={onClose as any}
       />
     );
 

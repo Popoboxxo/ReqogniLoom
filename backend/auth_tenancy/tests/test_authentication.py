@@ -91,6 +91,62 @@ def test_malformed_jwt_raises_invalid_token():
     assert exc.value.code == "invalid_token"
 
 
+# -- GitHub #135 refresh-token / access-token isolation ------------------
+
+
+def _refresh_claims(**overrides):
+    claims = {
+        "user_id": "11111111-1111-1111-1111-111111111111",
+        "tenant_id": "22222222-2222-2222-2222-222222222222",
+        "typ": "refresh",
+        "exp": int(time.time()) + 3600,
+        "iss": "reqflow",
+        "aud": "reqflow-api",
+    }
+    claims.update(overrides)
+    return claims
+
+
+def test_refresh_token_rejected_by_validate_bearer_token():
+    """A typ="refresh" token must never authenticate a normal request."""
+    token = encode_hs256(_refresh_claims(), _SECRET)
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_bearer_token(token)
+    assert exc.value.code == "invalid_token"
+
+
+def test_validate_refresh_token_accepts_valid_refresh_token():
+    token = encode_hs256(_refresh_claims(), _SECRET)
+    user_id, tenant_id = _service().validate_refresh_token(token)
+    assert str(user_id) == "11111111-1111-1111-1111-111111111111"
+    assert str(tenant_id) == "22222222-2222-2222-2222-222222222222"
+
+
+def test_validate_refresh_token_rejects_access_token():
+    """An access token (no typ, or typ="access") must not work as a refresh token."""
+    token = encode_hs256(
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "typ": "access",
+            "exp": int(time.time()) + 3600,
+            "iss": "reqflow",
+            "aud": "reqflow-api",
+        },
+        _SECRET,
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_refresh_token(token)
+    assert exc.value.code == "invalid_token"
+
+
+def test_validate_refresh_token_rejects_expired_refresh_token():
+    token = encode_hs256(_refresh_claims(exp=int(time.time()) - 10), _SECRET)
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_refresh_token(token)
+    assert exc.value.code == "token_expired"
+
+
 def test_alg_none_is_rejected():
     """A token claiming alg=none must not be accepted (REQ-L3-AT001-001)."""
     import base64
@@ -102,6 +158,58 @@ def test_alg_none_is_rejected():
     forged = f"{b64({'alg': 'none', 'typ': 'JWT'})}.{b64({'user_id': 'x'})}."
     with pytest.raises(AuthenticationFailed):
         _service().validate_bearer_token(forged)
+
+
+def test_jwt_without_exp_is_rejected():
+    """A token missing ``exp`` must never be accepted indefinitely (SYSTEM_AUDIT)."""
+    token = encode_hs256(
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "iss": "reqflow",
+            "aud": "reqflow-api",
+            # no "exp" claim
+        },
+        _SECRET,
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_bearer_token(token)
+    assert exc.value.code == "invalid_token"
+
+
+def test_jwt_with_future_nbf_is_rejected():
+    """A token whose ``nbf`` (not-before) is still in the future is rejected."""
+    token = encode_hs256(
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "exp": int(time.time()) + 3600,
+            "nbf": int(time.time()) + 1800,
+            "iss": "reqflow",
+            "aud": "reqflow-api",
+        },
+        _SECRET,
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_bearer_token(token)
+    assert exc.value.code == "invalid_token"
+
+
+def test_jwt_with_past_nbf_is_accepted():
+    """A token whose ``nbf`` has already passed is accepted (sanity check)."""
+    token = encode_hs256(
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "exp": int(time.time()) + 3600,
+            "nbf": int(time.time()) - 10,
+            "iss": "reqflow",
+            "aud": "reqflow-api",
+        },
+        _SECRET,
+    )
+    claims = _service().validate_bearer_token(token)
+    assert claims.auth_method is AuthMethod.BEARER_TOKEN
 
 
 # -- REQ-L3-AT001-002 API key ---------------------------------------------
@@ -140,6 +248,25 @@ def test_revoked_api_key_raises_revoked(user_a):
 
 
 @pytest.mark.django_db
+def test_deactivated_user_api_key_raises_invalid(user_a):
+    """C-2 regression: deactivating a user must revoke MCP/REST access via
+    their existing API key, not just block new logins. Without the
+    ``is_active`` check, ``validate_api_key`` kept resolving a deactivated
+    tenant-admin's key, letting them call ``user.activate`` on themselves or
+    grant tenant-admin to anyone via MCP after being deactivated."""
+    plaintext = generate_api_key_plaintext()
+    ApiKey.unscoped.create(
+        user=user_a, tenant=user_a.tenant, name="ci", key_hash=hash_api_key(plaintext)
+    )
+    user_a.is_active = False
+    user_a.save(update_fields=["is_active"])
+
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_api_key(plaintext)
+    assert exc.value.code == "invalid_api_key"
+
+
+@pytest.mark.django_db
 def test_api_key_comparison_uses_compare_digest(user_a):
     """Verify constant-time comparison is actually invoked (REQ-L3-AT001-002)."""
     plaintext = generate_api_key_plaintext()
@@ -169,8 +296,8 @@ def test_plaintext_key_never_persisted(user_a):
 
 def test_generated_key_format():
     key = generate_api_key_plaintext()
-    assert key.startswith("rf_")
-    assert len(key) == 43  # "rf_" + 40
+    assert key.startswith("reqlo_")
+    assert len(key) == 46  # "reqlo_" + 40
 
 
 @pytest.mark.django_db
@@ -178,7 +305,7 @@ def test_create_returns_plaintext_once(user_a):
     result = _service().create_api_key(
         user_id=user_a.id, tenant_id=user_a.tenant_id, name="ci"
     )
-    assert result.plaintext.startswith("rf_")
+    assert result.plaintext.startswith("reqlo_")
 
 
 @pytest.mark.django_db
@@ -199,3 +326,55 @@ def test_max_active_keys_enforced(user_a):
         svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k")
     with pytest.raises(ValueError):
         svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="overflow")
+
+
+@pytest.mark.django_db
+def test_max_active_keys_is_configurable_via_settings(user_a, settings):
+    """#606: CI/CD environments can raise the cap without a code change."""
+    settings.MAX_ACTIVE_API_KEYS_PER_USER = 2
+    svc = _service()
+    svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k1")
+    svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k2")
+    with pytest.raises(ValueError, match="maximum of 2"):
+        svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k3")
+
+
+@pytest.mark.django_db
+def test_max_active_keys_does_not_count_revoked_keys(user_a, settings):
+    """Revoked keys never blocked creation (the count query already filters
+    them out) — pinned explicitly since #606's report conflated the two."""
+    settings.MAX_ACTIVE_API_KEYS_PER_USER = 1
+    svc = _service()
+    result = svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k1")
+    svc.revoke_api_key(user_id=user_a.id, api_key_id=result.api_key_id)
+    # Revoking freed the one active slot — a new key can be created.
+    svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k2")
+
+
+@pytest.mark.django_db
+def test_many_revoked_keys_do_not_block_new_active_key(user_a):
+    """Issue #711: a user with a pile of revoked keys and fewer than
+    ``MAX_ACTIVE_API_KEYS_PER_USER`` active keys must still be able to
+    create a new one — revoked rows must never count against the cap,
+    however many of them accumulate (43 observed in the reported case)."""
+    svc = _service()
+
+    # 15 revoked keys — well beyond the default active cap of 10.
+    for i in range(15):
+        result = svc.create_api_key(
+            user_id=user_a.id, tenant_id=user_a.tenant_id, name=f"dead-{i}"
+        )
+        svc.revoke_api_key(user_id=user_a.id, api_key_id=result.api_key_id)
+
+    # 5 active keys — under the cap.
+    for i in range(5):
+        svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name=f"live-{i}")
+
+    # A 6th active key must still succeed (5 active < cap of 10).
+    svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="live-6")
+
+    active_count = ApiKey.unscoped.filter(
+        user_id=user_a.id, revoked_at__isnull=True
+    ).count()
+    assert active_count == 6
+    assert ApiKey.unscoped.filter(user_id=user_a.id).count() == 21

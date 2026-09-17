@@ -36,6 +36,11 @@
 .header {
   display: flex;
   align-items: center;
+  /* Issue #596: no wrap meant the title/badge/toggle/export group was
+     clipped past the viewport edge on narrow screens with no way to reach
+     it (no horizontal scroll on the page). Same fix as PageHeader.module.css
+     — wrap lets the action group drop to its own line instead. */
+  flex-wrap: wrap;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--color-border);
@@ -57,9 +62,17 @@
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
+/* Issue #718: was --font-size-xl (20px) — every other route's PageHeader h1
+   renders at --font-size-3xl (30px, --leading-tight/--tracking-tight), which
+   also drives its ~60px total header height. Matching those tokens here
+   (rather than switching this route to <PageHeader>, which owns a materially
+   different action set — preset control, edit-mode toggle, export dropdown)
+   keeps this the smallest change that closes the height/size gap. */
 .headerTitle {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
+  font-size: var(--font-size-3xl);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-semibold);
   color: var(--color-text);
   margin: 0;
 }
@@ -146,7 +159,7 @@
 .iconButtonPrimary {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-on-primary);
 }
 
 .iconButtonPrimary:hover:not(:disabled) {
@@ -275,6 +288,7 @@
 }
 
 .entityItemCount {
+  display: block;
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-top: 2px;
@@ -545,10 +559,21 @@
   align-items: center;
   gap: 4px;
   max-width: 160px;
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6 item "workflow-editor edge-label
+   * collision": without `overflow: hidden` here, a long `to_state` name
+   * (e.g. "deprecated") was never actually clipped to `max-width` — its
+   * flex child (.edgeLabelText below) kept its full intrinsic width (flex
+   * items default to `min-width: auto`, i.e. "don't shrink below content"),
+   * so the pill visually bled past its own box and collided with whatever
+   * state node sat nearby instead of showing a clean "..." ellipsis. */
+  overflow: hidden;
   padding: 2px 8px;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
+  /* Lift the pill above the underlying node on visual overlap (nodes have
+   * no box-shadow of their own) instead of relying on stacking order alone. */
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.3));
   font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--color-text-muted);
@@ -573,6 +598,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Flex items don't shrink below their content's intrinsic width by
+   * default (`min-width: auto`) — without this, the ellipsis rule above
+   * never engaged and the text just overflowed .edgeLabel's `max-width`
+   * instead of truncating (see .edgeLabel's `overflow: hidden` comment). */
+  min-width: 0;
 }
 
 .edgeLockIcon {
@@ -866,7 +896,7 @@
 .toggleThumbOn {
   left: auto;
   right: 2px;
-  background: #ffffff;
+  background: var(--color-on-primary);
 }
 
 .toggleTextOn {
@@ -983,7 +1013,7 @@
   background: var(--color-primary);
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
-  color: #ffffff;
+  color: var(--color-on-primary);
   padding: 8px 16px;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -1203,7 +1233,7 @@
   background: var(--color-primary);
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-md);
-  color: #ffffff;
+  color: var(--color-on-primary);
   padding: 8px 16px;
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -1227,7 +1257,7 @@
 }
 
 .btnDanger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--color-danger-dark);
 }
 
 .btnGhost {
@@ -1256,16 +1286,4 @@
 .btnGhost:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stateNode,
-  .inspector,
-  .spinner,
-  .edgeLabel,
-  .iconButton,
-  .toolbarButton {
-    transition: none;
-    animation: none;
-  }
 }

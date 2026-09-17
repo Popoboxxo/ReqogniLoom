@@ -3,7 +3,12 @@
  *
  * req_id: REQ-L2-RF-010
  */
-export { apiClient, getList, setAuthToken, getAuthToken, setUnauthorizedHandler } from "./client";
+export {
+  apiClient,
+  getList,
+  setUnauthorizedHandler,
+  resetUnauthorizedGuard,
+} from "./client";
 export { requirementsApi } from "./requirements";
 export { stakeholderNeedApi } from "./stakeholder-need";
 export { architectureApi } from "./architecture";
@@ -49,7 +54,6 @@ export { versionApi } from "./version";
 export type { VersionInfo } from "./version";
 export { itemPermissionsApi } from "./item-permissions";
 export type { ItemPermission, ItemPermissionLevel } from "./item-permissions";
-export { attributeVisibilityApi } from "./attribute-visibility";
 export { workflowsApi } from "./workflows";
 export type { WorkflowDefinition, WorkflowTransitionResult } from "./workflows";
 export { auditApi } from "./audit";
@@ -79,9 +83,41 @@ export type {
   ThresholdWarning,
 } from "./metrics";
 
+export { attributeDefinitionsApi } from "./attribute-definitions";
+export { attributeCatalogApi } from "./attributeCatalog";
+export type {
+  AddToDefinitionInput,
+  AddToDefinitionResult,
+  AttributeCatalogDocument,
+  AttributeCatalogEntry,
+  CatalogEntryInput,
+  CatalogEntryDocument,
+  CatalogImportResult,
+  CatalogListFilters,
+  CatalogLocalizedText,
+} from "./attributeCatalog";
+export type {
+  AttributeSpec,
+  AttributeType,
+  AttributeEditable,
+  AttributeAudience,
+  AttributeOption,
+  GlobalAttributeDefinition,
+  ResolvedAttributeDefinition,
+  WidgetKey,
+} from "./attribute-definitions";
+
 // ---------------------------------------------------------------------------
 // Shared types — re-exported from the ArtifactInspector module so callers
 // can import the 10-kind union from the central API barrel (UI standards
 // §4.0 / §4.5 — DiffPanel and ArtifactDiff use it as the type contract).
 // ---------------------------------------------------------------------------
 export type { ArtifactKind } from "../components/shared/ArtifactInspector/types";
+
+// ---------------------------------------------------------------------------
+// Menschen-im-System spec §4/§5 — artifact comments and the notification feed.
+// ---------------------------------------------------------------------------
+export { commentsApi } from "./comments";
+export type { Comment, ListCommentsOptions } from "./comments";
+export { NOTIFICATION_FEED_LIMIT, notificationsApi } from "./notifications";
+export type { Notification, NotificationFeed, NotificationKind } from "./notifications";

@@ -27,6 +27,7 @@ import * as adrsApi from '../../../api/adrs';
 import * as risksApi from '../../../api/risks';
 import * as issuesApi from '../../../api/issues';
 import * as tracelinksApi from '../../../api/tracelinks';
+import type { ArchitectureElement, Requirement } from '../../../types';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -41,11 +42,74 @@ vi.mock('../../../api/issues');
 vi.mock('../../../api/tracelinks');
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key, i18n: { language: 'en' } }),
 }));
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
+}));
+
+// A workspace catalog covering the pairs exercised by the tests below:
+// Requirement->Requirement (derives-from, decomposes) and TestCase->Requirement
+// (verifies). Mirrors the real backend built-in definitions closely enough
+// for `isAllowedPair`'s wildcard/exact matching to behave like production.
+// `useLinkTypesMock` is a `vi.fn()` (not a plain arrow function) so individual
+// tests can override its return value with `mockReturnValueOnce` to exercise
+// a different catalog (empty-state, custom labels, a source-restricted type).
+const { useLinkTypesMock, buildCatalog, makeCatalogRow } = vi.hoisted(() => {
+  const makeCatalogRow = (key: string, pairs: Array<[string, string]>, label?: string) => ({
+    key,
+    definition: {
+      label: {
+        de: { downstream: label ?? key, upstream: label ?? key, neutral: label ?? key },
+        en: { downstream: label ?? key, upstream: label ?? key, neutral: label ?? key },
+      },
+      allowed_pairs: pairs.map(([source_type, target_type]) => ({ source_type, target_type })),
+      coverage_relevant: false,
+      suspect_rule: 'none',
+      impact_weight: 1,
+      manual_creatable: true,
+      system_owned: false,
+      active: true,
+      built_in: true,
+    },
+  });
+
+  const buildCatalog = (rows: ReturnType<typeof makeCatalogRow>[]) => ({
+    linkTypes: rows,
+    isLoading: false,
+    error: null,
+    reload: () => Promise.resolve(),
+    creatableLinkTypes: rows,
+    definitionFor: (key: string) => rows.find((row) => row.key === key)?.definition,
+    // Mirrors the real (post-review-fix) LinkTypeContext.isAllowedPair: a
+    // caller-supplied '*' (e.g. the dialog before a target is picked) is a
+    // wildcard too, not just a backend pair's own '*'.
+    isAllowedPair: (key: string, source: string, target: string) => {
+      const definition = rows.find((row) => row.key === key)?.definition;
+      if (!definition) return false;
+      return definition.allowed_pairs.some(
+        (pair) =>
+          (source === '*' || pair.source_type === '*' || pair.source_type === source) &&
+          (target === '*' || pair.target_type === '*' || pair.target_type === target),
+      );
+    },
+    labelFor: (key: string, _lang: string, _perspective: string) =>
+      rows.find((row) => row.key === key)?.definition.label.de.neutral ?? key,
+  });
+
+  const useLinkTypesMock = { current: () => buildCatalog([]) };
+  return { useLinkTypesMock, buildCatalog, makeCatalogRow };
+});
+
+const MOCK_CATALOG = [
+  makeCatalogRow('derives-from', [['Requirement', 'Requirement']]),
+  makeCatalogRow('decomposes', [['Requirement', 'Requirement']]),
+  makeCatalogRow('verifies', [['TestCase', 'Requirement']]),
+];
+
+vi.mock('../../../context/LinkTypeContext', () => ({
+  useLinkTypes: () => useLinkTypesMock.current(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -58,6 +122,13 @@ const SOURCE_ID = 'source-req-001';
 const MOCK_REQUIREMENTS = [
   { id: 'req-002', title: 'Login Requirement' },
   { id: 'req-003', title: 'Security Requirement' },
+  // Appended (not prepended) so it does not shift the indices the tests
+  // below rely on. Included so the fixed `sourceId` prop (SOURCE_ID)
+  // resolves to a real "Requirement" element — in production a fixed
+  // sourceId is always the artifact the dialog was opened from, which
+  // loadElements() always re-fetches as part of the same artifact-type
+  // listing.
+  { id: SOURCE_ID, title: 'Source Requirement' },
 ];
 
 const MOCK_ARCH_ELEMENTS = [
@@ -112,6 +183,7 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupDefaultMocks();
+    useLinkTypesMock.current = () => buildCatalog(MOCK_CATALOG);
   });
 
   // ---- Visibility ----
@@ -294,6 +366,53 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
     });
   });
 
+  // ---- Deduplication (#832) ----
+
+  describe('deduplication (#832)', () => {
+    it('shows an artifact id present in two API lists only once in the picker', async () => {
+      // Same stable artifact id returned by two different listAll() endpoints
+      // (e.g. a Requirement also surfaced by the architecture listing). The
+      // picker must collapse it to a single row — before the dedup fix this
+      // rendered twice and produced a duplicate React key.
+      const sharedId = 'shared-artifact-001';
+      // Fully typed fixtures (no `any`): one requirement and one architecture
+      // element deliberately share the same stable artifact id.
+      const sharedRequirement: Requirement = {
+        id: sharedId,
+        workspace_id: WORKSPACE_ID,
+        title: 'Shared Artifact',
+        description: '',
+        category: 'functional',
+        status: 'draft',
+        version: 1,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      };
+      const sharedArchitectureElement: ArchitectureElement = {
+        id: sharedId,
+        workspace_id: WORKSPACE_ID,
+        title: 'Shared Artifact',
+        description: '',
+        element_type: 'component',
+        version: 1,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      };
+      vi.mocked(requirementsApi.requirementsApi.listAll).mockResolvedValue([sharedRequirement]);
+      vi.mocked(architectureApi.architectureApi.listAll).mockResolvedValue([
+        sharedArchitectureElement,
+      ]);
+
+      renderDialog();
+
+      await waitFor(() => {
+        expect(
+          screen.getAllByTestId(`create-trace-link-target-element-${sharedId}`)
+        ).toHaveLength(1);
+      });
+    });
+  });
+
   // ---- API submission ----
 
   describe('form submission', () => {
@@ -327,6 +446,48 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
       expect(onClose).toHaveBeenCalledOnce();
     });
 
+    /**
+     * Gesamttest 2026-08-29 Bug 1 — originally reported as "fixed source +
+     * link type `satisfies` never fires the POST" (waterkettle-fullblown.spec.ts
+     * Phase 2b, architecture editor -> requirement satisfies-link). Root-cause
+     * analysis found no defect in this component: the missing request was a
+     * cascading effect of a separate bug (slow first-ever embedding-model
+     * load blocking requirement creation past the E2E helper's timeout in
+     * an earlier phase, so this phase's target requirement ID was never
+     * populated and the test legitimately skipped — no tracelink POST is
+     * expected from a skipped test). `satisfies` itself was retired by Task
+     * 16 (merged into `allocated-to`); this test now locks in the same
+     * link-type-agnostic submit behavior with a still-valid catalog type
+     * ('decomposes'), guarding against a real regression here in the future.
+     */
+    it('fires the create request for a fixed source with a non-default link type ("decomposes")', async () => {
+      const onCreated = vi.fn();
+      const onClose = vi.fn();
+      vi.mocked(tracelinksApi.tracelinksApi.create).mockResolvedValue({} as any);
+
+      const user = userEvent.setup();
+      renderDialog({ onCreated, onClose });
+
+      await waitFor(() => {
+        expect(screen.getByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`)).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`));
+      await user.selectOptions(screen.getByTestId('create-trace-link-type-select'), 'decomposes');
+      await user.click(screen.getByTestId('create-trace-link-submit'));
+
+      await waitFor(() => {
+        expect(tracelinksApi.tracelinksApi.create).toHaveBeenCalledWith({
+          source_id: SOURCE_ID,
+          target_id: MOCK_REQUIREMENTS[0].id,
+          link_type: 'decomposes',
+        });
+      });
+
+      expect(onCreated).toHaveBeenCalledOnce();
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
     it('shows error when API call fails', async () => {
       vi.mocked(tracelinksApi.tracelinksApi.create).mockRejectedValue({
         error: { message: 'Duplicate link detected' },
@@ -353,20 +514,20 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
   // ---- Global mode (no sourceId) ----
 
   describe('global mode (no sourceId)', () => {
-    it('shows source select when sourceId is not provided', async () => {
+    it('shows source picker when sourceId is not provided', async () => {
       renderDialog({ sourceId: undefined });
 
       await waitFor(() => {
-        expect(screen.getByTestId('create-trace-link-source-select')).toBeInTheDocument();
+        expect(screen.getByTestId('create-trace-link-source-list')).toBeInTheDocument();
       });
     });
 
-    it('does not show source select when sourceId is provided', async () => {
+    it('does not show source picker when sourceId is provided', async () => {
       renderDialog({ sourceId: SOURCE_ID });
 
       await waitFor(() => {
-        // Give it time to load — source select should never appear
-        expect(screen.queryByTestId('create-trace-link-source-select')).not.toBeInTheDocument();
+        // Give it time to load — source picker should never appear
+        expect(screen.queryByTestId('create-trace-link-source-list')).not.toBeInTheDocument();
       });
     });
 
@@ -375,6 +536,41 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('create-trace-link-submit')).toBeDisabled();
+      });
+    });
+
+    /**
+     * BUG-09 (Systemaudit 2026-08-18, §4 / GH-53) — the reported symptom was
+     * "source dropdown stays empty, 60s timeout after 116 retries" in
+     * tracelink-creation.spec.ts:73. This test proves the widget's own
+     * logic is not at fault: given API data resolving normally, the source
+     * picker populates with a real, selectable entry for every loaded
+     * element. Root-cause analysis (see the e2e spec's own comment) traced
+     * the actual timeout to loadElements() eagerly fetching all six
+     * artifact types against an unbounded, ever-growing shared seed
+     * workspace — an environment/data-volume issue, not a defect here.
+     */
+    it('populates the source picker with a real entry per loaded element', async () => {
+      renderDialog({ sourceId: undefined });
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId(`create-trace-link-source-element-${MOCK_REQUIREMENTS[0].id}`)
+        ).toHaveTextContent(MOCK_REQUIREMENTS[0].title);
+      });
+    });
+
+    /**
+     * #53 Bug 2: source used to be a plain unfiltered <select> while target
+     * used the searchable ElementPicker — an inconsistent pattern. Both
+     * sides must now expose the same search input.
+     */
+    it('#53: source picker has the same search input as the target picker', async () => {
+      renderDialog({ sourceId: undefined });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('create-trace-link-source-search')).toBeInTheDocument();
+        expect(screen.getByTestId('create-trace-link-target-search')).toBeInTheDocument();
       });
     });
   });
@@ -409,5 +605,149 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
         expect(screen.getByTestId('create-trace-link-type-select')).toBeInTheDocument();
       });
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Catalog-driven link-type options (Task 23)
+//
+// The real component has no `sourceType` prop (unlike an earlier draft of
+// this spec) — it resolves each endpoint's backend artifact_type by looking
+// the selected id up in `allElements` (populated from the six artifact-type
+// APIs) and mapping it through `ARTIFACT_TYPE_KEY_TO_BACKEND`. These tests
+// exercise that real resolution path: pick a real `sourceId`/target element
+// of a known type and assert on the resulting `<option>` list.
+// ---------------------------------------------------------------------------
+
+describe('CreateTraceLinkDialog link-type options (Task 23)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+  });
+
+  const CATALOG_VERIFIES_MITIGATES = [
+    makeCatalogRow('verifies', [['TestCase', 'Requirement']], 'Verifikation'),
+    makeCatalogRow('mitigates', [['Risk', 'Requirement']], 'Risikominderung'),
+  ];
+
+  it('offers the catalog types matching the resolved source/target, not a hardcoded list', async () => {
+    useLinkTypesMock.current = () => buildCatalog(CATALOG_VERIFIES_MITIGATES);
+    const user = userEvent.setup();
+    renderDialog({ sourceId: MOCK_TEST_CASES[0].id }); // TestCase source
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
+    );
+
+    const select = screen.getByTestId('create-trace-link-type-select');
+    const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
+    expect(options).toEqual(['verifies']);
+  });
+
+  it('hides a type whose allowed_pairs do not match the resolved source artifact type', async () => {
+    useLinkTypesMock.current = () => buildCatalog(CATALOG_VERIFIES_MITIGATES);
+    const user = userEvent.setup();
+    renderDialog({ sourceId: MOCK_RISKS[0].id }); // Risk source
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
+    );
+
+    const select = screen.getByTestId('create-trace-link-type-select');
+    const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
+    expect(options).toEqual(['mitigates']);
+    expect(options).not.toContain('verifies');
+  });
+
+  it('keeps the existing test id so the Playwright specs still land', async () => {
+    useLinkTypesMock.current = () => buildCatalog(CATALOG_VERIFIES_MITIGATES);
+    renderDialog({ sourceId: MOCK_TEST_CASES[0].id });
+
+    expect(await screen.findByTestId('create-trace-link-type-select')).toBeInTheDocument();
+  });
+
+  it('renders the catalog label, not the raw key', async () => {
+    useLinkTypesMock.current = () => buildCatalog(CATALOG_VERIFIES_MITIGATES);
+    const user = userEvent.setup();
+    renderDialog({ sourceId: MOCK_TEST_CASES[0].id });
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
+    );
+
+    const select = screen.getByTestId('create-trace-link-type-select');
+    expect(select.querySelector('option')?.textContent).toBe('Verifikation');
+  });
+
+  it('shows an empty-state hint and disables submit when no type fits the endpoints', async () => {
+    useLinkTypesMock.current = () => buildCatalog(CATALOG_VERIFIES_MITIGATES);
+    const user = userEvent.setup();
+    // Adr source: neither 'verifies' (TestCase source) nor 'mitigates' (Risk
+    // source) matches, regardless of target.
+    renderDialog({ sourceId: MOCK_ADRS[0].id });
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
+    );
+
+    expect(await screen.findByTestId('create-trace-link-no-types')).toBeInTheDocument();
+    expect(screen.getByTestId('create-trace-link-submit')).toBeDisabled();
+  });
+
+  /**
+   * Review regression (round 1): before this fix, `isAllowedPair` only
+   * treated a backend pair's own "*" as a wildcard, not a caller-supplied
+   * "*" — so `selectedTargetType ?? '*'` (this component, before any target
+   * is picked) never matched a normal, non-wildcard-target pair like
+   * `verifies: TestCase->Requirement`, leaving `availableLinkTypes` empty
+   * and the "no types fit" hint showing for the completely ordinary case of
+   * "opened the dialog, picked a source, haven't picked a target yet."
+   * Fixed in `context/LinkTypeContext.tsx::isAllowedPair` (Task 22's file —
+   * see Task 23's fix-round report for why the fix lives there, not here).
+   */
+  it('offers matching types from the source alone, before any target is picked', async () => {
+    useLinkTypesMock.current = () => buildCatalog(CATALOG_VERIFIES_MITIGATES);
+    renderDialog({ sourceId: MOCK_TEST_CASES[0].id }); // TestCase source
+
+    // Wait for the element load to settle (allElements populated, so
+    // effectiveSourceType actually resolves) — but never click a target.
+    await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`);
+
+    const select = screen.getByTestId('create-trace-link-type-select');
+    const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
+    expect(options).toEqual(['verifies']);
+    expect(screen.queryByTestId('create-trace-link-no-types')).not.toBeInTheDocument();
+  });
+
+  /**
+   * Final-review regression: the dialog is also opened with a `sourceId` for
+   * StakeholderNeed (NeedsEditors/TraceLinkPanel) and GlossaryTerm
+   * (GlossaryView) — types its own element loader never fetches, so the id
+   * never resolves in `allElements` and `effectiveSourceType` stays
+   * `undefined`. That used to fall back to `''`, which matches no real pair
+   * (only a literal "*" is a wildcard), so every type was filtered out and
+   * the user got the "no link type" hint with Create permanently disabled,
+   * unrecoverably. An unresolvable source now falls back to "*", exactly
+   * like the target side already did.
+   */
+  it('still offers types when the source id does not resolve in the loaded elements', async () => {
+    useLinkTypesMock.current = () =>
+      buildCatalog([
+        ...CATALOG_VERIFIES_MITIGATES,
+        makeCatalogRow('references', [['*', 'GlossaryTerm']], 'Verweis'),
+      ]);
+    // A StakeholderNeed/GlossaryTerm id: never returned by any of the six
+    // listAll() mocks, so it is absent from allElements.
+    renderDialog({ sourceId: 'need-999-not-in-any-listing' });
+
+    await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`);
+
+    const select = screen.getByTestId('create-trace-link-type-select');
+    const options = Array.from(select.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    );
+    expect(options.length).toBeGreaterThan(0);
+    expect(options).toContain('references');
+    expect(screen.queryByTestId('create-trace-link-no-types')).not.toBeInTheDocument();
   });
 });

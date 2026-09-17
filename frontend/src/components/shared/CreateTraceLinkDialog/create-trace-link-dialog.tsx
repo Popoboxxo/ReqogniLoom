@@ -29,7 +29,8 @@ import { adrsApi } from '../../../api/adrs';
 import { risksApi } from '../../../api/risks';
 import { issuesApi } from '../../../api/issues';
 import { tracelinksApi } from '../../../api/tracelinks';
-import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../../constants/traceLinkLabels';
+import { useLinkTypes } from '../../../context/LinkTypeContext';
+import { Dialog } from '../Dialog';
 import type { LinkType } from '../../../types';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,22 @@ import type { LinkType } from '../../../types';
 // ---------------------------------------------------------------------------
 
 export type ArtifactTypeKey = 'all' | 'requirement' | 'architecture' | 'testcase' | 'adr' | 'risk' | 'issue';
+
+/**
+ * `ArtifactTypeKey` -> the backend's PascalCase `artifact_type` spelling
+ * (see `backend/link_types/builtin.py::_pairs`, `backend/application/issue_service.py`).
+ * Needed to call `LinkTypeContext.isAllowedPair(key, sourceType, targetType)`,
+ * which expects the backend spelling, not this component's internal short keys.
+ * `'all'` is a filter-tab-only value, never an actual element's artifactType.
+ */
+const ARTIFACT_TYPE_KEY_TO_BACKEND: Record<Exclude<ArtifactTypeKey, 'all'>, string> = {
+  requirement: 'Requirement',
+  architecture: 'ArchitectureElement',
+  testcase: 'TestCase',
+  adr: 'Adr',
+  risk: 'Risk',
+  issue: 'Issue',
+};
 
 interface TargetElement {
   id: string;
@@ -69,40 +86,7 @@ export interface CreateTraceLinkDialogProps {
 // Styles
 // ---------------------------------------------------------------------------
 
-const overlayStyle: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0, 0, 0, 0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-};
-
-const dialogStyle: React.CSSProperties = {
-  background: 'var(--color-surface)',
-  borderRadius: 'var(--radius-lg)',
-  boxShadow: 'var(--shadow-md)',
-  width: '100%',
-  maxWidth: '560px',
-  maxHeight: '90vh',
-  display: 'flex',
-  flexDirection: 'column',
-  overflow: 'hidden',
-};
-
-const headerStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: 'var(--space-4) var(--space-5)',
-  borderBottom: '1px solid var(--color-border)',
-};
-
 const bodyStyle: React.CSSProperties = {
-  padding: 'var(--space-4) var(--space-5)',
-  overflowY: 'auto',
-  flex: 1,
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--space-3)',
@@ -112,8 +96,6 @@ const footerStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'flex-end',
   gap: 'var(--space-2)',
-  padding: 'var(--space-4) var(--space-5)',
-  borderTop: '1px solid var(--color-border)',
 };
 
 const inputStyle: React.CSSProperties = {
@@ -134,6 +116,30 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 'var(--space-1)',
   color: 'var(--color-text)',
   fontSize: 'var(--font-size-sm)',
+};
+
+// A named const, not an inline object literal, on purpose: the frozen
+// ratchet baseline in src/test/ui-ratchet.test.ts caps new inline-style
+// object literals used directly in a `style=` prop.
+const noTypesHintStyle: React.CSSProperties = {
+  margin: 'var(--space-1) 0 0',
+  color: 'var(--color-text-muted)',
+  fontSize: 'var(--font-size-sm)',
+};
+
+/** Reset default <fieldset> chrome so it matches the plain label+block look
+ * used elsewhere in this dialog, while keeping the native grouping semantics
+ * (fieldset/legend) that associate the "Source"/"Target" caption with the
+ * whole composite picker (search + type tabs + list) for assistive tech. */
+const fieldsetStyle: React.CSSProperties = {
+  border: 'none',
+  margin: 0,
+  padding: 0,
+};
+
+const legendStyle: React.CSSProperties = {
+  ...labelStyle,
+  padding: 0,
 };
 
 const elementListStyle: React.CSSProperties = {
@@ -256,7 +262,7 @@ function ElementPicker({
                 border: '1px solid var(--color-border)',
                 cursor: 'pointer',
                 background: typeFilter === key ? 'var(--color-primary)' : 'var(--color-surface)',
-                color: typeFilter === key ? 'var(--color-on-primary, #fff)' : 'var(--color-text)',
+                color: typeFilter === key ? 'var(--color-on-primary)' : 'var(--color-text)',
                 fontWeight: typeFilter === key ? 600 : 400,
               }}
             >
@@ -301,7 +307,7 @@ function ElementPicker({
                       gap: 'var(--space-2)',
                       padding: 'var(--space-2) var(--space-3)',
                       background: isSelected ? 'var(--color-primary)' : 'transparent',
-                      color: isSelected ? 'var(--color-on-primary, #fff)' : 'var(--color-text)',
+                      color: isSelected ? 'var(--color-on-primary)' : 'var(--color-text)',
                       border: 'none',
                       cursor: 'pointer',
                       textAlign: 'left',
@@ -311,8 +317,8 @@ function ElementPicker({
                     <span
                       style={{
                         fontSize: '0.7rem',
-                        background: isSelected ? 'rgba(255,255,255,0.25)' : 'var(--color-badge-draft)',
-                        color: isSelected ? '#fff' : 'var(--color-badge-draft-text)',
+                        background: isSelected ? 'rgba(var(--color-on-primary-rgb), 0.25)' : 'var(--color-badge-draft)',
+                        color: isSelected ? 'var(--color-on-primary)' : 'var(--color-badge-draft-text)',
                         padding: '1px 6px',
                         borderRadius: 'var(--radius-full)',
                         flexShrink: 0,
@@ -360,7 +366,18 @@ export function CreateTraceLinkDialog({
   allowedTypes,
   defaultLinkType = 'derives-from',
 }: CreateTraceLinkDialogProps): JSX.Element | null {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // Link-type neutral labels come from the dedicated Tri-Label table
+  // (constants/traceLinkLabels.ts), not from the i18next locale JSON — that
+  // table already carries real DE/EN pairs per link type, but the
+  // now-replaced `getLinkTypeLabel()` helper always returned the EN neutral
+  // form regardless of the active UI language (e.g. "Derivation" for
+  // `derives-from`, shown even with a German UI). Resolve against the
+  // active language instead, matching the `i18n.language.startsWith("de")`
+  // convention used elsewhere (e.g. SidebarNavigation.tsx).
+  const triLabelLang = i18n?.language?.startsWith('de') ? 'de' : 'en';
+
+  const { creatableLinkTypes, isAllowedPair, labelFor } = useLinkTypes();
 
   // Keep the latest `t` in a ref so data-loading callbacks can read it without
   // taking a dependency on it. react-i18next normally returns a referentially
@@ -385,6 +402,48 @@ export function CreateTraceLinkDialog({
 
   // The actual source to use in the API call
   const effectiveSourceId = sourceId ?? selectedSourceId;
+
+  // Resolve the backend artifact_type of an endpoint by looking it up in the
+  // loaded element list — the dialog only ever knows ids, never types, until
+  // the corresponding element has been fetched.
+  const effectiveSourceType = useMemo(() => {
+    const el = allElements.find((e) => e.id === effectiveSourceId);
+    return el ? ARTIFACT_TYPE_KEY_TO_BACKEND[el.artifactType as Exclude<ArtifactTypeKey, 'all'>] : undefined;
+  }, [allElements, effectiveSourceId]);
+
+  const selectedTargetType = useMemo(() => {
+    const el = allElements.find((e) => e.id === selectedTargetId);
+    return el ? ARTIFACT_TYPE_KEY_TO_BACKEND[el.artifactType as Exclude<ArtifactTypeKey, 'all'>] : undefined;
+  }, [allElements, selectedTargetId]);
+
+  // Only the types whose allowed_pairs actually fit the chosen endpoints
+  // (spec section 4.1): offering a type the backend will reject turns a
+  // preventable mistake into a 400 after the user hits Save.
+  //
+  // Both sides fall back to the wildcard when they cannot be resolved, for
+  // the same "not yet known" reason. The source used to fall back to `''`,
+  // which matches no real pair — and the dialog is opened with a `sourceId`
+  // for StakeholderNeed (NeedsEditors/TraceLinkPanel) and GlossaryTerm
+  // (GlossaryView), neither of which this dialog's element loader ever
+  // fetches. For those the source stayed unresolved forever, every type got
+  // filtered out, and the user saw "no link type connects these artifacts"
+  // with Create permanently disabled. An offer the backend may still reject
+  // is strictly better than an empty list that cannot be recovered from.
+  const availableLinkTypes = useMemo(
+    () =>
+      creatableLinkTypes.filter((row) =>
+        isAllowedPair(row.key, effectiveSourceType ?? '*', selectedTargetType ?? '*'),
+      ),
+    [creatableLinkTypes, isAllowedPair, effectiveSourceType, selectedTargetType],
+  );
+
+  // Keep the selection valid when the endpoints change under it.
+  useEffect(() => {
+    if (availableLinkTypes.length === 0) return;
+    if (!availableLinkTypes.some((row) => row.key === linkType)) {
+      setLinkType(availableLinkTypes[0].key);
+    }
+  }, [availableLinkTypes, linkType]);
 
   // Load all elements when dialog opens
   const loadElements = useCallback(async (): Promise<void> => {
@@ -414,7 +473,24 @@ export function CreateTraceLinkDialog({
         ...issueList.map((i) => ({ id: i.id, title: i.title || untitled, artifactType: 'issue' as const })),
       ];
 
-      setAllElements(all);
+      // #832: the six listAll() calls may return the same artifact id more
+      // than once (e.g. an id that shows up in both the requirement and the
+      // architecture listing). Rendering every entry produced duplicate rows
+      // and duplicate React keys (`key={el.id}` in ElementPicker). Dedup
+      // centrally on the stable artifact id, right after concatenation.
+      //
+      // A `Map` keyed by id overwrites on re-insert, so the LAST duplicate
+      // candidate (in the fixed reqs -> archs -> tcs -> adrs -> risks ->
+      // issues order) wins for title/artifactType, while the id keeps the
+      // position of its FIRST occurrence. That keeps the remaining order
+      // deterministic and stable, and everything but the duplicated ids
+      // untouched.
+      const allById = new Map<string, TargetElement>();
+      for (const el of all) {
+        allById.set(el.id, el);
+      }
+
+      setAllElements(Array.from(allById.values()));
     } catch (err) {
       console.error('CreateTraceLinkDialog: failed to load elements', err);
     } finally {
@@ -431,22 +507,6 @@ export function CreateTraceLinkDialog({
     setSubmitError(null);
     void loadElements();
   }, [isOpen, defaultLinkType, loadElements]);
-
-  // Prevent layout shift by managing body overflow when dialog is open
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-
-    document.body.style.overflow = 'hidden';
-    document.body.style.paddingRight = `${scrollbarWidth}px`;
-
-    // Cleanup: restore scroll and padding when dialog closes
-    return () => {
-      document.body.style.overflow = '';
-      document.body.style.paddingRight = '';
-    };
-  }, [isOpen]);
 
   // Determine which type filter tabs are visible
   const visibleTypeFilters = useMemo<ArtifactTypeKey[]>(() => {
@@ -506,166 +566,147 @@ export function CreateTraceLinkDialog({
     [effectiveSourceId, selectedTargetId, linkType, t, onCreated, onClose]
   );
 
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>): void => {
-      if (e.target === e.currentTarget) onClose();
-    },
-    [onClose]
-  );
-
   if (!isOpen) return null;
 
   const isGlobalMode = sourceId === undefined;
+  const formId = 'create-trace-link-form';
+
+  // #53 Bug 3: the submit button used to disable silently with no
+  // explanation. Surface the concrete missing piece as a tooltip.
+  const submitDisabledReason = isSubmitting
+    ? undefined
+    : isGlobalMode && !selectedSourceId
+      ? t('traceability.sourceRequired', 'Please select a source artifact.')
+      : !selectedTargetId
+        ? t('traceability.targetRequired', 'Please select a target artifact.')
+        : undefined;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('createTraceLinkDialog.title', 'Create Trace Link')}
-      data-testid="create-trace-link-dialog"
-      style={overlayStyle}
-      onClick={handleBackdropClick}
-    >
-      <div style={dialogStyle}>
-        {/* Header */}
-        <div style={headerStyle}>
-          <h3
-            style={{
-              margin: 0,
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 700,
-              color: 'var(--color-text)',
-            }}
-          >
-            {t('createTraceLinkDialog.title', 'Create Trace Link')}
-          </h3>
+    <Dialog
+      title={t('createTraceLinkDialog.title', 'Create Trace Link')}
+      onClose={() => {
+        // UI-24: Escape used to close the dialog even mid-submit, leaving
+        // the create request running with nothing left to report its
+        // result to.
+        if (!isSubmitting) onClose();
+      }}
+      closeOnBackdropClick={!isSubmitting}
+      size="md"
+      testId="create-trace-link-dialog"
+      footer={
+        <div style={footerStyle}>
           <button
             type="button"
-            data-testid="create-trace-link-dialog-close"
+            data-testid="create-trace-link-cancel"
+            className="btn-secondary"
             onClick={onClose}
-            aria-label={t('actions.close', 'Close')}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-muted)',
-              fontSize: '1.25rem',
-              lineHeight: 1,
-              padding: 'var(--space-1)',
-            }}
+            disabled={isSubmitting}
           >
-            ×
+            {t('actions.cancel', 'Cancel')}
+          </button>
+          <button
+            type="submit"
+            form={formId}
+            data-testid="create-trace-link-submit"
+            className="btn-primary"
+            disabled={
+              isSubmitting ||
+              !selectedTargetId ||
+              (isGlobalMode && !selectedSourceId) ||
+              availableLinkTypes.length === 0
+            }
+            title={submitDisabledReason}
+          >
+            {isSubmitting
+              ? t('traceability.submitting', 'Creating...')
+              : t('traceability.submit', 'Create')}
           </button>
         </div>
+      }
+    >
+      <form id={formId} onSubmit={(e) => void handleSubmit(e)} style={bodyStyle}>
+        {/* Source picker — only shown in global mode (no fixed sourceId).
+            #53 Bug 2: uses the same searchable ElementPicker as the target
+            list instead of a plain unfiltered <select>, for a consistent
+            pattern on both sides of the dialog. */}
+        {isGlobalMode && (
+          <fieldset style={fieldsetStyle}>
+            <legend style={legendStyle}>
+              {t('traceability.source', 'Source')}{' '}
+              <span style={{ color: 'var(--color-danger)' }}>*</span>
+            </legend>
+            <ElementPicker
+              elements={sourceElements}
+              isLoading={isLoadingElements}
+              selectedId={selectedSourceId}
+              onSelect={(id) => {
+                setSelectedSourceId(id);
+                // Reset target if it happens to be the same as new source
+                if (id === selectedTargetId) setSelectedTargetId('');
+              }}
+              testIdPrefix="create-trace-link-source"
+              visibleTypeFilters={visibleTypeFilters}
+            />
+          </fieldset>
+        )}
 
-        {/* Form */}
-        <form onSubmit={(e) => void handleSubmit(e)} style={{ display: 'contents' }}>
-          <div style={bodyStyle}>
+        {/* Target picker with search */}
+        <fieldset style={fieldsetStyle}>
+          <legend style={legendStyle}>
+            {t('traceability.target', 'Target')}{' '}
+            <span style={{ color: 'var(--color-danger)' }}>*</span>
+          </legend>
+          <ElementPicker
+            elements={targetElements}
+            isLoading={isLoadingElements}
+            selectedId={selectedTargetId}
+            onSelect={setSelectedTargetId}
+            testIdPrefix="create-trace-link-target"
+            visibleTypeFilters={visibleTypeFilters}
+          />
+        </fieldset>
 
-            {/* Source picker — only shown in global mode (no fixed sourceId) */}
-            {isGlobalMode && (
-              <div>
-                <label style={labelStyle}>
-                  {t('traceability.source', 'Source')}{' '}
-                  <span style={{ color: 'var(--color-danger)' }}>*</span>
-                </label>
-                <select
-                  data-testid="create-trace-link-source-select"
-                  value={selectedSourceId}
-                  onChange={(e) => {
-                    setSelectedSourceId(e.target.value);
-                    // Reset target if it happens to be the same as new source
-                    if (e.target.value === selectedTargetId) setSelectedTargetId('');
-                  }}
-                  disabled={isSubmitting}
-                  style={inputStyle}
-                >
-                  <option value="">
-                    {isLoadingElements ? t('loading', 'Loading…') : '—'}
-                  </option>
-                  {sourceElements.map((el) => (
-                    <option key={el.id} value={el.id}>
-                      {TYPE_DISPLAY_LABELS[el.artifactType]}: {el.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+        {/* Link type selector */}
+        <div>
+          <label htmlFor="ctl-link-type" style={labelStyle}>
+            {t('traceability.linkType', 'Link Type')}
+          </label>
+          <select
+            id="ctl-link-type"
+            data-testid="create-trace-link-type-select"
+            value={linkType}
+            onChange={(e) => setLinkType(e.target.value as LinkType)}
+            disabled={isSubmitting}
+            style={inputStyle}
+          >
+            {availableLinkTypes.map((row) => (
+              <option key={row.key} value={row.key}>
+                {labelFor(row.key, triLabelLang, 'neutral')}
+              </option>
+            ))}
+          </select>
+          {availableLinkTypes.length === 0 && (
+            <p data-testid="create-trace-link-no-types" style={noTypesHintStyle}>
+              {t(
+                'traceability.noLinkTypeForPair',
+                'No link type in this workspace connects these two artifact types.',
+              )}
+            </p>
+          )}
+        </div>
 
-            {/* Target picker with search */}
-            <div>
-              <label style={labelStyle}>
-                {t('traceability.target', 'Target')}{' '}
-                <span style={{ color: 'var(--color-danger)' }}>*</span>
-              </label>
-              <ElementPicker
-                elements={targetElements}
-                isLoading={isLoadingElements}
-                selectedId={selectedTargetId}
-                onSelect={setSelectedTargetId}
-                testIdPrefix="create-trace-link-target"
-                visibleTypeFilters={visibleTypeFilters}
-              />
-            </div>
-
-            {/* Link type selector */}
-            <div>
-              <label htmlFor="ctl-link-type" style={labelStyle}>
-                {t('traceability.linkType', 'Link Type')}
-              </label>
-              <select
-                id="ctl-link-type"
-                data-testid="create-trace-link-type-select"
-                value={linkType}
-                onChange={(e) => setLinkType(e.target.value as LinkType)}
-                disabled={isSubmitting}
-                style={inputStyle}
-              >
-                {ALL_LINK_TYPES.map((lt) => (
-                  <option key={lt} value={lt}>
-                    {getLinkTypeLabel(lt)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Error message */}
-            {submitError && (
-              <p
-                role="alert"
-                data-testid="create-trace-link-error"
-                style={{ margin: 0, color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)' }}
-              >
-                {submitError}
-              </p>
-            )}
-          </div>
-
-          {/* Footer */}
-          <div style={footerStyle}>
-            <button
-              type="button"
-              data-testid="create-trace-link-cancel"
-              className="btn-secondary"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              {t('actions.cancel', 'Cancel')}
-            </button>
-            <button
-              type="submit"
-              data-testid="create-trace-link-submit"
-              className="btn-primary"
-              disabled={isSubmitting || !selectedTargetId || (isGlobalMode && !selectedSourceId)}
-            >
-              {isSubmitting
-                ? t('traceability.submitting', 'Creating...')
-                : t('traceability.submit', 'Create')}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        {/* Error message */}
+        {submitError && (
+          <p
+            role="alert"
+            data-testid="create-trace-link-error"
+            style={{ margin: 0, color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)' }}
+          >
+            {submitError}
+          </p>
+        )}
+      </form>
+    </Dialog>
   );
 }
 

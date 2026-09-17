@@ -9,7 +9,9 @@
  * the XSS token-theft vector. Consequently:
  * - On mount the session is restored by calling GET /auth/me/ (not storage).
  *   A "restoring" status prevents a login-flash on reload.
- * - On login the server sets the cookie; the body token is ignored.
+ * - On login the server sets the cookie; the body token is ignored — the field
+ *   is deprecated server-side (#696) and not declared in `LoginResponse`, so
+ *   the SPA cannot depend on it.
  * - On logout the server clears the cookie via POST /auth/logout/.
  * - On 401/403 the API client clears state and the caller redirects to /login.
  */
@@ -19,9 +21,14 @@ import { createContext,
   useState,
   useEffect,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
-import { apiClient, setUnauthorizedHandler } from "../api/client";
+import {
+  apiClient,
+  resetUnauthorizedGuard,
+  setUnauthorizedHandler,
+} from "../api/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,11 +56,21 @@ export interface LoginCredentials {
   password: string;
 }
 
+/**
+ * Shape returned by POST /api/v1/auth/login/ — identity only.
+ *
+ * The backend additionally returns a `token` field for API/CI tooling. That
+ * field is DEPRECATED (#696), can be switched off server-side with
+ * `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False`, and is deliberately NOT declared here
+ * so TypeScript rejects any attempt to read or persist it — storing it in JS
+ * would re-open the XSS token-theft vector REQ-052 closed. The SPA
+ * authenticates through the httpOnly cookie the login response sets.
+ */
 export interface LoginResponse {
-  token: string;
   user: AuthUser;
   tenant_id: string;
   roles: string[];
+  is_tenant_admin: boolean;
 }
 
 /**
@@ -69,6 +86,13 @@ interface IdentityPayload {
   user: AuthUser;
   tenant_id: string | null;
   roles: string[];
+  /**
+   * Multi-user management design spec: whether the caller holds an active
+   * tenant-admin role (`TenantRole`) — a tenant-wide concept distinct from
+   * the workspace-scoped `roles` above. Optional/defaulted for backward
+   * compatibility with any caller/mock that predates this field.
+   */
+  is_tenant_admin?: boolean;
 }
 
 export interface AuthState {
@@ -77,6 +101,10 @@ export interface AuthState {
   user: AuthUser | null;
   tenantId: string | null;
   roles: string[];
+  /** Whether the caller holds an active tenant-admin role (`TenantRole`) —
+   * gates the tenant-admin-only User Management surface. UX-only: real
+   * enforcement lives server-side (`UserViewSet` / MCP `users` tool group). */
+  isTenantAdmin: boolean;
   /** POST /api/v1/auth/login/ — resolves on success, rejects with error message on failure */
   login: (credentials: LoginCredentials) => Promise<void>;
   /** PATCH /api/v1/auth/me/ — update editable profile fields (REQ-006) */
@@ -88,7 +116,11 @@ export interface AuthState {
 // Context
 // ---------------------------------------------------------------------------
 
-const AuthContext = createContext<AuthState | null>(null);
+// Exported (not just via the `useAuth` hook) so ThemeContext can read it
+// with `useContext` directly and tolerate being rendered without an
+// AuthProvider ancestor (existing unit tests render `<ThemeProvider>`
+// standalone) — see ThemeContext.tsx for why that fallback is safe.
+export const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({
   children,
@@ -101,11 +133,13 @@ export function AuthProvider({
   const [user, setUser] = useState<AuthUser | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
+  const [isTenantAdmin, setIsTenantAdmin] = useState<boolean>(false);
 
   const clearAuth = useCallback(() => {
     setUser(null);
     setTenantId(null);
     setRoles([]);
+    setIsTenantAdmin(false);
     setStatus("anonymous");
   }, []);
 
@@ -113,7 +147,12 @@ export function AuthProvider({
     setUser(data.user);
     setTenantId(data.tenant_id ?? null);
     setRoles(data.roles ?? []);
+    setIsTenantAdmin(data.is_tenant_admin ?? false);
     setStatus("authenticated");
+    // Re-arm the 401 notification guard (GitHub #135): a fresh/restored
+    // session must be able to trigger the unauthorized handler again the
+    // next time its access token actually expires and the refresh fails.
+    resetUnauthorizedGuard();
   }, []);
 
   // Restore the session from the httpOnly cookie via GET /auth/me/ (REQ-052).
@@ -161,8 +200,16 @@ export function AuthProvider({
         let message = "Invalid credentials";
         try {
           const body = await response.json();
-          if (body?.message) message = body.message;
-          else if (body?.error) message = body.error;
+          // The login endpoint answers with the project-wide error envelope
+          // `{"error": {"code", "message", "details"}}` (backend
+          // auth_tenancy/errors.py::build_error_body). Before the 2026-08-27
+          // system audit it used a flat `{"error": "<code>", "message": ...}`,
+          // so both are read here: the nested form first, then the flat one.
+          // Without the nested branch `body.error` is an *object* and the
+          // alert renders "[object Object]".
+          if (typeof body?.error?.message === "string") message = body.error.message;
+          else if (typeof body?.message === "string") message = body.message;
+          else if (typeof body?.error === "string") message = body.error;
         } catch {
           // use default
         }
@@ -171,11 +218,13 @@ export function AuthProvider({
 
       const data: LoginResponse = await response.json();
       // The token is delivered as an httpOnly cookie by the server; the body
-      // token is ignored here (Phase-1 backward-compat only, REQ-052).
+      // token is DEPRECATED (#696) and deliberately not declared on
+      // `LoginResponse` — identity is all this flow needs.
       applyIdentity({
         user: data.user,
         tenant_id: data.tenant_id ?? null,
         roles: data.roles ?? [],
+        is_tenant_admin: data.is_tenant_admin ?? false,
       });
     },
     [applyIdentity]
@@ -197,16 +246,20 @@ export function AuthProvider({
     clearAuth();
   }, [clearAuth]);
 
-  const value: AuthState = {
-    isAuthenticated: user !== null,
-    status,
-    user,
-    tenantId,
-    roles,
-    login,
-    updateProfile,
-    logout,
-  };
+  const value = useMemo<AuthState>(
+    () => ({
+      isAuthenticated: user !== null,
+      status,
+      user,
+      tenantId,
+      roles,
+      isTenantAdmin,
+      login,
+      updateProfile,
+      logout,
+    }),
+    [status, user, tenantId, roles, isTenantAdmin, login, updateProfile, logout]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

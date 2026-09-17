@@ -30,13 +30,12 @@ Innerhalb einer Service-Transaktion gilt folgende Konvention:
    Transaktion**. Ein Rollback entfernt Mutation und Audit-Eintrag gemeinsam
    (REQ-L2-AL-004, atomare Konsistenz).
 3. **Domain-Events** — `ServiceBase._emit_event(...)` → `DomainEventBus.publish()`
-   registriert die Outbox-Insertion via `transaction.on_commit(...)`. Der
-   Outbox-Row wird **erst nach erfolgreichem Commit** geschrieben. Eine
-   zurückgerollte Transaktion erzeugt daher niemals ein Event (REQ-L2-AS-029,
+   schreibt den Outbox-Row inline, in derselben Transaktion wie die Mutation.
+   Eine zurückgerollte Transaktion erzeugt daher niemals ein Event (REQ-L2-AS-029,
    REQ-L3-DEB-002). Die tatsächliche Zustellung an Subscriber erfolgt
    asynchron durch den OutboxPoller-Worker.
 
-**Merksatz:** *Audit feuert im Commit, Domain-Events feuern nach dem Commit.*
+**Merksatz:** *Audit feuert im Commit, Outbox-Insertion erfolgt im Commit.*
 
 ### Abdeckung im Application-Layer
 

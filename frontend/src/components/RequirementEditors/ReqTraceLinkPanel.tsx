@@ -14,6 +14,15 @@
  * IF-RF-INT-002 ← I18nService via useTranslation
  * IF-RF-EXT-OUT-001 → GET/POST/DELETE /api/v1/tracelinks/
  * IF-RF-EXT-OUT-002 → GET/POST /api/v1/requirements/derive/
+ *
+ * Issue #416: every list in this panel picked "the other endpoint" with
+ * `link.source_id === requirementId`. TraceLink endpoints are Artifact ids
+ * while `requirementId` is a Requirement id, so the comparison never held and
+ * every row resolved to the link's *source* — for an outgoing link that is the
+ * current requirement itself. The "hierarchical view" made this most visible
+ * because it also rendered the current requirement as its own tree root. The
+ * panel now resolves endpoints through `utils/traceEndpoints` against both
+ * ids, and the hierarchy block renders the actual parents and children.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -24,9 +33,18 @@ import { tracelinksApi } from '../../api/tracelinks';
 import { testcasesApi } from '../../api/testcases';
 import { architectureApi } from '../../api/architecture';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
+import {
+  formatShortId,
+  hierarchyRelation,
+  inferSelfArtifactId,
+  neighborOf,
+  type HierarchyRelation,
+} from '../../utils/traceEndpoints';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
-import { RequirementTreeNode } from './RequirementTreeNode';
-import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../constants/traceLinkLabels';
+import { RequirementTreeNode, type HierarchyNode } from './RequirementTreeNode';
+import { useHasRole } from '../../hooks/useHasRole';
+import { LINK_TYPE_LABELS, getLinkTypeLabel } from '../../constants/traceLinkLabels';
 import type {
   Requirement,
   TraceLink,
@@ -49,6 +67,16 @@ const inputStyle: React.CSSProperties = {
   fontFamily: 'var(--font-sans)',
 };
 
+/** #416: sub-heading of a hierarchy direction group (hoisted — see ui-ratchet). */
+const hierarchyGroupHeadingStyle: React.CSSProperties = {
+  fontSize: 'var(--font-size-xs)',
+  color: 'var(--color-text-muted)',
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.03em',
+  padding: 'var(--space-2) 0 var(--space-1)',
+};
+
 const labelStyle: React.CSSProperties = {
   fontWeight: 600,
   display: 'block',
@@ -56,6 +84,68 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--color-text)',
   fontSize: 'var(--font-size-sm)',
 };
+
+/**
+ * UI-P3: a link whose far endpoint was soft-deleted. The backend keeps such
+ * links on purpose (audit trail), so they keep arriving from
+ * `GET /tracelinks/` — without this treatment they render exactly like a link
+ * to a live artifact. Hoisted out of JSX for the inline-style ratchet.
+ */
+const outdatedTitleStyle: React.CSSProperties = {
+  fontSize: 'var(--font-size-sm)',
+  color: 'var(--color-text-muted)',
+  textDecoration: 'line-through',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const outdatedBadgeStyle: React.CSSProperties = {
+  background: 'var(--color-badge-neutral-bg)',
+  color: 'var(--color-badge-neutral-text)',
+  padding: '2px 6px',
+  borderRadius: 'var(--radius-full)',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 600,
+  marginLeft: 'var(--space-2)',
+  whiteSpace: 'nowrap',
+};
+
+/**
+ * UI-P3: renders the far endpoint of a link whose artifact was soft-deleted.
+ *
+ * Deliberately *not* a link: every detail route filters outdated rows out
+ * (`AdrService.list_adrs`, `ArchitectureService.list_architecture_elements`,
+ * …), so navigating there would only produce a 404. The row itself stays
+ * visible because the backend keeps the TraceLink on purpose — see
+ * `ArtifactService.resolve_artifact_titles`.
+ */
+function OutdatedEndpointLabel({
+  displayTitle,
+  testId,
+}: {
+  displayTitle: string;
+  testId: string;
+}): JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <>
+      <span data-testid={testId} style={outdatedTitleStyle} title={displayTitle}>
+        {displayTitle}
+      </span>
+      <span
+        data-testid={`${testId}-badge`}
+        style={outdatedBadgeStyle}
+        title={t(
+          'tracelinks.outdatedHint',
+          'Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten.'
+        )}
+      >
+        {t('tracelinks.outdated', 'Gelöscht')}
+      </span>
+    </>
+  );
+}
 
 interface ReqTraceLinkPanelProps {
   workspaceId: UUID;
@@ -81,6 +171,13 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  // R2/T1: same workspace-role gate as SidebarNavigation/RequirementForm/
+  // RequirementList/RequirementEditors. The panel's write triggers (create
+  // TraceLink, delete TraceLink, derive a new Requirement) were the last
+  // ungated ones in this feature area — a viewer saw controls the server
+  // then rejected. Rendered conditionally, not merely disabled.
+  const hasRole = useHasRole();
+  const canEdit = hasRole('editor');
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +194,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
   const [deriveArchitectureElementId, setDeriveArchitectureElementId] = useState<string>('');
   const [isDeriving, setIsDeriving] = useState<boolean>(false);
   const [deriveError, setDeriveError] = useState<string | null>(null);
+  // UI-09 (system audit P4): deleting a trace link is destructive and
+  // irreversible — require explicit confirmation.
+  const [pendingDeleteLinkId, setPendingDeleteLinkId] = useState<UUID | null>(null);
 
   // Load TraceLinks
   useEffect(() => {
@@ -177,6 +277,120 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
     return m;
   }, [architectureElements]);
 
+  const currentRequirement = React.useMemo(
+    () => requirements.find((r) => r.id === requirementId),
+    [requirements, requirementId]
+  );
+
+  /**
+   * #416: every id this requirement can appear under in a TraceLink — its
+   * Requirement id and its backing Artifact id (the one the API actually
+   * uses). `inferSelfArtifactId` covers responses where `artifact_id` is not
+   * available: the queried artifact is the endpoint shared by all links.
+   */
+  const selfIds = React.useMemo(() => {
+    const ids = new Set<UUID>([requirementId]);
+    if (currentRequirement?.artifact_id) {
+      ids.add(currentRequirement.artifact_id);
+      return ids;
+    }
+    // Only guess when the backing artifact id is genuinely unknown — adding a
+    // wrong id would make *both* endpoints of a link look like "self" and the
+    // neighbour would be dropped instead of rendered.
+    const inferred = inferSelfArtifactId(links);
+    if (inferred) ids.add(inferred);
+    return ids;
+  }, [requirementId, currentRequirement?.artifact_id, links]);
+
+  /** #416: Artifact id -> entity id, so link rows route to a real editor. */
+  const entityIdByArtifactId = React.useMemo(() => {
+    const m: Record<UUID, UUID> = {};
+    for (const r of requirements) if (r.artifact_id) m[r.artifact_id] = r.id;
+    for (const ae of architectureElements) if (ae.artifact_id) m[ae.artifact_id] = ae.id;
+    return m;
+  }, [requirements, architectureElements]);
+
+  /**
+   * #416: the decomposition neighbourhood of *this* requirement — its parents
+   * and children, never itself.
+   */
+  const hierarchyNodes = React.useMemo(() => {
+    const nodes: HierarchyNode[] = [];
+    const seen = new Set<UUID>();
+    for (const link of links) {
+      const hierarchy = hierarchyRelation(link, selfIds);
+      if (!hierarchy) continue;
+      const { relation, neighbor } = hierarchy;
+      if (seen.has(neighbor.endpoint.id)) continue;
+      seen.add(neighbor.endpoint.id);
+      nodes.push({
+        artifactId: neighbor.endpoint.id,
+        entityId: entityIdByArtifactId[neighbor.endpoint.id],
+        title: neighbor.endpoint.title,
+        artifactType: neighbor.endpoint.artifactType,
+        relation,
+        isOutdated: neighbor.endpoint.isOutdated,
+      });
+    }
+    return nodes;
+  }, [links, selfIds, entityIdByArtifactId]);
+
+  const hierarchyGroups: [HierarchyRelation, HierarchyNode[]][] = React.useMemo(() => {
+    const parents = hierarchyNodes.filter((n) => n.relation === 'parent');
+    const children = hierarchyNodes.filter((n) => n.relation === 'child');
+    const groups: [HierarchyRelation, HierarchyNode[]][] = [];
+    if (parents.length > 0) groups.push(['parent', parents]);
+    if (children.length > 0) groups.push(['child', children]);
+    return groups;
+  }, [hierarchyNodes]);
+
+  /**
+   * Remaining links, partitioned by the artifact type on the far side. Every
+   * link this requirement takes part in lands in exactly one of the three
+   * blocks (hierarchy / architecture / other) — the old type-based section
+   * conditions inspected *both* endpoint types, so e.g. a `TestCase verifies
+   * Requirement` link matched neither the architecture nor the "other" filter
+   * and was rendered nowhere.
+   */
+  const { archLinks, otherLinks } = React.useMemo(() => {
+    const arch: TraceLink[] = [];
+    const other: TraceLink[] = [];
+    for (const link of links) {
+      if (hierarchyRelation(link, selfIds)) continue; // rendered as a tree above
+      const neighbor = neighborOf(link, selfIds);
+      if (!neighbor) continue;
+      if (neighbor.endpoint.artifactType === 'ArchitectureElement') arch.push(link);
+      else other.push(link);
+    }
+    return { archLinks: arch, otherLinks: other };
+  }, [links, selfIds]);
+
+  /**
+   * Resolve a link to its far endpoint plus display metadata (#416). Links
+   * that touch neither id are dropped instead of silently rendering the
+   * current artifact.
+   */
+  const resolveLinkRow = React.useCallback(
+    (link: TraceLink) => {
+      const neighbor = neighborOf(link, selfIds);
+      if (!neighbor) return null;
+      const { endpoint } = neighbor;
+      const localTitle =
+        architectureElementsById[endpoint.id]?.title ?? testCasesById[endpoint.id]?.title;
+      const entityId = entityIdByArtifactId[endpoint.id] ?? endpoint.id;
+      return {
+        id: endpoint.id,
+        artifactType: endpoint.artifactType,
+        displayTitle: endpoint.title || localTitle || formatShortId(endpoint.id),
+        route: getArtifactRoute(endpoint.artifactType || 'Requirement', entityId),
+        // UI-P3: the far artifact was soft-deleted but its link is retained
+        // for the audit trail — the row must not look like a live relation.
+        isOutdated: endpoint.isOutdated,
+      };
+    },
+    [selfIds, architectureElementsById, testCasesById, entityIdByArtifactId]
+  );
+
   const otherRequirements = requirements.filter((r) => r.id !== requirementId);
 
   const openForm = (): void => {
@@ -236,6 +450,13 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
     } catch (err: unknown) {
       console.error('Delete tracelink failed:', err);
     }
+  };
+
+  const confirmDeleteLink = async (): Promise<void> => {
+    if (!pendingDeleteLinkId) return;
+    const linkId = pendingDeleteLinkId;
+    setPendingDeleteLinkId(null);
+    await handleDelete(linkId);
   };
 
   const openDeriveForm = (): void => {
@@ -318,19 +539,21 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                 className="btn-primary"
                 onClick={onAiDerive}
                 disabled={isAiDeriving}
-                style={{ background: 'linear-gradient(135deg, #4f6ef7, #8e2de2)' }}
+                style={{ background: 'linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))' }}
               >
                 ✨ {isAiDeriving ? t('actions.deriving', 'Leitet ab...') : t('actions.derive', 'Ableiten')}
               </button>
             )}
-            <button
-              type="button"
-              data-testid="req-tracelink-create-btn"
-              className="btn-primary"
-              onClick={openForm}
-            >
-              {t('traceability.create')}
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                data-testid="req-tracelink-create-btn"
+                className="btn-primary"
+                onClick={openForm}
+              >
+                {t('traceability.create')}
+              </button>
+            )}
             <button
               type="button"
               data-testid="req-tracelink-viewall-btn"
@@ -346,8 +569,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
 
       {showForm && (
         <form onSubmit={(e) => void submitForm(e)} style={{ marginBottom: 'var(--space-4)' }}>
-          <label style={labelStyle}>{t('traceability.target')}</label>
+          <label htmlFor="req-tracelink-target-select" style={labelStyle}>{t('traceability.target')}</label>
           <select
+            id="req-tracelink-target-select"
             data-testid="req-tracelink-target-select"
             value={targetId}
             onChange={(e) => setTargetId(e.target.value)}
@@ -388,15 +612,16 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             )}
           </select>
 
-          <label style={labelStyle}>{t('traceability.linkType')}</label>
+          <label htmlFor="req-tracelink-type-select" style={labelStyle}>{t('traceability.linkType')}</label>
           <select
+            id="req-tracelink-type-select"
             data-testid="req-tracelink-type-select"
             value={linkType}
             onChange={(e) => setLinkType(e.target.value as LinkType)}
             disabled={isSubmitting}
             style={inputStyle}
           >
-            {ALL_LINK_TYPES.map((lt) => (
+            {Object.keys(LINK_TYPE_LABELS).map((lt) => (
               <option key={lt} value={lt}>
                 {getLinkTypeLabel(lt)}
               </option>
@@ -484,8 +709,10 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
 
       {links.length > 0 && (
         <div data-testid="req-tracelink-sections">
-          {/* Requirement hierarchy tree section */}
-          {links.some((l) => l.target_type === 'Requirement' || l.source_type === 'Requirement') && (
+          {/* #416: decomposition hierarchy — parents and children of the
+              current requirement, grouped by direction. The current artifact
+              is deliberately NOT rendered: it is the context, not a result. */}
+          {hierarchyGroups.length > 0 && (
             <div
               data-testid="req-tracelink-requirements-section"
               style={{
@@ -504,30 +731,31 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
               >
                 {t('traceability.requirementsGroup')} (hierarchical view)
               </h5>
-              <RequirementTreeNode
-                workspaceId={workspaceId}
-                requirement={requirements.find((r) => r.id === requirementId) || {
-                  id: requirementId,
-                  title: 'Current',
-                  description: '',
-                  category: 'functional',
-                  type: 'SyReq',
-                  status: 'draft',
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                  version: 1,
-                  workspace_id: workspaceId,
-                }}
-                depth={0}
-                onSelectRequirement={() => {
-                  /* Keep in current context or navigate as needed */
-                }}
-              />
+              {hierarchyGroups.map(([relation, nodes]) => (
+                <div key={relation} data-testid={`req-hierarchy-group-${relation}`}>
+                  <div style={hierarchyGroupHeadingStyle}>
+                    {relation === 'parent'
+                      ? `↑ ${t('traceability.upstream')}`
+                      : `↓ ${t('traceability.downstream')}`}
+                  </div>
+                  {nodes.map((node) => (
+                    <RequirementTreeNode
+                      key={`${relation}:${node.artifactId}`}
+                      workspaceId={workspaceId}
+                      node={node}
+                      depth={0}
+                      visitedIds={selfIds}
+                      entityIdByArtifactId={entityIdByArtifactId}
+                      onSelectRequirement={(id) => navigate(getArtifactRoute(node.artifactType || 'Requirement', id))}
+                    />
+                  ))}
+                </div>
+              ))}
             </div>
           )}
 
           {/* ArchitectureElements flat list section */}
-          {links.some((l) => l.target_type === 'ArchitectureElement' || l.source_type === 'ArchitectureElement') && (
+          {archLinks.length > 0 && (
             <div
               data-testid="req-tracelink-architecture-section"
               style={{
@@ -550,20 +778,13 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                 data-testid="req-tracelink-architecture-list"
                 style={{ margin: '0', padding: '0' }}
               >
-                {links
-                  .filter((l) => l.target_type === 'ArchitectureElement' || l.source_type === 'ArchitectureElement')
+                {archLinks
                   .map((link) => {
-                    const isSource = link.source_id === requirementId;
-                    const otherId = isSource ? link.target_id : link.source_id;
-                    const backendTitle = isSource ? link.target_title : link.source_title;
-                    const localTitle =
-                      architectureElementsById[link.target_id]?.title ||
-                      architectureElementsById[link.source_id]?.title;
-                    const displayTitle =
-                      (backendTitle && backendTitle.length > 0 ? backendTitle : null) ??
-                      localTitle ??
-                      otherId.slice(0, 8);
-                    const route = getArtifactRoute('ArchitectureElement', otherId);
+                    // #416: resolve against both ids; skip links this
+                    // requirement does not actually take part in.
+                    const row = resolveLinkRow(link);
+                    if (!row) return null;
+                    const { displayTitle, route, isOutdated } = row;
 
                     return (
                       <li
@@ -592,43 +813,56 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                         >
                           {getLinkTypeLabel(link.link_type)}
                         </span>
-                        <button
-                          type="button"
-                          data-testid="req-tracelink-arch-title"
-                          onClick={() => navigate(route)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            color: 'var(--color-primary)',
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                            fontSize: 'var(--font-size-sm)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontFamily: 'inherit',
-                          }}
-                          title={displayTitle}
-                        >
-                          {displayTitle}
-                        </button>
-                        <button
-                          data-testid="req-tracelink-delete-btn"
-                          onClick={() => void handleDelete(link.id)}
-                          style={{
-                            marginLeft: 'auto',
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--color-danger)',
-                            cursor: 'pointer',
-                            fontSize: 'var(--font-size-sm)',
-                            fontWeight: 600,
-                          }}
-                          title={t('actions.delete')}
-                        >
-                          ×
-                        </button>
+                        {isOutdated ? (
+                          <OutdatedEndpointLabel
+                            displayTitle={displayTitle}
+                            testId="req-tracelink-arch-title-outdated"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            data-testid="req-tracelink-arch-title"
+                            onClick={() => navigate(route)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              color: 'var(--color-primary)',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              fontSize: 'var(--font-size-sm)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontFamily: 'inherit',
+                            }}
+                            title={displayTitle}
+                          >
+                            {displayTitle}
+                          </button>
+                        )}
+                        {canEdit && (
+                          <button
+                            data-testid="req-tracelink-delete-btn"
+                            onClick={() => setPendingDeleteLinkId(link.id)}
+                            style={{
+                              marginLeft: 'auto',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--color-danger)',
+                              cursor: 'pointer',
+                              fontSize: 'var(--font-size-sm)',
+                              fontWeight: 600,
+                            }}
+                            title={t('actions.delete')}
+                            // #741: title alone is only the last-resort fallback in
+                            // the accessible-name computation and is never surfaced on
+                            // touch — an icon-only button needs an explicit label.
+                            aria-label={t('actions.delete')}
+                          >
+                            <span aria-hidden="true">×</span>
+                          </button>
+                        )}
                       </li>
                     );
                   })}
@@ -636,14 +870,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             </div>
           )}
 
-          {/* TestCases and other artifact types flat list section */}
-          {links.some(
-            (l) =>
-              l.target_type !== 'Requirement' &&
-              l.source_type !== 'Requirement' &&
-              l.target_type !== 'ArchitectureElement' &&
-              l.source_type !== 'ArchitectureElement'
-          ) && (
+          {/* TestCases and every other linked artifact type (#416: including
+              TestCase<->Requirement links, which used to match no section). */}
+          {otherLinks.length > 0 && (
             <div data-testid="req-tracelink-other-section">
               <h5
                 style={{
@@ -659,27 +888,12 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                 data-testid="req-tracelink-other-list"
                 style={{ margin: '0', padding: '0' }}
               >
-                {links
-                  .filter(
-                    (l) =>
-                      l.target_type !== 'Requirement' &&
-                      l.source_type !== 'Requirement' &&
-                      l.target_type !== 'ArchitectureElement' &&
-                      l.source_type !== 'ArchitectureElement'
-                  )
+                {otherLinks
                   .map((link) => {
-                    const isSource = link.source_id === requirementId;
-                    const otherId = isSource ? link.target_id : link.source_id;
-                    const artifactType = isSource ? link.target_type : link.source_type;
-                    const backendTitle = isSource ? link.target_title : link.source_title;
-                    const localTitle =
-                      testCasesById[link.target_id]?.title ||
-                      testCasesById[link.source_id]?.title;
-                    const displayTitle =
-                      (backendTitle && backendTitle.length > 0 ? backendTitle : null) ??
-                      localTitle ??
-                      otherId.slice(0, 8);
-                    const route = getArtifactRoute(artifactType ?? 'Requirement', otherId);
+                    // #416: same endpoint resolution as the architecture list.
+                    const row = resolveLinkRow(link);
+                    if (!row) return null;
+                    const { displayTitle, route, isOutdated } = row;
 
                     return (
                       <li
@@ -708,43 +922,56 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                         >
                           {getLinkTypeLabel(link.link_type)}
                         </span>
-                        <button
-                          type="button"
-                          data-testid="req-tracelink-title"
-                          onClick={() => navigate(route)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            color: 'var(--color-primary)',
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                            fontSize: 'var(--font-size-sm)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontFamily: 'inherit',
-                          }}
-                          title={displayTitle}
-                        >
-                          {displayTitle}
-                        </button>
-                        <button
-                          data-testid="req-tracelink-delete-btn"
-                          onClick={() => void handleDelete(link.id)}
-                          style={{
-                            marginLeft: 'auto',
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--color-danger)',
-                            cursor: 'pointer',
-                            fontSize: 'var(--font-size-sm)',
-                            fontWeight: 600,
-                          }}
-                          title={t('actions.delete')}
-                        >
-                          ×
-                        </button>
+                        {isOutdated ? (
+                          <OutdatedEndpointLabel
+                            displayTitle={displayTitle}
+                            testId="req-tracelink-title-outdated"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            data-testid="req-tracelink-title"
+                            onClick={() => navigate(route)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              color: 'var(--color-primary)',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              fontSize: 'var(--font-size-sm)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontFamily: 'inherit',
+                            }}
+                            title={displayTitle}
+                          >
+                            {displayTitle}
+                          </button>
+                        )}
+                        {canEdit && (
+                          <button
+                            data-testid="req-tracelink-delete-btn"
+                            onClick={() => setPendingDeleteLinkId(link.id)}
+                            style={{
+                              marginLeft: 'auto',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--color-danger)',
+                              cursor: 'pointer',
+                              fontSize: 'var(--font-size-sm)',
+                              fontWeight: 600,
+                            }}
+                            title={t('actions.delete')}
+                            // #741: title alone is only the last-resort fallback in
+                            // the accessible-name computation and is never surfaced on
+                            // touch — an icon-only button needs an explicit label.
+                            aria-label={t('actions.delete')}
+                          >
+                            <span aria-hidden="true">×</span>
+                          </button>
+                        )}
                       </li>
                     );
                   })}
@@ -757,6 +984,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
       {/* Derive a new Requirement from this one, allocated to an architecture
           element — same trigger/form shell as Needs and Architecture. */}
       <div style={{ marginTop: 'var(--space-4)' }}>
+        {canEdit && (
         <DeriveRequirementForm
           isOpen={showDeriveForm}
           onOpen={openDeriveForm}
@@ -772,7 +1000,22 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           error={deriveError}
           testIdPrefix="req"
         />
+        )}
       </div>
+
+      {pendingDeleteLinkId && (
+        <ConfirmDialog
+          title={t('traceability.deleteConfirmTitle', 'TraceLink löschen')}
+          message={t(
+            'traceability.deleteConfirmMessage',
+            'Diesen TraceLink löschen? Diese Aktion kann nicht rückgängig gemacht werden.'
+          )}
+          confirmLabel={t('actions.delete', 'Löschen')}
+          onConfirm={() => void confirmDeleteLink()}
+          onCancel={() => setPendingDeleteLinkId(null)}
+          testId="req-tracelink-delete-confirm"
+        />
+      )}
     </div>
   );
 };

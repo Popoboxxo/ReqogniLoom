@@ -11,7 +11,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
@@ -211,7 +211,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
     expect(response.status()).toBe(200);
 
     // Save status should show "Saved"
-    await expect(page.locator('[data-testid="mermaid-save-status"]')).toContainText('Saved', { timeout: 5000 });
+    await expect(page.locator('[data-testid="mermaid-save-status"]')).toContainText(/Saved|Gespeichert/, { timeout: 5000 });
 
     // After save, button becomes disabled again (no more dirty state)
     await expect(page.locator('[data-testid="mermaid-save-btn"]')).toBeDisabled({ timeout: 5000 });
@@ -243,7 +243,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
     expect(response.status()).toBe(200);
 
     // After auto-save, status shows "Saved"
-    await expect(page.locator('[data-testid="mermaid-save-status"]')).toContainText('Saved', { timeout: 5000 });
+    await expect(page.locator('[data-testid="mermaid-save-status"]')).toContainText(/Saved|Gespeichert/, { timeout: 5000 });
 
     // Save button becomes disabled
     await expect(page.locator('[data-testid="mermaid-save-btn"]')).toBeDisabled({ timeout: 5000 });

@@ -77,29 +77,35 @@ export const architectureApi = {
     return apiClient.post<ArchitectureElement>("/architecture/", data);
   },
 
-  update(
-    id: UUID,
-    data: Partial<
-      Pick<
-        ArchitectureElement,
-        | "title"
-        | "description"
-        | "element_type"
-        | "parent_id"
-        | "asil_level"
-        | "make_or_buy"
-        | "custom_fields"
-      >
-    > & { change_reason?: string }
-  ): Promise<ArchitectureElement> {
+  /**
+   * Task 24 (ArchitectureElement rollout wave): widened from the former
+   * closed `Pick<...>` type to `Record<string, unknown>` — same class of
+   * change as `risksApi.update`/`issuesApi.update` — so
+   * `ArchitectureArtifactForm`'s definition-driven patch body (built from
+   * whatever the live attribute definition introspects, not a fixed field
+   * list) type-checks. Optimistic-concurrency guard (`expected_version`,
+   * Systemaudit 2026-08-27 UI-08) and `change_reason` still travel through
+   * this same untyped bag; the backend remains the source of truth for
+   * which keys are accepted.
+   */
+  update(id: UUID, data: Record<string, unknown>): Promise<ArchitectureElement> {
     return apiClient.patch<ArchitectureElement>(`/architecture/${id}/`, data);
   },
 
   /**
-   * Reparenting helper (REQ-001, Phase 2 — hierarchy tree reparenting).
-   * Shared by the edit-form parent dropdown and the tree drag&drop so
-   * both paths hit the same PATCH endpoint. `parentId = null` detaches
-   * the element and makes it a root (L0).
+   * Reparenting helper — moves an element under a new parent.
+   *
+   * Used by the Architecture tree's drag & drop (see
+   * `ArchitectureEditors.handleReparent`). The edit form's parent dropdown
+   * does NOT go through here: it submits `parent_id` together with the rest
+   * of the form in a single `update()` call. `parentId = null` detaches the
+   * element and makes it a root (L0).
+   *
+   * The backend validates the hierarchy invariants on this PATCH, but only
+   * those enabled for the workspace's rigor tier — a cycle (I1) is rejected at
+   * Standard/Extended and accepted at Minimal. Both UI entry points therefore
+   * screen for cycles before calling this (see `collectSelfAndDescendantIds`);
+   * a direct API caller is not protected.
    */
   reparent(id: UUID, parentId: UUID | null): Promise<ArchitectureElement> {
     return architectureApi.update(id, { parent_id: parentId });

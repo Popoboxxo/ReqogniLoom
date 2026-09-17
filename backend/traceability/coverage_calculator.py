@@ -35,7 +35,7 @@ from django.db import connection
 from persistence.models import Requirement, TraceLink
 from persistence.tenancy import TenantContext
 
-from traceability.exceptions import InvalidFilterError
+from traceability.exceptions import BaselineCoverageNotSupportedError, InvalidFilterError
 from traceability.types import (
     CoverageData,
     CoverageReport,
@@ -68,6 +68,8 @@ class CoverageCalculator:
         workspace_id: uuid.UUID,
         artifact_type: Optional[str] = None,
         link_type: Optional[str] = None,
+        *,
+        include_outdated: bool = False,
     ) -> CoverageReport:
         """Compute test coverage for Requirements in a workspace.
 
@@ -78,6 +80,26 @@ class CoverageCalculator:
             workspace_id: The workspace to compute coverage for.
             artifact_type: Optional artifact type filter.
             link_type: Optional link type filter (default: "verifies").
+            include_outdated: GH-443/GH-484. When False (default):
+                - soft-deleted (``status="outdated"``) Requirements are
+                  excluded from both ``total`` and ``uncovered`` — deleting a
+                  requirement must not keep dragging the coverage KPI down,
+                  and it must not reappear in the uncovered list. This
+                  mirrors the long-standing default of the sibling
+                  :meth:`get_coverage_data`.
+                - ``verifies`` links whose SOURCE TestCase is itself
+                  soft-deleted (``status="outdated"``) no longer count as
+                  coverage (GH-484). TestCase/Issue/Risk soft-delete used to
+                  hard-cascade-delete their TraceLinks, so an outdated
+                  TestCase's link was already gone by the time ``coverage()``
+                  ran; now that the cascade is gone (TraceLinks survive
+                  ``reactivate()``), this method filters them out explicitly
+                  instead, using the same criterion as
+                  :meth:`_filter_to_testcase_ids` (used by the sibling
+                  :meth:`get_coverage_data`) for consistency. Independently
+                  of this flag, a ``verifies`` link whose SOURCE is not a
+                  TestCase at all (e.g. an ADR) never counts as coverage
+                  (GH-396).
 
         Returns:
             CoverageReport with total, covered, uncovered, percentage.
@@ -91,11 +113,10 @@ class CoverageCalculator:
         effective_link_type = link_type or "verifies"
 
         # Load all Requirements in the workspace (tenant-scoped via manager)
-        requirements = list(
-            Requirement.objects.filter(
-                artifact__workspace_id=workspace_id
-            ).values("id", "artifact_id")
-        )
+        req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        requirements = list(req_qs.values("id", "artifact_id"))
+        if not include_outdated:
+            requirements = self._exclude_outdated(requirements, "Requirement")
 
         total = len(requirements)
         if total == 0:
@@ -112,6 +133,7 @@ class CoverageCalculator:
             req_artifact_ids=req_artifact_ids,
             link_type=effective_link_type,
             tenant_id=tenant_id,
+            include_outdated=include_outdated,
         )
 
         covered_req_ids = [req_id_map[aid] for aid in covered_artifact_ids if aid in req_id_map]
@@ -144,25 +166,52 @@ class CoverageCalculator:
         self,
         workspace_id: uuid.UUID,
         baseline_id: Optional[uuid.UUID] = None,
+        include_outdated: bool = False,
     ) -> CoverageData:
         """Return per-requirement test-case assignments for VCRM generation.
 
         IF-TE-INT-004: consumed by COMP-TE-004 VCRMReportGenerator.
-        ADR-L3-TE3-03: baseline_id triggers reading from Baseline snapshot
-        (currently uses live data; baseline snapshot integration is a
-        future extension — the parameter is accepted and forwarded).
+        ADR-L3-TE3-03 (GH-397): ``baseline_id`` is intentionally rejected
+        rather than silently ignored. It used to be accepted and forwarded
+        but never actually applied — this method always computed against
+        live data while the caller was led to believe it got a baseline
+        snapshot comparison. See :class:`BaselineCoverageNotSupportedError`
+        for why a partial implementation was rejected in favour of an
+        explicit error: the Baseline delta index does not capture the
+        TraceLink/TestRunResult data needed for this consistently across
+        baseline scopes (``baseline.delta_index_builder.ScopeResolver`` only
+        captures ``trace_link`` entries for ``scope="document"`` and
+        ``test_run``/``test_run_result`` entries for
+        ``scope="project"``/``"global"`` — never both for the same baseline).
+
+        Args:
+            workspace_id: The workspace to compute coverage data for.
+            baseline_id: Not supported yet — must be ``None``. Passing a
+                value raises :class:`BaselineCoverageNotSupportedError`
+                (GH-397) instead of silently falling back to live data.
+            include_outdated: When False (default), outdated Requirements are
+                excluded from ``entries`` entirely, and outdated verifying
+                TestCases are excluded from each remaining entry's
+                ``test_cases`` list. Both Requirement and TestCase mirror
+                lifecycle state via a denormalized ``status`` column (same
+                pattern as ``mcp_server.tools.cross_cutting._entity_counts``).
 
         Returns:
             CoverageData with per-requirement test-case lists.
+
+        Raises:
+            BaselineCoverageNotSupportedError: ``baseline_id`` is not None.
         """
+        if baseline_id is not None:
+            raise BaselineCoverageNotSupportedError(baseline_id)
+
         tenant_id = TenantContext.get_tenant()
 
         # Load requirements in workspace
-        requirements = list(
-            Requirement.objects.filter(
-                artifact__workspace_id=workspace_id
-            ).values("id", "artifact_id", "title")
-        )
+        req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        requirements = list(req_qs.values("id", "artifact_id", "title"))
+        if not include_outdated:
+            requirements = self._exclude_outdated(requirements, "Requirement")
 
         if not requirements:
             return CoverageData(entries=[])
@@ -183,6 +232,16 @@ class CoverageCalculator:
         }
         result_by_testcase = self._latest_testrun_status(testcase_artifact_ids)
 
+        # GH-396: a `verifies` link's SOURCE must actually be a TestCase for
+        # it to count as verification coverage — some other artifact type
+        # (e.g. an ADR) can technically create a `verifies` link pointing at
+        # a Requirement, and such a link must never show up as a covering
+        # TestCase in the VCRM. Restrict unconditionally (not just when
+        # excluding outdated ones).
+        testcase_artifact_ids = self._filter_to_testcase_ids(
+            testcase_artifact_ids, include_outdated=include_outdated
+        )
+
         # Build per-requirement test-case map. The Requirement is the link
         # TARGET and the TestCase is the SOURCE (SE `verifies` convention).
         req_testcases: dict[str, list[dict]] = {
@@ -190,9 +249,9 @@ class CoverageCalculator:
         }
         for link_info in verifies_links:
             req_art_id = link_info["req_artifact_id"]
-            if req_art_id in req_id_map:
+            tc_art_id = link_info["testcase_artifact_id"]
+            if req_art_id in req_id_map and tc_art_id in testcase_artifact_ids:
                 req_id = req_id_map[req_art_id]
-                tc_art_id = link_info["testcase_artifact_id"]
                 req_testcases[req_id].append({
                     "id": tc_art_id,
                     "result": result_by_testcase.get(tc_art_id, "Not Run"),
@@ -255,15 +314,119 @@ class CoverageCalculator:
             latest[tc_art_id] = status_labels.get(row["status"], "Not Run")
         return latest
 
+    def _exclude_outdated_testcase_ids(
+        self, testcase_artifact_ids: set[str]
+    ) -> set[str]:
+        """Filter *testcase_artifact_ids* down to non-outdated TestCases.
+
+        Task 12: TestCase's lifecycle status is resolved through
+        ``WorkflowItemState`` (the denormalized ``status`` mirror column this
+        docstring used to describe is dropped) — see
+        ``_filter_to_testcase_ids``.
+
+        Thin wrapper around :meth:`_filter_to_testcase_ids` kept for backward
+        compatibility — it is also called directly from
+        ``workflow.precondition_rules``.
+        """
+        return self._filter_to_testcase_ids(
+            testcase_artifact_ids, include_outdated=False
+        )
+
+    @staticmethod
+    def _exclude_outdated(rows: list[dict], item_type: str) -> list[dict]:
+        """Drop rows whose current state is "outdated".
+
+        Datenmodell-Konsolidierung Phase 1: resolved through WorkflowItemState
+        (batched). *rows* must each carry an ``"id"`` key (e.g. from a
+        ``.values()`` call). Task 12: the ``status`` column is dropped, so a
+        row never wired into one falls back to *item_type*'s preset initial
+        state instead (documented, reviewed data-loss tradeoff, see Task 12
+        report Finding 2); the initial state is never "outdated", so it is
+        still kept.
+        """
+        from workflow import state_reader
+
+        states = state_reader.current_states(item_type, (row["id"] for row in rows))
+        initial_state = state_reader.initial_state(item_type)
+        return [
+            row
+            for row in rows
+            if (states.get(str(row["id"])) or initial_state) != "outdated"
+        ]
+
+    def _filter_to_testcase_ids(
+        self, source_ids: set[str], *, include_outdated: bool = False
+    ) -> set[str]:
+        """Restrict *source_ids* to artifact ids that are real TestCase rows.
+
+        GH-396: the SQL behind ``coverage()``/``get_coverage_data()`` only
+        matches ``link_type``/``target_id`` — it does not check what kind of
+        artifact the link SOURCE is. Some other artifact type (e.g. an ADR)
+        can technically create a ``verifies`` link pointing at a Requirement;
+        such a link must never be counted as verification coverage
+        (ADR-L3-TE3-01: only TestCase-sourced ``verifies`` links count).
+        Querying the ``TestCase`` table for *source_ids* is both the type
+        check (non-TestCase ids simply have no matching row) and, when
+        *include_outdated* is False, the soft-delete exclusion (GH-484) in
+        one pass.
+        """
+        if not source_ids:
+            return set()
+
+        from persistence.models import TestCase
+
+        rows = list(
+            TestCase.objects.filter(artifact_id__in=source_ids).values(
+                "id", "artifact_id"
+            )
+        )
+        if include_outdated:
+            return {str(row["artifact_id"]) for row in rows}
+
+        # Datenmodell-Konsolidierung Phase 1: "outdated" is resolved through
+        # WorkflowItemState (batched). Task 12: the ``status`` column is
+        # dropped, so a TestCase never wired into one falls back to the
+        # testcase_default preset's initial state instead (documented,
+        # reviewed data-loss tradeoff, see Task 12 report Finding 2).
+        from workflow import state_reader
+
+        states = state_reader.current_states("TestCase", (row["id"] for row in rows))
+        testcase_initial_state = state_reader.initial_state("TestCase")
+        return {
+            str(row["artifact_id"])
+            for row in rows
+            if (states.get(str(row["id"])) or testcase_initial_state) != "outdated"
+        }
+
     def _get_covered_artifact_ids(
         self,
         req_artifact_ids: list[str],
         link_type: str,
         tenant_id: uuid.UUID,
+        *,
+        include_outdated: bool = False,
     ) -> set[str]:
         """Return the set of requirement artifact IDs that have a matching link.
 
         Uses raw SQL for performance with large sets (REQ-L2-TE-012).
+
+        GH-396: when *link_type* is ``"verifies"`` (the default; per
+        ADR-L3-TE3-01 the only link type that counts for test coverage), the
+        raw SQL above only matches on ``link_type``/``target_id`` — it does
+        not check what kind of artifact the link SOURCE actually is. Some
+        other artifact type (e.g. an ADR) can technically create a
+        ``verifies`` link pointing at a Requirement; such a link must never
+        count as verification coverage. The result is therefore always
+        additionally restricted to links whose source is a real TestCase
+        (:meth:`_filter_to_testcase_ids`), regardless of *include_outdated*.
+
+        GH-484: when *include_outdated* is False, links whose SOURCE
+        TestCase is itself outdated/soft-deleted are also excluded from the
+        result. TestCase soft-delete no longer hard-cascade-deletes its
+        TraceLinks, so a stale link must not keep inflating the coverage
+        percentage. Reuses :meth:`_filter_to_testcase_ids` — the same filter
+        criterion the sibling :meth:`get_coverage_data` already applies —
+        for consistency.
         """
         if not req_artifact_ids:
             return set()
@@ -275,7 +438,7 @@ class CoverageCalculator:
         # when its artifact id appears as the link TARGET, not the source.
         placeholders = ", ".join(["%s"] * len(req_artifact_ids))
         sql = f"""
-            SELECT DISTINCT target_id
+            SELECT DISTINCT source_id, target_id
             FROM pl_tracelink
             WHERE target_id IN ({placeholders})
               AND link_type = %s
@@ -287,7 +450,16 @@ class CoverageCalculator:
             cur.execute(sql, params)
             rows = cur.fetchall()
 
-        return {str(row[0]) for row in rows}
+        if link_type == "verifies":
+            source_ids = {str(row[0]) for row in rows}
+            valid_source_ids = self._filter_to_testcase_ids(
+                source_ids, include_outdated=include_outdated
+            )
+            return {
+                str(row[1]) for row in rows if str(row[0]) in valid_source_ids
+            }
+
+        return {str(row[1]) for row in rows}
 
     def _get_verifies_links_detail(
         self,

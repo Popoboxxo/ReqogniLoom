@@ -22,7 +22,7 @@ import uuid
 
 from django.db import models
 
-from persistence.models import AuditableModel
+from persistence.models import AuditableModel, TenantScopedModel
 
 
 class BackupStatus(models.TextChoices):
@@ -143,8 +143,359 @@ class BackupMetadata(AuditableModel):
         return self.status == BackupStatus.COMPLETED
 
 
+# ---------------------------------------------------------------------------
+# Theme Presets — canonical color-token vocabulary
+# ---------------------------------------------------------------------------
+
+#: The canonical set of ``--color-*`` semantic custom properties every
+#: :class:`ThemePalette` must define for BOTH modes. A palette is all-or-
+#: nothing: imports and seed data are validated against this exact set —
+#: no more, no fewer keys.
+#:
+#: Provenance: the 74 semantic tokens enumerated by the theme-presets plan
+#: (the 10 ``--color-artifacttype-*`` constants are deliberately excluded —
+#: they are theme-independent branding constants, identical in every theme
+#: block of ``tokens.css``) plus the 3 sidebar overlay tokens introduced by
+#: the sidebar hard-coded-overlay fix (``--color-nav-overlay-*``), which the
+#: plan folds into the canonical set before the seed migration is finalized.
+CANONICAL_COLOR_TOKEN_KEYS = frozenset({
+    "--color-badge-approved", "--color-badge-approved-text", "--color-badge-danger-bg",
+    "--color-badge-danger-text", "--color-badge-draft", "--color-badge-draft-text",
+    "--color-badge-info-bg", "--color-badge-info-text", "--color-badge-neutral-bg",
+    "--color-badge-neutral-text", "--color-badge-success-bg", "--color-badge-success-text",
+    "--color-badge-warning-bg", "--color-badge-warning-text", "--color-border",
+    "--color-border-hover", "--color-border-subtle", "--color-card-active-bg", "--color-danger",
+    "--color-danger-banner-bg", "--color-danger-dark", "--color-diagram-edge-default",
+    "--color-diagram-edge-dependency", "--color-diagram-edge-primary", "--color-diff-added-bg",
+    "--color-diff-added-text", "--color-diff-modified-bg", "--color-diff-modified-text",
+    "--color-diff-note-bg", "--color-diff-note-text", "--color-diff-removed-bg",
+    "--color-diff-removed-text", "--color-diff-unchanged-bg", "--color-diff-unchanged-text",
+    "--color-errorboundary-text", "--color-focus", "--color-gradient-ai-end",
+    "--color-gradient-ai-start", "--color-level-l0", "--color-level-l1", "--color-level-l3",
+    "--color-level-l4", "--color-link-hover", "--color-linktype-badge-bg",
+    "--color-linktype-badge-text", "--color-metric-critical", "--color-metric-healthy",
+    "--color-metric-neutral", "--color-metric-warning", "--color-nav-active-bg",
+    "--color-nav-badge-bg", "--color-nav-badge-text", "--color-nav-bg", "--color-nav-border",
+    "--color-nav-hover-bg", "--color-nav-text", "--color-nav-text-muted", "--color-on-primary",
+    "--color-primary", "--color-primary-dark", "--color-primary-rgb", "--color-reqtype-default",
+    "--color-reqtype-featurereq", "--color-reqtype-syreq", "--color-reqtype-usecase",
+    "--color-success", "--color-summary-failed", "--color-summary-notrun", "--color-summary-passed",
+    "--color-surface", "--color-surface-raised", "--color-text", "--color-text-muted", "--color-warning",
+    # Sidebar overlay tokens (theme-agnostic hover tints / shadows):
+    "--color-nav-overlay-hover",
+    "--color-nav-overlay-hover-border",
+    "--color-nav-overlay-shadow",
+})
+
+#: Version tag stored on every palette row so a future token-vocabulary
+#: extension can detect (and migrate) palettes written against an older set.
+TOKEN_KEYS_VERSION = "v1"
+
+
+class BannerScope(models.TextChoices):
+    """Which surface a :class:`Banner` targets."""
+
+    GLOBAL = "global", "Global"
+    WORKSPACE = "workspace", "Workspace"
+
+
+class BannerLevel(models.TextChoices):
+    """Visual/semantic severity of a :class:`Banner`."""
+
+    NEUTRAL = "neutral", "Neutral"
+    INFO = "info", "Info"
+    WARNING = "warning", "Warning"
+    CRITICAL = "critical", "Critical"
+
+
+class Banner(TenantScopedModel):
+    """A dismissible, Markdown announcement banner (System/Workspace Banners).
+
+    Exactly one row exists per scope instance: one ``scope="global"`` row per
+    tenant, one ``scope="workspace"`` row per workspace — enforced by the two
+    partial unique constraints below, not by application logic alone. Callers
+    always write through :meth:`BannerService.upsert_global_banner` /
+    :meth:`~BannerService.upsert_workspace_banner`, which use
+    ``update_or_create`` so an edit overwrites the existing row instead of
+    creating a second one.
+
+    ``workspace`` is NULL iff ``scope == "global"`` — enforced by
+    ``ck_banner_workspace_matches_scope``.
+    """
+
+    scope = models.CharField(max_length=16, choices=BannerScope.choices)
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="banner",
+    )
+    level = models.CharField(
+        max_length=16, choices=BannerLevel.choices, default=BannerLevel.NEUTRAL
+    )
+    message = models.TextField(blank=True, default="", help_text="Markdown source.")
+    enabled = models.BooleanField(default=False)
+    dismissible = models.BooleanField(
+        default=True,
+        help_text=(
+            "Whether end users may close the banner (until next login). "
+            "A real, independently-editable field — never hardcoded by level."
+        ),
+    )
+    show_on_login_page = models.BooleanField(
+        default=False,
+        help_text="Ignored unless scope == 'global' — the login page has no workspace context.",
+    )
+
+    class Meta:
+        db_table = "admin_ops_banner"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=models.Q(scope=BannerScope.GLOBAL),
+                name="uq_banner_one_global_per_tenant",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace"],
+                condition=models.Q(scope=BannerScope.WORKSPACE),
+                name="uq_banner_one_per_workspace",
+            ),
+            # ``condition=`` (not ``check=``): Django 5.1 renamed the kwarg,
+            # 5.2 emitted RemovedInDjango60Warning for the old spelling and 6.0
+            # removed it outright (constructing the model raised
+            # ``TypeError: CheckConstraint.__init__() got an unexpected keyword
+            # argument 'check'`` at import time). Purely a rename — since 5.1
+            # both kwargs populate the same ``condition`` attribute and
+            # ``deconstruct()`` emits ``condition`` either way, so the migration
+            # state and the generated CHECK SQL are unchanged. Mirrors the same
+            # fix already applied in persistence/models.py.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(scope=BannerScope.GLOBAL, workspace__isnull=True)
+                    | models.Q(scope=BannerScope.WORKSPACE, workspace__isnull=False)
+                ),
+                name="ck_banner_workspace_matches_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"Banner({self.scope}, level={self.level}, enabled={self.enabled})"
+
+
+class ThemePalette(TenantScopedModel):
+    """A named color palette with a complete token set for dark AND light mode.
+
+    Theme Presets feature: replaces the flat 5-entry ``THEMES`` list in the
+    frontend with two independent axes (palette x mode). Every row carries
+    BOTH modes' full ``--color-*`` maps (exactly
+    :data:`CANONICAL_COLOR_TOKEN_KEYS` — no partial palettes); the frontend
+    applies the resolved mode's map onto ``document.documentElement`` via
+    inline custom properties at runtime.
+
+    ``is_system=True`` rows are the seeded stock palettes ("default",
+    "bauhaus", "nordic", "sepia") and are read-only at the REST layer —
+    PATCH/DELETE always answer 403, regardless of role. Custom palettes are
+    imported by System-Admins only.
+    """
+
+    key = models.CharField(max_length=64)
+    label = models.CharField(max_length=128)
+    is_system = models.BooleanField(default=False)
+    dark_tokens = models.JSONField()
+    light_tokens = models.JSONField()
+    token_keys_version = models.CharField(max_length=16, default=TOKEN_KEYS_VERSION)
+
+    class Meta:
+        db_table = "admin_ops_theme_palette"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "key"], name="uq_theme_palette_tenant_key"
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"ThemePalette({self.key}, system={self.is_system})"
+
+
+# ---------------------------------------------------------------------------
+# Theme Presets — per-user preference and tenant-wide default
+# ---------------------------------------------------------------------------
+
+MODE_DARK = "dark"
+MODE_LIGHT = "light"
+MODE_CHOICES = ((MODE_DARK, "Dark"), (MODE_LIGHT, "Light"))
+
+
+class UserThemePreference(TenantScopedModel):
+    """A user's personal theme choice: one row per user (OneToOne).
+
+    Resolution order in the frontend: user preference > tenant default >
+    built-in fallback ("default"/dark). The palette/mode pair is stored
+    denormalized as plain strings so a deleted custom palette degrades to a
+    frontend-side fallback instead of cascading anywhere.
+    """
+
+    user = models.OneToOneField(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="theme_preference",
+    )
+    palette_key = models.CharField(max_length=64)
+    mode = models.CharField(max_length=8, choices=MODE_CHOICES)
+
+    class Meta:
+        db_table = "admin_ops_user_theme_preference"
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"UserThemePreference(user={self.user_id}, {self.palette_key}/{self.mode})"
+
+
+class TenantThemeDefault(TenantScopedModel):
+    """The tenant-wide default theme, set by a System-Admin.
+
+    Exactly one row per tenant — enforced by the unique constraint below,
+    same shape as ``Banner``'s global-scope uniqueness. Writers use
+    ``update_or_create`` so an edit overwrites the existing row.
+    """
+
+    palette_key = models.CharField(max_length=64)
+    mode = models.CharField(max_length=8, choices=MODE_CHOICES)
+
+    class Meta:
+        db_table = "admin_ops_tenant_theme_default"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"], name="uq_tenant_theme_default_one_per_tenant"
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"TenantThemeDefault(tenant={self.tenant_id}, {self.palette_key}/{self.mode})"
+
+
+# ---------------------------------------------------------------------------
+# Runtime-configurable rate limits (GitHub #944)
+#
+# The REST/MCP throttle ceilings used to be operator-tunable only through
+# environment variables read once at process start. These two models add the
+# missing runtime layer, mirroring the memory-settings precedent
+# (``memory.models.SystemMemorySettings`` for a process-wide singleton,
+# ``WorkspaceMemorySettings`` for the scoped override):
+#
+# * :class:`SystemRateLimitOverride` — an optional deployment-wide default.
+# * :class:`RateLimitOverride` — the per-tenant override.
+#
+# Precedence at resolution time (``admin_ops.rate_limits.resolve_rate``):
+#
+#     tenant override  >  global override  >  settings/env  >  disabled
+#
+# A stored empty ``rate``/scope value means "explicitly disabled"; an absent
+# row means "no override, fall through". The distinction matters because an
+# operator must be able to turn a limit OFF at runtime without deleting data
+# that is also the documentation of what the limit used to be.
+# ---------------------------------------------------------------------------
+
+#: Singleton primary key of :class:`SystemRateLimitOverride` — mirrors
+#: ``memory.models.SYSTEM_MEMORY_SETTINGS_ID``.
+SYSTEM_RATE_LIMIT_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
+
+
+class SystemRateLimitOverride(AuditableModel):
+    """Deployment-wide runtime override of the throttle ceilings (GitHub #944).
+
+    Deliberately **not** a ``TenantScopedModel``: it is the *global* default an
+    operator sets once for the whole installation, and it is also the only
+    override the MCP transport can honour — ``mcp_server.throttling`` runs
+    *before* authentication on purpose (a throttle that fires after the
+    expensive work bounds nothing), so no tenant is known at that point.
+
+    Singleton enforced by ``save()`` always forcing the same primary key, the
+    same shape as ``SystemMemorySettings``. ``scopes`` maps a throttle scope
+    name (``"user"``, ``"mcp_key"``, ...) to a DRF ``"<count>/<period>"`` rate;
+    an empty string disables that scope. Unknown keys are ignored at resolution
+    time rather than rejected here, so a scope removed from the code later does
+    not make the row unreadable.
+    """
+
+    scopes = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Throttle scope -> DRF rate string, e.g. {'user': '600/min'}. "
+            "An empty string disables that scope deployment-wide."
+        ),
+    )
+
+    class Meta:
+        db_table = "admin_ops_system_rate_limit_override"
+
+    def save(self, *args, **kwargs) -> None:
+        self.pk = SYSTEM_RATE_LIMIT_ID
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"SystemRateLimitOverride({len(self.scopes or {})} scopes)"
+
+
+class RateLimitOverride(TenantScopedModel):
+    """Per-tenant runtime override of a single throttle scope (GitHub #944).
+
+    One row per ``(tenant, scope)`` — enforced by the unique constraint below,
+    not by application logic alone. Writers always go through
+    :class:`~admin_ops.services.rate_limit_service.RateLimitService`, which
+    uses ``update_or_create`` so an edit overwrites instead of duplicating.
+
+    ``rate`` follows DRF's ``"<count>/<period>"`` syntax. An **empty** value is
+    a deliberate "this scope is unlimited for this tenant", which is a
+    different statement from "no row exists" (→ fall back to the global
+    override, then to settings) — hence ``blank=True`` rather than a nullable
+    column: the row's existence is the override, the value is the limit.
+    """
+
+    scope = models.CharField(
+        max_length=32,
+        help_text="Throttle scope name, e.g. 'user', 'mcp_key'.",
+    )
+    rate = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "DRF rate string ('600/min'). Empty = unlimited for this tenant. "
+            "Absent row = fall through to the global override / settings."
+        ),
+    )
+
+    class Meta:
+        db_table = "admin_ops_rate_limit_override"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "scope"],
+                name="uq_rate_limit_override_tenant_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"RateLimitOverride(tenant={self.tenant_id}, {self.scope}={self.rate!r})"
+
+
 __all__ = [
     "BackupMetadata",
     "BackupStatus",
     "BackupType",
+    "Banner",
+    "BannerScope",
+    "BannerLevel",
+    "CANONICAL_COLOR_TOKEN_KEYS",
+    "MODE_CHOICES",
+    "MODE_DARK",
+    "MODE_LIGHT",
+    "RateLimitOverride",
+    "SYSTEM_RATE_LIMIT_ID",
+    "SystemRateLimitOverride",
+    "TOKEN_KEYS_VERSION",
+    "TenantThemeDefault",
+    "ThemePalette",
+    "UserThemePreference",
 ]

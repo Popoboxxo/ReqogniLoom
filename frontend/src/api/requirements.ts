@@ -62,14 +62,30 @@ export interface WorkflowHistoryEntry {
   sealed: boolean;
 }
 
+/**
+ * GH-443: opt-in to soft-deleted requirements. DELETE is a soft-delete — the
+ * requirement survives with `status === "outdated"` — and the list endpoint
+ * hides those by default, so without this flag a deleted requirement is
+ * unreachable from the UI and the status filter can never offer "outdated".
+ */
+export interface RequirementListOptions {
+  includeDeleted?: boolean;
+}
+
 export const requirementsApi = {
   /**
    * REQ-144: optional `status` filters the list by the WorkflowEngine
    * lifecycle mirror (e.g. "in_review" for the review queue).
+   * GH-443: `status: "outdated"` implies `includeDeleted` server-side.
    */
-  list(workspaceId: UUID, status?: string): Promise<PaginatedResponse<Requirement>> {
+  list(
+    workspaceId: UUID,
+    status?: string,
+    options?: RequirementListOptions,
+  ): Promise<PaginatedResponse<Requirement>> {
     const params: Record<string, string> = { workspace_id: workspaceId };
     if (status) params.status = status;
+    if (options?.includeDeleted) params.include_deleted = "true";
     return getList<Requirement>("/requirements/", params);
   },
 
@@ -77,13 +93,18 @@ export const requirementsApi = {
    * Fetch all requirements for a workspace, following pagination links until
    * exhaustion. Use this when the full list is needed (e.g. dropdowns).
    */
-  async listAll(workspaceId: UUID): Promise<Requirement[]> {
+  async listAll(
+    workspaceId: UUID,
+    options?: RequirementListOptions,
+  ): Promise<Requirement[]> {
     const seen = new Set<UUID>();
     const all: Requirement[] = [];
-    let resp = await getList<Requirement>("/requirements/", {
+    const firstPageParams: Record<string, string> = {
       workspace_id: workspaceId,
       page_size: "100",
-    });
+    };
+    if (options?.includeDeleted) firstPageParams.include_deleted = "true";
+    let resp = await getList<Requirement>("/requirements/", firstPageParams);
     for (const r of resp.results) {
       if (!seen.has(r.id)) {
         seen.add(r.id);
@@ -118,23 +139,55 @@ export const requirementsApi = {
     return apiClient.get<Requirement>(`/requirements/${id}/`);
   },
 
-  create(data: {
+  // Definition-driven create carries core attributes at the top level and
+  // extended attributes (including actor objects) in the custom_fields bag.
+  create(data: Record<string, unknown> & {
     workspace_id: UUID;
     title: string;
-    description?: string;
-    category?: string;
-    custom_fields?: Requirement["custom_fields"];
+    custom_fields?: Record<string, unknown>;
   }): Promise<Requirement> {
     return apiClient.post<Requirement>("/requirements/", data);
   },
 
   // REQ-143: `status` is intentionally NOT part of the update contract — it is
   // a read-only WorkflowEngine mirror. Use `transition()` to change the state.
+  //
+  // Task 25 (rollout wave 3): widened from a fixed `Partial<Pick<Requirement,
+  // ...>>` to `Record<string, unknown>`, same deviation as `risksApi.update`/
+  // `issuesApi.update`/`stakeholderNeedApi.update` (Tasks 19/20/23). The
+  // payload now comes from `ArtifactForm` (`RequirementArtifactForm`'s
+  // `formValuesToRequirementPatch`), a generic definition-driven value bag
+  // whose keys are whatever the resolved attribute definition currently
+  // lists (e.g. `acceptance_criteria`, `level`, neither of which the old
+  // fixed Pick declared), not a fixed compile-time-known set — the backend's
+  // own per-field 400s remain the actual validation authority (see
+  // `RequirementViewSet.partial_update` / `_validate_patch_payload`).
+  //
+  // GH-868 / bundle #923: `expectedVersion` is the `version` the caller last
+  // read (the detail GET's `requirement.version`). It is sent as the
+  // `If-Match` precondition, so the backend compares it inside its row-locked
+  // transaction and answers `412 PRECONDITION_FAILED` when another session
+  // changed the requirement in the meantime — a lost update becomes a visible
+  // failure instead of a silent overwrite. Omitting it keeps last-writer-wins.
+  //
+  // The tag is `"<version>"` because that is exactly the `ETag` the backend
+  // issues (`rest_api.mixins.etag.compute_etag`), so no extra GET (and no
+  // CORS-exposed response header) is needed to obtain it. Should that format
+  // ever drift, the failure direction is a 412 and a lost save — never a
+  // silent overwrite.
   update(
     id: UUID,
-    data: Partial<Pick<Requirement, "title" | "description" | "category" | "change_reason" | "type" | "moscow_priority" | "complexity_fibonacci" | "verification_method" | "custom_fields">>
+    data: Record<string, unknown>,
+    expectedVersion?: number
   ): Promise<Requirement> {
-    return apiClient.patch<Requirement>(`/requirements/${id}/`, data);
+    return apiClient.patch<Requirement>(
+      `/requirements/${id}/`,
+      data,
+      undefined,
+      expectedVersion !== undefined
+        ? { "If-Match": `"${expectedVersion}"` }
+        : undefined
+    );
   },
 
   /** REQ-143: GET the current workflow state and allowed next transitions. */
@@ -172,8 +225,29 @@ export const requirementsApi = {
     );
   },
 
-  delete(id: UUID): Promise<void> {
-    return apiClient.delete(`/requirements/${id}/`);
+  /**
+   * GH-443: soft-delete. The requirement is NOT removed — it moves to
+   * `status === "outdated"`, disappears from the default list, and stays
+   * retrievable via `get(id)` and restorable via {@link reactivate}.
+   *
+   * Issue #811: `changeReason` is mandatory when the workspace preset
+   * requires it (extended preset, `PresetPolicyService.is_change_reason_required`,
+   * enforced server-side on delete too — see `RequirementService.delete_requirement`).
+   * Without it the request 400s with "change_reason is required by preset
+   * policy." — the caller must surface that failure, not swallow it.
+   */
+  delete(id: UUID, changeReason?: string): Promise<void> {
+    return apiClient.delete(`/requirements/${id}/`, {
+      change_reason: changeReason ?? "",
+    });
+  },
+
+  /** GH-443: undo a soft-delete — restores the pre-delete workflow state. */
+  reactivate(id: UUID): Promise<RequirementTransitionResult> {
+    return apiClient.post<RequirementTransitionResult>(
+      `/requirements/${id}/reactivate/`,
+      {},
+    );
   },
 
   diff(id: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {
@@ -202,6 +276,11 @@ export const requirementsApi = {
    * Calls POST /api/v1/requirements/{id}/decompose-next-level/ which returns
    * proposed child requirement drafts without persisting them (Draft/Accept
    * pattern, REQ-L2-AI-001). Requires at least one allocated-to arch element.
+   *
+   * Issue #311: `note` is present only when `drafts` came back empty and
+   * carries the backend's (English) explanation of why. The UI shows its own
+   * localised message instead; the field exists for API/MCP consumers and for
+   * diagnostics.
    */
   aiDecomposeNextLevel(
     id: UUID
@@ -213,6 +292,7 @@ export const requirementsApi = {
       suggested_arch_element_id: string | null;
     }>;
     parent_requirement_id: string;
+    note?: string;
   }> {
     return apiClient.post(
       `/requirements/${id}/decompose-next-level/`,

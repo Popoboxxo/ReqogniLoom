@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
@@ -68,7 +69,7 @@ VIEWER_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
-VALID_API_KEY = "rf_admin_test_key"
+VALID_API_KEY = "reqlo_admin_test_key"
 BACKUP_UUID = UUID("00000000-0000-0000-0000-000000000099")
 
 
@@ -603,22 +604,33 @@ def _build_registry(*, roles=("admin",), backup=None, restore=None):
 
 
 def _post(handler: ProtocolHandler, method: str, params: dict, request_id: int = 1, *, api_key: str = VALID_API_KEY):
-    """Build a JSON-RPC body and run it through ProtocolHandler."""
-    payload = {"api_key": api_key}
-    payload.update(params)
+    """Build a JSON-RPC body and run it through ProtocolHandler.
+
+    The key is supplied via the ``Authorization`` header, not the JSON-RPC
+    body: the HTTP transport no longer honours ``params.api_key`` (D-1 /
+    REQ-018 — see TestApiKeyTransportRestriction in test_protocol_handler.py).
+    """
     body = json.dumps({
         "jsonrpc": "2.0",
         "method": method,
         "id": request_id,
-        "params": payload,
+        "params": params,
     }).encode()
-    return handler.handle_http_request(body=body)
+    headers = {"HTTP_AUTHORIZATION": f"Bearer {api_key}"}
+    return handler.handle_http_request(body=body, headers=headers)
 
 
 def _handler(registry: ToolRegistry) -> ProtocolHandler:
     return ProtocolHandler(tool_registry=registry)
 
 
+# ``django_db``: these E2E classes drive the real
+# ``ToolRegistry.dispatch_request``, which arms the PostgreSQL RLS session
+# variable via ``persistence.middleware.set_request_tenant`` (``SET
+# app.current_tenant``, COMP-PL-006 / fix #110) and resets it in the
+# ``finally``. That is a real DB round-trip on the production path, so the
+# tests need DB access even though every collaborator below is mocked.
+@pytest.mark.django_db
 class TestE2EAdminBackupCreate:
     @patch("mcp_server.tools.backup.write_mcp_audit")
     def test_successful_create_returns_jsonrpc_result_envelope(self, mock_audit):
@@ -657,13 +669,14 @@ class TestE2EAdminBackupCreate:
         auth_svc.validate_api_key.side_effect = AuthenticationFailed("invalid_api_key")
         handler = _handler(registry)
 
-        response = _post(handler, "admin.backup_create", {}, api_key="rf_bad_key")
+        response = _post(handler, "admin.backup_create", {}, api_key="reqlo_bad_key")
 
         assert "error" in response
         assert response["error"]["code"] == ERROR_CODE_MAP["AUTH_FAILED"]
         backup.create_backup.assert_not_called()
 
 
+@pytest.mark.django_db
 class TestE2EAdminRestore:
     @patch("mcp_server.tools.backup.write_mcp_audit")
     def test_successful_restore_with_correct_captcha(self, mock_audit):

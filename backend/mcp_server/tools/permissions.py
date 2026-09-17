@@ -19,14 +19,29 @@ Architecture:
   group that handles it. The registry's prefix-based router (ADR-L3-MC002-03)
   dispatches any ``permissions.<x>`` tool to this group via the
   ``"permissions"`` prefix registered in ``tool_registry._ensure_groups``.
-* All four handlers delegate to the existing :class:`ItemPermissionService`
-  (the same service the REST adapter uses) and never duplicate the business
-  logic. The MCP wrapper adds parameter validation, error mapping and the
-  MCP-specific audit entry on write tools.
+* All four handlers delegate to Layer-2 ``application/`` services (the same
+  services the REST adapter uses) and never duplicate the business logic. The
+  MCP wrapper adds parameter validation, error mapping and the MCP-specific
+  audit entry on write tools: ``set_rule`` / ``list`` / ``revoke`` go to
+  :class:`ItemPermissionService`, and ``check`` goes to
+  :class:`~application.effective_permission_service.EffectivePermissionService`
+  (COMP-AS-022, ADR-01), which owns the RBAC/item-layer combination.
 * The ``check`` tool is read-only and is callable by any authenticated
   caller; it does NOT require the admin role. The other three tools
   require admin (the service enforces the gate via
   ``ServiceBase._assert_permission(ctx, "admin")``).
+* ``check`` reports the caller's effective permission over TWO layers
+  (fix #716): the base RBAC matrix
+  (:class:`~auth_tenancy.services.AuthorizationService`) and the item-level
+  override (:class:`ItemPermissionService`). Previously it answered using
+  ONLY the item-level layer, which closed-world-defaults to "deny" when no
+  explicit :class:`~auth_tenancy.models.ItemPermission` row exists — making
+  a plain Viewer with zero item-level rules look permanently denied even
+  though the RBAC matrix already grants them ``read``.
+* The merge itself lives in the Layer-2 service (issue #722, Finding 2) and
+  discriminates "RBAC alone decides" from "an item rule restricts further"
+  via the structural ``PermissionDecision.has_explicit_rule`` flag — never
+  via the human-readable reason text (issue #722, Finding 1).
 * ``set_rule`` and ``revoke`` are added to ``_WRITE_TOOL_PREFIXES`` in
   ``tool_registry`` so the RBAC layer treats them as writes.
 
@@ -50,12 +65,18 @@ from application.base import (
 )
 
 from auth_tenancy.models import ItemPermission
-from auth_tenancy.services import ItemPermissionService
+from auth_tenancy.services import (
+    AuthorizationService,
+    ItemPermissionService,
+)
+
+from application.effective_permission_service import EffectivePermissionService
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
+    mcp_audit_handoff,
     optional_uuid,
     require_uuid,
     write_mcp_audit,
@@ -144,8 +165,20 @@ class PermissionsToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "UUID of the permission row to delete.",
                     },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the workspace the permission row belongs to. "
+                            "Required so the admin-role check is narrowed to this "
+                            "workspace specifically (ToolRegistry resolves "
+                            "workspace-scoped roles from this param) — without it "
+                            "the check falls back to a tenant-wide role aggregate, "
+                            "letting an admin of any one workspace revoke rules in "
+                            "any other workspace of the same tenant."
+                        ),
+                    },
                 },
-                "required": ["permission_id"],
+                "required": ["permission_id", "workspace_id"],
             },
         },
         {
@@ -170,8 +203,27 @@ class PermissionsToolGroup(BaseToolGroup):
         },
     ]
 
-    def __init__(self, service: Optional[ItemPermissionService] = None) -> None:
+    def __init__(
+        self,
+        service: Optional[ItemPermissionService] = None,
+        authz_service: Optional[AuthorizationService] = None,
+    ) -> None:
         self._service = service or ItemPermissionService()
+        self._authz_service = authz_service or AuthorizationService()
+
+    def _effective_permissions(self) -> EffectivePermissionService:
+        """Return the Layer-2 resolver bound to the current collaborators.
+
+        Built per call on purpose: both collaborators are stateless, and
+        :class:`~mcp_server.tool_registry.ToolRegistry` / tests swap
+        ``_service`` / ``_authz_service`` on an already-constructed group, so
+        the resolver must read them at call time rather than capture them in
+        ``__init__``.
+        """
+        return EffectivePermissionService(
+            item_permission_service=self._service,
+            authz_service=self._authz_service,
+        )
 
     # ------------------------------------------------------------------
     # permissions.set_rule (write)
@@ -201,14 +253,18 @@ class PermissionsToolGroup(BaseToolGroup):
         artifact_id = optional_uuid(params, "artifact_id")
 
         try:
-            permission = self._service.grant_permission(
-                auth_context,
-                user_id=user_id,
-                workspace_id=workspace_id,
-                artifact_id=artifact_id,
-                level=level.strip().lower(),
-                granted_by_user_id=auth_context.user_id,
-            )
+            # Codeberg #313: suppress grant_permission's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                permission = self._service.grant_permission(
+                    auth_context,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    artifact_id=artifact_id,
+                    level=level.strip().lower(),
+                    granted_by_user_id=auth_context.user_id,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -283,17 +339,30 @@ class PermissionsToolGroup(BaseToolGroup):
 
         Required params:
             permission_id: UUID of the row to delete.
+            workspace_id: UUID of the workspace the row belongs to — also
+                narrows the admin-role check to that workspace (see the
+                schema's own description for why this is security-relevant,
+                not just a filter convenience).
 
         Note: like the REST adapter, the service signature uses a
         (user, workspace, artifact) triple. We look up the row here by id
-        (under the unscoped manager) and forward the triple, so the
-        service signature stays RBAC-clean.
+        (under the unscoped manager, explicitly filtered by tenant AND the
+        caller-supplied workspace_id — code review finding: previously
+        neither filter was applied, so this lookup could return another
+        tenant's row entirely, in addition to the workspace-scoping gap
+        described above) and forward the triple, so the service signature
+        stays RBAC-clean.
         """
         permission_id = require_uuid(params, "permission_id")
+        workspace_id = require_uuid(params, "workspace_id")
 
         perm = (
             ItemPermission.unscoped
-            .filter(id=permission_id)
+            .filter(
+                id=permission_id,
+                tenant_id=auth_context.tenant_id,
+                workspace_id=workspace_id,
+            )
             .first()
         )
         if perm is None:
@@ -303,12 +372,16 @@ class PermissionsToolGroup(BaseToolGroup):
             )
 
         try:
-            deleted = self._service.revoke_permission(
-                auth_context,
-                user_id=perm.user_id,
-                workspace_id=perm.workspace_id,
-                artifact_id=perm.artifact_id,
-            )
+            # Codeberg #313: suppress revoke_permission's single internal
+            # _audit() call for the same entity — write_mcp_audit below is
+            # the sole entry.
+            with mcp_audit_handoff():
+                deleted = self._service.revoke_permission(
+                    auth_context,
+                    user_id=perm.user_id,
+                    workspace_id=perm.workspace_id,
+                    artifact_id=perm.artifact_id,
+                )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
@@ -358,6 +431,14 @@ class PermissionsToolGroup(BaseToolGroup):
         Optional:
             artifact_id: UUID of the specific artifact; omit for a
                 workspace-wide check.
+
+        Fix #716: the effective decision combines two layers instead of
+        answering from the item-level layer alone. Issue #722 moved the
+        combination into the Layer-2
+        :class:`~application.effective_permission_service.EffectivePermissionService`
+        (ADR-01) — this handler only validates the MCP parameters, delegates
+        and serialises the answer, so a future REST endpoint reuses the same
+        rule instead of re-implementing it.
         """
         workspace_id = require_uuid(params, "workspace_id")
         level_raw = params.get("permission_level")
@@ -374,31 +455,26 @@ class PermissionsToolGroup(BaseToolGroup):
         artifact_id = optional_uuid(params, "artifact_id")
 
         try:
-            decision = self._service.check_permission(
+            effective = self._effective_permissions().resolve_effective_permission(
+                active_roles=auth_context.active_roles,
                 user_id=auth_context.user_id,
                 workspace_id=workspace_id,
                 artifact_id=artifact_id,
+                level=level,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except (ValidationError, ValueError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
-        # "is_allowed" semantics: True iff the effective decision is at
-        # least as strong as the queried level. write >= read >= deny.
-        is_allowed = (
-            decision.level == level
-            or (level == "read" and decision.level == "write")
-        )
-
         return ToolResult.ok(
             {
                 "decision": {
-                    "level": decision.level,
-                    "reason": decision.reason,
-                    "is_allowed": is_allowed,
+                    "level": effective.level,
+                    "reason": effective.reason,
+                    "is_allowed": effective.is_allowed,
                 },
-                "queried_level": level,
+                "queried_level": effective.queried_level,
             }
         )
 

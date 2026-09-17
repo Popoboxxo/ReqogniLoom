@@ -14,17 +14,20 @@
  */
 
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import "../i18n/index";
+import { i18n } from "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules
 // ---------------------------------------------------------------------------
 
-vi.mock("../api/client", () => ({
+vi.mock("../api/client", async (importActual) => ({
+  ...(await importActual<typeof import("../api/client")>()),
   getList: vi.fn().mockResolvedValue({ results: [], count: 0 }),
   extractErrorMessage: vi.fn().mockReturnValue("Error"),
   setAuthToken: vi.fn(),
@@ -65,6 +68,7 @@ vi.mock("../api/architecture", () => ({
     update: vi.fn(),
     delete: vi.fn(),
     get: vi.fn(),
+    reparent: vi.fn(),
     versions: vi.fn().mockResolvedValue([]),
     diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
   },
@@ -76,6 +80,10 @@ vi.mock("../api/tracelinks", () => ({
     listForArtifact: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
+    // <TraceSpine> composes the derivation chain from two neighbourhood
+    // queries (UI concept ch. 5). Empty results are the correct fixture
+    // here: this spec is about the editor fields, not about the chain.
+    impact: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -87,13 +95,63 @@ vi.mock("../api/requirements", () => ({
   },
 }));
 
+// Task 23 (traceability-semantik): CreateTraceLinkDialog (mounted inside
+// TraceLinkPanel, which this tree pulls in transitively) now reads the
+// link-type catalog via useLinkTypes() — needs a provider-free mock here,
+// same as every other non-dialog-focused test that renders it incidentally.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
+// Task 24 (attribute-definition): ArchitectureEditors now renders
+// ArchitectureArtifactForm, which resolves its field set from the
+// attribute-definition API instead of hardcoding fields. Without this mock
+// the generic `apiClient.get` stub above resolves to `{}` (no `.attributes`),
+// so the form renders zero fields — every test below that looks for a form
+// field would fail for a reason unrelated to what it is testing. Shape
+// mirrors a real bootstrapped ArchitectureElement definition
+// (`introspect_core_attributes`, live-verified via the Task 24 implementer
+// report).
+vi.mock("../api/attribute-definitions", () => ({
+  attributeDefinitionsApi: { getWorkspace: vi.fn() },
+}));
+
 // Must import AFTER vi.mock
 import ArchitectureEditors from "../components/ArchitectureEditors/ArchitectureEditors";
 import { architectureApi } from "../api/architecture";
 import { tracelinksApi } from "../api/tracelinks";
 import { requirementsApi } from "../api/requirements";
+import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
+import { ThemeProvider } from "../context/ThemeContext";
+
+// jsdom in this test runtime does not provide window.localStorage (Node's
+// --localstorage-file experimental flag is not set), which ThemeProvider
+// (now a WorkspaceProvider dependency, #568 phase 1) reads synchronously on
+// mount. Polyfill a minimal in-memory implementation so it does not throw.
+function installLocalStorageStub(): void {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
+installLocalStorageStub();
 
 // ---------------------------------------------------------------------------
 // Mock data
@@ -108,6 +166,29 @@ const MOCK_ELEMENT = {
   version: 1,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+};
+
+// Task 24: minimal-but-realistic ArchitectureElement attribute definition
+// (subset of `introspect_core_attributes("ArchitectureElement", "standard")`,
+// live-verified) — just enough for ArchitectureArtifactForm to render the
+// fields these tests assert on.
+function archAttr(over: Record<string, unknown>) {
+  return {
+    kind: "core", widget_key: null, fields: [], options: [], required: false,
+    visible: true, locked: false, editable: true, section: "general", order: 1,
+    label: { de: "", en: "" }, help_text: { de: "", en: "" }, default: null,
+    validation: {}, ai_elicit: false, export: true, audience: "basic", ...over,
+  };
+}
+const ARCH_DEFINITION = {
+  item_type: "ArchitectureElement",
+  preset: "standard",
+  is_customized: false,
+  version: 1,
+  attributes: [
+    archAttr({ name: "title", type: "text", required: true, order: 1 }),
+    archAttr({ name: "element_type", type: "text", order: 2 }),
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -127,12 +208,14 @@ function renderEditor(elementId?: string): ReturnType<typeof render> {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <AuthProvider>
-          <WorkspaceProvider>
-            <Routes>
-              <Route path="/architecture" element={<ArchitectureEditors />} />
-              <Route path="/architecture/:id" element={<ArchitectureEditors />} />
-            </Routes>
-          </WorkspaceProvider>
+          <ThemeProvider>
+            <WorkspaceProvider>
+              <Routes>
+                <Route path="/architecture" element={<ArchitectureEditors />} />
+                <Route path="/architecture/:id" element={<ArchitectureEditors />} />
+              </Routes>
+            </WorkspaceProvider>
+          </ThemeProvider>
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
@@ -169,6 +252,7 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
 
     vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT);
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockResolvedValue(ARCH_DEFINITION as any);
 
     vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
       count: 0,
@@ -191,21 +275,21 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
 
     await waitFor(() => {
       // Title field
-      expect(screen.getByTestId("arch-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
       // Element-type autocomplete input (REQ-006 / D5: free text, not a fixed dropdown)
-      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-element_type")).toBeInTheDocument();
       // Save button
-      expect(screen.getByTestId("arch-save-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-form-save")).toBeInTheDocument();
       // Delete button
-      expect(screen.getByTestId("arch-delete-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-form-delete")).toBeInTheDocument();
     });
 
     // Title field should display mock element title
-    const titleInput = screen.getByTestId("arch-title") as HTMLInputElement;
+    const titleInput = screen.getByTestId("artifact-field-title") as HTMLInputElement;
     expect(titleInput.value).toBe("AuthService");
 
     // Element type should be set to "component"
-    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    const typeInput = screen.getByTestId("artifact-field-element_type") as HTMLInputElement;
     expect(typeInput.value).toBe("component");
   });
 
@@ -214,10 +298,10 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-element_type")).toBeInTheDocument();
     });
 
-    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    const typeInput = screen.getByTestId("artifact-field-element_type") as HTMLInputElement;
     await user.clear(typeInput);
     await user.type(typeInput, "subsystem");
     expect(typeInput.value).toBe("subsystem");
@@ -228,10 +312,10 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-element_type")).toBeInTheDocument();
     });
 
-    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    const typeInput = screen.getByTestId("artifact-field-element_type") as HTMLInputElement;
     await user.clear(typeInput);
     await user.type(typeInput, "Actor");
     expect(typeInput.value).toBe("Actor");
@@ -248,14 +332,14 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-title")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
     });
 
-    const titleInput = screen.getByTestId("arch-title");
+    const titleInput = screen.getByTestId("artifact-field-title");
     await user.clear(titleInput);
     await user.type(titleInput, "AuthService Updated");
 
-    const saveBtn = screen.getByTestId("arch-save-btn");
+    const saveBtn = screen.getByTestId("artifact-form-save");
     await user.click(saveBtn);
 
     await waitFor(() => {
@@ -271,14 +355,14 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-delete-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-form-delete")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("arch-delete-btn"));
+    await user.click(screen.getByTestId("artifact-form-delete"));
 
     // Dialog should appear
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByTestId("confirm-delete-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("artifact-form-delete-confirm")).toBeInTheDocument();
   });
 
   it("renders split-pane divider for resizing (REQ-L3-RF-***: enable split-pane resizing)", async () => {
@@ -289,5 +373,447 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       expect(divider).toBeInTheDocument();
       expect(divider).toHaveStyle("cursor: col-resize");
     });
+  });
+
+  // ---------------------------------------------------------------------
+  // Task 4.4 — Virtualisierung überall (REQ-091)
+  // ---------------------------------------------------------------------
+  describe("virtualization (Task 4.4)", () => {
+    // jsdom does not run layout, so the WorkspaceTree scroll container's
+    // offsetHeight is always 0 and @tanstack/react-virtual would compute an
+    // empty visible range. Patch a realistic container size (same technique
+    // as workspace-tree.test.tsx's "real container size" block) so the
+    // assertions exercise an actual windowed render.
+    let offsetHeightSpy: ReturnType<typeof vi.spyOn>;
+    let offsetWidthSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      offsetHeightSpy = vi
+        .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+        .mockReturnValue(340);
+      offsetWidthSpy = vi
+        .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+        .mockReturnValue(800);
+    });
+
+    afterEach(() => {
+      offsetHeightSpy.mockRestore();
+      offsetWidthSpy.mockRestore();
+    });
+
+    it("mounts far fewer DOM tree rows than elements when the list is large (500 elements)", async () => {
+      const LARGE_ELEMENTS = Array.from({ length: 500 }, (_, i) => ({
+        ...MOCK_ELEMENT,
+        id: `arch-${i}`,
+        title: `Element ${i}`,
+      }));
+      vi.mocked(architectureApi.listAll).mockResolvedValue(LARGE_ELEMENTS as any);
+
+      renderEditor();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("arch-tree")).toBeInTheDocument();
+      });
+
+      // The WorkspaceTree windows the 500 rows down to a small on-screen
+      // subset instead of mounting one DOM row per element.
+      await waitFor(() => {
+        const rows = screen.queryAllByRole("treeitem");
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.length).toBeLessThan(LARGE_ELEMENTS.length);
+      });
+
+      // The last element is far outside the initial window.
+      expect(screen.queryByTestId("arch-tree-node-arch-499")).not.toBeInTheDocument();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GitHub #340 — same swallow-the-rejection defect as RequirementEditors
+// ---------------------------------------------------------------------------
+
+describe("ArchitectureEditors — server validation errors are visible (#340)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [MOCK_ELEMENT],
+      count: 1,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([MOCK_ELEMENT] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("renders the server's rejection reason when a create is refused", async () => {
+    vi.mocked(architectureApi.create).mockRejectedValueOnce({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed.",
+        details: [
+          {
+            field: "title",
+            errors: [
+              "contains disallowed content: HTML markup is not permitted in free-text fields.",
+            ],
+          },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-arch-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-arch-btn"));
+    await user.type(
+      screen.getByTestId("arch-new-title-input"),
+      "<script>alert(1)</script>"
+    );
+    await user.click(screen.getByTestId("arch-new-save-btn"));
+
+    const alert = await screen.findByTestId("arch-action-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent(
+      "HTML markup is not permitted in free-text fields."
+    );
+  });
+});
+
+/**
+ * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — the quick create form only
+ * had a title input; `description` is an ordinary architectureApi.create()
+ * field the backend already accepts but had no editor here.
+ */
+describe("ArchitectureEditors — create form has a description field (BUG-11)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [MOCK_ELEMENT],
+      count: 1,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([MOCK_ELEMENT] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("sends the typed description alongside the title on create", async () => {
+    vi.mocked(architectureApi.create).mockResolvedValueOnce({
+      ...MOCK_ELEMENT,
+      id: "arch-new",
+    } as any);
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-arch-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-arch-btn"));
+    await user.type(screen.getByTestId("arch-new-title-input"), "New Element");
+    await user.type(
+      screen.getByTestId("arch-new-description-input"),
+      "Some description"
+    );
+    await user.click(screen.getByTestId("arch-new-save-btn"));
+
+    await waitFor(() =>
+      expect(architectureApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "New Element",
+          description: "Some description",
+        })
+      )
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drag & drop reparenting of the decomposition hierarchy.
+//
+// Reinstated by user decision 2026-08-15, reversing the "won't do" note that
+// had sat on the tree since 2026-07-13. The tree itself only reports the drop;
+// the PATCH and the error handling live here, sharing the list-level error
+// banner with create/delete (#340).
+// ---------------------------------------------------------------------------
+
+describe("ArchitectureEditors — drag & drop reparenting", () => {
+  const ROOT_ELEMENT = { ...MOCK_ELEMENT, id: "arch-001", title: "AuthService" };
+  const SECOND_ELEMENT = {
+    ...MOCK_ELEMENT,
+    id: "arch-002",
+    title: "TokenStore",
+    parent_id: null,
+  };
+
+  /** Minimal DataTransfer stand-in — jsdom ships none. */
+  function makeDataTransfer(): {
+    setData: (format: string, value: string) => void;
+    getData: (format: string) => string;
+    dropEffect: string;
+    effectAllowed: string;
+  } {
+    const store: Record<string, string> = {};
+    return {
+      setData: (format, value) => {
+        store[format] = value;
+      },
+      getData: (format) => store[format] ?? "",
+      dropEffect: "",
+      effectAllowed: "",
+    };
+  }
+
+  async function dragElementOnto(fromId: string, toId: string): Promise<void> {
+    const from = await screen.findByTestId(`arch-tree-node-${fromId}`);
+    const to = await screen.findByTestId(`arch-tree-node-${toId}`);
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(from, { dataTransfer });
+    fireEvent.dragOver(to, { dataTransfer });
+    fireEvent.drop(to, { dataTransfer });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [ROOT_ELEMENT, SECOND_ELEMENT],
+      count: 2,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([
+      ROOT_ELEMENT,
+      SECOND_ELEMENT,
+    ] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(ROOT_ELEMENT as any);
+    vi.mocked(architectureApi.reparent).mockResolvedValue(SECOND_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("PATCHes the new parent when an element is dropped onto another", async () => {
+    renderEditor();
+
+    await dragElementOnto("arch-002", "arch-001");
+
+    await waitFor(() =>
+      expect(architectureApi.reparent).toHaveBeenCalledWith(
+        "arch-002",
+        "arch-001"
+      )
+    );
+  });
+
+  it("detaches an element to root level when dropped on the root dropzone", async () => {
+    // A child element, so that a drop on the root zone is a real change.
+    const CHILD = { ...MOCK_ELEMENT, id: "arch-003", title: "SessionCache", parent_id: "arch-001" };
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [ROOT_ELEMENT, CHILD],
+      count: 2,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([
+      ROOT_ELEMENT,
+      CHILD,
+    ] as any);
+
+    renderEditor();
+
+    const child = await screen.findByTestId("arch-tree-node-arch-003");
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(child, { dataTransfer });
+
+    const dropzone = await screen.findByTestId("arch-tree-root-dropzone");
+    fireEvent.dragOver(dropzone, { dataTransfer });
+    fireEvent.drop(dropzone, { dataTransfer });
+
+    await waitFor(() =>
+      expect(architectureApi.reparent).toHaveBeenCalledWith("arch-003", null)
+    );
+  });
+
+  it("shows the server's reason inline when the reparent is refused", async () => {
+    // The backend owns the hierarchy invariant (cycles, depth); the tree
+    // forwards such drops deliberately instead of second-guessing it.
+    vi.mocked(architectureApi.reparent).mockRejectedValueOnce({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed.",
+        details: [
+          {
+            field: "parent_id",
+            errors: ["would create a cycle in the architecture hierarchy."],
+          },
+        ],
+      },
+    });
+
+    renderEditor();
+
+    await dragElementOnto("arch-002", "arch-001");
+
+    const alert = await screen.findByTestId("arch-action-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent(
+      "would create a cycle in the architecture hierarchy."
+    );
+  });
+
+  it("does not call the API when an element is dropped on itself", async () => {
+    renderEditor();
+
+    await dragElementOnto("arch-002", "arch-002");
+
+    expect(architectureApi.reparent).not.toHaveBeenCalled();
+  });
+
+  it("does not call the API when an element is dropped on its own descendant", async () => {
+    // Matches what the edit form already prevents by filtering descendants out
+    // of its parent dropdown. Server-side invariant I1 only runs at
+    // Standard/Extended rigor, so a Minimal workspace would otherwise persist
+    // the cycle and lose the subtree from the tree view.
+    const CHILD = {
+      ...MOCK_ELEMENT,
+      id: "arch-003",
+      title: "SessionCache",
+      parent_id: "arch-001",
+    };
+    const GRANDCHILD = {
+      ...MOCK_ELEMENT,
+      id: "arch-004",
+      title: "CacheEntry",
+      parent_id: "arch-003",
+    };
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [ROOT_ELEMENT, CHILD, GRANDCHILD],
+      count: 3,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([
+      ROOT_ELEMENT,
+      CHILD,
+      GRANDCHILD,
+    ] as any);
+
+    renderEditor();
+
+    // arch-003 is collapsed by default (only roots auto-expand).
+    const toggle = await screen.findByTestId("arch-tree-toggle-arch-003");
+    fireEvent.click(toggle);
+
+    await dragElementOnto("arch-001", "arch-004");
+
+    expect(architectureApi.reparent).not.toHaveBeenCalled();
+  });
+
+  it("uses the unified + New Architecture Element trigger label instead of bare Erstellen", async () => {
+    const previousLanguage = i18n.language;
+    void i18n.changeLanguage("de");
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-arch-btn")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("create-arch-btn")).toHaveTextContent("+ Neues Architekturelement");
+    expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
+
+    void i18n.changeLanguage(previousLanguage);
+  });
+});
+
+/**
+ * Issue #955 — the create dialog is modal (`aria-modal="true"`) yet carried no
+ * accessible name, and its title input had neither an `id` nor an
+ * `aria-label`/`label[for]`, leaving the field nameless for screen readers
+ * (WCAG 4.1.2 / 3.3.2).
+ *
+ * The dialog name comes from the shared <Dialog> primitive (it wires the
+ * `title` prop to `aria-labelledby`); this block pins the arch call site to a
+ * translated title and to a real label association for the title field.
+ */
+describe("ArchitectureEditors — create dialog a11y (issue #955)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [MOCK_ELEMENT],
+      count: 1,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([MOCK_ELEMENT] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT as any);
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  async function openCreateDialog(): Promise<void> {
+    renderEditor();
+    await waitFor(() =>
+      expect(screen.getByTestId("create-arch-btn")).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByTestId("create-arch-btn"));
+  }
+
+  it("names the create dialog after its translated title", async () => {
+    await openCreateDialog();
+
+    expect(
+      screen.getByRole("dialog", { name: i18n.t("arch.newElementTitle") })
+    ).toBeInTheDocument();
+  });
+
+  it("associates the title label with the arch title input", async () => {
+    await openCreateDialog();
+
+    const input = screen.getByTestId("arch-new-title-input");
+    expect(input).toHaveAttribute("id", "arch-new-title");
+    expect(screen.getByLabelText(i18n.t("editor.title"))).toBe(input);
   });
 });

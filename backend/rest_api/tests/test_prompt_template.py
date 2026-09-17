@@ -129,8 +129,11 @@ def test_patch_updates_single_slot_leaving_others_intact(pt_tenant):
     )
 
     set_request_tenant(pt_tenant.id)
-    row = PromptTemplate.objects.get(tenant_id=pt_tenant.id)
-    assert row.need_to_sysreq == "custom prompt {n}"
+    row = PromptTemplate.objects.get(
+        tenant_id=pt_tenant.id, name="need_to_sysreq", workspace_id=None
+    )
+    assert row.content == "custom prompt {n}"
+    assert row.is_active is True
 
 
 @override_settings(**_JWT_OVERRIDES)
@@ -202,6 +205,75 @@ def test_reset_unknown_slot_is_rejected(pt_tenant):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
+def test_patch_conflict_returns_400_not_500(pt_tenant, monkeypatch):
+    """Whole-branch review Finding 2: a concurrent-write IntegrityError from
+    ``publish_new_version`` must surface as a clean 400 VALIDATION_ERROR, not
+    an unhandled 500 -- mirroring the same IntegrityError handling
+    ``mcp_server/tools/prompt_template.py`` already had for its create/update
+    tools. Simulated here by monkeypatching ``publish_new_version`` to raise,
+    rather than a full concurrency test.
+    """
+    from django.db import IntegrityError
+
+    def _raise_integrity_error(**kwargs):
+        raise IntegrityError("simulated concurrent writer for this scope")
+
+    monkeypatch.setattr(
+        "application.settings_service.publish_new_version",
+        _raise_integrity_error,
+    )
+
+    client = APIClient()
+    _auth(client, _login(client, "ptadmin"))
+
+    resp = client.patch(
+        "/api/v1/prompt-templates/",
+        {"need_to_sysreq": "will hit the simulated conflict"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reset_conflict_returns_400_not_500(pt_tenant, monkeypatch):
+    """Same as test_patch_conflict_returns_400_not_500, for the reset endpoint."""
+    from django.db import IntegrityError
+
+    client = APIClient()
+    _auth(client, _login(client, "ptadmin"))
+
+    # Give "need_to_sysreq" an active override so reset() actually calls
+    # publish_new_version (a slot already at its factory default is a no-op
+    # and would never reach the patched call).
+    client.patch(
+        "/api/v1/prompt-templates/",
+        {"need_to_sysreq": "customised so reset must publish a new version"},
+        format="json",
+    )
+
+    def _raise_integrity_error(**kwargs):
+        raise IntegrityError("simulated concurrent writer for this scope")
+
+    monkeypatch.setattr(
+        "application.settings_service.publish_new_version",
+        _raise_integrity_error,
+    )
+
+    resp = client.post(
+        "/api/v1/prompt-templates/reset/",
+        {"slot": "need_to_sysreq"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
 def test_non_admin_is_forbidden(pt_tenant):
     """A non-admin (editor) cannot read, write, or reset prompt templates."""
     client = APIClient()
@@ -226,16 +298,36 @@ def test_non_admin_is_forbidden(pt_tenant):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-def test_singleton_one_row_per_tenant(pt_tenant):
-    """Repeated access never creates more than one row per tenant."""
+def test_singleton_one_active_row_per_tenant_scope(pt_tenant):
+    """At most one ACTIVE tenant-global row per slot; GET never creates rows.
+
+    Phase 4 replaced the old 3-fixed-field tenant-singleton PromptTemplate
+    with a named/versioned model (see ``persistence.models.PromptTemplate``),
+    so "exactly one row per tenant" no longer holds -- a reset publishes a
+    new version rather than mutating in place, and untouched slots never get
+    a row at all. What the REST contract actually guarantees is: (a) GET is
+    read-only and never creates a row, and (b) at most one row is *active*
+    per (tenant, workspace_id=None, name) scope at any time.
+    """
     client = APIClient()
     _auth(client, _login(client, "ptadmin"))
 
     client.get("/api/v1/prompt-templates/")
+    set_request_tenant(pt_tenant.id)
+    assert PromptTemplate.objects.filter(tenant_id=pt_tenant.id).count() == 0
+
     client.patch(
         "/api/v1/prompt-templates/", {"need_to_sysreq": "x"}, format="json"
     )
     client.post("/api/v1/prompt-templates/reset/", {}, format="json")
 
     set_request_tenant(pt_tenant.id)
-    assert PromptTemplate.objects.filter(tenant_id=pt_tenant.id).count() == 1
+    # Only "need_to_sysreq" was ever customised, so only it has row history;
+    # the reset published a second (default-content) version of it.
+    assert PromptTemplate.objects.filter(tenant_id=pt_tenant.id).count() == 2
+    assert (
+        PromptTemplate.objects.filter(
+            tenant_id=pt_tenant.id, is_active=True
+        ).count()
+        == 1
+    )

@@ -14,10 +14,13 @@
  * refreshes).
  */
 
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { metricsApi, type MetricsResult } from "../../api/metrics";
+import { PageHeader } from "../shared/PageHeader";
+import styles from "./MetricsDashboard.module.css";
 
 // ---------------------------------------------------------------------------
 // Tile model
@@ -45,6 +48,13 @@ interface MetricTileSpec {
   direction: "higher-bad" | "lower-bad" | "info";
   /** thresholds for warning / critical classification */
   thresholds: { warning: number; critical: number };
+  /**
+   * UI-35: returns true when the metric has no meaningful basis to compute
+   * from (e.g. zero requirements to cover, zero requirements to average
+   * volatility over) — the tile should show a "not calculated" empty state
+   * instead of a misleading 0/0-derived value with a healthy-looking color.
+   */
+  notComputed?: (m: MetricsResult) => boolean;
 }
 
 const TILES: MetricTileSpec[] = [
@@ -56,6 +66,7 @@ const TILES: MetricTileSpec[] = [
     value: (m) => m.traceability_coverage.coverage_percent,
     direction: "lower-bad",
     thresholds: { warning: 80, critical: 50 },
+    notComputed: (m) => m.traceability_coverage.total === 0,
   },
   {
     name: "volatility",
@@ -65,6 +76,7 @@ const TILES: MetricTileSpec[] = [
     value: (m) => m.volatility.avg_changes_per_req,
     direction: "higher-bad",
     thresholds: { warning: 2, critical: 5 },
+    notComputed: (m) => m.volatility.total_requirements === 0,
   },
   {
     name: "workflowGap",
@@ -99,9 +111,16 @@ const MAX_HISTORY = 30;
 
 // ---------------------------------------------------------------------------
 // Help texts for metrics (Hilfsmodus)
+//
+// BUG-10 (SYSTEMAUDIT_2026-08-18 §4): these values are only the `t()`
+// fallback default now (see the `helpText={t(...)}` call site below) — they
+// used to be rendered directly via `METRIC_HELP[spec.name]` with no i18n
+// key at all, so the tile's "Show help" text was always German regardless
+// of the active UI language. Real translations live under `metrics.help.*`
+// in `frontend/src/i18n/locales/{de,en}.json`.
 // ---------------------------------------------------------------------------
 
-const METRIC_HELP: Record<string, string> = {
+const METRIC_HELP: Record<MetricTileSpec["name"], string> = {
   coverage:
     "Prozentsatz der Anforderungen mit mindestens einer Trace-Verbindung zu Testfällen oder Architektur-Elementen.",
   volatility:
@@ -132,10 +151,40 @@ function classify(spec: MetricTileSpec, value: number): Status {
 }
 
 const STATUS_COLORS: Record<Status, { fg: string; bg: string; labelKey: string }> = {
-  healthy: { fg: "#10b981", bg: "rgba(16,185,129,0.12)", labelKey: "metrics.status.healthy" },
-  warning: { fg: "#f59e0b", bg: "rgba(245,158,11,0.14)", labelKey: "metrics.status.warning" },
-  critical: { fg: "#ef4444", bg: "rgba(239,68,68,0.14)", labelKey: "metrics.status.critical" },
-  neutral: { fg: "#6b7280", bg: "rgba(107,114,128,0.12)", labelKey: "metrics.status.neutral" },
+  healthy: { fg: "var(--color-metric-healthy)", bg: "rgba(var(--color-success-rgb), 0.12)", labelKey: "metrics.status.healthy" },
+  warning: { fg: "var(--color-metric-warning)", bg: "rgba(var(--color-warning-rgb), 0.14)", labelKey: "metrics.status.warning" },
+  critical: { fg: "var(--color-metric-critical)", bg: "rgba(var(--color-danger-rgb), 0.14)", labelKey: "metrics.status.critical" },
+  neutral: { fg: "var(--color-metric-neutral)", bg: "rgba(var(--color-metric-neutral-bg-rgb), 0.12)", labelKey: "metrics.status.neutral" },
+};
+
+// ---------------------------------------------------------------------------
+// UI-35: static per-element style objects, named instead of inline JSX style
+// object literals (see ui-ratchet.test.ts's style-brace ceiling).
+// ---------------------------------------------------------------------------
+
+const notComputedValueStyle: CSSProperties = {
+  fontSize: "var(--font-size-lg, 1.125rem)",
+  fontWeight: 500,
+  fontStyle: "italic",
+  color: "var(--color-text-muted)",
+};
+
+const currentValueStyle: CSSProperties = {
+  fontSize: "var(--font-size-2xl, 1.5rem)",
+  fontWeight: 700,
+  color: "var(--color-text)",
+  fontVariantNumeric: "tabular-nums",
+};
+
+const unitStyle: CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  fontWeight: 500,
+};
+
+const thresholdTextStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
 };
 
 // ---------------------------------------------------------------------------
@@ -147,6 +196,10 @@ interface SparklineProps {
   color: string;
   width?: number;
   height?: number;
+  /** UI-35: unique data-testid — 5 tiles previously shared "metric-sparkline". */
+  testId: string;
+  /** UI-35: unique accessible name — 5 tiles previously shared aria-label="trend". */
+  label: string;
 }
 
 function Sparkline({
@@ -154,6 +207,8 @@ function Sparkline({
   color,
   width = 120,
   height = 32,
+  testId,
+  label,
 }: SparklineProps): JSX.Element {
   // Guard: empty → render a flat baseline so the layout is stable.
   const points = values.length > 0 ? values : [0];
@@ -185,8 +240,8 @@ function Sparkline({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="trend"
-      data-testid="metric-sparkline"
+      aria-label={label}
+      data-testid={testId}
       style={{ display: "block" }}
     >
       <path
@@ -215,13 +270,24 @@ interface MetricTileProps {
   isStale: boolean;
   helpMode?: boolean;
   helpText?: string;
+  /** UI-35: true when the current metric has no basis to compute a value from. */
+  notComputed?: boolean;
 }
 
-function MetricTile({ spec, history, computedAt, isStale, helpMode = false, helpText }: MetricTileProps): JSX.Element {
+function MetricTile({
+  spec,
+  history,
+  computedAt,
+  isStale,
+  helpMode = false,
+  helpText,
+  notComputed = false,
+}: MetricTileProps): JSX.Element {
   const { t } = useTranslation();
   const current = history.length > 0 ? history[history.length - 1] : 0;
-  const status = classify(spec, current);
+  const status = notComputed ? "neutral" : classify(spec, current);
   const palette = STATUS_COLORS[status];
+  const tileTitle = t(spec.titleKey, spec.name);
 
   return (
     <div
@@ -234,7 +300,7 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
         display: "flex",
         flexDirection: "column",
         gap: "var(--space-3)",
-        boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+        boxShadow: "0 1px 2px var(--palette-black-a04)",
         opacity: isStale ? 0.6 : 1,
         transition: "var(--transition-fast, 0.15s ease)",
       }}
@@ -256,7 +322,7 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
             letterSpacing: "0.05em",
           }}
         >
-          {t(spec.titleKey, spec.name)}
+          {tileTitle}
         </span>
         <span
           data-testid={`metric-status-${spec.name}`}
@@ -269,6 +335,13 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
             background: palette.fg,
             boxShadow: `0 0 0 4px ${palette.bg}`,
           }}
+          // GESAMTTEST_BERICHT_2026-08-21.md §5 finding 7: aria-label on a
+          // roleless <span> is not reliably exposed by all screen readers.
+          // This is a purely visual status-dot icon (color-coded ok/warning/
+          // critical), not a live-updating ARIA live region — role="img"
+          // (with the existing aria-label as its accessible name) is the
+          // correct semantic role, matching the icon-like status pattern.
+          role="img"
           aria-label={t(palette.labelKey, status)}
         />
       </div>
@@ -280,29 +353,48 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
           gap: "var(--space-1)",
         }}
       >
-        <span
-          data-testid={`metric-value-${spec.name}`}
-          style={{
-            fontSize: "var(--font-size-2xl, 1.5rem)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {spec.format(current)}
-        </span>
-        {spec.unit && (
+        {notComputed ? (
           <span
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-              fontWeight: 500,
-            }}
+            data-testid={`metric-value-${spec.name}`}
+            style={notComputedValueStyle}
           >
-            {spec.unit}
+            {t("metrics.notComputed", "Not calculated")}
           </span>
+        ) : (
+          <>
+            <span
+              data-testid={`metric-value-${spec.name}`}
+              style={currentValueStyle}
+            >
+              {spec.format(current)}
+            </span>
+            {spec.unit && (
+              <span style={unitStyle}>
+                {spec.unit}
+              </span>
+            )}
+          </>
         )}
       </div>
+
+      {spec.direction !== "info" && (
+        <span
+          data-testid={`metric-thresholds-${spec.name}`}
+          style={thresholdTextStyle}
+        >
+          {spec.direction === "lower-bad"
+            ? t("metrics.thresholdLowerBad", "Warning < {{warning}}{{unit}} · Critical < {{critical}}{{unit}}", {
+                warning: spec.thresholds.warning,
+                critical: spec.thresholds.critical,
+                unit: spec.unit,
+              })
+            : t("metrics.thresholdHigherBad", "Warning ≥ {{warning}}{{unit}} · Critical ≥ {{critical}}{{unit}}", {
+                warning: spec.thresholds.warning,
+                critical: spec.thresholds.critical,
+                unit: spec.unit,
+              })}
+        </span>
+      )}
 
       {helpMode && helpText && (
         <p
@@ -328,8 +420,14 @@ function MetricTile({ spec, history, computedAt, isStale, helpMode = false, help
           gap: "var(--space-2)",
         }}
       >
-        <Sparkline values={history} color={palette.fg} />
+        <Sparkline
+          values={history}
+          color={palette.fg}
+          testId={`metric-sparkline-${spec.name}`}
+          label={t("metrics.trendLabel", "{{metric}} trend", { metric: tileTitle })}
+        />
         <span
+          data-testid="metric-last-update"
           style={{
             fontSize: "0.7rem",
             color: "var(--color-text-muted)",
@@ -420,118 +518,116 @@ export default function MetricsDashboard(): JSX.Element {
 
   return (
     <div data-testid="metrics-dashboard">
+      <PageHeader
+        title={t("metrics.title", "SE Process Metrics")}
+        summary={t(
+          "metrics.pageSummary",
+          "SE-Prozess-Kennzahlen: Traceability-Coverage, Volatilität, Workflow-Lücken und Risiken auf einen Blick.",
+        )}
+      />
+
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           marginBottom: "var(--space-6)",
-          gap: "var(--space-3)",
+          gap: "var(--space-2)",
           flexWrap: "wrap",
         }}
       >
-        <h2
-          style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-          }}
-        >
-          {t("metrics.title", "SE Process Metrics")}
-        </h2>
-
-        <div
+        <label
           style={{
             display: "flex",
             alignItems: "center",
             gap: "var(--space-2)",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
           }}
         >
-          <label
+          {t("metrics.filter", "Filter")}
+          <select
+            data-testid="metrics-filter-select"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            {t("metrics.filter", "Filter")}
-            <select
-              data-testid="metrics-filter-select"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              disabled={isLoading}
-              style={{
-                padding: "var(--space-1) var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                fontSize: "var(--font-size-sm)",
-                fontFamily: "inherit",
-              }}
-            >
-              <option value="">{t("metrics.filterAll", "All")}</option>
-              <option value="coverage">{t("metrics.coverage", "Coverage")}</option>
-              <option value="volatility">{t("metrics.volatility", "Volatility")}</option>
-              <option value="workflow_gaps">
-                {t("metrics.workflowGap", "Workflow Gap")}
-              </option>
-              <option value="open_risks">{t("metrics.openRisks", "Open Risks")}</option>
-            </select>
-          </label>
-
-          <button
-            type="button"
-            data-testid="metrics-help-toggle-btn"
-            onClick={() => setHelpMode((h) => !h)}
-            title={helpMode ? "Hide help" : "Show help"}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 28,
-              height: 28,
-              background: helpMode ? "var(--color-primary)" : "transparent",
-              color: helpMode ? "white" : "var(--color-text-muted)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "50%",
-              cursor: "pointer",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              fontFamily: "inherit",
-              padding: 0,
-              transition: "var(--transition-fast, 0.15s ease)",
-            }}
-          >
-            ?
-          </button>
-
-          <button
-            type="button"
-            data-testid="metrics-refresh-btn"
-            onClick={() => void load()}
-            disabled={isLoading}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
+              padding: "var(--space-1) var(--space-2)",
               borderRadius: "var(--radius-md)",
-              cursor: isLoading ? "not-allowed" : "pointer",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
               fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
               fontFamily: "inherit",
-              opacity: isLoading ? 0.6 : 1,
             }}
           >
-            {isLoading
-              ? t("metrics.refreshing", "Refreshing...")
-              : t("metrics.refresh", "Refresh")}
-          </button>
-        </div>
+            <option value="">{t("metrics.filterAll", "All")}</option>
+            <option value="coverage">{t("metrics.coverage", "Coverage")}</option>
+            <option value="volatility">{t("metrics.volatility", "Volatility")}</option>
+            <option value="workflow_gaps">
+              {t("metrics.workflowGap", "Workflow Gap")}
+            </option>
+            <option value="open_risks">{t("metrics.openRisks", "Open Risks")}</option>
+          </select>
+        </label>
+
+        <button
+          type="button"
+          data-testid="metrics-help-toggle-btn"
+          onClick={() => setHelpMode((h) => !h)}
+          title={
+            helpMode
+              ? t("metrics.hideHelp", "Hide help")
+              : t("metrics.showHelp", "Show help")
+          }
+          aria-label={
+            helpMode
+              ? t("metrics.hideHelp", "Hide help")
+              : t("metrics.showHelp", "Show help")
+          }
+          aria-pressed={helpMode}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 28,
+            height: 28,
+            background: helpMode ? "var(--color-primary)" : "transparent",
+            color: helpMode ? "var(--color-on-primary)" : "var(--color-text-muted)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "50%",
+            cursor: "pointer",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 600,
+            fontFamily: "inherit",
+            padding: 0,
+            transition: "var(--transition-fast, 0.15s ease)",
+          }}
+        >
+          ?
+        </button>
+
+        <button
+          type="button"
+          data-testid="metrics-refresh-btn"
+          onClick={() => void load()}
+          disabled={isLoading}
+          style={{
+            padding: "var(--space-2) var(--space-4)",
+            background: "var(--color-primary)",
+            color: "var(--color-on-primary)",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            cursor: isLoading ? "not-allowed" : "pointer",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 600,
+            fontFamily: "inherit",
+            opacity: isLoading ? 0.6 : 1,
+          }}
+        >
+          {isLoading
+            ? t("metrics.refreshing", "Refreshing...")
+            : t("metrics.refresh", "Refresh")}
+        </button>
       </div>
 
       {error && (
@@ -541,10 +637,10 @@ export default function MetricsDashboard(): JSX.Element {
           style={{
             padding: "var(--space-3) var(--space-4)",
             marginBottom: "var(--space-4)",
-            background: "rgba(239,68,68,0.10)",
-            border: "1px solid var(--color-danger, #ef4444)",
+            background: "rgba(var(--color-danger-rgb), 0.10)",
+            border: "1px solid var(--color-danger)",
             borderRadius: "var(--radius-md)",
-            color: "var(--color-danger, #ef4444)",
+            color: "var(--color-danger)",
             fontSize: "var(--font-size-sm)",
           }}
         >
@@ -559,8 +655,8 @@ export default function MetricsDashboard(): JSX.Element {
             listStyle: "none",
             padding: "var(--space-3) var(--space-4)",
             marginBottom: "var(--space-4)",
-            background: "rgba(245,158,11,0.10)",
-            border: "1px solid rgba(245,158,11,0.5)",
+            background: "rgba(var(--color-warning-rgb), 0.10)",
+            border: "1px solid rgba(var(--color-warning-rgb), 0.5)",
             borderRadius: "var(--radius-md)",
             color: "var(--color-text)",
             fontSize: "var(--font-size-sm)",
@@ -584,13 +680,13 @@ export default function MetricsDashboard(): JSX.Element {
       ) : isLoading && !metrics ? (
         <p data-testid="metrics-loading">{t("loading", "Loading...")}</p>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-            gap: "var(--space-4)",
-          }}
-        >
+        /* #809/#806: the tile grid's responsive column contract (1/3/5
+           columns — never a lone tile on a short row, always a full-width
+           row) lives in MetricsDashboard.module.css. An inline capped
+           `repeat(auto-fit, minmax(260px, 320px))` template left the fifth
+           tile alone on a second row at the viewport widths that fit exactly
+           four tracks. */
+        <div className={styles.tileGrid} data-testid="metrics-tile-grid">
           {TILES.map((spec) => (
             <MetricTile
               key={spec.name}
@@ -599,7 +695,8 @@ export default function MetricsDashboard(): JSX.Element {
               computedAt={computedAt}
               isStale={isStale}
               helpMode={helpMode}
-              helpText={METRIC_HELP[spec.name]}
+              helpText={t(`metrics.help.${spec.name}`, METRIC_HELP[spec.name])}
+              notComputed={metrics ? (spec.notComputed?.(metrics) ?? false) : false}
             />
           ))}
         </div>
@@ -607,6 +704,7 @@ export default function MetricsDashboard(): JSX.Element {
 
       {metrics && (
         <div
+          data-testid="metrics-scope-footer"
           style={{
             marginTop: "var(--space-6)",
             padding: "var(--space-3) var(--space-4)",

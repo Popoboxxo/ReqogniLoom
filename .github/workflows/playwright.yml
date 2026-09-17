@@ -9,11 +9,22 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # GH-682: this is a *safety net*, not the test budget. The test budget is
+    # `globalTimeout` in e2e/playwright.config.ts (10 min), which lets
+    # Playwright stop itself and still write its report. Hitting the job cap
+    # instead means GitHub cancels the job, which also skips the
+    # `if: always()` report upload below — leaving no evidence of what failed.
+    # Setup (~5-8 min) + globalTimeout (10 min) + upload must therefore fit
+    # comfortably inside this value. Normal runs finish in 8-12 min.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: reqflow
           POSTGRES_USER: reqflow
@@ -36,10 +47,10 @@ jobs:
           - 6379:6379
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -47,33 +58,87 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
+      # Issue #151: no Fernet key literal in the repository. The migrate step
+      # and the backend server are separate processes that must share one key
+      # (seed_demo encrypts values the server later decrypts), so it is
+      # generated once per run here and exported for the remaining steps.
+      # An optional repository secret takes precedence if configured.
+      - name: Generate ephemeral field encryption key
+        env:
+          FIELD_ENCRYPTION_KEY_SECRET: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+        run: |
+          KEY="${FIELD_ENCRYPTION_KEY_SECRET:-$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')}"
+          echo "::add-mask::$KEY"
+          echo "FIELD_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+
       - name: Run Django migrations
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
+          DJANGO_ENV: test
           DEBUG: 'True'
           DB_NAME: reqflow
           DB_USER: reqflow
           DB_PASSWORD: reqflow
+          # Read by migration 0048_app_role.py to create the least-privilege
+          # app role (REQ-L2-PL-010) — required, no default, even though this
+          # job connects as the superuser above.
+          DB_APP_PASSWORD: ci-test-app-role-password
           DB_HOST: localhost
           DB_PORT: '5432'
+          # settings.py's CONN_MAX_AGE default (60s) is tuned for a fixed
+          # worker pool (gunicorn/uwsgi) that reuses threads and therefore
+          # reuses their cached connections. `manage.py runserver` below is
+          # Django's ThreadingMixIn dev server: it spawns a brand-new thread
+          # per request, so a 60s-old "warm" connection is never revisited by
+          # its own thread and only gets closed whenever the GC gets to it —
+          # not deterministic. Across a shard's ~10min run of real HTTP
+          # traffic this leaks connections until Postgres' max_connections is
+          # exhausted ("FATAL: sorry, too many clients already"). Forcing 0
+          # here makes Django close each connection at the end of every
+          # request regardless of which thread holds it.
+          DB_CONN_MAX_AGE: '0'
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
+          # REQ-188: without this, self-init's post_migrate hook has no admin
+          # password to provision with and silently skips — leaving the base
+          # workspace without its default workflow definitions (E2E-blocking).
+          # Must match e2e/helpers/auth.ts TEST_USER.password — seed_demo
+          # reads this same var, so a mismatch breaks every E2E login.
+          SYSTEM_ADMIN_PASSWORD: admin12345
         run: |
           python manage.py migrate --noinput
-          python manage.py loaddata initial_data
+          python manage.py seed_demo
+          # Fixture workspace for tests/toothbrush-syseng.spec.ts. The spec used
+          # to seed itself via `docker compose exec`, which no CI job can do —
+          # there is no compose stack here, only the runserver process below.
+          python manage.py seed_toothbrush
 
       - name: Start Django backend
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
+          DJANGO_ENV: test
           DEBUG: 'True'
           DB_NAME: reqflow
           DB_USER: reqflow
           DB_PASSWORD: reqflow
+          # Read by migration 0048_app_role.py to create the least-privilege
+          # app role (REQ-L2-PL-010) — required, no default, even though this
+          # job connects as the superuser above.
+          DB_APP_PASSWORD: ci-test-app-role-password
           DB_HOST: localhost
           DB_PORT: '5432'
+          # See the identical override + rationale in the migration step above
+          # — this is the actual long-running runserver process it protects.
+          DB_CONN_MAX_AGE: '0'
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
@@ -81,7 +146,7 @@ jobs:
         run: python manage.py runserver 0.0.0.0:8000 &
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -89,7 +154,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm install
 
       - name: Start Vite frontend
         working-directory: frontend
@@ -97,13 +162,13 @@ jobs:
           VITE_API_BASE_URL: http://localhost:8000
         run: npm run dev &
 
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: npm install
+
       - name: Install Playwright browsers
         working-directory: e2e
         run: npx playwright install --with-deps chromium
-
-      - name: Install e2e dependencies
-        working-directory: e2e
-        run: npm ci
 
       - name: Wait for services
         run: |
@@ -114,19 +179,20 @@ jobs:
 
       - name: Verify prod Docker build (smoke test)
         # Build the frontend production Docker image to ensure no build-time regressions
-        run: docker build -f frontend/Dockerfile --target production . --no-cache -t reqflow-frontend:latest
+        # fix #149: tag with the commit SHA instead of mutable :latest for traceability/rollback
+        run: docker build -f frontend/Dockerfile --target production frontend --no-cache -t reqflow-frontend:${{ github.sha }}
 
       - name: Run Playwright E2E tests
         working-directory: e2e
         env:
           FRONTEND_URL: http://localhost:5173
           BACKEND_URL: http://localhost:8000
-        run: npm run test:e2e
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: e2e/playwright-report/
           retention-days: 7

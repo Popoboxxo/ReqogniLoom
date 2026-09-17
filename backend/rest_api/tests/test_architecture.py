@@ -1,4 +1,4 @@
-"""Architecture guardrail — Service-Layer boundary enforcement (REQ-066).
+r"""Architecture guardrail — Service-Layer boundary enforcement (REQ-066).
 
 The REST API layer (``rest_api/*_views.py`` and ``rest_api/views.py``) must not
 talk to the ORM directly. All persistence access belongs in the Application
@@ -15,12 +15,79 @@ Two violation classes are tracked:
 * ``.objects.`` / ``.unscoped.`` — direct ORM manager access (``MAX_ORM_LINES``).
 * ``from persistence.models import`` — direct model import (``MODEL_IMPORT_ALLOWLIST``).
 
-Serializers (``serializers.py``) are intentionally out of scope: model access in
-serializer validators / choice fields is permitted by the Option-B decision.
+Serializers (``serializers.py``) are covered by the same ``.objects.``/
+``.unscoped.`` ratchet as the ``*_views.py`` files (issue #132): a future
+queryset access inside a serializer validator/choice field is exactly where
+N+1 problems tend to creep in unnoticed, since ``_apply_query_optimization``
+(``rest_api/serializers.py``) only operates at the ViewSet level. The
+``ElementType`` enum import it already has is a deliberate, harmless
+Option-B exception (an enum, not a queryset) and is allowlisted below like
+the other legacy model imports.
 
 Baseline captured 2026-07-14 (pre-REQ-066):
     views.py 27, icd_views.py 7, diagram_views.py 4, settings_views.py 3,
     diagram_canvas_views.py 3, auth_views.py 2.
+
+Issue #124 (2026-07-28): the ratchet only scanned ``rest_api/*_views.py``,
+leaving ``mcp_server/tools/*.py`` — which also violates ADR-01's
+Single-Entry-Point rule — completely unguarded. The MCP-tools ceilings below
+are a *frozen baseline*, not an endorsement: they exist only to stop further
+regression while the actual migration into ``application/`` services (a
+separate, larger refactor — REQ-066 follow-up) is scoped and executed.
+Baseline captured 2026-07-29: cross_cutting.py 19, users.py 10,
+prompt_template.py 4, review.py 2, diagram.py 2, needs.py 1 (38 total).
+
+Issue #124 migration round 1 (2026-08-02): 24 of those 38 violations were
+moved down into the service layer, so the baseline drops from 38 to 14
+(cross_cutting.py 4, users.py 10) and four modules leave the allowlist
+entirely — ``needs.py``, ``diagram.py``, ``prompt_template.py`` and
+``review.py`` are now at 0 and any regression there fails immediately.
+New/extended service seams behind that move:
+
+* ``application.workspace_context_service`` (new) — the ``workspace.get_context``
+  read model: open-requirement count, entity counts, entity lists, recent
+  changes, workspace lookup (13 lines out of ``cross_cutting.py``).
+* ``application.prompt_template_versioning`` — ``get_active_template`` /
+  ``list_active_templates`` (4 lines out of ``prompt_template.py``).
+* ``workflow.services`` — ``get_workflow_json`` / ``list_item_states``
+  (2 lines out of ``review.py``).
+* ``diagram.services`` — ``resolve_tenant`` / ``resolve_user`` (2 lines out
+  of ``diagram.py``).
+* Existing seams reused: ``StakeholderNeedService.get`` (``needs.py``),
+  ``WorkspaceService.get_workspace`` and ``RequirementService.get_requirement``
+  (``cross_cutting.py``).
+
+Deliberately NOT migrated, so the remaining 14 are a considered stop, not an
+oversight:
+
+* ``users.py`` (10) — 2 are prose inside the module docstring (the counter is
+  line-based and does not skip string literals); the other 8 are user
+  provisioning/deactivation. There is no user-creation service in the codebase,
+  and the handlers encode security-relevant semantics (superuser-only
+  ``tenant_id`` override, uniqueness pre-checks plus the #125 TOCTOU
+  ``IntegrityError`` fallback, explicit ``update_fields``). That needs a
+  purpose-built ``auth_tenancy`` service and its own review, not a mechanical
+  move.
+* ``cross_cutting.py`` (4) — ``context.change_impact`` resolves entities
+  through a runtime ``entity_type -> model`` map, so the ORM access is generic
+  dispatch rather than a fixed query; giving it a service seam means designing
+  a polymorphic entity resolver first.
+
+Issue #132 (2026-07-28): ``serializers.py`` was entirely exempt from both
+checks above (see the historical note this replaced). Baseline captured
+2026-07-31: 0 direct-ORM lines (verified via
+``grep -c "\.objects\." rest_api/serializers.py``) — the ratchet starts at 0
+and any new ``.objects.``/``.unscoped.`` access fails the build immediately,
+same as any other file absent from ``MAX_ORM_LINES``.
+
+Issue #124 follow-up (2026-07-31): the initial MCP ratchet only scanned
+``mcp_server/tools/*.py``, so the transport/dispatch modules directly under
+``mcp_server/`` stayed unguarded — and ``tool_registry.py`` does reach for the
+ORM there. The top-level modules are now ratcheted too, so a new violation
+cannot slip in outside the ``tools`` package.
+Baseline captured 2026-07-31: tool_registry.py 1 (``_default_workspace_exists``
+pre-auth existence probe); ``_resolve_global_roles`` migrated to
+``AuthorizationService.active_roles_across_workspaces``.
 """
 from __future__ import annotations
 
@@ -31,6 +98,13 @@ import pytest
 
 # Directory holding the REST API view modules under guard.
 _REST_API_DIR = Path(__file__).resolve().parent.parent
+# Directory holding the MCP tool-group modules under guard (issue #124).
+_MCP_SERVER_DIR = _REST_API_DIR.parent / "mcp_server"
+_MCP_TOOLS_DIR = _MCP_SERVER_DIR / "tools"
+
+# ``models.py`` *defines* the MCP persistence models — ORM access there is the
+# point, not a layering violation, so it is excluded from the root-level scan.
+_MCP_ROOT_EXCLUDED = {"__init__.py", "models.py"}
 
 # Matches ``X.objects.`` and ``X.unscoped.`` manager access.
 _ORM_RE = re.compile(r"\.(objects|unscoped)\.")
@@ -39,28 +113,73 @@ _MODEL_IMPORT_RE = re.compile(r"^\s*from persistence\.models import")
 # Per-file ceiling of tolerated direct-ORM lines. Files not listed must be 0.
 # NEVER raise a value here — REQ-066 only lowers them.
 MAX_ORM_LINES: dict[str, int] = {
-    "icd_views.py": 3,
-    "diagram_views.py": 3,
-    "diagram_canvas_views.py": 3,
+    # SA-19 (SYSTEMAUDIT_2026-08-27): the last direct .objects. call in each
+    # of these three files moved into an Application/domain service
+    # (icd.services.list_icds, diagram.services.list_diagrams,
+    # diagram.services.get_diagram_header) — ceilings lowered from 1 to 0.
+    "icd_views.py": 0,
+    "diagram_views.py": 0,
+    "diagram_canvas_views.py": 0,
 }
 
 # Files still permitted to ``from persistence.models import`` directly. Shrinks
 # as service methods replace the last direct model references in each file.
 # views.py fully cleaned in REQ-066 Phase 2/3 — no longer allowlisted.
+# serializers.py (#132): only ``ElementType``, an enum used in a choice field —
+# not a queryset — per the Option-B decision; the direct-ORM ratchet above
+# (MAX_ORM_LINES, defaulting to 0 for serializers.py) is what actually guards
+# against a future N+1-prone queryset access sneaking in here.
 MODEL_IMPORT_ALLOWLIST: set[str] = {
     "icd_views.py",
     "diagram_views.py",
     "diagram_canvas_views.py",
+    "serializers.py",
+}
+
+# Issue #124: frozen baseline for mcp_server/tools/*.py — ADR-01 violations
+# that pre-date this guard. NEVER raise a value here; only lower it as
+# call-sites are migrated into application/ services.
+MCP_TOOLS_MAX_ORM_LINES: dict[str, int] = {
+    "cross_cutting.py": 4,
+    "users.py": 8,
+}
+
+# Issue #124 follow-up: frozen baseline for the transport/dispatch modules
+# directly under ``mcp_server/``. NEVER raise a value here; only lower it.
+MCP_ROOT_MAX_ORM_LINES: dict[str, int] = {
+    "tool_registry.py": 1,
 }
 
 
 def _view_files() -> list[Path]:
-    """Return ``views.py`` and every ``*_views.py`` module in the REST API dir."""
+    """Return ``views.py``, every ``*_views.py`` module, and ``serializers.py``
+    (#132) in the REST API dir — all guarded by the same ratchet."""
     files = sorted(_REST_API_DIR.glob("*_views.py"))
     base = _REST_API_DIR / "views.py"
     if base.exists():
         files.append(base)
+    serializers = _REST_API_DIR / "serializers.py"
+    if serializers.exists():
+        files.append(serializers)
     return files
+
+
+def _mcp_tool_files() -> list[Path]:
+    """Return every ``*.py`` module in ``mcp_server/tools`` (issue #124)."""
+    if not _MCP_TOOLS_DIR.exists():
+        return []
+    return sorted(
+        p for p in _MCP_TOOLS_DIR.glob("*.py") if p.name != "__init__.py"
+    )
+
+
+def _mcp_root_files() -> list[Path]:
+    """Return the top-level ``mcp_server/*.py`` modules under guard (#124)."""
+    if not _MCP_SERVER_DIR.exists():
+        return []
+    return sorted(
+        p for p in _MCP_SERVER_DIR.glob("*.py") if p.name not in _MCP_ROOT_EXCLUDED
+    )
 
 
 def _count_orm_lines(path: Path) -> int:
@@ -118,4 +237,58 @@ def test_ratchet_is_monotonic() -> None:
         assert actual == cap, (
             f"{name}: ratchet ceiling is {cap} but file now has {actual} "
             f"direct-ORM line(s). Lower MAX_ORM_LINES['{name}'] to {actual}."
+        )
+
+
+@pytest.mark.parametrize("path", _mcp_tool_files(), ids=lambda p: p.name)
+def test_no_new_direct_orm_access_mcp_tools(path: Path) -> None:
+    """No mcp_server/tools module may exceed its frozen ADR-01 ceiling (#124)."""
+    allowed = MCP_TOOLS_MAX_ORM_LINES.get(path.name, 0)
+    actual = _count_orm_lines(path)
+    assert actual <= allowed, (
+        f"{path.name}: {actual} direct-ORM line(s) exceed the ratchet ceiling "
+        f"of {allowed}. Move ORM access into an Application service (ADR-01). "
+        f"If you legitimately removed violations, LOWER the ceiling in "
+        f"MCP_TOOLS_MAX_ORM_LINES — never raise it."
+    )
+
+
+@pytest.mark.parametrize("path", _mcp_root_files(), ids=lambda p: p.name)
+def test_no_new_direct_orm_access_mcp_root(path: Path) -> None:
+    """No top-level mcp_server module may exceed its frozen ceiling (#124)."""
+    allowed = MCP_ROOT_MAX_ORM_LINES.get(path.name, 0)
+    actual = _count_orm_lines(path)
+    assert actual <= allowed, (
+        f"{path.name}: {actual} direct-ORM line(s) exceed the ratchet ceiling "
+        f"of {allowed}. Move ORM access into an Application service (ADR-01). "
+        f"If you legitimately removed violations, LOWER the ceiling in "
+        f"MCP_ROOT_MAX_ORM_LINES — never raise it."
+    )
+
+
+def test_mcp_root_ratchet_is_monotonic() -> None:
+    """Frozen top-level mcp_server baselines must still match the real count."""
+    for name, cap in MCP_ROOT_MAX_ORM_LINES.items():
+        path = _MCP_SERVER_DIR / name
+        actual = _count_orm_lines(path)
+        assert actual == cap, (
+            f"{name}: ratchet ceiling is {cap} but file now has {actual} "
+            f"direct-ORM line(s). Lower MCP_ROOT_MAX_ORM_LINES['{name}'] "
+            f"to {actual}."
+        )
+
+
+def test_mcp_tools_ratchet_is_monotonic() -> None:
+    """Frozen mcp_server/tools baselines must still reflect the real count.
+
+    Guards against a stale ceiling: if a file's real count drops below its
+    cap, the cap should be lowered. This keeps the ratchet honest.
+    """
+    for name, cap in MCP_TOOLS_MAX_ORM_LINES.items():
+        path = _MCP_TOOLS_DIR / name
+        actual = _count_orm_lines(path)
+        assert actual == cap, (
+            f"{name}: ratchet ceiling is {cap} but file now has {actual} "
+            f"direct-ORM line(s). Lower MCP_TOOLS_MAX_ORM_LINES['{name}'] "
+            f"to {actual}."
         )

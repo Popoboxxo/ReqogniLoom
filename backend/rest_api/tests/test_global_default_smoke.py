@@ -44,11 +44,9 @@ def admin_client(db):
     )
     user.set_password("smokepass123")
     user.save()
-    from auth_tenancy.models import UserRole
-
     ctx = _admin_ctx(tenant, user)
+    # create_workspace() already grants the creator an 'admin' UserRole (#232).
     ws = WorkspaceService().create_workspace(ctx, name="WS", preset="extended")
-    UserRole.objects.create(tenant=tenant, user=user, workspace=ws, role="admin")
 
     client = APIClient()
     with override_settings(**_JWT):

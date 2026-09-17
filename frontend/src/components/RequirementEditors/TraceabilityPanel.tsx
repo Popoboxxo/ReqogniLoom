@@ -80,6 +80,10 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
         onClick={handleClick}
         disabled={!isNavigable}
         title={isNavigable ? undefined : t("traceability.unresolved")}
+        // #741: the arrow glyph is the entire button content, so without an
+        // aria-label the accessible name is literally "→". Names the target,
+        // not the glyph, so a screen-reader user can tell the rows apart.
+        aria-label={`${t("traceability.openLinked", "Verknüpftes Artefakt öffnen")}: ${title}`}
         style={{
           fontSize: "0.75rem",
           cursor: isNavigable ? "pointer" : "not-allowed",
@@ -87,7 +91,7 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
           flexShrink: 0,
         }}
       >
-        →
+        <span aria-hidden="true">→</span>
       </button>
     </li>
   );

@@ -1,68 +1,64 @@
 /**
  * IssueList — left-panel navigation for issues (REQ-003).
  *
- * Refactored to use the shared WorkspaceTree component for consistent
- * compact tree rows across all artifact views (REQ-003).
+ * Task 2.3 remodel: rows are <ArtifactRow> (ch. 12.3 — id/level on top,
+ * title below, status + version badges), and the empty list vs. empty
+ * filter result render through <EmptyState> with distinct text and actions
+ * (ch. 12.7/13.3). The page title, always-visible summary and "New Issue"
+ * primary action now live in <PageHeader> at the IssueEditors level
+ * (ch. 12.1/12.2) — this component only owns search/filter/sort and the
+ * row list. Mirrors AdrList/RiskList (Tasks 2.1/2.2).
+ *
+ * Task 4.4 (virtualization ratchet): rows now render through the shared
+ * <WorkspaceTree>'s `renderRow` slot instead of a bare `.map()`, so
+ * `virtualize` costs one prop — every node is a root (`parentId: null`),
+ * mirroring `NeedList`/`AdrList`/`RiskList`.
  */
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
-import { getStatusBadgeStyle } from '../../utils/statusBadge';
+import { ArtifactRow } from '../shared/ArtifactRow';
+import { EmptyState } from '../shared/EmptyState';
 import { WorkspaceTree } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import type { Issue } from '../../types';
-import { WORKFLOW_STATES } from '../../types';
+import {
+  buildStatusFilterOptions,
+  compareWorkflowStatus,
+  getWorkflowStatusLabel,
+} from '../../utils/workflowStatus';
 
 interface IssueListProps {
   items: Issue[];
   selectedId?: string;
+  onSelect: (id: string) => void;
   onCreateNew: () => void;
-  showCreateForm?: boolean;
-  setShowCreateForm?: (show: boolean) => void;
-  newTitle?: string;
-  setNewTitle?: (val: string) => void;
-  onSubmitCreate?: () => void;
-  createError?: string | null;
 }
 
-type SortKey = 'default' | 'title' | 'status';
+type SortKey = 'default' | 'title' | 'status' | 'updated';
 
 function sortItems(list: Issue[], sortKey: SortKey): Issue[] {
   const sorted = [...list];
   switch (sortKey) {
     case 'title': sorted.sort((a, b) => a.title.localeCompare(b.title)); break;
     case 'status': {
-      sorted.sort((a, b) => {
-        const ai = WORKFLOW_STATES.indexOf(a.status);
-        const bi = WORKFLOW_STATES.indexOf(b.status);
-        return (ai === -1 ? WORKFLOW_STATES.length : ai) - (bi === -1 ? WORKFLOW_STATES.length : bi) || a.title.localeCompare(b.title);
-      });
+      sorted.sort(
+        (a, b) => compareWorkflowStatus(a.status, b.status) || a.title.localeCompare(b.title),
+      );
       break;
     }
+    case 'updated': sorted.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')); break;
   }
   return sorted;
 }
 
+/** Map an Issue to a WorkspaceTreeNode (flat — no hierarchy). */
 function issueToNode(issue: Issue): WorkspaceTreeNode {
-  const style = getStatusBadgeStyle(issue.status);
-  return {
-    id: issue.id,
-    name: issue.title || 'Untitled',
-    parentId: null,
-    badge: {
-      text: issue.status,
-      bg: style.background as string,
-      color: style.color as string,
-    },
-  };
+  return { id: issue.id, name: issue.title || 'Untitled', parentId: null };
 }
 
-export function IssueList({
-  items, selectedId, onCreateNew, showCreateForm, setShowCreateForm, newTitle, setNewTitle, onSubmitCreate, createError,
-}: IssueListProps): JSX.Element {
+export function IssueList({ items, selectedId, onSelect, onCreateNew }: IssueListProps): JSX.Element {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('default');
@@ -79,21 +75,31 @@ export function IssueList({
 
   const treeNodes = useMemo(() => visible.map(issueToNode), [visible]);
 
+  // Task 4.4: lookup used by renderRow to hydrate <ArtifactRow> from the
+  // WorkspaceTreeNode id — mirrors RequirementList's reqById.
+  const issueById = useMemo(() => {
+    const map = new Map<string, Issue>();
+    for (const issue of visible) map.set(issue.id, issue);
+    return map;
+  }, [visible]);
+
+  // GH-453: options are derived from the loaded items, so their values are
+  // exactly what `it.status !== statusFilter` compares against — the shared
+  // hardcoded list never matched Issue's vocabulary.
+  const statusOptions = useMemo(
+    () => buildStatusFilterOptions(items, statusFilter),
+    [items, statusFilter],
+  );
+
   const hasActiveListControls = Boolean(listSearch || statusFilter);
 
+  const resetFilters = (): void => {
+    setListSearch('');
+    setStatusFilter('');
+  };
+
   return (
-    <div>
-      <h3
-        style={{
-          fontSize: 'var(--font-size-lg)',
-          fontWeight: 600,
-          margin: 0,
-          marginBottom: 'var(--space-3)',
-          color: 'var(--color-text)',
-        }}
-      >
-        {t('nav.issues')}
-      </h3>
+    <div data-testid="issue-list">
       <ListToolbar
         testIdPrefix="issue-list"
         searchValue={listSearch}
@@ -101,98 +107,79 @@ export function IssueList({
         searchPlaceholder={t('editor.searchPlaceholder', 'Search...')}
         filters={[{
           id: 'status', allLabel: t('editor.allStatuses', 'All Statuses'), value: statusFilter,
-          options: WORKFLOW_STATES.map((s) => ({ value: s, label: s })), onChange: setStatusFilter,
+          options: statusOptions, onChange: setStatusFilter,
         }]}
         sortValue={sortKey}
         sortOptions={[
           { value: 'default', label: t('editor.sortDefault', 'Default') },
           { value: 'title', label: t('editor.sortTitleAsc', 'Title (A-Z)') },
           { value: 'status', label: t('editor.sortStatus', 'Status') },
+          { value: 'updated', label: t('editor.sortUpdatedDesc', 'Recently Updated') },
         ]}
         onSortChange={(v) => setSortKey(v as SortKey)}
         sortLabel={t('editor.sortLabel', 'Sort by')}
-        countLabel={hasActiveListControls ? t('editor.filteredCount', { shown: visible.length, total: items.length }) : null}
+        countLabel={hasActiveListControls ? t('editor.filteredCount', { shown: visible.length, total: items.length }) : String(items.length)}
       />
 
-      <button
-        data-testid="create-issue-btn"
-        onClick={onCreateNew}
-        disabled={showCreateForm}
-        style={{
-          marginBottom: 'var(--space-3)', background: 'var(--color-primary)', color: 'white', border: 'none',
-          borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)', fontSize: 'var(--font-size-sm)',
-          cursor: showCreateForm ? 'not-allowed' : 'pointer', opacity: showCreateForm ? 0.6 : 1,
-          transition: 'var(--transition-fast)', fontWeight: 600,
-        }}
-      >
-        + {t('actions.new', 'New')}
-      </button>
-
-      {showCreateForm && setShowCreateForm && setNewTitle && onSubmitCreate && (
-        <form
-          onSubmit={(e) => { e.preventDefault(); onSubmitCreate(); }}
-          style={{
-            display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: 'var(--space-3)',
-            marginBottom: 'var(--space-3)', background: 'var(--color-surface-raised)',
-            border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
-          }}
-        >
-          <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
-            {t('editor.title', 'Title')}
-          </label>
-          <input
-            data-testid="issue-new-title-input"
-            type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
-            placeholder={t('editor.newNeedTitle', 'e.g. Issue title...')}
-            style={{
-              padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)',
-              background: 'var(--color-surface)', color: 'var(--color-text)',
-            }}
-          />
-          {createError && (
-            <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}>
-              {createError}
-            </p>
+      {items.length === 0 ? (
+        // ch. 13.3: "there is nothing" — offer the create action, not a
+        // filter reset.
+        <EmptyState
+          variant="empty"
+          testId="issue-list-empty"
+          title={t('issues.emptyTitle', 'No issues yet')}
+          description={t(
+            'issues.emptyDescription',
+            'Issues track defects, improvements and open questions for this workspace.',
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button
-              type="button"
-              onClick={() => setShowCreateForm(false)}
-              style={{
-                background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
-              }}
-            >
-              {t('actions.cancel')}
-            </button>
-            <button
-              data-testid="issue-new-save-btn"
-              type="submit"
-              disabled={!(newTitle || '').trim()}
-              style={{
-                background: 'var(--color-primary)', color: 'white', border: 'none',
-                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
-              }}
-            >
-              {t('actions.create')}
-            </button>
-          </div>
-        </form>
+          actions={[
+            {
+              // #594 / issue #719: same "+ " gesture marker as the PageHeader
+              // primary action that triggers the identical create flow.
+              label: t('issues.newIssue', 'New Issue'),
+              prefixWithPlus: true,
+              onClick: onCreateNew,
+              testId: 'issue-list-empty-create',
+            },
+          ]}
+        />
+      ) : visible.length === 0 ? (
+        // ch. 13.3: "there is something, just not under this filter" — offer
+        // only a filter reset, never a create action.
+        <EmptyState variant="no-match" testId="issue-list-no-match" onResetFilters={resetFilters} />
+      ) : (
+        // Task 4.4: WorkspaceTree owns virtualization; rows are <ArtifactRow>
+        // via renderRow, same as RequirementList.
+        <WorkspaceTree
+          data-testid="issue-list-rows"
+          nodes={treeNodes}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          showSearch={false}
+          virtualize
+          // <ArtifactRow>'s two-line id/title layout is taller than
+          // WorkspaceTree's default single-line row estimate (34px).
+          virtualRowHeight={64}
+          emptyLabel={t('editor.empty', 'No items.')}
+          noMatchesLabel={t('editor.noMatches', 'No matches found.')}
+          renderRow={(node, { isSelected }) => {
+            const issue = issueById.get(node.id);
+            if (!issue) return null;
+            return (
+              <ArtifactRow
+                id={issue.uid}
+                idFallback={issue.id.slice(0, 8)}
+                title={issue.title || t('issues.untitled', 'Untitled')}
+                status={issue.status}
+                statusLabel={getWorkflowStatusLabel(issue.status)}
+                version={issue.version}
+                selected={isSelected}
+                testId={`issue-row-${issue.id}`}
+              />
+            );
+          }}
+        />
       )}
-
-      {/* Unified tree navigation — REQ-003 */}
-      <WorkspaceTree
-        data-testid="issue-list-tree"
-        nodes={treeNodes}
-        selectedId={selectedId}
-        onSelect={(id) => navigate(`/issues/${id}`)}
-        showSearch={false}
-        emptyLabel={t('editor.empty', 'No items available.')}
-        noMatchesLabel={t('editor.noMatches', 'No matches found.')}
-      />
     </div>
   );
 }

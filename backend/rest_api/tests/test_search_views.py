@@ -46,11 +46,18 @@ def test_search_without_workspace_id_and_without_query_returns_400() -> None:
     assert response.status_code == 400
 
 
-def test_search_with_workspace_id_but_empty_query_returns_200_empty_result() -> None:
-    """Sanity/no-regression: an empty query with a valid workspace_id is not
-    an error — it legitimately yields an empty result set."""
+def test_search_with_workspace_id_but_empty_query_returns_400() -> None:
+    """Issue #460 finding 3 reversed this case.
+
+    It used to answer 200 with an empty result set on the reading that "no
+    query, no matches" is not an error. In practice that made a client bug —
+    sending ``?search=`` instead of the documented ``?q=`` — indistinguishable
+    from a genuine zero-hit search: the caller got ``query: ""`` and no
+    results for a query the server never ran. ``q`` is required, so a missing
+    one is now reported as such.
+    """
     req = _search_request(params={"workspace_id": str(uuid.uuid4())})
     view = SearchViewSet.as_view({"get": "list"})
     response = view(req)
-    assert response.status_code == 200
-    assert response.data["results"] == []
+    assert response.status_code == 400
+    assert response.data["error"]["message"] == "q is required"

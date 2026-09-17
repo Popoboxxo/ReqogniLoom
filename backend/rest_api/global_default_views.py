@@ -15,6 +15,7 @@ resolved tenant-wide).
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from urllib.parse import unquote
 from uuid import UUID
@@ -36,6 +37,8 @@ from auth_tenancy.services.permission_definition import (
 from auth_tenancy.services.permission_matrix import MatrixValidationError
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -87,8 +90,12 @@ def _map_workflow_error(exc: Exception, lang: str) -> Response:
                 status=status.HTTP_409_CONFLICT,
             )
         return _validation(lang, msg)
+    # #697 (CWE-209): an unmapped exception here is a driver/SQL/plumbing
+    # failure — its str() must not reach the client. Log it and answer with the
+    # canonical localised 500 message instead (same shape as icd_views).
+    logger.exception("Unmapped error in a global workflow-definition endpoint")
     return Response(
-        build_error_response("INTERNAL_ERROR", lang, message=str(exc)),
+        build_error_response("INTERNAL_SERVER_ERROR", lang),
         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
     )
 

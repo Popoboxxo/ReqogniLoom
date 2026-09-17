@@ -21,14 +21,28 @@ CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
 # Production build stage
 FROM base AS builder
 
+ARG VITE_API_BASE_URL
+ARG VITE_ALLOWED_HOSTS
+
 RUN npm ci
 
 COPY . .
 
-RUN npm run build
+RUN VITE_API_BASE_URL=$VITE_API_BASE_URL \
+    VITE_ALLOWED_HOSTS=$VITE_ALLOWED_HOSTS \
+    npm run build
 
 # Production serve stage (nginx)
 FROM nginx:1.27-alpine AS production
+
+# The nginx:1.27-alpine tag is a floating base image: Alpine's rolling apk
+# repo ships security patches (e.g. openssl, c-ares) between the base
+# image's own rebuilds, so a pull can land CRITICAL/HIGH CVEs that are
+# already fixed upstream. Trivy's exit-code:1 gate in docker-publish.yml
+# caught this on 2026-08-30 (35 findings, all with a fixed version
+# available) — patch OS packages at build time so the gate stays green
+# regardless of how stale the upstream base rebuild is.
+RUN apk update && apk upgrade --no-cache
 
 # Create non-root user for security
 RUN addgroup -S app && adduser -S app -G app

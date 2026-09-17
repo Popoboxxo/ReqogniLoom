@@ -87,6 +87,20 @@ class ProviderConfig:
 def _read_env_config() -> ProviderConfig:
     """Read ProviderConfig purely from environment variables.
 
+    Two spellings are accepted for the model and the base URL (issue #276):
+    ``docker-compose.yml``, ``deployment/docker-compose.ghcr.yml`` and
+    ``.env.example`` all pass ``LLM_MODEL`` / ``LLM_BASE_URL`` through to the
+    backend, while this function historically read only ``LLM_MODEL_NAME`` /
+    ``LLM_API_BASE_URL`` — so every model and base-URL value a deployment
+    configured was silently dropped. The historical names keep precedence, so
+    environments that already set them are unaffected;
+    :class:`OllamaProvider` and :class:`OpencodeGoProvider` already read the
+    short ``LLM_MODEL`` directly, which is the precedent for the alias.
+
+    ``or`` (not ``get(name, default)``) is used deliberately: ``.env.example``
+    ships these variables *present but empty*, and an empty value must fall
+    through to the alias rather than shadow it.
+
     Returns:
         Populated ProviderConfig instance.
     """
@@ -94,8 +108,14 @@ def _read_env_config() -> ProviderConfig:
         provider_name=os.environ.get("LLM_PROVIDER", ""),
         timeout=int(os.environ.get("LLM_TIMEOUT", "30")),
         api_key=os.environ.get("LLM_API_KEY", ""),
-        api_base_url=os.environ.get("LLM_API_BASE_URL") or None,
-        model_name=os.environ.get("LLM_MODEL_NAME", ""),
+        api_base_url=(
+            os.environ.get("LLM_API_BASE_URL")
+            or os.environ.get("LLM_BASE_URL")
+            or None
+        ),
+        model_name=(
+            os.environ.get("LLM_MODEL_NAME") or os.environ.get("LLM_MODEL") or ""
+        ),
         azure_deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT") or None,
         azure_api_version=os.environ.get("AZURE_OPENAI_API_VERSION") or None,
         mock_delay=float(os.environ.get("MOCK_LLM_DELAY", "0.0")),
@@ -114,6 +134,18 @@ def _apply_db_settings(cfg: ProviderConfig) -> ProviderConfig:
       - Any failure (no active tenant context, DB unavailable, no row) is
         swallowed and the untouched env config is returned — the environment
         remains the source of truth when settings are not configured.
+
+    .. important:: The unconditional ``provider`` precedence above is only
+       sound because **a LlmSettings row exists if and only if an admin
+       explicitly saved settings** for that tenant (issue #276). Nothing may
+       create the row implicitly: ``0026_add_llm_settings`` no longer seeds a
+       ``provider=mock`` row, ``0056_unseed_default_llm_settings`` removes the
+       pristine ones it left behind, and
+       ``SettingsService.get_llm_settings`` serves reads from an *unsaved*,
+       env-derived instance. A machine-created row would otherwise pin the
+       provider forever and make every later ``LLM_PROVIDER`` change a silent
+       no-op — the deployment would keep returning mock placeholders with no
+       error anywhere.
     """
     try:
         from persistence.models import LlmSettings
@@ -299,6 +331,13 @@ class MockLlmProvider(LlmCapabilityInterface):
 
     The mock always returns stable, predictable LlmResult objects so test
     assertions can rely on specific values without network access.
+
+    Since Issue #196, a configured ``model_name`` (env var or DB-persisted
+    ``LlmSettings`` row) overrides ``MODEL_NAME`` here too, for consistency
+    with the other providers — the reported ``model`` on results may
+    therefore no longer read ``"mock-model-v1"`` in deployments that set a
+    model default alongside ``LLM_PROVIDER=mock`` (this is intentional: the
+    same config knob behaves the same way regardless of provider).
     """
 
     PROVIDER_NAME = "mock"
@@ -306,6 +345,11 @@ class MockLlmProvider(LlmCapabilityInterface):
 
     def __init__(self, config: Optional[ProviderConfig] = None) -> None:
         self._config = config or _read_config()
+        # Issue #196: a configured model_name must win over the class-level
+        # MODEL_NAME default, mirroring _BaseHttpProvider's precedence
+        # (issue #118) so the mock provider reports the same model it was
+        # actually configured with instead of always the hardcoded default.
+        self.model_name = self._config.model_name or self.MODEL_NAME
 
     def _simulate(self) -> None:
         """Apply configured delay and optional error simulation."""
@@ -337,7 +381,7 @@ class MockLlmProvider(LlmCapabilityInterface):
             score=0.85,
             suggestions=[f"Mock suggestion for artifact {artifact_id}"],
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=42,
         )
 
@@ -360,7 +404,7 @@ class MockLlmProvider(LlmCapabilityInterface):
             score=0.90,
             suggestions=[],
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=100,
             children=[
                 {"id": f"{requirement_id}-child-1", "title": "Mock child 1", "type": "sub-requirement"},
@@ -385,7 +429,7 @@ class MockLlmProvider(LlmCapabilityInterface):
             score=0.95,
             suggestions=[],
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=200,
             issues=[],
         )
@@ -402,7 +446,7 @@ class MockLlmProvider(LlmCapabilityInterface):
             score=0.92,
             suggestions=[],
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=120,
             children=[
                 {"id": f"{need_id}-derived-1", "title": "Mock Derived Requirement 1", "description": "System shall do X.", "type": "SyReq"},
@@ -430,7 +474,8 @@ class MockLlmProvider(LlmCapabilityInterface):
             purpose: One of ``need_to_sysreq``, ``sysreq_to_arch_assign`` or
                 ``sysreq_decompose_next_level``.
             context: Optional structured hints. Recognised keys:
-                ``n`` (int) and ``arch_element_ids`` (list of id strings).
+                ``max_requirements_per_need`` (int) and ``arch_element_ids``
+                (list of id strings).
 
         Returns:
             A JSON-encoded string appropriate for the declared purpose.
@@ -441,7 +486,13 @@ class MockLlmProvider(LlmCapabilityInterface):
         ctx = context or {}
 
         if purpose == "need_to_sysreq":
-            count = max(1, int(ctx.get("n", 3)))
+            # Context key renamed from ``n`` to ``max_requirements_per_need``
+            # when the count moved into the prompt-variable catalog (spec
+            # §4) — the caller now sends the resolved cap (``None`` when
+            # unset), but the mock still treats it as "how many to
+            # generate" for a deterministic, testable draft count.
+            raw_count = ctx.get("max_requirements_per_need")
+            count = max(1, int(raw_count)) if raw_count is not None else 3
             return json.dumps(
                 [
                     {
@@ -483,12 +534,17 @@ class MockLlmProvider(LlmCapabilityInterface):
             # decomposition tree. Each node bundles a child ArchitectureElement
             # with a single derived Requirement so the N1 service can emit the
             # full internal link set (decomposes / derives-from / allocated-to).
-            # ``breadth`` children per level, nested ``depth`` levels deep;
-            # element_type is a descriptive tag only ("subsystem" for inner
-            # nodes, "component" for leaves — the authoritative role is derived
-            # from tree position, UMSETZUNGSPLAN_SYSENG_2.0.md §1.2).
-            breadth = max(1, int(ctx.get("breadth", 2)))
-            depth = max(1, int(ctx.get("depth", 1)))
+            # ``max_breadth`` children per level, nested ``max_depth`` levels
+            # deep; element_type is a descriptive tag only ("subsystem" for
+            # inner nodes, "component" for leaves — the authoritative role is
+            # derived from tree position, UMSETZUNGSPLAN_SYSENG_2.0.md §1.2).
+            # Context keys renamed from breadth/depth to max_breadth/max_depth
+            # when the prompt+caps moved into the prompt-variable catalog
+            # (spec §4) — the caller now sends the resolved *cap*, not a
+            # target count, but the mock still treats it as "how many to
+            # generate" for a deterministic, testable tree shape.
+            breadth = max(1, int(ctx.get("max_breadth", 2)))
+            depth = max(1, int(ctx.get("max_depth", 1)))
             title_base = str(ctx.get("element_title") or "System")
 
             def _build(prefix: str, level: int) -> list:
@@ -640,6 +696,131 @@ class MockLlmProvider(LlmCapabilityInterface):
                 )
             return json.dumps(suggestions)
 
+        if purpose == "context_change_impact":
+            # REQ-L2-MC-004 (Phase 2, Task 6: context.change_impact) —
+            # deterministic ranking mock. Like ``traceability_suggest_links``
+            # above, it never invents an id: it only re-emits the 'id'
+            # values handed in via ``ctx["candidates"]`` (each already a
+            # real trace-linked entity resolved by the MCP tool), so the
+            # caller's referential-integrity merge always finds a match.
+            candidates = ctx.get("candidates")
+            candidates = candidates if isinstance(candidates, list) else []
+            return json.dumps(
+                [
+                    {
+                        "id": c.get("id"),
+                        "likely_affected": True,
+                        "rationale": (
+                            "Directly linked to the changed entity via the "
+                            "trace graph (mock provider — no semantic "
+                            "assessment performed)."
+                        ),
+                    }
+                    for c in candidates
+                    if isinstance(c, dict) and c.get("id")
+                ]
+            )
+
+        if purpose == "derive_risks_from_architecture":
+            # Phase 3 (ai_derivation.derive_risks_from_architecture):
+            # deterministic risk drafts for the given architecture element.
+            # Mirrors the array-shaped purposes above (e.g.
+            # sysreq_decompose_next_level) — always emits valid enum values
+            # for probability/impact so the happy path never hits the
+            # service's defensive clamp, which is instead exercised by a
+            # capturing fake provider in tests.
+            ae_title = str(ctx.get("ae_title") or "Architecture element")
+            return json.dumps(
+                [
+                    {
+                        "title": f"Delivery risk for {ae_title}",
+                        "description": (
+                            f"Risk that '{ae_title}' is not delivered on time "
+                            "or does not meet its quality bar."
+                        ),
+                        "probability": "medium",
+                        "impact": "medium",
+                        "category": "technical",
+                    }
+                ]
+            )
+
+        if purpose == "derive_glossary_from_workspace":
+            # Phase 3, Task 4 (ai_derivation.derive_glossary_from_workspace):
+            # deterministic single-term draft. Never invents workspace
+            # content — it just confirms a term was requested for the given
+            # workspace, mirroring the shape the real prompt asks for.
+            workspace_id = str(ctx.get("workspace_id") or "workspace")
+            return json.dumps(
+                [
+                    {
+                        "term": f"Term for {workspace_id}",
+                        "definition": (
+                            "Placeholder definition extracted from the "
+                            "workspace's requirements and architecture "
+                            "(mock provider — no semantic extraction "
+                            "performed)."
+                        ),
+                        "synonyms": [],
+                        "abbreviation": "",
+                    }
+                ]
+            )
+
+        if purpose == "goal_aggregate":
+            # MainGoalService.generate_ai (Goal/MainGoal feature, fix #229):
+            # unlike every other purpose above, ``goal_aggregate`` expects
+            # free-form prose (2-4 sentences), not a JSON array/object — the
+            # factory prompt template explicitly says "Respond with the
+            # MainGoal text only" (persistence.models.PROMPT_TEMPLATE_DEFAULTS).
+            # Falling through to the generic ``json.dumps([])`` fallback below
+            # produced the literal string "[]" as MainGoal.content. The mock
+            # never parses the prompt (context/prompt are ignored per this
+            # method's docstring), so it echoes the goal titles the caller
+            # already resolved into ``context["goal_titles"]`` instead of
+            # inventing content.
+            goal_titles = ctx.get("goal_titles")
+            goal_titles = [str(t) for t in goal_titles] if isinstance(goal_titles, list) else []
+            if goal_titles:
+                joined = "; ".join(goal_titles)
+                return (
+                    f"This workspace's overarching goal is to achieve: {joined}. "
+                    "It unifies the individual goals listed above into one "
+                    "shared direction (mock provider — no semantic synthesis "
+                    "performed)."
+                )
+            return (
+                "This workspace's overarching goal aggregates its current "
+                "goals into one shared direction (mock provider placeholder "
+                "— no goals were supplied)."
+            )
+
+        if purpose == "derive_adr_from_decision":
+            # Phase 3, Task 5 (ai_derivation.derive_adr_from_decision):
+            # deterministic single ADR draft (title, description, context,
+            # consequences) structuring the given free-text decision. Unlike
+            # the array-shaped purposes above, this returns a single JSON
+            # *object* — AiDerivationService._parse_json_object expects that
+            # shape (mirrors "test_derive_from_requirement" above).
+            decision_description = str(
+                ctx.get("decision_description") or "the decision"
+            )
+            return json.dumps(
+                {
+                    "title": f"Decision: {decision_description[:60]}",
+                    "description": decision_description,
+                    "context": (
+                        "Context extracted from the free-text decision "
+                        "description (mock provider — no semantic "
+                        "extraction performed)."
+                    ),
+                    "consequences": (
+                        "Consequences not yet assessed (mock provider "
+                        "placeholder)."
+                    ),
+                }
+            )
+
         return json.dumps([])
 
 
@@ -660,6 +841,11 @@ class _BaseHttpProvider(LlmCapabilityInterface):
 
     def __init__(self, config: ProviderConfig) -> None:
         self._config = config
+        # Issue #118: a configured model_name (LLM_MODEL_NAME env or the
+        # DB-persisted LlmSettings row, see _apply_db_settings) must win over
+        # the class-level MODEL_NAME default - subclasses must call the real
+        # API with self.model_name, never self.MODEL_NAME directly.
+        self.model_name = config.model_name or self.MODEL_NAME
 
     def _request(self, payload: dict) -> dict:
         """Execute an HTTP request with timeout handling.
@@ -790,6 +976,89 @@ def _parse_derivation_response(text: str) -> dict:
         return {"children": [{"title": "Generated Req", "description": text}]}
 
 
+def _parse_validation_response(text: str) -> dict:
+    """Parse a validate_artifact completion into a data dict.
+
+    Mirrors :func:`_parse_derivation_response`: some models wrap the JSON
+    payload in markdown fences, which are stripped before parsing. On
+    malformed JSON this degrades to a structured, zero-confidence result
+    instead of letting ``json.JSONDecodeError`` propagate — every provider's
+    ``validate_artifact`` used a bare ``json.loads(text)``, so a non-JSON
+    completion (e.g. prose around the JSON, or an incomplete response) raised
+    an uncaught exception whose raw parser message ("Expecting value: line 1
+    column 1 (char 0)") ended up leaking straight into the client-facing
+    error envelope (#576).
+
+    Args:
+        text: The raw completion text returned by the provider.
+
+    Returns:
+        A dict with (at least) ``score`` and ``suggestions`` keys.
+    """
+    import json
+
+    try:
+        cleaned = text.replace("```json", "").replace("```", "").strip()
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.warning(
+            "Provider returned invalid JSON for validate_artifact: %s", text
+        )
+        return {
+            "score": 0.0,
+            "suggestions": [
+                "LLM provider returned a non-JSON response; validation "
+                "could not be scored automatically."
+            ],
+        }
+
+
+def _parse_consistency_response(text: str) -> dict:
+    """Parse a check_consistency completion into a data dict.
+
+    Mirrors :func:`_parse_validation_response` (#576): every provider's
+    ``check_consistency`` used a bare ``json.loads(text)``, so a completion
+    where the model wraps the JSON payload in prose (e.g. "Sure, here is the
+    analysis: {...} Hope this helps!") raised an uncaught
+    ``json.JSONDecodeError`` whose raw parser message leaked straight through
+    the Celery task result to ``get_task_status()`` (systemaudit 2026-09-02,
+    R5/R7). Markdown fences are stripped first; if that still doesn't parse,
+    the substring between the first ``{`` and the last ``}`` is tried next.
+    On persistent failure this degrades to a structured, zero-confidence
+    result instead of letting the exception propagate.
+
+    Args:
+        text: The raw completion text returned by the provider.
+
+    Returns:
+        A dict with (at least) ``score``, ``suggestions`` and ``issues`` keys.
+    """
+    import json
+
+    cleaned = text.replace("```json", "").replace("```", "").strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    logger.warning("Provider returned invalid JSON for check_consistency: %s", text)
+    return {
+        "score": 0.0,
+        "suggestions": [
+            "LLM provider returned a non-JSON response; consistency check "
+            "could not be scored automatically."
+        ],
+        "issues": [],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Anthropic provider
 # ---------------------------------------------------------------------------
@@ -818,15 +1087,18 @@ class AnthropicProvider(_BaseHttpProvider):
         try:
             import anthropic  # noqa: PLC0415 (lazy import intentional)
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
         effective_timeout = self._effective_timeout(timeout)
-        client = anthropic.Anthropic(api_key=self._config.api_key)
+        client = anthropic.Anthropic(
+            api_key=self._config.api_key,
+            base_url=self._config.api_base_url or None,
+        )
         message = self._resilient(
             lambda: client.messages.create(
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 max_tokens=4096,
                 timeout=effective_timeout,
                 messages=[{"role": "user", "content": prompt}],
@@ -854,10 +1126,13 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415 (lazy import intentional)
 
             effective_timeout = self._effective_timeout(timeout)
-            client = anthropic.Anthropic(api_key=self._config.api_key)
+            client = anthropic.Anthropic(
+                api_key=self._config.api_key,
+                base_url=self._config.api_base_url or None,
+            )
             message = self._resilient(
                 lambda: client.messages.create(
-                    model=self.MODEL_NAME,
+                    model=self.model_name,
                     max_tokens=1024,
                     timeout=effective_timeout,
                     messages=[
@@ -876,7 +1151,7 @@ class AnthropicProvider(_BaseHttpProvider):
             import json
 
             raw = message.content[0].text
-            data = json.loads(raw)
+            data = _parse_validation_response(raw)
             token_usage = (
                 message.usage.input_tokens + message.usage.output_tokens
                 if hasattr(message, "usage")
@@ -886,11 +1161,11 @@ class AnthropicProvider(_BaseHttpProvider):
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 token_usage=token_usage,
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -907,10 +1182,13 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415
 
             effective_timeout = self._effective_timeout(timeout)
-            client = anthropic.Anthropic(api_key=self._config.api_key)
+            client = anthropic.Anthropic(
+                api_key=self._config.api_key,
+                base_url=self._config.api_base_url or None,
+            )
             message = self._resilient(
                 lambda: client.messages.create(
-                    model=self.MODEL_NAME,
+                    model=self.model_name,
                     max_tokens=4096,
                     timeout=effective_timeout,
                     messages=[
@@ -939,12 +1217,12 @@ class AnthropicProvider(_BaseHttpProvider):
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 token_usage=token_usage,
                 children=data.get("children", []),
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -960,10 +1238,13 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415
 
             effective_timeout = self._effective_timeout(timeout)
-            client = anthropic.Anthropic(api_key=self._config.api_key)
+            client = anthropic.Anthropic(
+                api_key=self._config.api_key,
+                base_url=self._config.api_base_url or None,
+            )
             message = self._resilient(
                 lambda: client.messages.create(
-                    model=self.MODEL_NAME,
+                    model=self.model_name,
                     max_tokens=4096,
                     timeout=effective_timeout,
                     messages=[
@@ -979,10 +1260,8 @@ class AnthropicProvider(_BaseHttpProvider):
                 ),
                 timeout_seconds=effective_timeout,
             )
-            import json
-
             raw = message.content[0].text
-            data = json.loads(raw)
+            data = _parse_consistency_response(raw)
             token_usage = (
                 message.usage.input_tokens + message.usage.output_tokens
                 if hasattr(message, "usage")
@@ -992,12 +1271,12 @@ class AnthropicProvider(_BaseHttpProvider):
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 token_usage=token_usage,
                 issues=data.get("issues", []),
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -1027,7 +1306,7 @@ class AnthropicProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=None,
             children=data.get("children", []),
         )
@@ -1055,15 +1334,19 @@ class OpenAiProvider(_BaseHttpProvider):
         try:
             from openai import OpenAI  # noqa: PLC0415
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "openai SDK not installed. Run: pip install openai"
             ) from exc
 
         effective_timeout = self._effective_timeout(timeout)
-        client = OpenAI(api_key=self._config.api_key, timeout=effective_timeout)
+        client = OpenAI(
+            api_key=self._config.api_key,
+            base_url=self._config.api_base_url or None,
+            timeout=effective_timeout,
+        )
         response = self._resilient(
             lambda: client.chat.completions.create(
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
             ),
             timeout_seconds=effective_timeout,
@@ -1087,15 +1370,16 @@ class OpenAiProvider(_BaseHttpProvider):
         text, token_usage = self._invoke_chat(
             f"Validate the following artifact (id: {artifact_id})."
             f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}",
+            "Return JSON: {score, suggestions}. "
+            "Return score as a decimal between 0.0 and 1.0.",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_validation_response(text)
         return LlmResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=token_usage,
         )
 
@@ -1120,7 +1404,7 @@ class OpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1160,7 +1444,7 @@ class OpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1172,20 +1456,18 @@ class OpenAiProvider(_BaseHttpProvider):
         artifacts: Optional[List[dict]] = None,
         timeout: Optional[float] = None,
     ) -> LlmConsistencyResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Check consistency across the artifacts in workspace "
             f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=token_usage,
             issues=data.get("issues", []),
         )
@@ -1201,7 +1483,11 @@ class OllamaProvider(_BaseHttpProvider):
 
     Env vars:
         LLM_API_BASE_URL=http://localhost:11434  (default)
-        LLM_MODEL=llama3  (overrides MODEL_NAME, optional)
+        LLM_MODEL_NAME / LLM_MODEL=llama3  (overrides MODEL_NAME, optional)
+
+    A DB-persisted ``LlmSettings.model_name`` row takes precedence over both
+    of the above (see Issue #196) — env vars are only the fallback for
+    unconfigured deployments.
     """
 
     PROVIDER_NAME = "ollama"
@@ -1216,7 +1502,14 @@ class OllamaProvider(_BaseHttpProvider):
                 "Set OLLAMA_BASE_URL environment variable."
             )
         self._base_url = config.api_base_url
-        self._model = os.environ.get("LLM_MODEL", self.MODEL_NAME)
+        # Issue #196: a configured model_name (LLM_MODEL_NAME env or the
+        # DB-persisted LlmSettings row) must win over the class-level
+        # MODEL_NAME default. self.model_name (set by _BaseHttpProvider from
+        # config.model_name or MODEL_NAME) is the canonical source - do not
+        # re-derive a parallel value from os.environ here, or a DB-configured
+        # model_name that never reached the process environment is silently
+        # ignored (issue #118's guarantee only holds if callers actually use
+        # self.model_name).
 
     def _chat(
         self, prompt: str, timeout: Optional[float] = None
@@ -1239,7 +1532,7 @@ class OllamaProvider(_BaseHttpProvider):
             # classified (and retried) by status code (REQ-082).
             response = requests.post(
                 url,
-                json={"model": self._model, "prompt": prompt, "stream": False},
+                json={"model": self.model_name, "prompt": prompt, "stream": False},
                 timeout=effective_timeout,
             )
             response.raise_for_status()
@@ -1265,15 +1558,16 @@ class OllamaProvider(_BaseHttpProvider):
         text, token_usage = self._invoke_chat(
             f"Validate the following artifact (id: {artifact_id})."
             f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}",
+            "Return JSON: {score, suggestions}. "
+            "Return score as a decimal between 0.0 and 1.0.",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_validation_response(text)
         return LlmResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
         )
 
@@ -1298,7 +1592,7 @@ class OllamaProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1310,20 +1604,18 @@ class OllamaProvider(_BaseHttpProvider):
         artifacts: Optional[List[dict]] = None,
         timeout: Optional[float] = None,
     ) -> LlmConsistencyResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Check consistency across the artifacts in workspace "
             f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=token_usage,
             issues=data.get("issues", []),
         )
@@ -1352,7 +1644,7 @@ class OllamaProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.model_name,
             token_usage=None,
             children=data.get("children", []),
         )
@@ -1384,7 +1676,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         try:
             from openai import AzureOpenAI  # noqa: PLC0415
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "openai SDK not installed. Run: pip install openai"
             ) from exc
 
@@ -1398,7 +1690,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         )
         response = self._resilient(
             lambda: client.chat.completions.create(
-                model=self._config.azure_deployment or self.MODEL_NAME,
+                model=self._config.azure_deployment or self.model_name,
                 messages=[{"role": "user", "content": prompt}],
             ),
             timeout_seconds=effective_timeout,
@@ -1420,15 +1712,16 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         text, token_usage = self._invoke_chat(
             f"Validate the following artifact (id: {artifact_id})."
             f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}",
+            "Return JSON: {score, suggestions}. "
+            "Return score as a decimal between 0.0 and 1.0.",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_validation_response(text)
         return LlmResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._config.azure_deployment or self.MODEL_NAME,
+            model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
         )
 
@@ -1453,7 +1746,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._config.azure_deployment or self.MODEL_NAME,
+            model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1465,20 +1758,18 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         artifacts: Optional[List[dict]] = None,
         timeout: Optional[float] = None,
     ) -> LlmConsistencyResult:
-        import json
-
         text, token_usage = self._invoke_chat(
             f"Check consistency across the artifacts in workspace "
             f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
             timeout,
         )
-        data = json.loads(text)
+        data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._config.azure_deployment or self.MODEL_NAME,
+            model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
             issues=data.get("issues", []),
         )
@@ -1507,7 +1798,180 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._config.azure_deployment or self.MODEL_NAME,
+            model=self._config.azure_deployment or self.model_name,
+            token_usage=None,
+            children=data.get("children", []),
+        )
+
+
+# ---------------------------------------------------------------------------
+# OpenCode Go provider (ad-hoc addition, project-owner request)
+# ---------------------------------------------------------------------------
+
+
+class OpencodeGoProvider(_BaseHttpProvider):
+    """LLM provider backed by OpenCode Go's OpenAI-compatible endpoint.
+
+    OpenCode Go (https://opencode.ai) exposes an OpenAI-compatible chat
+    completions API, so this provider reuses the ``openai`` SDK client with a
+    custom ``base_url`` instead of adding a new HTTP dependency — the same
+    "SDK client + custom endpoint" shape :class:`AzureOpenAiProvider` already
+    uses for Azure OpenAI (REQ-L3-LA002-001).
+
+    Env vars:
+        LLM_API_KEY=<your-opencode-go-key>
+        LLM_API_BASE_URL=https://opencode.ai/zen/go/v1  (default; override to
+            point at a self-hosted or alternate OpenCode Go endpoint)
+        LLM_MODEL_NAME / LLM_MODEL=<model-id>  (overrides MODEL_NAME,
+            optional — see https://opencode.ai/docs/providers for available
+            model ids)
+
+    A DB-persisted ``LlmSettings.model_name`` row takes precedence over both
+    of the above (see Issue #196) — env vars are only the fallback for
+    unconfigured deployments.
+    """
+
+    PROVIDER_NAME = "opencode_go"
+    MODEL_NAME = "claude-sonnet-4-5"
+    DEFAULT_BASE_URL = "https://opencode.ai/zen/go/v1"
+
+    def __init__(self, config: ProviderConfig) -> None:
+        super().__init__(config)
+        self._base_url = (config.api_base_url or self.DEFAULT_BASE_URL).strip()
+        # Issue #196: see OllamaProvider.__init__ for why the configured
+        # self.model_name (set by _BaseHttpProvider) must be used here
+        # instead of re-deriving the model from os.environ.
+
+    def _chat(
+        self, prompt: str, timeout: Optional[float] = None
+    ) -> tuple[str, Optional[int]]:
+        """Send a chat completion request to the OpenCode Go endpoint."""
+        try:
+            from openai import OpenAI  # noqa: PLC0415
+        except ImportError as exc:
+            raise LlmNotConfiguredError(
+                "openai SDK not installed (required for the opencode_go "
+                "provider, which reuses the OpenAI-compatible client). "
+                "Run: pip install openai"
+            ) from exc
+
+        effective_timeout = self._effective_timeout(timeout)
+        client = OpenAI(
+            api_key=self._config.api_key,
+            base_url=self._base_url,
+            timeout=effective_timeout,
+        )
+        response = self._resilient(
+            lambda: client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            timeout_seconds=effective_timeout,
+        )
+        text = response.choices[0].message.content or ""
+        token_usage = response.usage.total_tokens if response.usage else None
+        return text, token_usage
+
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmResult:
+        import json
+
+        text, token_usage = self._invoke_chat(
+            f"Validate the following artifact (id: {artifact_id})."
+            f"{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions}. "
+            "Return score as a decimal between 0.0 and 1.0.",
+            timeout,
+        )
+        data = _parse_validation_response(text)
+        return LlmResult(
+            score=float(data.get("score", 0.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self.model_name,
+            token_usage=token_usage,
+        )
+
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        import json
+
+        text, token_usage = self._invoke_chat(
+            f"Decompose the following requirement (id: {requirement_id}) "
+            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
+            timeout,
+        )
+        data = json.loads(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 0.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self.model_name,
+            token_usage=token_usage,
+            children=data.get("children", []),
+        )
+
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmConsistencyResult:
+        text, token_usage = self._invoke_chat(
+            f"Check consistency across the artifacts in workspace "
+            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
+            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
+            timeout,
+        )
+        data = _parse_consistency_response(text)
+        return LlmConsistencyResult(
+            score=float(data.get("score", 0.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self.model_name,
+            token_usage=token_usage,
+            issues=data.get("issues", []),
+        )
+
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need (REQ-041, REQ-048).
+
+        Fetching the StakeholderNeed and rendering configured prompt templates
+        is the responsibility of the application layer (AiDerivationService);
+        the full artifact content is injected by that layer in REQ-046.
+        """
+        text = self.complete(
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}",
+            purpose="derive_requirements",
+            timeout=timeout,
+        )
+        data = _parse_derivation_response(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self.model_name,
             token_usage=None,
             children=data.get("children", []),
         )
@@ -1524,6 +1988,7 @@ _PROVIDER_REGISTRY: Dict[str, Type[LlmCapabilityInterface]] = {
     "openai": OpenAiProvider,
     "ollama": OllamaProvider,
     "azure": AzureOpenAiProvider,
+    "opencode_go": OpencodeGoProvider,
     "mock": MockLlmProvider,
 }
 

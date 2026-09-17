@@ -1,0 +1,191 @@
+name: Docker Publish (GHCR)
+
+# Builds and pushes the 2 ReqogniLoom images (backend, frontend) to GitHub
+# Container Registry on version tags. Celery/celery-beat reuse the backend
+# image with a different `command:` override (see deploy/docker-compose.yml) — there
+# is no separate Celery image, since celery/celery-beat/migrate all import
+# the same Django app code as the web process; splitting it out would only
+# duplicate the build/dependency layers without any runtime isolation gain.
+#
+# Tagging: every push of a `vX.Y.Z` tag publishes that exact version tag
+# (always) and additionally moves the `latest` tag to it (skipped for
+# pre-release tags like `v1.1.0-rc1`), so operators can pin a version or
+# track `latest`.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  # H2: upload-sarif needs security-events:write
+  security-events: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        include:
+          - image: backend
+            context: ./backend
+            target: ''
+          - image: frontend
+            context: ./frontend
+            target: production
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/reqogniloom-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=manual-{{sha}},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Resolve build metadata (backend version stamp)
+        id: build_meta
+        run: |
+          # Extract app_version from version tag (e.g., v1.0.1 → 1.0.1)
+          # For workflow_dispatch: extract from VERSION file instead
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            # workflow_dispatch: read from VERSION file at the current commit
+            VERSION=$(git show HEAD:VERSION | tr -d '[:space:]')
+          fi
+
+          # Commit SHA is always GITHUB_SHA (the commit being built)
+          GIT_COMMIT_SHA="${GITHUB_SHA}"
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Validate that we have non-empty values (not "unknown")
+          if [[ -z "$VERSION" || "$VERSION" == "unknown" ]]; then
+            echo "ERROR: app_version is empty or unknown" >&2
+            exit 1
+          fi
+          if [[ -z "$GIT_COMMIT_SHA" || "$GIT_COMMIT_SHA" == "unknown" ]]; then
+            echo "ERROR: git_commit_sha is empty or unknown" >&2
+            exit 1
+          fi
+
+          echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "git_commit_sha=$GIT_COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
+
+          echo "[build-meta] app_version=$VERSION"
+          echo "[build-meta] git_commit_sha=$GIT_COMMIT_SHA"
+          echo "[build-meta] build_time=$BUILD_TIME"
+
+      - name: Build and push (backend — stamps version/commit/build-time)
+        if: matrix.image == 'backend'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          # H4: Load image locally before scanning (Trivy runs locally first, then push)
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.build_meta.outputs.app_version }}
+            GIT_COMMIT_SHA=${{ steps.build_meta.outputs.git_commit_sha }}
+            BUILD_TIME=${{ steps.build_meta.outputs.build_time }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Build and push (frontend)
+        if: matrix.image == 'frontend'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          target: ${{ matrix.target }}
+          # H4: Load image locally before scanning (Trivy runs locally first, then push)
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      # H4: Extract first tag from multi-line output (steps.meta.outputs.tags may contain
+      # multiple tags separated by newlines, e.g., "vX.Y.Z" and "latest"). Trivy expects
+      # a single image reference.
+      - name: Extract first image tag (H4)
+        id: first_tag
+        run: echo "tag=$(echo '${{ steps.meta.outputs.tags }}' | head -n1)" >> "$GITHUB_OUTPUT"
+
+      # H4: Security scan for container image vulnerabilities using Trivy.
+      # Scans the locally-loaded image BEFORE pushing to GHCR. Fails if CRITICAL or HIGH
+      # vulnerabilities are found (prevents known-vulnerable images from reaching prod).
+      # Uses the first tag from steps.first_tag.outputs.tag (extracted above).
+      # v0.28.0 was retired by upstream: it referenced aquasecurity/setup-trivy@v0.2.1,
+      # a sub-action tag that no longer resolves (deleted upstream), breaking every
+      # docker-publish run with "Unable to resolve action ... unable to find version
+      # v0.2.1" before any build step could run. Bumped to the latest stable release.
+      - name: Run Trivy vulnerability scan (SA-44)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          # H3: Use v-prefixed tag (v0.28.0 instead of 0.28.0)
+          # H4: Use extracted single tag (not multi-line raw output)
+          image-ref: ${{ steps.first_tag.outputs.tag }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          # H4: Exit with failure code if vulnerabilities found (not just SARIF upload)
+          exit-code: '1'
+          # Ignore vulnerabilities with no fix available (focus on actionable issues)
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to GitHub Security (SA-44)
+        # H3: v2 is retired; use v3
+        uses: github/codeql-action/upload-sarif@v4
+        # N2: Only upload if trivy-results.sarif exists (prevents failure if Trivy didn't run)
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-${{ matrix.image }}'
+
+      # H4: Push images to GHCR AFTER Trivy scan succeeds (prevents vulnerable images)
+      - name: Push to GHCR (backend)
+        if: matrix.image == 'backend'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.build_meta.outputs.app_version }}
+            GIT_COMMIT_SHA=${{ steps.build_meta.outputs.git_commit_sha }}
+            BUILD_TIME=${{ steps.build_meta.outputs.build_time }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Push to GHCR (frontend)
+        if: matrix.image == 'frontend'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          target: ${{ matrix.target }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

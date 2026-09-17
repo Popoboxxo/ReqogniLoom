@@ -185,13 +185,12 @@ class AdrAdmin(admin.ModelAdmin):
 
     list_display = (
         "title",
-        "status",
         "version",
         "workspace_id",
         "tenant_id",
         "updated_at",
     )
-    list_filter = ("status", "workspace_id", "tenant_id")
+    list_filter = ("workspace_id", "tenant_id")
     search_fields = ("title", "description", "context", "consequences")
     ordering = ("-updated_at",)
     readonly_fields = ("created_at", "updated_at")
@@ -206,12 +205,14 @@ class RiskAdmin(admin.ModelAdmin):
         "category",
         "severity",
         "risk_score",
-        "status",
         "workspace_id",
         "updated_at",
     )
-    list_filter = ("category", "severity", "status", "workspace_id")
-    search_fields = ("title", "description", "mitigation_strategy", "owner")
+    list_filter = ("category", "severity", "workspace_id")
+    # WS6/WS7 review (#939/#940) Medium 2: migration 0092 renamed the free-text
+    # ``Risk.owner`` column to ``owner_name``; the stale name made the admin
+    # search raise FieldError. ``manage.py check`` does not exercise it.
+    search_fields = ("title", "description", "mitigation_strategy", "owner_name")
     ordering = ("-updated_at",)
     readonly_fields = ("created_at", "updated_at", "risk_score", "severity")
 
@@ -224,13 +225,12 @@ class IssueAdmin(admin.ModelAdmin):
         "title",
         "severity",
         "category",
-        "status",
         "assignee_id",
         "due_date",
         "workspace_id",
         "updated_at",
     )
-    list_filter = ("severity", "category", "status", "workspace_id")
+    list_filter = ("severity", "category", "workspace_id")
     search_fields = ("title", "description")
     ordering = ("-updated_at",)
     readonly_fields = ("created_at", "updated_at")

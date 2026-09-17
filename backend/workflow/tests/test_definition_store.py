@@ -97,10 +97,14 @@ class TestPresetDefaultWorkflows:
 
     def test_extended_states(self):
         """New workspace Extended → states [draft, in_review, approved,
-        implemented, verified, deprecated] (REQ-L2-WE-011: V-model right side)."""
+        implemented, verified, deprecated] (REQ-L2-WE-011: V-model right side)
+        plus "proposed"/"rejected" (KI-Vorschlag-als-Zustand spec §4.1 — every
+        non-minimal preset gains the AI-proposal state, Decision 3)."""
         dto = self._create_with_tenant("extended")
         assert set(dto.states) == {
             "draft",
+            "proposed",
+            "rejected",
             "in_review",
             "approved",
             "implemented",
@@ -121,6 +125,18 @@ class TestPresetDefaultWorkflows:
         assert t2 is not None
         assert "approver" in t2.allowed_roles
         assert "admin" in t2.allowed_roles
+
+    def test_extended_verified_deprecated_transition(self):
+        """Issue #338: verified->deprecated must exist so "verified" is not a
+        dead-end state; mirrors approved->deprecated (approver/admin,
+        requires_change_reason)."""
+        dto = self._create_with_tenant("extended")
+
+        t = dto.get_transition("verified", "deprecated")
+        assert t is not None
+        assert "approver" in t.allowed_roles
+        assert "admin" in t.allowed_roles
+        assert t.requires_change_reason is True
 
     def test_standard_has_approver_role(self):
         """Standard preset draft→approved transition requires approver role."""

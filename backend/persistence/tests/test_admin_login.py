@@ -128,3 +128,64 @@ def test_user_auth_interface_properties(db: None) -> None:
     assert regular.is_authenticated
     assert not regular.has_perm("some.perm")
     assert not regular.has_module_perms("someapp")
+
+
+# -- Session auth hash -------------------------------------------------------
+#
+# ``User`` implements the Django auth interface by hand rather than inheriting
+# ``AbstractBaseUser``. Django 5.2 skipped session-hash verification entirely
+# when the model did not provide ``get_session_auth_hash`` (a
+# ``RemovedInDjango61Warning`` shim); 6.1 calls it unconditionally. These tests
+# pin both halves: that the methods exist at all (otherwise every session login
+# raises AttributeError on >=6.1) and that they carry real security semantics —
+# returning a constant such as "" would keep login working while silently
+# reintroducing "session survives a password change".
+
+
+@pytest.mark.django_db
+def test_session_auth_hash_is_a_stable_sha256_digest(staff_user: User) -> None:
+    """get_session_auth_hash returns a stable sha256 hexdigest, not a stub."""
+    digest = staff_user.get_session_auth_hash()
+
+    assert len(digest) == 64, "expected a sha256 hexdigest"
+    assert int(digest, 16) >= 0, "expected hex characters only"
+    # Deterministic for an unchanged password — session verification depends on
+    # it matching on every subsequent request.
+    assert digest == staff_user.get_session_auth_hash()
+
+
+@pytest.mark.django_db
+def test_password_change_invalidates_existing_session(staff_user: User) -> None:
+    """Changing the password logs out that user's existing sessions."""
+    client = Client()
+    assert client.login(username="staffadmin", password="staffpass123")
+    assert client.get("/admin/").status_code == 200
+
+    hash_before = staff_user.get_session_auth_hash()
+    staff_user.set_password("a-completely-new-password")
+    staff_user.save(update_fields=["password"])
+
+    assert staff_user.get_session_auth_hash() != hash_before
+
+    # The still-open session must no longer authenticate: AuthenticationMiddleware
+    # compares the stored hash, fails, and flushes the session — so /admin/
+    # redirects to the login page instead of returning 200.
+    assert client.get("/admin/").status_code != 200
+
+
+@pytest.mark.django_db
+def test_session_auth_fallback_hash_follows_secret_key_fallbacks(
+    staff_user: User, settings
+) -> None:
+    """One fallback hash is yielded per SECRET_KEY_FALLBACKS entry.
+
+    ``django.contrib.auth.get_user()`` uses these so that rotating SECRET_KEY
+    does not invalidate every session at once.
+    """
+    settings.SECRET_KEY_FALLBACKS = ["previous-secret-1", "previous-secret-2"]
+
+    fallbacks = list(staff_user.get_session_auth_fallback_hash())
+
+    assert len(fallbacks) == 2
+    assert len(set(fallbacks)) == 2, "each fallback secret yields a distinct hash"
+    assert staff_user.get_session_auth_hash() not in fallbacks

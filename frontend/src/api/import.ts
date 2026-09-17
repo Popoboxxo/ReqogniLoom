@@ -33,6 +33,33 @@ export interface ImportResult {
   skipped_count: number;
   status: "ok" | "validation_error" | "rollback";
   errors: ImportRowError[];
+  /**
+   * Non-fatal notices from the backend, e.g. header columns it did not
+   * recognise and therefore dropped (`ImportService`, fix #120). Populated
+   * on success *and* on failure: a "successful" import that silently lost a
+   * whole column's data is the one case where `success: true` is not the
+   * whole truth, so the UI must render this.
+   */
+  warnings: string[];
+}
+
+/**
+ * Type guard for a structured `ImportResult` body.
+ *
+ * `CsvImportView` answers a validation failure with **HTTP 400 plus a full
+ * ImportResult** (`success: false` + the per-row error list) rather than the
+ * generic `{error: {...}}` envelope. Treating every non-2xx as an opaque
+ * error therefore discarded exactly the part of the response the user needs —
+ * which row failed and why — and left the UI showing a bare
+ * "Import failed (HTTP 400)".
+ */
+function isImportResult(body: unknown): body is ImportResult {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    typeof (body as ImportResult).success === "boolean" &&
+    Array.isArray((body as ImportResult).errors)
+  );
 }
 
 // REQ-147: ReqIF 1.2 import.
@@ -105,6 +132,13 @@ export const importApi = {
       body = { error: { message: `HTTP ${resp.status}` } };
     }
 
+    // A rejected import is still a *result*, not a transport failure: keep the
+    // per-row report instead of collapsing it into an exception. Only bodies
+    // that are not an ImportResult at all (401/403/500, error envelope) throw.
+    if (isImportResult(body)) {
+      return { ...body, warnings: body.warnings ?? [] };
+    }
+
     if (!resp.ok) {
       const errMsg =
         (body as { error?: { message?: string } })?.error?.message ??
@@ -112,7 +146,7 @@ export const importApi = {
       throw new Error(errMsg);
     }
 
-    return body as ImportResult;
+    throw new Error(`Import failed (HTTP ${resp.status})`);
   },
 
   /**

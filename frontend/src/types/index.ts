@@ -39,6 +39,17 @@ export interface Workspace {
   preset: WorkspacePreset;
   terminology_profile: TerminologyProfile;
   language: string;
+  /** Workspace-default theme id (multi-palette theming, #568). Matches a
+   *  `ThemeDefinition.id` from `context/ThemeContext.tsx`'s `THEMES`
+   *  registry; defaults to `"dark"` server-side. */
+  theme: string;
+  /**
+   * @deprecated Legacy free-form prompt blob, no longer read or written by the
+   * UI (issue #119). Prompt templates live in the `PromptTemplate` model and
+   * are edited via `/api/v1/prompt-templates/slots/` (see
+   * `api/prompt-templates.ts`). Still serialized by the backend, so the field
+   * is kept on the type until it is dropped there.
+   */
   ai_prompts?: Record<string, string>;
   decomposition_link_type?: string;
   default_link_type?: string;
@@ -47,6 +58,10 @@ export interface Workspace {
   closed_by: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+  /** Ziele-Feature (Goal/MainGoal) für diesen Workspace aktiviert. */
+  goals_enabled?: boolean;
+  /** KI-gestützte MainGoal-Generierung aktiviert (erfordert goals_enabled). */
+  goals_ai_enabled?: boolean;
 }
 
 export interface WorkspaceWithMetrics extends Workspace {
@@ -67,11 +82,63 @@ export type CustomFieldValue = string | number | boolean | null;
 
 export type CustomFields = Record<string, CustomFieldValue>;
 
-export type RequirementType = 'SyReq' | 'SWReq' | 'HWReq';
+// ---------------------------------------------------------------------------
+// Actor wire values (Attribut v3 WS2, #936, spec section 4)
+//
+// `owner`/`reporter` are artifact-level system fields of the `actor` attribute
+// type; `priority` is the artifact-level `enum`. The wire form below is exactly
+// what `ActorService.validate_actor_value` accepts (and what
+// `ArtifactAttributeGateway.actor_to_value` emits):
+//
+//   single    {"kind": "user", "id": "<user-or-actor-uuid>"} | {"kind": "external", "name": "..."}
+//   multiple  {"multiple": true, "items": [<single>, ...]}
+// ---------------------------------------------------------------------------
+
+/** One actor entry in the wire form the backend's `actor` validator accepts. */
+export type ActorValue =
+  | { kind: "user"; id: string; name?: string }
+  | { kind: "external"; name: string };
+
+/**
+ * Artifact-level system fields every artifact type carries since WS2 (#936).
+ * Optional on the entity interfaces because a type only exposes them once its
+ * transport has been wired in (`SYSTEM_FIELDS_ENABLED_ITEM_TYPES`); the
+ * resolved attribute definition decides whether the field is visible.
+ */
+export interface SystemFieldValues {
+  owner?: ActorValue | null;
+  reporter?: ActorValue | null;
+  priority?: string | null;
+}
+
+/**
+ * #344: mirrors the backend `RequirementType` choices
+ * (`backend/persistence/models.py`), which are additionally pinned by the DB
+ * CHECK constraint added in migration 0050. The previous union
+ * (`'SyReq' | 'SWReq' | 'HWReq'`) drifted from the backend: writing SWReq or
+ * HWReq was rejected with 400 and the whole edit was discarded.
+ */
+export type RequirementType = 'SyReq' | 'UseCase' | 'FeatureReq';
 export type MoscowPriority = 'Must' | 'Should' | 'Could' | "Won't";
 export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
 
-export interface StakeholderNeed {
+/**
+ * Issue #394: V-model cascade level (`persistence.models.RequirementLevel`).
+ * The number *is* the cascade level: 1=System, 2=Subsystem, 3=Component,
+ * 4=Presentation. `null`/`undefined` means the level has not been assigned yet
+ * — mirrors the backend field, which is nullable and not backfilled.
+ *
+ * SYSTEMAUDIT_2026-08-27 P1-9: `0` was dropped along with the backend enum's
+ * old off-by-one vocabulary (`0=System .. 4=Material`). L0 is a Stakeholder
+ * Need, a separate entity type, never a Requirement — see backend migration
+ * `0067_requirement_level_cascade_vocabulary`, which remapped stored rows.
+ */
+export type RequirementLevel = 1 | 2 | 3 | 4;
+
+/** Ordered L1-L4 levels for select inputs; mirrors the backend enum order. */
+export const REQUIREMENT_LEVELS: RequirementLevel[] = [1, 2, 3, 4];
+
+export interface StakeholderNeed extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   parent_id?: string;
@@ -90,13 +157,15 @@ export interface StakeholderNeed {
   updated_at: ISODateTime;
 }
 
-export interface Requirement {
+export interface Requirement extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   artifact_id?: UUID;
   parent_id?: string;
   title: string;
   description: string;
+  // #43: acceptance criteria describing when the requirement is fulfilled.
+  acceptance_criteria?: string;
   category: string;
   status: string;
   version: number;
@@ -105,6 +174,9 @@ export interface Requirement {
   moscow_priority?: MoscowPriority;
   complexity_fibonacci?: number;
   verification_method?: VerificationMethod;
+  // Issue #394: V-model cascade level (1=System ... 4=Presentation). NULL
+  // until assigned explicitly. See `RequirementLevel` above.
+  level?: RequirementLevel | null;
   suspect?: boolean;
   change_reason?: string;
   custom_fields?: CustomFields;
@@ -129,9 +201,13 @@ export interface SimilarRequirement {
 /** A single ICD similarity-search hit (REQ-L2-VS-004). */
 export interface SimilarIcd {
   icd_id: UUID;
-  version_id: UUID;
   name: string;
   interface_type: string;
+  /**
+   * The matched ICD's current contract revision. Backend Task 28c-2 dropped
+   * the companion `version_id`: the embedding moved onto the ICD row itself,
+   * so there is no version row left to identify.
+   */
   version_number: number;
   /** Cosine similarity in [~-1, 1]; higher means more similar. */
   similarity_score: number;
@@ -151,7 +227,7 @@ export interface SimilarTraceLink {
 // TestCase (mirrors TestCaseSerializer)
 // ---------------------------------------------------------------------------
 
-export interface TestCase {
+export interface TestCase extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
   title: string;
@@ -187,9 +263,11 @@ export type ASILLevel = "QM" | "A" | "B" | "C" | "D" | null;
 
 export type MakeOrBuyDecision = "Make" | "Buy" | "Reuse" | null;
 
-export interface ArchitectureElement {
+export interface ArchitectureElement extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
+  /** Owning Artifact — the key for workspace custom fields (REQ-016). */
+  artifact_id?: UUID;
   title: string;
   description: string;
   element_type: ElementType;
@@ -204,7 +282,8 @@ export interface ArchitectureElement {
   suspect?: boolean;
   change_reason?: string;
   custom_fields?: CustomFields;
-  /** REQ-006: lifecycle status; 'deleted' elements are hidden in normal views */
+  /** Soft-delete flag. Since the Datenmodell-Konsolidierung it lives on the
+   *  backing Artifact and is orthogonal to `status` (the workflow state). */
   lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -214,23 +293,16 @@ export interface ArchitectureElement {
 // TraceLink (mirrors TraceLinkSerializer)
 // ---------------------------------------------------------------------------
 
-// Harmonized with backend/traceability/types.py::LinkType (14 types, incl.
-// `decomposes` — see docs/UMSETZUNGSPLAN_SYSENG_2.0.md §1.4)
-export type LinkType =
-  | "parent-child"
-  | "derives-from"
-  | "satisfies"
-  | "verifies"
-  | "implements"
-  | "refines"
-  | "documents"
-  | "realizes"
-  | "traces"
-  | "copy-of"
-  | "allocated-to"
-  | "uses-term"
-  | "decides"
-  | "decomposes";
+/**
+ * A trace-link type key.
+ *
+ * Deliberately a plain string, not a union: the catalog is tenant- and
+ * workspace-configurable, so no compile-time list can be complete. The
+ * previous 14-member union was a second, independently maintained source of
+ * truth that had already drifted from the backend (audit finding B4).
+ * Read the live values from `useLinkTypes()`.
+ */
+export type LinkType = string;
 
 export interface TraceLink {
   id: UUID;
@@ -247,6 +319,22 @@ export interface TraceLink {
   source_type?: string;
   /** REQ-002: artifact type of the target. */
   target_type?: string;
+  /**
+   * UI-P3: the source artifact has been soft-deleted (workflow `outdate()`).
+   * TraceLinks deliberately survive the soft-delete of an endpoint so the audit
+   * trail stays intact, so such a link is still returned by the API — this flag
+   * is the only way to tell it apart from a link to a live artifact.
+   * Absent in pre-UI-P3 API responses; treat `undefined` as `false`.
+   */
+  source_is_outdated?: boolean;
+  /** UI-P3: the target artifact has been soft-deleted. See `source_is_outdated`. */
+  target_is_outdated?: boolean;
+  /** Why this link exists (Q1.6). Empty string when never filled in. */
+  rationale?: string;
+  /** Set when this link caused the other endpoint to be flagged suspect. */
+  suspect_flagged_at?: ISODateTime | null;
+  /** `audit.AuditEntry.id` of the change that triggered the flag above. */
+  suspect_source_change?: UUID | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,9 +364,18 @@ export type AdrStatus =
   | "Superseded"
   | "Deleted"; // REQ-006: soft-delete marker; set by backend delete endpoint
 
-export interface Adr {
+export interface Adr extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
+  // Task 2.1: the backing Artifact id (Adr.artifact, backend/application/models.py)
+  // is not yet exposed by AdrSerializer — unlike Requirement/StakeholderNeed/
+  // ArchitectureElement, which all serialize a separate `artifact_id`. Declared
+  // here (optional, currently always undefined) for parity with the other
+  // artifact types. NOTE (Task 27): the workspace-defined custom-field
+  // renderer that used to consume this id is gone along with its backend
+  // (custom fields are attribute definitions now, tracked gap #7). The field
+  // stays declared for the next consumer of the backing Artifact id.
+  artifact_id?: UUID;
   title: string;
   description: string;
   context: string;
@@ -288,6 +385,53 @@ export interface Adr {
   uid?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+}
+
+// ---------------------------------------------------------------------------
+// Goal / MainGoal (mirror GoalSerializer/MainGoalSerializer, REQ-L2-TE-020)
+// ---------------------------------------------------------------------------
+
+/**
+ * Goal — lineage-versioned workspace artifact (Variante A: every edit creates
+ * a new row sharing the same `lineage_id`).
+ */
+export interface Goal extends SystemFieldValues {
+  id: UUID;
+  workspace_id: UUID;
+  /** Owning Artifact — the key for workspace custom fields (REQ-016). */
+  artifact_id?: UUID;
+  lineage_id: UUID;
+  sequence_number: number;
+  title: string;
+  description: string;
+  status: string;
+  version: number;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+/**
+ * MainGoal — single workspace-scoped version chain (not lineage-based like
+ * Goal). `source` distinguishes an LLM-aggregated draft from a manually
+ * authored one; `approve` transitions a draft to `Freigegeben`.
+ */
+export interface MainGoal {
+  id: UUID;
+  workspace_id: UUID;
+  sequence_number: number;
+  content: string;
+  source: "ai" | "manual";
+  generated_from_goal_ids?: string[];
+  status: string;
+  version: number;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+  /**
+   * UI-28 (Systemaudit 2026-08-27 AP-5): only ever `true`/`false` on the
+   * response of `POST /main-goals/generate/` — every other MainGoal
+   * response omits it (not a persisted field, see MainGoalSerializer).
+   */
+  is_mock_fallback?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,14 +447,39 @@ export type RiskStatus = "Identified" | "Monitored" | "Mitigated" | "Accepted" |
 export interface Risk {
   id: UUID;
   workspace_id: UUID;
+  // Task 2.2: same as Adr.artifact_id above — the backing Artifact id is not
+  // yet exposed by RiskSerializer. Declared here (optional, currently always
+  // undefined) for parity with the other artifact types.
+  artifact_id?: UUID;
   title: string;
   description: string;
   probability: RiskProbability;
   impact: RiskImpact;
   risk_score: number;
+  /**
+   * UI-39 (Systemaudit 2026-08-27 AP-5): FMEA detectability score
+   * (1=easy to detect .. 10=impossible), mirrors RiskSerializer.detection.
+   */
+  detection?: number;
+  /**
+   * UI-39: Risk Priority Number (probability × impact × detection),
+   * read-only computed property (RiskSerializer.rpn).
+   */
+  rpn?: number;
   severity: RiskSeverity;
   category: RiskCategory;
   owner: string;
+  /**
+   * REQ-L1-029 (FMEA): structured User FK for risk assignment, mirrors
+   * RiskSerializer.owner_user_id (kept alongside the legacy free-text
+   * `owner` field). Task 19: the attribute-definition bootstrap serves this
+   * under the same name (see bootstrap_attribute_definitions.py's
+   * WIDGET_FIELD_ALIASES — the raw Django FK field is named `owner_user`,
+   * aliased to match this serializer field).
+   */
+  owner_user_id?: UUID | null;
+  /** Read-only display label for `owner_user_id` (RiskSerializer.owner_user_display). */
+  owner_user_display?: string | null;
   mitigation_strategy: string;
   status: RiskStatus;
   version: number;
@@ -327,15 +496,30 @@ export type IssueSeverity = "critical" | "high" | "medium" | "low";
 export type IssueCategory = "defect" | "improvement" | "documentation" | "question";
 export type IssueStatus = "Open" | "In Progress" | "Resolved" | "Closed" | "Wontfix";
 
-export interface Issue {
+export interface Issue extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
+  // Task 2.3: same as Adr.artifact_id / Risk.artifact_id above — the backing
+  // Artifact id is not yet exposed by IssueSerializer. Declared here
+  // (optional, currently always undefined) for parity with the other
+  // artifact types.
+  artifact_id?: UUID;
   title: string;
   description: string;
   severity: IssueSeverity;
   category: IssueCategory;
   status: IssueStatus;
   tags: string[];
+  /**
+   * Task 20 finding: `IssueSerializer` never declared this field at all
+   * (mirrors Task 19's `owner_user_id` finding on Risk) even though
+   * `IssueService.create_issue`/`update_issue` both already accept and
+   * persist it — via REST, every save silently discarded it and every read
+   * came back empty (the MCP generic tool group was unaffected: it forwards
+   * arbitrary params straight to the service, bypassing this serializer).
+   * Fixed at the serializer/view layer alongside this migration.
+   */
+  due_date?: ISODateTime | null;
   version: number;
   uid?: string;
   created_at: ISODateTime;
@@ -348,7 +532,106 @@ export interface Issue {
 
 export type DiagramType = "block" | "flow" | "context" | "canvas" | "mermaid";
 
-export type PayloadFormat = "mermaid" | "plantuml" | "json" | "canvas_stroke";
+export type PayloadFormat =
+  | "mermaid"
+  | "plantuml"
+  | "json"
+  | "canvas_stroke"
+  | "node_graph";
+
+// ---------------------------------------------------------------------------
+// Node Graph payload (payload_format=node_graph, GH-353 Task 1/8) — mirrors
+// backend/diagram/node_graph.py exactly (field names, enum values). Any drift
+// here is a silent contract break with the backend validator.
+// ---------------------------------------------------------------------------
+
+export type GraphNodeType = "box" | "rounded" | "ellipse" | "diamond" | "note" | "group";
+
+export type GraphEdgeType = "flow" | "association" | "dependency" | "containment";
+
+export type GraphStyleAccent =
+  | "default"
+  | "primary"
+  | "success"
+  | "warning"
+  | "danger"
+  | "muted";
+
+export type GraphEdgeLineStyle = "solid" | "dashed";
+
+export type GraphHandlePosition = "top" | "right" | "bottom" | "left";
+
+/** Mirrors diagram.node_graph.KNOWN_ARTIFACT_ENTITY_TYPES. */
+export type GraphArtifactEntityType =
+  | "Requirement"
+  | "StakeholderNeed"
+  | "ArchitectureElement"
+  | "TestCase"
+  | "Adr"
+  | "Risk"
+  | "Issue"
+  | "GlossaryTerm"
+  | "Goal"
+  | "MainGoal";
+
+export interface GraphArtifactRef {
+  entity_type: GraphArtifactEntityType;
+  id: UUID;
+}
+
+export interface GraphNodePosition {
+  x: number;
+  y: number;
+}
+
+export interface GraphNodeSize {
+  width: number;
+  height: number;
+}
+
+export interface GraphNodeStyle {
+  accent?: GraphStyleAccent;
+}
+
+export interface GraphEdgeStyle {
+  line?: GraphEdgeLineStyle;
+}
+
+export interface GraphNode {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  position: GraphNodePosition;
+  size?: GraphNodeSize;
+  style?: GraphNodeStyle;
+  artifact_ref?: GraphArtifactRef;
+  parent_id?: string | null;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: GraphEdgeType;
+  label?: string;
+  source_handle?: GraphHandlePosition | null;
+  target_handle?: GraphHandlePosition | null;
+  style?: GraphEdgeStyle;
+}
+
+export interface GraphViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+/** Envelope for payload_format=node_graph (transported as a JSON string in `content`). */
+export interface NodeGraphPayload {
+  schema_version: 1;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  viewport?: GraphViewport;
+}
 
 export interface Diagram {
   id: UUID;
@@ -370,15 +653,6 @@ export interface DiagramDetail extends Diagram {
   status?: string;
 }
 
-export interface DiagramTraceLink {
-  id: UUID;
-  source_id: UUID;
-  target_id: UUID;
-  link_type: string;
-  target_type: string;
-  target_title: string;
-}
-
 // ---------------------------------------------------------------------------
 // Paginated response (mirrors StandardPagination format)
 // ---------------------------------------------------------------------------
@@ -387,6 +661,15 @@ export interface PaginatedResponse<T> {
   count: number;
   next: string | null;
   previous: string | null;
+  /**
+   * Page size actually applied by the backend (issue #571). Differs from the
+   * requested `page_size` whenever that value exceeded the endpoint's
+   * `max_page_size` — the clamp used to be silent. Optional because older
+   * backends (and hand-built test fixtures) omit it.
+   */
+  page_size?: number;
+  /** Hard upper bound the endpoint accepts for `page_size` (issue #571). */
+  max_page_size?: number;
   results: T[];
 }
 
@@ -510,8 +793,17 @@ export const TERMINOLOGY_LABELS: Record<TerminologyProfile, TerminologyLabels> =
 // Requirement categories (REQ-L2-RF-001)
 // ---------------------------------------------------------------------------
 
+// GESAMTTEST_BERICHT_2026-08-21.md §6/§10.2: "stakeholder" was offered as a
+// Requirement category with 0 of 792 real requirements ever using it.
+// Investigated rather than assumed: this app already has a dedicated,
+// separate L0 artifact type for stakeholder-level content (`StakeholderNeed`,
+// its own list/form/route, not a Requirement variant), and CLAUDE.md's own
+// canonical requirements-category list (functional/non-functional/API/UI-UX/
+// data/integration/test/workflow/baseline/traceability/AI/resilience) never
+// includes "stakeholder" either — so this wasn't a legitimate category with
+// no data yet, it was a stale/mistaken option that blurred the Need-vs-
+// Requirement boundary. Removed (not "genuinely valid, just unused").
 export const REQ_CATEGORIES = [
-  "stakeholder",
   "functional",
   "non-functional",
   "api",
@@ -521,6 +813,27 @@ export const REQ_CATEGORIES = [
 ] as const;
 
 export type ReqCategory = typeof REQ_CATEGORIES[number];
+
+/**
+ * The same six values as `AttributeOption[]` — the shape the definition-driven
+ * form's `EnumSelect` consumes (issue #889).
+ *
+ * `Requirement.category` is a `CharField(blank=True)` with no Django `choices`,
+ * so the introspected attribute definition declares it as free text while the
+ * create dialog (`REQ_CATEGORIES`) and the list filter only recognize these
+ * values. Deriving the option list from `REQ_CATEGORIES` — rather than writing
+ * a second literal — is what keeps create, edit and filter on ONE source.
+ * Labels default to the value, exactly as the create dialog renders them.
+ */
+export const REQ_CATEGORY_OPTIONS: {
+  value: string;
+  label_de: string;
+  label_en: string;
+}[] = REQ_CATEGORIES.map((value) => ({
+  value,
+  label_de: value,
+  label_en: value,
+}));
 
 // ---------------------------------------------------------------------------
 // TestRun (REQ-L2-AS-030)
@@ -584,9 +897,21 @@ export interface ArtifactDiffResult {
 }
 
 export interface ArtifactVersion {
+  /**
+   * Addressing token for `/diff/` and baseline pinning. For single-row
+   * artifact types this is the backend's optimistic-lock counter, NOT a
+   * revision number — it also increments on writes that change nothing
+   * user-visible (issue #213).
+   */
   version: number;
   label: string;
   modified_at?: string | null;
+  /**
+   * Whether a retrievable snapshot is stored for this version. `false` for
+   * the empty creation baseline and for historical lock-counter values of
+   * single-row types. Older backends omit the flag; treat that as `true`.
+   */
+  content_available?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -709,23 +1034,19 @@ export interface MermaidPreviewResponse {
 // ---------------------------------------------------------------------------
 // Requirement Editor Constants (COMP-RF-003)
 // ---------------------------------------------------------------------------
-
-export const WORKFLOW_STATES = [
-  'Draft',
-  'Review',
-  'Approved',
-  'In Progress',
-  'Implemented',
-  'Verified',
-  'Rejected',
-  'Deprecated',
-];
+//
+// GH-453: `WORKFLOW_STATES` used to live here — one Title-Case array that all
+// six artifact lists used to build their status filter. It matched no entity's
+// actual vocabulary (see backend/workflow/definition_store.py PRESET_SCHEMAS),
+// so picking an option produced an empty list. Filter options are now derived
+// from the loaded items via `utils/workflowStatus.buildStatusFilterOptions`,
+// and display text comes from `getWorkflowStatusLabel`.
 
 // ---------------------------------------------------------------------------
 // Glossary
 // ---------------------------------------------------------------------------
 
-export interface GlossaryTerm {
+export interface GlossaryTerm extends SystemFieldValues {
   id: string;
   workspace_id: string;
   term: string;
@@ -733,8 +1054,20 @@ export interface GlossaryTerm {
   synonyms: string[];
   abbreviation?: string;
   is_global?: boolean;
-  /** REQ-006: lifecycle status; 'deleted' terms are hidden in normal views */
-  lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
+  /** Lifecycle/workflow state. #831: exposed under the artifact-consistent
+   *  wire key `status` (like Requirement/Adr/Risk/Issue/...). Since the
+   *  Datenmodell-Konsolidierung the underlying soft-delete flag lives on the
+   *  backing Artifact, but the API field name is `status`. */
+  status?: "active" | "outdated" | "deprecated" | "deleted";
+  /**
+   * UI-59 (Systemaudit 2026-08-27 AP-5): optimistic-lock version counter —
+   * mirrors GlossaryTermSerializer.version. Was missing here even though the
+   * wire payload always includes it, which forced GlossaryView.tsx to pass
+   * `currentVersion={undefined}` into the (otherwise fully wired) shared
+   * VersionPanel/DiffPanel, hiding the versions/diff UI that REQ-142 already
+   * built for every other artifact kind including "glossary".
+   */
+  version?: number;
   created_at?: string;
   updated_at?: string;
 }

@@ -59,6 +59,31 @@ ERROR_CODES = {
     "INTERNAL_ERROR": "An internal server error occurred.",
     "PARSE_ERROR": "Failed to parse JSON-RPC request.",
     "INVALID_REQUEST": "Malformed JSON-RPC request frame.",
+    # Distinct from AUTH_FAILED on purpose (issue #427): the credentials may be
+    # perfectly valid while the SSE session they were bound to has expired or
+    # been evicted. Collapsing both into AUTH_FAILED sent users hunting for a
+    # token problem when the only fix is to re-open the SSE stream.
+    "SESSION_EXPIRED": (
+        "The MCP SSE session is unknown or has expired. This is not an "
+        "authentication failure — reconnect to obtain a fresh session_id."
+    ),
+    # Multi-user management (Task 9): a mutation would leave a workspace or
+    # tenant with zero active admins. Distinct from VALIDATION_ERROR/
+    # PERMISSION_DENIED — the caller IS authorized, the request is otherwise
+    # well-formed, but completing it would violate the last-admin invariant
+    # (mirrors the REST layer's 409 CONFLICT for the same condition).
+    "LAST_ADMIN": (
+        "This action would leave a workspace or tenant with no active admin."
+    ),
+    # SYSTEMAUDIT-2026-08-27 finding A: the MCP transport endpoints are rate
+    # limited (see mcp_server.throttling). Kept distinct from AUTH_FAILED and
+    # PERMISSION_DENIED because the caller's credentials and permissions are
+    # both fine — only the request *rate* was refused, and the correct client
+    # reaction is to back off and retry, not to re-authenticate.
+    "RATE_LIMITED": (
+        "Rate limit exceeded for this MCP endpoint. Slow down and retry after "
+        "the interval given in the Retry-After header."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -91,6 +116,9 @@ ERROR_CODE_MAP = {
     "FEATURE_NOT_ENABLED": -32002,   # Server-defined: Feature
     "LLM_NOT_CONFIGURED": -32003,    # Server-defined: LLM config
     "NOT_FOUND": -32004,             # Server-defined: Not found
+    "SESSION_EXPIRED": -32005,       # Server-defined: SSE session gone (#427)
+    "LAST_ADMIN": -32006,            # Server-defined: last-admin invariant (Task 9)
+    "RATE_LIMITED": -32007,          # Server-defined: transport rate limit (audit A)
 }
 
 
@@ -237,14 +265,21 @@ class TransportAdapter(ABC):
     def write_response(self, response: Dict[str, Any]) -> None:
         """Serialise and write a JSON-RPC response frame to the transport."""
 
-    @staticmethod
-    def extract_api_key(frame: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Optional[str]:
+    def extract_api_key(self, frame: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Optional[str]:
         """Extract API key from request frame or headers (ADR-L3-MC001-03).
 
         Priority:
           1. Authorization: Bearer <key> header
           2. X-API-Key HTTP header (HTTP/SSE transports)
-          3. params.api_key (all transports — used by stdio clients)
+          3. params.api_key (stdio transport only — see below)
+
+        ``params.api_key`` is only honoured on the stdio transport. stdio has
+        no header mechanism, so it legitimately needs the JSON-RPC body as
+        its key channel. HTTP/SSE transports *do* have a header mechanism,
+        and accepting the key from the request body there would expose it to
+        the same logging/proxy/tracing risk the query-string fallback is
+        already rejected for (REQ-018 / SYSTEM_AUDIT P-05) — so for those
+        transports a body-only key is treated as no key at all.
         """
         if headers:
             auth_header = headers.get("HTTP_AUTHORIZATION") or headers.get("Authorization")
@@ -254,8 +289,10 @@ class TransportAdapter(ABC):
             key = headers.get("HTTP_X_API_KEY") or headers.get("X-API-Key")
             if key:
                 return key
-        params = frame.get("params") or {}
-        return params.get("api_key")
+        if isinstance(self, StdioTransportAdapter):
+            params = frame.get("params") or {}
+            return params.get("api_key")
+        return None
 
 
 class StdioTransportAdapter(TransportAdapter):
@@ -418,7 +455,7 @@ class ProtocolHandler:
                     "tools": {}
                 },
                 "serverInfo": {
-                    "name": "ReqFlow",
+                    "name": "ReqogniLoom",
                     "version": "1.0.0"
                 }
             })
@@ -464,9 +501,9 @@ class ProtocolHandler:
                 response = ErrorFormatter.format_jsonrpc_result(request_id, {"tools": tools_list})
             except McpAuthenticationError as exc:
                 response = ErrorFormatter.format_jsonrpc_error(request_id, "AUTH_FAILED", str(exc))
-            except Exception as exc:
+            except Exception:
                 logger.exception("Error listing tools")
-                response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR", str(exc))
+                response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR")
             adapter.write_response(response)
             return response
 
@@ -488,10 +525,21 @@ class ProtocolHandler:
                 params=tool_args,
                 api_key=api_key,
             )
-        except Exception as exc:
+        except Exception:
+            # fix #108 / SYSTEMAUDIT-2026-08-27 finding B (CWE-209): this is the
+            # outermost net around dispatch, so ``exc`` is by definition an
+            # exception nothing below mapped — IntegrityError, ProgrammingError,
+            # KeyError and friends, whose ``str()`` carries SQL fragments,
+            # table/column names or constraint names. The established policy
+            # (tool_registry.dispatch_request, BaseToolGroup.execute_tool,
+            # rest_api.views._service_error_response) is to log the real detail
+            # and hand the client only the static message — which is exactly
+            # what ``format_jsonrpc_error`` emits when no message is passed
+            # (ERROR_CODES["INTERNAL_ERROR"]), the same call the ``tools/list``
+            # handler above already makes.
             logger.exception("Unhandled error during MCP dispatch for tool=%s", tool_name)
             response = ErrorFormatter.format_jsonrpc_error(
-                request_id, "INTERNAL_ERROR", str(exc)
+                request_id, "INTERNAL_ERROR"
             )
             adapter.write_response(response)
             return response
@@ -500,7 +548,6 @@ class ProtocolHandler:
         if result.success:
             # Wrap the result in MCP standard content blocks if it was a standard call
             if method == "tools/call":
-                import json
                 text_content = result.data if isinstance(result.data, str) else json.dumps(result.data, indent=2)
                 response_data = {
                     "content": [

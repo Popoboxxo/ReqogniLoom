@@ -1,0 +1,238 @@
+# ReqogniLoom — Deployment Examples
+
+This directory holds the reference Docker Compose deployments for ReqogniLoom. Pick one file (or
+combination), run it from the **repository root**, and the stack comes up.
+
+| File | Purpose | Use when |
+|---|---|---|
+| `docker-compose.yml` | Full stack: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend. Optional Honcho memory backend (`honcho-postgres`/`honcho-redis`/`honcho-migrate`/`honcho`) gated behind the `honcho` Compose profile — costs nothing unless activated. | Production, or any deployment that needs async task processing and scheduled backups. **Default choice.** |
+| `docker-compose.minimal.yml` | Slim stack: postgres, redis, backend, migrate, frontend only. No Celery worker/beat, no backup sidecar, no Honcho. | Quick try-out, or a small install that doesn't need async tasks (webhooks, long-running LLM calls, memory consolidation silently never run — see the file's own header comment) or automated backups. |
+| `docker-compose.override.yml` | Dev overlay: hot-reload (`uvicorn --reload` / Vite dev server), source bind-mounts, weaker defaults. Auto-applied by `make up` (see repo-root `Makefile`). | Local development against the full stack only — **not** compatible with `docker-compose.minimal.yml` (it re-adds `celery`/`celery-beat`, defeating the point of minimal). |
+| `docker-compose.override.example.yml` | Documentation only — a commented-out template for optional local services (e.g. Ollama). **Never read by Compose itself** (wrong filename on purpose); copy it to `docker-compose.override.yml` and uncomment what you need. | Reference when wiring up an optional local service. |
+
+## First Stumbling Block: CSRF Cookie Requires Matching Security Settings
+
+**Before you deploy**, verify that `AUTH_COOKIE_SECURE` and `CSRF_COOKIE_SECURE` are set to the **same value** in `.env`. This is a common misconfiguration in deployments without a TLS-terminating reverse proxy:
+
+- **Without a reverse proxy** (development, HTTP-only deployments): Set both to `False` (empty string in `.env`).
+- **Behind a reverse proxy with TLS termination** (HTTPS): Set both to `True`.
+
+If they mismatch, every UI form submission fails with a raw Django 403 CSRF error, even though the session is valid.
+
+**Verify the configuration is correct** after deployment by calling the health check:
+```bash
+curl http://localhost:8001/health/
+```
+
+If `"csrf_cookie_secure_matches_auth"` is `"mismatch"` in the response, you must fix `.env` and restart the backend container.
+
+## Deprecated: bearer token in the login response body (#696)
+
+`POST /api/v1/auth/login/` still returns the JWT as a `token` field in the response
+body for API/CI tooling, and such a response is now marked `Deprecation: true`
+(RFC 9745). The browser SPA does **not** use that field — it authenticates with the
+httpOnly `reqogniloom_access` cookie (REQ-052). A JavaScript caller that stored the
+body token would re-open exactly the XSS vector REQ-052 closed, which is why the
+field is deprecated.
+
+- **Default:** `AUTH_LOGIN_INCLUDE_BODY_TOKEN=True` — unchanged behaviour, so
+  existing scripts keep working.
+- **Opt out:** set `AUTH_LOGIN_INCLUDE_BODY_TOKEN=False` in `.env` to omit the field.
+  Cookie login, `/auth/refresh/`, `/auth/me/` and API-key callers are unaffected.
+- **Planned follow-up:** flip the default to `False` after a deprecation window,
+  once tooling has moved to the cookie flow (or to a login-free API key).
+
+## Breaking Change: v1.8.0-beta.7+ Security Hardening & Frontend Permissions (#894)
+
+**If you upgraded from beta.6 and added a local override** (`docker-compose.override.yml` or custom `.env` / deployment script) with `user: root` or `tmpfs` entries for the frontend service: **remove those overrides now.**
+
+- **Beta.6** required `user: root` + tmpfs on `/var/cache/nginx` / `/var/run` because the image expected root-owned paths.
+- **Beta.7+** reversed this (SA-48): the frontend image now runs as non-root (uid 102), with `/var/cache/nginx` already app-owned in the image. The base compose files (`docker-compose.yml`, `docker-compose.minimal.yml`) were corrected to remove the tmpfs entry — but if you manually added a beta.6-era hotfix override, you must **delete or comment out** those lines, or the frontend will fail with `Permission denied` when nginx tries to write to the cache directory.
+
+Symptom: frontend container in `Restarting (1)` loop with `mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)` in logs. Fix: delete the `user:` and `tmpfs:` overrides from your `.env` or local compose files, then re-run `docker compose up -d`.
+
+## Required flag: `--project-directory .`
+
+These compose files do **not** live in the repository root. Every direct `docker compose`
+invocation against them MUST include `--project-directory .`, run from the repo root, in
+addition to `-f`. Do not omit this flag — it is not optional convenience, it is required
+for the stack to work correctly:
+
+- Without it, Compose looks for `.env` relative to `deploy/` instead of the repo root, so none
+  of your configured secrets/overrides are picked up.
+- Without it, any relative bind-mount resolves relative to `deploy/` instead of the repo root, and
+  the container either fails to start or mounts an empty/wrong directory. `docker-compose.yml` and
+  `docker-compose.minimal.yml` themselves have none (every service runs a stock or published
+  image, no repo files needed) — this only bites once you add `docker-compose.override.yml`
+  (`./backend`, `./docs`, `./frontend`, for local hot-reload development).
+- `deploy/docker-compose.override.yml` does **not** auto-merge the way a root-level
+  `docker-compose.override.yml` would — Compose's automatic override discovery only triggers
+  when both files sit in the same directory and no `-f` flag is passed. Once `-f` is used (which
+  it must be here, since the files are not in the default location), the override has to be
+  passed explicitly with its own `-f`, every time.
+
+The canonical command shape is always:
+
+```bash
+docker compose -f deploy/docker-compose.yml [-f deploy/docker-compose.override.yml] [--profile honcho] --project-directory . <subcommand> [args...]
+```
+
+The repo-root `Makefile` wraps the common cases (`make up`, `make down`, `make minimal`,
+`make minimal-down`, `make honcho`, `make build`) so day-to-day use does not require typing the
+full invocation — but the flags above are what those targets expand to, and are required if you
+call `docker compose` directly instead.
+
+## Full stack — step by step
+
+1. From the repository root:
+   ```bash
+   cp .env.example .env
+   ```
+2. Running more than one instance on the same host (e.g. QS + PROD)? Set `BACKEND_PORT`/
+   `FRONTEND_PORT` in `.env` to distinct values per instance — this is the exact class of
+   collision that caused the 2026-08-31 incident that started this whole compose rework
+   (see `docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md`). Defaults: `8001`/`5173`.
+3. Fill in the required secrets in `.env` — `SECRET_KEY`, `AUTH_JWT_SECRET`,
+   `FIELD_ENCRYPTION_KEY`, `DB_PASSWORD`, `DB_APP_PASSWORD` have no default and the stack refuses
+   to start without them. `SYSTEM_ADMIN_PASSWORD` is different: leaving it empty does **not**
+   abort the stack, it only skips auto-provisioning the admin user (logged, not fatal — see
+   `backend/application/self_init.py`); set it if you want an admin account created automatically
+   on first start. (See `.env.example` for the full annotated list and generation commands.)
+4. Start the stack:
+   ```bash
+   docker compose -f deploy/docker-compose.yml --project-directory . up -d
+   ```
+   For local development with hot-reload instead, use `make up` (equivalent to adding
+   `-f deploy/docker-compose.override.yml` to the command above).
+5. Wait for all services to report healthy:
+   ```bash
+   docker compose -f deploy/docker-compose.yml --project-directory . ps
+   ```
+6. Verify the backend is serving:
+   ```bash
+   curl http://localhost:8001/health/
+   # → {"status": "ok", "checks": {"database": "ok"}, ...}
+   ```
+
+## Minimal stack
+
+Same sequence, different `-f` path:
+
+```bash
+docker compose -f deploy/docker-compose.minimal.yml --project-directory . up -d
+docker compose -f deploy/docker-compose.minimal.yml --project-directory . ps
+curl http://localhost:8001/health/
+```
+
+No Celery worker/beat, no backup sidecar, no Honcho. Async-task-dependent features (LLM
+long-running calls, webhooks, GitHub sync, memory consolidation) silently enqueue and never run —
+see the header comment in `docker-compose.minimal.yml` for the exact list.
+
+## Optional: Honcho memory backend
+
+Add `--profile honcho` to the full-stack command (not available on the minimal stack):
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . --profile honcho up -d
+```
+
+Then set `MEMORY_BACKEND=honcho` and `HONCHO_BASE_URL=http://honcho:8000` in `.env` and restart
+`backend`/`celery`.
+
+Honcho needs a reachable OpenAI-compatible embedding endpoint before it can write memories. The
+compose services read these four vars from `.env` (defaults shown). `honcho-migrate` and `honcho`
+both use them for the embedding config, and `backend`/`celery` read the first two for the `/health`
+`memory_backend` health probe (#911):
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `HONCHO_EMBEDDING_BASE_URL` | `http://host.docker.internal:11434/v1` | Includes the `/v1` suffix. Targets a host-run Ollama; `extra_hosts` maps `host.docker.internal` so it resolves on Linux too (built-in on Docker Desktop). Use `http://ollama:11434/v1` for an in-stack `ollama` service. |
+| `HONCHO_EMBEDDING_MODEL` | `nomic-embed-text` | Any embedding model the endpoint serves. |
+| `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` | `768` | Must match the model's output width — see the pitfall below. |
+| `HONCHO_EMBEDDING_TRANSPORT` | `openai` | OpenAI-compatible transport. |
+
+Without a reachable endpoint, Honcho cannot embed and `/health`'s `memory_backend` row reports down.
+
+**Embedding-dimension pitfall:** `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` is baked into Honcho's
+pgvector schema at the first migration. Set it correctly *before* the first `--profile honcho`
+start against a fresh `honcho_postgres_data` volume; changing it afterwards was not sufficient in
+testing (drop the volume and re-migrate, or use Honcho's `scripts/configure_embeddings.py`). See the
+`honcho`/`honcho-migrate` service comments in `docker-compose.yml`.
+
+## Optional: switch the embedding provider (and resize the schema)
+
+The bundled default (`EMBEDDING_PROVIDER=sentence-transformers`) embeds in-process at 384
+dimensions and needs no configuration. To use another provider, the pgvector column width and the
+provider's output width must change **together** — setting the provider alone silently disables
+embedding writes and semantic search. Set both in `.env`:
+
+```bash
+EMBEDDING_PROVIDER=ollama            # or openai
+EMBEDDING_VECTOR_DIMENSIONS=768      # sentence-transformers=384, ollama=768, openai=1536
+```
+
+`EMBEDDING_VECTOR_DIMENSIONS` is the width of every embedding column. Because it changes the
+database schema, switching it needs a migration + backfill, not just a restart:
+
+```bash
+# 1. Generate the migration from a source checkout (dev overlay bind-mounts ./backend,
+#    so the generated file survives the container):
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml \
+  --project-directory . run --rm backend python manage.py makemigrations
+
+# 2. Commit the migration, deploy, and let the `migrate` service apply it (or run
+#    `... run --rm migrate` / `... exec backend python manage.py migrate`).
+
+# 3. Regenerate the vectors inside the running backend container:
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec backend python manage.py backfill_embeddings
+```
+
+A mismatched provider/column pair is otherwise silent: embedding writes and semantic search are
+skipped, not errored. `manage.py check` flags it as `llm_adapter.W001`, and
+`python manage.py verify_embedding_dimensions` compares the live DB columns against the configured
+provider and exits non-zero on a mismatch — run it before deploying. pgvector cannot cast between
+widths, so resizing discards existing vectors and the backfill regenerates them.
+
+## For AI agents
+
+If you are an AI agent deploying this system unattended, the canonical, verified command
+sequence is:
+
+```bash
+# From the repository root of this checkout:
+cp .env.example .env
+# Fill SECRET_KEY, AUTH_JWT_SECRET, FIELD_ENCRYPTION_KEY, DB_PASSWORD, DB_APP_PASSWORD in
+# .env before proceeding — the stack refuses to start without them. Also set
+# SYSTEM_ADMIN_PASSWORD if you want an admin user auto-created on first start (optional:
+# if left empty, admin provisioning is skipped, logged, not fatal).
+
+docker compose -f deploy/docker-compose.yml --project-directory . up -d
+docker compose -f deploy/docker-compose.yml --project-directory . ps
+curl -sf http://localhost:8001/health/
+```
+
+Facts:
+- Always run from the repository root. Always include `--project-directory .` on every
+  `docker compose` call against files in this directory — see "Required flag" above for why.
+- Health check URL: `http://localhost:8001/health/` — HTTP 200 with `{"status": "ok"}` means the
+  stack is fully up (`migrate` completed, `postgres`/`redis`/`backend` are healthy).
+- If a service does not reach `healthy` within a few minutes, inspect its logs:
+  ```bash
+  docker compose -f deploy/docker-compose.yml --project-directory . logs <service-name>
+  ```
+- Do not delete or rename `docker-compose.override.yml` to "fix" a production deploy — it is
+  never applied unless explicitly passed via `-f`, so its mere presence in this directory changes
+  nothing for a plain `up -d` without `-f deploy/docker-compose.override.yml`.
+- Prefer `docker-compose.minimal.yml` only when explicitly asked for a minimal/slim deployment;
+  default to the full stack (`docker-compose.yml`) otherwise.
+- Admin provisioning is create-only: changing `SYSTEM_ADMIN_PASSWORD` in `.env` and
+  re-running `up -d` does **not** reset an already-existing admin's password. It only takes
+  effect the very first time, against an empty database.
+- `.env` changes are read at container **creation**, not live. `docker compose restart
+  <service>` does NOT pick up a changed `.env` — re-run `up -d` (recreates containers whose
+  resolved config changed) instead.
+- Deploying a second instance (e.g. QS alongside PROD) on the same host: set distinct
+  `BACKEND_PORT`/`FRONTEND_PORT` per instance in each `.env`. Do not reuse the defaults
+  (`8001`/`5173`) across instances — port collision between instances is a real incident
+  this repo has already had.

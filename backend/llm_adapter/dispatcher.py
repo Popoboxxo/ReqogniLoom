@@ -128,7 +128,7 @@ class AsyncTaskDispatcher:
             }
 
         try:
-            # Registered as a @shared_task and autodiscovered by reqflow.celery,
+            # Registered as a @shared_task and autodiscovered by reqogniloom.celery,
             # so the running worker knows this task by name.
             from llm_adapter.tasks import run_capability  # noqa: PLC0415
         except ImportError:
@@ -169,7 +169,7 @@ class AsyncTaskDispatcher:
 
         try:
             from celery.result import AsyncResult  # noqa: PLC0415
-            from reqflow.celery import app as celery_app  # noqa: PLC0415
+            from reqogniloom.celery import app as celery_app  # noqa: PLC0415
 
             async_result = AsyncResult(task_id, app=celery_app)
             state = async_result.state  # PENDING | STARTED | SUCCESS | FAILURE | RETRY

@@ -26,14 +26,49 @@ import { getReviewsResolver } from "./reviewsResolver";
 // REQ-144: the review queue only ever shows items in this workflow state.
 export const REVIEW_STATE = "in_review";
 
+// Issue #372: Goal/MainGoal (workflow/definition_store.py goal_default /
+// main_goal_default) don't have an "in_review" state at all — their
+// lifecycle is "Entwurf" -> "Freigegeben" -> "Archiviert", with "Entwurf"
+// gated by an approver-only transition (the same approval-gate shape the
+// MCP `review.list_pending` tool already recognizes generically). Without
+// this override the queue queried `status=in_review` for every type and
+// silently returned 0 Goal/MainGoal items even after they were added to
+// WorkflowArtifactType, because they never reach that state.
+const PENDING_STATE_OVERRIDES: Partial<Record<WorkflowArtifactType, string>> = {
+  goal: "Entwurf",
+  "main-goal": "Entwurf",
+};
+
+/** Which queue the review list shows. */
+export type ReviewQueueMode = "review" | "proposals";
+
+/**
+ * Workflow state the queue lists for a given artifact type and mode.
+ *
+ * In "proposals" mode the state is the same literal for every type — the
+ * proposal state is injected into every non-minimal graph under one name
+ * (backend/workflow/definition_store.py PROPOSED_STATE), so no per-type
+ * override table is needed here.
+ */
+export function pendingStateFor(
+  type: WorkflowArtifactType,
+  mode: ReviewQueueMode = "review",
+): string {
+  if (mode === "proposals") return "proposed";
+  return PENDING_STATE_OVERRIDES[type] ?? REVIEW_STATE;
+}
+
 // REQ-167: the queue is entity-type-agnostic; the requirement queue is the
 // default so existing callers (and the REQ-144 tests) keep working unchanged.
 const DEFAULT_ARTIFACT_TYPE: WorkflowArtifactType = "requirement";
 
 export const reviewKeys = {
   all: ["reviews"] as const,
-  list: (type: WorkflowArtifactType, workspaceId: string) =>
-    ["reviews", type, "list", workspaceId] as const,
+  list: (
+    type: WorkflowArtifactType,
+    workspaceId: string,
+    mode: ReviewQueueMode = "review",
+  ) => ["reviews", type, "list", workspaceId, mode] as const,
   transitions: (type: WorkflowArtifactType, id: string) =>
     ["reviews", type, "transitions", id] as const,
   history: (type: WorkflowArtifactType, id: string) =>
@@ -54,6 +89,12 @@ export interface UseReviewsDataParams {
    * "requirement" so the historical Requirement-only behavior is preserved.
    */
   artifactType?: WorkflowArtifactType;
+  /**
+   * Spec §4.4: which queue to show — the historical `in_review` queue, or
+   * the AI-proposals queue (items in the "proposed" state). Defaults to
+   * "review" so existing callers keep their historical behavior.
+   */
+  queueMode?: ReviewQueueMode;
 }
 
 export interface TransitionArgs {
@@ -89,6 +130,7 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     selectedId,
     includeHistory = false,
     artifactType = DEFAULT_ARTIFACT_TYPE,
+    queueMode = "review",
   } = params;
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
@@ -100,8 +142,9 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
   );
 
   const listQuery = useQuery({
-    queryKey: reviewKeys.list(artifactType, workspaceId ?? ""),
-    queryFn: () => resolver.list(workspaceId as string, REVIEW_STATE),
+    queryKey: reviewKeys.list(artifactType, workspaceId ?? "", queueMode),
+    queryFn: () =>
+      resolver.list(workspaceId as string, pendingStateFor(artifactType, queueMode)),
     enabled: !!workspaceId,
   });
 
@@ -122,7 +165,7 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
   const refreshList = async (): Promise<void> => {
     if (!workspaceId) return;
     await queryClient.invalidateQueries({
-      queryKey: reviewKeys.list(artifactType, workspaceId),
+      queryKey: reviewKeys.list(artifactType, workspaceId, queueMode),
     });
   };
 

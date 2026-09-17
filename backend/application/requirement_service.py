@@ -25,16 +25,25 @@ ADR-L3-AS002-03: LLM not configured → explicit LlmNotConfiguredError.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+import re
+from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F, QuerySet
+from django.core.cache import cache
+from django.db.models import F, Q, QuerySet
 from django.db.utils import OperationalError, ProgrammingError
-from persistence.models import Artifact, Requirement, Tenant, Workspace
+from persistence.models import (
+    Artifact,
+    Requirement,
+    RequirementLevel,
+    Tenant,
+    Workspace,
+)
 from persistence.transactions import TransactionContextManager, atomic_transaction
 from traceability.types import LinkType
+from workflow import state_reader
 
 from application.base import (
     LlmNotConfiguredError,
@@ -42,13 +51,48 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
-from application.artifact_service import _clean_custom_fields
+from application.artifact_service import (
+    _clean_custom_fields,
+    clean_free_text_field,
+    has_field_changes,
+    snapshot_versioned_fields,
+)
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.models import DomainEventOutbox
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 
 logger = logging.getLogger(__name__)
 
 # Sentinel to distinguish "not provided" from "set to None" in update calls.
 _UNSET = object()
+
+# #45 (IEEE 29148 §5.2.4): "and"/"or" conjunctions in a requirement title
+# usually indicate it bundles more than one testable statement. Word-boundary
+# match so this doesn't false-positive on substrings ("Android", "Norway").
+_NON_ATOMIC_TERM_PATTERN = re.compile(r"\b(and|or)\b", re.IGNORECASE)
+
+# GH-796: check_consistency() dispatches an async Celery task and returns
+# only a task_id -- with no record of which tenant dispatched it, a status
+# poll could not be scoped and any authenticated caller could probe another
+# tenant's task_id. Mirrors bundle_compression_service's
+# _TASK_TENANT_CACHE_PREFIX pattern (ADR-03 row-level tenant isolation).
+_CONSISTENCY_TASK_TENANT_CACHE_PREFIX = "requirement_consistency_task_tenant"
+_CONSISTENCY_TASK_TENANT_TTL_SECONDS = 86400
+
+
+def detect_non_atomic_terms(title: str) -> List[str]:
+    """Return the distinct conjunction words found in ``title``, lowercased.
+
+    Deliberately a lightweight, always-available heuristic (no LLM call) —
+    a non-blocking hint, not a validation gate. Empty list means "no
+    conjunctions found", not "confirmed atomic": the check cannot detect
+    every non-atomic phrasing (e.g. semicolon-joined clauses), only the
+    literal 'and'/'or' pattern IEEE 29148 §5.2.4 calls out.
+    """
+    return sorted({m.group(1).lower() for m in _NON_ATOMIC_TERM_PATTERN.finditer(title or "")})
 
 
 class PgVectorUnavailableError(RuntimeError):
@@ -78,13 +122,28 @@ class RequirementDTO:
 
     @classmethod
     def from_orm(cls, req: Requirement) -> "RequirementDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
+
+        Task 12: the ``status`` column is dropped. Falls back to the
+        "draft" preset initial state when the engine has no
+        ``WorkflowItemState`` row for it -- Requirement can live in a
+        definition-less workspace (no WorkflowEngineDefinition at all), so
+        this is a real, not just theoretical, case -- or when no tenant
+        context is active (e.g. a caller building the DTO outside a
+        request-scoped service call). Documented, reviewed data-loss
+        tradeoff (see Task 12 report Finding 2).
+        """
+        try:
+            engine_status = state_reader.current_state("Requirement", req.id)
+        except Exception:  # noqa: BLE001 -- TenantContextNotSetError or similar
+            engine_status = None
         return cls(
             id=req.id,
             workspace_id=req.artifact.workspace_id,
             title=req.title,
             description=req.description,
             category=req.category,
-            status=req.status,
+            status=engine_status or state_reader.initial_state("Requirement"),
             version=req.version,
         )
 
@@ -131,6 +190,32 @@ class RequirementService(ServiceBase):
 
     # ---------- CRUD (REQ-L2-AS-003) ----------
 
+    def _assert_uid_unique_in_workspace(
+        self,
+        workspace_id: UUID,
+        uid: Optional[str],
+        *,
+        exclude_id: Optional[UUID] = None,
+    ) -> None:
+        """#44: reject a client-supplied ``uid`` that collides within the
+        same workspace.
+
+        Scoped to workspace (not tenant): ReqIF import legitimately
+        duplicates identifiers into a different workspace of the same
+        tenant, so a tenant-wide constraint would be a behaviour change for
+        that path. This check only guards the API/service-level create and
+        update entry points.
+        """
+        if not uid:
+            return
+        qs = Requirement.objects.filter(artifact__workspace_id=workspace_id, uid=uid)
+        if exclude_id is not None:
+            qs = qs.exclude(id=exclude_id)
+        if qs.exists():
+            raise ValidationError(
+                f"uid '{uid}' already exists in this workspace"
+            )
+
     @atomic_transaction
     def create_requirement(
         self,
@@ -138,11 +223,13 @@ class RequirementService(ServiceBase):
         title: str,
         ctx: AuthContext,
         description: str = "",
+        acceptance_criteria: str = "",
         category: str = "",
         parent_id: Optional[UUID] = None,
         type: str = "SyReq",
         complexity_fibonacci: Optional[int] = None,
         verification_method: Optional[str] = None,
+        level: Optional[int] = None,
         uid: Optional[str] = None,
         custom_fields: Optional[dict] = None,
     ) -> Requirement:
@@ -150,7 +237,7 @@ class RequirementService(ServiceBase):
 
         REQ-L2-AS-003: creates Requirement + initialises WorkflowState.
         REQ-L3-RF003-005: Accepts SE mask fields (type,
-        complexity_fibonacci, verification_method).
+        complexity_fibonacci, verification_method, level).
         Note: moscow_priority lives on StakeholderNeed (migration 0020).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
         """
@@ -166,6 +253,19 @@ class RequirementService(ServiceBase):
         if workspace is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
 
+        self._assert_uid_unique_in_workspace(workspace_id, uid)
+
+        # #709: reject HTML markup / script URIs before any row is written.
+        # Defense in depth (see clean_free_text_field docstring) — this is
+        # what closes the MCP `requirement.create` bypass, since MCP calls
+        # this service directly and never runs the REST serializer/ViewSet
+        # guard that already protects the REST boundary.
+        title = clean_free_text_field(title, "title")
+        description = clean_free_text_field(description, "description")
+        acceptance_criteria = clean_free_text_field(
+            acceptance_criteria, "acceptance_criteria"
+        )
+
         # Create the backing Artifact first
         artifact = Artifact.objects.create(
             tenant=tenant,
@@ -178,14 +278,27 @@ class RequirementService(ServiceBase):
         requirement = Requirement.objects.create(
             tenant=tenant,
             artifact=artifact,
+            # #133: denormalized workspace back-reference for the DB-level
+            # (workspace, uid) UniqueConstraint.
+            workspace=workspace,
             title=title,
             description=description,
+            acceptance_criteria=acceptance_criteria,
             category=category,
-            status="draft",
             type=type,
             complexity_fibonacci=complexity_fibonacci,
             verification_method=verification_method,
+            level=level,
             uid=uid,
+        )
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_requirement takes no change_reason, so the
+        # first revision is recorded without one.
+        ArtifactVersionService().record(
+            requirement.artifact_id,
+            snapshot_fields(requirement, "Requirement"),
+            ctx,
         )
 
         # Initialise workflow state (IF-AS-EXT-OUT-001)
@@ -214,7 +327,9 @@ class RequirementService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.REQUIREMENT_CREATED,
                 entity_id=requirement.id,
                 workspace_id=workspace_id,
-                payload={"title": title},
+                # artifact_id: additive, for context_graph.projector (Issue
+                # #377) — entity_id above is Requirement.id, not Artifact.id.
+                payload={"title": title, "artifact_id": str(requirement.artifact_id)},
             )
         )
         return requirement
@@ -235,7 +350,20 @@ class RequirementService(ServiceBase):
         action (UI, REST, MCP) stays consistent with AI-driven decomposition. The
         architecture target is mandatory here: derivation must always state which
         system element the derived requirement belongs to.
+
+        Issue #459 (finding 2): if no *description* is given, the child inherits
+        the parent's description instead of being created with an empty one — an
+        empty description otherwise leads a subsequent AI derivation on the child
+        to reason about the allocated ArchitectureElement instead of the actual
+        requirement content. An explicitly passed (non-empty) *description* is
+        never overridden.
         """
+        if not description:
+            self._set_tenant_context(ctx)
+            parent_req = Requirement.objects.filter(id=parent_requirement_id).first()
+            if parent_req is not None:
+                description = parent_req.description or ""
+
         return self.decompose(
             requirement_id=parent_requirement_id,
             ctx=ctx,
@@ -250,38 +378,53 @@ class RequirementService(ServiceBase):
         ctx: AuthContext,
         title: Optional[str] = None,
         description: Optional[str] = None,
+        acceptance_criteria: Optional[str] = None,
         category: Optional[str] = None,
-        status: Optional[str] = None,
         change_reason: Optional[str] = None,
         type: Optional[str] = None,
         complexity_fibonacci: object = _UNSET,
         verification_method: object = _UNSET,
+        level: object = _UNSET,
         uid: object = _UNSET,
         suspect: Optional[bool] = None,
         custom_fields: object = _UNSET,
+        expected_version: Optional[int] = None,
     ) -> Requirement:
         """Update a Requirement, enforcing change_reason policy.
 
         REQ-L2-AS-003: change_reason required in Extended preset.
         ADR-L3-AS002-02: delegates policy check to PresetPolicyService.
         REQ-L3-RF003-005: Accepts SE mask fields (type, moscow_priority,
-        complexity_fibonacci, verification_method).
+        complexity_fibonacci, verification_method, level).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
 
-        REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror. The REST
-        and MCP boundaries no longer forward it — a client-sent status is
-        ignored there. The parameter is retained on this internal method for
-        low-level/administrative callers only; normal state changes must go
-        through a workflow transition (see docs/architecture/ADR-status-single-source.md).
+        REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror; state
+        changes must go through a workflow transition (see
+        docs/architecture/ADR-status-single-source.md), never this method.
+        Task 12: the underlying column is dropped, so this method no longer
+        accepts a `status` parameter at all -- it used to be retained here as
+        a no-op-at-the-REST/MCP-boundary escape hatch for low-level callers,
+        but a dropped column has nothing left for even a low-level caller to
+        write to.
+
+        SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
+        caller's last-seen ``version``. When supplied and stale, the update is
+        refused with ``OptimisticLockError`` (409 CONFLICT) instead of silently
+        overwriting a concurrent edit. Omitting it keeps the previous
+        last-writer-wins behaviour, so existing clients are unaffected.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        requirement = Requirement.objects.select_related("artifact").filter(
-            id=requirement_id
+        requirement = lock_for_version_check(
+            Requirement.objects.select_related("artifact").filter(id=requirement_id),
+            expected_version,
         ).first()
         if requirement is None:
             raise NotFoundError(f"Requirement {requirement_id} not found")
+        assert_expected_version(
+            requirement, expected_version, entity_type="Requirement"
+        )
 
         workspace_id = requirement.artifact.workspace_id
 
@@ -290,30 +433,52 @@ class RequirementService(ServiceBase):
             if not change_reason:
                 raise ValidationError("change_reason required by workspace preset policy")
 
+        # #269 finding 5: snapshot BEFORE any assignment so the version bump
+        # below can be gated on a real value change.
+        _before = snapshot_versioned_fields(requirement)
+        _custom_fields_changed = False
+
+        # #709: same MCP-bypass defense in depth as create_requirement — only
+        # applied to fields actually being changed (``is not None`` already
+        # gates "was this field provided").
         if title is not None:
-            requirement.title = title
+            requirement.title = clean_free_text_field(title, "title")
         if description is not None:
-            requirement.description = description
+            requirement.description = clean_free_text_field(description, "description")
+        if acceptance_criteria is not None:
+            requirement.acceptance_criteria = clean_free_text_field(
+                acceptance_criteria, "acceptance_criteria"
+            )
         if category is not None:
             requirement.category = category
-        if status is not None:
-            requirement.status = status
         if type is not None:
             requirement.type = type
         if complexity_fibonacci is not _UNSET:
             requirement.complexity_fibonacci = complexity_fibonacci
         if verification_method is not _UNSET:
             requirement.verification_method = verification_method
+        if level is not _UNSET:
+            requirement.level = level
         if uid is not _UNSET:
+            self._assert_uid_unique_in_workspace(
+                workspace_id, uid, exclude_id=requirement.id
+            )
             requirement.uid = uid
 
-        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the Requirement snapshot and has to be compared separately.
         if custom_fields is not _UNSET:
-            requirement.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (requirement.artifact.custom_fields or {})
+            )
+            requirement.artifact.custom_fields = cleaned_custom_fields
             requirement.artifact.save(update_fields=["custom_fields", "modified_at"])
 
-        # SN-30: If title, description, or status changed, we will propagate suspect
-        changed_critical = any(x is not None for x in [title, description, status])
+        # SN-30: If title or description changed, we will propagate suspect
+        # (Task 12: `status` dropped from this list -- it is no longer a
+        # settable field on this method at all, see the docstring above).
+        changed_critical = any(x is not None for x in [title, description])
 
         if hasattr(requirement, "suspect"):
             if suspect is not None:
@@ -324,8 +489,27 @@ class RequirementService(ServiceBase):
         # missing any version bump at all — the baseline diff engine compares
         # stored version numbers, so without this increment every update appears
         # as version=1 forever, producing incorrect/empty diffs.
-        Requirement.objects.filter(id=requirement.id).update(version=F("version") + 1)
-        requirement.refresh_from_db(fields=["version"])
+        #
+        # #269 finding 5: gated on an actual value change. Bumping on every call
+        # made a no-op PATCH (unknown field, or a field re-sent with its current
+        # value) look like a new revision and produced diffs between identical
+        # snapshots.
+        if has_field_changes(requirement, _before) or _custom_fields_changed:
+            Requirement.objects.filter(id=requirement.id).update(
+                version=F("version") + 1
+            )
+            requirement.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): a revision is
+            # recorded under exactly the condition that makes this a content
+            # write. Recording unconditionally would append an identical
+            # snapshot for a no-op PATCH — the same phantom-revision noise
+            # #269 finding 5 removed from the version counter above.
+            ArtifactVersionService().record(
+                requirement.artifact_id,
+                snapshot_fields(requirement, "Requirement"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
         # REQ-L2-VS-004: refresh the embedding only when embedding-relevant text
         # (title/description) changed, to avoid needless LLM calls on metadata-
@@ -345,7 +529,8 @@ class RequirementService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.REQUIREMENT_UPDATED,
                 entity_id=requirement_id,
                 workspace_id=workspace_id,
-                payload={"change_reason": change_reason},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"change_reason": change_reason, "artifact_id": str(requirement.artifact_id)},
             )
         )
 
@@ -358,7 +543,9 @@ class RequirementService(ServiceBase):
         return requirement
 
     @atomic_transaction
-    def delete_requirement(self, requirement_id: UUID, ctx: AuthContext) -> None:
+    def delete_requirement(
+        self, requirement_id: UUID, ctx: AuthContext, change_reason: str = ""
+    ) -> None:
         """Soft-delete Requirement by setting lifecycle_status to 'deleted' (REQ-006).
 
         Physical deletion is intentionally avoided for end-user operations.
@@ -376,9 +563,24 @@ class RequirementService(ServiceBase):
 
         workspace_id = requirement.artifact.workspace_id
 
-        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
-        requirement.lifecycle_status = "deleted"
-        requirement.save(update_fields=["lifecycle_status"])
+        # #604: delete used to skip the workspace's change_reason preset
+        # policy entirely -- a silent audit-trail gap next to
+        # StakeholderNeedService.delete(), which already enforces it.
+        if self._preset_policy.is_change_reason_required(str(workspace_id)):
+            if not change_reason:
+                raise ValidationError("change_reason is required by preset policy.")
+
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of writing lifecycle_status directly.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=requirement.id,
+            item_type="Requirement",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via requirement.delete",
+        )
 
         self._audit(ctx=ctx, operation="delete", entity_type="Requirement", entity_id=requirement_id)
         self._emit_event(
@@ -390,7 +592,23 @@ class RequirementService(ServiceBase):
         )
 
     def get_requirement(self, requirement_id: UUID, ctx: AuthContext) -> Requirement:
-        """Fetch a single Requirement (tenant-scoped)."""
+        """Fetch a single Requirement (tenant-scoped).
+
+        GH-443: a soft-deleted requirement (``status == "outdated"``, written
+        by :meth:`delete_requirement` via ``workflow.services.outdate()``) is
+        returned normally, carrying that status. It used to be reported as
+        *not found*, which made DELETE look like a hard delete from the
+        outside — the row was still there, but no caller could observe it, and
+        the behaviour disagreed with every sibling service
+        (``get_test_case`` / ``get_adr`` / ``get_issue`` / ``get_risk``, none
+        of which filter on the soft-delete state either).
+
+        Detail reads therefore stay reachable after a delete, so a client can
+        tell "gone" (404) apart from "soft-deleted" (200 +
+        ``status="outdated"``) and can restore the item via
+        ``POST /api/v1/requirements/{id}/reactivate/``. *List* reads still hide
+        outdated requirements by default — see :meth:`list_requirements`.
+        """
         self._set_tenant_context(ctx)
         req = Requirement.objects.select_related("artifact").filter(
             id=requirement_id
@@ -405,53 +623,141 @@ class RequirementService(ServiceBase):
         ctx: AuthContext,
         include_deleted: bool = False,
         status: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> QuerySet[Requirement]:
         """Return Requirements in *workspace_id*.
 
         REQ-006: Excludes soft-deleted requirements (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
 
-        REQ-144: Pass ``status`` to filter by the WorkflowEngine-owned lifecycle
-        mirror (e.g. ``status="in_review"`` for the review queue). ``status`` is
-        a pure read filter on the denormalized mirror column — it does not
-        affect the workflow engine and does not accept the client to *write*
-        status (see ``update_requirement``).
+        REQ-144: Pass ``status`` to filter by the WorkflowEngine's current
+        state (e.g. ``status="in_review"`` for the review queue), resolved
+        through ``workflow.state_reader`` since Datenmodell-Konsolidierung
+        Phase 1 — it does not affect the workflow engine and does not accept
+        the client to *write* status (see ``update_requirement``).
+
+        GH-443: ``status="outdated"`` implies ``include_deleted``. Without
+        that, the default soft-delete exclusion ran first and the explicit
+        filter could only ever return an empty page — so the UI's status
+        filter had no way to surface soft-deleted requirements at all.
+
+        Issue #267 regression fix: ``search`` case-insensitively filters on
+        title/description/uid via ``icontains`` (bound query parameters — not
+        raw SQL, so search terms are always treated as literal text, never
+        interpreted as SQL). Previously this parameter did not exist at all,
+        so ``?search=`` was silently ignored by the ViewSet and every item in
+        the workspace was returned unfiltered regardless of the search term.
 
         REQ-088: Returns a lazy ``QuerySet`` (no ``list()``) so the caller —
         e.g. the paginating ViewSet (REQ-034) — can slice with LIMIT/OFFSET
         instead of materialising the full result set.
         """
         self._set_tenant_context(ctx)
-        qs = Requirement.objects.select_related("artifact").filter(
+        qs = Requirement.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             artifact__workspace_id=workspace_id
         )
-        if not include_deleted:
-            qs = qs.exclude(lifecycle_status="deleted")
+        from workflow.services import outdated_item_ids
+
+        if not include_deleted and status != "outdated":
+            # Datenmodell-Konsolidierung Phase 4 (D-3): delete_requirement()
+            # routes through workflow.services.outdate(), which sets
+            # Artifact.lifecycle_status and no longer writes an "outdated"
+            # workflow state -- so this must read the flag seam, not
+            # state_reader.item_ids_in_state, which would match nothing. The
+            # ``status != "outdated"`` guard is unchanged: an explicit
+            # ``?status=outdated`` implies include_deleted, otherwise the two
+            # filters would contradict and always return an empty set.
+            qs = qs.exclude(
+                id__in=outdated_item_ids("Requirement", tenant_id=ctx.tenant_id)
+            )
         if status:
-            qs = qs.filter(status=status)
+            # Datenmodell-Konsolidierung Phase 1: the mirror column this
+            # filter used to read is no longer written by the engine, so an
+            # explicit ``?status=`` value is matched through WorkflowItemState
+            # (batched) -- an engine-only include filter would otherwise
+            # silently drop definition-less-workspace requirements with no
+            # WorkflowItemState at all (same risk Task 6 flagged for this
+            # exact method). Task 12: the ``status`` column is dropped, so a
+            # row with no WorkflowItemState falls back to the "draft" preset
+            # initial state instead (documented, reviewed data-loss
+            # tradeoff, see Task 12 report Finding 2).
+            rows = list(qs.values("id"))
+            states = state_reader.current_states(
+                "Requirement", (row["id"] for row in rows)
+            )
+            requirement_initial_state = state_reader.initial_state("Requirement")
+            matching_ids = [
+                row["id"]
+                for row in rows
+                if (states.get(str(row["id"])) or requirement_initial_state) == status
+            ]
+            qs = qs.filter(id__in=matching_ids)
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(uid__icontains=search)
+            )
         return qs
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 
     @staticmethod
-    def _generate_and_store_embedding(requirement: Requirement) -> None:
+    def _generate_and_store_embedding(
+        requirement: Requirement,
+    ) -> Optional[List[float]]:
         """Best-effort: generate and persist the requirement's embedding.
 
         REQ-L2-VS-004. Uses a bare ``.update()`` so it neither bumps the
         version nor emits a domain event. Never raises: the embedding is
         supplementary to full-text search, so a provider/network failure must
         not fail the surrounding create/update transaction.
+
+        Returns:
+            The generated vector when it was persisted, else ``None`` (no
+            provider configured, generation failure, or dimension mismatch).
+            Issue #847: ``find_similar_requirements`` reuses this vector as the
+            pgvector query vector, because the bare ``.update()`` above does not
+            refresh the in-memory ``requirement.embedding`` (which stays
+            ``None``); passing ``None`` to ``CosineDistance`` is invalid.
+
+        ``Requirement.embedding`` is a fixed-dimension pgvector column, sized
+        from ``persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS``.
+        A vector of any other width is rejected by Postgres at the DB level
+        (``DataError``), and — because ``.update()`` runs inside the caller's
+        ambient transaction — an uncaught DataError here would poison that
+        whole transaction (every subsequent query on the connection then fails
+        with "current transaction is aborted") rather than just skip the
+        embedding. Guard by comparing the generated vector's length against
+        the column's declared dimension *before* issuing the write, so a
+        mismatch is a no-op skip, not a DB round-trip that fails.
+
+        Issue #794: that guard used to skip 100% of writes under the shipped
+        default (a 384-dim provider against a hardcoded ``vector(1536)``
+        column) and reported it only at DEBUG, so the feature was silently
+        dead. The column now matches the default provider, and a mismatch
+        left by a non-default provider is reported at WARNING via
+        ``warn_dimension_mismatch``.
         """
         try:
             from llm_adapter.embedding_service import (
                 generate_embedding,
                 get_embedding_text,
+                warn_dimension_mismatch,
             )
 
             embedding = generate_embedding(get_embedding_text(requirement))
-            if embedding is not None:
+            field_dimensions = Requirement._meta.get_field("embedding").dimensions
+            if embedding is not None and len(embedding) == field_dimensions:
                 Requirement.objects.filter(id=requirement.id).update(
                     embedding=embedding
+                )
+                return embedding
+            if embedding is not None:
+                warn_dimension_mismatch(
+                    "RequirementService", len(embedding), field_dimensions
                 )
         except Exception as exc:  # noqa: BLE0001 — best-effort
             logger.debug(
@@ -459,6 +765,7 @@ class RequirementService(ServiceBase):
                 requirement.id,
                 exc,
             )
+        return None
 
     def find_similar_requirements(
         self,
@@ -473,18 +780,37 @@ class RequirementService(ServiceBase):
         pgvector ``embedding`` column, tenant-scoped and excluding the query
         requirement itself.
 
+        Issue #847: when the query requirement has no stored embedding, one is
+        generated lazily and persisted via the existing best-effort helper
+        before the search runs. If no embedding can be produced -- provider
+        unconfigured, generation failure, or dimension mismatch -- the search
+        degrades gracefully to an empty result (logged at WARNING) instead of
+        raising, so an artifact that predates embeddings stays usable.
+
+        Deliberate read-path write (derived-field exception): this read method
+        lazily persists the query requirement's embedding. That is intentional:
+        ``embedding`` is a derived/cache field, and the write goes through
+        ``_generate_and_store_embedding``'s bare ``.update()``, which neither
+        bumps the artifact version nor emits a domain event. Generation is
+        idempotent (an already-stored vector is reused, never regenerated) and
+        bounded by the provider's ``EMBEDDING_TIMEOUT``, so the side effect
+        stays small and self-healing. No permission gate is applied to this
+        conditional write on purpose: adding one would change the required
+        behavior for callers whose role set is not resolvable here.
+
         Args:
-            requirement_id: Query requirement (must have a non-null embedding).
+            requirement_id: Query requirement (its embedding is generated on
+                demand when missing).
             ctx: AuthContext for tenant scoping.
             limit: Max results (clamped to 1..50, default 10).
             workspace_id: Optional workspace filter.
 
         Returns:
-            Ordered list of SimilarRequirementDTO (closest first).
+            Ordered list of SimilarRequirementDTO (closest first); empty when
+            no query embedding is available.
 
         Raises:
             NotFoundError: Query requirement does not exist.
-            ValidationError: Query requirement has no embedding.
             PgVectorUnavailableError: pgvector package/extension unavailable.
         """
         self._set_tenant_context(ctx)
@@ -495,9 +821,23 @@ class RequirementService(ServiceBase):
         if req is None:
             raise NotFoundError(f"Requirement {requirement_id} not found")
         if req.embedding is None:
-            raise ValidationError(
-                "Requirement has no embedding — similarity search not possible"
-            )
+            # Issue #847: generate + persist lazily instead of hard-failing.
+            # The helper's bare ``.update()`` does not refresh ``req.embedding``
+            # (which stays ``None``), so the returned vector -- not the
+            # attribute -- must be used as the query vector: ``CosineDistance``
+            # cannot take ``None``.
+            query_embedding = self._generate_and_store_embedding(req)
+            if query_embedding is None:
+                logger.warning(
+                    "RequirementService.find_similar_requirements: no embedding "
+                    "available for requirement %s (generation failed, provider "
+                    "unconfigured, or dimension mismatch) -- returning no "
+                    "similar requirements.",
+                    req.id,
+                )
+                return []
+        else:
+            query_embedding = req.embedding
 
         try:
             from pgvector.django import CosineDistance
@@ -516,7 +856,7 @@ class RequirementService(ServiceBase):
         queryset = (
             queryset.exclude(id=req.id)
             .select_related("artifact")
-            .annotate(distance=CosineDistance("embedding", req.embedding))
+            .annotate(distance=CosineDistance("embedding", query_embedding))
             .order_by("distance")[:safe_limit]
         )
 
@@ -527,13 +867,22 @@ class RequirementService(ServiceBase):
                 "pgvector extension not available — similarity search unavailable"
             ) from exc
 
+        # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
+        # by the workflow engine — resolved through state_reader (batched).
+        # Task 12: the ``status`` column is dropped, so a row with no
+        # WorkflowItemState falls back to the "draft" preset initial state
+        # instead (documented, reviewed data-loss tradeoff, see Task 12
+        # report Finding 2).
+        states = state_reader.current_states("Requirement", (row.id for row in rows))
+        requirement_initial_state = state_reader.initial_state("Requirement")
+
         return [
             SimilarRequirementDTO(
                 id=row.id,
                 uid=row.uid,
                 title=row.title,
                 category=row.category,
-                status=row.status,
+                status=states.get(str(row.id)) or requirement_initial_state,
                 # Cosine distance in [0, 2]; similarity = 1 - distance.
                 similarity_score=round(1.0 - float(row.distance), 6),
             )
@@ -557,6 +906,18 @@ class RequirementService(ServiceBase):
         REQ-L2-AS-024: decomposition logic
         REQ-L1-043: optional allocation of children to ArchitectureElements
         ADR-L3-AS002-01 (single atomic TX).
+
+        Links emitted per child (issue #395 — the full SE decomposition set,
+        identical to ``ArchitectureDecomposeService._link_node``):
+
+        * ``decomposes``   : parent Requirement -> child Requirement
+        * ``derives-from`` : child Requirement -> parent Requirement
+        * ``allocated-to`` : child Requirement -> ArchitectureElement
+          (only when *target_architecture_elements* is given)
+
+        Each child also inherits ``level = parent.level + 1`` (P1-9), unless
+        the parent's level is unknown or already the bottom of the cascade —
+        see the inline comment at the derivation for both exceptions.
 
         Args:
             requirement_id: UUID of parent requirement to decompose.
@@ -625,6 +986,30 @@ class RequirementService(ServiceBase):
 
         result = DecompositionResultDTO(parent_id=requirement_id)
 
+        # SYSTEMAUDIT_2026-08-27 P1-9: derive the child's V-model cascade level
+        # from the parent instead of leaving it NULL. Decomposition is by
+        # definition a move one level down the cascade (RequirementLevel: the
+        # stored integer IS the level), so the value is knowable here — and
+        # this method is the dominant creator of Requirements, which is why
+        # ``level`` used to be NULL for practically the whole corpus (see the
+        # level-vocabulary sections of the SE-Auditor rule modules).
+        #
+        # Two cases deliberately keep NULL rather than guessing:
+        #   * parent.level is NULL — every Requirement decomposed before this
+        #     change. Inventing a level for the child would fabricate a
+        #     cascade position from no evidence and would make the new CONS-P11
+        #     rule audit derived data against derived data.
+        #   * parent is already at L4_PRESENTATION — the cascade has no tier
+        #     below it. Clamping to L4 would emit a child at the *same* level
+        #     as its parent, i.e. a self-inflicted CONS-P11 finding on every
+        #     such decomposition; NULL ("not assigned") is the honest answer.
+        parent_level = parent_req.level
+        child_level: Optional[int]
+        if parent_level is None or parent_level >= RequirementLevel.L4_PRESENTATION:
+            child_level = None
+        else:
+            child_level = parent_level + 1
+
         with TransactionContextManager():
             for idx, child_data in enumerate(children):
                 child_req = self.create_requirement(
@@ -633,24 +1018,72 @@ class RequirementService(ServiceBase):
                     ctx=ctx,
                     description=child_data.get("description", ""),
                     parent_id=parent_req.artifact_id,
+                    level=child_level,
                 )
                 result.children.append(RequirementDTO.from_orm(child_req))
 
-                # IF-AS-INT-002: create TraceLink using configured type
-                try:
-                    tl = self._trace_link_service.create_trace_link(
-                        source_id=UUID(str(parent_req.artifact_id)),
-                        target_id=UUID(str(child_req.artifact_id)),
-                        link_type=decomposition_link_type,
-                        ctx=ctx,
-                    )
-                    if hasattr(tl, "id"):
-                        result.trace_link_ids.append(tl.id)
-                except Exception:
-                    logger.debug(
-                        "RequirementService.decompose: TraceLink creation failed "
-                        "(may not exist in traceability engine yet)"
-                    )
+                # IF-AS-INT-002: create TraceLink using configured type.
+                #
+                # SDD Task 15 (spec §3.3): create_requirement() already wrote
+                # child_req.artifact.parent = parent_req.artifact above, in
+                # this same TransactionContextManager block. The 'decomposes'
+                # link is the *other* half of that one relationship (see the
+                # Artifact.parent docstring: "Any service that writes one of
+                # them ... must write the other in the same transaction").
+                # A previous best-effort try/except swallowed failures here,
+                # so a workspace could end up with a parent FK and no link
+                # (invisible to the SE-Auditor) or vice versa. Letting the
+                # exception propagate lets the surrounding atomic block roll
+                # back both writes together instead of leaving a half-built
+                # hierarchy.
+                tl = self._trace_link_service.create_trace_link(
+                    source_id=UUID(str(parent_req.artifact_id)),
+                    target_id=UUID(str(child_req.artifact_id)),
+                    link_type=decomposition_link_type,
+                    ctx=ctx,
+                )
+                if hasattr(tl, "id"):
+                    result.trace_link_ids.append(tl.id)
+
+                # Issue #395: the reciprocal 'derives-from' link (child ->
+                # parent). TRACE-P5 explicitly requires the pair — "a
+                # Requirement decomposed via 'decomposes' must carry a
+                # matching 'derives-from' back to that parent" — and
+                # TRACE-P1b requires every Requirement to have an outgoing
+                # 'derives-from'. Emitting only 'decomposes' meant the tool's
+                # own guided "Ableiten" flow produced two blocking
+                # SE-Auditor findings per derived Requirement and made
+                # baseline creation impossible without manual repair. This
+                # mirrors ArchitectureDecomposeService._link_node, which has
+                # always emitted all three links (allocated-to, decomposes,
+                # derives-from) for the AI decomposition path.
+                #
+                # Deliberately NOT wrapped in the best-effort try above (F2 of
+                # the #395 review): sharing that scope would let a failure
+                # here commit the 'decomposes' half of the pair on its own —
+                # precisely the state TRACE-P5 reports as a BLOCKER, produced
+                # silently by the very code meant to prevent it. The
+                # back-link is a correctness precondition of this method, so
+                # it propagates and the surrounding TransactionContextManager
+                # rolls the whole decomposition back. Same reasoning as the
+                # allocation block below.
+                #
+                # No backfill ships with this change (F6 of the #395 review):
+                # Requirements derived before it still carry 'decomposes'
+                # without the back-link and keep reporting TRACE-P5. That is
+                # intentional — TRACE-P5 has a deterministic, automatic
+                # remediation (RequirementDecompositionDerivationRemediation,
+                # "Anpassen" in the audit dashboard) that creates exactly this
+                # link from the finding's own endpoints, so existing data is
+                # repairable per finding without a migration.
+                derives = self._trace_link_service.create_trace_link(
+                    source_id=UUID(str(child_req.artifact_id)),
+                    target_id=UUID(str(parent_req.artifact_id)),
+                    link_type=LinkType.DERIVES_FROM.value,
+                    ctx=ctx,
+                )
+                if hasattr(derives, "id"):
+                    result.trace_link_ids.append(derives.id)
 
                 # REQ-L1-043: Allocation to ArchitectureElements. Not caught: a
                 # caller that explicitly passes target_architecture_elements
@@ -755,6 +1188,11 @@ class RequirementService(ServiceBase):
                 raise LlmNotConfiguredError("LLM not configured")
             raise ValueError(result["error"].get("message", str(result)))
 
+        # validate_artifact() returns an LlmResult dataclass on success (see
+        # its docstring) -- serialise it into a plain dict instead of a
+        # Python repr string, which API/MCP consumers can't parse (#576).
+        if is_dataclass(result) and not isinstance(result, type):
+            return asdict(result)
         return result if isinstance(result, dict) else {"result": str(result)}
 
     def check_consistency(
@@ -777,9 +1215,14 @@ class RequirementService(ServiceBase):
 
         from llm_adapter.services import check_consistency as _llm_check_consistency
 
+        from workflow.services import outdated_item_ids
+
         rows = (
             Requirement.objects.filter(artifact__workspace_id=workspace_id)
-            .exclude(lifecycle_status="deleted")
+            # Datenmodell-Konsolidierung Phase 4 (D-3): read "outdated" from
+            # the Artifact.lifecycle_status flag -- it is no longer a
+            # workflow state, so item_ids_in_state would match nothing.
+            .exclude(id__in=outdated_item_ids("Requirement", tenant_id=ctx.tenant_id))
             .only("id", "title", "description")
         )
         artifacts = [
@@ -793,7 +1236,43 @@ class RequirementService(ServiceBase):
                 raise LlmNotConfiguredError("LLM not configured")
             raise ValueError(result["error"].get("message", str(result)))
 
+        # GH-796: record which tenant dispatched this task_id so
+        # get_consistency_status() can enforce ownership on every poll --
+        # the Celery result backend itself has no concept of tenant.
+        task_id = result.get("task_id") if isinstance(result, dict) else None
+        if task_id:
+            cache.set(
+                f"{_CONSISTENCY_TASK_TENANT_CACHE_PREFIX}:{task_id}",
+                str(ctx.tenant_id),
+                _CONSISTENCY_TASK_TENANT_TTL_SECONDS,
+            )
+
         return result if isinstance(result, dict) else {"result": str(result)}
+
+    def get_consistency_status(self, task_id: str, ctx: AuthContext) -> Dict[str, Any]:
+        """Poll the outcome of a previously dispatched ``check_consistency`` task.
+
+        GH-796: ``check_consistency`` returned a ``task_id`` with no way for a
+        caller to ever retrieve the result -- the LlmAdapter's generic
+        ``get_task_status`` existed but was never wired to this capability.
+        Tenant-scoped the same way as
+        ``BundleCompressionService.get_compression_status`` (ADR-03): an
+        unknown or foreign-tenant task_id is deliberately reported as
+        ``status="not_found"`` so a cross-tenant probe cannot even learn
+        "this task_id exists but isn't mine".
+        """
+        self._set_tenant_context(ctx)
+
+        from llm_adapter.services import get_task_status as _llm_get_task_status
+
+        owning_tenant_id = cache.get(
+            f"{_CONSISTENCY_TASK_TENANT_CACHE_PREFIX}:{task_id}"
+        )
+        if owning_tenant_id is None or owning_tenant_id != str(ctx.tenant_id):
+            return {"task_id": task_id, "status": "not_found"}
+
+        status = _llm_get_task_status(task_id)
+        return status if isinstance(status, dict) else {"result": str(status)}
 
 
 __all__ = [

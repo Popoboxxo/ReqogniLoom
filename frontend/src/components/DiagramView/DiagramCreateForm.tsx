@@ -9,7 +9,7 @@
  * the create request goes through useCreateDiagram (TanStack Query mutation).
  */
 
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useCreateDiagram } from "./useDiagramData";
@@ -29,11 +29,20 @@ import type { DiagramType, PayloadFormat } from "../../types";
 export interface DiagramCreateFormProps {
   onCreated: (diagramId: string) => Promise<void> | void;
   onCancel: () => void;
+  // F-08 (Dialog migration): lets the caller wire this form's name input up
+  // as a Dialog's `initialFocusRef`, so the pre-existing autoFocus UX
+  // survives being wrapped in Dialog (whose own focus trap otherwise
+  // defaults to the first focusable element — Dialog's × close button).
+  // React 19 made `RefObject<T>.current` non-nullable, so a ref that may hold
+  // null (every `useRef<T>(null)`) is now spelled `RefObject<T | null>` — the
+  // same spelling the sibling Dialog/use-focus-trap props already use.
+  nameInputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export function DiagramCreateForm({
   onCreated,
   onCancel,
+  nameInputRef,
 }: DiagramCreateFormProps): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -91,6 +100,7 @@ export function DiagramCreateForm({
           {t("diagrams.name", "Name")}
           <input
             data-testid="diagram-name-input"
+            ref={nameInputRef}
             type="text"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -110,7 +120,7 @@ export function DiagramCreateForm({
           >
             {DIAGRAM_TYPES.map((tp) => (
               <option key={tp} value={tp}>
-                {t(`diagrams.type.${tp}`, tp)}
+                {t(`diagrams.typeLabels.${tp}`, tp)}
               </option>
             ))}
           </select>
@@ -131,11 +141,22 @@ export function DiagramCreateForm({
             }}
             style={formInputStyle}
           >
-            {PAYLOAD_FORMATS.map((fmt) => (
-              <option key={fmt} value={fmt}>
-                {fmt}
-              </option>
-            ))}
+            {/* GH-353 Task 9: Filter to offer node_graph (structured) instead of json,
+                keep canvas_stroke (freehand sketch) and mermaid/plantuml text formats. */}
+            {PAYLOAD_FORMATS.filter((fmt) => fmt !== "json").map((fmt) => {
+              const labels: Record<PayloadFormat, string> = {
+                node_graph: t("diagrams.formatLabels.nodeGraph", "Structured Graph"),
+                mermaid: t("diagrams.formatLabels.mermaid", "Mermaid Diagram"),
+                plantuml: t("diagrams.formatLabels.plantuml", "PlantUML"),
+                canvas_stroke: t("diagrams.formatLabels.canvasStroke", "Freehand Sketch"),
+                json: "JSON", // filtered out but kept for type safety
+              };
+              return (
+                <option key={fmt} value={fmt}>
+                  {labels[fmt]}
+                </option>
+              );
+            })}
           </select>
         </label>
 

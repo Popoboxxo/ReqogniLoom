@@ -128,10 +128,8 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-
-from reqif.parser import ReqIFParser
-from reqif.models.reqif_spec_relation_type import ReqIFSpecRelationType
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.reqif_export_service import (
@@ -146,6 +144,7 @@ from application.reqif_export_service import (
     _SPEC_OBJECT_TYPE_NEED,
     _SPEC_OBJECT_TYPE_REQUIREMENT,
 )
+from persistence.custom_fields import validate_custom_fields
 from traceability.types import VALID_LINK_TYPES
 
 logger = logging.getLogger(__name__)
@@ -187,10 +186,12 @@ _REQUIREMENT_KNOWN_ATTRS = frozenset(
     }
 )
 
-# Status normalisation — verbatim copy of
+# Status normalisation — copy of
 # workflow/migrations/0003_reconcile_status_mirror.py's constants so the
-# import-time mapping stays byte-identical to what the reconcile migration
-# (and therefore the rest of the system) considers a "known" status.
+# import-time mapping stays aligned with what the reconcile migration (and
+# therefore the rest of the system) considers a "known" status. The frozen
+# migration copy is intentionally NOT updated in lockstep; see the GH-453 note
+# on _map_status for the one behavioural divergence.
 _GLOBAL_KNOWN_STATES = frozenset(
     {"draft", "in_review", "approved", "deprecated", "done"}
 )
@@ -200,16 +201,29 @@ _FALLBACK_STATE = "draft"
 def _map_status(current: str, valid_states: Optional[List[str]]) -> str:
     """Map a free-text status onto a valid workflow state.
 
-    Verbatim port of ``0003_reconcile_status_mirror._map_status`` — see that
+    Ported from ``0003_reconcile_status_mirror._map_status`` — see that
     migration for the authoritative rationale. Duplicated here (rather than
     imported) because Django migration modules are not a stable import
     surface; the module docstring above documents the coupling so the two
     copies are kept in sync deliberately.
+
+    GH-453 divergence from the frozen migration copy: an exact miss now retries
+    case-insensitively before falling back to the initial state. Without it, a
+    CSV/ReqIF file exported *before* TestCase states were lowercased carries
+    "Approved", finds no exact match in the workspace's now-lowercase
+    ``["draft", "ready", "approved", "deprecated"]`` and silently lands on
+    ``valid_states[0]`` — i.e. every approved test case would come back in as a
+    draft. The retry only runs where the previous behaviour was outright data
+    loss, so it can never downgrade an existing exact match.
     """
     if valid_states is None:
         return current if current in _GLOBAL_KNOWN_STATES else _FALLBACK_STATE
     if current in valid_states:
         return current
+    folded = (current or "").strip().casefold()
+    for state in valid_states:
+        if state.casefold() == folded:
+            return state
     return valid_states[0] if valid_states else _FALLBACK_STATE
 
 
@@ -411,14 +425,19 @@ class ReqifImportService(ServiceBase):
                         {"identifier": so.identifier, "message": str(exc)}
                     )
                     continue
-                except Exception as exc:  # noqa: BLE001 — soft-fail per object
+                except Exception:  # noqa: BLE001 — soft-fail per object
                     logger.exception(
                         "ReqifImportService: unexpected error importing %s",
                         so.identifier,
                     )
                     report.skipped += 1
+                    # #697 (CWE-209): the report is part of the HTTP 200 body,
+                    # so the raw exception text must not travel in it.
                     report.errors.append(
-                        {"identifier": so.identifier, "message": str(exc)}
+                        {
+                            "identifier": so.identifier,
+                            "message": "An internal error occurred while importing this object.",
+                        }
                     )
                     continue
 
@@ -479,6 +498,10 @@ class ReqifImportService(ServiceBase):
         parser are treated as hard errors (REQ-147: "unparseable XML,
         structural violation -> whole import rolled back, 400").
         """
+        # Issue #131: ``reqif`` is an optional dependency — import lazily so a
+        # missing/broken install cannot take down the whole Django URLConf.
+        from reqif.parser import ReqIFParser
+
         try:
             bundle = ReqIFParser.parse_from_string(reqif_text)
         except Exception as exc:  # noqa: BLE001 — normalise to ValidationError
@@ -574,6 +597,20 @@ class ReqifImportService(ServiceBase):
                     long_name = definition.long_name
             custom_fields[long_name] = attribute.value
 
+        # This import assigns ``artifact.custom_fields`` directly and calls
+        # ``save(update_fields=...)``, which does not run model validators — so
+        # the flat-map rules (and, since the #269 follow-up, the free-text guard
+        # that keeps markup / ``javascript:`` payloads out of the map) have to
+        # be applied explicitly here. A ReqIF file is untrusted input like any
+        # request body. A violation is a per-object soft error: the spec object
+        # is skipped and reported, the rest of the file still imports.
+        try:
+            custom_fields = validate_custom_fields(custom_fields)
+        except DjangoValidationError as exc:
+            raise _SoftError(
+                exc.messages[0] if exc.messages else "Invalid custom fields."
+            ) from exc
+
         verification_method = (
             _attr_value(_ATTR_VERIFICATION_METHOD) or None if kind == "Requirement" else None
         )
@@ -652,7 +689,9 @@ class ReqifImportService(ServiceBase):
                     custom_fields={},
                 )
             entity = (
-                Requirement(tenant=tenant, artifact=artifact)
+                # #133: workspace is denormalized onto Requirement to back the
+                # (workspace, uid) DB-level UniqueConstraint.
+                Requirement(tenant=tenant, artifact=artifact, workspace=workspace)
                 if kind == "Requirement"
                 else StakeholderNeed(tenant=tenant, artifact=artifact)
             )
@@ -689,27 +728,29 @@ class ReqifImportService(ServiceBase):
     ) -> None:
         """Mirror ``0003_reconcile_status_mirror.reconcile_status_mirror``.
 
-        Sets ``entity.status`` (not yet saved — caller saves once at the end)
-        and creates/updates the matching ``WorkflowItemState`` row IFF a
+        Creates/updates the matching ``WorkflowItemState`` row IFF a
         ``WorkflowEngineDefinition`` exists for this workspace/item_type.
         ``entity.id`` is available before the first save (UUID PK default is
         assigned client-side), so this can run before ``entity.save()``.
+
+        Task 12: the ``status`` column is dropped, so a mapped value can no
+        longer be persisted on ``entity`` itself -- without a
+        ``WorkflowEngineDefinition`` there is nowhere left to record it, and
+        the imported status is discarded (documented, reviewed data-loss
+        tradeoff, see the Task 12 report Finding 2; mirrors the identical
+        ``definition is None`` discard in ``import_service._insert_rows``'s
+        CSV import path).
         """
         from workflow.models import WorkflowEngineDefinition, WorkflowItemState
 
         definition = WorkflowEngineDefinition.objects.filter(
             workspace_id=str(workspace_id), item_type=item_type
         ).first()
-
-        valid_states = None
-        if definition is not None:
-            valid_states = list((definition.workflow_json or {}).get("states", []))
-
-        mapped = _map_status(status_raw, valid_states)
-        entity.status = mapped
-
         if definition is None:
             return
+
+        valid_states = list((definition.workflow_json or {}).get("states", []))
+        mapped = _map_status(status_raw, valid_states)
 
         state_row = WorkflowItemState.objects.filter(
             item_id=entity.id, item_type=item_type
@@ -783,6 +824,9 @@ class ReqifImportService(ServiceBase):
         tenant: Any,
         relations_report: ReqifEntityReport,
     ) -> None:
+        # Issue #131: lazy import of the optional ``reqif`` package.
+        from reqif.models.reqif_spec_relation_type import ReqIFSpecRelationType
+
         from persistence.models import TraceLink
 
         relation_type_long_names: Dict[str, str] = {}
@@ -829,14 +873,19 @@ class ReqifImportService(ServiceBase):
                 relations_report.errors.append(
                     {"identifier": relation.identifier, "message": str(exc)}
                 )
-            except Exception as exc:  # noqa: BLE001 — soft-fail per relation
+            except Exception:  # noqa: BLE001 — soft-fail per relation
                 logger.exception(
                     "ReqifImportService: unexpected error importing relation %s",
                     relation.identifier,
                 )
                 relations_report.skipped += 1
+                # #697 (CWE-209): the report is part of the HTTP 200 body, so
+                # the raw exception text must not travel in it.
                 relations_report.errors.append(
-                    {"identifier": relation.identifier, "message": str(exc)}
+                    {
+                        "identifier": relation.identifier,
+                        "message": "An internal error occurred while importing this relation.",
+                    }
                 )
 
 

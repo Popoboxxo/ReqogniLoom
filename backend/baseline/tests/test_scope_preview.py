@@ -231,6 +231,65 @@ class TestPreviewScopeItemsWithData:
         finally:
             TenantContext.clear_tenant()
 
+    def test_project_scope_excludes_diagram_shadow_artifacts(self):
+        """M3 (Codeberg #353 final review): a Diagram's shadow Artifact
+        (artifact_type='Diagram', diagram.traceability_connector
+        ._resolve_artifact_id) is an internal implementation detail, not a
+        real domain artifact — it must not appear in a project-scope
+        baseline preview."""
+        from persistence.tenancy import TenantContext
+        from persistence.models import Artifact
+        from baseline.services import preview_scope_items
+
+        tenant = self._make_tenant()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            ws1 = self._make_workspace(tenant, "WS-1")
+            Artifact.unscoped.create(
+                tenant=tenant, workspace=ws1, artifact_type="requirement"
+            )
+            Artifact.unscoped.create(
+                tenant=tenant, workspace=ws1, artifact_type="Diagram"
+            )
+
+            result = preview_scope_items(
+                scope="project",
+                workspace_id=ws1.id,
+                tenant_id=tenant.id,
+            )
+            assert result.count == 1
+            assert len(result.sample) == 1
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_global_scope_excludes_diagram_shadow_artifacts(self):
+        """M3 (Codeberg #353 final review): same Diagram-shadow-Artifact
+        exclusion as the project-scope test above, applied to global scope."""
+        from persistence.tenancy import TenantContext
+        from persistence.models import Artifact
+        from baseline.services import preview_scope_items
+
+        tenant = self._make_tenant()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            ws1 = self._make_workspace(tenant, "WS-1")
+            Artifact.unscoped.create(
+                tenant=tenant, workspace=ws1, artifact_type="requirement"
+            )
+            Artifact.unscoped.create(
+                tenant=tenant, workspace=ws1, artifact_type="Diagram"
+            )
+
+            result = preview_scope_items(
+                scope="global",
+                workspace_id=ws1.id,
+                tenant_id=tenant.id,
+            )
+            assert result.count == 1
+            assert len(result.sample) == 1
+        finally:
+            TenantContext.clear_tenant()
+
     def test_document_scope_counts_root_and_descendants(self):
         """REQ-L1-049: document scope counts root artifact + descendants."""
         from persistence.tenancy import TenantContext
@@ -322,12 +381,31 @@ class TestScopePreviewEndpoint:
         from baseline.views import BaselineScopePreviewView
         return BaselineScopePreviewView.as_view()
 
-    def _make_request(self, params: dict | None = None):
+    def _auth_context(self):
+        """Build a minimal authenticated AuthContext for RBAC to allow READ.
+
+        SA-23: scope_preview no longer accepts AllowAny, so requests must
+        carry ``request.auth_context`` (set by BearerTokenAuthentication in
+        production) for RbacPermission to grant access.
+        """
+        from auth_tenancy.context import AuthContext, AuthMethod
+
+        return AuthContext(
+            user_id=uuid.uuid4(),
+            tenant_id=uuid.uuid4(),
+            active_roles=("admin",),
+            auth_method=AuthMethod.BEARER_TOKEN,
+        )
+
+    def _make_request(self, params: dict | None = None, authenticated: bool = True):
         factory = RequestFactory()
-        return factory.get(
+        request = factory.get(
             "/api/v1/baselines/scope-preview/",
             data=params or {},
         )
+        if authenticated:
+            request.auth_context = self._auth_context()
+        return request
 
     def test_endpoint_returns_count_and_sample(self):
         """REQ-L1-049: GET .../scope-preview/ returns count + sample."""
@@ -345,6 +423,19 @@ class TestScopePreviewEndpoint:
         assert "sample" in body
         assert "scope" in body
         assert body["scope"] == "project"
+
+    def test_endpoint_rejects_anonymous_caller(self):
+        """SA-23: no ``auth_context`` (anonymous caller) → 401, not 200."""
+        view = self._get_view()
+        request = self._make_request(
+            {
+                "scope": "project",
+                "workspace_id": str(uuid.uuid4()),
+            },
+            authenticated=False,
+        )
+        response = view(request)
+        assert response.status_code == 401
 
     def test_endpoint_document_scope_requires_artifact_id(self):
         """REQ-L1-049: scope=document without artifact_id → 400."""
@@ -397,8 +488,8 @@ class TestScopePreviewEndpoint:
                 "workspace_id": str(uuid.uuid4()),
             }
         )
-        # No user attached to a bare RequestFactory request, so the view
-        # must reject the global scope with 403.
+        # Authenticated (RBAC-admin) but not a Django staff/superuser, so the
+        # view must reject the global scope with 403.
         with patch("baseline.views._user_is_global_admin", return_value=False):
             response = view(request)
         assert response.status_code == 403

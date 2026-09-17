@@ -21,19 +21,46 @@
  * Interfaces consumed:
  *   IF-RF-EXT-OUT-001 → GET /api/v1/search/?q=...&workspace_id=<id>
  *   IF-RF-EXT-OUT-001 → GET /api/v1/tracelinks/?workspace_id=<id>&artifact_id=<id>
+ *
+ * issue #184: this is the canonical impact-analysis surface. TraceabilityView
+ * used to run a second, overlapping reachability query inline — that panel
+ * now only pre-selects an artifact and hands it off here via sessionStorage
+ * (see impact-preset.ts), so the root can be loaded directly without a
+ * repeat search.
+ *
+ * issue #415: the tree traverses trace links in *both* directions, so without
+ * a visited set every edge can be walked straight back (`L1 -> L2 -> L1 -> …`)
+ * — five artifacts and four links expanded into 25+ nodes. Each node now
+ * carries the set of artifact ids on its path from the root; a child already
+ * on that path is rendered once, marked as a cycle, and cannot be expanded
+ * again. The root additionally derives its own title from the endpoint
+ * metadata of its first link fetch, so a handed-off root without a resolved
+ * title no longer stays a bare UUID while its children show titles.
  */
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { tracelinksApi } from "../../api/tracelinks";
 import { searchApi } from "../../api/search";
 import type { SearchHit } from "../../api/search";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
+import { PageHeader } from "../shared/PageHeader";
+import { IMPACT_PRESET_STORAGE_KEY } from "./impact-preset";
+import {
+  endpointOf,
+  formatShortId,
+  neighborOf,
+  type TraceDirection,
+} from "../../utils/traceEndpoints";
+import styles from "./ImpactView.module.css";
 import type { TraceLink, UUID } from "../../types";
 
 /** Maximum tree depth — bounds recursion for cyclic/dense trace graphs. */
 const MAX_DEPTH = 4;
+
+/** Stable empty path set for the root node (#415) — avoids a new Set per render. */
+const EMPTY_VISITED: ReadonlySet<UUID> = new Set<UUID>();
 
 /** A resolved artifact endpoint of a trace link (id + display metadata). */
 interface TreeArtifact {
@@ -45,33 +72,60 @@ interface TreeArtifact {
 /** One outgoing/incoming trace-link edge from a tree node to a child artifact. */
 interface ChildEdge {
   link: TraceLink;
-  direction: "outgoing" | "incoming";
+  direction: TraceDirection;
   child: TreeArtifact;
+  /** #415: child already occurs on the path from the root — do not recurse. */
+  isCycle: boolean;
 }
 
 /**
  * Builds child edges from the raw TraceLink list returned for a node.
  * "outgoing" means the current node is the link's source ("A derives-from B"
  * read as A -> B); "incoming" means the current node is the target.
+ *
+ * #415: duplicate edges (same direction, link type and child) collapse into
+ * one, and edges pointing back onto the node's own path are flagged so the
+ * renderer can stop the traversal there instead of oscillating forever.
  */
-function toChildEdges(nodeId: UUID, links: TraceLink[]): ChildEdge[] {
-  return links
-    .map((link) => {
-      const outgoing = link.source_id === nodeId;
-      const child: TreeArtifact = outgoing
-        ? {
-            id: link.target_id,
-            title: link.target_title ?? "",
-            artifactType: link.target_type ?? "",
-          }
-        : {
-            id: link.source_id,
-            title: link.source_title ?? "",
-            artifactType: link.source_type ?? "",
-          };
-      return { link, direction: outgoing ? "outgoing" : "incoming", child } as ChildEdge;
-    })
-    .filter((edge) => edge.child.id !== nodeId);
+function toChildEdges(
+  nodeId: UUID,
+  links: TraceLink[],
+  visitedIds: ReadonlySet<UUID>
+): ChildEdge[] {
+  const selfIds: ReadonlySet<UUID> = new Set([nodeId]);
+  const edges: ChildEdge[] = [];
+  const seen = new Set<string>();
+  for (const link of links) {
+    const neighbor = neighborOf(link, selfIds);
+    if (!neighbor) continue; // self-link or unrelated link
+    const dedupeKey = `${neighbor.direction}:${link.link_type}:${neighbor.endpoint.id}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    edges.push({
+      link,
+      direction: neighbor.direction,
+      child: neighbor.endpoint,
+      isCycle: visitedIds.has(neighbor.endpoint.id),
+    });
+  }
+  return edges;
+}
+
+/**
+ * #415: the artifact a node was fetched for appears on one side of every link
+ * returned for it, with its title resolved by the backend — so a node handed
+ * in without a title can recover its own from the first fetch.
+ */
+function selfTitleFromLinks(nodeId: UUID, links: TraceLink[]): TreeArtifact | null {
+  for (const link of links) {
+    for (const side of ["source", "target"] as const) {
+      const endpoint = endpointOf(link, side);
+      if (endpoint.id === nodeId && endpoint.title) {
+        return { id: nodeId, title: endpoint.title, artifactType: endpoint.artifactType };
+      }
+    }
+  }
+  return null;
 }
 
 /** Groups child edges by "direction:link_type" so the tree renders one
@@ -96,6 +150,13 @@ interface ArtifactTreeNodeProps {
   node: TreeArtifact;
   depth: number;
   onlyActive: boolean;
+  /**
+   * #415: artifact ids on the path from the root down to (and including) this
+   * node. A child already in this set closes a cycle and is not expandable.
+   */
+  visitedIds: ReadonlySet<UUID>;
+  /** #415: this node closes a cycle — render it, but never traverse further. */
+  isCycle?: boolean;
 }
 
 function ArtifactTreeNode({
@@ -103,17 +164,26 @@ function ArtifactTreeNode({
   node,
   depth,
   onlyActive,
+  visitedIds,
+  isCycle = false,
 }: ArtifactTreeNodeProps): JSX.Element {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState<boolean>(false);
   const [edges, setEdges] = useState<ChildEdge[] | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // #415: title recovered from the node's own link fetch when the caller could
+  // not supply one (e.g. a root handed over from the traceability view).
+  const [resolvedSelf, setResolvedSelf] = useState<TreeArtifact | null>(null);
 
   const atMaxDepth = depth >= MAX_DEPTH;
+  const childVisitedIds = useMemo(
+    () => new Set<UUID>([...visitedIds, node.id]),
+    [visitedIds, node.id]
+  );
 
   const toggle = async (): Promise<void> => {
-    if (atMaxDepth) return;
+    if (atMaxDepth || isCycle) return;
     if (expanded) {
       setExpanded(false);
       return;
@@ -123,7 +193,8 @@ function ArtifactTreeNode({
       setError(null);
       try {
         const resp = await tracelinksApi.listForArtifact(workspaceId, node.id);
-        setEdges(toChildEdges(node.id, resp.results));
+        setEdges(toChildEdges(node.id, resp.results, childVisitedIds));
+        if (!node.title) setResolvedSelf(selfTitleFromLinks(node.id, resp.results));
       } catch (err: unknown) {
         const msg =
           (err as { error?: { message?: string } })?.error?.message ??
@@ -146,11 +217,28 @@ function ArtifactTreeNode({
   );
   const groups = groupEdges(visibleEdges);
 
+  // #415: root and child nodes share one title code path — backend-resolved
+  // title first, then the title recovered from this node's own links, then a
+  // shortened id (never the full raw UUID the audit saw on the root).
+  const displayType = node.artifactType || resolvedSelf?.artifactType || "?";
+  const displayTitle =
+    node.title || resolvedSelf?.title || formatShortId(node.id);
+  const toggleDisabled = atMaxDepth || isCycle;
+
   return (
-    <div style={{ marginLeft: depth === 0 ? 0 : "var(--space-5)" }}>
+    <div
+      role="treeitem"
+      aria-expanded={toggleDisabled ? undefined : expanded}
+      aria-label={`${displayType} ${displayTitle}`}
+      // No selection concept in this tree (only expand/collapse) — always false,
+      // but jsx-a11y/role-has-required-aria-props requires it be present.
+      aria-selected={false}
+      style={{ marginLeft: depth === 0 ? 0 : "var(--space-5)" }}
+    >
       <div
         data-testid="impact-tree-node"
         data-depth={depth}
+        data-cycle={isCycle ? "true" : undefined}
         style={{
           display: "flex",
           alignItems: "center",
@@ -163,24 +251,27 @@ function ArtifactTreeNode({
           type="button"
           data-testid="impact-node-toggle"
           onClick={() => void toggle()}
-          disabled={atMaxDepth}
+          disabled={toggleDisabled}
           aria-expanded={expanded}
+          aria-label={expanded ? t('editor.collapseNode', 'Collapse') : t('editor.expandNode', 'Expand')}
           title={
-            atMaxDepth
-              ? t("impact.maxDepthReached", "Maximale Tiefe erreicht")
-              : undefined
+            isCycle
+              ? t("impact.cycleDetected", "Bereits im Pfad enthalten (Zyklus)")
+              : atMaxDepth
+                ? t("impact.maxDepthReached", "Maximale Tiefe erreicht")
+                : undefined
           }
           style={{
             background: "none",
             border: "none",
-            cursor: atMaxDepth ? "not-allowed" : "pointer",
+            cursor: toggleDisabled ? "not-allowed" : "pointer",
             fontSize: "var(--font-size-sm)",
             color: "var(--color-text-muted)",
             width: "1.25em",
             padding: 0,
           }}
         >
-          {atMaxDepth ? "·" : expanded ? "▼" : "▶"}
+          {toggleDisabled ? "·" : expanded ? "▼" : "▶"}
         </button>
         <span
           data-testid="impact-node-type"
@@ -193,15 +284,20 @@ function ArtifactTreeNode({
             fontWeight: 500,
           }}
         >
-          {node.artifactType || "?"}
+          {displayType}
         </span>
         <span style={{ fontWeight: 500, color: "var(--color-text)" }}>
-          {node.title || node.id}
+          {displayTitle}
         </span>
+        {isCycle && (
+          <span data-testid="impact-cycle-badge" className={styles.cycleBadge}>
+            ↺ {t("impact.cycleBadge", "Zyklus")}
+          </span>
+        )}
       </div>
 
       {expanded && (
-        <div>
+        <div role="group">
           {loading && (
             <p
               role="status"
@@ -270,6 +366,8 @@ function ArtifactTreeNode({
                       node={edge.child}
                       depth={depth + 1}
                       onlyActive={onlyActive}
+                      visitedIds={childVisitedIds}
+                      isCycle={edge.isCycle}
                     />
                   ))}
                 </div>
@@ -294,6 +392,35 @@ export function ImpactView(): JSX.Element {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [rootArtifact, setRootArtifact] = useState<TreeArtifact | null>(null);
   const [onlyActive, setOnlyActive] = useState<boolean>(false);
+  // UI-36: distinguishes "never searched" from "searched, 0 hits" — the
+  // latter needs its own empty-state message instead of silently rendering
+  // nothing where the results list would have been.
+  const [hasSearched, setHasSearched] = useState<boolean>(false);
+
+  // issue #184: one-shot preset handoff from TraceabilityView's artifact
+  // picker — read once on mount, then cleared so a later plain visit to
+  // /impact always starts from the normal search flow.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(IMPACT_PRESET_STORAGE_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(IMPACT_PRESET_STORAGE_KEY);
+      const preset = JSON.parse(raw) as { id?: string; title?: string; artifactType?: string };
+      // #415: only the id is mandatory. Requiring title+type meant a handoff
+      // whose title could not be resolved was dropped entirely; the node now
+      // recovers both from its own trace-link fetch.
+      if (preset.id) {
+        setRootArtifact({
+          id: preset.id,
+          title: preset.title ?? "",
+          artifactType: preset.artifactType ?? "",
+        });
+        if (preset.title) setQuery(preset.title);
+      }
+    } catch {
+      // Malformed/absent preset — fall back to the normal search flow.
+    }
+  }, []);
 
   const runSearch = async (): Promise<void> => {
     if (!activeWorkspace || !query.trim()) return;
@@ -304,12 +431,14 @@ export function ImpactView(): JSX.Element {
         limit: 10,
       });
       setHits(resp.results);
+      setHasSearched(true);
     } catch (err: unknown) {
       const msg =
         (err as { error?: { message?: string } })?.error?.message ??
         String(err);
       setSearchError(msg);
       setHits([]);
+      setHasSearched(false);
     } finally {
       setSearching(false);
     }
@@ -322,21 +451,22 @@ export function ImpactView(): JSX.Element {
       artifactType: hit.artifact_type,
     });
     setHits([]);
+    setHasSearched(false);
     setQuery(hit.title);
   };
 
   return (
     <div data-testid="impact-view">
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          margin: "0 0 var(--space-6)",
-        }}
-      >
-        {t("nav.impact", "Impact-Analyse")}
-      </h2>
+      <PageHeader
+        title={t("nav.impact", "Impact-Analyse")}
+        summary={
+          rootArtifact
+            ? t("impact.summaryRootSelected", "Ausgehend von: {{title}}", {
+                title: rootArtifact.title,
+              })
+            : t("impact.summaryNoRoot", "Kein Artefakt ausgewählt")
+        }
+      />
 
       {!activeWorkspace ? (
         <p style={{ color: "var(--color-text-muted)" }}>
@@ -354,50 +484,62 @@ export function ImpactView(): JSX.Element {
               boxShadow: "var(--shadow-card)",
             }}
           >
-            <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
-              <input
-                type="search"
-                data-testid="impact-search-input"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void runSearch();
-                  }
-                }}
-                placeholder={t(
-                  "impact.searchPlaceholder",
-                  "Start-Artefakt suchen (Name oder ID)…"
-                )}
-                style={{
-                  flex: "1 1 320px",
-                  padding: "var(--space-2) var(--space-3)",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid var(--color-border)",
-                  fontSize: "var(--font-size-base)",
-                }}
-              />
-              <button
-                type="button"
-                data-testid="impact-search-btn"
-                onClick={() => void runSearch()}
-                disabled={!query.trim() || searching}
-                style={{
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-base)",
-                  fontWeight: 500,
-                  background: "var(--color-primary)",
-                  color: "var(--color-on-primary, #fff)",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  cursor: !query.trim() || searching ? "not-allowed" : "pointer",
-                }}
+            <div className={styles.searchFieldGroup}>
+              <label
+                htmlFor="impact-search-input"
+                className={styles.searchLabel}
               >
-                {searching
-                  ? t("nav.searching", "Suche läuft...")
-                  : t("impact.load", "Artefakt laden")}
-              </button>
+                {t("impact.searchLabel", "Start-Artefakt suchen")}
+              </label>
+              <div className={styles.searchRow}>
+                <input
+                  id="impact-search-input"
+                  type="search"
+                  data-testid="impact-search-input"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setHasSearched(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void runSearch();
+                    }
+                  }}
+                  placeholder={t(
+                    "impact.searchPlaceholder",
+                    "Name oder ID…"
+                  )}
+                  style={{
+                    flex: "1 1 320px",
+                    padding: "var(--space-2) var(--space-3)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--color-border)",
+                    fontSize: "var(--font-size-base)",
+                  }}
+                />
+                <button
+                  type="button"
+                  data-testid="impact-search-btn"
+                  onClick={() => void runSearch()}
+                  disabled={!query.trim() || searching}
+                  style={{
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "var(--font-size-base)",
+                    fontWeight: 500,
+                    background: "var(--color-primary)",
+                    color: "var(--color-on-primary)",
+                    border: "none",
+                    borderRadius: "var(--radius-md)",
+                    cursor: !query.trim() || searching ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {searching
+                    ? t("nav.searching", "Suche läuft...")
+                    : t("impact.load", "Artefakt laden")}
+                </button>
+              </div>
             </div>
 
             {searchError && (
@@ -465,6 +607,21 @@ export function ImpactView(): JSX.Element {
                 ))}
               </ul>
             )}
+
+            {hasSearched && !searching && !searchError && hits.length === 0 && (
+              <p
+                data-testid="impact-search-empty"
+                style={{
+                  color: "var(--color-text-muted)",
+                  fontSize: "var(--font-size-sm)",
+                  marginTop: "var(--space-3)",
+                }}
+              >
+                {t("impact.searchNoResults", "0 Treffer für „{{query}}“.", {
+                  query: query.trim(),
+                })}
+              </p>
+            )}
           </section>
 
           {rootArtifact && (
@@ -498,12 +655,15 @@ export function ImpactView(): JSX.Element {
                 {t("impact.onlyActive", "Nur aktive Verknüpfungen")}
               </label>
 
-              <ArtifactTreeNode
-                workspaceId={activeWorkspace.id}
-                node={rootArtifact}
-                depth={0}
-                onlyActive={onlyActive}
-              />
+              <div role="tree" aria-label={t("nav.impact", "Impact-Analyse")}>
+                <ArtifactTreeNode
+                  workspaceId={activeWorkspace.id}
+                  node={rootArtifact}
+                  depth={0}
+                  onlyActive={onlyActive}
+                  visitedIds={EMPTY_VISITED}
+                />
+              </div>
             </section>
           )}
         </>

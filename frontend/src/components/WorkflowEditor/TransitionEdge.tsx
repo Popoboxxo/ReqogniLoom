@@ -7,6 +7,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -17,10 +18,14 @@ import { Lock } from "lucide-react";
 import type { TransitionFlowEdge } from "./layout";
 import styles from "./WorkflowEditor.module.css";
 
-// Canonical edge colors (design brief §11) — resolved from tokens at runtime is
-// not possible for SVG stroke, so the hex values mirror the token definitions.
-const STROKE_DEFAULT = "#475569"; // --color-border-hover (slate 600)
-const STROKE_ACTIVE = "#6366f1"; // --color-primary (indigo 500)
+// Canonical edge colors (design brief §11). Theming phase 2, checkpoint 2:
+// migrated onto the new, theme-independent --color-diagram-edge-* tokens in
+// tokens.css (see that file's comment — this used to be raw hex mirroring
+// token definitions by hand, citing an SVG-stroke resolution concern that
+// didn't hold up on investigation; the tokens are frozen at the same value
+// in both themes regardless, so the rendered color is unchanged either way).
+const STROKE_DEFAULT = "var(--color-diagram-edge-default)"; // slate 600
+const STROKE_ACTIVE = "var(--color-diagram-edge-primary)"; // indigo 500
 
 export function TransitionEdge({
   id,
@@ -34,6 +39,7 @@ export function TransitionEdge({
   data,
   selected,
 }: EdgeProps<TransitionFlowEdge>): JSX.Element {
+  const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -78,11 +84,39 @@ export function TransitionEdge({
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             }}
             role="button"
-            tabIndex={-1}
-            aria-label={`Transition: ${transition.name} from ${transition.from_state} to ${transition.to_state}`}
+            // UI-27 (systemaudit 2026-08-27): this was tabIndex={-1} —
+            // programmatically focusable only, never reachable via Tab, which
+            // made the onKeyDown handler below permanently dead for a
+            // keyboard-only user (nothing in this codebase ever called
+            // `.focus()` on it). React Flow's own edge wrapper (the `<g>`
+            // this label is portaled out of via EdgeLabelRenderer) is already
+            // tabIndex=0 and reachable, but its built-in Enter/Space handling
+            // only toggles internal selection state (`addSelectedEdges`) —
+            // it does NOT invoke the app-level `onEdgeClick` this label's own
+            // dispatched click relies on (verified against
+            // @xyflow/react's EdgeWrapper onKeyDown). tabIndex=0 here is
+            // therefore the real fix, not the wrapper's, even though it adds
+            // a second tab stop for the same logical edge.
+            tabIndex={0}
+            aria-label={t("workflow.canvas.transitionAriaLabel", {
+              name: transition.name,
+              from: transition.from_state,
+              to: transition.to_state,
+            })}
             data-testid={`workflow-transition-edge-${transition.id}`}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
+            // WCAG 2.1.1 — this element has no onClick of its own; selecting
+            // the transition happens via the native click bubbling up (through
+            // the React tree, per EdgeLabelRenderer's portal semantics) to
+            // React Flow's onEdgeClick. Enter/Space must reach the same path,
+            // so we dispatch a real click rather than duplicate that wiring.
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.currentTarget.click();
+              }
+            }}
           >
             {transition.change_reason_required && (
               <Lock size={10} className={styles.edgeLockIcon} aria-hidden="true" />

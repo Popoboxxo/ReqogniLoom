@@ -22,6 +22,7 @@ Requirements: REQ-L2-AT-001/002/003/007, REQ-L3-AT001-*, REQ-L3-AT002-001, REQ-1
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from rest_framework import authentication, exceptions, permissions
 from rest_framework.authentication import CSRFCheck
@@ -33,25 +34,39 @@ from .services import (
     AuthorizationService,
     Operation,
     TenantContextService,
+    operation_for_method,
+    scope_denial_reason,
 )
+from .workspace_scope import resolve_request_workspace_id
 
 # Header names (REQ-L2-AT-001/002).
 _AUTH_HEADER = "HTTP_AUTHORIZATION"
 _API_KEY_HEADER = "HTTP_X_API_KEY"
 _BEARER_PREFIX = "Bearer "
-_API_KEY_PLAINTEXT_PREFIX = "rf_"
+_API_KEY_PLAINTEXT_PREFIX = "reqlo_"
 
 # httpOnly access-token cookie (REQ-052). The SPA never reads this cookie;
 # the browser attaches it automatically on same-origin requests, which keeps
 # the JWT out of JavaScript reach (XSS mitigation). See LoginView/LogoutView.
-ACCESS_COOKIE_NAME = "reqflow_access"
+ACCESS_COOKIE_NAME = "reqogniloom_access"
+
+# httpOnly refresh-token cookie (GitHub #135). Long-lived counterpart to
+# ACCESS_COOKIE_NAME, only ever read by ``POST /auth/refresh/`` to mint a new
+# access token without forcing the user to re-authenticate mid-session.
+REFRESH_COOKIE_NAME = "reqogniloom_refresh"
 
 
-def _resolve_roles_from_db(user_id: Any) -> tuple[str, ...]:
+def _resolve_roles_from_db(
+    user_id: Any, workspace_id: UUID | None = None
+) -> tuple[str, ...]:
     """Return active roles for *user_id* from the :class:`UserRole` table (REQ-126).
 
     Must be called **after** tenant activation so the ``UserRole`` queryset is
     scoped to the current tenant via the RLS thread-local.
+
+    When ``workspace_id`` is given the result is restricted to assignments in
+    that workspace (GitHub #103). Without it the tenant-wide union is returned,
+    which is only correct for requests that target no specific workspace.
 
     Used by :class:`AuthTenancyAuthentication` as a role fallback when:
     * Auth method is ``API_KEY`` (claims always carry ``roles=()``)
@@ -60,23 +75,51 @@ def _resolve_roles_from_db(user_id: Any) -> tuple[str, ...]:
     """
     from auth_tenancy.models import UserRole  # local import avoids circular dep
 
+    filters: dict[str, Any] = {
+        "user_id": user_id,
+        "suspended_at__isnull": True,
+        # Fix round 3 (C-2): a deactivated user's leftover UserRole rows
+        # must never resolve to active roles — mirrors
+        # AuthorizationService.is_tenant_admin's identical filter.
+        "user__is_active": True,
+    }
+    if workspace_id is not None:
+        filters["workspace_id"] = workspace_id
+
     role_entries = (
-        UserRole.objects.filter(
-            user_id=user_id,
-            suspended_at__isnull=True,
-        )
-        .values_list("role", flat=True)
-        .distinct()
+        UserRole.objects.filter(**filters).values_list("role", flat=True).distinct()
     )
     return tuple(sorted({str(r).lower() for r in role_entries}))
+
+
+def _workspace_exists(workspace_id: UUID) -> bool:
+    """Return whether *workspace_id* exists in the active tenant.
+
+    Must be called **after** tenant activation; ``Workspace.objects`` is
+    tenant-scoped, so a workspace of another tenant reads as non-existent.
+    """
+    from persistence.models import Workspace  # local import avoids circular dep
+
+    return Workspace.objects.filter(id=workspace_id).exists()
 
 
 class _StandardAuthError(exceptions.APIException):
     """DRF exception carrying the standardised auth error body.
 
     Bridges :class:`~auth_tenancy.errors.AuthError` to DRF so the response keeps
-    the ``{"error", "message", "doc_url"}`` shape (REQ-L3-AT001-004) instead of
-    DRF's default ``{"detail": ...}``.
+    the project-wide error envelope (REQ-L3-AT001-004, REQ-L2-RA-009) instead of
+    DRF's default ``{"detail": ...}``::
+
+        {"error": {"code": ..., "message": ..., "details": [{"doc_url": ...}]}}
+
+    Since the 2026-08-27 system audit (P1 item 13) this is the *same* envelope
+    every other REST error uses. ``doc_url`` — and ``required_role`` on a 403
+    ``insufficient_permissions`` — moved from the top level into
+    ``details[0]``; see :func:`~auth_tenancy.errors.build_error_body`.
+
+    ``rest_api.error_envelope.reqogniloom_exception_handler`` leaves this body
+    untouched (its "already normalised" branch triggers on the ``error`` key),
+    so the shape reaches the client verbatim and is not double-wrapped.
     """
 
     def __init__(self, error: AuthError, *, accept_language: str | None) -> None:
@@ -126,21 +169,46 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
             tenant_context = self._tenancy.resolve_tenant_context(claims)
             self._tenancy.activate(tenant_context)
 
-            # Resolve effective roles (REQ-126).
+            # Resolve effective roles (REQ-126, GitHub #103).
             #
-            # API_KEY claims always carry roles=() — resolve from UserRole.
-            # BEARER_TOKEN claims carry roles at token-issuance time; if empty
-            # (new user, or role assigned after token was minted), fall back to
-            # a DB lookup for symmetric behaviour with the API_KEY path.
-            # When the JWT carries non-empty roles those are used as-is (fast
-            # path — no extra DB query).
-            active_roles = claims.roles
-            if claims.auth_method == AuthMethod.API_KEY or (
-                claims.auth_method == AuthMethod.BEARER_TOKEN and not active_roles
-            ):
-                active_roles = _resolve_roles_from_db(claims.user_id)
+            # ``UserRole`` is workspace-scoped, so authority must be evaluated
+            # against the workspace the request actually targets. When that
+            # workspace is resolvable the roles come from a workspace-filtered
+            # DB lookup and the JWT ``roles`` claim is deliberately ignored:
+            # the claim is a tenant-wide snapshot taken at login and trusting
+            # it would let a role held in workspace A authorise workspace B
+            # (cross-workspace privilege escalation, GitHub #103).
+            #
+            # Without a resolvable workspace (login, workspace list, admin-ops,
+            # ...) the previous behaviour is kept:
+            # * API_KEY claims always carry roles=() — resolve from UserRole.
+            # * BEARER_TOKEN claims carry roles at token-issuance time; if empty
+            #   (new user, or role assigned after token was minted), fall back to
+            #   a DB lookup for symmetric behaviour with the API_KEY path.
+            # * A non-empty JWT roles claim is used as-is (fast path).
+            workspace_id = resolve_request_workspace_id(request)
+            if workspace_id is not None:
+                active_roles = _resolve_roles_from_db(claims.user_id, workspace_id)
+                if not active_roles and not _workspace_exists(workspace_id):
+                    # The id names no workspace of this tenant, so there is
+                    # nothing to scope against and nothing to protect. Keep the
+                    # unscoped roles so the view still answers 404 instead of a
+                    # misleading 403 (mirrors the MCP dispatcher, which checks
+                    # workspace existence before resolving roles). Empty roles
+                    # for an *existing* workspace stay a deny — that is the
+                    # non-member case this fix is about.
+                    workspace_id = None
+                    active_roles = claims.roles or _resolve_roles_from_db(
+                        claims.user_id
+                    )
+            else:
+                active_roles = claims.roles
+                if claims.auth_method == AuthMethod.API_KEY or (
+                    claims.auth_method == AuthMethod.BEARER_TOKEN and not active_roles
+                ):
+                    active_roles = _resolve_roles_from_db(claims.user_id)
             auth_context = self._tenancy.build_auth_context(
-                claims, tenant_context, active_roles
+                claims, tenant_context, active_roles, workspace_id=workspace_id
             )
         except AuthError as exc:
             raise _StandardAuthError(exc, accept_language=accept_language) from exc
@@ -153,7 +221,7 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
 
         Returns ``(claims, via_cookie)`` on success or ``None`` when no credential
         is present. ``via_cookie`` is ``True`` only when the token came from the
-        httpOnly ``reqflow_access`` cookie (drives CSRF enforcement, REQ-052).
+        httpOnly ``reqogniloom_access`` cookie (drives CSRF enforcement, REQ-052).
         Header and API-key credentials take precedence over the cookie.
         """
         api_key = request.META.get(_API_KEY_HEADER)
@@ -163,7 +231,7 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
         header = request.META.get(_AUTH_HEADER, "")
         if header.startswith(_BEARER_PREFIX):
             credential = header[len(_BEARER_PREFIX):].strip()
-            # A Bearer-carried API key (rf_ prefix) is treated as an API key
+            # A Bearer-carried API key (reqlo_ prefix) is treated as an API key
             # (REQ-L2-AT-002 allows ``Authorization: Bearer <api_key>``).
             if credential.startswith(_API_KEY_PLAINTEXT_PREFIX):
                 return self._authn.validate_api_key(credential), False
@@ -182,15 +250,53 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
         (GET/HEAD/OPTIONS/TRACE) are skipped by Django's own middleware logic, so
         this only rejects unsafe methods lacking a valid ``X-CSRFToken``.
         """
+        enforce_csrf(request)
 
-        def _dummy_get_response(_request: Any) -> None:  # pragma: no cover
-            return None
+    def authenticate_header(self, request: Any) -> str:
+        """Return the ``WWW-Authenticate`` challenge for 401 responses (GitHub #458).
 
-        check = CSRFCheck(_dummy_get_response)
-        check.process_request(request)
-        reason = check.process_view(request, None, (), {})
-        if reason:
-            raise exceptions.PermissionDenied(f"CSRF Failed: {reason}")
+        DRF's ``APIView.handle_exception`` silently downgrades a raised
+        ``NotAuthenticated``/``AuthenticationFailed`` from 401 to 403 whenever
+        *no* authenticator on the request implements this method (see
+        ``rest_framework.views.APIView.handle_exception``: it calls
+        ``get_authenticate_header()``, which only consults ``authenticators[0]``
+        — this class, first in ``DEFAULT_AUTHENTICATION_CLASSES`` — and coerces
+        to 403 if that returns a falsy value). Without this override, a request
+        with NO credential at all (``RbacPermission.has_permission`` denies
+        before any :class:`AuthError` is raised, so ``authenticate()`` above
+        never runs) answered 403 instead of the expected 401. Returning a
+        truthy challenge here keeps the status at 401 and adds a standard
+        ``WWW-Authenticate: Bearer`` header.
+
+        A present-but-invalid credential is unaffected either way: it raises
+        ``_StandardAuthError`` (a plain ``APIException``, not a subclass of
+        ``NotAuthenticated``/``AuthenticationFailed``), so DRF's coercion never
+        triggers for that path, and permission denials for an *authenticated*
+        caller raise ``exceptions.PermissionDenied`` directly (not affected by
+        this method either) and correctly stay 403.
+        """
+        return "Bearer"
+
+
+def enforce_csrf(request: Any) -> None:
+    """Run Django's CSRF check for a cookie-driven, unsafe-method request.
+
+    Shared by :class:`AuthTenancyAuthentication` (REQ-052) and ``RefreshView``
+    (GitHub #135) — both accept an ambient httpOnly cookie as the credential,
+    so both must defend against CSRF the same way.
+
+    Raises:
+        rest_framework.exceptions.PermissionDenied: If the CSRF check fails.
+    """
+
+    def _dummy_get_response(_request: Any) -> None:  # pragma: no cover
+        return None
+
+    check = CSRFCheck(_dummy_get_response)
+    check.process_request(request)
+    reason = check.process_view(request, None, (), {})
+    if reason:
+        raise exceptions.PermissionDenied(f"CSRF Failed: {reason}")
 
 
 class HasOperationPermission(permissions.BasePermission):
@@ -214,6 +320,33 @@ class HasOperationPermission(permissions.BasePermission):
             return False
 
         operation: Operation | None = getattr(view, "required_operation", None)
+
+        # Security review B1: the API key's capability gate is enforced here too,
+        # not only in the sibling ``rest_api.auth_enforcer.RbacPermission``.
+        # ~25 views use this class INSTEAD of that one, so a read-scoped key
+        # could write through every one of them. Two independent things had to
+        # be fixed for that: the gate has to exist here at all, and it has to
+        # run even when the view declares no ``required_operation`` — the
+        # early ``return True`` below is precisely the "authenticated is
+        # enough" path a read-scoped key was abusing. The scope is derived
+        # from the HTTP method in that case, since it is the only statement
+        # about the request's intent available.
+        #
+        # #865: all three terms are evaluated (method, declared RBAC operation,
+        # optional ``required_scope_operation``) and either may deny — the gate
+        # can only ever narrow, mirroring ``RbacPermission``.
+        method_operation = operation_for_method(request.method)
+        scope_operation: Operation | None = getattr(
+            view, "required_scope_operation", None
+        )
+        scope_error = scope_denial_reason(
+            auth_context.scope, operation if operation is not None else method_operation
+        ) or scope_denial_reason(auth_context.scope, method_operation)
+        if scope_error is None and scope_operation is not None:
+            scope_error = scope_denial_reason(auth_context.scope, scope_operation)
+        if scope_error:
+            raise exceptions.PermissionDenied(detail=scope_error)
+
         if operation is None:
             # No operation declared: authenticated access is sufficient.
             return True
@@ -235,6 +368,8 @@ class HasOperationPermission(permissions.BasePermission):
 
 __all__ = [
     "ACCESS_COOKIE_NAME",
+    "REFRESH_COOKIE_NAME",
     "AuthTenancyAuthentication",
     "HasOperationPermission",
+    "enforce_csrf",
 ]

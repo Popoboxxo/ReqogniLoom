@@ -50,6 +50,8 @@ from application.export_service import (
     _APP_ENTITY_TYPES,
     _PERSISTENCE_ENTITY_TYPES,
 )
+from application.reqif_import_service import _map_status
+from application.test_service import canonical_test_type_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +71,15 @@ _VALID_ENTITY_TYPES = set(_REQUIRED_FIELDS.keys())
 # Identity / audit columns handled specially by _insert_rows (not passed through
 # as plain content create kwargs).
 _IDENTITY_COLUMNS = frozenset(
-    {"id", "artifact_id", "version", "created_at", "modified_at", "updated_at", "created_by"}
+    {
+        "id",
+        "artifact_id",
+        "version",
+        "created_at",
+        "modified_at",
+        "updated_at",
+        "created_by_name",
+    }
 )
 
 
@@ -128,6 +138,12 @@ class ImportResult:
         skipped_count: Number of rows that failed validation.
         errors: Per-row error list (empty on full success).
         status: "ok" | "validation_error" | "rollback"
+        warnings: Non-fatal notices, e.g. unrecognised CSV columns that were
+            silently dropped (fix #120). Always populated when applicable,
+            even on a fully successful import — a typo'd header (e.g.
+            "Beschreibung" instead of "description") must not be reported
+            as `success=true` without any signal that a whole column's
+            worth of data was discarded.
     """
 
     success: bool
@@ -135,6 +151,7 @@ class ImportResult:
     skipped_count: int
     errors: List[ImportRowError] = field(default_factory=list)
     status: str = "ok"
+    warnings: List[str] = field(default_factory=list)
 
 
 # ---------- Service ----------
@@ -198,7 +215,23 @@ class ImportService(ServiceBase):
         ws_uuid = UUID(str(workspace_id))
 
         # ---------- Parse CSV (RFC 4180) ----------
-        rows, parse_errors = self._parse_csv(csv_text)
+        rows, parse_errors, header_fields = self._parse_csv(csv_text)
+
+        # fix #120: unrecognised header columns (typos, un-mapped German
+        # labels like "Beschreibung") are silently dropped by _insert_rows'
+        # spec-driven loop, which iterates ENTITY_FIELD_SPECS rather than the
+        # row's own keys. Surface them as a warning so an import that quietly
+        # lost an entire column's data isn't reported as a clean success.
+        unknown_columns = self._unknown_columns(header_fields, entity_type)
+        warnings = (
+            [
+                "Unrecognized column(s) ignored, their data was NOT imported: "
+                f"{', '.join(unknown_columns)}. Expected columns for "
+                f"'{entity_type}': {', '.join(sorted(c for c, _ in ENTITY_FIELD_SPECS[entity_type]))}."
+            ]
+            if unknown_columns
+            else []
+        )
 
         if parse_errors:
             return ImportResult(
@@ -207,6 +240,7 @@ class ImportService(ServiceBase):
                 skipped_count=len(rows),
                 errors=parse_errors,
                 status="validation_error",
+                warnings=warnings,
             )
 
         if len(rows) > _MAX_ROWS:
@@ -221,6 +255,14 @@ class ImportService(ServiceBase):
             errs = self._validate_row(row_num, row, entity_type)
             validation_errors.extend(errs)
 
+        # Ledger gap #1 / issue #881: same central gate the REST ViewSets
+        # (WorkflowTransitionsMixin._validate_attribute_definition) and the
+        # MCP artifact-write tools (mcp_server.tools.base.validate_artifact_write)
+        # go through -- CSV bulk import used to bypass it entirely.
+        validation_errors.extend(
+            self._validate_attribute_definitions(rows, entity_type, ws_uuid, ctx)
+        )
+
         if validation_errors:
             return ImportResult(
                 success=False,
@@ -228,6 +270,7 @@ class ImportService(ServiceBase):
                 skipped_count=len(rows),
                 errors=validation_errors,
                 status="validation_error",
+                warnings=warnings,
             )
 
         # ---------- Atomic insert of all valid rows ----------
@@ -267,6 +310,7 @@ class ImportService(ServiceBase):
                 skipped_count=len(rows),
                 errors=[],
                 status="rollback",
+                warnings=warnings,
             )
 
         return ImportResult(
@@ -275,6 +319,7 @@ class ImportService(ServiceBase):
             skipped_count=0,
             errors=[],
             status="ok",
+            warnings=warnings,
         )
 
     # ---------- Private helpers ----------
@@ -282,14 +327,15 @@ class ImportService(ServiceBase):
     @staticmethod
     def _parse_csv(
         csv_text: str,
-    ) -> Tuple[List[Tuple[int, Dict[str, str]]], List[ImportRowError]]:
+    ) -> Tuple[List[Tuple[int, Dict[str, str]]], List[ImportRowError], List[str]]:
         """Parse CSV text into (row_number, dict) tuples.
 
         Skips comment lines starting with '#'.
-        Returns (rows, errors).
+        Returns (rows, errors, header_fields).
         """
         errors: List[ImportRowError] = []
         rows: List[Tuple[int, Dict[str, str]]] = []
+        header_fields: List[str] = []
 
         # Strip comment lines (e.g. terminology header from ExportService)
         clean_lines = [
@@ -301,12 +347,34 @@ class ImportService(ServiceBase):
             reader = csv.DictReader(io.StringIO(clean_text))
             for line_num, row in enumerate(reader, start=2):  # 2 = header is line 1
                 rows.append((line_num, dict(row)))
+            header_fields = list(reader.fieldnames or [])
         except csv.Error as exc:
             errors.append(
                 ImportRowError(row_number=0, field="csv", message=f"CSV parse error: {exc}")
             )
 
-        return rows, errors
+        return rows, errors, header_fields
+
+    @staticmethod
+    def _unknown_columns(header_fields: List[str], entity_type: str) -> List[str]:
+        """Return header columns not recognised for *entity_type*'s field spec.
+
+        REQ-L3-IMP-001 follow-up (fix #120): ``_insert_rows`` builds each
+        row's content by iterating ``ENTITY_FIELD_SPECS`` (the known columns),
+        never the row's own keys — any header that doesn't exactly match a
+        spec column (a typo, or an un-mapped localized label such as
+        "Beschreibung" instead of "description") is therefore silently
+        ignored rather than raising or being reported. This helper makes
+        that gap visible so the caller can attach a warning.
+        """
+        known = {col for col, _kind in ENTITY_FIELD_SPECS.get(entity_type, [])}
+        return sorted(
+            {
+                col
+                for col in header_fields
+                if col is not None and col not in known
+            }
+        )
 
     @staticmethod
     def _validate_row(
@@ -343,6 +411,65 @@ class ImportService(ServiceBase):
         return errors
 
     @staticmethod
+    def _validate_attribute_definitions(
+        rows: List[Tuple[int, Dict[str, str]]],
+        entity_type: str,
+        workspace_id: UUID,
+        ctx: AuthContext,
+    ) -> List[ImportRowError]:
+        """Validate every row against the workspace's resolved AttributeDefinition.
+
+        Reuses ``AttributeDefinitionService.validate_artifact_fields`` -- the
+        same central gate ``WorkflowTransitionsMixin._validate_attribute_definition``
+        wires into the 9 REST ViewSets and
+        ``mcp_server.tools.base.validate_artifact_write`` wires into the MCP
+        artifact-write tools (ledger gap #1 / issue #881). Every row is a
+        create (``existing=None``): CSV import only ever inserts new rows.
+
+        A raw CSV row is a ``dict[str, str]``; ``validate_values`` only type-
+        checks ``number``/``boolean``/``multi-enum`` attributes, and none of
+        the bootstrapped core attributes for the supported entity types use
+        those kinds today (``EXCLUDED_MODEL_FIELDS`` drops the one real
+        ``BooleanField``, ``StakeholderNeed.suspect``) -- ``enum`` and
+        ``number`` both accept a plain string. A future core or admin-
+        customised attribute of one of those kinds would need the row cell
+        coerced to its real type first; not needed while that holds.
+        """
+        from application.attribute_definition_service import (
+            AttributeDefinitionNotFound,
+            AttributeDefinitionService,
+            AttributeSchemaError,
+            FieldValidationError,
+        )
+        from presets.exceptions import CrossTenantWorkspaceError
+
+        errors: List[ImportRowError] = []
+        service = AttributeDefinitionService()
+        for row_num, row in rows:
+            try:
+                service.validate_artifact_fields(ctx, entity_type, workspace_id, dict(row), None)
+            except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
+                # No bootstrapped definition for this item type/preset, or a
+                # cross-tenant workspace id -- every row would degrade
+                # identically, and _insert_rows' own Workspace lookup is the
+                # authoritative answer for the latter.
+                break
+            except FieldValidationError as exc:
+                errors.extend(
+                    ImportRowError(row_number=row_num, field=name, message=msg)
+                    for name, messages in sorted(exc.errors.items())
+                    for msg in messages
+                )
+            except AttributeSchemaError as exc:
+                errors.extend(
+                    ImportRowError(
+                        row_number=row_num, field="attribute_definition", message=msg
+                    )
+                    for msg in exc.errors
+                )
+        return errors
+
+    @staticmethod
     def _insert_rows(
         rows: List[Tuple[int, Dict[str, str]]],
         entity_type: str,
@@ -370,8 +497,17 @@ class ImportService(ServiceBase):
         Supported entity types: StakeholderNeed, Requirement, ArchitectureElement,
         TestCase (persistence app) and Adr, Risk, Issue (application app).
 
+        Status / WorkflowItemState (REQ-143, issue #113): ``status`` is never
+        written as a plain content column — mirrors
+        ``reqif_import_service._apply_status`` so imported rows land in the
+        same state-mirror as ReqIF imports (and are therefore workflow-alive
+        and baseline-capable): the raw ``status`` cell is mapped onto the
+        workspace's ``WorkflowEngineDefinition`` states (if one exists) via
+        ``_map_status``, and a matching ``WorkflowItemState`` row is created.
+
         Returns count of inserted rows.
         """
+        from workflow.models import WorkflowEngineDefinition, WorkflowItemState
         from persistence.models import (
             ArchitectureElement,
             Artifact,
@@ -394,6 +530,56 @@ class ImportService(ServiceBase):
         tenant = workspace.tenant
         spec = ENTITY_FIELD_SPECS[entity_type]
 
+        # REQ-143 / #113: status is never a plain content column — resolved
+        # once per import call against the workspace's WorkflowEngineDefinition
+        # (if any) and seeded into WorkflowItemState, mirroring
+        # reqif_import_service._apply_status. Every entity type whose field
+        # spec declares "status" goes through this (StakeholderNeed,
+        # Requirement, TestCase, Adr, Risk, Issue — ArchitectureElement has no
+        # status column at all, only the unrelated "lifecycle_status"
+        # soft-delete flag). Adr/Risk/Issue use their own free-text status
+        # vocabularies (e.g. "Open", "Approved", "Identified"), not the
+        # Requirement-style {draft, in_review, approved, deprecated, done}
+        # set -- ``_map_status`` is passed *this workspace's own*
+        # ``adr_default``/``risk_default``/``issue_default`` definition
+        # states (never a Requirement definition's), so it validates against
+        # the right vocabulary rather than corrupting it.
+        #
+        # Task 12: the ``status`` column is dropped from all six types, so a
+        # raw imported value can no longer be a ``model.objects.create()``
+        # kwarg (invalid keyword argument) -- it is always popped out of
+        # *content* below and, when a WorkflowEngineDefinition exists for
+        # this workspace/item_type, seeded into WorkflowItemState instead
+        # (extended here to Adr/Risk/Issue too, closing a pre-existing gap:
+        # CSV import bypasses AdrService/RiskService/IssueService's own
+        # ``initialize_workflow_states`` call, so before this fix these rows
+        # got no engine tracking at all). Without a definition, the imported
+        # status has nowhere left to be persisted and is discarded --
+        # documented, reviewed data-loss tradeoff, see the Task 12 report
+        # Finding 2.
+        has_status_column = any(col == "status" for col, _kind in spec)
+        # Datenmodell-Konsolidierung Task 24: `lifecycle_status` (declared for
+        # StakeholderNeed/Requirement/ArchitectureElement) is no longer a
+        # plain content column on those models either -- it moved onto the
+        # backing Artifact (Decision D-3). Same treatment as `status` above:
+        # popped out of *content* so it never reaches `model.objects.create()`
+        # as an invalid keyword argument, and applied to the Artifact instead.
+        has_lifecycle_status_column = any(
+            col == "lifecycle_status" for col, _kind in spec
+        )
+        definition = (
+            WorkflowEngineDefinition.objects.filter(
+                workspace_id=str(workspace_id), item_type=entity_type
+            ).first()
+            if has_status_column
+            else None
+        )
+        valid_states = (
+            list((definition.workflow_json or {}).get("states", []))
+            if definition is not None
+            else None
+        )
+
         inserted = 0
         for _row_num, row in rows:
             # ---- Parse row per field spec, splitting identity from content ----
@@ -411,11 +597,57 @@ class ImportService(ServiceBase):
                 else:
                     content[col] = value
 
+            # ---- Status is a workflow mirror, not a plain field (REQ-143) ----
+            # Only entity types whose field spec declares "status" go through
+            # the mirror; e.g. ArchitectureElement has no status column at all
+            # (it only has the unrelated "lifecycle_status" soft-delete flag).
+            # Task 12: never put "status" back into *content* -- the column is
+            # dropped, so it can no longer be a ``model.objects.create()``
+            # kwarg.
+            mapped_status = None
+            if has_status_column:
+                status_raw = content.pop("status", None)
+                mapped_status = _map_status(status_raw or "", valid_states)
+
+            lifecycle_status_value = None
+            if has_lifecycle_status_column:
+                from persistence.models import LifecycleStatus
+
+                lifecycle_status_raw = content.pop("lifecycle_status", None)
+                lifecycle_status_value = (
+                    lifecycle_status_raw
+                    if lifecycle_status_raw in LifecycleStatus.values
+                    else LifecycleStatus.ACTIVE
+                )
+
             preserved_id = identity.get("id")
             preserved_artifact_id = identity.get("artifact_id")
             version = identity.get("version")
             created_at = identity.get("created_at")
             modified_at = identity.get("modified_at") or identity.get("updated_at")
+
+            # ---- TestCase type normalisation (#816, #953) ----
+            # ``TestCase.test_type`` (first-class column) is the single
+            # representation of a test case's type; the backing Artifact is
+            # always the plain ``"TestCase"`` type. This block used to *also*
+            # tag each row's artifact with a ``"TestCase:{test_type}"``
+            # sub-type suffix per row (issue #768), which made the same fact
+            # live in two columns with two vocabularies. It now only folds the
+            # CSV cell onto the canonical lowercase vocabulary — the historical
+            # Title-case exports ("Unit", "System") keep importing, and a
+            # retired alias (e.g. "Acceptance", which has no ``TestCaseType``
+            # counterpart) is dropped rather than aborting the whole batch, so
+            # the column keeps its documented "NULL when not derivable" value.
+            if entity_type == "TestCase":
+                raw_test_type = content.get("test_type")
+                if raw_test_type is not None:
+                    canonical_test_type = canonical_test_type_or_none(
+                        raw_test_type
+                    )
+                    if canonical_test_type is None:
+                        content.pop("test_type", None)
+                    else:
+                        content["test_type"] = canonical_test_type
 
             # ---- Backing Artifact (every entity type has one) ----
             artifact_kwargs: Dict[str, Any] = dict(
@@ -425,6 +657,8 @@ class ImportService(ServiceBase):
             )
             if preserved_artifact_id is not None:
                 artifact_kwargs["id"] = preserved_artifact_id
+            if lifecycle_status_value is not None:
+                artifact_kwargs["lifecycle_status"] = lifecycle_status_value
             artifact = Artifact.objects.create(**artifact_kwargs)
 
             # ---- Entity row ----
@@ -433,6 +667,10 @@ class ImportService(ServiceBase):
                 create_kwargs: Dict[str, Any] = dict(
                     tenant=tenant, artifact=artifact, **content
                 )
+                if entity_type == "Requirement":
+                    # #133: workspace is denormalized onto Requirement to back
+                    # the (workspace, uid) DB-level UniqueConstraint.
+                    create_kwargs["workspace"] = workspace
                 mod_field = "modified_at"
             else:  # Adr / Risk / Issue
                 model = app_models[entity_type]
@@ -443,8 +681,8 @@ class ImportService(ServiceBase):
                     **content,
                 )
                 # Preserve exported author, else attribute to the importing user.
-                created_by = identity.get("created_by")
-                create_kwargs["created_by"] = (
+                created_by = identity.get("created_by_name")
+                create_kwargs["created_by_name"] = (
                     created_by if created_by else str(ctx.user_id)
                 )
                 mod_field = "updated_at"
@@ -464,6 +702,24 @@ class ImportService(ServiceBase):
                 ts_updates[mod_field] = modified_at
             if ts_updates:
                 model.objects.filter(pk=obj.pk).update(**ts_updates)
+
+            # ---- WorkflowItemState (REQ-143, issue #113) ----
+            # Mirrors reqif_import_service._apply_status: only created when a
+            # WorkflowEngineDefinition exists for this workspace/item_type (its
+            # FK to the definition is PROTECT and requires one). Task 12:
+            # without a definition there is no column left to fall back to --
+            # the imported status is simply not persisted anywhere for that
+            # row (documented, reviewed data-loss tradeoff, see the Task 12
+            # report Finding 2).
+            if definition is not None:
+                WorkflowItemState.objects.create(
+                    item_id=obj.id,
+                    item_type=entity_type,
+                    workspace_id=workspace_id,
+                    definition=definition,
+                    current_state=mapped_status,
+                    tenant=tenant,
+                )
 
             inserted += 1
 

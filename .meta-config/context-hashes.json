@@ -1,7 +1,8 @@
 {
   "version": 1,
   "hashes": {
-    "CLAUDE.md": "f5713858a586287f",
-    ".gemini/GEMINI.md": "e023ef31f7a3b513"
+    "CLAUDE.md": "bd70359b108f01e6",
+    ".gemini/GEMINI.md": "e023ef31f7a3b513",
+    "AGENTS.md": "8a3037f945bf8cba"
   }
 }

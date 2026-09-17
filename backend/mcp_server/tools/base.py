@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import logging
 from abc import ABC
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 
+from audit.services import mcp_audit_handoff
 from mcp_server.protocol_handler import ToolResult
+from persistence.tenancy import TenantContextNotSetError
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,202 @@ def require_uuid(params: Dict[str, Any], name: str) -> UUID:
         raise ParameterError(f"Parameter '{name}' is not a valid UUID: '{val}'")
 
 
+def reject_unknown_params(
+    params: Dict[str, Any], allowed: List[str], tool_name: str
+) -> None:
+    """Raise ParameterError if *params* contains a key not in *allowed*.
+
+    Issue #459 (finding 1): opt-in, per-tool guard against unrecognised
+    parameters that would otherwise be silently ignored (e.g. a client
+    sending ``test_case_id`` instead of the documented ``test_case_ids``
+    array — the run is created but the typo'd parameter has no effect).
+
+    Deliberately NOT wired into ``BaseToolGroup.execute_tool`` as a global
+    dispatcher-level check: across 40+ tools, a blanket "reject unknown
+    params" rule risks breaking existing clients that rely on extra keys
+    being tolerated/ignored, without a coordinated audit of every tool's
+    ``inputSchema``. Call this explicitly from handlers that want strict
+    validation instead.
+    """
+    unknown = sorted(k for k in params if k not in allowed)
+    if unknown:
+        raise ParameterError(
+            f"Unknown parameter(s) for tool '{tool_name}': {', '.join(unknown)}. "
+            f"Allowed parameters: {', '.join(sorted(allowed))}."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Workflow-engine status seam (Datenmodell-Konsolidierung Phase 1)
+# ---------------------------------------------------------------------------
+
+
+def resolve_engine_status(
+    item_type: str,
+    item_id: Any,
+    fallback: Optional[str] = None,
+    *,
+    status_map: Optional[Dict[str, str]] = None,
+) -> str:
+    """Resolve an entity's ``status`` wire value from the workflow engine.
+
+    Every MCP payload builder that used to read an entity's own (still
+    present, Phase 0 mirror) ``status`` column now goes through this seam
+    instead -- ``WorkflowItemState.current_state`` is the single source of
+    truth (D-1); the wire key name and value vocabulary are unchanged.
+
+    Pass a pre-batched *status_map* (:func:`resolve_status_map`) for
+    list-shaped responses so a page of N items costs one engine query
+    instead of N -- mirrors
+    ``rest_api.mixins.workflow_state.WorkflowStateSerializerMixin``'s
+    batching. Omit it to resolve a single item inline via
+    ``workflow.state_reader.current_state``.
+
+    Falls back to *fallback* when given (mainly for tests exercising the
+    fallback path with a literal), else to *item_type*'s preset initial state
+    (``workflow.state_reader.initial_state``) when the engine has no
+    ``WorkflowItemState`` row for the item (e.g. Goal/MainGoal, which have no
+    state backfill, or any item created in a definition-less workspace), so
+    an untracked item never silently regresses to an empty string. Also
+    falls back when no ``TenantContext`` is active: production dispatch
+    (``ToolRegistry.dispatch_request``) always activates it before a handler
+    runs, so this only matters for tests that call ``execute_tool`` directly
+    against a mocked service with no live tenant/DB.
+
+    Datenmodell-Konsolidierung Task 12: the entity's own ``status`` column is
+    dropped, so production callers no longer have a column value to pass as
+    *fallback* -- they call this with *fallback* omitted and rely on the
+    preset-initial-state default (documented, reviewed data-loss tradeoff,
+    see Task 12 report Finding 2).
+
+    Datenmodell-Konsolidierung Phase 4 (Decision D-3): soft-delete moved to
+    ``Artifact.lifecycle_status``, off the workflow state. The ``state_reader``
+    seam re-joins the two axes for the wire, so a soft-deleted item still
+    resolves to ``"outdated"`` here -- the only signal an MCP client has that it
+    is deleted. See ``workflow.state_reader.current_states``.
+    """
+    if status_map is not None:
+        engine_state = status_map.get(str(item_id))
+    else:
+        try:
+            engine_state = state_reader.current_state(item_type, item_id)
+        except TenantContextNotSetError:
+            engine_state = None
+    if engine_state is not None:
+        return engine_state
+    return fallback or state_reader.initial_state(item_type)
+
+
+def resolve_status_map(item_type: str, item_ids: Iterable[Any]) -> Dict[str, str]:
+    """Batch-resolve wire ``status`` values for many items in one query.
+
+    Thin, defensive wrapper over ``workflow.state_reader.current_states`` for
+    list-shaped MCP responses -- pass the result as :func:`resolve_engine_status`'s
+    *status_map* so a page of N items costs one engine query, not N. Returns
+    an empty mapping (every item then falls back to its own column) when no
+    ``TenantContext`` is active, instead of propagating
+    ``TenantContextNotSetError`` -- see :func:`resolve_engine_status` for why
+    that is safe.
+    """
+    try:
+        return state_reader.current_states(item_type, item_ids)
+    except TenantContextNotSetError:
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Attribute-definition enforcement (ledger gap #1 / issue #881)
+# ---------------------------------------------------------------------------
+
+
+def validate_artifact_write(
+    auth_context: AuthContext,
+    item_type: Optional[str],
+    workspace_id: Any,
+    changed_fields: Dict[str, Any],
+    existing: Optional[Dict[str, Any]],
+) -> Optional[ToolResult]:
+    """Validate an MCP create/update payload against the resolved AttributeDefinition.
+
+    Same central gate as ``rest_api.mixins.workflow_transitions.
+    WorkflowTransitionsMixin._validate_attribute_definition`` (Task 11) — both
+    delegate to ``ArtifactAttributeGateway.validate``, which is a thin
+    behaviour-preserving forward to the identical
+    ``AttributeDefinitionService.validate_artifact_fields``, just translated to
+    a ``ToolResult`` error instead of a DRF ``Response``. Routing both seams
+    through the gateway gives attribute validation exactly one entry point
+    (Epic #934 / WS1 #935, ADR-004). Every MCP artifact-write tool group is
+    expected to call this before delegating to its wrapped service, closing the
+    gap where MCP writes bypassed the enforcement the REST ViewSets already had.
+
+    Returns a ``ToolResult.error(...)`` on violation, ``None`` when clean —
+    callers stay a single ``if``. Degrades to ``None`` (no-op) on the same
+    "cannot decide" outcomes as the REST guard: no ``item_type``/workspace id
+    (not an artifact write), no bootstrapped definition for this item type/
+    preset, or a cross-tenant workspace id (the wrapped service call below
+    answers that with its own error).
+
+    Since WS2 review #936 the gate also resolves the Artifact-level
+    ``owner``/``reporter`` actor references against the DB (the DB-free
+    definition check cannot distinguish an unknown actor UUID from a valid
+    one), so an unresolvable actor is rejected before the wrapped service
+    creates the artifact.
+    """
+    if not item_type or workspace_id is None:
+        return None
+    from application.artifact_attribute_gateway import ArtifactAttributeGateway
+    from application.attribute_definition_service import (
+        AttributeDefinitionNotFound,
+        AttributeSchemaError,
+        FieldValidationError,
+    )
+    from presets.exceptions import CrossTenantWorkspaceError
+
+    try:
+        gateway = ArtifactAttributeGateway()
+        gateway.validate(
+            auth_context, item_type, workspace_id, changed_fields, existing
+        )
+        # WS2 review #936 (Major 2): the DB-free check above cannot tell an
+        # unknown/foreign-tenant actor UUID from a valid one. Resolve the
+        # Artifact-level actor references here so an unresolvable owner/reporter
+        # is rejected before the wrapped service creates the artifact.
+        gateway.validate_actor_system_fields(
+            auth_context, item_type, workspace_id, changed_fields
+        )
+    except (AttributeDefinitionNotFound, CrossTenantWorkspaceError):
+        return None
+    except FieldValidationError as exc:
+        message = "; ".join(
+            f"{name}: {', '.join(messages)}"
+            for name, messages in sorted(exc.errors.items())
+        )
+        return ToolResult.error("VALIDATION_ERROR", message)
+    except AttributeSchemaError as exc:
+        return ToolResult.error(
+            "VALIDATION_ERROR",
+            "The attribute definition for this workspace is malformed: "
+            + "; ".join(exc.errors),
+        )
+    return None
+
+
+def artifact_custom_fields(entity: Any) -> Dict[str, Any]:
+    """Return the ``custom_fields`` map from an entity's backing Artifact.
+
+    Mirrors ``rest_api.views._artifact_custom_fields`` (REQ-L2-AS-037): the
+    extended attributes live on ``Artifact.custom_fields`` and every
+    artifact-backed entity reaches them through its OneToOne ``artifact``
+    relation. Missing/NULL normalizes to ``{}`` so the MCP read shape stays
+    stable, and non-dict values (e.g. mocked objects in unit tests) degrade to
+    ``{}`` instead of leaking into the JSON response.
+    """
+    artifact = getattr(entity, "artifact", None)
+    source = artifact if artifact is not None else entity
+    custom_fields = getattr(source, "custom_fields", None)
+    return custom_fields if isinstance(custom_fields, dict) else {}
+
+
 # ---------------------------------------------------------------------------
 # MCP Audit helper (REQ-L2-MC-012)
 # ---------------------------------------------------------------------------
@@ -82,6 +281,12 @@ def write_mcp_audit(
     The api_key is passed as the raw secret to ``audit.services.log_write``;
     the SHA-256 hashing (with ``"sha256:"`` prefix) is performed by
     ``audit.writer.ContextEnricher`` — the raw key is never stored.
+
+    Codeberg #313: for handlers whose sole underlying ApplicationService
+    call would otherwise write its own, redundant internal entry for this
+    same entity, wrap that one call in :func:`mcp_audit_handoff` (re-exported
+    here from ``audit.services``) immediately before calling this function —
+    this call then becomes the single audit entry for the operation.
     """
     try:
         from audit.services import log_write
@@ -145,6 +350,25 @@ class BaseToolGroup(ABC):
             for name in self._TOOL_MAP.keys()
         ]
 
+    def schema_param_names(self, tool_name: str) -> List[str]:
+        """Return the declared ``inputSchema`` property names of *tool_name*.
+
+        Single source of truth for handlers that call
+        :func:`reject_unknown_params`: deriving the allow-list from the
+        published schema keeps the two from drifting apart, so adding a
+        property to the schema cannot turn a documented call into a
+        validation error.
+
+        Returns an empty list for an unknown tool name or a group that has no
+        explicit ``_TOOL_SCHEMAS`` — callers should treat that as "no strict
+        validation possible" rather than "nothing is allowed".
+        """
+        for schema in self.get_tool_schemas():
+            if schema.get("name") == tool_name:
+                properties = schema.get("inputSchema", {}).get("properties", {})
+                return list(properties.keys())
+        return []
+
     def execute_tool(
         self,
         tool_name: str,
@@ -176,15 +400,25 @@ class BaseToolGroup(ABC):
         except ParameterError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except Exception as exc:
+            # fix #108: str(exc) on an unmapped exception (IntegrityError,
+            # ProgrammingError, KeyError, ...) can contain SQL fragments,
+            # table/column names, or constraint names. Log the real detail,
+            # return only a static message to the caller.
             logger.exception("Error in %s.%s for tool=%s", type(self).__name__, method_name, tool_name)
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
 
 __all__ = [
     "BaseToolGroup",
     "ParameterError",
+    "artifact_custom_fields",
     "require_param",
     "optional_uuid",
     "require_uuid",
+    "reject_unknown_params",
+    "resolve_engine_status",
+    "resolve_status_map",
+    "validate_artifact_write",
     "write_mcp_audit",
+    "mcp_audit_handoff",
 ]

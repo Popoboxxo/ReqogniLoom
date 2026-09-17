@@ -36,6 +36,7 @@ Phase-3 plan's "views.py" is a rough placement hint, not a hard constraint.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from rest_framework import serializers, status
@@ -48,7 +49,13 @@ from application.audit_service import AuditService
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from traceability.audit import AuditScope
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.serializers import build_error_response, detect_lang
+from rest_api.serializers import (
+    UnknownFieldRejectionMixin,
+    build_error_response,
+    detect_lang,
+)
+
+logger = logging.getLogger(__name__)
 
 _VALID_SCOPES = frozenset({"document", "project", "global"})
 
@@ -58,8 +65,14 @@ _VALID_SCOPES = frozenset({"document", "project", "global"})
 # ---------------------------------------------------------------------------
 
 
-class RemediateRequestSerializer(serializers.Serializer):
-    """Body of POST .../audit/remediate/ — identifies one finding to adopt."""
+class RemediateRequestSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Body of POST .../audit/remediate/ — identifies one finding to adopt.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
+    """
 
     rule_id = serializers.CharField(max_length=64)
     artifact_ids = serializers.ListField(
@@ -92,6 +105,29 @@ def _parse_scopes(request: Request) -> list[AuditScope] | None:
     return [AuditScope(scope, artifact_id=artifact_id)]
 
 
+def _parse_pagination(request: Request) -> tuple[int | None, int]:
+    """#622: optional ``?limit=&offset=`` to page past the findings cap.
+
+    Absent ``limit`` -> ``(None, 0)``, preserving the default BLOCKER-
+    preferred truncation exactly as before this was added. A present but
+    invalid (non-integer) value raises ValueError, mapped to a 400 by the
+    caller — same pattern as ``_parse_scopes``.
+    """
+    raw_limit = request.query_params.get("limit")
+    if raw_limit is None:
+        return None, 0
+    try:
+        limit = int(raw_limit)
+    except ValueError as exc:
+        raise ValueError("limit must be an integer.") from exc
+    raw_offset = request.query_params.get("offset", "0")
+    try:
+        offset = int(raw_offset)
+    except ValueError as exc:
+        raise ValueError("offset must be an integer.") from exc
+    return limit, offset
+
+
 class WorkspaceAuditView(APIView):
     """GET /api/v1/workspaces/<workspace_id>/audit/ — run the SE-Auditor."""
 
@@ -101,6 +137,7 @@ class WorkspaceAuditView(APIView):
         lang = detect_lang(request)
         try:
             scopes = _parse_scopes(request)
+            limit, offset = _parse_pagination(request)
         except ValueError as exc:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
@@ -108,7 +145,11 @@ class WorkspaceAuditView(APIView):
             )
         try:
             report = AuditService().run_audit(
-                workspace_id, get_auth_context(request), scopes=scopes
+                workspace_id,
+                get_auth_context(request),
+                scopes=scopes,
+                limit=limit,
+                offset=offset,
             )
             return Response(report.to_dict())
         except NotFoundError as exc:
@@ -208,9 +249,15 @@ class WorkspaceAuditAiReviewView(APIView):
                 build_error_response("NOT_FOUND", lang, message=str(exc)),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except AiReviewResponseError as exc:
+        except AiReviewResponseError:
+            # Deviation from Task 5 brief (finding claims logging is present
+            # everywhere): no logger.exception ran here before this fix, so
+            # the real exception was never visible to operators once its
+            # message was dropped from the response. Adding it here restores
+            # observability while still masking the client-facing message.
+            logger.exception("AI review failed for workspace %s", workspace_id)
             return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except Exception:

@@ -43,10 +43,6 @@ vi.mock("./useNeedData", () => ({
   }),
 }));
 
-vi.mock("../../api", () => ({
-  attributeVisibilityApi: { list: vi.fn().mockResolvedValue([]) },
-}));
-
 vi.mock("../../api/stakeholder-need", () => ({
   stakeholderNeedApi: { create: vi.fn().mockResolvedValue({ id: "new-1" }) },
 }));
@@ -59,15 +55,21 @@ vi.mock("../shared/ArtifactInspector", () => ({
   RightSidebar: () => null,
 }));
 
-vi.mock("./NeedForm", () => ({ NeedForm: () => null }));
+vi.mock("./NeedArtifactForm", () => ({ NeedArtifactForm: () => null }));
 
-// NeedList is mocked to expose the create trigger and the resulting form state.
+// NeedList is mocked to expose the `onCreateClick` plumbing (still forwarded
+// for the empty-state's own create action, #315) and the resulting
+// create-form state. The visible primary "Neuer Bedarf" action itself now
+// lives in the real (unmocked) PageHeader per UI_KONZEPT.md §12.2 — see
+// `create-need-btn` assertions below, which exercise that button.
 vi.mock("./NeedList", () => ({
-  NeedList: (props: { onCreateNew: () => void; showCreateForm?: boolean }) => (
+  NeedList: (props: { showCreateForm?: boolean; onCreateClick?: () => void }) => (
     <div>
-      <button data-testid="create-need-btn" onClick={props.onCreateNew}>
-        New
-      </button>
+      {props.onCreateClick && (
+        <button data-testid="needlist-mock-create-trigger" onClick={props.onCreateClick}>
+          Create
+        </button>
+      )}
       {props.showCreateForm && <span data-testid="create-form-open" />}
     </div>
   ),
@@ -92,6 +94,11 @@ describe("NeedsEditors — create guard (REQ-L1-095)", () => {
     render(<NeedsEditors />);
     await userEvent.click(screen.getByTestId("create-need-btn"));
 
+    expect(screen.queryByTestId("create-form-open")).not.toBeInTheDocument();
+
+    // The plumbing NeedList forwards for the empty-state action must stay
+    // guarded the same way.
+    await userEvent.click(screen.getByTestId("needlist-mock-create-trigger"));
     expect(screen.queryByTestId("create-form-open")).not.toBeInTheDocument();
   });
 

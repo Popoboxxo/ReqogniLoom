@@ -30,20 +30,64 @@ Or from the host (requires requests):
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 import urllib.error
 import urllib.parse
+
 import pytest
 
 # ---------------------------------------------------------------------------
 # Stack base URLs — match docker-compose port mapping
 # ---------------------------------------------------------------------------
-# Inside the container, use 'backend' hostname; from host use 'localhost'.
-# We try localhost first (host-side run) — works for both host and container
-# because the stack exposes port 8000 externally.
-BACKEND_URL = "http://localhost:8000"
+# Inside the `backend` container itself, or from the host (with the dev
+# override's port publishing), 'localhost:8000' reaches the live stack
+# directly. From any OTHER container merely attached to the compose network
+# (e.g. an ad-hoc test runner, docker-compose service-to-service calls),
+# 'localhost' is that container itself, not the backend service — the
+# docker-network hostname 'backend' is what resolves there instead. This
+# used to be a hardcoded 'localhost' constant with a comment claiming it
+# "works for both host and container" — it never actually tried a second
+# host, so it silently only ever worked in the two cases named above. Probes
+# each candidate's /health/ endpoint (fast, unauthenticated, no side
+# effects) and uses whichever answers first.
+def _resolve_backend_url() -> tuple[str, bool]:
+    for candidate in ("http://localhost:8000", "http://backend:8000"):
+        try:
+            with urllib.request.urlopen(f"{candidate}/health/", timeout=2):
+                return candidate, True
+        except (urllib.error.URLError, OSError):
+            continue
+    # Neither reachable — keep the original default so the resulting
+    # connection-refused error still names a concrete, debuggable URL
+    # instead of failing this resolution step itself.
+    return "http://localhost:8000", False
+
+
+BACKEND_URL, _STACK_REACHABLE = _resolve_backend_url()
 MCP_URL = f"{BACKEND_URL}/mcp/"
 REST_URL = f"{BACKEND_URL}/api/v1"
+
+# This module drives the real HTTP/urllib stack against a live Django server
+# instead of Django test fixtures (see module docstring) — it is an
+# integration test, not a unit test, and must not run unattended in the
+# normal unit suite:
+#   - explicitly skipped in CI (no live stack there), and
+#   - skipped locally whenever the live stack isn't actually reachable,
+#     so `pytest` without `docker-compose up` reports a clean skip instead
+#     of a wall of connection-refused failures.
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
+        reason="MCP live-stack tests require a running Django server (skipped in CI)",
+    ),
+    pytest.mark.skipif(
+        not _STACK_REACHABLE,
+        reason=f"MCP live-stack tests require a running Django server "
+        f"(none reachable at {BACKEND_URL})",
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -79,22 +123,58 @@ def _http_request(
 
 
 def _get_bearer_token() -> str:
-    """Obtain JWT for the seeded admin user."""
+    """Obtain JWT for the seeded admin user.
+
+    Credentials come from the same env vars the live stack was actually
+    seeded with (SYSTEM_ADMIN_USERNAME/SYSTEM_ADMIN_PASSWORD — see
+    application.self_init, which creates this account on first migrate),
+    not a hardcoded guess: "admin12345" only ever worked against whichever
+    .env the test was originally authored/verified on, and silently fails
+    a 401 against any other stack the moment SYSTEM_ADMIN_PASSWORD differs
+    (as it does by default — .env.example's own placeholder is
+    "CHANGE-ME-strong-admin-password", not "admin12345").
+    """
+    username = os.environ.get("SYSTEM_ADMIN_USERNAME", "admin")
+    password = os.environ.get("SYSTEM_ADMIN_PASSWORD", "admin12345")
     status, data = _http_request(
         f"{REST_URL}/auth/login/",
         method="POST",
-        data={"username": "admin", "password": "admin12345"},
+        data={"username": username, "password": password},
     )
-    assert status == 200, f"Login failed: {status} {data}"
+    assert status == 200, (
+        f"Login failed: {status} {data}. Set SYSTEM_ADMIN_USERNAME/"
+        f"SYSTEM_ADMIN_PASSWORD to match the live stack's actual seeded "
+        f"admin account if this isn't the default 'admin'/'admin12345'."
+    )
     token = data.get("token") or data.get("access") or data.get("access_token")
     assert token, f"No token in response: {data}"
     return token
+
+
+def _error_message(data: dict) -> str:
+    """Return the message of the project's error envelope.
+
+    REQ-L2-RA-009 standardises every REST error body as
+    ``{"error": {"code": ..., "message": ..., "details": [...]}}``
+    (``rest_api.serializers.build_error_response``). Reading ``message`` off
+    the top level — as ``_create_api_key`` used to — always yields ``""``, so
+    the 400 that names the active-key limit was never recognised and the
+    revoke-and-retry never fired.
+    """
+    error = data.get("error")
+    return error.get("message", "") if isinstance(error, dict) else ""
 
 
 def _revoke_all_active_keys(bearer: str) -> None:
     """Revoke all non-revoked API keys for the authenticated user.
 
     Call this when the 10-key limit is reached to free slots.
+
+    Every revoke is verified, because a silently failed one leaves the key
+    active: the caller's retry would then fail with the very same limit error
+    and hide the real cause. A per-request status assertion catches a rejected
+    revoke, and the final re-list catches a 204 that did not actually free the
+    slot.
     """
     list_status, list_data = _http_request(
         f"{REST_URL}/api-keys/",
@@ -104,11 +184,32 @@ def _revoke_all_active_keys(bearer: str) -> None:
     keys = list_data if isinstance(list_data, list) else []
     active_keys = [k for k in keys if not k.get("revoked", True)]
     for key in active_keys:
-        _http_request(
+        revoke_status, revoke_data = _http_request(
             f"{REST_URL}/api-keys/{key['id']}/",
             method="DELETE",
             headers={"Authorization": f"Bearer {bearer}"},
         )
+        assert revoke_status in (200, 204), (
+            f"Revoking API key {key.get('name')!r} failed: "
+            f"{revoke_status} {revoke_data}"
+        )
+
+    # A revoke that answers success but leaves the key active would make the
+    # retry in _create_api_key fail with a misleading limit error.
+    verify_status, verify_data = _http_request(
+        f"{REST_URL}/api-keys/",
+        headers={"Authorization": f"Bearer {bearer}"},
+    )
+    assert verify_status == 200, f"List API keys after revoke failed: {verify_status}"
+    still_active = [
+        k
+        for k in (verify_data if isinstance(verify_data, list) else [])
+        if not k.get("revoked", True)
+    ]
+    assert not still_active, (
+        f"{len(still_active)} API key(s) still active after revoking "
+        f"{len(active_keys)}: {[k.get('name') for k in still_active]}"
+    )
 
 
 def _create_api_key(bearer: str, name: str) -> str:
@@ -122,7 +223,7 @@ def _create_api_key(bearer: str, name: str) -> str:
         headers={"Authorization": f"Bearer {bearer}"},
         data={"name": name},
     )
-    if status == 400 and "maximum" in str(data.get("message", "")):
+    if status == 400 and "maximum" in _error_message(data):
         # Key limit reached — revoke all active keys to free slots
         _revoke_all_active_keys(bearer)
         # Retry creation
@@ -353,15 +454,21 @@ class TestMcpApiKeyRolePropagation:
         )
         assert len(tools) >= 40, f"Expected 40+ tools, got {len(tools)}"
 
-    def test_mcp_capability_declaration_no_sse(self) -> None:
-        """[REQ-131] GET /mcp/ must not declare SSE as a transport."""
+    def test_mcp_capability_declaration_matches_routed_transports(self) -> None:
+        """[REQ-131] GET /mcp/ declares exactly the implemented transports.
+
+        SSE was excluded here while ``GET /mcp/sse/`` returned 500 on every
+        request (issue #455 — a hop-by-hop ``Connection`` response header).
+        With that fixed, SSE is implemented *and* is the transport every
+        distributed plugin config uses, so it must be declared.
+        """
         status, data = _http_request(MCP_URL)
         assert status == 200, f"MCP GET failed: {status}"
         transports: list[str] = data.get("transports", [])
-        assert "sse" not in transports, (
-            f"[REQ-131] SSE declared as transport but not implemented: {transports}"
-        )
         assert "http" in transports, f"Expected http in transports: {transports}"
+        assert "sse" in transports, (
+            f"[REQ-131] SSE is routed and functional but not declared: {transports}"
+        )
 
     def test_api_key_authentication_uses_x_api_key_header(
         self, admin_api_key: str, seeded_workspace_id: str

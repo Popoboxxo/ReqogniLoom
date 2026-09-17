@@ -20,15 +20,30 @@ import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
 import { WorkflowEditorPage } from "../WorkflowEditor/WorkflowEditorPage";
+import { AttributeEditorPage } from "../AttributeEditor";
 import { WorkspaceAdminSection } from "./WorkspaceAdminSection";
+import { BannerSection } from "./BannerSection";
+import { ThemeManagementSection } from "./ThemeManagementSection";
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
+import { MemoryManagementSection } from "./MemoryManagementSection";
+import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
+import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
+import { PageHeader } from "../shared/PageHeader";
+import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 
-type SystemTabId = "administration" | "workflow-defaults" | "permission-defaults";
+type SystemTabId =
+  | "administration"
+  | "workflow-defaults"
+  | "attribute-defaults"
+  | "permission-defaults"
+  | "memory";
 
 const TAB_IDS: SystemTabId[] = [
   "administration",
   "workflow-defaults",
+  "attribute-defaults",
   "permission-defaults",
+  "memory",
 ];
 
 function isSystemTab(value: string | null): value is SystemTabId {
@@ -47,7 +62,7 @@ export default function SystemSettings(): JSX.Element {
   if (!isAdmin) {
     return (
       <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
-        <h2>{t("nav.systemSettings", "System Settings")}</h2>
+        <PageHeader title={t("nav.systemSettings", "System Settings")} />
         <p style={{ color: "var(--color-warning)" }}>
           {t(
             "systemSettings.adminOnly",
@@ -67,7 +82,9 @@ export default function SystemSettings(): JSX.Element {
   const TABS: { id: SystemTabId; label: string }[] = [
     { id: "administration", label: t("systemSettings.tabs.administration", "Administration") },
     { id: "workflow-defaults", label: t("systemSettings.tabs.workflowDefaults", "Workflow Defaults") },
+    { id: "attribute-defaults", label: t("systemSettings.tabs.attributeDefaults", "Attribute Defaults") },
     { id: "permission-defaults", label: t("systemSettings.tabs.permissionDefaults", "Permission Defaults") },
+    { id: "memory", label: t("systemSettings.tabs.memory", "Memory") },
   ];
 
   const isEditorTab = activeTab === "workflow-defaults";
@@ -81,21 +98,19 @@ export default function SystemSettings(): JSX.Element {
         padding: "var(--space-6)",
       }}
     >
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          marginBottom: "var(--space-5)",
-        }}
-      >
-        {t("nav.systemSettings", "System Settings")}
-      </h2>
+      <PageHeader
+        title={t("nav.systemSettings", "System Settings")}
+        summary={t(
+          "systemSettings.pageSummary",
+          "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
+        )}
+      />
 
       <div
         role="tablist"
         aria-label={t("nav.systemSettings", "System Settings")}
         data-testid="system-settings-tablist"
+        onKeyDown={(e) => handleTablistKeyDown(e, TAB_IDS, activeTab, setTab)}
         style={{
           display: "flex",
           flexWrap: "wrap",
@@ -115,6 +130,7 @@ export default function SystemSettings(): JSX.Element {
               data-testid={`system-settings-tab-${tab.id}`}
               aria-selected={isTabActive}
               aria-controls={`system-settings-panel-${tab.id}`}
+              tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setTab(tab.id)}
               style={{
                 appearance: "none",
@@ -144,7 +160,13 @@ export default function SystemSettings(): JSX.Element {
         data-testid={`system-settings-panel-${activeTab}`}
         aria-labelledby={`system-settings-tab-${activeTab}`}
       >
-        {activeTab === "administration" && <WorkspaceAdminSection />}
+        {activeTab === "administration" && (
+          <>
+            <WorkspaceAdminSection />
+            <BannerSection />
+            <ThemeManagementSection />
+          </>
+        )}
         {activeTab === "workflow-defaults" && (
           <div
             data-testid="system-workflow-defaults"
@@ -153,7 +175,19 @@ export default function SystemSettings(): JSX.Element {
             <WorkflowEditorPage scope="global" />
           </div>
         )}
+        {activeTab === "attribute-defaults" && (
+          <div data-testid="system-attribute-defaults">
+            <AttributeEditorPage scope="global" />
+          </div>
+        )}
         {activeTab === "permission-defaults" && <PermissionDefaultsTab />}
+        {activeTab === "memory" && (
+          <>
+            <MemorySystemSettingsSection />
+            <MemoryManagementSection />
+            <MemoryVisualizationSection />
+          </>
+        )}
       </div>
     </div>
   );

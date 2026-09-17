@@ -9,7 +9,7 @@
 import type { Page, Locator } from '@playwright/test';
 import { expect } from '@playwright/test';
 
-export const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+export const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 /**
@@ -47,22 +47,57 @@ export async function createRequirementViaUI(
 
   // Optional: Description/Category im Detail-Editor ergänzen
   if (data.description) {
-    await page.locator('[data-testid="req-title"]').waitFor({ timeout: 8000 });
+    await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
     const descArea = page.locator('textarea').first();
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
-      await page.locator('[data-testid="save-btn"]').click();
-      await page.waitForLoadState('networkidle');
+      await saveRequirementDetail(page, 'E2E: set description');
     }
   }
   if (data.category) {
-    // REQ_CATEGORIES option values are lowercase (frontend/src/types/index.ts) —
-    // normalize so callers can pass human-readable category names.
-    await page.locator('[data-testid="req-category"]').selectOption(data.category.toLowerCase());
-    await page.locator('[data-testid="save-btn"]').click();
-    await page.waitForLoadState('networkidle');
+    // Issue #889: `Requirement.category` is a plain `CharField` with no Django
+    // `choices`, so introspection still declares it as free text — but the
+    // Requirement adapter now overrides exactly that attribute to the shared
+    // `REQ_CATEGORIES` enum, so the editor renders an `EnumSelect` (a
+    // `<select>`). `fill()` can never act on a `<select>`: it waits forever for
+    // "editable" and fails with "Element is not an <input>, <textarea> or
+    // [contenteditable] element". The value must be chosen with `selectOption`,
+    // and stays lowercase so it keeps matching the list-filter options.
+    // `element_type` below is unaffected: it was not promoted to an enum.
+    const categoryControl = page.locator('[data-testid="artifact-field-category"]');
+    await expect(categoryControl).toBeEnabled({ timeout: 8000 });
+    await categoryControl.selectOption(data.category.toLowerCase());
+    await saveRequirementDetail(page, 'E2E: set category');
   }
   return id;
+}
+
+/**
+ * Speichert den Requirement-Detail-Editor und füllt vorher — falls gerendert —
+ * die Change-Reason.
+ *
+ * Die WK-Szenarien setzen in Phase 0 das `extended`-Preset, dessen Policy jeden
+ * PATCH ohne Begründung mit `400 change_reason required by workspace preset
+ * policy` ablehnt. Ohne diesen Schritt lief der Save ins Leere: der Request
+ * schlug fehl, `waitForLoadState('networkidle')` merkte davon nichts, und die
+ * gerade gesetzte Kategorie bzw. Beschreibung war still verworfen.
+ *
+ * Task 25: RequirementForm's own `change-reason-input`/`save-btn` are gone —
+ * the requirement editor now renders through the shared `ArtifactForm`
+ * (`artifact-form-change-reason`/`artifact-form-save`). NOTE this is NOT the
+ * same as `createArchitectureElementViaUI` above: that helper never opts into
+ * `requiresChangeReason` (`ArchitectureArtifactForm` does not pass the prop),
+ * so its own `arch-change-reason-input` id (`se-workflow.spec.ts`) matches
+ * nothing today and that check silently skips — a pre-existing Task 24 gap,
+ * unrelated to and not fixed by this Requirement-form migration.
+ */
+async function saveRequirementDetail(page: Page, reason: string): Promise<void> {
+  const reasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
+  if (await reasonInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await reasonInput.fill(reason);
+  }
+  await page.locator('[data-testid="artifact-form-save"]').click();
+  await page.waitForLoadState('networkidle');
 }
 
 /**
@@ -70,15 +105,24 @@ export async function createRequirementViaUI(
  */
 export async function createArchitectureElementViaUI(
   page: Page,
-  data: { title: string; elementType: string; description?: string }
+  data: { title: string; elementType: string; description?: string },
+  parentId?: string
 ): Promise<string> {
   await page.goto(`${FRONTEND_URL}/architecture`);
-  await page.locator('[data-testid="create-arch-btn"]').click();
-  // "+ New" only opens an inline quick-create form (title input + Save);
-  // the full editor only renders after Save navigates to the detail route.
-  await page.locator('[data-testid="arch-new-title-input"]').waitFor({ timeout: 8000 });
-  await page.locator('[data-testid="arch-new-title-input"]').fill(data.title);
-  await page.locator('[data-testid="arch-new-save-btn"]').click();
+  if (parentId) {
+    // [I5]: a workspace may have at most one root ArchitectureElement — every
+    // element after the first must be attached under an existing one via the
+    // tree's per-node "Add child" button (arch-tree uses WorkspaceTree,
+    // testIdPrefix="arch-tree" — no context menu, plain button click).
+    await page.locator(`[data-testid="arch-tree-add-child-${parentId}"]`).click();
+  } else {
+    await page.locator('[data-testid="create-arch-btn"]').click();
+    // "+ New" only opens an inline quick-create form (title input + Save);
+    // the full editor only renders after Save navigates to the detail route.
+    await page.locator('[data-testid="arch-new-title-input"]').waitFor({ timeout: 8000 });
+    await page.locator('[data-testid="arch-new-title-input"]').fill(data.title);
+    await page.locator('[data-testid="arch-new-save-btn"]').click();
+  }
   await page.waitForURL(/\/architecture\/[0-9a-f-]+/, { timeout: 12000 });
 
   const url = page.url();
@@ -86,17 +130,22 @@ export async function createArchitectureElementViaUI(
   if (!match) throw new Error(`expected /architecture/:id URL, got: ${url}`);
   const id = match[1];
 
-  await page.locator('[data-testid="arch-title"]').waitFor({ timeout: 8000 });
-  // REQ-006/D5: arch-element-type-select is a free-text autocomplete input,
-  // not a <select>, since backend element types are workspace-defined.
-  await page.locator('[data-testid="arch-element-type-select"]').fill(data.elementType);
+  await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
+  if (parentId) {
+    // "Add Child" creates the element with a default title — set the real one.
+    await page.locator('[data-testid="artifact-field-title"]').fill(data.title);
+  }
+  // REQ-006/D5: artifact-field-element_type is a free-text input, not a
+  // <select>, since backend element types are workspace-defined (Task 24:
+  // no longer has autocomplete suggestions after the ArtifactForm migration).
+  await page.locator('[data-testid="artifact-field-element_type"]').fill(data.elementType);
   if (data.description) {
     const descArea = page.locator('textarea').first();
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
     }
   }
-  await page.locator('[data-testid="arch-save-btn"]').click();
+  await page.locator('[data-testid="artifact-form-save"]').click();
   await page.waitForLoadState('networkidle');
   return id;
 }
@@ -111,7 +160,7 @@ export async function createTraceLinkViaUI(
   linkType: string
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/requirements/${sourceReqId}`);
-  await page.locator('[data-testid="req-title"]').waitFor({ timeout: 12000 });
+  await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 12000 });
   const panel = page.locator('[data-testid="req-tracelink-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
   await page.locator('[data-testid="req-tracelink-create-btn"]').click();
@@ -135,7 +184,7 @@ export async function createArchTraceLinkViaUI(
   linkType: string
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/architecture/${sourceArchId}`);
-  await page.locator('[data-testid="arch-title"]').waitFor({ timeout: 12000 });
+  await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 12000 });
   const panel = page.locator('[data-testid="arch-linked-reqs-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
   // The architecture side uses the unified CreateTraceLinkDialog (REQ-005),
@@ -230,8 +279,15 @@ export async function globalSearchAndClick(
 ): Promise<number> {
   await page.goto(`${FRONTEND_URL}/`);
   await page.locator('[data-testid="global-search"]').click();
+  // fill() triggers the 300ms-debounced handleSearchChange
+  // (SidebarNavigation.tsx), which then GETs /search/. Wait for that
+  // response instead of a fixed delay so the result count below reflects
+  // the actually-loaded results.
+  const responsePromise = page.waitForResponse(
+    (resp) => resp.url().includes('/search/') && resp.request().method() === 'GET'
+  );
   await page.locator('[data-testid="global-search"]').fill(query);
-  await page.waitForTimeout(600);
+  await responsePromise;
   const results = page.locator('[data-testid="global-search-result"]');
   return await results.count();
 }
@@ -353,6 +409,15 @@ export async function createTestRunViaUI(
 
 /**
  * Schließt einen TestRun über die UI.
+ *
+ * GH-690: seit der Backend-Auto-Completion (GH-584, `_recompute_status`)
+ * ist ein TestRun bereits terminal (passed/failed/partial), sobald alle
+ * Ergebnisse gemeldet wurden — der Close-Button rendert dann gar nicht
+ * mehr (`TestRunDetailEditor.tsx`, nur bei `status === "in_progress"`
+ * sichtbar). Blindes `waitFor` auf den Button lief daher nach Seed aller
+ * Results in ein 8s-Timeout. Der Button wird jetzt nur noch erwartet,
+ * wenn er tatsächlich erscheint; ist der Run bereits terminal, wird die
+ * manuelle Close-Interaktion übersprungen.
  */
 export async function transitionTestRunViaUI(
   page: Page,
@@ -364,25 +429,70 @@ export async function transitionTestRunViaUI(
   const item = page.locator(`[data-testid="testrun-item-${runId}"]`);
   await item.waitFor({ timeout: 8000 });
   await item.click();
-  await page.locator('[data-testid="testrun-close-btn"]').waitFor({ timeout: 8000 });
-  if (toStatus === 'closed' || toStatus === 'failed' || toStatus === 'passed' || toStatus === 'partial') {
+  const closeBtn = page.locator('[data-testid="testrun-close-btn"]');
+  const alreadyTerminal = !(await closeBtn
+    .waitFor({ timeout: 8000, state: 'visible' })
+    .then(() => true)
+    .catch(() => false));
+  if (
+    !alreadyTerminal &&
+    (toStatus === 'closed' || toStatus === 'failed' || toStatus === 'passed' || toStatus === 'partial')
+  ) {
     // Two-step inline confirmation replaced the window.confirm dialog.
-    await page.locator('[data-testid="testrun-close-btn"]').click();
+    await closeBtn.click();
     await page.locator('[data-testid="testrun-confirm-close-btn"]').click();
-    await expect(page.locator('[data-testid="testrun-close-btn"]')).toHaveCount(0, { timeout: 8000 });
+    await expect(closeBtn).toHaveCount(0, { timeout: 8000 });
   }
   await page.waitForLoadState('networkidle');
 }
 
 /**
- * Erstellt eine Baseline über die UI.
+ * Creates a baseline via the UI.
+ *
+ * BUG-03 (SYSTEMAUDIT_2026-08-18 §4): in a realistic, partially-incomplete SE
+ * graph (which this bug-finding scenario deliberately builds up in stages),
+ * the SE-Auditor gate (GH-490/GH-513) rejects a `project`-scope baseline
+ * create with HTTP 400 `SE_AUDITOR_BLOCKED` as soon as individual
+ * requirements are still missing `derives-from`/`verifies`/`allocated-to`
+ * links — exactly the state this scenario is in between phases. That is
+ * intended governance behaviour (BaselinesView shows a waiver panel with a
+ * justification field for it), but this helper used to check success via
+ * the wrong selector (`tbody tr` — the list is a `<ul><li>`, not a table)
+ * and swallowed every failure in a `.catch(() => null)`. A blocked create
+ * therefore looked identical to a successful one — the list stayed empty
+ * without the test noticing (the real assertion in the calling test file
+ * then failed separately, later, with no apparent connection).
+ *
+ * Fix: after submit, explicitly check for the waiver panel and fail loudly
+ * (instead of swallowing) if neither the form closes nor the baseline shows
+ * up. The waiver itself is opt-in (`allowGateOverride`) — silently waiving
+ * a governance gate on every call would make it impossible to tell "gate
+ * passed cleanly" from "gate blocked and we clicked through it" (review
+ * finding F-4). Callers that expect a clean pass (no BLOCKER findings) get
+ * a hard failure with the blocked rule ids instead; callers that
+ * deliberately accept a WIP snapshot must opt in and get the waived rule
+ * ids logged so the override is visible in the test log, not silently
+ * absorbed.
  */
 export async function createBaselineViaUI(
   page: Page,
-  data: { scope: 'project' | 'document' | 'global'; artifactId?: string }
+  data: {
+    scope: 'project' | 'document' | 'global';
+    artifactId?: string;
+    /**
+     * Opt-in: if the SE-Auditor gate blocks the plain create, fill in the
+     * waiver justification and resubmit (the documented GH-513 admin
+     * override path) instead of failing. Defaults to false so a blocked
+     * gate is a loud test failure by default, not a silent waiver.
+     */
+    allowGateOverride?: boolean;
+  }
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/baselines`);
   await page.waitForLoadState('networkidle');
+  // Task 5.2: baseline creation is an overflow action, not a primary header
+  // button — open the "..." menu first.
+  await page.locator('[data-testid="page-header-overflow-trigger"]').click();
   await page.locator('[data-testid="create-baseline-btn"]').click();
   await page.locator('[data-testid="create-baseline-form"]').waitFor({ timeout: 8000 });
   await page.locator(`[data-testid="baseline-scope-${data.scope}"]`).check();
@@ -393,9 +503,53 @@ export async function createBaselineViaUI(
   await expect(submit).toBeEnabled({ timeout: 5000 });
   await submit.click();
   await page.waitForLoadState('networkidle');
-  // Erfolgs-Indikator: Liste enthält mindestens ein Item oder leerer State erscheint neu
-  await Promise.race([
-    page.locator('[data-testid="baseline-list"] tbody tr').first().waitFor({ timeout: 8000 }).catch(() => null),
-    page.locator('[data-testid="baselines-empty"]').waitFor({ timeout: 8000 }).catch(() => null),
-  ]);
+
+  // The SE-Auditor gate may have rejected the plain create.
+  //
+  // `.isVisible()` alone does not poll/wait — it is a single, immediate DOM
+  // check — so a plain `if (await panel.isVisible())` can race the React
+  // re-render that follows the create response (networkidle only tracks
+  // in-flight network requests, not render completion). `.waitFor()` is
+  // Playwright's polling primitive; a `false` result here means the panel
+  // genuinely never appeared within the window, not that the check ran too
+  // early.
+  const form = page.locator('[data-testid="create-baseline-form"]');
+  const overridePanel = form.locator('[data-testid="baseline-override-panel"]');
+  const overrideAppeared = await overridePanel
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (overrideAppeared) {
+    // The blocked-findings message (BaselinesView.tsx renders it as
+    // role="alert" inside the create form) names every rule id that
+    // tripped the gate — surface it in the test log either way, so a
+    // blocked gate is never silent, whether or not we're allowed to waive it.
+    const blockedMessage = await form.locator('[role="alert"]').first().innerText().catch(() => '(message unavailable)');
+
+    if (!data.allowGateOverride) {
+      throw new Error(
+        `createBaselineViaUI: SE-Auditor gate blocked the create and allowGateOverride was not set. ` +
+          `Blocked findings: ${blockedMessage}`
+      );
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`[createBaselineViaUI] SE-Auditor gate blocked (waiving via allowGateOverride): ${blockedMessage}`);
+
+    await page
+      .locator('[data-testid="baseline-override-reason"]')
+      .fill('Bug-finding scenario snapshot; upstream links land in a later phase.');
+    const overrideSubmit = page.locator('[data-testid="baseline-override-submit-btn"]');
+    await expect(overrideSubmit).toBeEnabled({ timeout: 5000 });
+    await overrideSubmit.click();
+    await page.waitForLoadState('networkidle');
+  }
+
+  // Success indicator: the create form closes (BaselinesView.tsx only calls
+  // setShowForm(false) on a successful create — the SE-Auditor-blocked path
+  // keeps the form open with createError/gateBlocked set). Fail loudly
+  // instead of silently continuing, so a genuine regression surfaces here
+  // rather than as an unrelated, delayed assertion failure in the caller.
+  await expect(form).toBeHidden({ timeout: 8000 });
 }

@@ -9,7 +9,7 @@
  * Wraps /api/v1/workspaces/ endpoints.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type {
   PaginatedResponse,
   TerminologyProfile,
@@ -30,6 +30,17 @@ export const workspacesApi = {
     return getList<Workspace>("/workspaces/");
   },
 
+  /**
+   * Fetch the complete workspace list across all pages (issue C /
+   * GESAMTTEST_BERICHT_2026-08-21 §10.2): `list()` only returns page 1
+   * (default page size 25), so any tenant with more workspaces than that
+   * had entries unreachable via the UI switcher. Used by
+   * `WorkspaceContext.reloadWorkspaces` instead of `list()`.
+   */
+  listAll(): Promise<Workspace[]> {
+    return getAllPages<Workspace>("/workspaces/");
+  },
+
   get(id: UUID): Promise<Workspace> {
     return apiClient.get<Workspace>(`/workspaces/${id}/`);
   },
@@ -40,7 +51,17 @@ export const workspacesApi = {
 
   update(
     id: UUID,
-    data: Partial<{ name: string; language: string; terminology_profile: TerminologyProfile; decomposition_link_type: string; default_link_type: string; ai_prompts: Record<string, string> }>
+    data: Partial<{
+      name: string;
+      language: string;
+      theme: string;
+      terminology_profile: TerminologyProfile;
+      decomposition_link_type: string;
+      default_link_type: string;
+      ai_prompts: Record<string, string>;
+      goals_enabled: boolean;
+      goals_ai_enabled: boolean;
+    }>
   ): Promise<Workspace> {
     return apiClient.patch<Workspace>(`/workspaces/${id}/`, data);
   },

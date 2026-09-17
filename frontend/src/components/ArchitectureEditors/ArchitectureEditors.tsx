@@ -14,27 +14,41 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
 import { WorkspaceTree } from "../shared/WorkspaceTree";
 import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
-import { ArchitectureForm } from "./ArchitectureForm";
+import { EmptyState } from "../shared/EmptyState";
+import { PageHeader } from "../shared/PageHeader";
+import { useInterviewStartCta } from "../shared/useInterviewStartCta";
+import { ListToolbar } from "../shared/ListToolbar";
+import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
+import type { ChainArtifact } from "../shared/TraceSpine";
+import { ArchitectureArtifactForm } from "./ArchitectureArtifactForm";
+import { ArchitectureLegend } from "./ArchitectureLegend";
+import { Dialog } from "../shared/Dialog";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
+import { RequirementBundleExportPanel } from "../RequirementBundleExport/RequirementBundleExportPanel";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
+import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
   ArchitectureElement,
 } from "../../types";
+import styles from "./ArchitectureEditors.module.css";
+// F-04 (code review, 2026-08-19): shared create-form field styles.
+import fieldHints from "../shared/FieldHints.module.css";
 
 // (Style helpers and dialog moved to ArchitectureForm component)
 
@@ -63,6 +77,8 @@ export default function ArchitectureEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta("ArchitectureElement");
   const { elements, element, isLoading, error, refresh } =
     useArchitectureData(selectedId);
 
@@ -83,13 +99,30 @@ export default function ArchitectureEditors(): JSX.Element {
   // Inline create + search state
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): `description` is an ordinary
+  // architectureApi.create() field the backend already accepts — it had no
+  // editor in this quick-create form.
+  const [newDescription, setNewDescription] = useState('');
   const [listSearch, setListSearch] = useState('');
   // REQ-175: lifecycle-status filter. ArchitectureElement has no denormalized
-  // workflow status, so we filter on the available lifecycle_status field.
+  // workflow status, so we filter on the available lifecycle_status field —
+  // sourced from the backing Artifact since the Datenmodell-Konsolidierung.
   const [statusFilter, setStatusFilter] = useState('');
 
   // Delete-confirmation target from list context menu
   const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
+
+  // Issue #672: does the currently-open ArchitectureForm have unsaved local
+  // edits? Reported by the form itself via onDirtyChange. `pendingSelectId`
+  // holds a tree-node click that arrived while dirty, so it can be
+  // confirmed or discarded instead of silently overwriting the open edit.
+  const [isFormDirty, setIsFormDirty] = useState(false);
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
+
+  // #340: rejected create/delete calls used to end in a bare console.error,
+  // leaving the list unchanged and the user without any reason. One banner in
+  // the list panel serves both — they are the only two list-level writes.
+  const [listActionError, setListActionError] = useState<string | null>(null);
 
   // "Ableiten": create a Requirement allocated to the selected element
   // (SE: Req --allocated-to--> ArchitectureElement).
@@ -100,6 +133,25 @@ export default function ArchitectureEditors(): JSX.Element {
 
   // AI Decompose panel state
   const [showDecomposePanel, setShowDecomposePanel] = useState(false);
+  // UI-24: an Escape/backdrop close while a generated draft is awaiting
+  // review (or a commit is in flight) must not discard it silently.
+  const [decomposeHasPendingWork, setDecomposeHasPendingWork] = useState(false);
+  const [showDecomposeCloseConfirm, setShowDecomposeCloseConfirm] = useState(false);
+
+  const requestCloseDecomposePanel = useCallback((): void => {
+    if (decomposeHasPendingWork) {
+      setShowDecomposeCloseConfirm(true);
+      return;
+    }
+    setShowDecomposePanel(false);
+  }, [decomposeHasPendingWork]);
+
+  // Requirement Bundle Export panel state
+  const [showBundleExportPanel, setShowBundleExportPanel] = useState(false);
+
+  // Legend (help) dialog. Requested after a live test: the page shows five
+  // badge families and nothing said which of them carries the colour.
+  const [showLegend, setShowLegend] = useState(false);
 
   const handleDeriveRequirement = useCallback(async (): Promise<void> => {
     if (!element || !activeWorkspace) return;
@@ -132,21 +184,28 @@ export default function ArchitectureEditors(): JSX.Element {
   }, [element, activeWorkspace, deriveTitle, t, navigate]);
 
   const handleCreate = useCallback(
-    async (parentId?: string, customTitle?: string): Promise<void> => {
+    async (parentId?: string, customTitle?: string, customDescription?: string): Promise<void> => {
       if (!activeWorkspace) return;
+      setListActionError(null);
       try {
         const created = await architectureApi.create({
           workspace_id: activeWorkspace.id,
           title: customTitle || t("arch.newElementTitle"),
           element_type: "component",
           parent_id: parentId ?? undefined,
+          // BUG-11: only send what was actually typed.
+          ...(customDescription?.trim() ? { description: customDescription.trim() } : {}),
         });
         setShowCreateForm(false);
         setNewTitle('');
+        setNewDescription('');
         refresh();
         navigate(`/architecture/${created.id}`);
       } catch (err: unknown) {
-        console.error("Create failed:", err);
+        // #340 (same defect class as RequirementEditors): the server rejects
+        // markup in a title with a 400 naming the field. Logging that to the
+        // console only made a rejected create look like a silent no-op.
+        setListActionError(extractApiErrorMessage(err) ?? t("arch.createFailed"));
       }
     },
     [activeWorkspace, t, refresh, navigate]
@@ -154,21 +213,100 @@ export default function ArchitectureEditors(): JSX.Element {
 
   const handleInlineCreate = useCallback(async () => {
     if (!newTitle.trim()) return;
-    await handleCreate(undefined, newTitle.trim());
-  }, [newTitle, handleCreate]);
+    await handleCreate(undefined, newTitle.trim(), newDescription);
+  }, [newTitle, newDescription, handleCreate]);
+
+  // F-08 (Dialog migration): Escape / backdrop click / × must discard the
+  // draft exactly like the existing Cancel button.
+  const handleCancelCreate = useCallback((): void => {
+    setShowCreateForm(false);
+    setNewTitle('');
+    setNewDescription('');
+  }, []);
+
+  // F-08: preserve the previous `autoFocus` UX — Dialog's focus trap
+  // defaults to the first focusable element (its own × close button).
+  const newTitleInputRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * Drag & drop reparenting from the tree (user decision 2026-08-15).
+   *
+   * WorkspaceTree only reports the drop. It refuses cycle-forming drops
+   * itself (self, current parent, own subtree) using the same
+   * `collectSelfAndDescendantIds` helper that keeps descendants out of
+   * `ArchitectureForm`'s parent dropdown, so both ways of changing a parent
+   * forbid exactly the same set. That guard is deliberate rather than
+   * redundant: server-side invariant I1 (circular parent reference) only runs
+   * at Standard/Extended rigor (`RIGOR_INVARIANT_PRESETS`,
+   * backend/application/validators.py) while a workspace defaults to Minimal,
+   * where a cycle would be persisted and would take the whole subtree out of
+   * the tree view.
+   *
+   * Residual risk, unchanged by this: the guard is browser-side only. A REST
+   * or MCP client PATCHing `parent_id` directly on a Minimal-rigor workspace
+   * can still create a cycle. Closing that needs I1 enabled for every tier
+   * server-side.
+   *
+   * Rejections that do come back from the server (level order I2, single root
+   * I5, permissions) share the list-level error banner with create/delete
+   * (#340).
+   */
+  const handleReparent = useCallback(
+    async (id: string, newParentId: string | null): Promise<void> => {
+      setListActionError(null);
+      try {
+        await architectureApi.reparent(id, newParentId);
+        refresh();
+      } catch (err: unknown) {
+        setListActionError(
+          extractApiErrorMessage(err) ?? t("arch.reparentFailed"),
+        );
+      }
+    },
+    [refresh, t],
+  );
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
+      setListActionError(null);
       try {
         await architectureApi.delete(id);
         refresh();
         navigate("/architecture");
       } catch (err: unknown) {
-        console.error("Delete failed:", err);
+        // #340: a refused delete used to leave the element in the tree with
+        // no explanation. Shares the list-panel banner with create.
+        setListActionError(extractApiErrorMessage(err) ?? t("arch.deleteFailed"));
       }
     },
-    [refresh, navigate]
+    [refresh, navigate, t]
   );
+
+  /**
+   * Issue #672: the tree's onSelect used to call `navigate()` directly,
+   * which swaps the URL — and therefore the `element` prop the open
+   * ArchitectureForm is bound to — immediately, discarding any unsaved edit
+   * with no warning. Unsaved edits now gate the navigation behind a
+   * confirmation instead.
+   */
+  const selectElement = useCallback(
+    (id: string): void => {
+      if (isFormDirty && id !== selectedId) {
+        setPendingSelectId(id);
+        return;
+      }
+      navigate(`/architecture/${id}`);
+    },
+    [isFormDirty, navigate, selectedId]
+  );
+
+  const confirmPendingSelect = useCallback((): void => {
+    if (!pendingSelectId) return;
+    const target = pendingSelectId;
+    setPendingSelectId(null);
+    setIsFormDirty(false);
+    navigate(`/architecture/${target}`);
+  }, [pendingSelectId, navigate]);
 
   // Filter elements by search and convert to WorkspaceTreeNode[] (REQ-003).
   // Must be declared before any early return for stable hook order.
@@ -194,6 +332,63 @@ export default function ArchitectureEditors(): JSX.Element {
       level: el.level != null ? `L${el.level}` : 'L0',
     })),
   [filteredElements, t]);
+
+  // UI concept ch. 12.1: always-visible summary. `lifecycle_status` defaults
+  // to 'active' server-side, so an absent value counts as active here too.
+  const archSummary = useMemo(() => {
+    const active = elements.filter(
+      (el) => (el.lifecycle_status ?? 'active') === 'active',
+    ).length;
+    return [
+      t('arch.summary', { count: elements.length, defaultValue: `${elements.length}` }),
+      t('arch.activeSuffix', { count: active, defaultValue: `${active} active` }),
+    ].join(' · ');
+  }, [elements, t]);
+
+  // Trace spine (ch. 5, ch. 12.10). The chain is composed client-side from
+  // the existing /tracelinks/impact/ neighbourhood query — no new backend
+  // endpoint. `elements` is already loaded exhaustively by
+  // useArchitectureData, so architecture station depths resolve without an
+  // extra round trip.
+  const derivationChain = useDerivationChain(
+    element?.artifact_id ?? element?.id ?? null,
+    'ArchitectureElement',
+    element?.level ?? 0,
+    { architectureElements: elements, enabled: !!element },
+  );
+
+  // The trace graph is keyed by Artifact id, the detail routes take the
+  // domain-entity id. For architecture the mapping is available locally
+  // (the exhaustive element list carries both). For requirements, needs and
+  // test cases there is no client-side mapping and no endpoint that resolves
+  // an Artifact id to its entity — so those entries are shown but not
+  // navigable. See the PR description: closing this needs a backend
+  // resolver, which this change deliberately does not add.
+  const archElementByArtifactId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const el of elements) {
+      if (el.artifact_id) map.set(el.artifact_id, el.id);
+      map.set(el.id, el.id);
+    }
+    return map;
+  }, [elements]);
+
+  const isChainArtifactOpenable = useCallback(
+    (artifact: ChainArtifact): boolean =>
+      artifact.artifactType === 'ArchitectureElement' &&
+      archElementByArtifactId.has(artifact.id),
+    [archElementByArtifactId],
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const elementId = archElementByArtifactId.get(artifact.id);
+      if (artifact.artifactType === 'ArchitectureElement' && elementId) {
+        navigate(`/architecture/${elementId}`);
+      }
+    },
+    [archElementByArtifactId, navigate],
+  );
 
   if (isLoading) {
     return (
@@ -227,7 +422,7 @@ export default function ArchitectureEditors(): JSX.Element {
           onClick={refresh}
           style={{
             background: "var(--color-primary)",
-            color: "#ffffff",
+            color: "var(--color-on-primary)",
             border: "none",
             borderRadius: "var(--radius-md)",
             padding: "var(--space-2) var(--space-4)",
@@ -249,93 +444,57 @@ export default function ArchitectureEditors(): JSX.Element {
         height: "100%",
       }}
     >
+      {/* UI concept ch. 12.2: search / filter / sort come from the shared
+          ListToolbar instead of a hand-built input + select pair. The
+          heading and the primary action moved up into the page-level
+          <PageHeader> (ch. 12.1) — a toolbar carries no primary action.
+          The status filter is now `arch-filter-status` (was
+          `arch-status-filter`); it is not referenced by any e2e spec. */}
       <div style={{ marginBottom: 'var(--space-3)' }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-3)",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-            }}
-          >
-            {t("nav.architecture")}
-          </h3>
-          <button
-            data-testid="create-arch-btn"
-            onClick={() => setShowCreateForm(true)}
-            style={{
-              background: "var(--color-primary)",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            + {t("actions.new")}
-          </button>
-        </div>
-
-        {/* Search input */}
-        <input
-          type="text"
-          value={listSearch}
-          onChange={(e) => setListSearch(e.target.value)}
-          placeholder={t('editor.searchPlaceholder', 'Search...')}
-          style={{
-            width: "100%",
-            padding: "var(--space-2) var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-border)",
-            fontSize: "var(--font-size-sm)",
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
-            boxSizing: "border-box",
-          }}
+        <ListToolbar
+          testIdPrefix="arch"
+          searchValue={listSearch}
+          onSearchChange={setListSearch}
+          searchPlaceholder={t('editor.searchPlaceholder', 'Search...')}
+          filters={[
+            {
+              // REQ-175: lifecycle-status filter. ArchitectureElement has no
+              // denormalized workflow status, so this filters lifecycle_status
+              // (backing-Artifact soft-delete flag, not a workflow state).
+              id: 'status',
+              allLabel: t('editor.allStatuses', 'All Statuses'),
+              value: statusFilter,
+              options: ARCH_LIFECYCLE_STATUSES.map((s) => ({
+                value: s,
+                label: t(`arch.lifecycleStatus.${s}`, s),
+              })),
+              onChange: setStatusFilter,
+            },
+          ]}
+          countLabel={
+            listSearch || statusFilter
+              ? t('editor.filteredCount', { shown: filteredElements.length, total: elements.length })
+              : String(elements.length)
+          }
         />
-
-        {/* REQ-175: lifecycle-status filter */}
-        <label htmlFor="arch-status-filter" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
-          {t('editor.allStatuses', 'All Statuses')}
-        </label>
-        <select
-          id="arch-status-filter"
-          data-testid="arch-status-filter"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          style={{
-            width: "100%",
-            marginTop: "var(--space-2)",
-            padding: "var(--space-2) var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-border)",
-            fontSize: "var(--font-size-sm)",
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
-            boxSizing: "border-box",
-          }}
-        >
-          <option value="">{t('editor.allStatuses', 'All Statuses')}</option>
-          {ARCH_LIFECYCLE_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {t(`arch.lifecycleStatus.${s}`, s)}
-            </option>
-          ))}
-        </select>
       </div>
 
-      {/* Inline create form */}
+      {/* #340: server rejection of a list-level write (create/delete). */}
+      {listActionError && (
+        <p role="alert" data-testid="arch-action-error" className={styles.actionError}>
+          {listActionError}
+        </p>
+      )}
+
+      {/* Inline create form — F-08: wrapped in the shared Dialog primitive
+          (GESAMTTEST_BERICHT 2026-08-21 §5 finding 8); form markup unchanged. */}
       {showCreateForm && (
+        <Dialog
+          title={t('arch.newElementTitle')}
+          onClose={handleCancelCreate}
+          initialFocusRef={newTitleInputRef}
+          testId="arch-new-dialog"
+        >
         <form
           onSubmit={(e) => { e.preventDefault(); void handleInlineCreate(); }}
           style={{
@@ -345,11 +504,20 @@ export default function ArchitectureEditors(): JSX.Element {
             border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
           }}
         >
-          <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
+          {/* #955: the input carried no id/name/aria-label and this label had
+              no `htmlFor`, so the field had no accessible name — only a
+              placeholder. Mirrors the description field's `htmlFor`/`id` pair
+              right below. */}
+          <label
+            htmlFor="arch-new-title"
+            style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}
+          >
             {t('editor.title', 'Title')}
           </label>
           <input
+            id="arch-new-title"
             data-testid="arch-new-title-input"
+            ref={newTitleInputRef}
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
             placeholder={t('arch.newElementTitle')}
             style={{
@@ -358,42 +526,104 @@ export default function ArchitectureEditors(): JSX.Element {
               background: 'var(--color-surface)', color: 'var(--color-text)',
             }}
           />
+          {/* BUG-11: description — an ordinary architectureApi.create() field
+              the backend already accepts, previously missing here. */}
+          <label htmlFor="arch-new-description" className={fieldHints.createLabelInline}>
+            {t('editor.description')}
+          </label>
+          <textarea
+            id="arch-new-description"
+            data-testid="arch-new-description-input"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            rows={3}
+            className={fieldHints.createInput}
+          />
+
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button data-testid="arch-new-cancel-btn" type="button" onClick={() => { setShowCreateForm(false); setNewTitle(''); }}
-              style={{
-                background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
-              }}
-            >{t('cancel', 'Cancel')}</button>
-            <button data-testid="arch-new-save-btn" type="submit" disabled={!newTitle.trim()}
-              style={{
-                background: 'var(--color-primary)', color: 'white', border: 'none',
-                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
-              }}
-            >{t('create', 'Create')}</button>
+            {/* issue #719: shared btn-secondary/btn-primary pair, same as the
+                Adr/Risk/Issue/TestCase/Requirement create dialogs. The inline
+                styles this replaces had no disabled treatment at all, so the
+                submit button looked enabled while `!newTitle.trim()` blocked
+                it. */}
+            <button
+              data-testid="arch-new-cancel-btn"
+              type="button"
+              className="btn-secondary"
+              onClick={handleCancelCreate}
+            >
+              {t('actions.cancel', 'Cancel')}
+            </button>
+            <button
+              data-testid="arch-new-save-btn"
+              type="submit"
+              className="btn-primary"
+              disabled={!newTitle.trim()}
+            >
+              {t('actions.create', 'Erstellen')}
+            </button>
           </div>
         </form>
+        </Dialog>
       )}
 
       {/* WorkspaceTree — unified navigation panel (REQ-003).
-          showLevelBadge shows L0-L4 colored badges per design doc §6.
+          showLevelBadge renders the shared, neutral <LevelBadge> per row
+          (issue #674 — a level is not a state, UI concept ch. 3.3/8.3, so it
+          is deliberately not colour-ramped by depth anymore).
           onAddChild surfaces the "+ child" button on each tree row.
           showSearch=false: search is handled by the input above.
-          won't do: drag-and-drop reparenting — hierarchy view not needed (user decision 2026-07-13). */}
+          onReparent: drag & drop moves an element under a new parent, or onto
+          the root dropzone to detach it to L0. Reinstated on 2026-08-15,
+          reversing the 2026-07-13 "won't do" note that stood here before. */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        <WorkspaceTree
-          data-testid="arch-tree"
-          nodes={archTreeNodes}
-          selectedId={selectedId}
-          onSelect={(id) => navigate(`/architecture/${id}`)}
-          onAddChild={(parentId) => void handleCreate(parentId)}
-          showLevelBadge={true}
-          showSearch={false}
-          emptyLabel={t('editor.empty')}
-          noMatchesLabel={t('editor.noMatches')}
-        />
+        {/* GESAMTTEST_BERICHT_2026-08-21.md §6 "Architecture empty-state":
+            this route used to fall through to WorkspaceTree's built-in plain
+            muted-text emptyLabel/noMatchesLabel instead of the shared
+            <EmptyState> headline+description+CTA pattern every sibling list
+            page (Needs, ADRs, Risks, ...) already uses — see NeedList.tsx's
+            identical wiring, which this mirrors (#179 / ch. 13.3: "nothing
+            exists" wants a create action, "nothing matches the filter"
+            only wants a filter reset). */}
+        {elements.length === 0 ? (
+          <EmptyState
+            variant="empty"
+            testId="arch-tree-empty"
+            title={t('arch.emptyTitle', 'No architecture elements yet')}
+            description={t(
+              'arch.emptyDescription',
+              'Architecture elements map system, subsystems and components onto the V-model hierarchy.',
+            )}
+            actions={[
+              { label: t('arch.newElement', 'New Architecture Element'), prefixWithPlus: true, onClick: () => setShowCreateForm(true), testId: 'arch-tree-empty-create' },
+            ]}
+          />
+        ) : archTreeNodes.length === 0 ? (
+          <EmptyState
+            variant="no-match"
+            testId="arch-tree-no-match"
+            onResetFilters={() => {
+              setListSearch('');
+              setStatusFilter('');
+            }}
+          />
+        ) : (
+          <WorkspaceTree
+            data-testid="arch-tree"
+            nodes={archTreeNodes}
+            selectedId={selectedId}
+            onSelect={selectElement}
+            onAddChild={(parentId) => void handleCreate(parentId)}
+            onReparent={(id, newParentId) => void handleReparent(id, newParentId)}
+            rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
+            showLevelBadge={true}
+            showSearch={false}
+            // Issue #665: remember which branches were open so a sidebar
+            // section switch (which unmounts this tree) does not reset it.
+            stateKey="architecture"
+            virtualize
+          />
+        )}
       </div>
     </div>
   );
@@ -420,6 +650,18 @@ export default function ArchitectureEditors(): JSX.Element {
               padding: "var(--space-6)",
             }}
           >
+            {/* Trace spine — UI concept ch. 5 / ch. 12.10. Architecture is
+                the pilot for it because its tree has a genuinely variable
+                depth, which is exactly what the dynamic station count has
+                to survive (ch. 5.1). */}
+            <TraceSpine
+              stations={derivationChain.stations}
+              isLoading={derivationChain.isLoading}
+              error={derivationChain.error}
+              onOpenArtifact={handleOpenChainArtifact}
+              isOpenable={isChainArtifactOpenable}
+            />
+
             <EntityTypeProvider
               entityType="architecture_element"
               entitySubType={element.element_type}
@@ -428,14 +670,37 @@ export default function ArchitectureEditors(): JSX.Element {
                 make_or_buy: true,
               }}
             >
-              <ArchitectureForm
+              {/* Task 24: the AI Decompose trigger used to live inside
+                  ArchitectureForm's own actions row. ArtifactForm has no
+                  `onDecompose` affordance (it is not an attribute), so the
+                  trigger moves next to the form — same panel, same
+                  `showDecomposePanel` state and `arch-decompose-btn` testid,
+                  functionally unchanged. */}
+              <button
+                type="button"
+                data-testid="arch-decompose-btn"
+                className="btn-secondary"
+                onClick={() => setShowDecomposePanel(true)}
+              >
+                {t("archDecompose.trigger")}
+              </button>
+              <ArchitectureArtifactForm
                 key={element.id}
                 element={element}
-                elements={elements}
                 onSaved={refresh}
-                onDelete={(id) => void handleDelete(id)}
-                isExtendedPreset={activeWorkspace?.preset === "extended"}
-                onDecompose={() => setShowDecomposePanel(true)}
+                // Task 24: ArchitectureArtifactForm deletes through
+                // `architectureApi.delete` itself (ArtifactForm's own confirm
+                // dialog) — routing through the shared `handleDelete(id)`
+                // here would call the delete endpoint a second time. Mirrors
+                // `RiskEditors`/`IssueEditors`' `onDeleted` convention: only
+                // the post-delete navigation/refresh side effects, not the
+                // delete call itself (that still lives in `handleDelete` for
+                // the list-context-menu delete flow below).
+                onDeleted={() => {
+                  refresh();
+                  navigate("/architecture");
+                }}
+                onDirtyChange={setIsFormDirty}
               />
             </EntityTypeProvider>
 
@@ -472,11 +737,14 @@ export default function ArchitectureEditors(): JSX.Element {
             </div>
           </div>
 
-          {/* New unified right sidebar (REQ-L2-RF-034). */}
+          {/* New unified right sidebar (REQ-L2-RF-034). Trace-link display is
+              now owned by the <TraceSpine> above (Task 3.3) — hideTraceLinks
+              keeps the sidebar to versions/baselines only. */}
           <RightSidebar
             kind="architecture"
             artifactId={element.id}
             currentVersion={currentVersion}
+            hideTraceLinks
           />
         </>
       ) : (
@@ -487,111 +755,157 @@ export default function ArchitectureEditors(): JSX.Element {
 
   return (
     <>
+      {pendingSelectId && (
+        <ConfirmDialog
+          title={t("editor.unsavedChangesTitle")}
+          message={t("editor.unsavedChangesMessage")}
+          confirmLabel={t("editor.discardChanges")}
+          onConfirm={confirmPendingSelect}
+          onCancel={() => setPendingSelectId(null)}
+          testId="arch-unsaved-changes-dialog"
+        />
+      )}
+      {/* Issue #670: the list-level delete used to hand-build its own footer
+          buttons on top of <Dialog> (their `btn-danger`/`btn-secondary`
+          equivalents inlined as `style={{ }}`), which is exactly the drift
+          <ConfirmDialog> exists to prevent. The `confirm-delete-btn` testid is
+          preserved verbatim — the Playwright suite selects on it. */}
       {deleteTarget && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 1000,
+        <ConfirmDialog
+          title={t("arch.deleteTitle")}
+          message={t("actions.deleteConfirmPromptNamed", { name: deleteTarget.title })}
+          confirmLabel={t("actions.delete")}
+          onConfirm={() => {
+            setDeleteTarget(null);
+            void handleDelete(deleteTarget.id);
           }}
-        >
-          <div
-            style={{
-              background: "var(--color-surface)",
-              padding: "var(--space-6)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-md)",
-              maxWidth: "400px",
-              textAlign: "center",
-            }}
-          >
-            <h3 style={{ margin: 0, marginBottom: "var(--space-3)" }}>
-              {t("arch.deleteTitle")}
-            </h3>
-            <p style={{ margin: 0, marginBottom: "var(--space-4)" }}>
-              {t("arch.deleteConfirm")}: <strong>{deleteTarget.title}</strong>?
-            </p>
-            <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "center" }}>
-              <button
-                data-testid="confirm-delete-btn"
-                onClick={() => {
-                  setDeleteTarget(null);
-                  void handleDelete(deleteTarget.id);
-                }}
-                style={{
-                  background: "var(--color-danger)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  cursor: "pointer",
-                }}
-              >
-                {t("actions.delete")}
-              </button>
-              <button
-                onClick={() => setDeleteTarget(null)}
-                style={{
-                  background: "var(--color-surface-raised)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  cursor: "pointer",
-                }}
-              >
-                {t("actions.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
+          onCancel={() => setDeleteTarget(null)}
+          testId="arch-delete-dialog"
+          confirmTestId="confirm-delete-btn"
+        />
       )}
 
       {showDecomposePanel && element && activeWorkspace && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 1000,
-            overflow: "auto",
-            padding: "var(--space-4)",
-          }}
-          data-testid="arch-decompose-dialog"
+        <Dialog
+          title={t("archDecompose.title")}
+          description={element.title}
+          onClose={requestCloseDecomposePanel}
+          size="lg"
+          testId="arch-decompose-dialog"
         >
-          <div
-            style={{
-              background: "var(--color-surface)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-md)",
-              maxWidth: "600px",
-              width: "100%",
-              maxHeight: "90vh",
-              overflow: "auto",
+          <ArchitectureDecomposePanel
+            workspaceId={activeWorkspace.id}
+            element={{ id: element.id, title: element.title }}
+            onPendingWorkChange={setDecomposeHasPendingWork}
+            onCommitted={() => {
+              setDecomposeHasPendingWork(false);
+              setShowDecomposePanel(false);
+              refresh();
             }}
-          >
-            <ArchitectureDecomposePanel
-              workspaceId={activeWorkspace.id}
-              element={{ id: element.id, title: element.title }}
-              onCommitted={() => {
-                setShowDecomposePanel(false);
-                refresh();
-              }}
-              onClose={() => setShowDecomposePanel(false)}
-            />
-          </div>
-        </div>
+          />
+        </Dialog>
+      )}
+
+      {/* UI-24: interposed before an Escape/backdrop close would otherwise
+          silently discard a generated-but-not-yet-committed decompose draft
+          (or one currently being committed). */}
+      {showDecomposeCloseConfirm && (
+        <ConfirmDialog
+          title={t("archDecompose.discardDraftTitle")}
+          message={t("archDecompose.discardDraftMessage")}
+          confirmLabel={t("archDecompose.discardDraftConfirm")}
+          onConfirm={() => {
+            setShowDecomposeCloseConfirm(false);
+            setDecomposeHasPendingWork(false);
+            setShowDecomposePanel(false);
+          }}
+          onCancel={() => setShowDecomposeCloseConfirm(false)}
+          testId="arch-decompose-discard-confirm"
+        />
+      )}
+
+      {showBundleExportPanel && element && activeWorkspace && (
+        <Dialog
+          title={t("bundleExport.title")}
+          description={element.title}
+          onClose={() => setShowBundleExportPanel(false)}
+          size="lg"
+          testId="arch-bundle-export-dialog"
+        >
+          <RequirementBundleExportPanel
+            elementId={element.id}
+            elementTitle={element.title}
+          />
+        </Dialog>
+      )}
+
+      {/* UI concept ch. 12.1: exactly one <h1> per route, always-visible
+          summary, one primary action top right, everything rare in the
+          overflow menu. Replaces the <h3> + "+ New" pair that used to sit
+          inside the narrow list panel. `create-arch-btn` keeps its test id —
+          it is referenced by nine e2e specs.
+          The issue #314 width constraint that used to live in a wrapper div
+          here now belongs to <PageHeader> itself, so every route gets it.
+          The wrapper's extra `padding: 0 var(--space-4)` went with it: it was
+          unique to this route and inset the Architecture header by 16px
+          against the six other artifact routes, which is exactly the
+          divergence this header is supposed to remove. */}
+      <PageHeader
+        title={t("nav.architecture")}
+        summary={archSummary}
+        primaryAction={{
+          label: t("arch.newElement"),
+          prefixWithPlus: true,
+          onClick: () => setShowCreateForm(true),
+          disabled: showCreateForm,
+          testId: "create-arch-btn",
+        }}
+        // #797: the guided-interview start is a second *create path*, not a
+        // variant of the primary one — as a visible secondary button it made
+        // this route show two create buttons where Glossary/ICD/Diagram show
+        // one. Secondary actions belong in the overflow menu (ch. 12.1), so
+        // it moved there: same action, same `interview-start-cta` testid,
+        // exactly one visible create CTA per route.
+        overflowActions={[
+          interviewCta,
+          {
+            label: t("archDecompose.trigger", "KI-Zerlegung"),
+            onClick: () => setShowDecomposePanel(true),
+            disabled: !element || !activeWorkspace,
+            testId: "arch-decompose-overflow-btn",
+          },
+          {
+            label: t("bundleExport.trigger", "Requirement-Bundle exportieren"),
+            onClick: () => setShowBundleExportPanel(true),
+            disabled: !element || !activeWorkspace,
+            testId: "arch-bundle-export-overflow-btn",
+          },
+          {
+            // ch. 12.8: the dialog title repeats this label verbatim.
+            label: t("archLegend.trigger", "Legende"),
+            onClick: () => setShowLegend(true),
+            testId: "arch-legend-btn",
+          },
+        ]}
+      />
+
+      {/* Legend — the first user of the real <Dialog> primitive
+          (ch. 12.8): portal, focus trap, Escape, focus back to the
+          overflow trigger. The two hand-built overlays above still use the
+          old pattern; converting them is a separate change. */}
+      {showLegend && (
+        <Dialog
+          title={t("archLegend.trigger", "Legende")}
+          description={t(
+            "archLegend.dialogDescription",
+            "Was die Farben, Kennzeichen und Symbole dieser Ansicht bedeuten.",
+          )}
+          size="lg"
+          onClose={() => setShowLegend(false)}
+          testId="arch-legend-dialog"
+        >
+          <ArchitectureLegend />
+        </Dialog>
       )}
 
       <SplitView

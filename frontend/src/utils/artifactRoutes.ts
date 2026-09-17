@@ -30,6 +30,14 @@ export const ARTIFACT_ROUTE_MAP: Record<string, string> = {
   ArchitectureElement: "/architecture",
   TestCase: "/testcases",
   StakeholderNeed: "/needs",
+  // PascalCase entity_type values as returned by GET /traceability/resolve/
+  // (Task 3.2a/3.3) — the quartet and Goal were previously missing here and
+  // fell through to the "/requirements" fallback.
+  Adr: "/adrs",
+  Risk: "/risks",
+  Issue: "/issues",
+  Goal: "/goals",
+  MainGoal: "/goals",
   // camelCase ArtifactKind aliases (ArtifactInspector)
   testCase: "/testcases",
   stakeholderNeed: "/needs",

@@ -7,7 +7,7 @@ non-slash URLs to their slash-terminated counterpart. For unsafe methods
 settings-leaking HTTP 500 debug page when ``DEBUG=True``) or silently
 dropped the POST body via a 301 redirect (when ``DEBUG=False``).
 
-Fix: ``APPEND_SLASH = False`` in ``reqflow/settings.py`` — every route in
+Fix: ``APPEND_SLASH = False`` in ``reqogniloom/settings.py`` — every route in
 this project is already registered with a trailing slash, so a non-slash
 URL now returns a plain, immediate 404 instead of attempting a lossy
 redirect, in every rigor preset and regardless of ``DEBUG``.
@@ -59,5 +59,5 @@ def test_post_without_trailing_slash_leaks_nothing_even_in_debug_mode() -> None:
 def test_post_with_trailing_slash_still_reaches_the_view() -> None:
     """Sanity/no-regression: the well-formed URL is unaffected by the fix."""
     response = APIClient().post("/api/v1/requirements/", data={}, format="json")
-    # Unauthenticated -> 403, but it must reach the view (not 404/500).
-    assert response.status_code == 403
+    # Unauthenticated (missing credentials) -> 401 (#476), but it must reach the view (not 404/500).
+    assert response.status_code == 401

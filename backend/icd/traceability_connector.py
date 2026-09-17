@@ -8,7 +8,7 @@ IF:      IF-ICD-INT-002 (IcdManager -> TraceabilityConnector)
          IF-L1-039 (TraceabilityConnector -> TraceabilityEngine)
 
 Adapter that decouples IcdManager from the external TraceabilityEngine.
-On ICD creation, creates 'realizes' TraceLinks from:
+On ICD creation, creates 'decomposes' TraceLinks from:
   - source ArchitectureElement Artifact → ICD Artifact (conceptual)
   - target ArchitectureElement Artifact → ICD Artifact (conceptual)
 
@@ -16,7 +16,10 @@ Because the TraceabilityEngine operates on Artifact UUIDs (persistence.models.Ar
 and an ICD does not have its own Artifact row, the links are created between
 the source_element_id and target_element_id directly, with the ICD id as payload
 carried in the link_type metadata. Concretely: the source → target link with
-type='realizes' represents the ICD contract.
+type='decomposes' represents the ICD contract. (This link type was spelled
+using the retired realizes key until the link-type consolidation folded that
+key into 'decomposes' — see link_types.builtin.LEGACY_LINK_TYPE_MAPPING. Both
+endpoints are ArchitectureElements, which 'decomposes' allows.)
 
 The connector calls traceability.services.create_trace_link (IF-L1-039).
 Errors from the traceability engine are logged and re-raised to allow the
@@ -31,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class TraceabilityConnector:
-    """Adapter for creating 'realizes' TraceLinks via the TraceabilityEngine.
+    """Adapter for creating 'decomposes' TraceLinks via the TraceabilityEngine.
 
     leaf_id: COMP-ICD-003
     req_id:  REQ-L2-ICD-004
@@ -46,10 +49,10 @@ class TraceabilityConnector:
         target_element_id: uuid.UUID,
         created_by_id: uuid.UUID | None = None,
     ) -> None:
-        """Create 'realizes' TraceLink(s) for the given ICD.
+        """Create 'decomposes' TraceLink(s) for the given ICD.
 
         Creates a directed TraceLink from source_element_id to
-        target_element_id with link_type='realizes'. This represents
+        target_element_id with link_type='decomposes'. This represents
         that the ICD contract describes the interface between these two
         architecture elements.
 
@@ -71,7 +74,7 @@ class TraceabilityConnector:
         from traceability.services import create_trace_link
 
         logger.debug(
-            "Creating 'realizes' TraceLink: source=%s -> target=%s (icd=%s)",
+            "Creating 'decomposes' TraceLink: source=%s -> target=%s (icd=%s)",
             source_element_id,
             target_element_id,
             icd_id,
@@ -79,11 +82,11 @@ class TraceabilityConnector:
         create_trace_link(
             source_id=source_element_id,
             target_id=target_element_id,
-            link_type="realizes",
+            link_type="decomposes",
             created_by_id=created_by_id,
         )
         logger.info(
-            "TraceLink 'realizes' created: source=%s -> target=%s for ICD %s",
+            "TraceLink 'decomposes' created: source=%s -> target=%s for ICD %s",
             source_element_id,
             target_element_id,
             icd_id,

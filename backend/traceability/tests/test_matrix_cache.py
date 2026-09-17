@@ -64,7 +64,7 @@ class TestVCRMMatrixCache:
             key = services.traceability_matrix_cache_key(workspace_a.id)
             assert cache.get(key) is not None
 
-            make_trace_link(source, target, tenant_a, link_type="satisfies")
+            make_trace_link(source, target, tenant_a, link_type="allocated-to")
 
         assert cache.get(key) is None
 
@@ -74,7 +74,7 @@ class TestVCRMMatrixCache:
         with active_tenant(tenant_a):
             source = make_artifact(tenant_a, workspace_a)
             target = make_artifact(tenant_a, workspace_a)
-            link = make_trace_link(source, target, tenant_a, link_type="satisfies")
+            link = make_trace_link(source, target, tenant_a, link_type="allocated-to")
 
             services.generate_vcrm(workspace_a.id)  # prime after the create
             key = services.traceability_matrix_cache_key(workspace_a.id)

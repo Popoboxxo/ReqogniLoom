@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from audit.services import AuditQueryFilters, query as audit_query
@@ -51,9 +51,11 @@ from se_metrics.types import (
     MetricsResult,
     RiskResult,
     ThresholdConfig,
+    VolatileRequirement,
     VolatilityResult,
     WorkflowGapResult,
 )
+from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
 
 logger = logging.getLogger(__name__)
@@ -85,6 +87,19 @@ def _parse_timeframe_days(timeframe: str) -> int:
 # ---------------------------------------------------------------------------
 # External source adapters
 # (each is called in its own thread — errors produce safe empty results)
+#
+# fix #405: each worker below runs on its own OS thread, which means it
+# also gets its own DB connection (Django connections are thread-local).
+# ``TenantContext.set_tenant`` alone only sets the Python-side thread-local
+# used by TenantManager (COMP-PL-002) — it does NOT set the PostgreSQL
+# session variable ``app.current_tenant`` that the RLS policies match on
+# (COMP-PL-006). That variable is normally set once per *request* thread by
+# ``persistence.middleware.set_request_tenant`` (called from the request
+# middleware); worker threads spawned here never go through that middleware,
+# so their connection had no RLS context and every tenant-scoped query
+# silently returned zero rows (coverage always computed 0/0). Calling the
+# same helper here — and clearing it in a ``finally`` — replicates the
+# middleware's pairing on the worker's own connection.
 # ---------------------------------------------------------------------------
 
 
@@ -92,17 +107,57 @@ def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> 
     """IF-L1-044: Query AuditLog for Requirement change events.
 
     Returns list of AuditEntry objects (or empty list on error).
-    Tenant isolation is automatic via TenantContext (managed by caller).
+    Tenant isolation (app-layer thread-local + Postgres RLS session
+    variable, fix #405) is established for this worker thread's own
+    connection via ``set_request_tenant``.
+
+    Fix #572: ``AuditQueryFilters`` has no ``workspace_id`` concept — it only
+    scopes by tenant (RLS) and ``entity_type``/``entity_id``. Because a
+    tenant can have several workspaces, the unfiltered query returned every
+    "Requirement update" audit entry for the whole *tenant*, so every
+    workspace's volatility metric was computed from the same tenant-wide
+    entry set (byte-identical ``volatility`` blocks across workspaces,
+    leaking one workspace's requirement titles into another's dashboard).
+
+    Review fix (F1): restricting to this workspace's Requirement ids used to
+    happen by fetching a tenant-wide, timestamp-truncated page (up to 10000
+    entries, newest first) and filtering it in Python *after* the fact. A
+    tenant whose total "Requirement update" volume across *all* workspaces
+    exceeds that 10000-entry budget for the period would silently under-count
+    (in the worst case: zero) a given workspace's volatility, with no warning
+    surfaced anywhere. ``AuditQueryFilters.entity_ids`` (additive to the
+    existing single-id ``entity_id`` filter) pushes the workspace membership
+    check down to the DB via ``entity_id__in``, so the 10000-entry budget
+    applies *per workspace*, not once for the whole tenant, and no Python
+    post-filter is needed.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
+        from persistence.models import Requirement
+
+        # Fix #572: restrict to Requirement ids that live in this workspace
+        # (Requirement has a direct `workspace` FK — no join through Artifact
+        # needed). Requirement.objects is tenant-scoped via TenantManager, so
+        # this also can't cross the tenant boundary set by set_request_tenant
+        # above.
+        workspace_requirement_ids = list(
+            Requirement.objects.filter(
+                workspace_id=UUID(str(workspace_id))
+            ).values_list("id", flat=True)
+        )
+        if not workspace_requirement_ids:
+            return []
+
         days = _parse_timeframe_days(timeframe)
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
         filters = AuditQueryFilters(
             entity_type="Requirement",
+            entity_ids=workspace_requirement_ids,
             timestamp_from=cutoff,
         )
-        # Fetch up to 10000 entries (performance SLA: REQ-L2-SM-011)
+        # Fetch up to 10000 entries (performance SLA: REQ-L2-SM-011) — this
+        # budget now applies to *this workspace's* Requirements only (F1),
+        # not the whole tenant.
         result = audit_query(filters=filters, page=1, page_size=200)
         entries = list(result.entries)
 
@@ -121,14 +176,18 @@ def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> 
             exc_info=True,
         )
         return []
+    finally:
+        clear_request_tenant()
 
 
 def _fetch_coverage(workspace_id: str, tenant_id: UUID) -> Any:
     """IF-L1-045: Query TraceabilityEngine for traceability coverage.
 
-    Returns CoverageReport or None on error.
+    Returns CoverageReport or None on error. Tenant isolation (fix #405) is
+    established for this worker thread's own connection via
+    ``set_request_tenant``.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
         return traceability_coverage(workspace_id=UUID(str(workspace_id)))
     except Exception:
@@ -138,6 +197,8 @@ def _fetch_coverage(workspace_id: str, tenant_id: UUID) -> Any:
             exc_info=True,
         )
         return None
+    finally:
+        clear_request_tenant()
 
 
 def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[IncompleteState]:
@@ -151,8 +212,10 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[Incompl
     Items that have never had a history entry for a mandatory state are gaps.
 
     Returns list of IncompleteState or empty list on error/no definition.
+    Tenant isolation (fix #405) is established for this worker thread's own
+    connection via ``set_request_tenant``.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
         from workflow.models import WorkflowEngineDefinition, WorkflowHistoryEntry, WorkflowItemState
 
@@ -223,6 +286,8 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[Incompl
             exc_info=True,
         )
         return []
+    finally:
+        clear_request_tenant()
 
 
 def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
@@ -236,22 +301,35 @@ def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
     time. We use list_risks() instead to get all risks in one call, which
     is more efficient for the aggregation use case.
 
-    Returns list of Risk ORM objects or empty list on error.
+    Returns list of Risk ORM objects or empty list on error. Tenant
+    isolation (fix #405) is established for this worker thread's own
+    connection via ``set_request_tenant``.
     """
-    TenantContext.set_tenant(tenant_id)
+    set_request_tenant(tenant_id)
     try:
         from application.services import RiskService
 
-        # Create a minimal AuthContext-like object for read-only access.
-        # SeMetrics is a read-only system; it reads risks without modifying them.
-        # The RiskService._set_tenant_context() will be called internally.
-        # We construct a minimal context that satisfies the interface.
-        from auth_tenancy.context import AuthContext
+        # Create a minimal AuthContext for read-only access. SeMetrics is a
+        # read-only system; it reads risks without modifying them. The
+        # RiskService._set_tenant_context() will be called internally. We
+        # construct a minimal context that satisfies the interface.
+        #
+        # fix #406: AuthContext is a frozen dataclass with a *required*
+        # ``auth_method`` field (see auth_tenancy/context.py) — omitting it
+        # raised a TypeError on every call. That TypeError was swallowed by
+        # the broad `except Exception` below, so `_fetch_risks` silently
+        # returned `[]` on every single invocation, and the dashboard
+        # rendered "0 open risks / green" regardless of the real risk data.
+        # BEARER_TOKEN mirrors the pattern used by other internal/system
+        # callers that construct a synthetic AuthContext outside an actual
+        # HTTP request (see migrate_se_docs.py).
+        from auth_tenancy.context import AuthContext, AuthMethod
 
         ctx = AuthContext(
             user_id=UUID("00000000-0000-0000-0000-000000000000"),
             tenant_id=tenant_id,
-            active_roles=["viewer"],
+            active_roles=("viewer",),
+            auth_method=AuthMethod.BEARER_TOKEN,
         )
 
         svc = RiskService()
@@ -264,6 +342,72 @@ def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
             exc_info=True,
         )
         return []
+    finally:
+        clear_request_tenant()
+
+
+def _resolve_requirement_titles(
+    volatile_requirements: List[VolatileRequirement], tenant_id: UUID
+) -> None:
+    """Resolve human-readable titles for VolatilityCalculator's top10 entries.
+
+    Runs after VolatilityCalculator (COMP-SM-003), which deliberately stays
+    audit-log-only (no DB access, easy to unit-test in isolation). Title
+    resolution needs a Requirement lookup, so it belongs in MetricsAggregator
+    (COMP-SM-002) alongside the other DB-touching source adapters in this
+    module, not in the calculator.
+
+    Bulk-loads all titles in a single query for up to 10 ids (no N+1) via
+    the tenant-scoped ``Requirement.objects`` manager, so RLS
+    (REQ-L3-PL002-002) applies — a requirement id belonging to another
+    tenant can never leak its title here, it just falls through to the
+    fallback below like any other unresolved id.
+
+    Mutates ``volatile_requirements`` in place (dataclass instances),
+    filling in ``.title``. Falls back to the first 8 characters of
+    ``requirement_id`` when a requirement no longer exists (AuditLog
+    entries outlive hard-deletes), has an empty title, or title resolution
+    fails outright — so the caller never renders an empty row.
+
+    Args:
+        volatile_requirements: top10_volatile entries from VolatilityResult.
+        tenant_id: Active tenant, used to scope the Requirement lookup.
+    """
+    if not volatile_requirements:
+        return
+
+    TenantContext.set_tenant(tenant_id)
+
+    id_by_uuid: Dict[UUID, VolatileRequirement] = {}
+    for vr in volatile_requirements:
+        try:
+            id_by_uuid[UUID(str(vr.requirement_id))] = vr
+        except (ValueError, TypeError):
+            # Not a parseable UUID (e.g. legacy/test data) — fallback applies.
+            vr.title = vr.requirement_id[:8]
+
+    if not id_by_uuid:
+        return
+
+    try:
+        from persistence.models import Requirement  # lazy import
+
+        titles: Dict[UUID, str] = dict(
+            Requirement.objects.filter(id__in=id_by_uuid.keys()).values_list(
+                "id", "title"
+            )
+        )
+    except Exception:
+        logger.warning(
+            "MetricsAggregator: requirement title resolution failed, "
+            "falling back to short ids",
+            exc_info=True,
+        )
+        titles = {}
+
+    for req_uuid, vr in id_by_uuid.items():
+        title = titles.get(req_uuid)
+        vr.title = title if title else vr.requirement_id[:8]
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +494,7 @@ class MetricsAggregator:
             audit_entries=audit_entries,
             timeframe=effective_timeframe,
         )
+        _resolve_requirement_titles(volatility.top10_volatile, tenant_id)
 
         coverage: CoverageResult = self._coverage_calc.calculate(
             coverage_data=coverage_data,

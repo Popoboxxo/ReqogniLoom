@@ -4,8 +4,8 @@ Leaf node: ARCH-L1-009 / LlmAdapterSystem / COMP-LA-005
 REQ-IDs: REQ-042, REQ-L2-LA-008, REQ-L3-LA005-001, REQ-L3-LA005-002
 
 This module registers ``run_capability`` as a ``@shared_task`` so it is picked
-up by ``reqflow.celery:app.autodiscover_tasks()`` and therefore known to the
-worker started via ``celery -A reqflow worker``.
+up by ``reqogniloom.celery:app.autodiscover_tasks()`` and therefore known to the
+worker started via ``celery -A reqogniloom worker``.
 
 The previous implementation created a throw-away Celery app inside the
 dispatcher on every call. That app was never wired to the project's worker, so
@@ -29,6 +29,7 @@ ALLOWED_CAPABILITIES = frozenset(
         "decompose_requirement",
         "check_consistency",
         "derive_requirements",
+        "complete",  # generic free-form completion (Requirement Bundle Export Plan 2)
     }
 )
 
@@ -46,6 +47,31 @@ def _serialise(result: object) -> dict:
     if isinstance(result, dict):
         return result
     return {"result": result}
+
+
+def _approximate_completion_tokens(prompt: str, result_text: str) -> int:
+    """Approximate a combined token count for a "complete" capability call.
+
+    ``complete()`` (``llm_adapter.providers``) returns a plain ``str`` with
+    no token-usage figure attached, unlike the 4 original capabilities whose
+    results are dataclasses carrying a real ``.token_usage``. Real HTTP
+    providers *do* compute a token count internally (see ``_invoke_chat``)
+    but discard it before returning -- surfacing it would mean changing
+    ``complete()``'s return type, which ripples through every one of its
+    ~10 existing call sites (AiDerivationService, ArchitectureDecomposeService,
+    AiReviewService, BundleCompressionService, TraceabilitySuggestService,
+    MCP cross_cutting tools) and is out of scope for wiring up the
+    "complete" capability here.
+
+    Delegates to the shared ~4-characters-per-token heuristic in
+    ``llm_adapter.token_tracking`` (the same estimator the sync free-form
+    paths use) so a single definition of "approximate token count" applies
+    across the async and sync paths. Prompt and completion are estimated as
+    one combined string because this task records a single number.
+    """
+    from llm_adapter.token_tracking import approximate_token_count  # noqa: PLC0415
+
+    return approximate_token_count((prompt or "") + (result_text or ""))
 
 
 @shared_task(bind=True, name="llm_adapter.run_capability")
@@ -84,12 +110,36 @@ def run_capability(
 
     # Imported here to avoid import-time coupling and keep the module importable
     # in contexts where these deps are not needed.
+    from persistence.middleware import clear_request_tenant, set_request_tenant
     from persistence.tenancy import TenantContext
     from llm_adapter.providers import get_provider, resolve_provider_config
 
+    # #522 review follow-up: snapshot the context *before* arming it. Under
+    # CELERY_TASK_ALWAYS_EAGER (settings_test.py) apply_async runs this body
+    # inline on the caller's own thread and DB connection, and
+    # AsyncTaskDispatcher._resolve_tenant_id (dispatcher.py) reads tenant_id
+    # off that same caller's thread-local — so tenant_id is non-None precisely
+    # when the caller already owns a context. Tearing it down unconditionally
+    # in the finally therefore disarmed the *caller's* isolation for the rest
+    # of its request, at both layers: CapabilityRouter.log_llm_call's audit
+    # INSERT runs after this returns and was dropped by its own swallowing
+    # except. Same unset->set nesting guard AuthTenancyMiddleware already uses.
+    tenant_was_set = TenantContext.is_set()
+
     try:
         if tenant_id:
-            TenantContext.set_tenant(tenant_id)
+            # #444: TenantContext.set_tenant() alone only satisfies the Django
+            # ORM side (TenantManager filters/auto-injects tenant_id in
+            # Python). It never issues `SET app.current_tenant` on this
+            # worker's DB connection, so Postgres RLS's WITH CHECK policy
+            # rejects every INSERT here (record_token_usage below) with "new
+            # row violates row-level security policy" — and its USING policy
+            # silently hides every SELECT (resolve_provider_config's
+            # LlmSettings lookup), masking the failure as "no per-tenant
+            # settings configured" instead of surfacing it. Celery workers run
+            # outside any request thread, so nothing else sets the RLS session
+            # variable for this connection; set_request_tenant does both.
+            set_request_tenant(tenant_id)
         # REQ-083: resolve per-tenant LLM settings from the DB (tenant context
         # is active now); falls back to the environment when no tenant_id was
         # dispatched or no settings row exists.
@@ -107,10 +157,16 @@ def run_capability(
         # never fails the task). Runs while the tenant context is still active.
         from llm_adapter.token_tracking import record_token_usage  # noqa: PLC0415
 
+        token_usage = getattr(result, "token_usage", None)
+        if token_usage is None and capability == "complete" and isinstance(result, str):
+            # No real count on a plain-str "complete" result -- approximate
+            # rather than silently recording 0 (see _approximate_completion_tokens).
+            token_usage = _approximate_completion_tokens(kwargs.get("prompt", ""), result)
+
         record_token_usage(
             provider=getattr(provider, "PROVIDER_NAME", config.provider_name or "unknown"),
             capability=capability,
-            input_tokens=getattr(result, "token_usage", None) or 0,
+            input_tokens=token_usage or 0,
             output_tokens=0,
             workspace_id=kwargs.get("workspace_id"),
         )
@@ -119,8 +175,26 @@ def run_capability(
         logger.error("LLM task failed for capability %s: %s", capability, exc, exc_info=True)
         raise
     finally:
-        if tenant_id:
-            TenantContext.clear_tenant()
+        if tenant_id and not tenant_was_set and TenantContext.is_set():
+            try:
+                clear_request_tenant()
+            except Exception:  # noqa: BLE001 — teardown must not mask the cause
+                # #522 review follow-up: clear_request_tenant executes
+                # `RESET app.current_tenant` on the connection, so unlike the
+                # old bare TenantContext.clear_tenant() it can raise — and a
+                # raise from a finally *replaces* the exception in flight.
+                # Celery would then store this teardown error as the task
+                # result while the real failure survived only in the log line
+                # above. RESET only fails when the connection is already
+                # broken; CONN_MAX_AGE is unset (Django default 0), so that
+                # connection is closed rather than handed on with a stale
+                # app.current_tenant. clear_request_tenant also clears the
+                # Python thread-local before it touches the DB, so that half
+                # of the teardown has happened regardless.
+                logger.exception(
+                    "LLM task could not reset the tenant context (capability=%s)",
+                    capability,
+                )
 
 
 __all__ = ["run_capability", "ALLOWED_CAPABILITIES"]

@@ -20,18 +20,40 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
-from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+
+# Datenmodell-Konsolidierung Phase 2 (spec section 3): these seven domain models
+# moved to Layer 0 (persistence/models.py) so the domain data model is owned by
+# exactly one app. Re-exported here because ``from application.models import
+# Adr`` is the established import path across ~40 modules and the move is about
+# ownership, not call-site churn. Their tables (``as_adr``, ...) never moved —
+# only the Django app label did (persistence/0071 + application/0024, a
+# SeparateDatabaseAndState pair that emits no SQL).
+from persistence.models import (
+    Adr,
+    ChangeRequest,
+    ChangeRequestAffectedItem,
+    Goal,
+    Issue,
+    MainGoal,
+    Risk,
+    TenantScopedModel,
+)
 
 
 class DomainEventOutbox(models.Model):
     """Transactional Outbox record for COMP-AS-016 DomainEventBus.
 
     Events are inserted in the same DB transaction as the mutating operation
-    (via transaction.on_commit) — see REQ-L2-AS-029, ADR-L3-DEB-02.
+    — see REQ-L2-AS-029, SA-02. (ADR-L3-DEB-02 originally called for a
+    ``transaction.on_commit`` hook instead; SA-02 supersedes it, because
+    ``on_commit`` runs *after* COMMIT and a crash in that window dropped the
+    event while the mutation stayed committed.)
 
-    The async OutboxPoller worker polls WHERE published=FALSE, acquires
-    SELECT FOR UPDATE, dispatches to subscribers, then sets published=TRUE.
+    The async OutboxPoller claims WHERE published=FALSE under SELECT FOR UPDATE,
+    stamps ``claimed_at`` and commits, then dispatches to subscribers *outside*
+    that transaction, then writes the outcome back in a second short
+    transaction (SA-04).
 
     REQ-L3-DEB-001 (outbox table), REQ-L3-DEB-006 (exactly-once delivery).
     """
@@ -61,6 +83,26 @@ class DomainEventOutbox(models.Model):
         CHANGE_REQUEST_CREATED = "ChangeRequestCreated"
         CHANGE_REQUEST_UPDATED = "ChangeRequestUpdated"
         CHANGE_REQUEST_DELETED = "ChangeRequestDeleted"
+        # Issue #377 (context_graph, Task 2): TraceLink domain events — were
+        # never emitted before this. See trace_link_service.py.
+        TRACE_LINK_CREATED = "TraceLinkCreated"
+        TRACE_LINK_UPDATED = "TraceLinkUpdated"
+        TRACE_LINK_DELETED = "TraceLinkDeleted"
+        # Issue #377 Task 2: these three were already being written to the
+        # outbox as bare strings (goal_service.py / main_goal_service.py /
+        # stakeholder_need_service.py) that matched no EventType.choices
+        # entry — purely additive, declares what already happens at runtime,
+        # no behavior change.
+        STAKEHOLDER_NEED_CREATED = "StakeholderNeedCreated"
+        STAKEHOLDER_NEED_UPDATED = "StakeholderNeedUpdated"
+        STAKEHOLDER_NEED_DELETED = "StakeholderNeedDeleted"
+        GOAL_CREATED = "GoalCreated"
+        MAIN_GOAL_CREATED = "MainGoalCreated"
+        # ai-memory-and-search plan, Task 4: feed the memory projector
+        # (a later task) with interview-chat and formalize completion
+        # events. Purely additive -- no existing emitter changes.
+        INTERVIEW_CHAT_TURN = "InterviewChatTurn"
+        INTERVIEW_FORMALIZED = "InterviewFormalized"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
@@ -72,6 +114,13 @@ class DomainEventOutbox(models.Model):
     published_at = models.DateTimeField(null=True, blank=True)
     published = models.BooleanField(default=False)
     retry_count = models.IntegerField(default=0)
+    #: SA-04. Set by ``poll_and_dispatch`` in a short claim transaction that
+    #: commits *before* the (potentially slow, network-bound) subscriber
+    #: dispatch runs, so the row lock is not held across external I/O. While
+    #: non-NULL and younger than ``CLAIM_TIMEOUT_SECONDS`` the row is invisible
+    #: to peer workers; an older value means the claiming worker died mid-flight
+    #: and the row is reclaimable. Cleared again on success and on failure.
+    claimed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "as_domain_event_outbox"
@@ -181,418 +230,104 @@ class WebhookDeliveryLog(models.Model):
         return f"WebhookDelivery:{self.subscription_id}:{self.event_type}:{self.attempt}"
 
 
-# ---------------------------------------------------------------------------
-# ADR / Risk / Issue models — COMP-AS-013, COMP-AS-014, COMP-AS-015
-# leaf_id : COMP-AS-013, COMP-AS-014, COMP-AS-015
-# req_id  : REQ-L1-029
-# ---------------------------------------------------------------------------
+class Comment(TenantScopedModel):
+    """A human comment on any artifact (Menschen-im-System spec §4).
 
+    Hangs on the generic ``persistence.Artifact`` rather than on a specialized
+    table, so it works for all ten artifact types with no per-type branch —
+    including Diagram/Icd/GlossaryTerm once the Datenmodell-Konsolidierung spec
+    has given them their Artifact backing.
 
-class Adr(models.Model):
-    """Architecture Decision Record entity — COMP-AS-013 AdrService.
+    Comments are **not editable**: create, resolve, delete. That is why there is
+    no change history here — ``author``/``resolved_by``/``resolved_at`` already
+    answer "who did what" (spec §3.3).
 
-    Stores the full lifecycle of architectural decision records with
-    append-only versioning (REQ-L3-ADR-002) and tenant isolation (REQ-L3-ADR-006).
-
-    leaf_id : COMP-AS-013
-    req_id  : REQ-L1-029
+    ``id``, ``created_at``, ``created_by``, ``modified_at``, ``modified_by`` and
+    ``version`` are inherited from ``AuditableModel`` via ``TenantScopedModel``.
     """
 
-    class Status(models.TextChoices):
-        DRAFT = "Draft"
-        IN_REVIEW = "In Review"
-        APPROVED = "Approved"
-        REJECTED = "Rejected"
-        SUPERSEDED = "Superseded"
-        DELETED = "Deleted"  # REQ-006: soft-delete; excluded from normal list views
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # REQ-L2-TE-020: OneToOne backing Artifact so ADRs participate in the
-    # TraceLink graph (which stores Artifact-to-Artifact edges). Nullable to
-    # keep the schema migration additive and backward-compatible with ADR rows
-    # created before this field existed; new ADRs always receive an Artifact
-    # via AdrService.create_adr. on_delete=CASCADE means deleting the backing
-    # Artifact also deletes this ADR (mirrors Requirement/ArchitectureElement).
-    artifact = models.OneToOneField(
+    artifact = models.ForeignKey(
         "persistence.Artifact",
         on_delete=models.CASCADE,
-        related_name="adr",
-        null=True,
-        blank=True,
-        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+        related_name="comments",
     )
-    workspace_id = models.UUIDField(db_index=True)
-    tenant_id = models.UUIDField(db_index=True)
-    title = models.CharField(max_length=200)
-    description = models.TextField(max_length=10000)
-    context = models.TextField(max_length=5000, blank=True)
-    consequences = models.TextField(max_length=5000, blank=True)
-    uid = models.CharField(
-        max_length=64,
-        null=True,
-        blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
-    )
-    status = models.CharField(
-        max_length=32, choices=Status.choices, default=Status.DRAFT
-    )
-    version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    # REQ-165/REQ-166: this is a plain (non-tenant-scoped) model, so it has no
-    # ``unscoped`` manager by default. StateLifecycleManager._sync_status_mirror
-    # writes the denormalized ``status`` via ``model.unscoped.filter(pk=...)``,
-    # so an ``unscoped`` alias is required. ``objects`` is declared first so it
-    # stays the ``_default_manager``; ``unscoped`` is an identical plain manager
-    # (this model carries no row-level tenant filtering).
-    objects = models.Manager()
-    unscoped = models.Manager()
-
-    class Meta:
-        db_table = "as_adr"
-        indexes = [
-            models.Index(fields=["workspace_id", "status"], name="idx_adr_ws_status"),
-            models.Index(fields=["tenant_id", "workspace_id"], name="idx_adr_tenant_ws"),
-            models.Index(fields=["uid"], name="idx_adr_uid_btree"),
-        ]
-
-    def __str__(self) -> str:
-        return f"ADR:{self.id}:{self.title[:40]}"
-
-
-class Risk(models.Model):
-    """Risk entity — COMP-AS-014 RiskService.
-
-    Stores risk metadata with automatic score calculation
-    (probability × impact) and severity classification for SeMetrics.
-
-    leaf_id : COMP-AS-014
-    req_id  : REQ-L1-029
-    """
-
-    class Probability(models.TextChoices):
-        LOW = "low", "Low (1)"
-        MEDIUM = "medium", "Medium (2)"
-        HIGH = "high", "High (3)"
-
-    class Impact(models.TextChoices):
-        LOW = "low", "Low (1)"
-        MEDIUM = "medium", "Medium (2)"
-        HIGH = "high", "High (3)"
-
-    class Category(models.TextChoices):
-        TECHNICAL = "technical"
-        OPERATIONAL = "operational"
-        ORGANIZATIONAL = "organizational"
-        BUSINESS = "business"
-
-    class RiskStatus(models.TextChoices):
-        IDENTIFIED = "Identified"
-        MONITORED = "Monitored"
-        MITIGATED = "Mitigated"
-        ACCEPTED = "Accepted"
-        CLOSED = "Closed"
-
-    # Severity is derived from risk_score: low=1-3, medium=4-8, high>=9
-    class Severity(models.TextChoices):
-        LOW = "low"
-        MEDIUM = "medium"
-        HIGH = "high"
-
-    _PROB_NUMERIC = {"low": 1, "medium": 2, "high": 3}
-    _IMPACT_NUMERIC = {"low": 1, "medium": 2, "high": 3}
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # REQ-L2-TE-020: OneToOne backing Artifact so Risks participate in the
-    # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
-    # Adr.artifact — nullable to keep the schema migration additive and
-    # backward-compatible with Risk rows created before this field existed.
-    # New Risks always receive an Artifact via RiskService.create_risk.
-    # on_delete=CASCADE means deleting the backing Artifact also deletes the
-    # Risk (mirrors Requirement/ArchitectureElement/Adr). This replaces the
-    # former UUID-identity hack (Artifact.id == Risk.id) which had no
-    # referential integrity.
-    artifact = models.OneToOneField(
-        "persistence.Artifact",
-        on_delete=models.CASCADE,
-        related_name="risk",
-        null=True,
-        blank=True,
-        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
-    )
-    workspace_id = models.UUIDField(db_index=True)
-    tenant_id = models.UUIDField(db_index=True)
-    title = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
-    category = models.CharField(
-        max_length=32, choices=Category.choices, default=Category.TECHNICAL
-    )
-    probability = models.CharField(
-        max_length=16, choices=Probability.choices, default=Probability.LOW
-    )
-    impact = models.CharField(
-        max_length=16, choices=Impact.choices, default=Impact.LOW
-    )
-    risk_score = models.IntegerField(default=1)
-    # Persisted severity (low/medium/high) derived from risk_score
-    severity = models.CharField(
-        max_length=16, choices=Severity.choices, default=Severity.LOW
-    )
-    owner = models.CharField(max_length=255, blank=True)
-    # REQ-L1-029 (FMEA): proper User FK for risk assignment. Kept alongside the
-    # legacy `owner` CharField (not a replacement) so existing rows and callers
-    # relying on the free-text owner keep working — Expand phase of an
-    # expand/contract migration. Nullable because existing Risk rows have no
-    # user assigned; on_delete=SET_NULL preserves the Risk if the user is
-    # deleted.
-    owner_user = models.ForeignKey(
+    author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        null=True,
-        blank=True,
         on_delete=models.SET_NULL,
-        related_name="owned_risks",
-        help_text="REQ-L1-029: assigned risk owner (User FK).",
+        null=True,
+        related_name="+",
     )
-    # REQ-L1-029 (FMEA): detectability score (1=easy to detect .. 10=impossible)
-    # feeding the Risk Priority Number. default=5 keeps the migration backward
-    # safe — existing rows receive a neutral mid-scale value.
-    detection = models.PositiveSmallIntegerField(
-        default=5,
-        validators=[MinValueValidator(1), MaxValueValidator(10)],
-        help_text="REQ-L1-029: FMEA detection score (1=easy .. 10=impossible).",
-    )
-    mitigation_strategy = models.TextField(blank=True)
-    uid = models.CharField(
-        max_length=64,
+    text = models.TextField()
+    resolved = models.BooleanField(default=False)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        related_name="+",
     )
-    status = models.CharField(
-        max_length=32, choices=RiskStatus.choices, default=RiskStatus.IDENTIFIED
-    )
-    version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    # REQ-165/REQ-166: ``unscoped`` alias required by
-    # StateLifecycleManager._sync_status_mirror (see Adr for rationale).
-    objects = models.Manager()
-    unscoped = models.Manager()
+    resolved_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        db_table = "as_risk"
+        db_table = "as_comment"
         indexes = [
-            models.Index(fields=["workspace_id", "status"], name="idx_risk_ws_status"),
-            models.Index(fields=["tenant_id", "workspace_id"], name="idx_risk_tenant_ws"),
-            models.Index(fields=["workspace_id", "severity"], name="idx_risk_ws_severity"),
-            models.Index(fields=["workspace_id", "risk_score"], name="idx_risk_ws_score"),
-            models.Index(fields=["uid"], name="idx_risk_uid_btree"),
+            models.Index(fields=["artifact", "created_at"], name="idx_comment_artifact_ts"),
         ]
-
-    def compute_score(self) -> int:
-        """Return probability × impact numeric score (1–9)."""
-        p = self._PROB_NUMERIC.get(self.probability, 1)
-        i = self._IMPACT_NUMERIC.get(self.impact, 1)
-        return p * i
-
-    @property
-    def rpn(self) -> int:
-        """Risk Priority Number (FMEA) = probability × impact × detection.
-
-        probability and impact are categorical TextChoices (low/medium/high),
-        so they are mapped to their 1–3 numeric values via the same lookup
-        tables compute_score() uses — multiplying the raw string labels would
-        fail. detection is already a 1–10 integer. Computed, not persisted;
-        needs no migration.
-        """
-        p = self._PROB_NUMERIC.get(self.probability, 1)
-        i = self._IMPACT_NUMERIC.get(self.impact, 1)
-        return p * i * (self.detection or 5)
-
-    @staticmethod
-    def score_to_severity(score: int) -> str:
-        """Map numeric score to severity label (REQ-L3-RISK-007)."""
-        if score >= 9:
-            return Risk.Severity.HIGH
-        if score >= 4:
-            return Risk.Severity.MEDIUM
-        return Risk.Severity.LOW
+        ordering = ["created_at"]
 
     def __str__(self) -> str:
-        return f"Risk:{self.id}:{self.title[:40]}"
+        return f"Comment:{self.pk}:{self.text[:40]}"
 
 
-class Issue(models.Model):
-    """Issue entity — COMP-AS-015 IssueService.
+class Notification(TenantScopedModel):
+    """A pending human-facing signal (Menschen-im-System spec §5).
 
-    Tracks defects/improvements with severity, assignee management and
-    multi-filter query support.
+    Exactly four kinds, no more — the spec's scope boundary is explicit. There
+    is no real-time push: the frontend fetches this table once when the
+    NavigationShell mounts.
 
-    leaf_id : COMP-AS-015
-    req_id  : REQ-L1-029
+    ``artifact`` is nullable because the workflow trigger resolves it
+    best-effort from a business-entity id and must never fail the transition it
+    is reacting to.
     """
 
-    class Severity(models.TextChoices):
-        CRITICAL = "critical"
-        HIGH = "high"
-        MEDIUM = "medium"
-        LOW = "low"
+    KIND_TRANSITION_PENDING = "transition_pending"
+    KIND_SUSPECT_FLAGGED = "suspect_flagged"
+    KIND_ASSIGNED = "assigned"
+    KIND_COMMENT_ADDED = "comment_added"
 
-    class Category(models.TextChoices):
-        DEFECT = "defect"
-        IMPROVEMENT = "improvement"
-        DOCUMENTATION = "documentation"
-        QUESTION = "question"
+    KIND_CHOICES = [
+        (KIND_TRANSITION_PENDING, "Transition Pending"),
+        (KIND_SUSPECT_FLAGGED, "Suspect Flagged"),
+        (KIND_ASSIGNED, "Assigned"),
+        (KIND_COMMENT_ADDED, "Comment Added"),
+    ]
 
-    class IssueStatus(models.TextChoices):
-        OPEN = "Open"
-        IN_PROGRESS = "In Progress"
-        RESOLVED = "Resolved"
-        CLOSED = "Closed"
-        WONTFIX = "Wontfix"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # REQ-L2-TE-020: OneToOne backing Artifact so Issues participate in the
-    # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
-    # Adr.artifact — nullable to keep the schema migration additive and
-    # backward-compatible with Issue rows created before this field existed.
-    # New Issues always receive an Artifact via IssueService.create_issue.
-    # on_delete=CASCADE means deleting the backing Artifact also deletes the
-    # Issue (mirrors Requirement/ArchitectureElement/Adr). This replaces the
-    # former UUID-identity hack (Artifact.id == Issue.id) which had no
-    # referential integrity.
-    artifact = models.OneToOneField(
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    kind = models.CharField(max_length=32, choices=KIND_CHOICES)
+    artifact = models.ForeignKey(
         "persistence.Artifact",
         on_delete=models.CASCADE,
-        related_name="issue",
         null=True,
         blank=True,
-        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+        related_name="+",
     )
-    workspace_id = models.UUIDField(db_index=True)
-    tenant_id = models.UUIDField(db_index=True)
-    title = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
-    severity = models.CharField(
-        max_length=16, choices=Severity.choices, default=Severity.MEDIUM
-    )
-    category = models.CharField(
-        max_length=32, choices=Category.choices, default=Category.DEFECT
-    )
-    assignee_id = models.UUIDField(null=True, blank=True)
-    assignee_changed_date = models.DateTimeField(null=True, blank=True)
-    due_date = models.DateTimeField(null=True, blank=True)
-    tags = models.JSONField(default=list)
-    uid = models.CharField(
-        max_length=64,
-        null=True,
-        blank=True,
-        help_text="Unique identifier (read-only, auto-generated)",
-    )
-    status = models.CharField(
-        max_length=32, choices=IssueStatus.choices, default=IssueStatus.OPEN
-    )
-    version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    # REQ-165/REQ-166: ``unscoped`` alias required by
-    # StateLifecycleManager._sync_status_mirror (see Adr for rationale).
-    objects = models.Manager()
-    unscoped = models.Manager()
+    message = models.TextField()
+    read = models.BooleanField(default=False)
 
     class Meta:
-        db_table = "as_issue"
+        db_table = "as_notification"
         indexes = [
-            models.Index(fields=["workspace_id", "status"], name="idx_issue_ws_status"),
-            models.Index(
-                fields=["workspace_id", "severity"], name="idx_issue_ws_severity"
-            ),
-            models.Index(fields=["tenant_id", "workspace_id"], name="idx_issue_tenant_ws"),
-            models.Index(
-                fields=["workspace_id", "assignee_id"], name="idx_issue_ws_assignee"
-            ),
-            models.Index(fields=["uid"], name="idx_issue_uid_btree"),
+            models.Index(fields=["user", "read", "created_at"], name="idx_notif_user_read_ts"),
         ]
+        ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"Issue:{self.id}:{self.title[:40]}"
-
-
-class ChangeRequest(models.Model):
-    """Change Request entity — CCB approval workflow (REQ-157).
-
-    Tracks proposed changes through a formal Configuration Control Board (CCB)
-    approval process. Reuses the WorkflowEngine (ccb_approval preset) for
-    state machine transitions with role checks and change_reason enforcement.
-
-    Status lifecycle: draft → submitted → under_review → approved|rejected → implemented
-
-    leaf_id : COMP-AS-021
-    req_id  : REQ-157
-    """
-
-    class Status(models.TextChoices):
-        DRAFT = "draft", "Draft"
-        SUBMITTED = "submitted", "Submitted"
-        UNDER_REVIEW = "under_review", "Under Review"
-        APPROVED = "approved", "Approved"
-        REJECTED = "rejected", "Rejected"
-        IMPLEMENTED = "implemented", "Implemented"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    workspace_id = models.UUIDField(db_index=True)
-    tenant_id = models.UUIDField(db_index=True)
-    title = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
-    impact_assessment = models.TextField(
-        blank=True,
-        help_text="Assessment of the impact this change will have on the system.",
-    )
-    change_reason = models.TextField(
-        blank=True,
-        help_text="Reason for the change request (required for submit and reject transitions).",
-    )
-    status = models.CharField(
-        max_length=32,
-        choices=Status.choices,
-        default=Status.DRAFT,
-    )
-    requestor_id = models.UUIDField(
-        null=True,
-        blank=True,
-        help_text="UUID of the user who created this change request.",
-    )
-    assigned_reviewer_id = models.UUIDField(
-        null=True,
-        blank=True,
-        help_text="UUID of the user assigned as CCB reviewer.",
-    )
-    version = models.IntegerField(default=1)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    # REQ-165/REQ-166: ``unscoped`` alias required by
-    # StateLifecycleManager._sync_status_mirror (see Adr for rationale).
-    objects = models.Manager()
-    unscoped = models.Manager()
-
-    class Meta:
-        db_table = "as_change_request"
-        indexes = [
-            models.Index(fields=["workspace_id", "status"], name="idx_cr_ws_status"),
-            models.Index(fields=["tenant_id", "workspace_id"], name="idx_cr_tenant_ws"),
-            models.Index(fields=["workspace_id", "requestor_id"], name="idx_cr_ws_requestor"),
-        ]
-
-    def __str__(self) -> str:
-        return f"CR:{self.id}:{self.title[:40]}"
+        return f"Notification:{self.pk}:{self.kind}"
 
 
 __all__ = [
@@ -604,4 +339,9 @@ __all__ = [
     "Risk",
     "Issue",
     "ChangeRequest",
+    "ChangeRequestAffectedItem",
+    "Goal",
+    "MainGoal",
+    "Comment",
+    "Notification",
 ]

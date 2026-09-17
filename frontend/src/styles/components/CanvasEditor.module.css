@@ -117,14 +117,21 @@
   box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary);
 }
 
-/* "No fill" swatch: white with a red diagonal. */
+/* "No fill" swatch: white with a red diagonal. Theming phase 2, checkpoint 2:
+   migrated the two white stops onto --color-on-primary (already an exact,
+   theme-independent var(--palette-white) in both themes) and the two red
+   stops onto --color-danger (exact match to #ef4444 in the dark theme; the
+   light theme's --color-danger is a darker red-600, which is fine here —
+   this is a decorative CSS gradient, not a value that must stay pixel-frozen
+   across themes like the canvas/diagram-edge tokens elsewhere in this
+   checkpoint). */
 .swatchTransparent {
   background: linear-gradient(
     to top right,
-    #ffffff 44%,
-    #ef4444 46%,
-    #ef4444 54%,
-    #ffffff 56%
+    var(--color-on-primary) 44%,
+    var(--color-danger) 46%,
+    var(--color-danger) 54%,
+    var(--color-on-primary) 56%
   );
 }
 

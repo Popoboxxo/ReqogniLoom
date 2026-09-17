@@ -85,22 +85,64 @@ _N1_VERIFICATION_RULES = frozenset({ARCH_003, TRACE_P4, TRACE_P5})
 # workspace — N1 output must satisfy them regardless of the workspace preset.
 _VERIFICATION_TIER = "extended"
 
-# Bounds on the generated tree so a single draft cannot explode into an
-# unbounded transaction (§3.1 blast-radius concern).
-_MAX_BREADTH = 5
-_MAX_DEPTH = 3
+# Prompt slot for the recursive decomposition (llm_adapter capability
+# ``arch_decompose_tree``). Spec §4: this is now a regular catalog slot
+# (``architecture_decompose_tree``) rather than a module-private constant, so
+# it is visible and editable in the prompt admin UI like every other prompt.
+# The blast-radius bounds it used to hard-code (_MAX_BREADTH/_MAX_DEPTH) are
+# now the ``max_breadth``/``max_depth`` config variables, resolvable per
+# workspace.
+ARCH_DECOMPOSE_PROMPT_SLOT = "architecture_decompose_tree"
 
-# Prompt template for the recursive decomposition (llm_adapter capability
-# ``arch_decompose_tree``). Kept here as a module constant — N1 does not read a
-# per-tenant PromptTemplate row (no new slot / migration); the mock provider
-# ignores the text and answers deterministically from the structured context.
+# Absolute, non-configurable ceiling (code-review finding on this task,
+# spec §3.1 blast-radius concern). ``resolve_config_values``'s precedence
+# chain puts an explicit call parameter above workspace/tenant/factory
+# (Task 5, by design) -- so without a second, unconditional clamp a caller
+# (e.g. an MCP tool invocation) could pass ``max_breadth=500`` straight
+# through. ``max_breadth``/``max_depth`` from the catalog are the
+# *admin-recommended* cap (configurable, overridable per workspace); these
+# two constants are the emergency brake underneath it that nothing can
+# override, applied after every other resolution step in both
+# :meth:`_complete_tree` (so the prompt/audit context never claims a cap
+# larger than what will actually be enforced) and :meth:`_flatten_tree`
+# (the actual safety net against the tree the LLM returns).
+_ABSOLUTE_MAX_BREADTH = 10
+_ABSOLUTE_MAX_DEPTH = 4
+
 ARCH_DECOMPOSE_PROMPT_TEMPLATE = (
-    "Decompose the architecture element '{element_title}' into {breadth} "
-    "child elements across {depth} level(s). For each child element propose a "
-    "concise title, a description, and a single derived requirement (title, "
-    "description, rationale) that the child element must satisfy. Return a JSON "
-    "array of nodes, each optionally carrying a nested 'children' array."
+    "Analyse the architecture element '{element_title}' and the requirements "
+    "allocated to it. Decompose it into the child elements that are actually "
+    "justified by its content — mirror real cohesion, do not split "
+    "artificially. Choose the number of children and the number of levels "
+    "yourself; use at most {max_breadth} child elements per level and at most "
+    "{max_depth} levels in total. For each child element propose a concise "
+    "title, a description, and a single derived requirement (title, "
+    "description, rationale) that the child element must satisfy. Return a "
+    "JSON array of nodes, each optionally carrying a nested 'children' array."
 )
+
+
+def _rationale_custom_fields(rationale: object) -> Optional[Dict[str, Any]]:
+    """Return the extended-attribute carrier for a node's generated rationale.
+
+    ``rationale`` is an extended (``kind="extended"``) attribute for **both**
+    entity types this commit creates (``attribute_definitions.stage_matrix``:
+    Requirement -> ISO 29148, ArchitectureElement -> ISO 42010), so it is
+    persisted under ``Artifact.custom_fields["rationale"]`` — the carrier
+    ``RequirementService.create_requirement`` and
+    ``ArchitectureService.create_architecture_element`` already accept. A
+    top-level ``rationale`` field is rejected by design (#915/#916), and
+    forwarding only title/description silently dropped the generated rationale
+    on commit — the N1 counterpart of the derivation fix (issue #583).
+
+    A draft without a non-empty rationale yields ``None`` so the created entity
+    keeps the same empty ``custom_fields`` map (``{}``) that every other create
+    call without custom fields produces, instead of a bogus
+    ``{"rationale": ""}`` entry.
+    """
+    if isinstance(rationale, str) and rationale:
+        return {"rationale": rationale}
+    return None
 
 
 class DecompositionNotAvailableError(PermissionDeniedError):
@@ -319,16 +361,18 @@ class ArchitectureDecomposeService(ServiceBase):
         ctx: AuthContext,
         element_id: UUID | str,
         *,
-        breadth: int = 2,
-        depth: int = 1,
+        max_breadth: Optional[int] = None,
+        max_depth: Optional[int] = None,
     ) -> DecompositionDraft:
-        """Propose a recursive decomposition for *element_id* (no DB writes).
+        """Propose a decomposition for *element_id* (no DB writes).
 
         Args:
             ctx: Authenticated, tenant-scoped context.
             element_id: The ArchitectureElement (Subsystem) to decompose.
-            breadth: Children per level (clamped to 1..``_MAX_BREADTH``).
-            depth: Recursion depth (clamped to 1..``_MAX_DEPTH``).
+            max_breadth: Upper bound on children per level. ``None`` resolves
+                the ``max_breadth`` config variable for this workspace.
+            max_depth: Upper bound on levels. ``None`` resolves the
+                ``max_depth`` config variable for this workspace.
 
         Returns:
             A :class:`DecompositionDraft` for review — nothing is persisted.
@@ -338,6 +382,8 @@ class ArchitectureDecomposeService(ServiceBase):
             NotFoundError: The element does not exist for this tenant.
             ValidationError: The element has no allocated anchor requirement.
         """
+        from application.prompt_resolver import resolve_config_values
+
         self._set_tenant_context(ctx)
 
         element = (
@@ -360,13 +406,32 @@ class ArchitectureDecomposeService(ServiceBase):
                 "to satisfy ARCH-003/TRACE-P5)."
             )
 
-        breadth = max(1, min(int(breadth), _MAX_BREADTH))
-        depth = max(1, min(int(depth), _MAX_DEPTH))
+        # Explicit call parameter > workspace row > tenant row > factory
+        # default (spec §3.3). A caller-supplied cap is still floored at 1 so a
+        # zero or negative value cannot produce an empty draft. This resolved
+        # value can still be arbitrarily large (an explicit override outranks
+        # every stored value, by design) -- _complete_tree/_flatten_tree apply
+        # the unconditional _ABSOLUTE_MAX_BREADTH/_ABSOLUTE_MAX_DEPTH ceiling
+        # on top of it, so no caller can bypass the blast-radius bound.
+        caps = resolve_config_values(
+            ctx,
+            workspace_id,
+            overrides={"max_breadth": max_breadth, "max_depth": max_depth},
+        )
+        resolved_breadth = max(1, int(caps["max_breadth"]))
+        resolved_depth = max(1, int(caps["max_depth"]))
 
         raw_tree, provider_name, degraded = self._complete_tree(
-            element_title=element.title, breadth=breadth, depth=depth
+            ctx=ctx,
+            workspace_id=workspace_id,
+            element_title=element.title,
+            max_breadth=resolved_breadth,
+            max_depth=resolved_depth,
+            artifact_id=str(element.artifact_id),
         )
-        nodes = self._flatten_tree(raw_tree)
+        nodes = self._flatten_tree(
+            raw_tree, max_breadth=resolved_breadth, max_depth=resolved_depth
+        )
         if not nodes:
             raise ValidationError(
                 "The LLM returned no decomposition nodes for this element."
@@ -438,12 +503,29 @@ class ArchitectureDecomposeService(ServiceBase):
         result = CommitResult(root_element_id=str(root_element.id))
         # temp_id -> (architecture_element_id, requirement_id) for parent lookup.
         created: Dict[str, Tuple[UUID, UUID]] = {}
+        # Issue #366: Requirement PK -> backing Artifact id. create_requirement's
+        # ``parent_id`` addresses the *Artifact* tree (see
+        # RequirementService.decompose, which passes ``parent_req.artifact_id``),
+        # while _resolve_parents works in the Requirement PK space. Without this
+        # translation the derived requirements were created with a NULL
+        # Artifact.parent and artifact.get_tree reported an empty subtree.
+        req_artifact_ids: Dict[UUID, UUID] = {anchor.id: anchor.artifact_id}
         new_artifact_ids: set[str] = set()
 
         with TransactionContextManager():
             for node in draft.nodes:
                 parent_element_id, parent_req_id = self._resolve_parents(
                     node, root_element, anchor, created
+                )
+                # The draft carries one generated rationale per node
+                # (``DraftRequirement.rationale`` — the DTO has no separate
+                # element-level rationale, see DraftNode). It is an extended
+                # attribute for BOTH created entity types, so it is persisted
+                # under Artifact.custom_fields["rationale"] for each of them:
+                # forwarding only title/description (+ element_type/parent)
+                # silently dropped it (issue #583).
+                rationale_fields = _rationale_custom_fields(
+                    node.requirement.rationale
                 )
                 child_element = self._architecture.create_architecture_element(
                     workspace_id=UUID(workspace_id),
@@ -452,13 +534,17 @@ class ArchitectureDecomposeService(ServiceBase):
                     description=node.description,
                     element_type=node.element_type,
                     parent_id=parent_element_id,
+                    custom_fields=rationale_fields,
                 )
                 child_req = self._requirements.create_requirement(
                     workspace_id=UUID(workspace_id),
                     title=node.requirement.title or node.title,
                     ctx=ctx,
                     description=node.requirement.description,
+                    parent_id=req_artifact_ids.get(parent_req_id),
+                    custom_fields=rationale_fields,
                 )
+                req_artifact_ids[child_req.id] = child_req.artifact_id
                 created[node.temp_id] = (child_element.id, child_req.id)
                 result.created_element_ids.append(str(child_element.id))
                 result.created_requirement_ids.append(str(child_req.id))
@@ -511,6 +597,16 @@ class ArchitectureDecomposeService(ServiceBase):
           * ``derives-from``  : child requirement -> parent requirement
         The ``derives-from`` link is what makes the output pass TRACE-P5 (and,
         together with the allocation, ARCH-003) by construction.
+
+        Deliberately **no** link is emitted for the parent-element ->
+        child-element edge (issue #365). Architecture hierarchy is an FK tree
+        (``ArchitectureElement.parent``, mirrored onto ``Artifact.parent`` so
+        ``artifact.get_tree`` can walk it — issue #366), not a TraceLink:
+        ``traceability.types.SE_LINK_SEMANTICS`` restricts ``derives-from`` to
+        Requirement/StakeholderNeed endpoints, and
+        ``CrossCuttingToolGroup._handle_change_impact`` walks the FK tree
+        explicitly for exactly this reason. Emitting a redundant link here
+        would add a *fourth* hierarchy representation instead of removing one.
         """
         alloc = self._trace.allocate(
             requirement_id=child_req_id,
@@ -630,32 +726,89 @@ class ArchitectureDecomposeService(ServiceBase):
         )
 
     def _complete_tree(
-        self, *, element_title: str, breadth: int, depth: int
+        self,
+        *,
+        ctx: AuthContext,
+        workspace_id: str,
+        element_title: str,
+        max_breadth: int,
+        max_depth: int,
+        artifact_id: str,
     ) -> Tuple[list, str, bool]:
         """Call the LLM provider for a decomposition tree (graceful degradation).
 
         Returns ``(parsed_tree, provider_name, degraded)``. On any provider
-        error it degrades to the credential-free deterministic mock so the draft
-        flow never crashes (§4 Phase 4a: "mit mock ... kein Crash").
+        error it degrades to the credential-free deterministic mock so the
+        draft flow never crashes (§4 Phase 4a: "mit mock ... kein Crash").
+
+        The prompt body now comes from the ``architecture_decompose_tree``
+        catalog slot and is rendered by the shared resolver, so a workspace
+        can customise both the wording and the caps (spec §4). Note the
+        deliberate switch away from ``str.format``: the body may legitimately
+        contain JSON braces once an admin edits it, which ``.format`` would
+        reject.
+
+        Code review finding: this call bypassed REQ-106 (per-tenant daily LLM
+        token budget) and the LlmAuditLog trail entirely -- it called
+        provider.complete() directly with neither an is_over_daily_limit()
+        check beforehand nor a LlmAuditLogger.log_llm_call()/
+        record_token_usage() call after, unlike every other free-form LLM
+        flow in this codebase (AiDerivationService._complete,
+        BundleCompressionService._call_provider). Both are now applied here,
+        mirroring those call sites' pattern exactly.
+
+        Raises:
+            LlmResponseError: The tenant's daily LLM token budget is already
+                exceeded (checked before the real-provider call only -- the
+                mock-fallback path is exempt, matching every other flow's
+                graceful-degradation contract, ADR-02).
         """
         from django.conf import settings
 
+        from application.ai_derivation_service import (
+            AiDerivationService,
+            LlmResponseError,
+        )
+        from application.prompt_resolver import resolve_and_render
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
             LlmProviderUnknownError,
             MockLlmProvider,
             get_provider,
         )
-
-        prompt = ARCH_DECOMPOSE_PROMPT_TEMPLATE.format(
-            element_title=element_title, breadth=breadth, depth=depth
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
         )
+
+        # Unconditional ceiling (see module docstring on _ABSOLUTE_MAX_BREADTH):
+        # applied here too, not just in _flatten_tree, so the prompt/audit
+        # context never advertises a cap larger than what will actually be
+        # enforced once the tree comes back.
+        max_breadth = min(max(1, int(max_breadth)), _ABSOLUTE_MAX_BREADTH)
+        max_depth = min(max(1, int(max_depth)), _ABSOLUTE_MAX_DEPTH)
+
+        prompt = resolve_and_render(
+            ARCH_DECOMPOSE_PROMPT_SLOT,
+            ctx,
+            workspace_id,
+            config_overrides={"max_breadth": max_breadth, "max_depth": max_depth},
+            element_title=element_title,
+        )
+        # R5/R7 Sprache (systemaudit 2026-09-02): reuse AiDerivationService's
+        # workspace-language directive (issue #795) rather than duplicating
+        # it -- architecture.decompose (N1) is a content-generating flow
+        # that fix did not cover (it lives in a sibling module).
+        prompt += AiDerivationService._language_instruction(workspace_id)
         context = {
             "element_title": element_title,
-            "breadth": breadth,
-            "depth": depth,
+            "max_breadth": max_breadth,
+            "max_depth": max_depth,
         }
         provider_name = getattr(settings, "LLM_PROVIDER", "mock")
+        audit_logger = LlmAuditLogger()
         degraded = False
         try:
             provider = get_provider()
@@ -669,9 +822,63 @@ class ArchitectureDecomposeService(ServiceBase):
             provider_name = "mock"
             degraded = True
 
-        raw = provider.complete(
-            prompt, purpose="arch_decompose_tree", context=context
-        )
+        if not degraded and is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="arch_decompose_tree",
+                artifact_id=artifact_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise LlmResponseError(
+                "Daily LLM token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
+
+        try:
+            raw = provider.complete(
+                prompt, purpose="arch_decompose_tree", context=context
+            )
+        except Exception as error:
+            if degraded:
+                raise
+            logger.warning(
+                "architecture.decompose: provider %s call failed: %s",
+                provider_name,
+                error,
+            )
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="arch_decompose_tree",
+                artifact_id=artifact_id,
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
+            raise LlmResponseError(
+                f"architecture.decompose LLM call failed: {error}"
+            ) from error
+
+        if not degraded:
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability="arch_decompose_tree",
+                artifact_id=artifact_id,
+                token_usage=None,
+                success=True,
+                error=None,
+            )
+            # SA-26: this used to hardcode input_tokens=0, leaving the daily
+            # budget (is_over_daily_limit above) blind to this call's real
+            # spend. Estimate both sides client-side (see
+            # ``approximate_token_count``) like every other free-form path.
+            record_token_usage(
+                provider=provider_name,
+                capability="arch_decompose_tree",
+                input_tokens=approximate_token_count(prompt),
+                output_tokens=approximate_token_count(raw),
+            )
         return self._parse_tree(raw), provider_name, degraded
 
     @staticmethod
@@ -696,23 +903,44 @@ class ArchitectureDecomposeService(ServiceBase):
             )
         return parsed
 
-    def _flatten_tree(self, raw_tree: list) -> List[DraftNode]:
-        """Flatten a nested provider tree into pre-order :class:`DraftNode` list.
+    def _flatten_tree(
+        self, raw_tree: list, *, max_breadth: int, max_depth: int
+    ) -> List[DraftNode]:
+        """Flatten a nested provider tree into a pre-order :class:`DraftNode` list.
 
         Assigns stable ``temp_id``s (``n1``, ``n1.1`` …) and wires
         ``parent_temp_id`` so :meth:`commit_draft` can process parents before
         children in a single pass.
+
+        Also enforces the resolved caps as a hard safety net (§3.1
+        blast-radius concern): the prompt merely *asks* the model for at most
+        ``max_breadth`` children over at most ``max_depth`` levels, so a model
+        that ignores the instruction is clamped here rather than allowed to
+        expand the commit transaction without bound.
+
+        ``max_breadth``/``max_depth`` are additionally clamped to
+        ``_ABSOLUTE_MAX_BREADTH``/``_ABSOLUTE_MAX_DEPTH`` here, unconditionally
+        -- these two parameters may already carry an explicit caller override
+        (resolve_config_values' precedence puts it above every stored value),
+        so without this second clamp a caller could request an arbitrarily
+        large tree despite the admin-configured ``max_breadth``/``max_depth``.
         """
+        max_breadth = min(max(1, int(max_breadth)), _ABSOLUTE_MAX_BREADTH)
+        max_depth = min(max(1, int(max_depth)), _ABSOLUTE_MAX_DEPTH)
         nodes: List[DraftNode] = []
 
-        def _walk(items: list, parent_temp_id: Optional[str], prefix: str) -> None:
-            for i, item in enumerate(items):
+        def _walk(items: list, parent_temp_id: Optional[str], prefix: str, level: int) -> None:
+            kept = 0
+            for item in items:
+                if kept >= max_breadth:
+                    break
                 if not isinstance(item, dict):
                     continue
-                temp_id = f"{prefix}{i + 1}"
                 title = str(item.get("title", "")).strip()
                 if not title:
                     continue
+                kept += 1
+                temp_id = f"{prefix}{kept}"
                 nodes.append(
                     DraftNode(
                         temp_id=temp_id,
@@ -726,10 +954,10 @@ class ArchitectureDecomposeService(ServiceBase):
                     )
                 )
                 children = item.get("children")
-                if isinstance(children, list) and children:
-                    _walk(children, temp_id, f"{temp_id}.")
+                if level < max_depth and isinstance(children, list) and children:
+                    _walk(children, temp_id, f"{temp_id}.", level + 1)
 
-        _walk(raw_tree, None, "n")
+        _walk(raw_tree, None, "n", 1)
         return nodes
 
 
@@ -742,4 +970,5 @@ __all__ = [
     "DecompositionNotAvailableError",
     "DecompositionAuditError",
     "ARCH_DECOMPOSE_PROMPT_TEMPLATE",
+    "ARCH_DECOMPOSE_PROMPT_SLOT",
 ]

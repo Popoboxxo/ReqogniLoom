@@ -1,0 +1,102 @@
+/*
+ * Task 3.1: layout-only class for the `renderRow` custom-content slot in
+ * `TreeRow`. Kept as a CSS module (not an inline `style={{`) so the ratchet
+ * guard in `src/test/ui-ratchet.test.ts` isn't tripped by an additive,
+ * non-visual layout tweak.
+ */
+.customRowSlot {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * Row chrome — selection and the issue #668 collapsed-ancestor marker.
+ *
+ * These moved out of the row's inline `style={{...}}` on purpose: an inline
+ * `background`/`border-left` beats a class, so the marker's tint (needed only
+ * for the ancestor case) could not be expressed as a token class while the
+ * base chrome stayed inline. Colour now always comes from a token, and the
+ * three states are mutually exclusive classes.
+ */
+.treeRow {
+  border-left: 3px solid transparent;
+  transition: background var(--transition-fast);
+}
+
+.treeRowHoverable:hover {
+  background: var(--color-surface-raised);
+}
+
+.treeRowSelected {
+  background: var(--color-card-active-bg);
+  border-left: 3px solid var(--color-primary);
+}
+
+/*
+ * Issue #668: a *collapsed* ancestor that hides the current selection.
+ * Dashed left accent plus a faint primary tint — "the selection is in here",
+ * deliberately distinct from the solid accent of the selected row itself.
+ */
+.treeRowHasActiveDescendant {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border-left: 3px dashed var(--color-primary);
+}
+
+/*
+ * Drag & drop reparenting (user decision 2026-08-15).
+ *
+ * The drag affordances deliberately use properties the row chrome above does
+ * not touch: outline for the drop target, opacity for the row in flight.
+ */
+.dropTarget {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+}
+
+.dragging {
+  opacity: 0.5;
+}
+
+.rootDropzone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-align: center;
+  user-select: none;
+}
+
+.rootDropzoneActive {
+  border-color: var(--color-primary);
+  background: var(--color-card-active-bg);
+}
+
+/*
+ * Visual connector lines for non-root tree rows (issue #661).
+ * Vertical line from parent, horizontal stub connecting to the row content.
+ * Only applied when depth > 0 — root nodes have no parent connector.
+ */
+.treeLine {
+  position: relative;
+}
+
+.treeLine::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--tree-depth, 0) * 16px - 8px);
+  top: 0;
+  bottom: 50%;
+  width: 1px;
+  background: var(--color-border);
+}
+
+.treeLine::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--tree-depth, 0) * 16px - 8px);
+  top: 50%;
+  width: 16px;
+  height: 1px;
+  background: var(--color-border);
+}

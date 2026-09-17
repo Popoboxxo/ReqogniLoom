@@ -23,6 +23,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError } from "../../api/errors";
+import { Dialog } from "../shared/Dialog";
 
 export interface SignatureDialogProps {
   isOpen: boolean;
@@ -37,37 +38,7 @@ export interface SignatureDialogProps {
   onSubmit: (credential: string, changeReason: string) => Promise<void>;
 }
 
-const overlayStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0, 0, 0, 0.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-
-const dialogStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  borderRadius: "var(--radius-lg)",
-  boxShadow: "var(--shadow-md)",
-  width: "100%",
-  maxWidth: "480px",
-  display: "flex",
-  flexDirection: "column",
-  overflow: "hidden",
-};
-
-const headerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  padding: "var(--space-4) var(--space-5)",
-  borderBottom: "1px solid var(--color-border)",
-};
-
 const bodyStyle: React.CSSProperties = {
-  padding: "var(--space-4) var(--space-5)",
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-3)",
@@ -77,8 +48,6 @@ const footerStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "flex-end",
   gap: "var(--space-2)",
-  padding: "var(--space-4) var(--space-5)",
-  borderTop: "1px solid var(--color-border)",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -114,13 +83,6 @@ export function SignatureDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>): void => {
-      if (e.target === e.currentTarget) onClose();
-    },
-    [onClose]
-  );
-
   const handleSubmit = useCallback(
     async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
       e.preventDefault();
@@ -153,112 +115,95 @@ export function SignatureDialog({
 
   if (!isOpen) return null;
 
+  const formId = "signature-dialog-form";
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("reviews.signatureDialog.title", "Confirm with signature")}
-      data-testid="signature-dialog"
-      style={overlayStyle}
-      onClick={handleBackdropClick}
-    >
-      <div style={dialogStyle}>
-        <div style={headerStyle}>
-          <h3 style={{ margin: 0, fontSize: "var(--font-size-lg)", fontWeight: 700 }}>
-            {t("reviews.signatureDialog.title", "Confirm with signature")} ({targetState})
-          </h3>
+    <Dialog
+      title={`${t("reviews.signatureDialog.title", "Confirm with signature")} (${targetState})`}
+      onClose={onClose}
+      size="sm"
+      testId="signature-dialog"
+      footer={
+        <div style={footerStyle}>
           <button
             type="button"
-            data-testid="signature-dialog-close"
+            data-testid="signature-dialog-cancel"
+            className="btn-secondary"
             onClick={onClose}
-            aria-label={t("actions.close", "Close")}
-            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem" }}
+            disabled={isSubmitting}
           >
-            ×
+            {t("reviews.signatureDialog.cancel", "Cancel")}
+          </button>
+          <button
+            type="submit"
+            form={formId}
+            data-testid="signature-dialog-submit"
+            className="btn-primary"
+            disabled={isSubmitting}
+          >
+            {isSubmitting
+              ? t("reviews.signatureDialog.submitting", "Confirming...")
+              : t("reviews.signatureDialog.submit", "Confirm")}
           </button>
         </div>
+      }
+    >
+      <form id={formId} onSubmit={(e) => void handleSubmit(e)} style={bodyStyle}>
+        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+          {t(
+            "reviews.signatureDialog.description",
+            "This transition requires a signature. Enter your password or a 6-digit TOTP code to continue."
+          )}
+        </p>
 
-        <form onSubmit={(e) => void handleSubmit(e)} style={{ display: "contents" }}>
-          <div style={bodyStyle}>
-            <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
-              {t(
-                "reviews.signatureDialog.description",
-                "This transition requires a signature. Enter your password or a 6-digit TOTP code to continue."
-              )}
-            </p>
-
-            <div>
-              <label htmlFor="signature-dialog-credential" style={labelStyle}>
-                {t("reviews.signatureDialog.credentialLabel", "Password or TOTP code")}
-              </label>
-              <input
-                id="signature-dialog-credential"
-                data-testid="signature-dialog-credential-input"
-                type="password"
-                autoComplete="off"
-                value={credential}
-                onChange={(e) => setCredential(e.target.value)}
-                placeholder={t(
-                  "reviews.signatureDialog.credentialPlaceholder",
-                  "Enter your password or TOTP code"
-                )}
-                disabled={isSubmitting}
-                style={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="signature-dialog-reason" style={labelStyle}>
-                {t("reviews.signatureDialog.reasonLabel", "Reason")}
-                {requiresChangeReason && <span style={{ color: "var(--color-danger)" }}> *</span>}
-              </label>
-              <textarea
-                id="signature-dialog-reason"
-                data-testid="signature-dialog-reason-input"
-                value={changeReason}
-                onChange={(e) => setChangeReason(e.target.value)}
-                placeholder={t("reviews.signatureDialog.reasonPlaceholder", "Reason for this decision")}
-                rows={3}
-                disabled={isSubmitting}
-                style={{ ...inputStyle, fontFamily: "inherit" }}
-              />
-            </div>
-
-            {submitError && (
-              <p
-                role="alert"
-                data-testid="signature-dialog-error"
-                style={{ margin: 0, color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}
-              >
-                {submitError}
-              </p>
+        <div>
+          <label htmlFor="signature-dialog-credential" style={labelStyle}>
+            {t("reviews.signatureDialog.credentialLabel", "Password or TOTP code")}
+          </label>
+          <input
+            id="signature-dialog-credential"
+            data-testid="signature-dialog-credential-input"
+            type="password"
+            autoComplete="off"
+            value={credential}
+            onChange={(e) => setCredential(e.target.value)}
+            placeholder={t(
+              "reviews.signatureDialog.credentialPlaceholder",
+              "Enter your password or TOTP code"
             )}
-          </div>
+            disabled={isSubmitting}
+            style={inputStyle}
+          />
+        </div>
 
-          <div style={footerStyle}>
-            <button
-              type="button"
-              data-testid="signature-dialog-cancel"
-              className="btn-secondary"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              {t("reviews.signatureDialog.cancel", "Cancel")}
-            </button>
-            <button
-              type="submit"
-              data-testid="signature-dialog-submit"
-              className="btn-primary"
-              disabled={isSubmitting}
-            >
-              {isSubmitting
-                ? t("reviews.signatureDialog.submitting", "Confirming...")
-                : t("reviews.signatureDialog.submit", "Confirm")}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div>
+          <label htmlFor="signature-dialog-reason" style={labelStyle}>
+            {t("reviews.signatureDialog.reasonLabel", "Reason")}
+            {requiresChangeReason && <span style={{ color: "var(--color-danger)" }}> *</span>}
+          </label>
+          <textarea
+            id="signature-dialog-reason"
+            data-testid="signature-dialog-reason-input"
+            value={changeReason}
+            onChange={(e) => setChangeReason(e.target.value)}
+            placeholder={t("reviews.signatureDialog.reasonPlaceholder", "Reason for this decision")}
+            rows={3}
+            disabled={isSubmitting}
+            style={{ ...inputStyle, fontFamily: "inherit" }}
+          />
+        </div>
+
+        {submitError && (
+          <p
+            role="alert"
+            data-testid="signature-dialog-error"
+            style={{ margin: 0, color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}
+          >
+            {submitError}
+          </p>
+        )}
+      </form>
+    </Dialog>
   );
 }
 

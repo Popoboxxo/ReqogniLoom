@@ -77,6 +77,17 @@ class Policy:
     backoff_max_seconds: float = 10.0
     failure_threshold: int = 5
     recovery_timeout_seconds: float = 30.0
+    # SA-18 (Systemaudit 2026-08-27): sliding window for failure accumulation.
+    # Without it, ``failure_count`` was a lifetime counter: four failures on
+    # Monday plus one on Friday tripped the breaker on Friday, reporting an
+    # outage that never happened. A failure that arrives more than this many
+    # seconds after the previous one starts a fresh burst at 1, so the count
+    # always describes "failures in the current window", which is what
+    # ``failure_threshold`` is meant to compare against.
+    #
+    # The default spans several recovery windows so that a genuinely flapping
+    # target still accumulates, while an isolated blip decays on its own.
+    failure_window_seconds: float = 300.0
 
     def backoff_delay(self, attempt: int) -> float:
         """Return the backoff delay before ``attempt`` (1-based retry number).

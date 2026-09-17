@@ -6,7 +6,7 @@
  * NOT executed — written for future Vitest run.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { diagramsApi } from "./diagrams";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,7 @@ vi.mock("./client", () => ({
     delete: vi.fn(),
   },
   getList: vi.fn(),
+  getAllPages: vi.fn(),
 }));
 
 // Mock tracelinks

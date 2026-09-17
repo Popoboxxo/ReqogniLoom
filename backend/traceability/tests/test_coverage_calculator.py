@@ -13,7 +13,7 @@ import uuid
 import pytest
 
 from traceability.coverage_calculator import CoverageCalculator
-from traceability.exceptions import InvalidFilterError
+from traceability.exceptions import BaselineCoverageNotSupportedError, InvalidFilterError
 from traceability.tests.conftest import (
     active_tenant,
     make_artifact,
@@ -100,6 +100,39 @@ class TestCoverageCalculation:
         assert report.percentage == 100.0
         assert report.uncovered == []
 
+    def test_typless_test_case_with_legacy_subtype_tag_still_counts(
+        self, calc, tenant_a, workspace_a
+    ):
+        """#953: a `verifies` link counts, whatever the test case's type says.
+
+        Reported from QA: a requirement was shown as "kein Test" although a
+        `verifies` link existed. The test case had been created through the UI
+        with `test_type = NULL`, and legacy rows additionally carry their type
+        as the deprecated `"TestCase:<Type>"` artifact_type tag. Neither may
+        influence coverage — the link is what counts.
+        """
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-typless")
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-typless")
+            tc.test_type = None
+            tc.save(update_fields=["test_type"])
+            # Pre-#816 row shape: the type lives in the artifact_type tag.
+            tc_art.artifact_type = "TestCase:unit"
+            tc_art.save(update_fields=["artifact_type"])
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
+
+            report = calc.coverage(workspace_a.id)
+            data = calc.get_coverage_data(workspace_a.id)
+
+        assert report.total == 1
+        assert report.covered == 1
+        assert report.percentage == 100.0
+        assert report.uncovered == []
+
+        # The VCRM path applies the same TestCase-type filter and must list it.
+        entry = next(e for e in data.entries if e.requirement_id == str(req.id))
+        assert [tc_row["id"] for tc_row in entry.test_cases] == [str(tc_art.id)]
+
     def test_percentage_one_decimal_place(self, calc, tenant_a, workspace_a):
         """Percentage is rounded to 1 decimal place (ADR-L3-TE3-02)."""
         with active_tenant(tenant_a):
@@ -115,6 +148,41 @@ class TestCoverageCalculation:
             report = calc.coverage(workspace_a.id)
 
         assert report.percentage == 33.3
+
+    def test_non_testcase_source_does_not_count_as_coverage(
+        self, calc, tenant_a, workspace_a
+    ):
+        """GH-396: a `verifies` link whose SOURCE is not a TestCase (e.g. an
+        ADR) must not be counted as verification coverage, even though the
+        raw TraceLink row matches on link_type/target_id alone."""
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-A")
+            art_adr = make_artifact(tenant_a, workspace_a, "adr")
+            # An ADR incorrectly linked as `verifies` -> Requirement.
+            make_trace_link(art_adr, art_req, tenant_a, "verifies")
+
+            report = calc.coverage(workspace_a.id)
+
+        assert report.total == 1
+        assert report.covered == 0
+        assert report.uncovered == [str(req.id)]
+        assert report.percentage == 0.0
+
+    def test_non_testcase_source_excluded_even_with_include_outdated(
+        self, calc, tenant_a, workspace_a
+    ):
+        """GH-396: the TestCase-source-type restriction applies regardless
+        of the include_outdated flag (unlike the GH-484 outdated-exclusion,
+        which is conditional)."""
+        with active_tenant(tenant_a):
+            art_req, _ = make_requirement(tenant_a, workspace_a, "R-A")
+            art_adr = make_artifact(tenant_a, workspace_a, "adr")
+            make_trace_link(art_adr, art_req, tenant_a, "verifies")
+
+            report = calc.coverage(workspace_a.id, include_outdated=True)
+
+        assert report.covered == 0
+        assert report.percentage == 0.0
 
     def test_to_dict_serializable(self, calc, tenant_a, workspace_a):
         """CoverageReport.to_dict() returns correct structure."""
@@ -146,18 +214,19 @@ class TestFilteredCoverage:
                 calc.coverage(workspace_a.id, artifact_type="invalid-type")
 
     def test_custom_link_type_filter(self, calc, tenant_a, workspace_a):
-        """REQ-L2-TE-007: Filtering by link_type='satisfies' only counts those links."""
+        """REQ-L2-TE-007: Filtering by link_type='references' only counts those links."""
         with active_tenant(tenant_a):
             art_req, _ = make_requirement(tenant_a, workspace_a, "R-A")
             art_arch = make_artifact(tenant_a, workspace_a, "architecture_element")
-            # SE convention: ArchitectureElement satisfies Requirement
-            # (arch is source, requirement is target).
-            make_trace_link(art_arch, art_req, tenant_a, "satisfies")
+            # _get_covered_artifact_ids matches on target_id regardless of the
+            # link type's real allowed_pairs (raw SQL, no catalog check) — the
+            # requirement artifact must be the link TARGET to count as covered.
+            make_trace_link(art_arch, art_req, tenant_a, "references")
 
             # No verifies links → standard coverage is 0
             standard = calc.coverage(workspace_a.id)
-            # With satisfies filter → covered = 1
-            filtered = calc.coverage(workspace_a.id, link_type="satisfies")
+            # With references filter → covered = 1
+            filtered = calc.coverage(workspace_a.id, link_type="references")
 
         assert standard.covered == 0
         assert filtered.covered == 1
@@ -231,6 +300,31 @@ class TestGetCoverageData:
 
         assert data.entries == []
 
+    def test_non_testcase_source_not_listed_as_test_case(
+        self, calc, tenant_a, workspace_a
+    ):
+        """GH-396: a `verifies` link whose SOURCE is not a TestCase (e.g. an
+        ADR) must not show up in the VCRM's test_cases list either — this
+        was already the intended behaviour of the VCRM path, this test just
+        pins it down explicitly."""
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
+            art_adr = make_artifact(tenant_a, workspace_a, "adr")
+            make_trace_link(art_adr, art_req, tenant_a, "verifies")
+
+            data = calc.get_coverage_data(workspace_a.id)
+            data_incl_outdated = calc.get_coverage_data(
+                workspace_a.id, include_outdated=True
+            )
+
+        entry = next(e for e in data.entries if e.requirement_id == str(req.id))
+        assert entry.test_cases == []
+
+        entry_incl = next(
+            e for e in data_incl_outdated.entries if e.requirement_id == str(req.id)
+        )
+        assert entry_incl.test_cases == []
+
     def test_test_case_without_run_defaults_to_not_run(
         self, calc, tenant_a, workspace_a
     ):
@@ -286,3 +380,164 @@ class TestGetCoverageData:
 
         entry = next(e for e in data.entries if e.requirement_id == str(req.id))
         assert entry.test_cases[0]["result"] == "Passed"
+
+    def test_get_coverage_data_excludes_outdated_requirements_when_requested(
+        self, calc, tenant_a, workspace_a
+    ):
+        """``include_outdated=False`` (default) excludes outdated Requirements
+        from ``entries``; ``include_outdated=True`` includes them again.
+
+        Task 12: the `status` column is dropped -- "outdated" can now only
+        be represented by a real WorkflowItemState row, seeded directly here
+        (via workflow.services.outdate, the same real path
+        RequirementService.delete_requirement uses) to avoid pulling in the
+        full workflow-transition machinery for this test.
+        """
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-coverage-calculator"
+
+        with active_tenant(tenant_a):
+            _, kept_req = make_requirement(tenant_a, workspace_a, "Kept")
+            _, outdated_req = make_requirement(tenant_a, workspace_a, "Outdated")
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated_req.id,
+                item_type="Requirement",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
+
+            data_default = calc.get_coverage_data(workspace_a.id)
+            data_incl = calc.get_coverage_data(workspace_a.id, include_outdated=True)
+
+        assert not any(
+            e.requirement_id == str(outdated_req.id) for e in data_default.entries
+        )
+        assert any(e.requirement_id == str(kept_req.id) for e in data_default.entries)
+
+        assert any(
+            e.requirement_id == str(outdated_req.id) for e in data_incl.entries
+        )
+        assert any(e.requirement_id == str(kept_req.id) for e in data_incl.entries)
+
+    def test_get_coverage_data_excludes_outdated_test_cases_from_entry(
+        self, calc, tenant_a, workspace_a
+    ):
+        """A verifying TestCase that is outdated must not appear in
+        ``entry.test_cases`` unless ``include_outdated=True`` is passed.
+
+        Task 12: the `status` column is dropped -- "outdated" can now only
+        be represented by a real WorkflowItemState row (via
+        workflow.services.outdate).
+        """
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-coverage-calculator"
+
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
+            active_tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-Active")
+            outdated_tc_art, outdated_tc = make_test_case(
+                tenant_a, workspace_a, "TC-Outdated"
+            )
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="testcase_default",
+                item_type="TestCase",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated_tc.id,
+                item_type="TestCase",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
+
+            make_trace_link(active_tc_art, art_req, tenant_a, "verifies")
+            make_trace_link(outdated_tc_art, art_req, tenant_a, "verifies")
+
+            data_default = calc.get_coverage_data(workspace_a.id)
+            data_incl = calc.get_coverage_data(workspace_a.id, include_outdated=True)
+
+        entry_default = next(
+            e for e in data_default.entries if e.requirement_id == str(req.id)
+        )
+        default_tc_ids = {tc["id"] for tc in entry_default.test_cases}
+        assert str(active_tc_art.id) in default_tc_ids
+        assert str(outdated_tc_art.id) not in default_tc_ids
+
+        entry_incl = next(
+            e for e in data_incl.entries if e.requirement_id == str(req.id)
+        )
+        incl_tc_ids = {tc["id"] for tc in entry_incl.test_cases}
+        assert str(active_tc_art.id) in incl_tc_ids
+        assert str(outdated_tc_art.id) in incl_tc_ids
+
+
+# ---------------------------------------------------------------------------
+# GH-397: baseline_id must not be silently ignored
+# ---------------------------------------------------------------------------
+
+class TestBaselineIdIsNotSilentlyIgnored:
+    """Regression tests for GH-397.
+
+    Before the fix, ``get_coverage_data(workspace_id, baseline_id=...)``
+    accepted a ``baseline_id`` and silently discarded it, always computing
+    coverage against live data — the API pretended a baseline-snapshot
+    comparison had happened but always returned live data instead. The fix
+    rejects the parameter explicitly instead of a partial implementation
+    (see ``BaselineCoverageNotSupportedError`` docstring for the reasoning).
+    """
+
+    def test_baseline_id_is_rejected_explicitly(self, calc, tenant_a, workspace_a):
+        """A non-None baseline_id must raise, never silently fall back to live data."""
+        with active_tenant(tenant_a):
+            with pytest.raises(BaselineCoverageNotSupportedError) as exc_info:
+                calc.get_coverage_data(workspace_a.id, baseline_id=uuid.uuid4())
+
+        assert "baseline" in str(exc_info.value).lower()
+
+    def test_baseline_id_rejection_happens_before_any_live_computation(
+        self, calc, tenant_a, workspace_a
+    ):
+        """The old bug: a baseline_id query silently returned live coverage data.
+
+        This test reproduces the exact scenario that made GH-397 dangerous: a
+        workspace with live, non-trivial coverage data. Pre-fix, calling
+        ``get_coverage_data`` with a (nonexistent, never validated) baseline_id
+        would happily return that live data as if it were a baseline snapshot.
+        Post-fix it must raise instead of returning any CoverageData at all —
+        proving the live-data path was never silently taken.
+        """
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "Req-1")
+            tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-1")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
+
+            # Sanity check: live coverage is non-trivial (this is the data a
+            # fail-open implementation would have silently returned).
+            live_data = calc.get_coverage_data(workspace_a.id)
+            assert len(live_data.entries) == 1
+            assert live_data.entries[0].test_cases
+
+            with pytest.raises(BaselineCoverageNotSupportedError):
+                calc.get_coverage_data(workspace_a.id, baseline_id=uuid.uuid4())
+
+    def test_baseline_id_none_is_unaffected(self, calc, tenant_a, workspace_a):
+        """Explicit baseline_id=None must keep working exactly as before (live data)."""
+        with active_tenant(tenant_a):
+            make_requirement(tenant_a, workspace_a, "Req-1")
+
+            data = calc.get_coverage_data(workspace_a.id, baseline_id=None)
+
+        assert len(data.entries) == 1

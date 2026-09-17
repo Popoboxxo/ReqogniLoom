@@ -30,9 +30,11 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from persistence.models import Artifact, TraceLink
 from persistence.tenancy import TenantContext
@@ -52,10 +54,16 @@ from traceability.types import VALID_LINK_TYPES
 # ---------------------------------------------------------------------------
 
 def _validate_link_type(link_type: str) -> None:
-    """Validate link_type against the 8-type enum (REQ-L2-TE-001).
+    """Coarse fail-safe against the ``LinkType`` enum (REQ-L2-TE-001).
 
-    The persistence CharField accepts any string; the service layer enforces
-    the 8-type contract here without modifying persistence.models.
+    **Not the authority.** Which link types a workspace accepts, and between
+    which endpoint types, is decided by
+    ``link_types.catalog.validate_link_pair`` before the call reaches here
+    (``application.trace_link_service.TraceLinkService._check_link_pair``).
+    ``VALID_LINK_TYPES`` is deliberately kept a superset of the catalog so
+    this check can never reject a key the catalog just accepted; it exists
+    only to stop an arbitrary string from a direct Layer-1 caller (the diagram
+    and ICD reconcilers) reaching the CharField, which accepts anything.
     """
     if link_type not in VALID_LINK_TYPES:
         raise InvalidLinkTypeError(link_type)
@@ -79,13 +87,20 @@ def _validate_cross_tenant_boundary(source: Artifact, target: Artifact) -> None:
 # Cycle detection helpers
 # ---------------------------------------------------------------------------
 
-def _build_adjacency(
-    workspace_links: list[TraceLink],
+def _build_adjacency_from_edges(
+    edges: Iterable[tuple[uuid.UUID, uuid.UUID]],
 ) -> dict[uuid.UUID, list[uuid.UUID]]:
-    """Build an adjacency list from existing TraceLink rows."""
+    """Build an adjacency list from bare ``(source_id, target_id)`` pairs.
+
+    Cycle detection only ever reads the two FK id columns (see
+    :func:`_dfs_has_cycle_to`), so every write-path caller (create(),
+    batch_create(), validate_graph_integrity() — #629) feeds this from a
+    ``values_list()`` query instead of materializing whole ``TraceLink``
+    objects (with their wide pgvector embedding) per existing link.
+    """
     adj: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
-    for link in workspace_links:
-        adj[link.source_id].append(link.target_id)
+    for source_id, target_id in edges:
+        adj[source_id].append(target_id)
     return adj
 
 
@@ -189,6 +204,39 @@ class TraceLinkManager:
     REQ-L2-TE-010 / REQ-L2-TE-011
     """
 
+    def _filtered_queryset(
+        self,
+        workspace_id: uuid.UUID | None = None,
+        filters: dict[str, Any] | None = None,
+        link_type: str | None = None,
+    ) -> "QuerySet[TraceLink]":
+        """Shared filter-building for get_trace_links()/get_trace_links_queryset().
+
+        Review fix (F7, follow-up to #571): ``embedding`` (a wide pgvector
+        VectorField) is deferred here — for *every* caller, not just the
+        paginated REST listing — because ``get_trace_links()`` used to also be
+        called eagerly, tenant-wide (no workspace filter), on every single
+        ``create()``. Fetching the full vector for every existing link on
+        every write was the same OOM shape as #571, just on the write path.
+        ``create()`` no longer calls this method at all (it builds the
+        cycle-detection adjacency from a bare ``values_list("source_id",
+        "target_id")``), but the ``defer`` stays: it is correct for every
+        remaining caller for the same reason. No known caller of
+        ``get_trace_links()`` reads ``.embedding`` — the only two reads in
+        this codebase (``application/trace_link_service.py`` similarity
+        search) go through ``TraceLinkManager.get()``/an explicit
+        ``CosineDistance`` queryset, not this method. Pinned by
+        ``traceability/tests/test_trace_link_create_query_571.py``.
+        """
+        qs = TraceLink.objects.all()  # TenantManager applies tenant filter
+        if workspace_id is not None:
+            qs = qs.filter(source__workspace_id=workspace_id)
+        if link_type is not None:
+            qs = qs.filter(link_type=link_type)
+        if filters:
+            qs = qs.filter(**filters)
+        return qs.defer("embedding")
+
     # IF-TE-INT-001 / IF-TE-INT-002
     def get_trace_links(
         self,
@@ -200,15 +248,46 @@ class TraceLinkManager:
 
         IF-TE-INT-001 (QueryEngine): workspace_id + generic filters.
         IF-TE-INT-002 (CoverageCalculator): link_type shorthand.
+
+        Eager (materializes the full result set) — callers that need graph
+        traversal or cycle detection over the whole set. Paginated REST
+        listings must use :meth:`get_trace_links_queryset` instead (#571).
         """
-        qs = TraceLink.objects.all()  # TenantManager applies tenant filter
-        if workspace_id is not None:
-            qs = qs.filter(source__workspace_id=workspace_id)
-        if link_type is not None:
-            qs = qs.filter(link_type=link_type)
-        if filters:
-            qs = qs.filter(**filters)
+        qs = self._filtered_queryset(
+            workspace_id=workspace_id, filters=filters, link_type=link_type
+        )
         return list(qs.select_related("source", "target"))
+
+    # Fix #571: lazy variant for paginated listing endpoints.
+    def get_trace_links_queryset(
+        self,
+        workspace_id: uuid.UUID | None = None,
+        filters: dict[str, Any] | None = None,
+        link_type: str | None = None,
+    ) -> "QuerySet[TraceLink]":
+        """Lazy (un-evaluated) variant of :meth:`get_trace_links`.
+
+        Fix #571: ``GET /api/v1/tracelinks/?workspace_id=...`` used to call
+        ``get_trace_links()``, which materializes *every* matching row —
+        including ``select_related("source", "target")`` and the wide pgvector
+        ``embedding`` VectorField per row — before pagination ever gets a
+        chance to slice it. At ~2000 links in a workspace that OOM-killed the
+        worker (512 MB container limit) regardless of the requested
+        ``page_size``, since the whole set was already in memory by the time
+        pagination ran.
+
+        This method returns the queryset itself (no ``list()``) — ``embedding``
+        is already deferred by :meth:`_filtered_queryset` (F7) — so a caller
+        can pass it straight to DRF's paginator, which pushes ``LIMIT``/
+        ``OFFSET`` down to the database — memory cost becomes O(page_size),
+        not O(N). No ``select_related`` here either: dict-based list
+        serialization only needs the plain FK id columns (``source_id``/
+        ``target_id``), not the related Artifact rows.
+        """
+        qs = self._filtered_queryset(
+            workspace_id=workspace_id, filters=filters, link_type=link_type
+        )
+        return qs.order_by("created_at", "id")
 
     # IF-TE-EXT-IN-003: create
     def create(
@@ -217,6 +296,7 @@ class TraceLinkManager:
         target_id: uuid.UUID,
         link_type: str,
         created_by_id: Optional[uuid.UUID] = None,
+        rationale: str = "",
     ) -> TraceLink:
         """Create a single TraceLink with full validation.
 
@@ -226,6 +306,10 @@ class TraceLinkManager:
         3. Cross-tenant guard (REQ-L2-TE-011)
         4. Eager cycle detection via DFS (REQ-L2-TE-002)
         5. Persist (REQ-L2-TE-001, audit: REQ-L2-TE-010)
+
+        *rationale* (Q1.6) is optional free text explaining why these two
+        artifacts are linked; it is stored verbatim (sanitization happens at
+        the transport boundary) and defaults to "".
         """
         _validate_link_type(link_type)
 
@@ -250,14 +334,25 @@ class TraceLinkManager:
 
         # Eager cycle detection: does target already reach source?
         # Scoped to this link_type only — the 8 relation types are semantically
-        # distinct directed graphs (e.g. "implements" ArchitectureElement->Requirement
-        # combined with "parent-child" and "allocated-to" edges produces coincidental
+        # distinct directed graphs (e.g. "allocated-to" Requirement->ArchitectureElement
+        # combined with "decomposes" and "derives-from" edges produces coincidental
         # paths that are not real domain cycles; mixing them made the textbook
         # decomposition pattern "derive a child requirement and allocate it to the
-        # same ArchitectureElement that already implements its parent" falsely
+        # same ArchitectureElement its parent is already allocated to" falsely
         # rejected as a cycle).
-        existing = self.get_trace_links(link_type=link_type)
-        adj = _build_adjacency(existing)
+        #
+        # Only the two FK id columns are read (_build_adjacency_from_edges ->
+        # _dfs_has_cycle_to), so this uses values_list() rather than the eager
+        # get_trace_links(). That method adds select_related("source",
+        # "target"), which made every single link creation materialize *two
+        # joined Artifact rows per existing link of this type* — pure waste
+        # here, and quadratic over a bulk import or a demo seed (the #571 F7
+        # write-path shape, one layer deeper: F7 removed the embedding column,
+        # this removes the Artifact joins).
+        edges = TraceLink.objects.filter(link_type=link_type).values_list(
+            "source_id", "target_id"
+        )
+        adj = _build_adjacency_from_edges(edges)
         if _dfs_has_cycle_to(target_id, source_id, adj):
             raise CycleDetectedError(link_type)
 
@@ -266,6 +361,7 @@ class TraceLinkManager:
             target=target,
             link_type=link_type,
             tenant_id=tenant_id,
+            rationale=rationale or "",
         )
         if created_by_id is not None:
             link.created_by_id = created_by_id
@@ -362,9 +458,13 @@ class TraceLinkManager:
             link.save()
             created.append(link)
 
-        # Tarjan SCC on the full tenant graph at transaction end (REQ-L2-TE-003)
-        all_links = list(TraceLink.objects.all())
-        adj = _build_adjacency(all_links)
+        # Tarjan SCC on the full tenant graph at transaction end (REQ-L2-TE-003).
+        # #629: values_list(), not list(TraceLink.objects.all()) -- cycle
+        # detection only reads the two FK id columns, so materializing full
+        # TraceLink rows (with their wide pgvector embedding) here was the
+        # same OOM shape as #571, on every batch_create() call.
+        edges = TraceLink.objects.all().values_list("source_id", "target_id")
+        adj = _build_adjacency_from_edges(edges)
         cycle = _tarjan_find_cycle(adj)
         if cycle:
             path = _format_cycle_path(cycle)
@@ -393,8 +493,9 @@ class TraceLinkManager:
 
         IF-TE-INT-003. Returns a dict with 'valid' bool and optional 'cycle_path'.
         """
-        all_links = list(TraceLink.objects.all())
-        adj = _build_adjacency(all_links)
+        # #629: see the identical values_list() note in batch_create() above.
+        edges = TraceLink.objects.all().values_list("source_id", "target_id")
+        adj = _build_adjacency_from_edges(edges)
         cycle = _tarjan_find_cycle(adj)
         if cycle:
             return {"valid": False, "cycle_path": _format_cycle_path(cycle)}

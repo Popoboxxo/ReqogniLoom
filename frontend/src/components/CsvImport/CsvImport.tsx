@@ -7,11 +7,22 @@
  *          REQ-L2-RF-016 (Frontend CSV import UI)
  *
  * Features:
- *   - File picker / drop zone for CSV upload
+ *   - File picker / drop zone for CSV upload (pointer and keyboard operable)
  *   - Entity-type selector (Requirement / ArchitectureElement / TestCase)
+ *   - Pre-flight row preview with column recognition (UI-30)
  *   - Progress indicator during upload
- *   - Result display (success count, per-row errors)
+ *   - Result display: imported / partially-imported / rejected, with the full
+ *     per-row error report (UI-30)
  *   - i18n support (de/en)
+ *
+ * UI-30 outcome model — why there is no row-level "partial success":
+ * `ImportService.import_csv` writes every row inside a single
+ * `transaction.atomic()` (REQ-L3-IMP-002), so a file either lands completely
+ * or not at all; `imported_count > 0` together with `errors` is unreachable by
+ * construction. The state the audit was after does exist though, one level up:
+ * an import can succeed *and* have silently dropped an unrecognised column
+ * (`warnings`, fix #120). That is the "partial" outcome rendered below, and it
+ * is deliberately not painted green.
  */
 
 import { useState, useCallback, useRef } from "react";
@@ -24,6 +35,18 @@ import {
   type ReqifImportResult,
 } from "../../api/import";
 import { exportApi, type ExportEntityType } from "../../api/export";
+import { PageHeader } from "../shared/PageHeader";
+import { Spinner } from "../shared/Spinner/Spinner";
+import { ENTITY_TYPE_I18N_KEYS } from "../../constants/entityTypeLabels";
+import {
+  buildCsvPreview,
+  previewHasBlockingIssue,
+  readTextFile,
+  MAX_CSV_ROWS,
+  PREVIEW_ROW_LIMIT,
+  type CsvPreview,
+} from "./csvPreview";
+import styles from "./CsvImport.module.css";
 
 // ---------------------------------------------------------------------------
 // Entity type options
@@ -43,6 +66,28 @@ const EXPORT_ENTITY_TYPES: ExportEntityType[] = [
   "ArchitectureElement",
 ];
 
+/**
+ * Error rows shown before the "show all" toggle. The list used to be sliced to
+ * this many entries with no way back — a 400-row file reported 10 problems and
+ * hid the rest (UI-30).
+ */
+const ERROR_PREVIEW_LIMIT = 10;
+
+/**
+ * Semantic outcome of a finished import, derived from the backend result.
+ *
+ * `partial` is *not* "some rows failed" (impossible, see the module docstring)
+ * but "all rows landed, yet the file carried columns the backend does not know
+ * and threw their data away".
+ */
+type ImportOutcome = "imported" | "partial" | "rejected";
+
+function outcomeOf(result: ImportResult): ImportOutcome {
+  if (!result.success) return "rejected";
+  return result.warnings.length > 0 ? "partial" : "imported";
+}
+
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -59,6 +104,8 @@ export function CsvImport(): JSX.Element {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [preview, setPreview] = useState<CsvPreview | null>(null);
+  const [showAllErrors, setShowAllErrors] = useState(false);
 
   const [exportEntityType, setExportEntityType] = useState<ExportEntityType>("Requirement");
   const [isExporting, setIsExporting] = useState(false);
@@ -75,14 +122,37 @@ export function CsvImport(): JSX.Element {
   const [reqifImportResult, setReqifImportResult] = useState<ReqifImportResult | null>(null);
   const [reqifImportError, setReqifImportError] = useState<string | null>(null);
 
-  const handleFileSelect = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>): void => {
-      const file = event.target.files?.[0] ?? null;
+  /**
+   * Accepts a picked/dropped file and builds the pre-flight preview.
+   *
+   * The preview is best-effort: if the file cannot be read the import stays
+   * available and the backend keeps the final word.
+   */
+  const acceptFile = useCallback(
+    async (file: File | null): Promise<void> => {
       setSelectedFile(file);
       setResult(null);
       setError(null);
+      setShowAllErrors(false);
+
+      if (!file) {
+        setPreview(null);
+        return;
+      }
+      try {
+        setPreview(buildCsvPreview(await readTextFile(file), entityType));
+      } catch {
+        setPreview(null);
+      }
     },
-    []
+    [entityType]
+  );
+
+  const handleFileSelect = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      void acceptFile(event.target.files?.[0] ?? null);
+    },
+    [acceptFile]
   );
 
   const handleDrop = useCallback(
@@ -91,10 +161,22 @@ export function CsvImport(): JSX.Element {
       setIsDragOver(false);
       const file = event.dataTransfer.files?.[0] ?? null;
       if (file && file.name.toLowerCase().endsWith(".csv")) {
-        setSelectedFile(file);
-        setResult(null);
-        setError(null);
+        void acceptFile(file);
       }
+    },
+    [acceptFile]
+  );
+
+  /**
+   * Enter/Space on the drop zone opens the file dialog. The zone is a plain
+   * `<div>`: a native button element cannot host the file input without
+   * swallowing its click, so `role`/`tabIndex`/key handling are explicit.
+   */
+  const handleDropZoneKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      (event.currentTarget.querySelector("input[type=file]") as HTMLInputElement | null)?.click();
     },
     []
   );
@@ -115,12 +197,31 @@ export function CsvImport(): JSX.Element {
     []
   );
 
+  /**
+   * Switching the entity type re-runs the column check: the same header is
+   * valid for one type and unknown for another, so a stale preview would
+   * assert the wrong verdict.
+   */
+  const handleEntityTypeChange = useCallback(
+    (type: EntityType): void => {
+      setEntityType(type);
+      setResult(null);
+      setShowAllErrors(false);
+      if (!selectedFile) return;
+      void readTextFile(selectedFile)
+        .then((text) => setPreview(buildCsvPreview(text, type)))
+        .catch(() => setPreview(null));
+    },
+    [selectedFile]
+  );
+
   const handleUpload = useCallback(async (): Promise<void> => {
     if (!selectedFile || !activeWorkspace) return;
 
     setIsUploading(true);
     setError(null);
     setResult(null);
+    setShowAllErrors(false);
 
     try {
       const importResult = await importApi.importCsv(
@@ -177,6 +278,8 @@ export function CsvImport(): JSX.Element {
     setSelectedFile(null);
     setResult(null);
     setError(null);
+    setPreview(null);
+    setShowAllErrors(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -226,508 +329,430 @@ export function CsvImport(): JSX.Element {
   }, []);
 
   if (!activeWorkspace) {
-    return (
-      <p style={{ padding: "var(--space-6)", color: "var(--color-text-muted)" }}>
-        {t("errors.generic")}
-      </p>
-    );
+    return <p className={styles.errorPage}>{t("errors.generic")}</p>;
   }
 
   return (
-    <div
-      data-testid="csv-import-page"
-      style={{ maxWidth: "640px" }}
-    >
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          marginBottom: "var(--space-6)",
-        }}
-      >
-        {t("import.title", "CSV Import")}
-      </h2>
+    <div data-testid="csv-import-page" className={styles.page}>
+      <PageHeader
+        title={t("import.title", "CSV Import")}
+        summary={t(
+          "import.pageSummary",
+          "Massendaten per CSV importieren oder Requirements, Bedarfe und Architekturelemente exportieren.",
+        )}
+      />
 
       {/* Entity type selector */}
-      <section
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginBottom: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}
-        >
-          {t("import.entityType", "Entity Type")}
-        </h3>
-        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+      <section className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("import.entityType", "Entity Type")}</h3>
+        <div className={styles.radioGroup}>
           {ENTITY_TYPES.map((type) => (
             <label
               key={type}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-2)",
-                padding: "var(--space-2) var(--space-3)",
-                borderRadius: "var(--radius-md)",
-                border: entityType === type
-                  ? "1px solid var(--color-primary)"
-                  : "1px solid var(--color-border)",
-                background: entityType === type
-                  ? "rgba(var(--color-primary-rgb, 79,70,229), 0.08)"
-                  : "transparent",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-              }}
+              className={entityType === type ? styles.radioLabelActive : styles.radioLabel}
             >
               <input
                 type="radio"
                 name="entityType"
                 value={type}
                 checked={entityType === type}
-                onChange={() => setEntityType(type)}
+                onChange={() => handleEntityTypeChange(type)}
                 data-testid={`entity-type-${type}`}
               />
-              {type}
+              {t(ENTITY_TYPE_I18N_KEYS[type] ?? type)}
             </label>
           ))}
         </div>
       </section>
 
       {/* Drop zone / file picker */}
-      <section
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginBottom: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}
-        >
-          {t("import.selectFile", "Select CSV File")}
-        </h3>
+      <section className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("import.selectFile", "Select CSV File")}</h3>
         <div
           data-testid="csv-drop-zone"
+          role="button"
+          tabIndex={0}
+          aria-label={t("import.dropZoneLabel")}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${isDragOver ? "var(--color-primary)" : "var(--color-border)"}`,
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-6)",
-            textAlign: "center",
-            cursor: "pointer",
-            background: isDragOver ? "rgba(var(--color-primary-rgb, 79,70,229), 0.04)" : "transparent",
-            transition: "var(--transition-fast)",
-          }}
+          onKeyDown={handleDropZoneKeyDown}
+          className={isDragOver ? styles.dropZoneActive : styles.dropZone}
         >
           <input
             ref={fileInputRef}
             type="file"
             accept=".csv"
             onChange={handleFileSelect}
+            onClick={(event) => event.stopPropagation()}
             data-testid="csv-file-input"
-            style={{ display: "none" }}
+            className={styles.hiddenFileInput}
           />
           {selectedFile ? (
             <div>
-              <p style={{ fontWeight: 600, margin: "0 0 var(--space-1) 0" }}>
-                {selectedFile.name}
-              </p>
-              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
-                {(selectedFile.size / 1024).toFixed(1)} KB
-              </p>
+              <p className={styles.fileName}>{selectedFile.name}</p>
+              <p className={styles.fileMeta}>{(selectedFile.size / 1024).toFixed(1)} KB</p>
             </div>
           ) : (
-            <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+            <p className={styles.hintText}>
               {t("import.dropHint", "Drop CSV file here or click to browse")}
             </p>
           )}
         </div>
       </section>
 
+      {/* Pre-flight preview (UI-30) — what the backend will see, before the
+          upload costs a round-trip. */}
+      {preview && (
+        <section data-testid="csv-preview" className={styles.card}>
+          <h3 className={styles.cardTitle}>{t("import.previewTitle")}</h3>
+
+          {preview.parseError ? (
+            <p data-testid="csv-preview-parse-error" role="alert" className={styles.failText}>
+              {t("import.previewUnparsable")}
+            </p>
+          ) : (
+            <>
+              <p data-testid="csv-preview-summary" className={styles.fileMeta}>
+                {t("import.previewSummary", {
+                  rows: preview.totalRows,
+                  columns: preview.headers.length,
+                  shown: Math.min(preview.rows.length, PREVIEW_ROW_LIMIT),
+                })}
+              </p>
+
+              {previewHasBlockingIssue(preview) && (
+                <ul data-testid="csv-preview-blocking" role="alert" className={styles.blockingList}>
+                  {preview.missingRequiredColumn && (
+                    <li>{t("import.previewMissingTitleColumn")}</li>
+                  )}
+                  {preview.rowsWithEmptyTitle.length > 0 && (
+                    <li>
+                      {t("import.previewEmptyTitleRows", {
+                        count: preview.rowsWithEmptyTitle.length,
+                        rows: preview.rowsWithEmptyTitle.slice(0, 5).join(", "),
+                      })}
+                    </li>
+                  )}
+                  {preview.exceedsRowLimit && (
+                    <li>{t("import.previewRowLimit", { max: MAX_CSV_ROWS })}</li>
+                  )}
+                </ul>
+              )}
+
+              {preview.unknownColumns.length > 0 && (
+                <p data-testid="csv-preview-unknown-columns" className={styles.warningText}>
+                  {t("import.previewUnknownColumns", {
+                    columns: preview.unknownColumns.join(", "),
+                  })}
+                </p>
+              )}
+
+              {preview.duplicateColumns.length > 0 && (
+                <p data-testid="csv-preview-duplicate-columns" className={styles.warningText}>
+                  {t("import.previewDuplicateColumns", {
+                    columns: preview.duplicateColumns.join(", "),
+                  })}
+                </p>
+              )}
+
+              {preview.rows.length > 0 && (
+                <div className={styles.previewTableWrap}>
+                  <table data-testid="csv-preview-table" className={styles.previewTable}>
+                    <caption className={styles.srOnly}>{t("import.previewTableCaption")}</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col" className={styles.previewRowNumHeader}>
+                          {t("import.previewRowColumn")}
+                        </th>
+                        {preview.headers.map((header, idx) => (
+                          <th
+                            key={`${header}-${idx}`}
+                            scope="col"
+                            data-unknown={
+                              preview.unknownColumns.includes(header) ? "true" : undefined
+                            }
+                            className={
+                              preview.unknownColumns.includes(header)
+                                ? styles.previewHeaderUnknown
+                                : styles.previewHeader
+                            }
+                          >
+                            {header}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.rows.map((row) => (
+                        <tr key={row.rowNumber} data-testid="csv-preview-row">
+                          <th scope="row" className={styles.previewRowNum}>
+                            {row.rowNumber}
+                          </th>
+                          {row.cells.map((cell, idx) => (
+                            <td key={idx} className={styles.previewCell}>
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       {/* Upload button */}
-      <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+      <div className={styles.actionsRow}>
         <button
           type="button"
           data-testid="csv-import-btn"
           onClick={() => void handleUpload()}
           disabled={!selectedFile || isUploading}
-          style={{
-            background: "var(--color-primary)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-5)",
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 600,
-            cursor: !selectedFile || isUploading ? "not-allowed" : "pointer",
-            opacity: !selectedFile || isUploading ? 0.5 : 1,
-            transition: "var(--transition-fast)",
-          }}
+          className={styles.primaryBtn}
         >
-          {isUploading
-            ? t("import.uploading", "Importing...")
-            : t("import.upload", "Import")}
+          {isUploading ? (
+            <Spinner label={t("import.uploading")} />
+          ) : (
+            t("import.upload")
+          )}
         </button>
         {(result || error) && (
           <button
             type="button"
             data-testid="csv-import-reset"
             onClick={handleReset}
-            style={{
-              background: "transparent",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              cursor: "pointer",
-            }}
+            className={styles.resetBtn}
           >
-            {t("actions.reset", "Reset")}
+            {t("actions.reset")}
           </button>
         )}
       </div>
 
       {/* Progress indicator */}
       {isUploading && (
-        <div
-          data-testid="csv-import-progress"
-          style={{
-            padding: "var(--space-3)",
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            marginBottom: "var(--space-5)",
-            textAlign: "center",
-            color: "var(--color-text-muted)",
-          }}
-        >
+        <div data-testid="csv-import-progress" className={styles.progressBox}>
           {t("import.progress", "Processing CSV file...")}
         </div>
       )}
 
       {/* Error display */}
       {error && (
-        <div
-          data-testid="csv-import-error"
-          role="alert"
-          style={{
-            padding: "var(--space-3)",
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-danger, #f87171)",
-            borderRadius: "var(--radius-md)",
-            marginBottom: "var(--space-5)",
-            color: "var(--color-danger, #f87171)",
-          }}
-        >
+        <div data-testid="csv-import-error" role="alert" className={styles.errorBox}>
           {error}
         </div>
       )}
 
-      {/* Result display */}
+      {/* Result display — three outcomes, see `outcomeOf` / module docstring. */}
       {result && (
         <div
           data-testid="csv-import-result"
-          style={{
-            padding: "var(--space-4)",
-            background: "var(--color-surface)",
-            border: `1px solid ${result.success ? "var(--color-success, #16a34a)" : "var(--color-danger, #f87171)"}`,
-            borderRadius: "var(--radius-md)",
-            marginBottom: "var(--space-5)",
-          }}
+          data-outcome={outcomeOf(result)}
+          className={
+            outcomeOf(result) === "imported"
+              ? styles.resultBoxSuccess
+              : outcomeOf(result) === "partial"
+              ? styles.resultBoxWarning
+              : styles.resultBoxError
+          }
         >
           {result.success ? (
             <div>
               <p
                 data-testid="csv-import-success"
-                style={{
-                  fontWeight: 600,
-                  color: "var(--color-success, #16a34a)",
-                  margin: "0 0 var(--space-2) 0",
-                }}
+                className={
+                  outcomeOf(result) === "partial" ? styles.warningText : styles.successText
+                }
               >
-                {t("import.success", "Successfully imported {{count}} rows", {
-                  count: result.imported_count,
-                })}
+                {outcomeOf(result) === "partial"
+                  ? t("import.partialSuccess", { count: result.imported_count })
+                  : t("import.success", { count: result.imported_count })}
               </p>
-              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
-                Status: {result.status}
+              <p className={styles.fileMeta}>
+                {t("import.statusLabel")}: {t(`import.statusValue.${result.status}`)}
               </p>
             </div>
           ) : (
             <div>
-              <p
-                style={{
-                  fontWeight: 600,
-                  color: "var(--color-danger, #f87171)",
-                  margin: "0 0 var(--space-3) 0",
-                }}
-              >
-                {t("import.failed", "Import failed")}
+              <p data-testid="csv-import-failed" className={styles.failText}>
+                {result.status === "rollback"
+                  ? t("import.failedRollback")
+                  : t("import.failedValidation")}
               </p>
+              {/* REQ-L3-IMP-002: the import is one transaction, so a rejected
+                  file changed nothing at all. Saying so explicitly is the
+                  difference between "retry after fixing" and "check what
+                  landed". */}
+              <p data-testid="csv-import-atomicity-note" className={styles.fileMeta}>
+                {t("import.nothingWritten", { count: result.skipped_count })}
+              </p>
+
               {result.errors.length > 0 && (
-                <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
-                  {result.errors.slice(0, 10).map((err, idx) => (
-                    <li
-                      key={idx}
-                      style={{
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text-muted)",
-                        marginBottom: "var(--space-1)",
-                      }}
+                <>
+                  <ul data-testid="csv-import-error-list" className={styles.errorList}>
+                    {(showAllErrors
+                      ? result.errors
+                      : result.errors.slice(0, ERROR_PREVIEW_LIMIT)
+                    ).map((err, idx) => (
+                      <li key={idx} className={styles.errorListItem}>
+                        {t("import.errorRow", {
+                          row: err.row_number,
+                          field: err.field,
+                          message: err.message,
+                        })}
+                      </li>
+                    ))}
+                  </ul>
+                  {result.errors.length > ERROR_PREVIEW_LIMIT && (
+                    <button
+                      type="button"
+                      data-testid="csv-import-toggle-errors"
+                      onClick={() => setShowAllErrors((shown) => !shown)}
+                      className={styles.linkBtn}
+                      aria-expanded={showAllErrors}
                     >
-                      Row {err.row_number}: {err.field} — {err.message}
-                    </li>
-                  ))}
-                  {result.errors.length > 10 && (
-                    <li style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-                      ... and {result.errors.length - 10} more errors
-                    </li>
+                      {showAllErrors
+                        ? t("import.showFewerErrors")
+                        : t("import.moreErrors", {
+                            count: result.errors.length - ERROR_PREVIEW_LIMIT,
+                          })}
+                    </button>
                   )}
-                </ul>
+                </>
               )}
             </div>
+          )}
+
+          {/* Dropped-column notice — the one signal a green "imported N rows"
+              box would otherwise swallow (fix #120). */}
+          {result.warnings.length > 0 && (
+            <ul data-testid="csv-import-warnings" className={styles.warningList}>
+              {result.warnings.map((warning, idx) => (
+                <li key={idx} className={styles.warningListItem}>
+                  {warning}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
 
       {/* ReqIF Import (REQ-147) */}
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          margin: "var(--space-8) 0 var(--space-6) 0",
-        }}
-      >
-        {t("import.reqifTitle", "ReqIF Import")}
-      </h2>
+      <h2 className={styles.sectionHeading}>{t("import.reqifTitle")}</h2>
 
-      <section
-        data-testid="reqif-import-page"
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginBottom: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}
-        >
-          {t("import.reqifSelectFile", "Select ReqIF File")}
-        </h3>
+      <section data-testid="reqif-import-page" className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("import.reqifSelectFile")}</h3>
         <div
           data-testid="reqif-file-picker"
+          role="button"
+          tabIndex={0}
+          aria-label={t("import.reqifDropZoneLabel")}
           onClick={() => reqifFileInputRef.current?.click()}
-          style={{
-            border: "2px dashed var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-6)",
-            textAlign: "center",
-            cursor: "pointer",
-            marginBottom: "var(--space-4)",
-          }}
+          onKeyDown={handleDropZoneKeyDown}
+          className={styles.filePicker}
         >
           <input
             ref={reqifFileInputRef}
             type="file"
             accept=".reqif,.xml"
             onChange={handleReqifFileSelect}
+            onClick={(event) => event.stopPropagation()}
             data-testid="reqif-file-input"
-            style={{ display: "none" }}
+            className={styles.hiddenFileInput}
           />
           {selectedReqifFile ? (
             <div>
-              <p style={{ fontWeight: 600, margin: "0 0 var(--space-1) 0" }}>
-                {selectedReqifFile.name}
-              </p>
-              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
-                {(selectedReqifFile.size / 1024).toFixed(1)} KB
-              </p>
+              <p className={styles.fileName}>{selectedReqifFile.name}</p>
+              <p className={styles.fileMeta}>{(selectedReqifFile.size / 1024).toFixed(1)} KB</p>
             </div>
           ) : (
-            <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
-              {t("import.reqifDropHint", "Click to select a .reqif or .xml file")}
+            <p className={styles.hintText}>
+              {t("import.reqifDropHint")}
             </p>
           )}
         </div>
 
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--space-2)",
-            marginBottom: "var(--space-4)",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text)",
-            cursor: "pointer",
-          }}
-        >
+        <label className={styles.checkboxLabel}>
           <input
             type="checkbox"
             checked={reqifDryRun}
             onChange={(e) => setReqifDryRun(e.target.checked)}
             data-testid="reqif-dry-run-checkbox"
           />
-          {t(
-            "import.reqifDryRun",
-            "Dry run (preview the report without saving any changes)"
-          )}
+          {t("import.reqifDryRun")}
         </label>
 
-        <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+        <div className={styles.actionsRow}>
           <button
             type="button"
             data-testid="reqif-import-btn"
             onClick={() => void handleReqifImport()}
             disabled={!selectedReqifFile || isImportingReqif}
-            style={{
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-5)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: !selectedReqifFile || isImportingReqif ? "not-allowed" : "pointer",
-              opacity: !selectedReqifFile || isImportingReqif ? 0.5 : 1,
-              transition: "var(--transition-fast)",
-            }}
+            className={styles.primaryBtn}
           >
-            {isImportingReqif
-              ? t("import.uploading", "Importing...")
-              : reqifDryRun
-              ? t("import.reqifPreview", "Preview Import")
-              : t("import.reqifUpload", "Import ReqIF")}
+            {isImportingReqif ? (
+              <Spinner label={t("import.uploading")} />
+            ) : reqifDryRun ? (
+              t("import.reqifPreview")
+            ) : (
+              t("import.reqifUpload")
+            )}
           </button>
           {(reqifImportResult || reqifImportError) && (
             <button
               type="button"
               data-testid="reqif-import-reset"
               onClick={handleReqifReset}
-              style={{
-                background: "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                cursor: "pointer",
-              }}
+              className={styles.resetBtn}
             >
-              {t("actions.reset", "Reset")}
+              {t("actions.reset")}
             </button>
           )}
         </div>
 
         {reqifImportError && (
-          <div
-            data-testid="reqif-import-error"
-            role="alert"
-            style={{
-              padding: "var(--space-3)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-danger, #f87171)",
-              borderRadius: "var(--radius-md)",
-              marginBottom: "var(--space-5)",
-              color: "var(--color-danger, #f87171)",
-            }}
-          >
+          <div data-testid="reqif-import-error" role="alert" className={styles.errorBox}>
             {reqifImportError}
           </div>
         )}
 
         {reqifImportResult && (
-          <div
-            data-testid="reqif-import-result"
-            style={{
-              padding: "var(--space-4)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-success, #16a34a)",
-              borderRadius: "var(--radius-md)",
-            }}
-          >
+          <div data-testid="reqif-import-result" className={styles.resultBoxPlain}>
             {reqifImportResult.dry_run && (
-              <p
-                data-testid="reqif-import-dry-run-badge"
-                style={{
-                  fontWeight: 600,
-                  color: "var(--color-primary)",
-                  margin: "0 0 var(--space-3) 0",
-                }}
-              >
-                {t("import.reqifDryRunBadge", "Dry run — nothing was saved")}
+              <p data-testid="reqif-import-dry-run-badge" className={styles.dryRunBadge}>
+                {t("import.reqifDryRunBadge")}
               </p>
             )}
 
             {(
               [
-                ["needs", t("import.reqifNeeds", "Stakeholder Needs")],
-                ["requirements", t("import.reqifRequirements", "Requirements")],
-                ["relations", t("import.reqifRelations", "Trace Links")],
+                ["needs", t("import.reqifNeeds")],
+                ["requirements", t("import.reqifRequirements")],
+                ["relations", t("import.reqifRelations")],
               ] as const
             ).map(([key, label]) => {
               const report = reqifImportResult[key];
               return (
-                <div key={key} style={{ marginBottom: "var(--space-3)" }}>
-                  <p
-                    style={{
-                      fontWeight: 600,
-                      color: "var(--color-text)",
-                      margin: "0 0 var(--space-1) 0",
-                    }}
-                  >
-                    {label}: {t("import.reqifCreated", "created")} {report.created},{" "}
-                    {t("import.reqifUpdated", "updated")} {report.updated},{" "}
-                    {t("import.reqifSkipped", "skipped")} {report.skipped}
+                <div key={key} className={styles.reportBlock}>
+                  <p className={styles.reportLine}>
+                    {label}: {t("import.reqifCreated")} {report.created},{" "}
+                    {t("import.reqifUpdated")} {report.updated},{" "}
+                    {t("import.reqifSkipped")} {report.skipped}
                   </p>
                   {report.errors.length > 0 && (
-                    <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
+                    <ul className={styles.errorList}>
                       {report.errors.slice(0, 10).map((err, idx) => (
-                        <li
-                          key={idx}
-                          style={{
-                            fontSize: "var(--font-size-sm)",
-                            color: "var(--color-text-muted)",
-                            marginBottom: "var(--space-1)",
-                          }}
-                        >
+                        <li key={idx} className={styles.errorListItem}>
                           {err.identifier}: {err.message}
                         </li>
                       ))}
                       {report.errors.length > 10 && (
-                        <li style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-                          ... and {report.errors.length - 10} more errors
+                        <li className={styles.errorListMore}>
+                          {t("import.reqifMoreErrors", { count: report.errors.length - 10 })}
                         </li>
                       )}
                     </ul>
@@ -738,31 +763,16 @@ export function CsvImport(): JSX.Element {
 
             {reqifImportResult.warnings.length > 0 && (
               <div>
-                <p
-                  style={{
-                    fontWeight: 600,
-                    color: "var(--color-text)",
-                    margin: "0 0 var(--space-1) 0",
-                  }}
-                >
-                  {t("import.reqifWarnings", "Warnings")}
-                </p>
-                <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
+                <p className={styles.reportLine}>{t("import.reqifWarnings")}</p>
+                <ul className={styles.errorList}>
                   {reqifImportResult.warnings.slice(0, 10).map((warning, idx) => (
-                    <li
-                      key={idx}
-                      style={{
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text-muted)",
-                        marginBottom: "var(--space-1)",
-                      }}
-                    >
+                    <li key={idx} className={styles.errorListItem}>
                       {warning}
                     </li>
                   ))}
                   {reqifImportResult.warnings.length > 10 && (
-                    <li style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-                      ... and {reqifImportResult.warnings.length - 10} more warnings
+                    <li className={styles.errorListMore}>
+                      {t("import.reqifMoreWarnings", { count: reqifImportResult.warnings.length - 10 })}
                     </li>
                   )}
                 </ul>
@@ -773,57 +783,15 @@ export function CsvImport(): JSX.Element {
       </section>
 
       {/* CSV Export (C7 — frontend-feedback Cluster C, MVP) */}
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          margin: "var(--space-8) 0 var(--space-6) 0",
-        }}
-      >
-        {t("export.title", "CSV Export")}
-      </h2>
+      <h2 className={styles.sectionHeading}>{t("export.title", "CSV Export")}</h2>
 
-      <section
-        data-testid="csv-export-page"
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginBottom: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}
-        >
-          {t("export.entityType", "Entity Type")}
-        </h3>
-        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginBottom: "var(--space-5)" }}>
+      <section data-testid="csv-export-page" className={styles.card}>
+        <h3 className={styles.cardTitle}>{t("export.entityType", "Entity Type")}</h3>
+        <div className={styles.radioGroupSpaced}>
           {EXPORT_ENTITY_TYPES.map((type) => (
             <label
               key={type}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-2)",
-                padding: "var(--space-2) var(--space-3)",
-                borderRadius: "var(--radius-md)",
-                border: exportEntityType === type
-                  ? "1px solid var(--color-primary)"
-                  : "1px solid var(--color-border)",
-                background: exportEntityType === type
-                  ? "rgba(var(--color-primary-rgb, 79,70,229), 0.08)"
-                  : "transparent",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-              }}
+              className={exportEntityType === type ? styles.radioLabelActive : styles.radioLabel}
             >
               <input
                 type="radio"
@@ -833,33 +801,24 @@ export function CsvImport(): JSX.Element {
                 onChange={() => setExportEntityType(type)}
                 data-testid={`export-entity-type-${type}`}
               />
-              {type}
+              {t(ENTITY_TYPE_I18N_KEYS[type] ?? type)}
             </label>
           ))}
         </div>
 
-        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+        <div className={styles.radioGroup}>
           <button
             type="button"
             data-testid="csv-export-btn"
             onClick={() => void handleExport()}
             disabled={isExporting}
-            style={{
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-5)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: isExporting ? "not-allowed" : "pointer",
-              opacity: isExporting ? 0.5 : 1,
-              transition: "var(--transition-fast)",
-            }}
+            className={styles.primaryBtn}
           >
-            {isExporting
-              ? t("export.downloading", "Exporting...")
-              : t("export.download", "Export CSV")}
+            {isExporting ? (
+              <Spinner label={t("export.downloading")} />
+            ) : (
+              t("export.download")
+            )}
           </button>
 
           {/* REQ-146: ReqIF 1.2 export — whole-workspace (Needs + Requirements
@@ -873,55 +832,24 @@ export function CsvImport(): JSX.Element {
               "export.reqifHint",
               "Exports the whole workspace (Needs, Requirements, TraceLinks) as ReqIF 1.2 for DOORS/Polarion"
             )}
-            style={{
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-5)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: isExportingReqif ? "not-allowed" : "pointer",
-              opacity: isExportingReqif ? 0.5 : 1,
-              transition: "var(--transition-fast)",
-            }}
+            className={styles.secondaryBtn}
           >
-            {isExportingReqif
-              ? t("export.downloading", "Exporting...")
-              : t("export.downloadReqif", "Export ReqIF")}
+            {isExportingReqif ? (
+              <Spinner label={t("export.downloading")} />
+            ) : (
+              t("export.downloadReqif")
+            )}
           </button>
         </div>
 
         {exportError && (
-          <div
-            data-testid="csv-export-error"
-            role="alert"
-            style={{
-              marginTop: "var(--space-4)",
-              padding: "var(--space-3)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-danger, #f87171)",
-              borderRadius: "var(--radius-md)",
-              color: "var(--color-danger, #f87171)",
-            }}
-          >
+          <div data-testid="csv-export-error" role="alert" className={styles.errorBoxTopSpaced}>
             {exportError}
           </div>
         )}
 
         {reqifExportError && (
-          <div
-            data-testid="reqif-export-error"
-            role="alert"
-            style={{
-              marginTop: "var(--space-4)",
-              padding: "var(--space-3)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-danger, #f87171)",
-              borderRadius: "var(--radius-md)",
-              color: "var(--color-danger, #f87171)",
-            }}
-          >
+          <div data-testid="reqif-export-error" role="alert" className={styles.errorBoxTopSpaced}>
             {reqifExportError}
           </div>
         )}

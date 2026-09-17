@@ -135,10 +135,35 @@ class GlobalWorkflowDefinitionStore:
         return self._propagate(obj)
 
     def _propagate(self, obj: GlobalWorkflowDefinition) -> int:
-        """Copy ``workflow_json`` into every non-customized derived definition."""
-        return WorkflowEngineDefinition.unscoped.filter(
+        """Copy ``workflow_json`` into every non-customized derived definition.
+
+        Also invalidates TransitionValidator's in-process definition cache
+        (workflow.transition_validator._definition_cache) for every affected
+        workspace — this bulk QuerySet.update() bypasses save()/signals, so
+        without an explicit invalidation here, TransitionValidator kept
+        enforcing the stale pre-edit role/gate/transition rules for the rest
+        of the worker process's life (code review finding: a role removed
+        from allowed_roles, or a SignatureGate just added, would silently
+        keep the old, more permissive behavior on any worker holding a cached
+        copy).
+        """
+        affected_workspace_ids = list(
+            WorkflowEngineDefinition.unscoped.filter(
+                source_global_id=obj.id, is_customized=False
+            ).values_list("workspace_id", flat=True)
+        )
+        count = WorkflowEngineDefinition.unscoped.filter(
             source_global_id=obj.id, is_customized=False
         ).update(workflow_json=copy.deepcopy(obj.workflow_json))
+
+        if affected_workspace_ids:
+            from .transition_validator import TransitionValidator
+
+            validator = TransitionValidator()
+            for workspace_id in affected_workspace_ids:
+                validator.invalidate_cache(str(workspace_id), obj.item_type)
+
+        return count
 
     def add_state(
         self, tenant_id: UUID | str, item_type: str, preset: str, name: str

@@ -45,6 +45,7 @@ from application.base import (
     ServiceBase,
 )
 from application.models import DomainEventDLQ, DomainEventOutbox
+from persistence.models import Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +76,23 @@ class DlqService:
         self,
         ctx: AuthContext,
         *,
+        workspace_id: UUID,
         event_type: Optional[str] = None,
         limit: int = DEFAULT_LIMIT,
     ) -> List[DomainEventDLQ]:
-        """Return DLQ entries ordered by ``-moved_at`` (admin-only).
+        """Return DLQ entries for one workspace, ordered by ``-moved_at`` (admin-only).
 
         Args:
             ctx: Caller AuthContext (must have the ``admin`` role).
+            workspace_id: Target workspace. Required — security fix:
+                ``DomainEventDLQ`` is a plain (non-tenant-scoped) model
+                keyed by a bare ``workspace_id`` UUID field, not an FK, so
+                ``DomainEventDLQ.objects`` was never filtered at all —
+                previously this returned every DLQ row across every
+                workspace of every tenant in the system. Ownership is
+                verified via ``Workspace.objects`` (tenant-scoped), which
+                also makes a foreign-tenant workspace_id indistinguishable
+                from an unknown one (ADR-03).
             event_type: Optional filter on ``DomainEventDLQ.event_type``.
             limit: Maximum number of rows to return (1..LIST_LIMIT_CAP,
                 default DEFAULT_LIMIT=100). Negative or non-integer
@@ -91,13 +102,22 @@ class DlqService:
             List of :class:`DomainEventDLQ` rows. The QuerySet is
             evaluated into a list before the function returns so the
             caller may iterate it outside a DB transaction.
+
+        Raises:
+            NotFoundError: workspace_id does not exist for this tenant.
         """
         ServiceBase._assert_permission(ctx, "admin")
         ServiceBase._set_tenant_context(ctx)
 
+        if not Workspace.objects.filter(id=workspace_id).exists():
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
         safe_limit = max(1, min(int(limit or DEFAULT_LIMIT), LIST_LIMIT_CAP))
 
-        qs = DomainEventDLQ.objects.all().order_by("-moved_at")
+        qs = (
+            DomainEventDLQ.objects.filter(workspace_id=workspace_id)
+            .order_by("-moved_at")
+        )
         if event_type:
             qs = qs.filter(event_type=event_type)
         return list(qs[:safe_limit])
@@ -107,7 +127,7 @@ class DlqService:
     # ------------------------------------------------------------------
 
     def replay_dlq_event(
-        self, ctx: AuthContext, event_id: UUID
+        self, ctx: AuthContext, event_id: UUID, *, workspace_id: UUID
     ) -> DomainEventDLQ:
         """Re-insert a DLQ event into the Outbox and remove the DLQ row.
 
@@ -120,20 +140,31 @@ class DlqService:
         Args:
             ctx: Caller AuthContext (must have the ``admin`` role).
             event_id: UUID of the original :class:`DomainEventDLQ.event_id`.
+            workspace_id: Workspace the event belongs to. Required — see
+                ``list_dlq``'s docstring for why (DomainEventDLQ has no
+                tenant scoping of its own; this previously let an admin of
+                ANY workspace, in ANY tenant, replay ANY other tenant's
+                DLQ event just by supplying its event_id).
 
         Returns:
             The DLQ row that was removed (snapshot fields before delete).
 
         Raises:
             PermissionDeniedError: If the caller is not an admin.
-            NotFoundError: If no DLQ row with the given ``event_id`` exists.
+            NotFoundError: If no DLQ row with the given ``event_id`` exists
+                in ``workspace_id`` for this tenant.
         """
         ServiceBase._assert_permission(ctx, "admin")
         ServiceBase._set_tenant_context(ctx)
 
+        if not Workspace.objects.filter(id=workspace_id).exists():
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
         with transaction.atomic():
             dlq_row = (
-                DomainEventDLQ.objects.filter(event_id=event_id).first()
+                DomainEventDLQ.objects
+                .filter(event_id=event_id, workspace_id=workspace_id)
+                .first()
             )
             if dlq_row is None:
                 raise NotFoundError(

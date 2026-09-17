@@ -30,7 +30,7 @@ from typing import Iterator
 
 import pytest
 
-from application.audit_service import AuditService
+from application.audit_service import AuditFindingView, AuditReport, AuditService
 from application.traceability_suggest_service import TraceabilitySuggestService
 from auth_tenancy.context import AuthContext
 from persistence.models import (
@@ -42,6 +42,7 @@ from persistence.models import (
     Workspace,
 )
 from persistence.tenancy import TenantContext
+from traceability.audit import Finding, RemediationProposal, Severity
 
 pytestmark = pytest.mark.django_db
 
@@ -188,6 +189,92 @@ class TestSuggestLinksReferentialIntegrity:
         ]
         assert str(need_a.artifact_id) in top_candidate_ids
 
+    def test_over_daily_token_limit_raises_and_never_calls_provider(
+        self, tenant, workspace, ctx, monkeypatch, settings
+    ):
+        """Code review regression: traceability.suggest_links (N3) bypassed
+        REQ-106 entirely -- no is_over_daily_limit() check existed at all
+        before this fix, unlike every other free-form LLM flow."""
+        from unittest.mock import MagicMock
+
+        from application.ai_derivation_service import LlmResponseError
+        from persistence.models import TokenUsageRecord
+
+        settings.TENANT_TOKEN_LIMIT_PER_DAY = 100
+        with _active(tenant):
+            TokenUsageRecord.objects.create(
+                provider="mock", capability="traceability_suggest_links",
+                input_tokens=150, output_tokens=0,
+            )
+            _need(
+                tenant, workspace, "Login authentication need",
+                "Users must authenticate securely.",
+            )
+            _requirement(
+                tenant, workspace, "Login authentication requirement",
+                "The system shall authenticate users securely.",
+            )
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            with pytest.raises(LlmResponseError):
+                TraceabilitySuggestService().suggest_links(
+                    workspace.id, ctx, tier="standard"
+                )
+        # Load-bearing: the budget check runs BEFORE the provider is ever
+        # called, not just that some exception was eventually raised.
+        stub_provider.complete.assert_not_called()
+
+    def test_records_estimated_token_counts_not_zero(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """SA-26: traceability.suggest_links (N3) used to hardcode
+        input_tokens=0 on record_token_usage(), leaving the daily budget
+        (REQ-106) blind to this flow's real spend. Both sides must now be
+        estimated from the actual prompt/completion via
+        approximate_token_count()."""
+        from unittest.mock import MagicMock
+
+        from llm_adapter.token_tracking import approximate_token_count
+
+        with _active(tenant):
+            _need(
+                tenant, workspace, "Login authentication need",
+                "Users must authenticate securely.",
+            )
+            _requirement(
+                tenant, workspace, "Login authentication requirement",
+                "The system shall authenticate users securely.",
+            )
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+        record_mock = MagicMock()
+        monkeypatch.setattr(
+            "llm_adapter.token_tracking.record_token_usage", record_mock
+        )
+
+        with _active(tenant):
+            TraceabilitySuggestService().suggest_links(
+                workspace.id, ctx, tier="standard"
+            )
+
+        record_mock.assert_called_once()
+        _, kwargs = record_mock.call_args
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert kwargs["input_tokens"] == approximate_token_count(sent_prompt)
+        assert kwargs["output_tokens"] == approximate_token_count("[]")
+        assert kwargs["input_tokens"] > 0
+        assert kwargs["output_tokens"] > 0
+
     def test_no_missing_link_findings_yields_no_suggestions_without_llm_call(
         self, tenant, workspace, ctx, monkeypatch
     ):
@@ -232,6 +319,76 @@ class TestSuggestLinksReferentialIntegrity:
 
         assert result.suggestions == []
         assert result.eligible_findings == 0
+
+
+# ---------------------------------------------------------------------------
+# R5/R7 (systemaudit 2026-09-02) — non-retryable provider errors fail fast
+# ---------------------------------------------------------------------------
+
+
+class TestSuggestLinksFailsFastOnNonRetryableProviderError:
+    def test_suggest_links_fails_fast_on_non_retryable_provider_error(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """R5/R7 (systemaudit 2026-09-02): a 401 from the real provider SDK
+        must not make suggest_links wait out the full 180s
+        LLM_LONG_RUNNING_TIMEOUT (``llm_adapter/timeouts.py``) -- it must
+        abort within the resilience policy's own (short) budget instead.
+
+        Reproduces the actual call chain traced for this task: suggest_links
+        -> _complete() -> provider.complete() -> AnthropicProvider._chat()
+        -> _resilient() -> resilient_call() ->
+        PolicyEngine.execute_with_policy(), with the Anthropic SDK client
+        itself raising a 401 immediately (no network delay) -- exactly the
+        audit's reported failure mode.
+        """
+        import time
+
+        import anthropic
+
+        from application.traceability_suggest_service import SuggestLinksResponseError
+        from llm_adapter.providers import AnthropicProvider, ProviderConfig
+
+        class _Fake401(Exception):
+            status_code = 401
+
+        class _FakeMessages:
+            def create(self, **kwargs):
+                raise _Fake401("unauthorized")
+
+        class _FakeAnthropicClient:
+            def __init__(self, **kwargs):
+                self.messages = _FakeMessages()
+
+        monkeypatch.setattr(anthropic, "Anthropic", _FakeAnthropicClient)
+
+        provider = AnthropicProvider(
+            ProviderConfig(provider_name="anthropic", api_key="fake-key", timeout=30)
+        )
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: provider
+        )
+
+        with _active(tenant):
+            _need(
+                tenant, workspace, "Login authentication need",
+                "Users must authenticate securely.",
+            )
+            _requirement(
+                tenant, workspace, "Login authentication requirement",
+                "The system shall authenticate users securely.",
+            )
+
+        started = time.monotonic()
+        with _active(tenant):
+            with pytest.raises(SuggestLinksResponseError):
+                TraceabilitySuggestService().suggest_links(
+                    workspace.id, ctx, tier="standard"
+                )
+        elapsed = time.monotonic() - started
+        assert elapsed < 10.0, (
+            f"took {elapsed:.1f}s — non-retryable error was retried/awaited"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -400,3 +557,164 @@ class TestNoPgvectorDependency:
                 f"MockLlmProvider.complete()'s traceability_suggest_links branch "
                 f"must not contain a '{forbidden}' code path."
             )
+
+
+# ---------------------------------------------------------------------------
+# BUG-15 code review M2 — the truncation signal from AuditService.run_audit()
+# must survive this layer, not be silently dropped.
+# ---------------------------------------------------------------------------
+
+
+class _StubAuditServiceForReport:
+    """Duck-typed AuditService stand-in that returns a pre-built report.
+
+    TraceabilitySuggestService only ever calls ``run_audit()`` on its
+    injected ``audit_service`` — a plain stub avoids needing a real
+    >500-finding workspace just to prove the ``truncated`` flag propagates.
+    """
+
+    def __init__(self, report: AuditReport) -> None:
+        self._report = report
+
+    def run_audit(self, *args, **kwargs) -> AuditReport:
+        return self._report
+
+
+class TestSuggestLinksPropagatesTruncation:
+    def test_truncated_report_flag_survives_into_suggest_links_result(
+        self, tenant, workspace, ctx
+    ):
+        # An ineligible rule_id (not in _SUPPORTED_RULE_IDS) is enough to hit
+        # the "no eligible findings" early return — the simplest of
+        # suggest_links()'s three SuggestLinksResult construction sites, and
+        # sufficient to prove the flag isn't dropped at this layer.
+        finding = Finding(
+            rule_id="TRACE-P7",
+            severity=Severity.BLOCKER,
+            message="padding",
+            artifact_ids=(),
+        )
+        capped_report = AuditReport(
+            tier="extended",
+            scope=None,
+            scope_artifact_id=None,
+            findings=[
+                AuditFindingView(
+                    index=0,
+                    finding=finding,
+                    remediation=RemediationProposal(
+                        rule_id="TRACE-P7", automatic=False, reason="manual"
+                    ),
+                )
+            ],
+            truncated=True,
+            total_findings_available=4440,
+        )
+
+        with _active(tenant):
+            result = TraceabilitySuggestService(
+                audit_service=_StubAuditServiceForReport(capped_report)
+            ).suggest_links(workspace.id, ctx, tier="extended")
+
+        assert result.eligible_findings == 0
+        assert result.truncated is True
+        assert result.total_findings_available == 4440
+        # to_dict() must expose it too — the actual REST/MCP wire shape.
+        assert result.to_dict()["truncated"] is True
+        assert result.to_dict()["total_findings_available"] == 4440
+
+    def test_non_truncated_report_flag_is_false(self, tenant, workspace, ctx):
+        empty_report = AuditReport(
+            tier="extended",
+            scope=None,
+            scope_artifact_id=None,
+            findings=[],
+            truncated=False,
+            total_findings_available=0,
+        )
+
+        with _active(tenant):
+            result = TraceabilitySuggestService(
+                audit_service=_StubAuditServiceForReport(empty_report)
+            ).suggest_links(workspace.id, ctx, tier="extended")
+
+        assert result.truncated is False
+        assert result.total_findings_available == 0
+
+
+# ---------------------------------------------------------------------------
+# Regression (Phase 0 final review, Fund 1 #3): _candidate_pool() must exclude
+# Requirements/ArchitectureElements soft-deleted via workflow.services.outdate().
+# ---------------------------------------------------------------------------
+
+
+class TestCandidatePoolExcludesOutdatedArtifacts:
+    def test_outdated_requirement_excluded_from_trace_p1b_pool(self, tenant, workspace, ctx):
+        from traceability.audit.registry import TRACE_P1B
+        from workflow.services import create_default_workflow, outdate
+
+        with _active(tenant):
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+            source = _requirement(tenant, workspace, "Source Requirement")
+            kept = _requirement(tenant, workspace, "Kept Requirement")
+            deleted = _requirement(tenant, workspace, "Deleted Requirement")
+
+            outdate(
+                item_id=deleted.id,
+                item_type="Requirement",
+                workspace_id=workspace.id,
+                ctx=ctx,
+                reason="test soft-delete",
+            )
+
+            pool = TraceabilitySuggestService._candidate_pool(
+                TRACE_P1B, str(source.artifact_id), str(tenant.id), str(workspace.id)
+            )
+
+        assert str(kept.artifact_id) in pool
+        assert str(deleted.artifact_id) not in pool
+
+    def test_outdated_architecture_element_excluded_from_trace_p2_pool(
+        self, tenant, workspace, ctx
+    ):
+        from persistence.models import ArchitectureElement
+        from traceability.audit.registry import TRACE_P2
+        from workflow.services import create_default_workflow, outdate
+
+        with _active(tenant):
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="architecture_default",
+                item_type="ArchitectureElement",
+                tenant_id=tenant.id,
+            )
+            source = _requirement(tenant, workspace, "Source Requirement")
+
+            kept_art = _artifact(tenant, workspace, "ArchitectureElement")
+            kept = ArchitectureElement.objects.create(
+                tenant=tenant, artifact=kept_art, title="Kept AE"
+            )
+            deleted_art = _artifact(tenant, workspace, "ArchitectureElement")
+            deleted = ArchitectureElement.objects.create(
+                tenant=tenant, artifact=deleted_art, title="Deleted AE"
+            )
+
+            outdate(
+                item_id=deleted.id,
+                item_type="ArchitectureElement",
+                workspace_id=workspace.id,
+                ctx=ctx,
+                reason="test soft-delete",
+            )
+
+            pool = TraceabilitySuggestService._candidate_pool(
+                TRACE_P2, str(source.artifact_id), str(tenant.id), str(workspace.id)
+            )
+
+        assert str(kept.artifact_id) in pool
+        assert str(deleted.artifact_id) not in pool

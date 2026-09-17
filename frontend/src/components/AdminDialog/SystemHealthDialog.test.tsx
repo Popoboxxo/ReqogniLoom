@@ -3,9 +3,9 @@
  *
  * Verifies:
  *   - Renders nothing when isOpen is false
- *   - Fetches and displays commit_short + build_time once the version
- *     endpoint resolves
- *   - Falls back to just the commit_short when build_time is null
+ *   - Fetches and displays app_version + commit_short once the version
+ *     endpoint resolves (#74: the public endpoint only ever returns these
+ *     two fields — no full commit hash or build timestamp)
  *   - Shows an "unavailable" marker (without crashing the dialog) when the
  *     version fetch fails, while the health snapshot still renders
  */
@@ -54,12 +54,10 @@ describe("SystemHealthDialog — version indicator", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("displays commit_short and formatted build_time once resolved", async () => {
+  it("displays app_version and commit_short once resolved", async () => {
     vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
       app_version: "0.2.0",
-      commit: "abcdef1234567890",
       commit_short: "abcdef1",
-      build_time: "2026-07-16T12:00:00Z",
     });
 
     render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
@@ -67,16 +65,13 @@ describe("SystemHealthDialog — version indicator", () => {
     await waitFor(() => {
       expect(screen.getByTestId("system-health-version")).toHaveTextContent("abcdef1");
     });
-    expect(screen.getByTestId("system-health-version")).toHaveTextContent("built");
     expect(screen.getByTestId("system-health-version")).toHaveTextContent("v0.2.0");
   });
 
-  it("displays only commit_short when build_time is null", async () => {
+  it("displays only commit_short when app_version is unknown", async () => {
     vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
       app_version: "unknown",
-      commit: "abcdef1234567890",
       commit_short: "abcdef1",
-      build_time: null,
     });
 
     render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
@@ -86,7 +81,7 @@ describe("SystemHealthDialog — version indicator", () => {
         "Version: abcdef1"
       );
     });
-    expect(screen.getByTestId("system-health-version")).not.toHaveTextContent("built");
+    expect(screen.getByTestId("system-health-version")).not.toHaveTextContent("v0.2.0");
   });
 
   it("shows an unavailable marker without crashing when the version fetch fails", async () => {
@@ -117,5 +112,76 @@ describe("SystemHealthDialog — version indicator", () => {
     render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
 
     expect(screen.queryByTestId("system-health-version")).not.toBeInTheDocument();
+  });
+});
+
+describe("SystemHealthDialog — 'unknown' status explanation (#706)", () => {
+  it("shows an explanatory hint for a component with status 'unknown' (e.g. celery_beat)", async () => {
+    vi.mocked(adminOpsModule.adminOpsApi.getSystemHealth).mockResolvedValue({
+      components: [
+        { name: "database", status: "ok" as const, detail: "reachable" },
+        {
+          name: "celery_beat",
+          status: "unknown" as const,
+          detail: "3 periodic task(s) configured (process liveness not verified)",
+        },
+      ],
+      recent_events: [],
+    });
+    vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
+      app_version: "unknown",
+      commit_short: "abcdef1",
+    });
+
+    render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
+
+    const hint = await screen.findByTestId("system-health-unknown-hint-celery_beat");
+    expect(hint).toHaveAttribute(
+      "title",
+      "This check cannot verify process liveness from this endpoint by design — it does not mean the component is down."
+    );
+  });
+
+  it("does not render the 'unknown' hint for components with a definitive status", async () => {
+    vi.mocked(adminOpsModule.adminOpsApi.getSystemHealth).mockResolvedValue({
+      components: [{ name: "database", status: "ok" as const, detail: "reachable" }],
+      recent_events: [],
+    });
+    vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
+      app_version: "unknown",
+      commit_short: "abcdef1",
+    });
+
+    render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("system-health-components")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("system-health-unknown-hint-database")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #954 — the admin dialog footer buttons were hand-styled inline while
+ * every entity dialog used the shared `.btn-*` classes. They now use the same
+ * classes, so their height/radius come from the button metric tokens.
+ */
+describe("SystemHealthDialog — design-system buttons (issue #954)", () => {
+  it("renders its footer buttons with the shared .btn-* classes", async () => {
+    vi.mocked(adminOpsModule.adminOpsApi.getSystemHealth).mockResolvedValue(mockSnapshot);
+    vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
+      app_version: "1.0.0",
+      commit_short: "abcdef1",
+    });
+
+    render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
+
+    const refresh = await screen.findByTestId("system-health-refresh");
+    const done = screen.getByTestId("system-health-done");
+
+    expect(refresh).toHaveClass("btn-secondary");
+    expect(done).toHaveClass("btn-primary");
+    expect(refresh.getAttribute("style")).toBeNull();
+    expect(done.getAttribute("style")).toBeNull();
   });
 });

@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from rest_framework.exceptions import NotFound, ValidationError
 
-from rest_api.error_envelope import reqflow_exception_handler
+from rest_api.error_envelope import reqogniloom_exception_handler
 
 
 def _context() -> dict:
@@ -17,7 +17,7 @@ def _context() -> dict:
 
 
 def test_not_found_wrapped_in_error_envelope() -> None:
-    response = reqflow_exception_handler(NotFound(), _context())
+    response = reqogniloom_exception_handler(NotFound(), _context())
     assert response is not None
     assert response.status_code == 404
     assert set(response.data) == {"error"}
@@ -28,7 +28,7 @@ def test_not_found_wrapped_in_error_envelope() -> None:
 
 
 def test_validation_error_message_and_details() -> None:
-    response = reqflow_exception_handler(
+    response = reqogniloom_exception_handler(
         ValidationError({"title": ["This field is required."]}), _context()
     )
     assert response is not None
@@ -41,11 +41,11 @@ def test_validation_error_message_and_details() -> None:
 def test_already_normalised_response_is_passed_through() -> None:
     # An error already shaped like the envelope must not be double-wrapped.
     exc = ValidationError({"error": {"code": "X", "message": "already", "details": []}})
-    response = reqflow_exception_handler(exc, _context())
+    response = reqogniloom_exception_handler(exc, _context())
     assert response is not None
     assert response.data == {"error": {"code": "X", "message": "already", "details": []}}
 
 
 def test_non_drf_exception_returns_none() -> None:
     # Unhandled (non-DRF) exceptions fall through to Django's 500 handler.
-    assert reqflow_exception_handler(RuntimeError("boom"), _context()) is None
+    assert reqogniloom_exception_handler(RuntimeError("boom"), _context()) is None

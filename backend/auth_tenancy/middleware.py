@@ -23,6 +23,7 @@ from typing import Any
 from uuid import UUID
 
 from persistence.middleware import BaseTenantMiddleware, clear_request_tenant
+from persistence.tenancy import TenantContext
 
 # Paths exempt from authentication (REQ-L2-AT-007).
 EXEMPT_PATH_PREFIXES = ("/health", "/api/docs", "/api/openapi.json")
@@ -40,12 +41,19 @@ class AuthTenancyMiddleware(BaseTenantMiddleware):
         return None
 
     def __call__(self, request: Any) -> Any:
-        """Run the request and always clear the tenant context afterwards."""
+        """Run the request and clear whatever it activated, if anything.
+
+        Only clears when the tenant context transitioned from unset to set
+        during this call — a context already active before ``get_response``
+        (e.g. a test fixture wrapping several client calls on one thread)
+        was not activated by this request and is left alone.
+        """
+        was_set = TenantContext.is_set()
         try:
             return self.get_response(request)
         finally:
-            # Clear whatever DRF authentication activated, even on exceptions.
-            clear_request_tenant()
+            if not was_set and TenantContext.is_set():
+                clear_request_tenant()
 
 
 def is_exempt_path(path: str) -> bool:

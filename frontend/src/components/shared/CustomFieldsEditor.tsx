@@ -12,7 +12,7 @@
  * stay consistent with the surrounding editor forms.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CustomFields, CustomFieldValue } from '../../types';
 
@@ -90,39 +90,39 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
-  const emit = useCallback((nextRows: FieldRow[]): void => {
-    onChangeRef.current(rowsToMap(nextRows));
+  // Issue #423: `onChange` (the parent form's setState, e.g. RequirementForm's
+  // setCustomFields) used to be called synchronously from inside the
+  // `setRows` updater functions below. React can invoke that updater during
+  // this component's render phase, which triggered "Cannot update a
+  // component (RequirementForm) while rendering a different component
+  // (CustomFieldsEditor)". Row mutations now only update local `rows`
+  // state; propagating the derived map to the parent happens here, in an
+  // effect that runs after commit, never during render. The `isFirstRun`
+  // guard skips the initial mount so the parent isn't redundantly re-set to
+  // an equivalent value it already owns.
+  const isFirstRun = useRef(true);
+  useEffect(() => {
+    if (isFirstRun.current) {
+      isFirstRun.current = false;
+      return;
+    }
+    onChangeRef.current(rowsToMap(rows));
+  }, [rows]);
+
+  const updateRow = useCallback((id: string, patch: Partial<FieldRow>): void => {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }, []);
 
-  const updateRow = useCallback(
-    (id: string, patch: Partial<FieldRow>): void => {
-      setRows((prev) => {
-        const next = prev.map((r) => (r.id === id ? { ...r, ...patch } : r));
-        emit(next);
-        return next;
-      });
-    },
-    [emit]
-  );
-
   const addRow = useCallback((): void => {
-    setRows((prev) => {
-      const next = [...prev, { id: nextRowId(), key: '', value: '', type: 'string' as FieldType }];
-      emit(next);
-      return next;
-    });
-  }, [emit]);
+    setRows((prev) => [
+      ...prev,
+      { id: nextRowId(), key: '', value: '', type: 'string' as FieldType },
+    ]);
+  }, []);
 
-  const removeRow = useCallback(
-    (id: string): void => {
-      setRows((prev) => {
-        const next = prev.filter((r) => r.id !== id);
-        emit(next);
-        return next;
-      });
-    },
-    [emit]
-  );
+  const removeRow = useCallback((id: string): void => {
+    setRows((prev) => prev.filter((r) => r.id !== id));
+  }, []);
 
   const inputStyle: React.CSSProperties = useMemo(
     () => ({

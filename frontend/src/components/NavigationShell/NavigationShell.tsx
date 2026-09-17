@@ -28,6 +28,9 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { AuthGate } from "./AuthGate";
 import { SidebarNavigation } from "./SidebarNavigation";
 import { LoginPage } from "./LoginPage";
+import { InterviewWidget } from "../InterviewWidget/InterviewWidget";
+import { BannerStack } from "./BannerStack";
+import styles from "./AppShell.module.css";
 
 // Lazy-loaded route components for performance (REQ-L2-RF-009)
 const DashboardViews = lazy(
@@ -47,6 +50,11 @@ const WorkspaceSettings = lazy(
 );
 const SystemSettings = lazy(
   () => import("../SystemSettings/SystemSettings")
+);
+const UserManagement = lazy(() =>
+  import("../Settings/UserManagement/UserManagement").then((m) => ({
+    default: m.UserManagement,
+  }))
 );
 const TraceabilityView = lazy(
   () => import("../TraceabilityView/TraceabilityView")
@@ -74,6 +82,11 @@ const CanvasEditor = lazy(() =>
   import("../canvas/CanvasEditor").then((m) => ({ default: m.CanvasEditor }))
 );
 const MermaidEditor = lazy(() => import("../mermaid/MermaidEditor"));
+const DiagramGraphEditorPage = lazy(() =>
+  import("../DiagramGraphEditor/DiagramGraphEditorPage").then((m) => ({
+    default: m.DiagramGraphEditorPage,
+  }))
+);
 const MetricsDashboard = lazy(
   () => import("../MetricsDashboard/MetricsDashboard")
 );
@@ -87,6 +100,14 @@ const GlossaryView = lazy(() => import("../GlossaryView"));
 const WorkflowEditorPage = lazy(
   () => import("../WorkflowEditor/WorkflowEditorPage")
 );
+const AttributeEditorPage = lazy(() =>
+  import("../AttributeEditor").then((m) => ({ default: m.AttributeEditorPage }))
+);
+const GoalsPage = lazy(() => import("../Goals/GoalsPage"));
+const InterviewEditors = lazy(() => import("../InterviewEditors/InterviewEditors"));
+const LinkTypeEditorPage = lazy(() =>
+  import("../LinkTypeEditor/LinkTypeEditorPage").then((m) => ({ default: m.LinkTypeEditorPage }))
+);
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -96,13 +117,9 @@ function AppShell(): JSX.Element {
   const { t } = useTranslation();
 
   return (
-    <div
-      style={{
-        display: "flex",
-        minHeight: "100vh",
-        fontFamily: "sans-serif",
-      }}
-    >
+    <div className={styles.shell}>
+      <BannerStack />
+      <div className={styles.contentRow}>
       <SidebarNavigation />
       <main
         style={{ flex: 1, height: "100%", padding: "1.5rem", overflow: "auto" }}
@@ -112,8 +129,9 @@ function AppShell(): JSX.Element {
           errorTitle={t("errors.generic")}
           reloadLabel={t("actions.reload")}
           backLabel={t("actions.back")}
+          unknownErrorLabel={t("errors.unknown")}
         >
-          <Suspense fallback={<div role="status">{t("loading")}</div>}>
+          <Suspense fallback={<div role="status" data-testid="route-suspense-fallback">{t("loading")}</div>}>
             <Routes>
               <Route path="/" element={<DashboardViews />} />
               <Route path="/needs" element={<NeedsEditors />} />
@@ -142,26 +160,68 @@ function AppShell(): JSX.Element {
               <Route path="/diagrams/:id" element={<DiagramView />} />
               <Route path="/diagrams/:id/canvas" element={<CanvasEditorWrapper />} />
               <Route path="/diagrams/:id/mermaid" element={<MermaidEditorWrapper />} />
+              <Route path="/diagrams/:id/graph" element={<DiagramGraphEditorWrapper />} />
               <Route path="/metrics" element={<MetricsDashboard />} />
               <Route path="/audit" element={<AuditDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
+              <Route path="/settings/link-types" element={<LinkTypeEditorPage scope="workspace" />} />
               <Route path="/system-settings" element={<SystemSettings />} />
+              <Route path="/system-settings/link-types" element={<LinkTypeEditorPage scope="global" />} />
+              <Route path="/user-management" element={<UserManagement />} />
               <Route
                 path="/workspace-settings"
                 element={<Navigate to="/settings" replace />}
               />
+              {/* #575: legacy paths from before the routes below were
+                  renamed -- alias them to their current route instead of
+                  silently falling through to the "*" -> "/" catch-all,
+                  which stranded old bookmarks/deep-links on the Dashboard
+                  with no indication anything had moved. */}
+              <Route
+                path="/trace-links"
+                element={<Navigate to="/traceability" replace />}
+              />
+              <Route
+                path="/test-cases"
+                element={<Navigate to="/testcases" replace />}
+              />
+              <Route
+                path="/impact-analysis"
+                element={<Navigate to="/impact" replace />}
+              />
+              <Route
+                path="/se-auditor"
+                element={<Navigate to="/audit" replace />}
+              />
+              <Route path="/goals" element={<GoalsPage />} />
+              <Route path="/interviews" element={<InterviewEditors />} />
+              <Route path="/interviews/:id" element={<InterviewEditors />} />
               <Route path="/glossary" element={<GlossaryView />} />
               <Route path="/workflows" element={<WorkflowEditorPage />} />
               <Route
                 path="/workflows/:entityType"
                 element={<WorkflowEditorPage />}
               />
+              <Route path="/attributes" element={<AttributeEditorPage />} />
+              <Route
+                path="/attributes/:entityType"
+                element={<AttributeEditorPage />}
+              />
               <Route path="/profile" element={<UserProfileSettings />} />
+              {/* #609: /prompts has no dedicated page yet — route to the
+                  Settings tab where prompt variables actually live instead of
+                  silently falling through to the "*" dashboard redirect. */}
+              <Route path="/prompts" element={<Navigate to="/settings?tab=llm" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>
       </main>
+      {/* Route-independent, always-mounted overlay (interview-management web
+          widget plan Task 5) -- must render on every authenticated route,
+          not just one page, so it lives here rather than inside a <Route>. */}
+      <InterviewWidget />
+      </div>
     </div>
   );
 }
@@ -180,6 +240,15 @@ function MermaidEditorWrapper(): JSX.Element {
   const { id } = useParams<{ id: string }>();
   if (!id) return <Navigate to="/diagrams" replace />;
   return <MermaidEditor diagramId={id} />;
+}
+
+function DiagramGraphEditorWrapper(): JSX.Element {
+  const { id } = useParams<{ id: string }>();
+  if (!id) return <Navigate to="/diagrams" replace />;
+  // DiagramGraphEditorPage reads `:id` from the route itself (it is only
+  // ever mounted at this path) — the wrapper's job is just the missing-id
+  // guard, mirroring CanvasEditorWrapper/MermaidEditorWrapper above.
+  return <DiagramGraphEditorPage />;
 }
 
 // ---------------------------------------------------------------------------

@@ -85,8 +85,10 @@ def _auth(client: APIClient, token: str) -> None:
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-def test_get_creates_default_row_with_mock_provider(llm_tenant):
-    """GET lazily creates the singleton row with provider=mock."""
+def test_get_reports_mock_provider_without_env(llm_tenant, monkeypatch):
+    """With no env provider configured the endpoint reports the safe default."""
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
     client = APIClient()
     _auth(client, _login(client, "llmadmin"))
 
@@ -97,6 +99,138 @@ def test_get_creates_default_row_with_mock_provider(llm_tenant):
     assert body["api_key_is_set"] is False
     # api_key must NEVER be serialized on read.
     assert "api_key" not in body
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_get_reports_env_llm_provider(llm_tenant, monkeypatch):
+    """GitHub #32: a fresh tenant's default row must reflect a configured
+    ``LLM_PROVIDER`` env var, not silently stay 'mock'.
+
+    Before the fix, ``get_or_create_llm_settings`` hard-coded
+    ``provider=mock`` for the row created on first access, so
+    ``GET /api/v1/llm-settings/`` reported 'mock' even when the deployment
+    had a real provider configured via the environment (as documented in
+    docker-compose.yml's ``LLM_PROVIDER`` passthrough).
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    resp = client.get("/api/v1/llm-settings/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "anthropic"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_get_ignores_invalid_env_provider(llm_tenant, monkeypatch):
+    """An unrecognised ``LLM_PROVIDER`` value must not break the default;
+    it falls back to the safe 'mock' default (GitHub #32)."""
+    monkeypatch.setenv("LLM_PROVIDER", "not-a-real-provider")
+
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    resp = client.get("/api/v1/llm-settings/")
+    assert resp.status_code == 200
+    assert resp.json()["provider"] == "mock"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_get_does_not_persist_a_row(llm_tenant, monkeypatch):
+    """[#276] Reading the settings must not materialise a row.
+
+    ``_apply_db_settings`` gives an existing LlmSettings row unconditional
+    precedence over the environment. As long as a plain GET created one, the
+    deployment's ``LLM_PROVIDER`` was frozen into the database the first time
+    an admin merely *opened* the settings page — every later ``.env`` change
+    was then silently ignored. Row existence now means "an admin explicitly
+    saved settings", which is what makes that precedence rule correct.
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    assert client.get("/api/v1/llm-settings/").status_code == 200
+    assert client.get("/api/v1/llm-settings/").status_code == 200
+
+    set_request_tenant(llm_tenant.id)
+    assert LlmSettings.objects.filter(tenant_id=llm_tenant.id).count() == 0
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_get_reflects_env_model_and_base_url(llm_tenant, monkeypatch):
+    """[#276] With no stored row the endpoint reports the effective env config.
+
+    Otherwise the page shows an empty model/base_url while the adapter really
+    uses the values from ``.env`` — the misleading state that hid finding 2.
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434")
+    monkeypatch.setenv("LLM_MODEL", "llama3.1")
+    monkeypatch.setenv("LLM_API_KEY", "sk-from-env")
+
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    body = client.get("/api/v1/llm-settings/").json()
+    assert body["provider"] == "ollama"
+    assert body["base_url"] == "http://localhost:11434"
+    assert body["model_name"] == "llama3.1"
+    assert body["api_key_is_set"] is True
+    assert "api_key" not in body
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_env_provider_survives_a_settings_read(llm_tenant, monkeypatch):
+    """[#276] End-to-end: reading the settings must not downgrade the adapter.
+
+    Reproduces the reported symptom — AI features silently returning mock
+    placeholders although ``.env`` configures a real provider.
+    """
+    from llm_adapter.providers import _read_config
+
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("LLM_API_KEY", "sk-from-env")
+
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+    assert client.get("/api/v1/llm-settings/").status_code == 200
+
+    set_request_tenant(llm_tenant.id)
+    cfg = _read_config()
+    assert cfg.provider_name == "anthropic"
+    assert cfg.api_key == "sk-from-env"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_explicit_write_still_wins_over_env(llm_tenant, monkeypatch):
+    """An admin who deliberately selects ``mock`` must override the env.
+
+    The counterpart to the test above: precedence is not dropped, it is tied
+    to an explicit write. A stored row still beats ``.env``.
+    """
+    from llm_adapter.providers import _read_config
+
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+    resp = client.put(
+        "/api/v1/llm-settings/", {"provider": "mock"}, format="json"
+    )
+    assert resp.status_code == 200
+
+    set_request_tenant(llm_tenant.id)
+    assert LlmSettings.objects.filter(tenant_id=llm_tenant.id).count() == 1
+    assert _read_config().provider_name == "mock"
 
 
 @override_settings(**_JWT_OVERRIDES)
@@ -189,6 +323,35 @@ def test_patch_partial_update_keeps_existing_api_key(llm_tenant):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
+def test_opencode_go_provider_round_trips(llm_tenant):
+    """``opencode_go`` is accepted on write and echoed back on read (#273/#274).
+
+    The UI-side guard for unknown providers (issue #274) relies on a PATCH
+    that omits ``provider`` leaving the stored one untouched, so both halves
+    are asserted here.
+    """
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    resp = client.patch(
+        "/api/v1/llm-settings/", {"provider": "opencode_go"}, format="json"
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["provider"] == "opencode_go"
+
+    # A PATCH that leaves `provider` out must not reset it.
+    resp = client.patch(
+        "/api/v1/llm-settings/", {"model_name": "gpt-oss"}, format="json"
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["provider"] == "opencode_go"
+
+    resp = client.get("/api/v1/llm-settings/")
+    assert resp.json()["provider"] == "opencode_go"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
 def test_non_admin_is_forbidden(llm_tenant):
     """A non-admin (editor) cannot read or write LLM settings."""
     client = APIClient()
@@ -206,14 +369,23 @@ def test_non_admin_is_forbidden(llm_tenant):
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
 def test_singleton_one_row_per_tenant(llm_tenant):
-    """Repeated access never creates more than one row per tenant."""
+    """Repeated access never creates more than one row per tenant.
+
+    The write uses a valid payload on purpose: ``{"provider": "ollama"}``
+    without a ``base_url`` is rejected with 400 by the serializer, so before
+    #276 this assertion was satisfied by the row the *GET* created rather than
+    by the write under test.
+    """
     client = APIClient()
     _auth(client, _login(client, "llmadmin"))
 
     client.get("/api/v1/llm-settings/")
-    client.put(
-        "/api/v1/llm-settings/", {"provider": "ollama"}, format="json"
+    resp = client.put(
+        "/api/v1/llm-settings/",
+        {"provider": "ollama", "base_url": "http://localhost:11434"},
+        format="json",
     )
+    assert resp.status_code == 200, resp.content
     client.get("/api/v1/llm-settings/")
 
     set_request_tenant(llm_tenant.id)

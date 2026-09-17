@@ -138,7 +138,7 @@ class TestBaselineStorePersistence:
             meta = _make_metadata()
             bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
 
-            detail: BaselineDetail = store.get(bl_id)
+            detail: BaselineDetail = store.get(bl_id, tenant.id)
             assert len(detail.entries) == 3
             stored_ids = {e.item_id for e in detail.entries}
             expected_ids = {t.item_id for t in tuples}
@@ -162,7 +162,7 @@ class TestBaselineStorePersistence:
             tuples = _make_delta_tuples(1)
             meta = _make_metadata()
             bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
-            detail = store.get(bl_id)
+            detail = store.get(bl_id, tenant.id)
             entry = detail.entries[0]
             assert not hasattr(entry, "title"), "DeltaIndexTuple must not carry payload"
         finally:
@@ -230,7 +230,7 @@ class TestBaselineStorePersistence:
         """REQ-L2-BL-006: get(nonexistent_id) → BaselineNotFoundError."""
         store = BaselineStore()
         with pytest.raises(BaselineNotFoundError):
-            store.get(uuid.uuid4())
+            store.get(uuid.uuid4(), uuid.uuid4())
 
     def test_list_sorted_desc(self):
         """REQ-L2-BL-006: list() returns baselines sorted by created_at DESC."""
@@ -290,7 +290,7 @@ class TestBaselineStorePersistence:
             tuples = [DeltaIndexTuple(item_id=item_id, version=7)]
             meta = _make_metadata()
             bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
-            assert store.lookup_item_version(bl_id, item_id) == 7
+            assert store.lookup_item_version(bl_id, item_id, tenant.id) == 7
         finally:
             TenantContext.clear_tenant()
 
@@ -305,7 +305,7 @@ class TestBaselineStorePersistence:
             meta = _make_metadata()
             bl_id = store.persist_delta_index([], meta, tenant_id=tenant.id)
             with pytest.raises(ItemNotInBaselineError):
-                store.lookup_item_version(bl_id, str(uuid.uuid4()))
+                store.lookup_item_version(bl_id, str(uuid.uuid4()), tenant.id)
         finally:
             TenantContext.clear_tenant()
 
@@ -328,7 +328,7 @@ class TestDiffEngine:
         from baseline.models import BaselineSnapshot
 
         mock = MagicMock(spec=BaselineStore)
-        mock.load_delta_index.side_effect = lambda bid: (
+        mock.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a or [] if bid == self._id_a else entries_b or []
         )
         return mock
@@ -345,7 +345,7 @@ class TestDiffEngine:
         entries_b: list | None = None,
     ) -> DiffEngine:
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a or [] if bid == self._id_a else entries_b or []
         )
         engine = DiffEngine(store=store)
@@ -356,7 +356,7 @@ class TestDiffEngine:
             b_snap = MagicMock()
             b_snap.scope = scope_b
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: a_snap if id == self._id_a else b_snap
+                lambda id=None, tenant_id=None: a_snap if id == self._id_a else b_snap
             )
             engine._mock_snap = mock_snap
             engine._a_snap = a_snap
@@ -371,7 +371,7 @@ class TestDiffEngine:
         entries_b = [(new_item, 1, "item")]
 
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a if bid == self._id_a else entries_b
         )
         engine = DiffEngine(store=store)
@@ -382,9 +382,9 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "project"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert new_item in result.added
         assert result.removed == []
@@ -397,7 +397,7 @@ class TestDiffEngine:
         entries_b: list[tuple[str, int, str]] = []
 
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a if bid == self._id_a else entries_b
         )
         engine = DiffEngine(store=store)
@@ -408,9 +408,9 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "project"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert old_item in result.removed
         assert result.added == []
@@ -423,7 +423,7 @@ class TestDiffEngine:
         entries_b = [(item, 2, "item")]
 
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a if bid == self._id_a else entries_b
         )
         engine = DiffEngine(store=store)
@@ -434,9 +434,9 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "project"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert len(result.changed) == 1
         assert result.changed[0].id == item
@@ -450,7 +450,7 @@ class TestDiffEngine:
         entries_b = [(item, 5, "item")]
 
         store = MagicMock(spec=BaselineStore)
-        store.load_delta_index.side_effect = lambda bid: (
+        store.load_delta_index.side_effect = lambda bid, tenant_id=None: (
             entries_a if bid == self._id_a else entries_b
         )
         engine = DiffEngine(store=store)
@@ -461,9 +461,9 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "project"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert result.added == []
         assert result.removed == []
@@ -480,10 +480,10 @@ class TestDiffEngine:
             snap_b = MagicMock()
             snap_b.scope = "global"
             mock_snap.unscoped.only.return_value.get.side_effect = (
-                lambda id: snap_a if id == self._id_a else snap_b
+                lambda id=None, tenant_id=None: snap_a if id == self._id_a else snap_b
             )
             with pytest.raises(ScopeMismatchError) as exc_info:
-                engine.diff(self._id_a, self._id_b)
+                engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         assert "different scopes" in str(exc_info.value)
 
@@ -497,7 +497,7 @@ class TestDiffEngine:
             snap = MagicMock()
             snap.scope = "project"
             mock_snap.unscoped.only.return_value.get.return_value = snap
-            result = engine.diff(self._id_a, self._id_b)
+            result = engine.diff(self._id_a, self._id_b, tenant_id=uuid.uuid4())
 
         d = result.to_dict()
         assert "added" in d
@@ -528,7 +528,7 @@ class TestVersionReconstructor:
         store.lookup_item_version.side_effect = ItemNotInBaselineError()
         reconstructor = VersionReconstructor(store=store)
         with pytest.raises(ItemNotInBaselineError) as exc_info:
-            reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+            reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         assert "not part of this baseline" in str(exc_info.value)
 
     def test_version_not_in_history_raises(self):
@@ -538,7 +538,7 @@ class TestVersionReconstructor:
         with patch.object(reconstructor, "_try_live_entity", return_value=None), \
              patch.object(reconstructor, "_load_from_audit_log", return_value=None):
             with pytest.raises(VersionNotFoundError) as exc_info:
-                reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+                reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         assert "Version not found" in str(exc_info.value)
 
     def test_returns_old_version_from_audit(self):
@@ -549,7 +549,7 @@ class TestVersionReconstructor:
         )
         with patch.object(reconstructor, "_try_live_entity", return_value=None), \
              patch.object(reconstructor, "_load_from_audit_log", return_value=old_payload):
-            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         assert result.title == "Old Title"
         assert result.version == 2
 
@@ -560,7 +560,7 @@ class TestVersionReconstructor:
             item_id=self._item_id, version=5, title="Current Title"
         )
         with patch.object(reconstructor, "_try_live_entity", return_value=live_payload):
-            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         assert result.title == "Current Title"
 
     def test_lru_cache_hit_avoids_db(self):
@@ -572,7 +572,7 @@ class TestVersionReconstructor:
         # — if cache hit works, neither should be called
         with patch.object(reconstructor, "_try_live_entity") as mock_live, \
              patch.object(reconstructor, "_load_from_audit_log") as mock_audit:
-            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id)
+            result = reconstructor.get_item_at_baseline(self._baseline_id, self._item_id, uuid.uuid4())
         mock_live.assert_not_called()
         mock_audit.assert_not_called()
         assert result.title == "Cached"
@@ -751,7 +751,7 @@ class TestBaselineNotFoundError:
     def test_error_message(self):
         store = BaselineStore()
         with pytest.raises(BaselineNotFoundError) as exc_info:
-            store.get(uuid.uuid4())
+            store.get(uuid.uuid4(), uuid.uuid4())
         assert "Baseline not found" in str(exc_info.value)
 
 
@@ -794,6 +794,190 @@ class TestScopeMismatchMessage:
         with pytest.raises(ScopeMismatchError) as exc_info:
             raise ScopeMismatchError()
         assert "different scopes" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# M3 (Codeberg #353 final review): ScopeResolver — Diagram shadow-Artifact
+# exclusion for the ACTUAL baseline snapshot path (DeltaIndexBuilder), not
+# just the preview (see also test_scope_preview.py's preview-level coverage
+# of the same fix in baseline/services.py::resolve_scope_item_ids).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestScopeResolverExcludesDiagramShadowArtifacts:
+    """A Diagram's shadow Artifact (artifact_type='Diagram') is an internal
+    implementation detail of the TraceabilityEngine link
+    (diagram.traceability_connector._resolve_artifact_id), not a real domain
+    artifact — it must not be snapshotted into a project/global baseline."""
+
+    def _make_tenant_and_workspace(self):
+        from persistence.models import Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="BL-Diag-Tenant", slug=f"bl-diag-{uuid.uuid4().hex[:8]}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        workspace = Workspace.unscoped.create(tenant=tenant, name="BL-Diag-WS")
+        return tenant, workspace
+
+    def test_resolve_project_excludes_diagram_artifact_type(self):
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            items = ScopeResolver().resolve(
+                scope="project", workspace_id=workspace.id, tenant_id=tenant.id
+            )
+            item_ids = {item.item_id for item in items}
+
+            assert str(real.id) in item_ids
+            assert len(item_ids) == 1
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_resolve_global_excludes_diagram_artifact_type(self):
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            items = ScopeResolver().resolve(
+                scope="global", workspace_id=workspace.id, tenant_id=tenant.id
+            )
+            item_ids = {item.item_id for item in items}
+
+            assert str(real.id) in item_ids
+            assert len(item_ids) == 1
+        finally:
+            TenantContext.clear_tenant()
+
+
+# ---------------------------------------------------------------------------
+# Regression (Codeberg #353 follow-up): resolve_scope_item_ids's Diagram
+# shadow-Artifact exclusion must be opt-out-able for the SE-Auditor, since
+# it is shared with AuditContext.scope_item_ids (see traceability/audit/
+# types.py and traceability/tests/test_trace_p7.py for the audit-side
+# regression test).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestResolveScopeItemIdsDiagramShadowArtifactFlag:
+    """resolve_scope_item_ids(exclude_diagram_shadow_artifacts=...) must
+    default to excluding Diagram shadow Artifacts (preview/baseline
+    correctness, M3) while allowing callers such as the SE-Auditor to opt
+    out (Codeberg #353 regression fix) — both behaviours from the same
+    function, selectable via the flag."""
+
+    def _make_tenant_and_workspace(self):
+        from persistence.models import Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="BL-DiagFlag-Tenant", slug=f"bl-diagflag-{uuid.uuid4().hex[:8]}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        workspace = Workspace.unscoped.create(tenant=tenant, name="BL-DiagFlag-WS")
+        return tenant, workspace
+
+    def test_default_excludes_diagram_shadow_artifact_from_project_scope(self):
+        """Default (True): matches the actual baseline snapshot — a Diagram
+        shadow Artifact must not appear as a spurious scope item."""
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            diagram = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="project", workspace_id=workspace.id, tenant_id=tenant.id
+            )
+
+            assert str(real.id) in item_ids
+            assert str(diagram.id) not in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_exclude_diagram_shadow_artifacts_false_includes_it_in_project_scope(self):
+        """exclude_diagram_shadow_artifacts=False (SE-Auditor path): the
+        Diagram shadow Artifact must be included, so a TraceLink between it
+        and a real artifact has both endpoints in scope — no TRACE-P7
+        false-BLOCKER (Codeberg #353 regression fix)."""
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            diagram = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="project",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                exclude_diagram_shadow_artifacts=False,
+            )
+
+            assert str(real.id) in item_ids
+            assert str(diagram.id) in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_exclude_diagram_shadow_artifacts_false_includes_it_in_global_scope(self):
+        """Same flag semantics for global scope."""
+        from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            real = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="requirement"
+            )
+            diagram = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Diagram"
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="global",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                exclude_diagram_shadow_artifacts=False,
+            )
+
+            assert str(real.id) in item_ids
+            assert str(diagram.id) in item_ids
+        finally:
+            TenantContext.clear_tenant()
 
 
 # ---------------------------------------------------------------------------
@@ -848,7 +1032,7 @@ class TestBaselineBuiltinWithExtendedPreset:
             bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
 
             # Round-trip: get the baseline back
-            detail = store.get(bl_id)
+            detail = store.get(bl_id, tenant.id)
             assert detail.baseline_id == bl_id
             assert detail.scope == "project"
             assert detail.name == "Ext-Preset-BL"
@@ -952,5 +1136,147 @@ class TestBaselineBuiltinWithExtendedPreset:
             )
             config = _get_or_create_preset_config(str(workspace.id))
             assert config.active_tier == "minimal"
+        finally:
+            TenantContext.clear_tenant()
+
+
+# ---------------------------------------------------------------------------
+# REQ-L2-BL-001: document-scope descendant resolution via TraceLinks
+# (issue #42 — Requirements/ADRs/StakeholderNeeds use derives-from
+# TraceLinks for hierarchy, not pl_artifact.parent_id; the retired refines
+# type was folded into derives-from by the link-type consolidation).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestDocumentScopeTraceLinkDescendants:
+    """resolve_scope_item_ids(scope='document') must also follow
+    derives-from TraceLinks, not only pl_artifact.parent_id."""
+
+    def _make_tenant_and_workspace(self):
+        from persistence.models import Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="BL-TL-Tenant", slug=f"bl-tl-{uuid.uuid4().hex[:8]}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        workspace = Workspace.unscoped.create(tenant=tenant, name="BL-TL-WS")
+        return tenant, workspace
+
+    def test_document_scope_includes_child_linked_via_derives_from(self):
+        """A root StakeholderNeed with a Requirement that 'derives-from' it
+        (no parent_id set) must be included in document scope."""
+        from persistence.models import Artifact, TraceLink
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            root = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="stakeholderneed",
+            )
+            child = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="requirement",
+                # parent_id intentionally left unset — hierarchy is expressed
+                # via the TraceLink below, mirroring RequirementService.
+            )
+            TraceLink.objects.create(
+                source=child,
+                target=root,
+                link_type="derives-from",
+                tenant=tenant,
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="document",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                artifact_id=root.id,
+            )
+
+            assert str(root.id) in item_ids
+            assert str(child.id) in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_document_scope_includes_child_linked_via_derives_from_between_adrs(self):
+        """derives-from TraceLinks between ADRs are also followed (the retired
+        refines type used to carry this pair before the link-type
+        consolidation folded it into derives-from)."""
+        from persistence.models import Artifact, TraceLink
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            root = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="adr",
+            )
+            child = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="adr",
+            )
+            TraceLink.objects.create(
+                source=child,
+                target=root,
+                link_type="derives-from",
+                tenant=tenant,
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="document",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                artifact_id=root.id,
+            )
+
+            assert str(root.id) in item_ids
+            assert str(child.id) in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_document_scope_excludes_unrelated_link_types(self):
+        """Non-hierarchy link types (e.g. allocated-to) must NOT pull in the
+        source artifact as a descendant."""
+        from persistence.models import Artifact, TraceLink
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            root = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="requirement",
+            )
+            unrelated = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="testcase",
+            )
+            TraceLink.objects.create(
+                source=unrelated,
+                target=root,
+                link_type="allocated-to",
+                tenant=tenant,
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="document",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                artifact_id=root.id,
+            )
+
+            assert str(root.id) in item_ids
+            assert str(unrelated.id) not in item_ids
         finally:
             TenantContext.clear_tenant()

@@ -11,6 +11,9 @@ This module wires together:
 * :class:`~auth_tenancy.models.ItemPermission` — the persistent rule row.
 * :class:`PermissionCache` — a 60-second thread-local TTL cache for
   ``check_permission`` results, invalidated on every ``grant``/``revoke``.
+  Since SA-28 that invalidation is cross-worker: it bumps a shared generation
+  counter, so a revoke cannot leave a stale *allow* alive on another thread or
+  process for the remainder of the TTL.
 * :class:`application.base.ServiceBase` — for the admin RBAC gate
   (``_assert_permission``) and the AuditLog write shortcut (``_audit``).
 
@@ -54,11 +57,27 @@ class PermissionDecision:
             ``"deny"`` is returned for both ``level="none"`` rules and the
             no-rule default (closed-world semantics).
         reason: Human-readable explanation of the evaluation path that
-            produced this decision. Useful for audit + debugging.
+            produced this decision. Useful for audit + debugging — and for
+            human consumption ONLY. Authorization decisions must never
+            branch on this text; use :attr:`has_explicit_rule` instead
+            (issue #722, Finding 1).
+        has_explicit_rule: Structured discriminator for "a real
+            :class:`ItemPermission` row was evaluated" (``True``) versus
+            "no rule applies, this is the closed-world default"
+            (``False``). Callers that combine this layer with another one
+            (e.g. the base RBAC matrix) branch on this flag, so rewording
+            ``reason`` cannot silently change who is allowed to do what.
+
+            Defaults to ``True`` — that is: a decision constructed without
+            the flag counts as rule-backed, which can only ever further
+            *restrict* the combined answer, never broaden it (fail-closed,
+            item level restricts only). The genuine closed-world default
+            (:data:`_DENY_DEFAULT`) sets it to ``False`` explicitly.
     """
 
     level: str
     reason: str
+    has_explicit_rule: bool = True
 
     @property
     def is_allowed(self) -> bool:
@@ -69,8 +88,17 @@ class PermissionDecision:
         return f"PermissionDecision({self.level!r}, {self.reason!r})"
 
 
-# Sentinel returned when no rule applies (closed-world default).
-_DENY_DEFAULT = PermissionDecision(level="deny", reason="no rule applies (default deny)")
+# Sentinel returned when no rule applies (closed-world default). Exported
+# (not underscore-prefixed) so callers that need to distinguish "no explicit
+# item-level rule exists" from "an explicit rule denies" can do so — but the
+# discriminator for that is the structured
+# ``PermissionDecision.has_explicit_rule`` flag (issue #722, Finding 1), never
+# this string: it stays human-readable and is free to change. Kept exported
+# for the explanation text and for backwards-compatible callers.
+NO_RULE_REASON = "no rule applies (default deny)"
+_DENY_DEFAULT = PermissionDecision(
+    level="deny", reason=NO_RULE_REASON, has_explicit_rule=False
+)
 
 
 # -----------------------------------------------------------------------------
@@ -168,7 +196,9 @@ class ItemPermissionService:
                 },
             )
 
-        # 5. Cache wipe (outside the transaction; cache is per-thread only).
+        # 5. Cache wipe. Runs outside the transaction, and since SA-28 it also
+        # bumps the shared generation counter, so *every* worker discards its
+        # decisions — not just this thread.
         self._cache.invalidate_all()
         return permission
 
@@ -276,6 +306,11 @@ class ItemPermissionService:
         ``level="none"`` rules are explicit-deny overrides and always produce
         ``level="deny"``.
 
+        The returned :class:`PermissionDecision` carries
+        ``has_explicit_rule=False`` in case 3 only — that flag, not the
+        ``reason`` text, tells a caller combining this layer with the RBAC
+        matrix whether the item level actually has an opinion (issue #722).
+
         This method is read-only and does not audit. The caller is expected
         to have already cleared RBAC via
         :class:`AuthorizationService.decide_access`; both layers must pass.
@@ -330,15 +365,23 @@ class ItemPermissionService:
 
     @staticmethod
     def _decision_for_rule(rule: ItemPermission, *, scope: str) -> PermissionDecision:
-        """Map an :class:`ItemPermission` row to a :class:`PermissionDecision`."""
+        """Map an :class:`ItemPermission` row to a :class:`PermissionDecision`.
+
+        Always sets ``has_explicit_rule=True`` — a row was evaluated, so the
+        item level is authoritative (it may only restrict further). The
+        ``scope`` prefix in ``reason`` is descriptive text only; callers must
+        not parse it.
+        """
         if rule.permission_level == ITEM_PERMISSION_NONE:
             return PermissionDecision(
                 level="deny",
                 reason=f"{scope} rule grants 'none' (explicit deny)",
+                has_explicit_rule=True,
             )
         return PermissionDecision(
             level=rule.permission_level,
             reason=f"{scope} rule grants {rule.permission_level!r}",
+            has_explicit_rule=True,
         )
 
 
@@ -350,4 +393,5 @@ class ItemPermissionService:
 __all__ = [
     "ItemPermissionService",
     "PermissionDecision",
+    "NO_RULE_REASON",
 ]

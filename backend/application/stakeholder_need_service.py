@@ -10,15 +10,25 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F
+from django.db.models import F, Q
 from persistence.models import Artifact, StakeholderNeed, Tenant, Workspace
 from persistence.transactions import atomic_transaction
+from workflow import state_reader
 
-from application.artifact_service import _clean_custom_fields
+from application.artifact_service import (
+    _clean_custom_fields,
+    has_field_changes,
+    snapshot_versioned_fields,
+)
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import (
     NotFoundError,
     ServiceBase,
     ValidationError,
+)
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,9 +55,42 @@ class StakeholderNeedDTO:
     modified_at: datetime
     custom_fields: dict = None  # REQ-L2-AS-037: user-defined attributes
 
+    @property
+    def artifact(self) -> Any:
+        """Backing ``persistence.Artifact`` row, when built from an ORM instance.
+
+        Attribut v3 WS2 (#936): the ArtifactAttributeGateway needs the backing
+        row to persist/read the Artifact-level system fields (owner/reporter/
+        priority). Kept as an instance attribute rather than a dataclass field
+        so ``asdict()`` in :meth:`to_dict` never has to deep-copy a model
+        instance.
+        """
+        return getattr(self, "_artifact", None)
+
     @classmethod
-    def from_orm(cls, need: StakeholderNeed) -> "StakeholderNeedDTO":
-        return cls(
+    def from_orm(
+        cls, need: StakeholderNeed, *, status: str | None = None
+    ) -> "StakeholderNeedDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1).
+
+        Pass a pre-resolved *status* when building many DTOs in one pass
+        (see ``list_by_workspace``) so the engine lookup is batched via
+        ``state_reader.current_states`` instead of once per row. When
+        omitted, resolves a single item via ``state_reader.current_state``.
+        Task 12: the ``status`` column is dropped, so a StakeholderNeed with
+        no ``WorkflowItemState`` row (a real, not just theoretical, case --
+        StakeholderNeed can live in a definition-less workspace with no
+        WorkflowEngineDefinition at all -- or when no tenant context is
+        active) falls back to the "draft" preset initial state instead
+        (documented, reviewed data-loss tradeoff, see Task 12 report
+        Finding 2).
+        """
+        if status is None:
+            try:
+                status = state_reader.current_state("StakeholderNeed", need.id)
+            except Exception:  # noqa: BLE001 -- TenantContextNotSetError or similar
+                status = None
+        dto = cls(
             id=need.id,
             workspace_id=need.artifact.workspace_id,
             artifact_id=need.artifact_id,  # REQ-001: expose FK for diff/versions lookup
@@ -60,7 +103,7 @@ class StakeholderNeedDTO:
             title=need.title,
             description=need.description,
             category=need.category,
-            status=need.status,
+            status=status or state_reader.initial_state("StakeholderNeed"),
             moscow_priority=need.moscow_priority,
             uid=need.uid,
             suspect=need.suspect,
@@ -69,6 +112,10 @@ class StakeholderNeedDTO:
             modified_at=need.modified_at,
             custom_fields=getattr(need.artifact, "custom_fields", None) or {},
         )
+        # WS2 #936: keep the backing Artifact reachable so the shared gateway
+        # can persist/read the Artifact-level system fields.
+        dto._artifact = need.artifact if need.artifact_id else None
+        return dto
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -109,50 +156,122 @@ class StakeholderNeedService(ServiceBase):
             created_by_id=ctx.user_id,
             custom_fields=_clean_custom_fields(custom_fields),
         )
+        # Datenmodell-Konsolidierung Task 12: the `status` column was dropped.
+        # WorkflowItemState.current_state is now the sole source of truth,
+        # seeded below by initialize_workflow_states() from the workflow
+        # definition's own initial_state -- never from this argument. The
+        # `status` parameter is kept only for backward API compatibility with
+        # existing callers and is otherwise unused.
         need = StakeholderNeed.objects.create(
             artifact=artifact,
             tenant_id=ctx.tenant_id,
             title=title,
             description=description,
             category=category,
-            status=status,
             moscow_priority=moscow_priority,
             created_by_id=ctx.user_id,
         )
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create() takes no change_reason.
+        ArtifactVersionService().record(
+            need.artifact_id, snapshot_fields(need, "StakeholderNeed"), ctx
+        )
+
+        # Initialize workflow state (IF-AS-EXT-OUT-001). Without this, GET
+        # never had a WorkflowItemState to resolve `status` from until the
+        # first transition — the model column above masked the gap while it
+        # was the wire source; it stopped doing so once
+        # WorkflowStateSerializerMixin (Datenmodell-Konsolidierung) became
+        # the source of truth. Mirrors create_issue/create_adr/create_risk.
+        try:
+            from workflow.services import initialize_workflow_states
+
+            initialize_workflow_states(
+                item_ids=[need.id],
+                item_type="StakeholderNeed",
+                workspace_id=workspace.id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug(
+                "StakeholderNeedService: workflow init skipped for need=%s", need.id
+            )
 
         self._emit_event(
             self._make_event(
                 event_type="StakeholderNeedCreated",
                 entity_id=need.id,
                 workspace_id=workspace.id,
-                payload={"title": need.title},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"title": need.title, "artifact_id": str(artifact.id)},
             )
         )
         return StakeholderNeedDTO.from_orm(need)
 
     def get(self, ctx: AuthContext, need_id: UUID | str) -> StakeholderNeedDTO:
         try:
-            need = StakeholderNeed.objects.select_related("artifact").get(
-                id=need_id, tenant_id=ctx.tenant_id
-            )
+            need = StakeholderNeed.objects.select_related(
+                "artifact", "artifact__owner", "artifact__reporter"
+            ).get(id=need_id, tenant_id=ctx.tenant_id)
             return StakeholderNeedDTO.from_orm(need)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 
     def list_by_workspace(
-        self, ctx: AuthContext, workspace_id: UUID | str, include_deleted: bool = False
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+        include_deleted: bool = False,
+        search: str | None = None,
     ) -> List[StakeholderNeedDTO]:
         """Return StakeholderNeeds in workspace_id.
 
         REQ-006: Excludes soft-deleted needs (lifecycle_status='deleted') by default.
         Pass include_deleted=True for admin/audit access.
+
+        Issue #267 (same root cause as RequirementService.list_requirements):
+        ``search`` case-insensitively filters on title/description/uid.
         """
-        needs = StakeholderNeed.objects.select_related("artifact").filter(
+        needs = StakeholderNeed.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             tenant_id=ctx.tenant_id, artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            needs = needs.exclude(lifecycle_status="deleted")
-        return [StakeholderNeedDTO.from_orm(n) for n in needs]
+            # Datenmodell-Konsolidierung Phase 4 (D-3): "outdated" is the
+            # Artifact.lifecycle_status flag, not a workflow state --
+            # outdate() stopped writing the state, so
+            # state_reader.item_ids_in_state would match nothing here.
+            from workflow.services import outdated_item_ids
+
+            needs = needs.exclude(
+                id__in=outdated_item_ids("StakeholderNeed", tenant_id=ctx.tenant_id)
+            )
+        if search:
+            needs = needs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(uid__icontains=search)
+            )
+        # Batch-resolve status for the whole page in one query instead of one
+        # engine lookup per row (N+1 avoidance -- see
+        # rest_api/mixins/workflow_state.py's identical batching rationale).
+        # Task 12: the ``status`` column is dropped, so a need with no
+        # WorkflowItemState falls back to the "draft" preset initial state
+        # instead (documented, reviewed data-loss tradeoff, see Task 12
+        # report Finding 2).
+        needs = list(needs)
+        status_map = state_reader.current_states(
+            "StakeholderNeed", [n.id for n in needs]
+        )
+        need_initial_state = state_reader.initial_state("StakeholderNeed")
+        return [
+            StakeholderNeedDTO.from_orm(
+                n, status=status_map.get(str(n.id)) or need_initial_state
+            )
+            for n in needs
+        ]
 
     @atomic_transaction
     def update(
@@ -162,22 +281,46 @@ class StakeholderNeedService(ServiceBase):
         title: str | Any = _UNSET,
         description: str | Any = _UNSET,
         category: str | Any = _UNSET,
-        status: str | Any = _UNSET,
         moscow_priority: str | Any = _UNSET,
         change_reason: str = "",
         custom_fields: Any = _UNSET,
+        expected_version: int | None = None,
     ) -> StakeholderNeedDTO:
+        """Update a StakeholderNeed.
+
+        SYSTEMAUDIT_2026-08-29 REST finding 1: ``expected_version`` carries the
+        caller's last-seen ``version``. When supplied and stale, the update is
+        refused with ``OptimisticLockError`` (409 CONFLICT) instead of silently
+        overwriting a concurrent edit. Omitting it keeps the previous
+        last-writer-wins behaviour.
+
+        REQ-143 / Task 12: `status` is the WorkflowEngine-owned lifecycle
+        state and its mirror column is dropped -- this method no longer
+        accepts a `status` parameter at all; state changes must go through a
+        workflow transition (see docs/architecture/ADR-status-single-source.md).
+        """
         try:
-            need = StakeholderNeed.objects.select_related("artifact__workspace").get(
-                id=need_id, tenant_id=ctx.tenant_id
-            )
+            need = lock_for_version_check(
+                StakeholderNeed.objects.select_related("artifact__workspace"),
+                expected_version,
+            ).get(id=need_id, tenant_id=ctx.tenant_id)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
+        assert_expected_version(
+            need, expected_version, entity_type="StakeholderNeed"
+        )
 
         if self.preset_policy_service:
             if self.preset_policy_service.is_change_reason_required(str(need.artifact.workspace_id)):
                 if not change_reason:
                     raise ValidationError("change_reason is required by preset policy.")
+
+        # #269 finding 5: ``changes`` below records which fields were *supplied*,
+        # which is what the emitted event should name — but it is not a safe
+        # trigger for the version bump, because re-sending a field with its
+        # current value is a no-op. Snapshot the real column values instead.
+        _before = snapshot_versioned_fields(need)
+        _custom_fields_changed = False
 
         changes = {}
         if title is not _UNSET:
@@ -189,32 +332,52 @@ class StakeholderNeedService(ServiceBase):
         if category is not _UNSET:
             need.category = category
             changes["category"] = category
-        if status is not _UNSET:
-            need.status = status
-            changes["status"] = status
         if moscow_priority is not _UNSET:
             need.moscow_priority = moscow_priority
             changes["moscow_priority"] = moscow_priority
 
-        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the StakeholderNeed snapshot and compared separately.
         if custom_fields is not _UNSET:
-            need.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (need.artifact.custom_fields or {})
+            )
+            need.artifact.custom_fields = cleaned_custom_fields
             need.artifact.save(update_fields=["custom_fields", "modified_at"])
             changes["custom_fields"] = True
 
-        if changes:
+        # Both conditions matter, and neither implies the other: ``changes``
+        # keeps "no field was supplied at all" a silent no-op (no event, no
+        # bump), while the value comparison additionally catches a field that
+        # was supplied but carries its current value (#269 finding 5).
+        if changes and (has_field_changes(need, _before) or _custom_fields_changed):
             need.version = F("version") + 1
             # REQ-159: AuthContext exposes user_id, not user.
             need.modified_by_id = ctx.user_id
             need.save()
             need.refresh_from_db()
 
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            ArtifactVersionService().record(
+                need.artifact_id,
+                snapshot_fields(need, "StakeholderNeed"),
+                ctx,
+                change_reason=change_reason or "",
+            )
+
             self._emit_event(
                 self._make_event(
                     event_type="StakeholderNeedUpdated",
                     entity_id=need.id,
                     workspace_id=need.artifact.workspace_id,
-                    payload={"changes": list(changes.keys()), "change_reason": change_reason},
+                    # artifact_id: additive, for context_graph.projector (Issue #377).
+                    payload={
+                        "changes": list(changes.keys()),
+                        "change_reason": change_reason,
+                        "artifact_id": str(need.artifact_id),
+                    },
                 )
             )
 
@@ -224,7 +387,7 @@ class StakeholderNeedService(ServiceBase):
     def delete(
         self, ctx: AuthContext, need_id: UUID | str, change_reason: str = ""
     ) -> None:
-        """Soft-delete StakeholderNeed by setting lifecycle_status to 'deleted' (REQ-006).
+        """Soft-delete StakeholderNeed via the workflow engine's outdate() (REQ-006, Phase 0).
 
         Physical deletion intentionally avoided — Hard-delete available only via
         Django admin.
@@ -242,8 +405,16 @@ class StakeholderNeedService(ServiceBase):
                     raise ValidationError("change_reason is required by preset policy.")
 
         workspace_id = need.artifact.workspace_id
-        need.lifecycle_status = "deleted"
-        need.save(update_fields=["lifecycle_status"])
+
+        from workflow.services import outdate
+
+        outdate(
+            item_id=need.id,
+            item_type="StakeholderNeed",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via needs.delete",
+        )
 
         self._emit_event(
             self._make_event(
@@ -261,9 +432,9 @@ class StakeholderNeedService(ServiceBase):
             Dict containing the task_id.
         """
         try:
-            need = StakeholderNeed.objects.select_related("artifact").get(
-                id=need_id, tenant_id=ctx.tenant_id
-            )
+            need = StakeholderNeed.objects.select_related(
+                "artifact", "artifact__owner", "artifact__reporter"
+            ).get(id=need_id, tenant_id=ctx.tenant_id)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 

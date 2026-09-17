@@ -11,6 +11,10 @@ test.describe('LLM-Optimized UI Tests', () => {
     await expect(rootElement).toBeVisible();
 
     // Verify page title to ensure app mounted
-    await expect(page).toHaveTitle(/ReqFlow|Vite App/i);
+    // NOTE: product was renamed ReqFlow -> ReqogniLoom; frontend/index.html
+    // <title> now reads "ReqogniLoom" (see index.html:7). This assertion
+    // was stale, matching neither the current nor any prior title, so it
+    // always failed regardless of app health.
+    await expect(page).toHaveTitle(/ReqogniLoom/i);
   });
 });

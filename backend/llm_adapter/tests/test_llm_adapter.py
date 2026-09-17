@@ -50,11 +50,11 @@ class TestLlmResultDataclasses:
         assert r.score == 0.85
         assert r.token_usage == 42
 
-    def test_llm_result_score_above_one_raises(self):
+    def test_llm_result_score_above_one_normalizes(self):
         from llm_adapter.interface import LlmResult
 
-        with pytest.raises(ValueError):
-            LlmResult(score=1.5, suggestions=[], provider="x", model="y", token_usage=None)
+        r = LlmResult(score=1.5, suggestions=[], provider="x", model="y", token_usage=None)
+        assert r.score == pytest.approx(0.15)
 
     def test_llm_result_score_negative_raises(self):
         from llm_adapter.interface import LlmResult
@@ -567,6 +567,33 @@ class TestCapabilityRouterSyncExecution:
         assert result["error"]["code"] == "LLM_PROVIDER_ERROR"
         assert "rate limit" in result["error"]["message"].lower()
 
+    def test_unclassified_provider_error_never_echoes_the_exception(self):
+        """#697 (CWE-209): only *classified* failures get a specific message.
+
+        An unrecognised provider/plumbing exception used to be forwarded
+        verbatim as ``error.message`` — including SDK internals and connection
+        details. It is now logged/audited and replaced by a static message,
+        while the classified branches above keep their actionable text.
+        """
+        from llm_adapter.router import CapabilityRouter
+        from llm_adapter.audit_logger import LlmAuditLogger
+
+        sensitive = (
+            "OperationalError: could not connect to server: "
+            "host=db.internal user=reqogniloom_app password=***"
+        )
+        audit = MagicMock(spec=LlmAuditLogger)
+        router = CapabilityRouter(enabled_capabilities={"validate_artifact"}, audit_logger=audit)
+
+        with patch("llm_adapter.router.get_provider", side_effect=RuntimeError(sensitive)):
+            result = router.execute_capability("validate_artifact", artifact_id="x")
+
+        assert result["error"]["code"] == "LLM_PROVIDER_ERROR"
+        assert result["error"]["message"] == "The LLM provider reported an error."
+        assert sensitive not in str(result)
+        # The operator still gets the cause: the audit call keeps the raw text.
+        assert sensitive in str(audit.log_llm_call.call_args)
+
 
 class TestCapabilityRouterAsyncDispatch:
     """REQ-L2-LA-008, REQ-L3-LA003-001: async routing."""
@@ -892,11 +919,70 @@ class TestRunCapabilityTask:
             run_capability.run("os.system", {})
 
     def test_rejects_non_whitelisted_provider_method(self):
-        # 'complete' exists on the provider but must not be dispatchable.
+        # '_simulate' exists on the provider but must not be dispatchable.
         from llm_adapter.tasks import run_capability
 
         with pytest.raises(ValueError, match="Unknown capability"):
-            run_capability.run("complete", {})
+            run_capability.run("_simulate", {})
+
+    def test_dispatches_complete_and_wraps_str_result(self):
+        # 'complete' is whitelisted (Requirement Bundle Export Plan 2) and its
+        # plain str return value is wrapped as {"result": text} by _serialise.
+        from llm_adapter import tasks
+
+        provider = MagicMock()
+        provider.complete.return_value = "compressed bundle text"
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider):
+            result = tasks.run_capability.run(
+                "complete", {"prompt": "p", "purpose": "bundle_compression"}
+            )
+
+        assert result == {"result": "compressed bundle text"}
+
+    def test_complete_records_approximate_token_usage(self):
+        # 'complete' returns a plain str with no real .token_usage figure
+        # (unlike the dataclass results of the other 4 capabilities), so
+        # record_token_usage must receive an approximated, non-zero count
+        # rather than silently always 0 (code review finding).
+        from llm_adapter import tasks
+
+        provider = MagicMock()
+        provider.PROVIDER_NAME = "mock"
+        provider.complete.return_value = "0123456789"  # 10 chars
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider), patch(
+            "llm_adapter.token_tracking.record_token_usage"
+        ) as mock_record:
+            tasks.run_capability.run(
+                "complete", {"prompt": "abcdefgh", "purpose": "bundle_compression"}  # 8 chars
+            )
+
+        mock_record.assert_called_once()
+        _, call_kwargs = mock_record.call_args
+        assert call_kwargs["capability"] == "complete"
+        # (8 + 10) chars // 4 chars-per-token == 4 -- approximate, but not 0.
+        assert call_kwargs["input_tokens"] == 4
+
+    def test_dataclass_result_token_usage_is_unaffected_by_complete_approximation(self):
+        # The approximation branch must only fire for 'complete' -- other
+        # capabilities keep using the real .token_usage off their dataclass.
+        from llm_adapter.interface import LlmResult
+        from llm_adapter import tasks
+
+        provider = MagicMock()
+        provider.PROVIDER_NAME = "mock"
+        provider.validate_artifact.return_value = LlmResult(
+            score=0.9, suggestions=[], provider="mock", model="m", token_usage=5
+        )
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider), patch(
+            "llm_adapter.token_tracking.record_token_usage"
+        ) as mock_record:
+            tasks.run_capability.run("validate_artifact", {"artifact_id": "a1"})
+
+        _, call_kwargs = mock_record.call_args
+        assert call_kwargs["input_tokens"] == 5
 
     def test_serialises_dataclass_result(self):
         from llm_adapter.interface import LlmResult
@@ -917,8 +1003,16 @@ class TestRunCapabilityTask:
         assert result["score"] == 0.9
         assert result["provider"] == "mock"
 
+    @pytest.mark.django_db
     def test_sets_and_clears_tenant_context(self):
-        from persistence.tenancy import TenantContext
+        # #444: run_capability now restores the tenant context via
+        # set_request_tenant(), which also sets the RLS session variable on a
+        # real DB connection (persistence/middleware.py) — unlike
+        # resolve_provider_config()/record_token_usage(), it deliberately does
+        # NOT swallow a failure to do so (silently not arming RLS is exactly
+        # the bug #444 fixed), so this test needs real DB access it never
+        # needed before.
+        from persistence.tenancy import TenantContext, TenantContextNotSetError
         from llm_adapter.interface import LlmResult
         from llm_adapter import tasks
 
@@ -942,7 +1036,7 @@ class TestRunCapabilityTask:
             # Context is set during execution ...
             assert str(seen["tenant"]) == tenant_uuid
             # ... and cleared afterwards (finally block).
-            with pytest.raises(Exception):
+            with pytest.raises(TenantContextNotSetError):
                 TenantContext.get_tenant()
         finally:
             TenantContext.clear_tenant()
@@ -1154,3 +1248,287 @@ class TestDeriveRequirementsAcrossProviders:
         monkeypatch.setattr(provider, "_chat", _capture)
         provider.derive_requirements("need-XYZ")
         assert "need-XYZ" in captured["prompt"]
+
+
+# ---------------------------------------------------------------------------
+# COMP-LA-002 — validate_artifact must not leak a raw JSONDecodeError (#576)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateArtifactMalformedJsonAcrossProviders:
+    """Regression for #576 (reopened): every real provider's
+    ``validate_artifact`` used a bare ``json.loads(text)`` on the raw LLM
+    completion. A completion that is not strict JSON (markdown-fenced, or
+    genuinely malformed/truncated) raised an uncaught ``json.JSONDecodeError``
+    that propagated out of ``CapabilityRouter`` as a provider-error dict whose
+    message was the raw parser text ("Expecting value: line 1 column 1
+    (char 0)") — which then surfaced verbatim in the client-facing MCP/REST
+    error envelope instead of a structured result.
+
+    These tests use mocked transports (no network, no provider SDK) so they
+    exercise the real ``validate_artifact`` parsing path for every HTTP
+    provider that implements it.
+    """
+
+    def _make_chat_based_providers(self):
+        """Providers whose validate_artifact goes through _chat/_invoke_chat."""
+        from llm_adapter.providers import (
+            AzureOpenAiProvider,
+            OllamaProvider,
+            OpenAiProvider,
+            OpencodeGoProvider,
+            ProviderConfig,
+        )
+
+        return [
+            OpenAiProvider(ProviderConfig(provider_name="openai")),
+            OllamaProvider(
+                ProviderConfig(
+                    provider_name="ollama", api_base_url="http://localhost:11434"
+                )
+            ),
+            AzureOpenAiProvider(
+                ProviderConfig(provider_name="azure", azure_deployment="dep")
+            ),
+            OpencodeGoProvider(ProviderConfig(provider_name="opencode_go")),
+        ]
+
+    def _make_anthropic_provider_with_response(self, text: str):
+        """AnthropicProvider.validate_artifact builds its own SDK client call
+        instead of going through ``_chat``, so it needs a fake ``anthropic``
+        module rather than a ``_chat`` monkeypatch (mirrors
+        ``test_provider_contracts._fake_anthropic_module``)."""
+        import types
+        from unittest.mock import MagicMock
+
+        from llm_adapter.providers import AnthropicProvider, ProviderConfig
+
+        def _anthropic_ctor(**kwargs):
+            client = MagicMock()
+            message = MagicMock()
+            message.content = [MagicMock(text=text)]
+            message.usage = MagicMock(input_tokens=1, output_tokens=1)
+            client.messages.create.return_value = message
+            return client
+
+        fake_module = types.ModuleType("anthropic")
+        fake_module.Anthropic = _anthropic_ctor
+        provider = AnthropicProvider(ProviderConfig(provider_name="anthropic"))
+        return provider, fake_module
+
+    def test_validate_artifact_strips_markdown_fences(self, monkeypatch):
+        import sys
+        from unittest.mock import patch
+
+        fenced = '```json\n{"score": 0.8, "suggestions": ["s1"]}\n```'
+
+        for provider in self._make_chat_based_providers():
+            monkeypatch.setattr(provider, "_chat", lambda prompt: (fenced, 5))
+            result = provider.validate_artifact("REQ-1", title="t", content="c")
+            assert result.score == 0.8
+            assert result.suggestions == ["s1"]
+
+        anthropic_provider, fake_module = self._make_anthropic_provider_with_response(
+            fenced
+        )
+        with patch.dict(sys.modules, {"anthropic": fake_module}):
+            result = anthropic_provider.validate_artifact(
+                "REQ-1", title="t", content="c"
+            )
+        assert result.score == 0.8
+        assert result.suggestions == ["s1"]
+
+    def test_validate_artifact_degrades_gracefully_on_malformed_json(
+        self, monkeypatch
+    ):
+        """The core #576 regression: malformed JSON must not raise.
+
+        Instead of an uncaught ``json.JSONDecodeError`` bubbling all the way
+        up to the MCP/REST error envelope as a raw parser message, the
+        provider now returns a structured, zero-confidence ``LlmResult`` so
+        ``requirement.validate`` always answers with machine-readable JSON.
+        """
+        import sys
+        from unittest.mock import patch
+
+        from llm_adapter.interface import LlmResult
+
+        def _assert_degrades(provider):
+            assert isinstance(result, LlmResult), (
+                f"{type(provider).__name__}.validate_artifact raised or "
+                "returned a non-LlmResult on malformed JSON"
+            )
+            assert result.score == 0.0
+            assert isinstance(result.suggestions, list)
+            assert result.suggestions, "expected an explanatory suggestion"
+
+        for provider in self._make_chat_based_providers():
+            monkeypatch.setattr(
+                provider, "_chat", lambda prompt: ("not json at all", None)
+            )
+            result = provider.validate_artifact("REQ-1", title="t", content="c")
+            _assert_degrades(provider)
+
+        anthropic_provider, fake_module = self._make_anthropic_provider_with_response(
+            "not json at all"
+        )
+        with patch.dict(sys.modules, {"anthropic": fake_module}):
+            result = anthropic_provider.validate_artifact(
+                "REQ-1", title="t", content="c"
+            )
+        _assert_degrades(anthropic_provider)
+
+
+# ---------------------------------------------------------------------------
+# COMP-LA-002 — check_consistency must not leak a raw JSONDecodeError
+# (systemaudit 2026-09-02, R5/R7)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckConsistencyMalformedJsonAcrossProviders:
+    """Regression for systemaudit 2026-09-02 (R5/R7): every real provider's
+    ``check_consistency`` used a bare ``json.loads(text)`` on the raw LLM
+    completion -- the #576 fix was applied to ``validate_artifact`` and
+    ``derive_requirements`` but ``check_consistency`` was missed. A
+    completion where the model wraps the JSON payload in prose (e.g. "Sure,
+    here is the analysis: {...} Hope this helps!") raised an uncaught
+    ``json.JSONDecodeError`` that surfaced verbatim through
+    ``get_task_status()`` instead of a structured result.
+
+    These tests use mocked transports (no network, no provider SDK) so they
+    exercise the real ``check_consistency`` parsing path for every provider
+    that implements it -- mirrors
+    ``TestValidateArtifactMalformedJsonAcrossProviders`` above.
+    """
+
+    def _make_chat_based_providers(self):
+        """Providers whose check_consistency goes through _chat/_invoke_chat."""
+        from llm_adapter.providers import (
+            AzureOpenAiProvider,
+            OllamaProvider,
+            OpenAiProvider,
+            OpencodeGoProvider,
+            ProviderConfig,
+        )
+
+        return [
+            OpenAiProvider(ProviderConfig(provider_name="openai")),
+            OllamaProvider(
+                ProviderConfig(
+                    provider_name="ollama", api_base_url="http://localhost:11434"
+                )
+            ),
+            AzureOpenAiProvider(
+                ProviderConfig(provider_name="azure", azure_deployment="dep")
+            ),
+            OpencodeGoProvider(ProviderConfig(provider_name="opencode_go")),
+        ]
+
+    def _make_anthropic_provider_with_response(self, text: str):
+        """AnthropicProvider.check_consistency builds its own SDK client call
+        instead of going through ``_chat``, so it needs a fake ``anthropic``
+        module rather than a ``_chat`` monkeypatch (mirrors
+        ``TestValidateArtifactMalformedJsonAcrossProviders``)."""
+        import types
+        from unittest.mock import MagicMock
+
+        from llm_adapter.providers import AnthropicProvider, ProviderConfig
+
+        def _anthropic_ctor(**kwargs):
+            client = MagicMock()
+            message = MagicMock()
+            message.content = [MagicMock(text=text)]
+            message.usage = MagicMock(input_tokens=1, output_tokens=1)
+            client.messages.create.return_value = message
+            return client
+
+        fake_module = types.ModuleType("anthropic")
+        fake_module.Anthropic = _anthropic_ctor
+        provider = AnthropicProvider(ProviderConfig(provider_name="anthropic"))
+        return provider, fake_module
+
+    def test_check_consistency_strips_markdown_fences(self, monkeypatch):
+        import sys
+        from unittest.mock import patch
+
+        fenced = '```json\n{"score": 0.8, "suggestions": ["s1"], "issues": []}\n```'
+
+        for provider in self._make_chat_based_providers():
+            monkeypatch.setattr(provider, "_chat", lambda prompt: (fenced, 5))
+            result = provider.check_consistency("ws-1")
+            assert result.score == 0.8
+            assert result.suggestions == ["s1"]
+
+        anthropic_provider, fake_module = self._make_anthropic_provider_with_response(
+            fenced
+        )
+        with patch.dict(sys.modules, {"anthropic": fake_module}):
+            result = anthropic_provider.check_consistency("ws-1")
+        assert result.score == 0.8
+        assert result.suggestions == ["s1"]
+
+    def test_check_consistency_repairs_prose_wrapped_json(self, monkeypatch):
+        """The literal audit example: valid JSON wrapped in prose, no
+        markdown fences at all. Must be extracted (first ``{`` to last
+        ``}``), not raised as ``json.decoder.JSONDecodeError``."""
+        import sys
+        from unittest.mock import patch
+
+        prose_wrapped = (
+            'Sure, here is the analysis: {"score": 0.7, "suggestions": [], '
+            '"issues": [{"id": "I-1", "severity": "low", "description": "d"}]} '
+            "Hope this helps!"
+        )
+
+        for provider in self._make_chat_based_providers():
+            monkeypatch.setattr(provider, "_chat", lambda prompt: (prose_wrapped, 5))
+            result = provider.check_consistency("ws-1")
+            assert result.score == 0.7
+            assert len(result.issues) == 1
+            assert result.issues[0]["id"] == "I-1"
+
+        anthropic_provider, fake_module = self._make_anthropic_provider_with_response(
+            prose_wrapped
+        )
+        with patch.dict(sys.modules, {"anthropic": fake_module}):
+            result = anthropic_provider.check_consistency("ws-1")
+        assert result.score == 0.7
+        assert len(result.issues) == 1
+
+    def test_check_consistency_degrades_gracefully_on_malformed_json(
+        self, monkeypatch
+    ):
+        """The core regression: malformed JSON must not raise, and the
+        fallback must not leak the raw exception repr anywhere in its
+        output (systemaudit 2026-09-02, R5/R7)."""
+        import sys
+        from unittest.mock import patch
+
+        from llm_adapter.interface import LlmConsistencyResult
+
+        def _assert_degrades(result, provider):
+            assert isinstance(result, LlmConsistencyResult), (
+                f"{type(provider).__name__}.check_consistency raised or "
+                "returned a non-LlmConsistencyResult on malformed JSON"
+            )
+            assert result.score == 0.0
+            assert isinstance(result.suggestions, list)
+            assert result.suggestions, "expected an explanatory suggestion"
+            assert result.issues == []
+            joined = " ".join(result.suggestions)
+            assert "JSONDecodeError" not in joined
+            assert "Expecting value" not in joined
+
+        for provider in self._make_chat_based_providers():
+            monkeypatch.setattr(
+                provider, "_chat", lambda prompt: ("not json at all", None)
+            )
+            result = provider.check_consistency("ws-1")
+            _assert_degrades(result, provider)
+
+        anthropic_provider, fake_module = self._make_anthropic_provider_with_response(
+            "not json at all"
+        )
+        with patch.dict(sys.modules, {"anthropic": fake_module}):
+            result = anthropic_provider.check_consistency("ws-1")
+        _assert_degrades(result, anthropic_provider)

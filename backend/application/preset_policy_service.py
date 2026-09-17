@@ -14,7 +14,7 @@ Delegates to:
 
 Internal interfaces served:
   IF-AS-INT-006  BaselineFacade → is_scope_allowed(workspace_id, scope)
-  IF-AS-INT-007  WorkflowFacade → validate_transition_roles(ctx, target_state)
+  IF-AS-INT-007  WorkflowFacade → validate_transition_roles(ctx, target_state, workspace_id)
   IF-AS-INT-008  RequirementService + others → is_change_reason_required(workspace_id)
 
 Architecture:
@@ -71,10 +71,20 @@ class PresetPolicyService:
     # ---------- Cache helpers ----------
 
     def _get_preset(self, workspace_id: str):
-        """Return PresetRules for *workspace_id* — cached for TTL seconds."""
-        from presets.services import get_preset
+        """Return PresetRules for *workspace_id* — cached for TTL seconds.
+
+        Raises:
+            presets.exceptions.CrossTenantWorkspaceError: If a tenant context is
+                active and does not own *workspace_id* (SA-15). The check runs
+                before the cache read because ``self._cache`` is keyed by
+                workspace alone: a warm entry would otherwise hand a
+                cross-tenant caller another tenant's preset without ever
+                reaching the guarded gate.
+        """
+        from presets.services import assert_workspace_in_tenant, get_preset
 
         key = str(workspace_id)
+        assert_workspace_in_tenant(key)
         entry = self._cache.get(key)
         if entry and entry.is_valid():
             return entry.value
@@ -104,6 +114,37 @@ class PresetPolicyService:
             )
             return False
 
+    def is_feature_enabled(self, workspace_id: str, feature_key: str) -> bool:
+        """Return True if *feature_key* is enabled by the workspace's preset.
+
+        IF-AS-INT-008 (generic variant). ADR-L3-PPL-01 keeps preset evaluation
+        in this component only — callers must not read ``presets.registry``
+        directly.
+
+        Fail-closed: an unresolvable workspace (unknown id, no preset config)
+        yields ``False``, i.e. the guarded feature degrades to a no-op instead
+        of raising. That is the desired behaviour for rigor-tier gating, where
+        a lower tier simply does not have the feature.
+
+        Args:
+            workspace_id: Workspace UUID (string or UUID).
+            feature_key: One of ``presets.registry.FEATURE_KEYS``.
+
+        Returns:
+            True if the workspace's active tier enables the feature.
+        """
+        try:
+            preset = self._get_preset(str(workspace_id))
+            return bool(preset.features.get(feature_key, False))
+        except Exception:
+            logger.debug(
+                "PresetPolicyService: is_feature_enabled failed ws=%s key=%s "
+                "— treating feature as disabled",
+                workspace_id,
+                feature_key,
+            )
+            return False
+
     # ---------- Public API (IF-AS-INT-006) ----------
 
     def is_scope_allowed(self, workspace_id: str, scope: str) -> bool:
@@ -127,7 +168,7 @@ class PresetPolicyService:
     # ---------- Public API (IF-AS-INT-007) ----------
 
     def validate_transition_roles(
-        self, ctx: AuthContext, target_state: str
+        self, ctx: AuthContext, target_state: str, workspace_id: str
     ) -> Tuple[bool, Optional[str]]:
         """Check that *ctx* has a role permitted for *target_state* transition.
 
@@ -137,12 +178,21 @@ class PresetPolicyService:
         the preset-level gate: if the workspace requires approval_workflows,
         only approver/manager roles may transition to 'approved'.
 
+        Args:
+            ctx: Resolved AuthContext (used for active_roles only — presets are
+                workspace-scoped, NOT tenant-scoped; see REQ-L3-PPL-003 fix
+                for GitHub issue #215).
+            target_state: Requested new state name.
+            workspace_id: Workspace UUID whose preset governs this transition.
+                A tenant_id must never be passed here — a tenant can own many
+                workspaces, each with its own preset.
+
         Returns:
             (True, None) if allowed.
             (False, error_message) if denied.
         """
         try:
-            preset = self._get_preset(str(ctx.tenant_id))
+            preset = self._get_preset(str(workspace_id))
             if target_state.lower() in ("approved", "accepted"):
                 is_approver = any(
                     r.lower() in ("approver", "manager", "admin")

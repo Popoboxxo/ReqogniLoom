@@ -1,23 +1,45 @@
 """
 MCP Tool Group for Stakeholder Needs.
 """
+import logging
 from typing import Any, Dict, Optional
 
+from application.ai_derivation_service import AiDerivationService
 from application.base import NotFoundError, ValidationError
+from application.requirement_service import RequirementService
 from application.stakeholder_need_service import StakeholderNeedService
 from auth_tenancy.context import AuthContext
+from mcp_server.tools.ai_derivation import (
+    _MODE_POLICY_SCHEMA_PROPERTIES,
+    derive_requirements_from_need,
+)
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
+    artifact_custom_fields,
     optional_uuid,
     require_param,
     require_uuid,
+    validate_artifact_write,
+    write_mcp_audit,
 )
+from mcp_server.tools.system_fields import (
+    SYSTEM_FIELD_SCHEMA,
+    add_system_fields,
+    apply_system_fields,
+    system_field_values,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _need_to_dict(n: Any) -> dict:
-    return {
+    result = {
         "id": str(n.id),
+        # Epic #934 WS1: ``uid`` is a visible read-only attribute on the
+        # StakeholderNeed definition (the REST serializer returns it); the MCP
+        # projection omitted it.
+        "uid": getattr(n, "uid", None),
         "workspace_id": str(n.workspace_id),
         "title": n.title,
         "description": n.description,
@@ -25,7 +47,13 @@ def _need_to_dict(n: Any) -> dict:
         "status": n.status,
         "moscow_priority": n.moscow_priority,
         "version": n.version,
+        # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
+        # backing Artifact; without this the MCP write is invisible on read.
+        "custom_fields": artifact_custom_fields(n),
     }
+    # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
+    add_system_fields(result, n)
+    return result
 
 
 class StakeholderNeedsToolGroup(BaseToolGroup):
@@ -38,6 +66,8 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         "needs.update": "_handle_update",
         "needs.get_traces": "_handle_get_traces",
         "needs.derive_requirements": "_handle_derive",
+        "needs.outdate": "_handle_outdate",
+        "needs.reactivate": "_handle_reactivate",
     }
 
     _TOOL_SCHEMAS = [
@@ -81,6 +111,16 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "MoSCoW priority (Must/Should/Could/Won't).",
                     },
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map) defined by this workspace's attribute definition."
+                        ),
+                    },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -105,6 +145,16 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                     },
                     "moscow_priority": {"type": "string"},
                     "change_reason": {"type": "string", "description": "Reason for the change."},
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Extended user-defined attributes (flat key/value "
+                            "map). Replaces the stored map."
+                        ),
+                    },
+                    # Attribut v3 WS2 (#936): Artifact-level system fields.
+                    **SYSTEM_FIELD_SCHEMA,
                 },
                 "required": ["id"],
             },
@@ -122,7 +172,48 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         },
         {
             "name": "needs.derive_requirements",
-            "description": "Derive system requirements from a StakeholderNeed asynchronously (LLM).",
+            "description": (
+                "Propose system requirement drafts for a StakeholderNeed (LLM). "
+                "Synchronous — mode='preview' (default) returns drafts only; "
+                "mode='write' persists each draft as a Requirement and links "
+                "it back to the need via a 'derives-from' trace link. "
+                "Equivalent to ai_derivation.derive_requirements_from_need "
+                "(fix #112 — this tool used to dispatch an async task that "
+                "sent the LLM only the need's UUID, persisted nothing, and "
+                "had no reachable task-status endpoint)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                    "n": {
+                        "type": "integer",
+                        "description": (
+                            "Optional upper bound on requirement drafts. Omit to "
+                            "use the workspace's configured "
+                            "max_requirements_per_need (default 3)."
+                        ),
+                    },
+                    **_MODE_POLICY_SCHEMA_PROPERTIES,
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "needs.outdate",
+            "description": "Soft-delete a StakeholderNeed via the workflow engine's outdate escape hatch (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                    "reason": {"type": "string", "description": "Optional audit reason."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "needs.reactivate",
+            "description": "Restore an outdated StakeholderNeed to its previous state (write).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -133,8 +224,20 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         },
     ]
 
-    def __init__(self, service: Optional[StakeholderNeedService] = None) -> None:
+    def __init__(
+        self,
+        service: Optional[StakeholderNeedService] = None,
+        ai_derivation_service: Optional[AiDerivationService] = None,
+        requirement_service: Optional[RequirementService] = None,
+    ) -> None:
         self._service = service or StakeholderNeedService()
+        # fix #112: needs.derive_requirements delegates to the same
+        # AiDerivationService/RequirementService pair the working
+        # ai_derivation.derive_requirements_from_need tool uses, instead of
+        # the broken StakeholderNeedService.derive_requirements_async path
+        # (UUID-only prompt, no persistence, unreachable task status).
+        self._ai_derivation_service = ai_derivation_service or AiDerivationService()
+        self._requirement_service = requirement_service or RequirementService()
 
     def _handle_read(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
@@ -173,6 +276,17 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         description = params.get("description", "")
         category = params.get("category", "")
         moscow_priority = params.get("moscow_priority")
+        # REQ-L2-AS-037 / Epic #934 WS1: StakeholderNeedService.create already
+        # accepts custom_fields; the handler used to drop it.
+        custom_fields = params.get("custom_fields")
+
+        # Ledger gap #1 / issue #881: same central gate as
+        # StakeholderNeedViewSet.create.
+        definition_error = validate_artifact_write(
+            auth_context, "StakeholderNeed", workspace_id, dict(params), None
+        )
+        if definition_error is not None:
+            return definition_error
 
         try:
             need = self._service.create(
@@ -182,6 +296,11 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 description=description,
                 category=category,
                 moscow_priority=moscow_priority,
+                custom_fields=custom_fields,
+            )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "StakeholderNeed", need, system_field_values(params), auth_context
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -201,16 +320,39 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         # single source of truth for the lifecycle state. A client-sent `status`
         # is ignored (not an error) and the response reflects the true value.
         kwargs = {}
-        for f in ["title", "description", "category", "moscow_priority"]:
+        for f in ["title", "description", "category", "moscow_priority", "custom_fields"]:
             if f in params:
                 kwargs[f] = params[f]
+        # Attribut v3 WS2 (#936): owner/reporter/priority are Artifact-level and
+        # never reach StakeholderNeedService.update(); they still have to be
+        # part of the definition gate so an unresolvable actor is rejected
+        # before the service call.
+        system_values = system_field_values(params)
 
         try:
+            # Ledger gap #1 / issue #881: same central gate as
+            # StakeholderNeedViewSet.partial_update. workspace_id is not part
+            # of this tool's params, so it is resolved via a lookup first.
+            existing_need = self._service.get(ctx=auth_context, need_id=need_id)
+            definition_error = validate_artifact_write(
+                auth_context,
+                "StakeholderNeed",
+                existing_need.workspace_id,
+                {**kwargs, **system_values},
+                {"__exists__": True},
+            )
+            if definition_error is not None:
+                return definition_error
+
             need = self._service.update(
                 ctx=auth_context,
                 need_id=need_id,
                 change_reason=change_reason,
                 **kwargs,
+            )
+            # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
+            apply_system_fields(
+                "StakeholderNeed", need, system_values, auth_context
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -224,14 +366,21 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
     ) -> ToolResult:
         need_id = require_uuid(params, "id")
         from application.trace_link_service import TraceLinkService
-        from persistence.models import StakeholderNeed
+
+        # Validate need exists. ADR-01 (#124): the tenant-scoped lookup lives in
+        # StakeholderNeedService.get(), which runs the exact same
+        # select_related("artifact") query and exposes artifact_id on the DTO —
+        # no behaviour change, only the layering violation goes. The lookup is
+        # kept in its own try block so that a NotFoundError raised further down
+        # by TraceLinkService still maps to INTERNAL_ERROR, exactly as it did
+        # when this was a StakeholderNeed.DoesNotExist catch.
         try:
-            # Validate need exists
-            need_model = StakeholderNeed.objects.select_related("artifact").get(
-                id=need_id, tenant_id=auth_context.tenant_id
-            )
-            artifact_id = need_model.artifact_id
-            
+            need_dto = self._service.get(ctx=auth_context, need_id=need_id)
+        except NotFoundError:
+            return ToolResult.error("NOT_FOUND", f"StakeholderNeed {need_id} not found.")
+
+        artifact_id = need_dto.artifact_id
+        try:
             trace_service = TraceLinkService()
             # query_trace_links returns NeighborResult objects whose neighbor is
             # exposed as `entity_id` (not source_id/target_id). Upstream = incoming
@@ -248,30 +397,120 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 "incoming_traces": [{"source": str(t.entity_id), "type": t.link_type} for t in incoming],
                 "outgoing_traces": [{"target": str(t.entity_id), "type": t.link_type} for t in outgoing],
             })
-        except StakeholderNeed.DoesNotExist:
-            return ToolResult.error("NOT_FOUND", f"StakeholderNeed {need_id} not found.")
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("needs.get_traces failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_derive(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """Derive system requirements from this stakeholder need asynchronously."""
+        """Derive system requirement drafts from this stakeholder need (LLM).
+
+        fix #112: delegates to the shared
+        :func:`mcp_server.tools.ai_derivation.derive_requirements_from_need`
+        implementation — the same context-building (real need title/text,
+        not just the UUID), persistence and mode/policy semantics as
+        ``ai_derivation.derive_requirements_from_need`` — instead of the
+        previous ``StakeholderNeedService.derive_requirements_async`` path,
+        which sent the LLM only the need's UUID, never persisted a result,
+        and returned a task_id with no reachable status endpoint. The tool's
+        public parameter stays ``id`` (unchanged, backward compatible); it is
+        forwarded internally as ``need_id`` for the shared implementation.
+        """
         need_id = require_uuid(params, "id")
-        
+        shared_params = dict(params)
+        shared_params["need_id"] = str(need_id)
+        return derive_requirements_from_need(
+            service=self._ai_derivation_service,
+            requirement_service=self._requirement_service,
+            params=shared_params,
+            auth_context=auth_context,
+            api_key=api_key,
+        )
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """needs.outdate — soft-delete via the workflow engine (write, audited)."""
+        need_id = require_uuid(params, "id")
+        reason: str = params.get("reason", "")
+
         try:
-            response = self._service.derive_requirements_async(auth_context, need_id)
-            return ToolResult.ok({
-                "status": "async_dispatched",
-                "task_id": response.get("task_id", ""),
-                "message": "AI derivation task started. Use LLM task status polling to retrieve results.",
-                "source_need": str(need_id)
-            })
+            need = self._service.get(auth_context, need_id)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
+
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=need_id,
+                item_type="StakeholderNeed",
+                workspace_id=need.workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("needs.outdate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #573: "outdate" is not a declared AuditEntry.op, so this write
+            # was silently dropped. Soft-delete is audited as "delete" by every
+            # sibling service (RequirementService.delete_requirement,
+            # TestService, AdrService, ...), so the MCP tool follows that
+            # convention. NOTE: StakeholderNeedService.delete — the REST
+            # pendant — writes no audit entry at all today; that separate gap
+            # is out of #573's scope.
+            operation="delete",
+            entity_type="StakeholderNeed",
+            entity_id=need_id,
+            tool_name="needs.outdate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(need_id), "status": "outdated"})
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """needs.reactivate — restore a previously outdated StakeholderNeed (write, audited)."""
+        need_id = require_uuid(params, "id")
+
+        try:
+            need = self._service.get(auth_context, need_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+
+        from workflow.services import reactivate
+
+        try:
+            result = reactivate(
+                item_id=need_id,
+                item_type="StakeholderNeed",
+                workspace_id=need.workspace_id,
+                ctx=auth_context,
+            )
         except ValueError as exc:
-            return ToolResult.error("VALIDATION_ERROR", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception:
+            # #697 (CWE-209): mask the unmapped cause, log it server-side.
+            logger.exception("needs.reactivate failed")
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        write_mcp_audit(
+            ctx=auth_context,
+            # #573: same op the REST pendant writes
+            # (POST /needs/{id}/reactivate/ -> WorkflowFacade.reactivate).
+            operation="transition",
+            entity_type="StakeholderNeed",
+            entity_id=need_id,
+            tool_name="needs.reactivate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(need_id), "status": result.new_state})
+
 
 __all__ = ["StakeholderNeedsToolGroup"]

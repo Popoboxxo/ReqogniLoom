@@ -1,0 +1,189 @@
+/*
+ * <TestRunResultEntryGrid> — result entry UI for a TestRun (UI-04).
+ *
+ * All values come from styles/tokens.css; no hardcoded colors or sizes
+ * (project convention, enforced by src/test/ui-ratchet.test.ts and the
+ * `local/no-literal-color-in-inline-style` ESLint rule). A CSS Module is
+ * used rather than inline `style={{...}}` object literals because the
+ * inline-style ratchet in ui-ratchet.test.ts is frozen and monotonic —
+ * new UI must not add to it.
+ */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* --- Bulk toolbar -------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.toolbarLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.toolbarSpacer {
+  flex: 1 1 auto;
+}
+
+/* --- Form controls ------------------------------------------------------- */
+
+.select,
+.input {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.input {
+  width: 100%;
+}
+
+.select:disabled,
+.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.select:focus-visible,
+.input:focus-visible,
+.button:focus-visible,
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.checkbox {
+  cursor: pointer;
+}
+
+.checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.button {
+  padding: var(--space-1) var(--space-3);
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buttonPrimary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+  font-weight: 600;
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+}
+
+/* --- Grid ---------------------------------------------------------------- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.thSelect {
+  width: var(--space-8);
+}
+
+.td {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.rowDirty {
+  background: var(--color-surface-raised);
+}
+
+.cellTitle {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.cellNotes {
+  min-width: 12rem;
+}
+
+.cellActions {
+  white-space: nowrap;
+}
+
+/* --- Messages ------------------------------------------------------------ */
+
+.banner {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+}
+
+.bannerSuccess {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.bannerError {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.rowError {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}

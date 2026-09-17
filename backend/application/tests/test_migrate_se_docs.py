@@ -16,10 +16,12 @@ import pytest
 from django.core.management import call_command
 
 from application.management.commands.migrate_se_docs import (
+    _LINK_ALLOCATED_TO,
     _LINK_DERIVES_FROM,
-    _LINK_IMPLEMENTS,
+    _parse_requirements_table_file,
     _parse_trace_matrix,
     _resolve_architecture_parents,
+    _split_table_row,
 )
 from auth_tenancy.provisioning import DEFAULT_WORKSPACE_ID
 from persistence.middleware import clear_request_tenant, set_request_tenant
@@ -30,6 +32,7 @@ from persistence.models import (
     TraceLink,
     Workspace,
 )
+from workflow.models import WorkflowItemState
 
 # ---------------------------------------------------------------------------
 # Unit tests — pure parsing helpers (no DB)
@@ -110,10 +113,69 @@ def test_parse_trace_matrix_orientation_and_link_types():
     assert ("REQ-L1-008", "REQ-L0-001", _LINK_DERIVES_FROM) in triples
     assert ("REQ-L1-006", "REQ-L0-001", _LINK_DERIVES_FROM) in triples
     assert ("REQ-L2-AS-001", "REQ-L1-008", _LINK_DERIVES_FROM) in triples
-    assert ("COMP-AS-001", "REQ-L2-AS-001", _LINK_IMPLEMENTS) in triples
-    assert ("COMP-AS-002", "REQ-L2-AS-001", _LINK_IMPLEMENTS) in triples
+    # allocated-to runs Requirement -> ArchitectureElement (endpoints swapped
+    # vs. the retired Component -> Requirement implements key).
+    assert ("REQ-L2-AS-001", "COMP-AS-001", _LINK_ALLOCATED_TO) in triples
+    assert ("REQ-L2-AS-001", "COMP-AS-002", _LINK_ALLOCATED_TO) in triples
     # The Test-Case column is intentionally not linked.
     assert not any("TC-AS-001" in t for triple in triples for t in triple)
+
+
+def test_split_table_row_handles_escaped_pipe():
+    cells = _split_table_row(
+        r"| REQ-001 | Functional | Title | Desc with \| an escaped pipe | Done |"
+    )
+    assert cells == ["REQ-001", "Functional", "Title", "Desc with | an escaped pipe", "Done"]
+
+
+def test_parse_requirements_table_file(tmp_path):
+    path = tmp_path / "REQUIREMENTS.md"
+    path.write_text(
+        "\n".join(
+            [
+                "## Cluster A",
+                "",
+                "| REQ-ID | Kategorie | Titel | Beschreibung | Status |",
+                "|--------|-----------|-------|-------------|--------|",
+                "| REQ-001 | Functional | Title A | Body A | Done |",
+                "| REQ-002 | Security | Title B | Body B | Backlog |",
+                "",
+                "## Cluster B",
+                "",
+                "| REQ-ID | Kategorie | Titel | Beschreibung | Status |",
+                "|--------|-----------|-------|-------------|--------|",
+                "| REQ-003 | Non-Functional | Title C | Body \\| with pipe | Active |",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rows, warnings = _parse_requirements_table_file(path)
+
+    assert warnings == []
+    assert [uid for uid, _ in rows] == ["REQ-001", "REQ-002", "REQ-003"]
+
+    row1 = dict(rows[0][1])
+    assert row1["uid"] == "REQ-001"
+    assert row1["title"] == "Title A"
+    assert row1["category"] == "Functional"
+    assert row1["description"] == "Body A"
+    assert row1["status"] == "Done"
+
+    row3 = dict(rows[2][1])
+    assert row3["description"] == "Body | with pipe"
+    assert row3["status"] == "Active"
+
+
+def test_parse_requirements_table_file_no_rows_warns(tmp_path):
+    path = tmp_path / "REQUIREMENTS.md"
+    path.write_text("Just prose, no tables here.\n", encoding="utf-8")
+
+    rows, warnings = _parse_requirements_table_file(path)
+
+    assert rows == []
+    assert len(warnings) == 1
+    assert "no 'REQ-<number>'" in warnings[0]
 
 
 def test_parse_trace_matrix_skips_dash_and_placeholder_rows():
@@ -269,15 +331,17 @@ def test_migrate_sets_hierarchy_trace_links_and_is_idempotent(tmp_path):
             target_id=req_l1.artifact_id,
             link_type=_LINK_DERIVES_FROM,
         ).exists()
+        # allocated-to runs Requirement -> ArchitectureElement (endpoints
+        # swapped vs. the retired implements key).
         assert TraceLink.objects.filter(
-            source_id=arch["COMP-AS-001"].artifact_id,
-            target_id=req_l2.artifact_id,
-            link_type=_LINK_IMPLEMENTS,
+            source_id=req_l2.artifact_id,
+            target_id=arch["COMP-AS-001"].artifact_id,
+            link_type=_LINK_ALLOCATED_TO,
         ).exists()
 
         # The '—' row (REQ-L0-002) produced no link.
         assert TraceLink.objects.filter(link_type=_LINK_DERIVES_FROM).count() == 2
-        assert TraceLink.objects.filter(link_type=_LINK_IMPLEMENTS).count() == 1
+        assert TraceLink.objects.filter(link_type=_LINK_ALLOCATED_TO).count() == 1
 
         link_count_after_first = TraceLink.objects.count()
         version_after_first = {
@@ -302,12 +366,14 @@ def test_migrate_sets_hierarchy_trace_links_and_is_idempotent(tmp_path):
 
 @pytest.mark.django_db
 def test_migrate_sets_status_field_to_draft(tmp_path):
-    """Verify that imported Requirements and StakeholderNeeds have status='draft'.
+    """Verify that imported Requirements and StakeholderNeeds resolve to
+    status "draft".
 
-    Source documents (docs/se/) do not track status for individual requirements
-    and stakeholder needs. This test ensures the migrate_se_docs command
-    explicitly sets status='draft' as the conscious default, rather than
-    relying on the model's implicit default.
+    Source documents (docs/se/) do not track status for individual
+    requirements and stakeholder needs, so they land at their type's
+    preset-declared initial state -- "draft" for both. Task 12: the `status`
+    column is dropped, so this is now resolved through
+    ``workflow.state_reader`` instead of a raw column read.
     """
     call_command("seed_demo")
     _build_docs_fixture(tmp_path)
@@ -322,21 +388,179 @@ def test_migrate_sets_status_field_to_draft(tmp_path):
     workspace = Workspace.unscoped.get(id=DEFAULT_WORKSPACE_ID)
     set_request_tenant(workspace.tenant_id)
     try:
+        from workflow import state_reader
+
         # Check StakeholderNeed status.
         sn = StakeholderNeed.objects.get(
             uid="REQ-L0-001", artifact__workspace_id=workspace.id
         )
-        assert sn.status == "draft"
+        assert (
+            state_reader.current_state("StakeholderNeed", sn.id)
+            or state_reader.initial_state("StakeholderNeed")
+        ) == "draft"
 
         # Check Requirement (L1 and L2) statuses.
         req_l1 = Requirement.objects.get(
             uid="REQ-L1-008", artifact__workspace_id=workspace.id
         )
-        assert req_l1.status == "draft"
+        assert (
+            state_reader.current_state("Requirement", req_l1.id)
+            or state_reader.initial_state("Requirement")
+        ) == "draft"
 
         req_l2 = Requirement.objects.get(
             uid="REQ-L2-AS-001", artifact__workspace_id=workspace.id
         )
-        assert req_l2.status == "draft"
+        assert (
+            state_reader.current_state("Requirement", req_l2.id)
+            or state_reader.initial_state("Requirement")
+        ) == "draft"
+    finally:
+        clear_request_tenant()
+
+
+# ---------------------------------------------------------------------------
+# Integration test — --format=table (issue #117)
+# ---------------------------------------------------------------------------
+
+
+def _write_table_fixture(path: Path) -> None:
+    _write(
+        path,
+        "\n".join(
+            [
+                "<!-- legacy flat requirements register -->",
+                "",
+                "## Cluster A",
+                "",
+                "| REQ-ID | Kategorie | Titel | Beschreibung | Status |",
+                "|--------|-----------|-------|-------------|--------|",
+                "| REQ-001 | Functional | First Req | Body with a \\| pipe. | Done |",
+                "| REQ-002 | Security | Second Req | Another body. | Backlog |",
+                "",
+            ]
+        ),
+    )
+
+
+@pytest.mark.django_db
+def test_migrate_table_format_imports_requirements_with_workflow_state(tmp_path):
+    """--format=table (issue #117) must import Requirement rows AND wire them
+    into the workspace's WorkflowEngineDefinition via WorkflowItemState — the
+    same COMP-AS-009 ImportService path the CSV importer uses, per the
+    REQ-143 / issue #113 status-mirror contract. A bare "just create
+    Requirement rows" import would be the wrong pattern."""
+    from workflow.models import WorkflowEngineDefinition
+
+    call_command("seed_demo")
+    workspace = Workspace.unscoped.get(id=DEFAULT_WORKSPACE_ID)
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        # #41: seed_demo now provisions a default Requirement workflow
+        # definition itself, so this test's fixture-specific states
+        # ("Backlog"/"Active"/"Done") must overwrite it rather than
+        # collide with it on the (tenant, workspace, item_type) constraint.
+        WorkflowEngineDefinition.objects.update_or_create(
+            tenant=workspace.tenant,
+            workspace_id=workspace.id,
+            item_type="Requirement",
+            defaults={
+                "preset": WorkflowEngineDefinition.PRESET_STANDARD,
+                "workflow_json": {
+                    "states": ["Backlog", "Active", "Done"],
+                    "transitions": [],
+                },
+            },
+        )
+    finally:
+        clear_request_tenant()
+
+    fixture = tmp_path / "REQUIREMENTS.md"
+    _write_table_fixture(fixture)
+
+    def _run() -> None:
+        call_command(
+            "migrate_se_docs",
+            format="table",
+            file=str(fixture),
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+
+    _run()
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        req1 = Requirement.objects.get(uid="REQ-001", artifact__workspace_id=workspace.id)
+        req2 = Requirement.objects.get(uid="REQ-002", artifact__workspace_id=workspace.id)
+
+        assert req1.title == "First Req"
+        assert req1.category == "Functional"
+        assert "pipe" in req1.description
+
+        assert req2.title == "Second Req"
+
+        # Task 12: the `status` column is dropped -- WorkflowItemState below
+        # is the only place left to check the mapped status.
+        # REQ-143 / issue #113: imported rows must be workflow-alive, not just
+        # bare content rows — WorkflowItemState mirrors the mapped status.
+        state1 = WorkflowItemState.objects.get(
+            item_id=req1.id, item_type="Requirement", workspace_id=workspace.id
+        )
+        assert state1.current_state == "Done"
+
+        state2 = WorkflowItemState.objects.get(
+            item_id=req2.id, item_type="Requirement", workspace_id=workspace.id
+        )
+        assert state2.current_state == "Backlog"
+
+        imported_count_after_first = Requirement.objects.filter(
+            artifact__workspace_id=workspace.id
+        ).count()
+    finally:
+        clear_request_tenant()
+
+    # Idempotency: a second run must not create duplicate Requirements.
+    _run()
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        imported_count_after_second = Requirement.objects.filter(
+            artifact__workspace_id=workspace.id
+        ).count()
+        assert imported_count_after_second == imported_count_after_first
+        assert (
+            Requirement.objects.filter(
+                uid="REQ-001", artifact__workspace_id=workspace.id
+            ).count()
+            == 1
+        )
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
+def test_migrate_table_format_dry_run_writes_nothing(tmp_path):
+    call_command("seed_demo")
+    workspace = Workspace.unscoped.get(id=DEFAULT_WORKSPACE_ID)
+
+    fixture = tmp_path / "REQUIREMENTS.md"
+    _write_table_fixture(fixture)
+
+    call_command(
+        "migrate_se_docs",
+        format="table",
+        file=str(fixture),
+        dry_run=True,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+
+    set_request_tenant(workspace.tenant_id)
+    try:
+        assert not Requirement.objects.filter(
+            uid="REQ-001", artifact__workspace_id=workspace.id
+        ).exists()
     finally:
         clear_request_tenant()

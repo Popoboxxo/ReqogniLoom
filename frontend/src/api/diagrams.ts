@@ -10,8 +10,7 @@
  * and Mermaid source/preview (IF-L1-059/061).
  */
 
-import { apiClient, getList } from "./client";
-import { tracelinksApi } from "./tracelinks";
+import { apiClient, getAllPages } from "./client";
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
@@ -19,13 +18,11 @@ import type {
   CanvasStrokeResponse,
   Diagram,
   DiagramDetail,
-  DiagramTraceLink,
   DiagramType,
   MermaidPreviewResponse,
   MermaidSourceResponse,
   PaginatedResponse,
   PayloadFormat,
-  TraceLink,
   UUID,
 } from "../types";
 
@@ -44,10 +41,18 @@ export interface UpdateDiagramPayload {
 }
 
 export const diagramsApi = {
-  list(workspaceId: UUID): Promise<PaginatedResponse<Diagram>> {
-    return getList<Diagram>("/diagrams/", {
+  /**
+   * Fetch all diagrams for a workspace, following pagination links until
+   * exhaustion (issue #177 — this only returned the first page, capped at
+   * PAGE_SIZE=25, silently hiding the rest of the diagram list). The
+   * PaginatedResponse shape is preserved so existing callers reading
+   * `.results` keep working unchanged.
+   */
+  async list(workspaceId: UUID): Promise<PaginatedResponse<Diagram>> {
+    const results = await getAllPages<Diagram>("/diagrams/", {
       workspace_id: workspaceId,
     });
+    return { count: results.length, next: null, previous: null, results };
   },
 
   get(id: UUID): Promise<DiagramDetail> {
@@ -132,36 +137,10 @@ export const diagramsApi = {
     );
   },
 
-  /**
-   * Resolve all trace links where this diagram is the source side.
-   * Uses the generic tracelinks endpoint and keeps only "documents" links
-   * (the only link type the DiagramService creates per IF-L1-034).
-   */
-  async getTraceability(
-    workspaceId: UUID,
-    diagramId: UUID,
-    requirementsLookup: (id: UUID) => string | undefined,
-    architectureLookup: (id: UUID) => string | undefined,
-  ): Promise<DiagramTraceLink[]> {
-    const resp = await tracelinksApi.listForArtifact(workspaceId, diagramId);
-    const links: TraceLink[] = resp.results ?? [];
-    return links
-      .filter((link) => link.source_id === diagramId && link.link_type === "documents")
-      .map((link) => {
-        const title =
-          requirementsLookup(link.target_id) ??
-          architectureLookup(link.target_id) ??
-          link.target_id;
-        return {
-          id: link.id,
-          source_id: link.source_id,
-          target_id: link.target_id,
-          link_type: link.link_type,
-          target_type: "Artifact",
-          target_title: title,
-        };
-      });
-  },
+  // `getTraceability` lived here until the link-type catalog migration: it
+  // filtered on a retired link-type literal that no longer exists in
+  // any workspace catalog, so it could only ever have returned an empty list.
+  // It had no callers in `frontend/src` — deleted rather than repaired.
 
   // -----------------------------------------------------------------------
   // Diff / Versions (REQ-142)

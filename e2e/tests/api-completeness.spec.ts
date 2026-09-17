@@ -1,9 +1,9 @@
 // REQ-L0-012 — REST API Completeness: full CRUD for all core entities
 // Pure API tests — no browser required
 import { test, expect } from '@playwright/test';
-import { getAuthToken, setWorkspacePreset, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { getAuthToken, setWorkspacePreset, createIsolatedWorkspace, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 test.describe('[REQ-L0-012] REST API Completeness', () => {
   // The REQ-L0-002 preset switcher test mutates the seeded workspace's preset
@@ -47,9 +47,10 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     expect(body.id).toBeDefined();
     expect(body.title).toBe('API Completeness E2E — Requirement');
 
-    // Cleanup
+    // Cleanup (extended preset requires change_reason on delete too, #604)
     await request.delete(`${BACKEND_URL}/api/v1/requirements/${body.id}/`, {
       headers: { Authorization: `Bearer ${token}` },
+      data: { change_reason: 'e2e cleanup' },
     });
   });
 
@@ -100,11 +101,19 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     const updated = await patchResp.json();
     expect(updated.title).toBe('PATCH Updated Requirement');
 
-    // Cleanup
-    await request.delete(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, { headers });
+    // Cleanup (extended preset requires change_reason on delete too, #604)
+    await request.delete(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, {
+      headers,
+      data: { change_reason: 'e2e cleanup' },
+    });
   });
 
-  test('[REQ-L0-012] DELETE /api/v1/requirements/{id}/ removes requirement', async ({ request }) => {
+  test('[REQ-L0-012] DELETE /api/v1/requirements/{id}/ soft-deletes requirement', async ({ request }) => {
+    // GH-443: DELETE is a soft-delete for every workflow-backed entity. This
+    // test used to assert 404/403 on the follow-up GET, which described the
+    // *symptom* of RequirementService hiding outdated rows, not the contract:
+    // the row was never actually removed. The requirement now stays
+    // retrievable with status="outdated" and disappears from the default list.
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
 
@@ -119,16 +128,30 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     expect(createResp.ok()).toBeTruthy();
     const created = await createResp.json();
 
+    // #604: SEEDED_WORKSPACE_ID runs an Extended preset (mandatory
+    // change_reason) -- delete now enforces that policy the same way
+    // update already does, so the request needs a reason.
     const deleteResp = await request.delete(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, {
       headers,
+      data: { change_reason: 'e2e cleanup' },
     });
     expect([200, 204]).toContain(deleteResp.status());
 
-    // Verify it is gone
+    // Still retrievable, and it says so: status === "outdated".
     const getResp = await request.get(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, {
       headers,
     });
-    expect([404, 403]).toContain(getResp.status());
+    expect(getResp.status()).toBe(200);
+    expect((await getResp.json()).status).toBe('outdated');
+
+    // ...but gone from the default list.
+    const listResp = await request.get(
+      `${BACKEND_URL}/api/v1/requirements/?workspace_id=${SEEDED_WORKSPACE_ID}&page_size=100`,
+      { headers },
+    );
+    expect(listResp.status()).toBe(200);
+    const listed = (await listResp.json()).results as Array<{ id: string }>;
+    expect(listed.some((r) => r.id === created.id)).toBe(false);
   });
 
   // -------------------------------------------------------------------------
@@ -149,11 +172,17 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
   test('[REQ-L0-012] POST /api/v1/architecture/ creates an element', async ({ request }) => {
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
+    // [I5] A workspace tree may have exactly one root ArchitectureElement.
+    // seed_demo now pre-seeds a root for SEEDED_WORKSPACE_ID, so a plain
+    // (no parent_id) create against it always 400s here. Use a fresh,
+    // element-free workspace instead, matching the pattern already used by
+    // architecture.spec.ts / architecture-editor.spec.ts.
+    const workspaceId = await createIsolatedWorkspace(token);
 
     const response = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
       headers,
       data: {
-        workspace_id: SEEDED_WORKSPACE_ID,
+        workspace_id: workspaceId,
         title: 'API Completeness E2E — Architecture Element',
         element_type: 'component',
       },
@@ -170,11 +199,13 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
   test('[REQ-L0-012] DELETE /api/v1/architecture/{id}/ removes element', async ({ request }) => {
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
+    // [I5] see the POST test above — needs its own root-free workspace.
+    const workspaceId = await createIsolatedWorkspace(token);
 
     const createResp = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
       headers,
       data: {
-        workspace_id: SEEDED_WORKSPACE_ID,
+        workspace_id: workspaceId,
         title: 'DELETE Target Arch Element',
         element_type: 'module',
       },
@@ -240,9 +271,9 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
       headers,
       data: {
         workspace_id: SEEDED_WORKSPACE_ID,
-        source_artifact: req1.artifact_id ?? req1.id,
-        target_artifact: req2.artifact_id ?? req2.id,
-        link_type: 'derives',
+        source_id: req1.artifact_id ?? req1.id,
+        target_id: req2.artifact_id ?? req2.id,
+        link_type: 'derives-from',
       },
     });
 
@@ -250,9 +281,9 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
       // Some backends require artifact UUIDs not requirement UUIDs — skip gracefully
       const errText = await linkResp.text();
       test.skip(true, `TraceLink creation failed (${linkResp.status()}): ${errText.slice(0, 200)}`);
-      // Cleanup reqs anyway
-      await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers });
-      await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers });
+      // Cleanup reqs anyway (extended preset requires change_reason, #604)
+      await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
+      await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
       return;
     }
 
@@ -265,9 +296,9 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     });
     expect([200, 204]).toContain(deleteResp.status());
 
-    // Cleanup reqs
-    await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers });
-    await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers });
+    // Cleanup reqs (extended preset requires change_reason, #604)
+    await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
+    await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
   });
 
   // -------------------------------------------------------------------------

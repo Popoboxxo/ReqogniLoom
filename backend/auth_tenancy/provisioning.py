@@ -7,7 +7,8 @@ anyone can log in:
 * a default ``Tenant`` (slug ``demo``),
 * a default ``Workspace`` within that tenant (stable id + Extended preset),
 * an admin ``User`` (``is_staff``/``is_superuser``), and
-* an admin ``UserRole`` for that user in the workspace.
+* an admin ``UserRole`` for that user in the workspace, and
+* an admin ``TenantRole`` for that user in the tenant.
 
 Two management commands build on this module:
 
@@ -28,7 +29,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.models import ROLE_ADMIN, TenantRole, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 from presets.models import WorkspacePresetConfig
@@ -57,6 +58,7 @@ class ProvisionResult:
         workspace: The provisioned (or pre-existing) base workspace.
         user: The admin user.
         role: The admin ``UserRole`` binding user + workspace.
+        tenant_role: The admin ``TenantRole`` binding user + tenant.
         user_created: ``True`` if the admin user was created by this call.
         password_set: ``True`` if this call wrote the user's password.
     """
@@ -65,6 +67,7 @@ class ProvisionResult:
     workspace: Workspace
     user: User
     role: UserRole
+    tenant_role: TenantRole
     user_created: bool
     password_set: bool
 
@@ -121,6 +124,7 @@ def provision_admin(
 
         workspace = _ensure_workspace(tenant)
         role = _ensure_admin_role(tenant, user, workspace)
+        tenant_role = _ensure_tenant_admin_role(tenant, user)
     finally:
         clear_request_tenant()
 
@@ -129,6 +133,7 @@ def provision_admin(
         workspace=workspace,
         user=user,
         role=role,
+        tenant_role=tenant_role,
         user_created=user_created,
         password_set=password_set,
     )
@@ -218,3 +223,17 @@ def _ensure_admin_role(
         user_role.suspended_at = None
         user_role.save(update_fields=["suspended_at", "modified_at"])
     return user_role
+
+
+def _ensure_tenant_admin_role(tenant: Tenant, user: User) -> TenantRole:
+    """Get-or-create the tenant-admin TenantRole for the user."""
+    tenant_role, _created = TenantRole.objects.get_or_create(
+        tenant=tenant,
+        user=user,
+        role=TenantRole.ROLE_ADMIN,
+        defaults={"suspended_at": None},
+    )
+    if tenant_role.suspended_at is not None:
+        tenant_role.suspended_at = None
+        tenant_role.save(update_fields=["suspended_at", "modified_at"])
+    return tenant_role

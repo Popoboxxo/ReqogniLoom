@@ -21,6 +21,11 @@ from application.import_service import (
     ImportService,
     _MAX_ROWS,
 )
+from application.test_service import TestService
+from attribute_definitions.global_definition_store import GlobalAttributeDefinitionStore
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Requirement, Tenant, Workspace
+from workflow.models import WorkflowEngineDefinition, WorkflowItemState
 
 pytestmark = pytest.mark.django_db
 
@@ -59,21 +64,23 @@ Req Alpha,description
 
 class TestParseCsv:
     def test_parses_valid_csv(self):
-        rows, errors = ImportService._parse_csv(_CSV_VALID)
+        rows, errors, header_fields = ImportService._parse_csv(_CSV_VALID)
         assert len(errors) == 0
         assert len(rows) == 2
         assert rows[0][1]["title"] == "Req One"
+        assert header_fields == ["title", "description", "category", "status"]
 
     def test_skips_comment_lines(self):
-        rows, errors = ImportService._parse_csv(_CSV_COMMENT_HEADER)
+        rows, errors, header_fields = ImportService._parse_csv(_CSV_COMMENT_HEADER)
         assert len(errors) == 0
         assert len(rows) == 1
         assert rows[0][1]["title"] == "Req Alpha"
 
     def test_empty_csv_produces_zero_rows(self):
-        rows, errors = ImportService._parse_csv("title,description\n")
+        rows, errors, header_fields = ImportService._parse_csv("title,description\n")
         assert len(errors) == 0
         assert len(rows) == 0
+        assert header_fields == ["title", "description"]
 
 
 # ---------- _validate_row ----------
@@ -141,6 +148,82 @@ class TestImportCsvValidation:
         assert result.status == "validation_error"
         assert len(result.errors) > 0
         assert result.imported_count == 0
+
+
+# ---------- _unknown_columns / warnings (fix #120) ----------
+
+
+_CSV_UNKNOWN_COLUMN = """\
+title,Beschreibung,category
+Req One,German description column,functional
+"""
+
+
+class TestUnknownColumns:
+    def test_known_columns_produce_no_unknown(self):
+        assert ImportService._unknown_columns(
+            ["title", "description", "category"], "Requirement"
+        ) == []
+
+    def test_typo_column_is_flagged(self):
+        assert ImportService._unknown_columns(
+            ["title", "Beschreibung"], "Requirement"
+        ) == ["Beschreibung"]
+
+    def test_none_header_key_is_ignored(self):
+        """csv.DictReader uses key `None` for extra, header-less cells."""
+        assert ImportService._unknown_columns(
+            ["title", None], "Requirement"
+        ) == []
+
+    def test_import_csv_reports_warning_for_unknown_column(self):
+        """A typo'd header must surface as a warning, not a silent drop (#120)."""
+        svc = ImportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.import_service.TenantContext"),
+            patch("application.import_service.ServiceBase._assert_write_permission"),
+            patch("application.import_service.transaction.atomic") as mock_atomic,
+            patch(
+                "application.import_service.ImportService._insert_rows",
+                return_value=1,
+            ),
+            patch("application.import_service.ServiceBase._audit"),
+        ):
+            mock_atomic.return_value.__enter__ = MagicMock(return_value=None)
+            mock_atomic.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = svc.import_csv(
+                _CSV_UNKNOWN_COLUMN, "Requirement", uuid.uuid4(), ctx
+            )
+
+        # The import still succeeds (non-fatal warning, not a hard failure) ...
+        assert result.success is True
+        # ... but the dropped column is visible in the response.
+        assert len(result.warnings) == 1
+        assert "Beschreibung" in result.warnings[0]
+
+    def test_import_csv_no_warning_when_all_columns_known(self):
+        svc = ImportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.import_service.TenantContext"),
+            patch("application.import_service.ServiceBase._assert_write_permission"),
+            patch("application.import_service.transaction.atomic") as mock_atomic,
+            patch(
+                "application.import_service.ImportService._insert_rows",
+                return_value=2,
+            ),
+            patch("application.import_service.ServiceBase._audit"),
+        ):
+            mock_atomic.return_value.__enter__ = MagicMock(return_value=None)
+            mock_atomic.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = svc.import_csv(_CSV_VALID, "Requirement", uuid.uuid4(), ctx)
+
+        assert result.warnings == []
 
 
 # ---------- import_csv — success path ----------
@@ -226,3 +309,268 @@ class TestAtomicity1000Rows:
 
         assert result.success is True
         assert result.imported_count == _MAX_ROWS
+
+
+# ---------- WorkflowItemState creation (issue #113) ----------
+
+
+class TestImportCsvWorkflowState:
+    """CSV import must never leave rows workflow-dead (issue #113).
+
+    Mirrors test_reqif_import_service.TestReqifImportStatusMapping: a
+    WorkflowEngineDefinition for the target workspace/item_type maps the raw
+    status onto one of its states and creates a matching WorkflowItemState;
+    without one, the row is normalised-only (no WorkflowItemState row, PROTECT
+    FK requires a definition).
+    """
+
+    def _make_workspace(self):
+        tenant = Tenant.objects.create(
+            name="Import-WF-T", slug=f"import-wf-t-{uuid.uuid4().hex[:8]}", is_active=True
+        )
+        set_request_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                tenant=tenant, name="Import WF WS", preset={"name": "standard"}
+            )
+        finally:
+            clear_request_tenant()
+        return tenant, workspace
+
+    def _ctx(self, tenant_id):
+        ctx = MagicMock()
+        ctx.tenant_id = tenant_id
+        ctx.user_id = uuid.uuid4()
+        ctx.active_roles = ("editor",)
+        return ctx
+
+    def test_import_creates_workflow_item_state_when_definition_exists(self):
+        tenant, workspace = self._make_workspace()
+        set_request_tenant(tenant.id)
+        try:
+            definition = WorkflowEngineDefinition.objects.create(
+                tenant=tenant,
+                workspace_id=workspace.id,
+                item_type="Requirement",
+                preset=WorkflowEngineDefinition.PRESET_STANDARD,
+                workflow_json={
+                    "states": ["draft", "in_review", "approved", "deprecated"],
+                    "transitions": [],
+                },
+            )
+        finally:
+            clear_request_tenant()
+
+        svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = svc.import_csv(_CSV_VALID, "Requirement", workspace.id, ctx)
+
+        assert result.success is True
+        assert result.imported_count == 2
+
+        set_request_tenant(tenant.id)
+        try:
+            reqs = list(
+                Requirement.objects.filter(artifact__workspace=workspace).order_by(
+                    "title"
+                )
+            )
+            assert len(reqs) == 2
+            for req in reqs:
+                # _CSV_VALID's status column is "draft" — a known state.
+                # Task 12: the `status` column is dropped, so the imported
+                # value is only checkable via WorkflowItemState now.
+                state = WorkflowItemState.objects.get(
+                    item_id=req.id, item_type="Requirement"
+                )
+                assert state.current_state == "draft"
+                assert state.workspace_id == workspace.id
+                assert state.definition_id == definition.id
+        finally:
+            clear_request_tenant()
+
+    def test_import_without_definition_creates_row_with_no_persisted_status(
+        self,
+    ):
+        """Task 12: with no WorkflowEngineDefinition, the imported status
+        value has nowhere left to be persisted -- the dropped `status`
+        column used to keep the normalised value even without an item state;
+        now the row is created successfully (no crash) but carries no status
+        record at all (documented, reviewed data-loss tradeoff, see the Task
+        12 report Finding 2). ``state_reader``/``RequirementDTO`` resolve
+        such a row to the "draft" preset initial state, not the CSV's raw
+        value, since there is nothing left to read it from."""
+        tenant, workspace = self._make_workspace()
+
+        svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = svc.import_csv(_CSV_VALID, "Requirement", workspace.id, ctx)
+
+        assert result.success is True
+
+        set_request_tenant(tenant.id)
+        try:
+            reqs = list(Requirement.objects.filter(artifact__workspace=workspace))
+            assert len(reqs) == 2
+            for req in reqs:
+                assert not WorkflowItemState.objects.filter(
+                    item_id=req.id, item_type="Requirement"
+                ).exists()
+        finally:
+            clear_request_tenant()
+
+
+# ---------- TestCase test_type on CSV import (issue #768, #816) ----------
+
+
+_CSV_TEST_CASES_MIXED_TYPES = """\
+title,description,test_type
+Case Unit One,First unit case,Unit
+Case System One,First system case,System
+Case Unit Two,Second unit case,Unit
+"""
+
+
+class TestImportCsvTestCaseSubtype:
+    """Regression for #768, kept green through the #816 consolidation.
+
+    Each imported TestCase row must keep its *own* ``test_type``, not a single
+    batch-wide value — otherwise ``TestService.list_test_cases(test_type=...)``
+    can never find the imported rows. #816 moved that bookkeeping onto the
+    canonical ``TestCase.test_type`` column (the CSV value is folded onto the
+    lowercase vocabulary), so the backing Artifact is a plain ``"TestCase"``.
+    """
+
+    def _make_workspace(self):
+        tenant = Tenant.objects.create(
+            name="Import-TC-T", slug=f"import-tc-t-{uuid.uuid4().hex[:8]}", is_active=True
+        )
+        set_request_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                tenant=tenant, name="Import TC WS", preset={"name": "standard"}
+            )
+        finally:
+            clear_request_tenant()
+        return tenant, workspace
+
+    def _ctx(self, tenant_id):
+        ctx = MagicMock()
+        ctx.tenant_id = tenant_id
+        ctx.user_id = uuid.uuid4()
+        ctx.active_roles = ("editor",)
+        return ctx
+
+    def test_imported_test_cases_are_findable_by_their_own_test_type(self):
+        tenant, workspace = self._make_workspace()
+
+        import_svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = import_svc.import_csv(
+            _CSV_TEST_CASES_MIXED_TYPES, "TestCase", workspace.id, ctx
+        )
+
+        assert result.success is True
+        assert result.imported_count == 3
+
+        set_request_tenant(tenant.id)
+        try:
+            test_svc = TestService()
+
+            unit_cases = list(
+                test_svc.list_test_cases(workspace.id, ctx, test_type="Unit")
+            )
+            system_cases = list(
+                test_svc.list_test_cases(workspace.id, ctx, test_type="System")
+            )
+
+            assert {tc.title for tc in unit_cases} == {
+                "Case Unit One",
+                "Case Unit Two",
+            }
+            assert {tc.title for tc in system_cases} == {"Case System One"}
+            # #816: the type lives in the canonical column only — the backing
+            # artifact carries the plain type again.
+            assert {tc.test_type for tc in unit_cases} == {"unit"}
+            assert {tc.artifact.artifact_type for tc in unit_cases} == {"TestCase"}
+        finally:
+            clear_request_tenant()
+
+
+# ---------- Attribute-definition enforcement (ledger gap #1 / issue #881) ----------
+
+
+class TestImportCsvAttributeDefinitionEnforcement:
+    """CSV bulk import used to bypass ``validate_artifact_fields`` entirely —
+    the same central gate the REST ViewSets (``WorkflowTransitionsMixin.
+    _validate_attribute_definition``) and the MCP write tools
+    (``mcp_server.tools.base.validate_artifact_write``) already run through.
+    """
+
+    _TITLE = {"name": "title", "kind": "core", "type": "text", "required": True}
+    _SAP_ID = {"name": "sap_id", "kind": "extended", "type": "text", "required": True}
+    _STATUS = {
+        "name": "status", "kind": "core", "type": "enum", "required": True,
+        "locked": True, "editable": "workflow",
+        "options": [{"value": "__workflow__", "label_de": "W", "label_en": "W"}],
+    }
+
+    def _make_workspace(self):
+        tenant = Tenant.objects.create(
+            name="Import-AttrDef-T", slug=f"import-attrdef-t-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        set_request_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                tenant=tenant, name="Import AttrDef WS", preset={"name": "standard"}
+            )
+        finally:
+            clear_request_tenant()
+        return tenant, workspace
+
+    def _ctx(self, tenant_id):
+        ctx = MagicMock()
+        ctx.tenant_id = tenant_id
+        ctx.user_id = uuid.uuid4()
+        ctx.active_roles = ("editor",)
+        return ctx
+
+    def test_import_rejects_every_row_missing_a_required_extended_attribute(self):
+        """A workspace whose resolved definition demands a required extended
+        attribute (never carried by any CSV column) must reject the whole
+        batch with a per-row error, not silently import rows missing it —
+        the exact bypass ledger gap #1 tracked."""
+        tenant, workspace = self._make_workspace()
+        GlobalAttributeDefinitionStore().initialize(
+            tenant.id, "Requirement", "standard", [self._TITLE, self._SAP_ID, self._STATUS]
+        )
+
+        svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = svc.import_csv(_CSV_VALID, "Requirement", workspace.id, ctx)
+
+        assert result.success is False
+        assert result.status == "validation_error"
+        assert result.imported_count == 0
+        assert {e.row_number for e in result.errors} == {2, 3}
+        assert all(e.field == "sap_id" for e in result.errors)
+
+        set_request_tenant(tenant.id)
+        try:
+            assert Requirement.objects.filter(artifact__workspace=workspace).count() == 0
+        finally:
+            clear_request_tenant()
+
+    def test_import_without_a_bootstrapped_definition_still_succeeds(self):
+        """No global/workspace AttributeDefinition for this item type/preset
+        must degrade to a no-op (mirrors the REST/MCP guards), not block an
+        otherwise-valid import."""
+        tenant, workspace = self._make_workspace()
+
+        svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = svc.import_csv(_CSV_VALID, "Requirement", workspace.id, ctx)
+
+        assert result.success is True
+        assert result.imported_count == 2

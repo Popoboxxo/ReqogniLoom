@@ -6,11 +6,14 @@
  *
  * All REST calls go through this module.
  * - Auth travels as the httpOnly ``reqflow_access`` cookie (REQ-052); requests
- *   are sent with credentials so the browser attaches it automatically. A
- *   legacy in-memory Bearer token is still supported for non-browser callers.
+ *   are sent with credentials so the browser attaches it automatically.
  * - Sends X-CSRFToken (from the ``csrftoken`` cookie) on unsafe methods, as the
  *   cookie auth path is CSRF-protected server-side.
- * - On 401 → clears auth state; caller redirects to /login.
+ * - On 401 → attempts a single-flight silent refresh (POST /auth/refresh/,
+ *   GitHub #135) and retries the original request once; only clears auth
+ *   state and notifies the caller if the refresh also fails (or the request
+ *   IS the refresh/login call). Parallel 401s share one refresh attempt and
+ *   the unauthorized notification fires at most once per session.
  * - On 403 → throws ForbiddenError (permission error, no logout — REQ-051).
  * - Accepts/sends JSON; sends Accept-Language from i18n.
  */
@@ -33,22 +36,76 @@ export function readCookie(name: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Token storage (IF-RF-INT — NavigationShell.TokenManager owns the token)
+// Unauthorized-notification state
 // ---------------------------------------------------------------------------
 
-let _token: string | null = null;
 let _onUnauthorized: (() => void) | null = null;
-
-export function setAuthToken(token: string | null): void {
-  _token = token;
-}
-
-export function getAuthToken(): string | null {
-  return _token;
-}
+// Guards against firing the unauthorized handler more than once for a burst
+// of parallel requests that all 401 around the same time (GitHub #135).
+let _unauthorizedNotified = false;
 
 export function setUnauthorizedHandler(handler: () => void): void {
   _onUnauthorized = handler;
+}
+
+/**
+ * Re-arms the unauthorized notification (GitHub #135). Call this once a
+ * session is (re-)established (login success, restored session) so a later
+ * 401 can notify again.
+ */
+export function resetUnauthorizedGuard(): void {
+  _unauthorizedNotified = false;
+}
+
+function notifyUnauthorized(): void {
+  if (_unauthorizedNotified) return;
+  _unauthorizedNotified = true;
+  _onUnauthorized?.();
+}
+
+// ---------------------------------------------------------------------------
+// Silent token refresh (GitHub #135)
+// ---------------------------------------------------------------------------
+
+// Single-flight guard: concurrent 401s share one in-flight refresh instead of
+// each firing its own POST /auth/refresh/ (and each risking its own logout).
+let _refreshPromise: Promise<boolean> | null = null;
+
+async function doRefresh(): Promise<boolean> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    const csrf = readCookie("csrftoken");
+    if (csrf) headers["X-CSRFToken"] = csrf;
+
+    const response = await fetch(`${BASE_URL}/auth/refresh/`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers,
+    });
+    if (response.ok) {
+      // A successful refresh re-establishes the session; allow a future
+      // 401 (e.g. after the new access token itself expires) to notify again.
+      resetUnauthorizedGuard();
+      return true;
+    }
+    return false;
+  } catch {
+    // Network error while refreshing — treat as a failed refresh so the
+    // caller falls back to the normal 401 handling instead of hanging.
+    return false;
+  }
+}
+
+function attemptRefresh(): Promise<boolean> {
+  if (!_refreshPromise) {
+    _refreshPromise = doRefresh().finally(() => {
+      _refreshPromise = null;
+    });
+  }
+  return _refreshPromise;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,9 +114,85 @@ export function setUnauthorizedHandler(handler: () => void): void {
 
 const BASE_URL = "/api/v1";
 
+// Auth endpoints must never trigger a refresh-and-retry on their own 401:
+// retrying /auth/refresh/ after a failed refresh would loop, and /auth/login/
+// 401s are simply "wrong credentials", not an expired session.
+const _NO_REFRESH_PATHS = ["/auth/refresh/", "/auth/login/"];
+
+// A hung `fetch()` (dropped connection, unresponsive proxy, a slow endpoint
+// that never answers) previously left the returned Promise pending forever —
+// any caller `await`-ing it inside a `try { } finally { setIsLoading(false) }`
+// block (e.g. MetricsDashboard, AuditDashboard) would then show a permanently
+// disabled "Refreshing..."/"Loading..." control, since `finally` only runs
+// once the awaited Promise *settles* (GitHub #450). Aborting after a bounded
+// timeout guarantees every request eventually rejects, so `finally` always
+// fires — regardless of how long the network/backend actually hangs.
+const REQUEST_TIMEOUT_MS = 30_000;
+
+// Some endpoints route to a real LLM provider call and can legitimately run
+// far longer than a normal CRUD request — GitHub #445 measured 16.6s–71.4s
+// for the synchronous compressed bundle export, and 110s–130s for the async
+// variant's underlying generation. REQUEST_TIMEOUT_MS would abort those
+// mid-response, trading the #450 stuck-loading bug for a worse regression
+// (killing a successful, slow LLM answer and showing the user a spurious
+// timeout error instead of the result).
+const LONG_RUNNING_REQUEST_TIMEOUT_MS = 180_000;
+
+// Matched against the request `path` (not the full URL) via `.includes()`,
+// because every one of these carries a dynamic resource id
+// (e.g. `/requirements/<uuid>/derive-testcase/`) — a full-path allowlist like
+// `_NO_REFRESH_PATHS` can't express that, so this is a substring match
+// instead. Chosen over adding a `timeoutMs` override at each call site
+// because it touches exactly one place (here) instead of five-plus
+// `src/api/*.ts` wrappers, and automatically covers any *new* caller of the
+// same backend action without another edit.
+//
+// NOT included: `/requirements/<id>/derive/` (frontend `requirements.ts`
+// `derive()`) — despite the similar name, `RequirementViewSet.derive`
+// (backend/rest_api/views.py) calls `RequirementService.derive_requirement`,
+// a plain manual persist with no LLM involved (verified against
+// backend/application/requirement_service.py:259) — it does not need, and
+// should not get, a 180s grace period.
+const _LONG_RUNNING_PATH_SEGMENTS = [
+  "/decompose-next-level/", // requirements.ts aiDecomposeNextLevel (AiDerivationService)
+  "/derive-testcase/", // requirements.ts aiDeriveTestcase (AiDerivationService)
+  "/derive-requirements/", // stakeholder-need.ts deriveRequirements (AiDerivationService)
+  "/architecture/decompose/", // architectureDecompose.ts generate()/commit() (LLM + commit)
+  "/requirement-bundle/", // requirementBundle.ts exportCompressed (mode=compressed, GitHub #445)
+  "/main-goals/generate/", // main-goal.ts generate() (LLM aggregation)
+  "/interviews/", // interviews.ts (InterviewService, LLM-driven turns)
+];
+
+function defaultTimeoutMsFor(path: string): number {
+  return _LONG_RUNNING_PATH_SEGMENTS.some((segment) => path.includes(segment))
+    ? LONG_RUNNING_REQUEST_TIMEOUT_MS
+    : REQUEST_TIMEOUT_MS;
+}
+
+/** Thrown when a request is aborted after exceeding its resolved timeout. */
+export class RequestTimeoutError extends Error {
+  constructor(path: string, timeoutMs: number) {
+    super(`Request to ${path} timed out after ${timeoutMs}ms.`);
+    this.name = "RequestTimeoutError";
+  }
+}
+
+/**
+ * `RequestInit` plus an optional per-call timeout override. Every
+ * `apiClient` method accepts this as its last argument — most callers never
+ * need it (the default/long-running-path resolution in
+ * {@link defaultTimeoutMsFor} covers the known slow LLM endpoints), but it
+ * stays available for a future one-off (or for tests).
+ */
+export interface ApiFetchOptions extends RequestInit {
+  /** Overrides both the default 30s and the long-running-path 180s. */
+  timeoutMs?: number;
+}
+
 async function apiFetch<T>(
   path: string,
-  options: RequestInit = {}
+  options: ApiFetchOptions = {},
+  _isRetryAfterRefresh = false
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -78,12 +211,6 @@ async function apiFetch<T>(
     Object.assign(headers, options.headers as Record<string, string>);
   }
 
-  // Legacy in-memory Bearer token (non-browser callers). Browser auth flows
-  // rely on the httpOnly cookie instead (REQ-052), so _token is normally null.
-  if (_token) {
-    headers["Authorization"] = `Bearer ${_token}`;
-  }
-
   // Attach CSRF token on unsafe methods for the cookie auth path (REQ-052).
   const method = (options.method ?? "GET").toUpperCase();
   if (UNSAFE_METHODS.has(method)) {
@@ -95,17 +222,56 @@ async function apiFetch<T>(
   const lang = document.documentElement.lang || "en";
   headers["Accept-Language"] = lang;
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    // Send the httpOnly access cookie on same-origin requests (REQ-052).
-    credentials: "same-origin",
-    headers,
-  });
+  // Bound the request so a hung connection always settles (see
+  // REQUEST_TIMEOUT_MS / LONG_RUNNING_REQUEST_TIMEOUT_MS above). Only
+  // installs our own abort — callers don't pass a `signal` today, but if one
+  // is ever added it takes precedence.
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMsFor(path);
+  const timeoutController = options.signal ? null : new AbortController();
+  const timeoutId = timeoutController
+    ? setTimeout(() => timeoutController.abort(), timeoutMs)
+    : null;
 
-  // 401 → not authenticated: clear auth state and redirect to login
-  // (REQ-L2-RF-010).
+  // `timeoutMs` is our own option, not a `RequestInit` field — strip it
+  // before spreading into fetch()'s init object.
+  const { timeoutMs: _timeoutMsOverride, ...fetchOptions } = options;
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...fetchOptions,
+      // Send the httpOnly access cookie on same-origin requests (REQ-052).
+      credentials: "same-origin",
+      headers,
+      signal: options.signal ?? timeoutController?.signal,
+    });
+  } catch (err) {
+    if (timeoutController?.signal.aborted) {
+      throw new RequestTimeoutError(path, timeoutMs);
+    }
+    throw err;
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+
+  // 401 → not authenticated. Before giving up, try a silent single-flight
+  // refresh and retry the original request once (GitHub #135) — this is what
+  // saves in-progress form content when the access token expires mid-session
+  // instead of hard-logging the user out. Only clears auth state / notifies
+  // the caller if the refresh also fails, or if this call already IS a retry
+  // or an auth endpoint (avoids infinite loops / retrying login).
   if (response.status === 401) {
-    _onUnauthorized?.();
+    const canTryRefresh =
+      !_isRetryAfterRefresh && !_NO_REFRESH_PATHS.includes(path);
+    if (canTryRefresh) {
+      const refreshed = await attemptRefresh();
+      if (refreshed) {
+        return apiFetch<T>(path, options, true);
+      }
+    }
+    // Refresh unavailable/failed (or not attempted) → clear auth state and
+    // let the caller redirect to /login (REQ-L2-RF-010).
+    notifyUnauthorized();
     const err: ApiError = {
       error: {
         code: "AUTHENTICATION_REQUIRED",
@@ -140,16 +306,22 @@ async function apiFetch<T>(
   // showing a generic validation error (UMSETZUNGSPLAN_SYSENG_2.0.md §4).
   if (response.status === 422) {
     let detail: string | undefined;
+    // UI-40: `findings` (e.g. DecompositionAuditError.findings — the
+    // per-violation SE-Auditor/invariant detail behind an architecture
+    // decompose commit rollback) used to be discarded here, leaving callers
+    // with only the flat `message` string to render.
+    let findings: Array<Record<string, unknown>> | undefined;
     try {
       const body = await response.json();
       detail =
         (typeof body?.error?.message === "string" && body.error.message) ||
         (typeof body?.detail === "string" && body.detail) ||
         undefined;
+      if (Array.isArray(body?.findings)) findings = body.findings;
     } catch {
       // Non-JSON body → fall back to the default message.
     }
-    throw new UnprocessableEntityError(detail);
+    throw new UnprocessableEntityError(detail, findings);
   }
 
   if (!response.ok) {
@@ -175,6 +347,17 @@ async function apiFetch<T>(
     return undefined as T;
   }
 
+  // A 2xx with an empty body is NOT an error, but response.json() throws a
+  // SyntaxError on it. DRF renders `Response(None)` as a zero-length body
+  // (see MainGoalViewSet.current, which answers "no approved main goal yet"
+  // exactly that way), so without this guard a legitimate empty result
+  // reached the UI as "SyntaxError: Unexpected end of JSON input".
+  // Optional access on purpose: not every caller/mock supplies a full
+  // Headers object, and a missing header must never break a normal response.
+  if (response.headers?.get?.("content-length") === "0") {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
 
@@ -183,33 +366,49 @@ async function apiFetch<T>(
 // ---------------------------------------------------------------------------
 
 export const apiClient = {
-  get<T>(path: string): Promise<T> {
-    return apiFetch<T>(path);
+  // `timeoutMs` is an optional last argument on every method — overrides
+  // both the 30s default and the 180s long-running-path default (see
+  // `defaultTimeoutMsFor` above). Most callers never need it; it exists for
+  // the rare one-off call that doesn't fit the path-based resolution.
+  get<T>(path: string, timeoutMs?: number): Promise<T> {
+    return apiFetch<T>(path, { timeoutMs });
   },
 
-  post<T>(path: string, body: unknown): Promise<T> {
+  post<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
     return apiFetch<T>(path, {
       method: "POST",
       body: JSON.stringify(body),
+      timeoutMs,
     });
   },
 
-  put<T>(path: string, body: unknown): Promise<T> {
+  put<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
     return apiFetch<T>(path, {
       method: "PUT",
       body: JSON.stringify(body),
+      timeoutMs,
     });
   },
 
-  patch<T>(path: string, body: unknown): Promise<T> {
+  patch<T>(
+    path: string,
+    body: unknown,
+    timeoutMs?: number,
+    headers?: Record<string, string>
+  ): Promise<T> {
     return apiFetch<T>(path, {
       method: "PATCH",
       body: JSON.stringify(body),
+      timeoutMs,
+      // GH-868: callers use this for the ``If-Match`` precondition header (see
+      // requirementsApi.update). Omitted → the request is byte-identical to
+      // before, so no existing caller changes behaviour.
+      ...(headers ? { headers } : {}),
     });
   },
 
-  delete<T = void>(path: string, body?: unknown): Promise<T> {
-    const options: RequestInit = { method: "DELETE" };
+  delete<T = void>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+    const options: ApiFetchOptions = { method: "DELETE", timeoutMs };
     if (body !== undefined) {
       options.body = JSON.stringify(body);
     }
@@ -222,17 +421,55 @@ export const apiClient = {
 // ---------------------------------------------------------------------------
 
 /**
- * Extract a human-readable message from a thrown ApiError. Prefers the
- * first field-level detail (e.g. serializer validation on parent_id)
- * over the generic top-level message.
+ * Extract a message that is safe to *show a user*, or `null` when the thrown
+ * value carries none.
+ *
+ * Prefers the first field-level detail
+ * (`error.details[0].errors[0]` — e.g. the free-text/XSS guard's
+ * "contains disallowed content: ..." on `title`, GitHub #340) over the
+ * generic top-level `error.message`, because the top-level message of a
+ * serializer rejection is only the localised "Validation failed" placeholder
+ * (`build_error_response` in `backend/rest_api/serializers.py`).
+ *
+ * Typed errors thrown by {@link apiFetch} itself (`ForbiddenError`,
+ * `UnprocessableEntityError`, `RequestTimeoutError`) are plain `Error`
+ * subclasses with a user-facing message, so those are returned too.
+ *
+ * Returning `null` — instead of `String(err)` — is the point: it lets a caller
+ * fall back to its own localised copy ("Failed to create requirement.")
+ * for a genuinely opaque failure without ever rendering an `[object Object]`
+ * dump, while still preferring the server's specific reason when there is one:
+ *
+ * ```ts
+ * setCreateError(extractApiErrorMessage(err) ?? t("req.createFailed"));
+ * ```
  */
-export function extractErrorMessage(err: unknown): string {
+export function extractApiErrorMessage(err: unknown): string | null {
   const apiErr = err as Partial<ApiError> | null;
   const detail = apiErr?.error?.details?.[0];
   const detailMsg = detail?.errors?.[0];
-  if (detailMsg) return detailMsg;
+  // Qualify with the field the server named. Field-level messages are written
+  // to be read next to their field ("is required", "does not match ..."), but
+  // every caller here renders them detached from the form — as a dialog-level
+  // alert — where a bare "is required" says nothing about *what* is required.
+  // The server already sends `details[0].field`; dropping it was the whole
+  // defect.
+  if (detailMsg) return detail?.field ? `${detail.field}: ${detailMsg}` : detailMsg;
   if (apiErr?.error?.message) return apiErr.error.message;
-  return String(err);
+  if (err instanceof Error && err.message) return err.message;
+  return null;
+}
+
+/**
+ * Extract a human-readable message from a thrown ApiError. Prefers the
+ * first field-level detail (e.g. serializer validation on parent_id)
+ * over the generic top-level message.
+ *
+ * Always returns a string; use {@link extractApiErrorMessage} when a
+ * localised fallback should win over a stringified unknown value.
+ */
+export function extractErrorMessage(err: unknown): string {
+  return extractApiErrorMessage(err) ?? String(err);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,5 +530,18 @@ export async function getAllPages<T extends { id: string }>(
     collect(nextResp);
     nextUrl = nextResp.next;
   }
+
+  // Deep-Dive E-1: the 100-page cap above is intentional (out of scope to
+  // change), but exiting the loop while `nextUrl` is still non-null means
+  // more pages existed and were silently dropped. Surface that in the
+  // console so a truncated list is at least visible/debuggable instead of
+  // being mistaken for "this is the complete list".
+  if (nextUrl && pageCount >= 100) {
+    console.warn(
+      `getAllPages(${path}): stopped after ${pageCount} pages (cap reached) — ` +
+        "further pages exist but were not fetched; the returned list is incomplete."
+    );
+  }
+
   return all;
 }

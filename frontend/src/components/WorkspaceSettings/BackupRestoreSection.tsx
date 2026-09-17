@@ -20,6 +20,7 @@ import {
   type BackupTypeValue,
   type RestoreResult,
 } from "../../api/admin-ops";
+import { Spinner } from "../shared/Spinner/Spinner";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -70,13 +71,39 @@ const inputStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   background: "var(--color-primary)",
-  color: "white",
+  color: "var(--color-on-primary)",
   border: "none",
   borderRadius: "var(--radius-md)",
   padding: "var(--space-2) var(--space-4)",
   fontSize: "var(--font-size-sm)",
   fontWeight: 600,
   cursor: "pointer",
+  // GESAMTTEST_BERICHT_2026-08-21.md §6 "Admin backup-button loading state":
+  // without a floor, the button's label swapping to a bare "…" (now a
+  // <Spinner>, see call sites) made it visibly collapse to almost nothing
+  // during the request. display:flex + centered content keeps the spinner
+  // centered instead of left-aligned once the wider label text is gone.
+  minWidth: "140px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "var(--space-2)",
+};
+
+// Visually-hidden but screen-reader-accessible label — the inline
+// create-backup row has no room for a visible caption next to the type
+// select, but the control still needs a programmatic accessible name
+// (WCAG 4.1.2).
+const visuallyHiddenStyle: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
 };
 
 export function BackupRestoreSection(): JSX.Element {
@@ -188,7 +215,11 @@ export function BackupRestoreSection(): JSX.Element {
           disabled={isCreating}
           style={{ ...inputStyle, flex: 1, minWidth: "200px" }}
         />
+        <label htmlFor="backup-type-select" style={visuallyHiddenStyle}>
+          {t("adminOps.backupTypeLabel", "Backup type")}
+        </label>
         <select
+          id="backup-type-select"
           data-testid="backup-type-select"
           value={backupType}
           onChange={(e) => setBackupType(e.target.value as BackupTypeValue)}
@@ -205,11 +236,15 @@ export function BackupRestoreSection(): JSX.Element {
           disabled={isCreating}
           style={{
             ...primaryButtonStyle,
-            opacity: isCreating ? 0.5 : 1,
+            opacity: isCreating ? 0.7 : 1,
             cursor: isCreating ? "wait" : "pointer",
           }}
         >
-          {isCreating ? "…" : `+ ${t("adminOps.createBackup", "Create Backup")}`}
+          {isCreating ? (
+            <Spinner label={t("adminOps.creatingBackup", "Creating backup...")} />
+          ) : (
+            `+ ${t("adminOps.createBackup", "Create Backup")}`
+          )}
         </button>
       </div>
 
@@ -232,8 +267,8 @@ export function BackupRestoreSection(): JSX.Element {
           data-testid="restore-result"
           role="status"
           style={{
-            background: "rgba(22,163,74,0.08)",
-            border: "1px solid var(--color-success, #16a34a)",
+            background: "rgba(var(--color-success-rgb), 0.08)",
+            border: "1px solid var(--color-success)",
             borderRadius: "var(--radius-md)",
             padding: "var(--space-3)",
             marginBottom: "var(--space-4)",
@@ -334,20 +369,25 @@ export function BackupRestoreSection(): JSX.Element {
                           flexWrap: "wrap",
                         }}
                       >
-                        <span style={{ fontSize: "var(--font-size-sm)" }}>
+                        <label
+                          htmlFor="restore-confirmation-input"
+                          style={{ fontSize: "var(--font-size-sm)" }}
+                        >
                           {t("adminOps.restoreCaptchaPrompt", {
                             defaultValue:
                               'Type "{{captcha}}" to confirm — current data will be overwritten.',
                             captcha: RESTORE_CONFIRMATION_TEXT,
                           })}
-                        </span>
+                        </label>
                         <input
+                          id="restore-confirmation-input"
                           data-testid="restore-confirmation-input"
                           type="text"
                           value={confirmationText}
                           onChange={(e) => setConfirmationText(e.target.value)}
                           placeholder={RESTORE_CONFIRMATION_TEXT}
                           disabled={isRestoring}
+                          aria-required="true"
                           style={{ ...inputStyle, width: "160px" }}
                         />
                         <button
@@ -360,7 +400,7 @@ export function BackupRestoreSection(): JSX.Element {
                           }
                           style={{
                             background: "var(--color-danger)",
-                            color: "white",
+                            color: "var(--color-on-danger)",
                             border: "none",
                             borderRadius: "var(--radius-md)",
                             padding: "var(--space-2) var(--space-4)",

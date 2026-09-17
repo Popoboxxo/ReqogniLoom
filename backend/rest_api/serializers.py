@@ -28,15 +28,51 @@ Design:
 """
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Container
+from typing import Any, Optional
 
 from django.utils import translation
-from django.utils.html import strip_tags
-from rest_framework import pagination, serializers
+from rest_framework import pagination, serializers, status
 from rest_framework.request import Request
+from rest_framework.response import Response
 
+from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
+from rest_api.mixins.workflow_transitions import _ALWAYS_ALLOWED_PATCH_FIELDS
 from rest_api.preset_guard import FieldFilter
-from persistence.models import ElementType
+from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
+from persistence.models import ElementType, TestCaseType
+
+# ---------------------------------------------------------------------------
+# Lock-counter semantics (issue #213)
+# ---------------------------------------------------------------------------
+
+# ``AuditableModel.version`` is an optimistic-concurrency counter, not a
+# content revision number. It is exposed so clients can send it back as
+# ``expected_version``; it must not be rendered as "this artifact has N
+# revisions". Historical values have no retrievable snapshot — real history
+# comes from the ``/versions/`` and ``/history/`` endpoints and from Baselines.
+LOCK_VERSION_HELP_TEXT = (
+    "Optimistic-lock counter for concurrency control (send back as "
+    "expected_version). NOT a content revision number: it also increments on "
+    "writes that change nothing user-visible, and historical values have no "
+    "retrievable snapshot. Use /versions/, /history/ or Baselines for real "
+    "history."
+)
+
+# ---------------------------------------------------------------------------
+# Identity semantics: ``id`` vs ``uid`` (Attribut v3 WS2, #936, spec section 3)
+# ---------------------------------------------------------------------------
+
+# Spec section 3: the Artifact UUID ``id`` is the sole identity; ``uid`` is a
+# free-form *external import key* (ReqIF). Nothing in the product auto-generates
+# a ``uid`` and there is no ``REQ-NNN`` number-circle: an unset ``uid`` is a
+# valid, permanent state. The field stays read-only on every serializer (the one
+# exception is the ReqIF importer, which round-trips the source key through the
+# service layer, never through a client payload).
+UID_HELP_TEXT = (
+    "External import key (ReqIF); never auto-generated - the Artifact UUID "
+    "'id' is the identity."
+)
 
 # ---------------------------------------------------------------------------
 # i18n error translation (REQ-L2-RA-004, REQ-L3-RA002-002)
@@ -69,6 +105,17 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "A conflict occurred with existing data.",
         "de": "Es ist ein Konflikt mit vorhandenen Daten aufgetreten.",
     },
+    # GH-868/GH-923: a failed ``If-Match`` precondition (stale ETag). Kept
+    # distinct from CONFLICT so a client can tell the two optimistic-locking
+    # mechanisms apart: 412 PRECONDITION_FAILED = the ``If-Match`` header lost,
+    # 409 CONFLICT = the legacy ``expected_version`` body field lost.
+    "PRECONDITION_FAILED": {
+        "en": "The resource changed since it was last read; re-read it and retry.",
+        "de": (
+            "Die Ressource wurde seit dem letzten Lesen geändert; lesen Sie sie "
+            "erneut und wiederholen Sie den Vorgang."
+        ),
+    },
     "PRESET_FIELD_REQUIRED": {
         "en": "This field is required by the active workspace preset.",
         "de": "Dieses Feld ist durch das aktive Workspace-Preset erforderlich.",
@@ -76,6 +123,16 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
     "PRESET_FIELD_FORBIDDEN": {
         "en": "This field is not permitted by the active workspace preset.",
         "de": "Dieses Feld ist durch das aktive Workspace-Preset nicht erlaubt.",
+    },
+    "SE_AUDITOR_BLOCKED": {
+        "en": (
+            "The SE-Auditor reported blocking findings; resolve them or supply "
+            "a written override justification."
+        ),
+        "de": (
+            "Der SE-Auditor meldet blockierende Findings; beheben Sie diese "
+            "oder geben Sie eine schriftliche Ausnahmebegründung an."
+        ),
     },
     "INTERNAL_SERVER_ERROR": {
         "en": "An internal server error occurred.",
@@ -141,6 +198,69 @@ def build_error_response(
     }
 
 
+def normalize_preset_blob(blob: Any) -> dict[str, Any]:
+    """Return ``blob`` with a consistent ``tier``/``name`` pair (issue #271).
+
+    ``Workspace.preset`` is written in three different shapes depending on the
+    row's age and provenance::
+
+        {"tier": "standard", ...}              WorkspaceService.create
+        {"tier": "x", "name": "x", ...}        WorkspaceService.switch_preset_tier
+        {"name": "extended"}                   legacy/seeded rows (e.g. Demo)
+
+    Both keys are emitted, resolved by preferring ``tier`` and falling back to
+    ``name``. ``tier`` is authoritative because ``switch_preset_tier`` — the
+    only writer that maintains both — always sets them to the same value, so a
+    disagreement can only mean ``name`` is a stale leftover.
+
+    Normalisation happens on READ only. Rewriting the stored blobs would need a
+    destructive, hard-to-reverse data migration over live tenant rows for what
+    is a low-priority hygiene issue; the read path is cheap and reversible.
+
+    Other keys (``language``, ``terminology_profile``) are preserved untouched,
+    and the input is never mutated. A missing/``None``/non-dict blob yields
+    ``{}`` rather than a fabricated tier — inventing one would mislabel the
+    workspace, and callers already default (the frontend falls back to
+    ``"standard"``).
+    """
+    if not isinstance(blob, dict):
+        return {}
+    resolved = blob.get("tier") or blob.get("name")
+    if not resolved:
+        return dict(blob)
+    return {**blob, "tier": resolved, "name": resolved}
+
+
+def extract_preset_tier(value: Any) -> Optional[str]:
+    """Extract a bare tier string from a workspace-preset write payload (GH-411).
+
+    ``Workspace.preset`` round-trips through the wire as the resolved object
+    ``normalize_preset_blob`` above builds on read (``{"tier": "standard",
+    "name": "standard", ...}``), but the write side
+    (``WorkspaceViewSet.create``/``set_preset`` in rest_api/views.py) used to
+    accept only a bare tier string and reject that very same object shape
+    with a confusing "Invalid preset '{'tier': 'standard'}'" error — the
+    ``str()`` of a dict, not a real validation message.
+
+    Accepts either shape:
+      - a plain tier string: ``"standard"``
+      - an object carrying it under ``tier`` or ``name``: ``{"tier": "standard"}``
+
+    Returns the extracted string (still unvalidated against the canonical
+    tier list — callers pass it on to ``WorkspaceService.create_workspace``/
+    ``switch_preset_tier``, which reject an unknown tier explicitly), or
+    ``None`` when no tier string could be extracted at all (wrong type, or
+    an object without a usable ``tier``/``name`` key) so the caller can
+    return a clear 400 instead of a silently-wrong value.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        tier = value.get("tier") or value.get("name")
+        return tier if isinstance(tier, str) else None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Pagination (REQ-L2-RA-010, REQ-L3-RA002-003)
 # ---------------------------------------------------------------------------
@@ -152,10 +272,12 @@ class StandardPagination(pagination.PageNumberPagination):
     Response envelope::
 
         {
-            "count":    <int>,     # total number of matching items
-            "next":     <url|null>,  # absolute URL of the next page (null on last)
-            "previous": <url|null>,  # absolute URL of the previous page (null on first)
-            "results":  [ ... ]    # page slice of serialized items
+            "count":         <int>,  # total number of matching items
+            "next":          <url|null>,  # absolute URL of the next page (null on last)
+            "previous":      <url|null>,  # absolute URL of the previous page (null on first)
+            "page_size":     <int>,  # page size actually applied to this response
+            "max_page_size": <int>,  # hard upper bound this endpoint accepts
+            "results":       [ ... ]  # page slice of serialized items
         }
 
     Query parameters (documented in OpenAPI via
@@ -163,6 +285,16 @@ class StandardPagination(pagination.PageNumberPagination):
 
     - ``page``      — 1-based page number (default 1).
     - ``page_size`` — items per page (default 25, capped at ``max_page_size``).
+
+    Fix #571 (reopen, QA 2026-09-01): DRF clamps an out-of-range ``page_size``
+    to ``max_page_size`` *silently* — ``?page_size=5000`` answered 200 with 100
+    results and nothing in the payload said the request had been rewritten.
+    Clients sizing their fetch loop from the value they asked for therefore
+    could not tell a capped page from a short last page. ``page_size`` and
+    ``max_page_size`` are now echoed on every paginated response, so the
+    effective slice size and the endpoint's ceiling are both machine-readable.
+    The clamp itself is kept (returning 400 would break every existing caller
+    that over-asks and today gets a valid, merely smaller, page).
     """
 
     #: Default number of items returned per page when ``page_size`` is omitted.
@@ -174,12 +306,68 @@ class StandardPagination(pagination.PageNumberPagination):
     #: Query parameter selecting the 1-based page number.
     page_query_param = "page"
 
+    def get_page_size(self, request: Request) -> int | None:
+        """Resolve the effective page size and remember it for the envelope.
+
+        DRF resolves this once per request inside ``paginate_queryset`` but
+        keeps no record of the result, so ``get_paginated_response`` cannot
+        report what was actually applied. Caching it here is the whole
+        mechanism behind the ``page_size`` field (see the class docstring).
+        """
+        page_size = super().get_page_size(request)
+        self._effective_page_size = page_size
+        return page_size
+
+    def get_paginated_response(self, data: Any) -> Response:
+        """Return the ``count/next/previous/page_size/max_page_size/results`` envelope.
+
+        The two extra keys are additive — existing clients reading only
+        ``count``/``next``/``previous``/``results`` are unaffected.
+        """
+        return Response(
+            {
+                "count": self.page.paginator.count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
+                "page_size": getattr(
+                    self, "_effective_page_size", self.page_size
+                ),
+                "max_page_size": self.max_page_size,
+                "results": data,
+            }
+        )
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        """Document the ``page_size`` ceiling in OpenAPI (fix #571 reopen).
+
+        DRF's default parameter description does not mention ``max_page_size``,
+        which is exactly what made the cap invisible to API consumers.
+        """
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter.get("name") != self.page_size_query_param:
+                continue
+            parameter["schema"] = {
+                **parameter.get("schema", {"type": "integer"}),
+                "minimum": 1,
+                "maximum": self.max_page_size,
+                "default": self.page_size,
+            }
+            parameter["description"] = (
+                f"Number of results per page (default {self.page_size}, maximum "
+                f"{self.max_page_size}). Larger values are clamped to "
+                f"{self.max_page_size}; the applied value is echoed as "
+                "'page_size' in the response."
+            )
+        return parameters
+
     def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
         """Declare the exact pagination envelope for drf-spectacular (REQ-076).
 
         Overrides DRF's default so the generated OpenAPI schema pins the
-        ``count``/``next``/``previous``/``results`` contract instead of leaving
-        it implicit. *schema* is the item schema of a single ``results`` entry.
+        ``count``/``next``/``previous``/``page_size``/``max_page_size``/
+        ``results`` contract instead of leaving it implicit. *schema* is the
+        item schema of a single ``results`` entry.
         """
         return {
             "type": "object",
@@ -208,9 +396,46 @@ class StandardPagination(pagination.PageNumberPagination):
                     ),
                     "description": "Absolute URL of the previous page, or null on the first page.",
                 },
+                "page_size": {
+                    "type": "integer",
+                    "example": 25,
+                    "description": (
+                        "Page size actually applied. Differs from the requested "
+                        "'page_size' when that value exceeded 'max_page_size'."
+                    ),
+                },
+                "max_page_size": {
+                    "type": "integer",
+                    "example": 100,
+                    "description": (
+                        "Hard upper bound this endpoint accepts for 'page_size'."
+                    ),
+                },
                 "results": schema,
             },
         }
+
+
+class TraceLinkPagination(StandardPagination):
+    """Pagination for ``GET /api/v1/tracelinks/`` — same envelope, higher ceiling.
+
+    Fix #571 (reopen, QA 2026-09-01): the traceability view needs the *whole*
+    link graph of a workspace, so the client walks every page. At the shared
+    ceiling of 100 that is 20 serial round-trips for the ~1980 links of a real
+    workspace, and it was the pile-up of those concurrent requests — not one
+    single response — that pushed the 512 MB backend container into the OOM
+    kill of the original report.
+
+    A TraceLink row is small and fixed-size (two FK ids, a link type, a version
+    and a timestamp; the wide pgvector ``embedding`` column is deferred and the
+    endpoint never joins the endpoint Artifacts — see
+    ``TraceLinkManager.get_trace_links_queryset``), so a page of 500 costs a
+    few hundred KB. That is the reason this ceiling can be raised here and not
+    globally: entities with free-text bodies (Requirement descriptions, ADR
+    rationales) have no comparable bound per row.
+    """
+
+    max_page_size = 500
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +465,21 @@ class PresetAwareSerializerMixin:
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)  # type: ignore[misc]
+        # QIRK-003 (#76): Postgres text columns reject NUL (0x00) bytes with a
+        # raw DB exception (HTTP 500). Reject such input at the serializer
+        # boundary with a proper 400 instead of letting it reach the DB.
+        null_byte_fields = [
+            field
+            for field, value in attrs.items()
+            if isinstance(value, str) and "\x00" in value
+        ]
+        if null_byte_fields:
+            raise serializers.ValidationError(
+                {
+                    field: "This field may not contain NUL (0x00) characters."
+                    for field in null_byte_fields
+                }
+            )
         ff = self.field_filter
         if ff is not None and ff.required_fields:
             missing = [f for f in ff.required_fields if f not in attrs]
@@ -254,11 +494,217 @@ class PresetAwareSerializerMixin:
 
 
 # ---------------------------------------------------------------------------
+# Free-text sanitization (SEC-03)
+# ---------------------------------------------------------------------------
+
+
+class SanitizedCharField(FreeTextFieldMarker, serializers.CharField):
+    """CharField that *rejects* HTML markup and script-capable URI schemes.
+
+    B006: XSS/SQLi payloads (e.g. ``<script>alert(1)</script>``) were stored
+    verbatim in free-text fields like ``title``/``description`` and echoed
+    back unescaped, enabling stored XSS in any consumer that renders the
+    value as HTML. SQL injection is not applicable here (the ORM always
+    parametrizes queries); this field only addresses the HTML/script-injection
+    half of B006.
+
+    #269 changed the remedy from *strip silently* to *reject*: stripping
+    turned ``{"title": "<img src=x onerror=alert(1)>"}`` into a ``201`` with an
+    empty title, i.e. silent data loss (same failure class as #263), and it
+    did not cover ``javascript:`` URIs at all. See
+    :mod:`rest_api.sanitization` for the rules and the trade-off.
+
+    Applied to user-authored narrative fields (title, description, and
+    similar prose fields) across the entity serializers, not to identifiers,
+    UUIDs, enums or read-only fields. Declaring a new field with this class is
+    also what enrols it in the ViewSet-level guard
+    (``FreeTextSanitizationMixin``), which covers write paths that read
+    ``request.data`` without running the serializer.
+    """
+
+    def to_internal_value(self, data: Any) -> str:
+        value = super().to_internal_value(data)
+        # No field_name here: DRF already nests a field-level error under the
+        # field's key, so passing one would produce {"title": {"title": [...]}}.
+        return validate_free_text(value)
+
+
+class SanitizedJSONField(FreeTextFieldMarker, serializers.JSONField):
+    """JSONField whose *nested* strings obey the free-text rules.
+
+    ``GlossaryTerm.synonyms`` is a list of user-authored labels. It is as
+    renderable as ``definition`` (the SPA and the PDF/ReqIF exporters print
+    synonyms verbatim), but the scalar guard skipped it: the value is a
+    ``list``, not a ``str``, so every element went to the database raw — #269
+    finding 4, one nesting level down.
+
+    ``find_free_text_violation`` walks the structure, so this covers list
+    items, dict values and dict keys alike.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        value = super().to_internal_value(data)
+        # As above: DRF nests field errors under the field's own key already.
+        return validate_free_text(value)
+
+
+# ---------------------------------------------------------------------------
+# Artifact system fields mixin (Attribut v3 WS2, #936)
+# ---------------------------------------------------------------------------
+
+
+class ArtifactSystemFieldsSerializerMixin(
+    metaclass=serializers.SerializerMetaclass
+):
+    """Adds the Artifact-level ``owner``/``reporter``/``priority`` fields.
+
+    Spec section 3: these live on ``Artifact``, not on the per-type model, so an
+    entity serializer has no attribute to bind them to. The read values are
+    supplied by the entity's DTO (``rest_api.views._artifact_system_fields``)
+    or, for a serializer handed a raw ORM object, injected in
+    ``to_representation``. Declaring the fields is what also lets a write
+    payload carrying them pass ``UnknownFieldRejectionMixin`` (#851) instead of
+    being rejected as unknown; the viewset applies them through the gateway.
+
+    ``metaclass=`` is load-bearing for the same reason as on
+    :class:`CustomFieldsSerializerMixin` (#290).
+    """
+
+    owner = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Artifact owner in actor wire form (spec section 4): "
+            '{"kind": "user", "id": "<uuid>"} or '
+            '{"kind": "external", "name": "<label>"}.'
+        ),
+    )
+    reporter = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Artifact reporter in actor wire form (spec section 4).",
+    )
+    priority = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Artifact priority. The scale is defined per attribute definition "
+            "(type=enum; default low|medium|high|critical)."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)  # type: ignore[misc]
+        # DTO dicts already carry the values (their builders add them); a raw
+        # ORM object has no such attributes, so inject the actor-form values.
+        if not isinstance(instance, dict):
+            from application.artifact_attribute_gateway import artifact_system_fields
+
+            data.update(artifact_system_fields(instance))
+        return data
+
+
+# ---------------------------------------------------------------------------
+# Unknown-field rejection (issue #851)
+# ---------------------------------------------------------------------------
+
+
+class UnknownFieldRejectionMixin:
+    """Reject request keys that no declared field on the serializer accepts (#851).
+
+    DRF silently ignores a key it has no field for. On a create/update that
+    means a typo or an unsupported field answers 201/200 while the value is
+    absent from both the response and the persisted row — indistinguishable
+    from success. That is the same #73/#580/QIRK-002 failure class
+    ``UserProfileSerializer`` and ``TestCaseSerializer`` fixed one serializer
+    at a time; this mixin is the shared implementation.
+
+    Placement: the check runs in ``to_internal_value``, not ``validate``, so a
+    subclass that overrides ``validate`` without calling ``super()`` cannot
+    accidentally bypass it — exactly the hole ``TestCaseSerializer`` had to
+    patch by hand before #851. It is also the one seam both create and update
+    (partial or full) pass through.
+
+    ``self.fields`` is authoritative: every declared field is accepted —
+    required, optional, write-only (``change_reason``) and read-only alike.
+    The always-allowed write keys (``change_reason``/``custom_fields``/
+    ``expected_version``, see
+    :data:`rest_api.mixins.workflow_transitions._ALWAYS_ALLOWED_PATCH_FIELDS`)
+    pass even on a serializer that does not declare them, keeping this guard
+    consistent with ``_validate_patch_payload`` and preserving the UI's
+    full-form save paths. A key that passes only via that allowlist is still
+    not written (DRF drops it), exactly as before.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        validated = super().to_internal_value(data)  # type: ignore[misc]
+        errors = unknown_field_errors(data, set(self.fields))
+        if errors:
+            raise serializers.ValidationError(errors)
+        return validated
+
+
+#: Per-field error text for a request key no declared field accepts (#851).
+#: Shared by :class:`UnknownFieldRejectionMixin` (serializer routes) and
+#: :func:`reject_unknown_fields` (raw ``request.data`` handlers) so both
+#: surfaces report exactly the same message instead of a second format.
+UNKNOWN_FIELD_MESSAGE = "Unknown field."
+
+
+def unknown_field_errors(
+    data: Any, allowed_keys: Container[str]
+) -> dict[str, list[str]]:
+    """Return ``{key: [UNKNOWN_FIELD_MESSAGE]}`` for undeclared keys (#851).
+
+    ``data`` is only inspected when it is a mapping — a non-dict body is DRF's
+    own concern, not an unknown-key one. The always-allowed write keys
+    (:data:`rest_api.mixins.workflow_transitions._ALWAYS_ALLOWED_PATCH_FIELDS`)
+    pass even when the caller's *allowed_keys* omits them, exactly as in the
+    serializer mixin.
+    """
+    if not isinstance(data, dict):
+        return {}
+    allowed = set(allowed_keys) | set(_ALWAYS_ALLOWED_PATCH_FIELDS)
+    return {key: [UNKNOWN_FIELD_MESSAGE] for key in data if key not in allowed}
+
+
+def reject_unknown_fields(
+    data: Any,
+    allowed_keys: Container[str],
+    lang: str = "en",
+) -> Response | None:
+    """Reject keys outside *allowed_keys* with a 400, or return ``None`` (#851).
+
+    The raw-handler counterpart to :class:`UnknownFieldRejectionMixin`: a view
+    that reads ``request.data`` directly cannot inherit the serializer mixin, so
+    it calls this first and returns the response when it is not ``None``. The
+    envelope — 400 ``VALIDATION_ERROR`` with one ``error.details`` entry per
+    offending key, carrying :data:`UNKNOWN_FIELD_MESSAGE` — is identical to what
+    the guarded-serializer routes produce, because both build on
+    :func:`unknown_field_errors`.
+    """
+    errors = unknown_field_errors(data, allowed_keys)
+    if not errors:
+        return None
+    return Response(
+        build_error_response(
+            "VALIDATION_ERROR",
+            lang,
+            details=[{"field": k, "errors": v} for k, v in errors.items()],
+        ),
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Custom fields mixin (REQ-L2-AS-037)
 # ---------------------------------------------------------------------------
 
 
-class CustomFieldsSerializerMixin:
+class CustomFieldsSerializerMixin(
+    UnknownFieldRejectionMixin, metaclass=serializers.SerializerMetaclass
+):
     """Adds a writable ``custom_fields`` field with flat-map validation.
 
     REQ-L2-AS-037: custom_fields lives on the shared Artifact node but is
@@ -266,13 +712,36 @@ class CustomFieldsSerializerMixin:
     written through the entity's own endpoint. Validation is delegated to
     :func:`persistence.custom_fields.validate_custom_fields` (single source of
     truth — no duplicate rules per serializer).
+
+    #290: the ``metaclass=`` is load-bearing, not decoration. DRF collects
+    declared fields in ``SerializerMetaclass._get_declared_fields``, which walks
+    ``bases`` and only reads a base's ``_declared_fields`` attribute. A *plain*
+    mixin never gets that attribute, so ``custom_fields`` stayed an inert class
+    attribute: ``'custom_fields' in RequirementSerializer().fields`` was
+    ``False``, the key never reached ``validated_data``, and the
+    ``if "custom_fields" in data:`` branches in ``rest_api.views`` were dead
+    code — every custom-field edit from the UI was silently dropped while the
+    request still reported 200. Applying the metaclass here registers the field
+    for every serializer mixing this in, which is what revives those branches.
+
+    #269 follow-up: making the field live also made it a *stored-XSS* surface —
+    keys and values round-trip byte-identically into the SPA, the PDF/ReqIF
+    exporters and MCP responses. It is therefore declared as a
+    :class:`SanitizedJSONField`, which (a) rejects markup / script URIs in the
+    map's keys and values and (b) enrols ``custom_fields`` in the ViewSet-level
+    guard, so the ~9 handlers that read ``request.data`` without running this
+    serializer still return a field-scoped 400. The same rule is enforced a
+    second time in ``persistence.custom_fields.validate_custom_fields`` for the
+    write paths that never see a serializer at all (MCP, ReqIF import).
     """
 
-    custom_fields = serializers.JSONField(
+    custom_fields = SanitizedJSONField(
         required=False,
         help_text=(
             "User-defined custom attributes as a flat key-value map "
-            "(REQ-L2-AS-037). Values: string, number, boolean or null."
+            "(REQ-L2-AS-037). Values: string, number, boolean or null. "
+            "HTML markup and script-capable URI schemes are rejected in both "
+            "keys and values."
         ),
     )
 
@@ -288,30 +757,44 @@ class CustomFieldsSerializerMixin:
 
 
 # ---------------------------------------------------------------------------
-# Free-text sanitization (SEC-03)
+# Optimistic locking mixin (SYSTEMAUDIT_2026-08-29, REST finding 1)
 # ---------------------------------------------------------------------------
 
 
-class SanitizedCharField(serializers.CharField):
-    """CharField that strips HTML/script markup from free-text input.
+class ExpectedVersionSerializerMixin(metaclass=serializers.SerializerMetaclass):
+    """Adds the write-only ``expected_version`` field used for optimistic locking.
 
-    B006: XSS/SQLi payloads (e.g. ``<script>alert(1)</script>``) were stored
-    verbatim in free-text fields like ``title``/``description`` and echoed
-    back unescaped, enabling stored XSS in any consumer that renders the
-    value as HTML. ``strip_tags`` removes markup while keeping the plain-text
-    content, so a script payload is persisted as the inert text
-    ``alert(1)`` instead of an executable ``<script>`` tag. SQL injection is
-    not applicable here (the ORM always parametrizes queries); this field
-    only addresses the HTML/script-injection half of B006.
+    Pair with a service ``update_*(..., expected_version=...)``: the PATCH
+    handler forwards ``validated_data.get("expected_version")`` and the service
+    answers ``OptimisticLockError`` → **409 CONFLICT** when the caller's
+    last-seen version is stale.
 
-    Applied to user-authored narrative fields (title, description, and
-    similar prose fields) across the entity serializers, not to identifiers,
-    UUIDs, enums or read-only fields.
+    Until the audit, only ``ArchitectureElementSerializer`` declared this field
+    and only ``ArchitectureService`` honoured it, while
+    ``_ALWAYS_ALLOWED_PATCH_FIELDS`` let the key through on *every* entity — so
+    a client sending ``expected_version`` to Requirement/TestCase/Adr/... got a
+    200 and a silent overwrite of whatever another session had written. Sharing
+    one declaration keeps the schema and the enforcement from drifting apart
+    again.
+
+    ``metaclass=`` is load-bearing for exactly the reason spelled out on
+    :class:`CustomFieldsSerializerMixin` (#290): DRF's ``SerializerMetaclass``
+    only collects ``_declared_fields`` from bases that have it, so a plain mixin
+    would leave the field inert and the value would never reach
+    ``validated_data``.
     """
 
-    def to_internal_value(self, data: Any) -> str:
-        value = super().to_internal_value(data)
-        return strip_tags(value)
+    expected_version = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        min_value=1,
+        help_text=(
+            "Optimistic locking: the ``version`` the client last read. When "
+            "supplied and no longer current, the update is rejected with 409 "
+            "CONFLICT instead of overwriting a concurrent edit. Omit it to "
+            "accept last-writer-wins."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -333,13 +816,20 @@ class ArtifactSerializer(
     workspace_id = serializers.UUIDField(required=True)
     artifact_type = serializers.CharField(max_length=64)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
 
 
 class RequirementSerializer(
-    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for Requirement entity (REQ-L2-RA-001, REQ-L3-RF003-005).
 
@@ -352,26 +842,28 @@ class RequirementSerializer(
     select_related hint: artifact, artifact__workspace (for queryset optimization).
     """
 
+    # REQ-143 / Datenmodell-Konsolidierung: `status` is no longer a model
+    # column. It is resolved from WorkflowItemState by the mixin, which keeps
+    # the wire key and its vocabulary identical (Decision D-1).
+    workflow_item_type = "Requirement"
+
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # Issue #413/#416: id of the owning Artifact. TraceLink endpoints are
+    # Artifact ids, never Requirement ids, so without this field the UI cannot
+    # tell whether a link endpoint *is* the requirement it is rendering — the
+    # traceability list fell back to raw UUIDs and the requirement editor's
+    # hierarchy panel resolved every link back to the artifact itself.
+    # ``_dto_from_orm`` has always supplied the value; the serializer just
+    # never declared the field, so DRF dropped it. Read-only, nullable,
+    # matching StakeholderNeedSerializer / ArchitectureElementSerializer.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    # #43: acceptance_criteria describes when the requirement is considered fulfilled.
+    acceptance_criteria = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
-    # REQ-143: `status` is a read-only mirror of the WorkflowEngine state. The
-    # WorkflowEngine is the single source of truth; any `status` sent by a client
-    # is silently ignored (not a 400) and the response always reflects the true,
-    # engine-owned value. Change the lifecycle state via
-    # POST /api/v1/requirements/{id}/transitions/.
-    status = serializers.CharField(
-        max_length=64,
-        read_only=True,
-        help_text=(
-            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-143). "
-            "Writes are ignored; transition via "
-            "POST /api/v1/requirements/{id}/transitions/."
-        ),
-    )
     type = serializers.ChoiceField(
         choices=['SyReq', 'UseCase', 'FeatureReq'],
         default='SyReq',
@@ -383,24 +875,67 @@ class RequirementSerializer(
         help_text="Complexity via Fibonacci scale (visible only for SyReq)",
     )
     verification_method = serializers.ChoiceField(
-        choices=['Test', 'Review', 'Analysis', 'Inspection'],
+        # Must mirror persistence.models.VerificationMethod (migration 0041).
+        # 'Demonstration' was missing here, so a ReqIF-imported requirement
+        # carrying it 400'd on its next save.
+        choices=['Test', 'Review', 'Analysis', 'Inspection', 'Demonstration'],
         required=False,
         allow_null=True,
         help_text="Verification method (visible only for SyReq)",
     )
+    # Issue #409: V-model hierarchy level. Model field existed since the
+    # RequirementLevel migration but was never exposed by the REST/MCP
+    # boundaries — a client could never set it despite it being a real,
+    # queryable column used by the traceability audit rules.
+    level = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=4,
+        help_text=(
+            "V-model hierarchy level (1=System, 2=Subsystem, 3=Component, "
+            "4=Presentation). NULL until assigned explicitly."
+        ),
+    )
+    # Issue [U2, systemaudit 2026-09-02]: the model field and its propagation
+    # logic (TraceLinkService.propagate_suspect_status) already existed;
+    # only the serializer never declared it, so DRF silently dropped it from
+    # every response. Read-only: only propagate_suspect_status may set it.
+    suspect = serializers.BooleanField(read_only=True)
     uid = serializers.CharField(
         max_length=64,
         read_only=True,
         required=False,
         allow_null=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=UID_HELP_TEXT,
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     # B006/#104: bounded like other short justification fields — unbounded
     # TextField-backed CharFields allow unbounded-size payloads (DoS risk).
     change_reason = SanitizedCharField(required=False, allow_blank=True, max_length=2000)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+    # #45 (IEEE 29148 §5.2.4): non-blocking hint — null when the title has no
+    # 'and'/'or' conjunction, otherwise the distinct conjunction words found.
+    atomicity_warning = serializers.SerializerMethodField(
+        help_text=(
+            "Non-blocking atomicity hint (#45). Lists 'and'/'or' conjunctions "
+            "found in the title, which often indicate a bundled, non-atomic "
+            "requirement (IEEE 29148 §5.2.4). Null when none are found."
+        )
+    )
+
+    def get_atomicity_warning(self, obj: Any) -> Optional[list[str]]:
+        from application.requirement_service import detect_non_atomic_terms
+
+        # `obj` is a plain dict from `_dto_from_orm()` on every real call site
+        # (see rest_api/views.py) rather than a model/DTO instance — dicts have
+        # no `.title` attribute, so `getattr` alone would silently always
+        # return "".
+        title = obj.get("title", "") if isinstance(obj, dict) else getattr(obj, "title", "")
+        return detect_non_atomic_terms(title or "") or None
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         """Render conditional fields based on requirement type."""
@@ -414,38 +949,43 @@ class RequirementSerializer(
 
 
 class StakeholderNeedSerializer(
-    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for StakeholderNeed entity.
-    
+
     Represents the user's problem space and needs.
     """
 
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "StakeholderNeed"
+
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact. StakeholderNeedDTO has carried this
+    # since REQ-001, but the serializer never declared it, so DRF dropped it
+    # from every response — the UI could not address the custom-field value
+    # endpoint for a need (UI concept ch. 12.11). Read-only.
+    artifact_id = serializers.UUIDField(read_only=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True, read_only=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
-    # REQ-143: read-only mirror of the WorkflowEngine state (see RequirementSerializer).
-    # Writes are ignored; the response always reflects the true, engine-owned value.
-    status = serializers.CharField(
-        max_length=64,
-        read_only=True,
-        help_text=(
-            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-143). "
-            "Writes are ignored."
-        ),
-    )
     moscow_priority = serializers.ChoiceField(
         choices=['Must', 'Should', 'Could', "Won't"],
         required=False,
         allow_null=True,
         help_text="MoSCoW priority",
     )
-    uid = serializers.CharField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     suspect = serializers.BooleanField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     # #104: bounded — see RequirementSerializer.change_reason.
     change_reason = SanitizedCharField(
         write_only=True, required=False, allow_blank=True, max_length=2000
@@ -455,7 +995,12 @@ class StakeholderNeedSerializer(
 
 
 class ArchitectureElementSerializer(
-    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for ArchitectureElement entity (REQ-L2-RA-001, REQ-L3-RF004-004).
 
@@ -464,15 +1009,27 @@ class ArchitectureElementSerializer(
     provides ``context={"element_id": pk}`` so the validator can resolve
     the element and its workspace.
 
-    REQ-L1-058 AC2: level annotation via CTE manager (get_with_level())
-    avoids N+1 queries. Expects pre-annotated 'level' field from queryset.
+    REQ-L1-058 AC2: level annotation via ``ArchitectureElement.annotate_levels()``
+    (recursive-CTE, bulk) avoids N+1 queries. Expects pre-annotated 'level' field.
 
     REQ-L3-RF004-004: Includes ASIL level and Make-or-Buy decision fields.
     REQ-L2-RF-025 AC3: Includes uid for stable identification.
+
+    Epic #934 WS1: ``WorkflowStateSerializerMixin`` adds the read-only
+    ``status`` system attribute (``editable="workflow"`` on every bootstrapped
+    definition) that the read projection previously omitted, so the Attribute
+    Usability Contract's R check holds on REST as well.
     """
+
+    #: ``WorkflowItemState.item_type`` value for this serializer (the mixin).
+    workflow_item_type = "ArchitectureElement"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact, needed by the UI to read/write
+    # workspace-defined custom fields (UI concept ch. 12.11). Read-only —
+    # the Artifact is created by the service, never supplied by the client.
+    artifact_id = serializers.UUIDField(read_only=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     # REQ-006 (D5): free-form field — no longer restricted to ElementType.choices,
@@ -503,13 +1060,14 @@ class ArchitectureElementSerializer(
         read_only=True,
         required=False,
         allow_null=True,
-        help_text="Unique identifier (read-only, auto-generated)",
+        help_text=UID_HELP_TEXT,
     )
-    expected_version = serializers.IntegerField(
-        required=False, write_only=True
-    )
+    # ``expected_version`` comes from ExpectedVersionSerializerMixin — the
+    # inline declaration this replaces was the only one in the codebase.
     suspect = serializers.BooleanField(required=False, default=False)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -536,35 +1094,51 @@ class ArchitectureElementSerializer(
 
 
 class TestCaseSerializer(
-    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for TestCase entity (REQ-L2-RA-001)."""
+
+    # REQ-165/REQ-166 (CR-08) / Datenmodell-Konsolidierung: see
+    # RequirementSerializer. Neither create_test_case() nor update_test_case()
+    # (application/test_service.py) accept a client-supplied status, so this
+    # matches the already-correct behavior instead of advertising a writable
+    # field that PATCH has always ignored. Change the lifecycle state via
+    # POST /api/v1/testcases/{id}/transitions/.
+    workflow_item_type = "TestCase"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
-    uid = serializers.CharField(read_only=True, allow_null=True)
-    # REQ-165/REQ-166 (CR-08): `status` is a read-only mirror of the WorkflowEngine
-    # state, same pattern as RequirementSerializer.status (REQ-143). Neither
-    # create_test_case() nor update_test_case() (application/test_service.py)
-    # accept a client-supplied status, so marking the field read-only here makes
-    # the OpenAPI contract match the actual (already-correct) behavior instead of
-    # silently advertising a writable field that PATCH has always ignored. Change
-    # the lifecycle state via POST /api/v1/testcases/{id}/transitions/.
-    status = serializers.CharField(
-        read_only=True,
-        help_text=(
-            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-165). "
-            "Writes are ignored; transition via "
-            "POST /api/v1/testcases/{id}/transitions/."
-        ),
-    )
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     suspect = serializers.BooleanField(required=False, default=False)
     # SysEng 2.0 N5 (test.derive_from_requirement): test steps, previously
     # persisted on the model but not exposed through the API.
     steps = serializers.ListField(
         child=serializers.DictField(), required=False, default=list
+    )
+    # C-1 (attribute-definitions Task 22 review round 1): `TestCase.test_type`
+    # (persistence/migrations/0041_add_testcase_test_type.py, B6a) is a real,
+    # writable model column with TestCaseType choices — the bootstrap
+    # introspects it as an editable enum attribute (bootstrap_attribute_
+    # definitions.py: CLASSIFICATION_FIELDS + _attribute_type's
+    # `choices` -> "enum" branch), so the definition-driven
+    # TestCaseArtifactForm renders it as a select and PATCHes it back. This
+    # serializer never declared it, so the unknown-key guard 400'd
+    # every save the moment a user touched the field.
+    #
+    # #816: this field is now the ONLY representation of a test case's type —
+    # the deprecated Title-case value tagged onto `artifact.artifact_type` is
+    # gone (migration 0093). Create forwards the value as the service's
+    # `test_type_value` alias, which takes precedence over the service's
+    # `unit` default and keeps `null` meaning "unspecified" (#953).
+    test_type = serializers.ChoiceField(
+        choices=TestCaseType.choices, required=False, allow_null=True
     )
     # SysEng 2.0 N5: optional requirement to auto-link on create (write-only —
     # mirrors the MCP test.create `linked_req_id` convention, ADR-L3-MC005-01).
@@ -586,12 +1160,24 @@ class TestCaseSerializer(
     verifies_link_id = serializers.UUIDField(
         read_only=True, allow_null=True, required=False, default=None
     )
-    version = serializers.IntegerField(read_only=True)
+    # GH-829: the unknown-key guard (then a TestCaseSerializer.validate() copy
+    # of #580, now the shared UnknownFieldRejectionMixin.to_internal_value,
+    # #851) rejected every PATCH carrying change_reason with HTTP 400 because
+    # the field was never declared here — and even past that guard, DRF would
+    # have silently dropped it from validated_data. Write-only + optional,
+    # mirroring StakeholderNeedSerializer.change_reason: the service records it
+    # on the audit trail, so it never belongs in the response body.
+    change_reason = SanitizedCharField(
+        write_only=True, required=False, allow_blank=True, max_length=2000
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class TraceLinkSerializer(UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for TraceLink entity (REQ-L2-RA-001, REQ-002).
 
     select_related hint: source, target (for N+1 avoidance, REQ-L2-RA-013).
@@ -606,6 +1192,38 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     source_id = serializers.UUIDField()
     target_id = serializers.UUIDField()
     link_type = serializers.CharField(max_length=64)
+    # Q1.6: why these two artifacts are connected. Free text on a trust
+    # boundary, so sanitized and capped like change_reason (B006/#104) — an
+    # unbounded TextField-backed field accepts unbounded payloads.
+    rationale = SanitizedCharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="Why this link exists (optional, free text).",
+    )
+    # Written only by TraceLinkService.propagate_suspect_status.
+    suspect_flagged_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    suspect_source_change = serializers.UUIDField(read_only=True, allow_null=True)
+    # KI-Vorschlag-als-Zustand spec §5: agent-proposed links carry these
+    # instead of a workflow state (a TraceLink has no WorkflowItemState).
+    proposed_by = serializers.UUIDField(
+        source="proposed_by_id", read_only=True, allow_null=True
+    )
+    proposed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    proposed_by_label = serializers.SerializerMethodField()
+
+    def get_proposed_by_label(self, obj) -> str:
+        """Return the proposing agent's display label, empty for human links.
+
+        Handles both shapes this serializer is fed: the dicts built by
+        ``rest_api.views._tracelink_to_dict`` (every REST endpoint — they
+        precompute the label so this does not trigger a query per row) and a
+        raw ``TraceLink`` instance.
+        """
+        if isinstance(obj, dict):
+            return obj.get("proposed_by_label") or ""
+        key = getattr(obj, "proposed_by", None)
+        return getattr(key, "agent_label", "") or ""
     # REQ-002: human-readable labels for trace endpoints
     source_title = serializers.CharField(
         read_only=True,
@@ -635,7 +1253,31 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="",
         help_text="Artifact type of the target (e.g. Requirement, ArchitectureElement).",
     )
-    version = serializers.IntegerField(read_only=True)
+    # UI-P3: soft-deleted endpoints. TraceLinks survive the soft-delete of an
+    # endpoint on purpose (audit trail), so the link is still listed here —
+    # these flags let the client tell such a link apart from a live one instead
+    # of rendering a deleted artifact as a normal neighbour.
+    source_is_outdated = serializers.BooleanField(
+        read_only=True,
+        required=False,
+        default=False,
+        help_text=(
+            "True when the source artifact has been soft-deleted via "
+            "workflow outdate(). The link is retained for the audit trail."
+        ),
+    )
+    target_is_outdated = serializers.BooleanField(
+        read_only=True,
+        required=False,
+        default=False,
+        help_text=(
+            "True when the target artifact has been soft-deleted via "
+            "workflow outdate(). The link is retained for the audit trail."
+        ),
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
@@ -651,6 +1293,21 @@ class ImpactNodeSerializer(serializers.Serializer):
     path = serializers.ListField(
         child=serializers.UUIDField(), read_only=True
     )
+
+
+class ResolvedArtifactSerializer(serializers.Serializer):
+    """Serializer for one ``artifact_id -> (entity_type, entity_id)`` resolution
+    (Task 3.2a, UI-Konzept Vollrollout, REQ-L2-TE-019).
+
+    ``entity_type``/``entity_id`` are ``None`` when ``resolved`` is False
+    (unknown/foreign-tenant/deleted artifact_id) — the frontend keeps such
+    entries visible-but-not-clickable rather than treating this as an error.
+    """
+
+    artifact_id = serializers.UUIDField(read_only=True)
+    resolved = serializers.BooleanField(read_only=True)
+    entity_type = serializers.CharField(read_only=True, allow_null=True)
+    entity_id = serializers.UUIDField(read_only=True, allow_null=True)
 
 
 class SimilarRequirementSerializer(serializers.Serializer):
@@ -698,12 +1355,56 @@ class BaselineDeltaEntrySerializer(serializers.Serializer):
     """
 
     item_id = serializers.CharField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     entity_type = serializers.CharField(read_only=True)
     state = serializers.JSONField(read_only=True, allow_null=True)
 
 
-class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class BlockerWaiverSerializer(serializers.Serializer):
+    """One per-finding SE-Auditor waiver on the baseline create payload (GH-821).
+
+    Mirrors ``baseline.waivers.BlockerWaiverRequest``: the caller names the
+    finding (``rule_id`` + ``artifact_ids`` exactly as the audit report returned
+    them) and justifies accepting *that* deviation. ``reason`` is mandatory —
+    an unexplained suppression is not a governance record, and the facade
+    rejects a placeholder here as well (see
+    ``application.baseline_facade._validate_gate_reason``).
+
+    The scope of a finding is deliberately NOT accepted from the client: the
+    waiver is matched against the findings the auditor actually reported, and
+    the stored scope is taken from the matched finding. A client cannot
+    mis-attribute a waiver.
+    """
+
+    rule_id = serializers.CharField(
+        max_length=64,
+        help_text="SE-Auditor rule being waived, e.g. 'TRACE-P1'.",
+    )
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        allow_empty=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Artifacts the finding concerns, as returned by the audit report "
+            "(empty for graph-level findings)."
+        ),
+    )
+    reason = SanitizedCharField(
+        max_length=2000,
+        allow_blank=False,
+        help_text=(
+            "Mandatory justification for accepting this single deviation; "
+            "recorded on the waiver and in the audit log."
+        ),
+    )
+
+
+class BaselineSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for Baseline entity (REQ-L2-RA-001).
 
     ``name`` is optional on create; the view generates a timestamp-based
@@ -716,13 +1417,47 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
-    name = serializers.CharField(
+    name = SanitizedCharField(
         max_length=500, required=False, allow_blank=True, default=""
     )
     scope = serializers.CharField(max_length=32)
-    description = serializers.CharField(allow_blank=True, required=False, default="", max_length=20000)
+    description = SanitizedCharField(allow_blank=True, required=False, default="", max_length=20000)
     artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)
-    version = serializers.IntegerField(read_only=True)
+    # GH-513: written justification for creating the baseline despite BLOCKER
+    # findings from the SE-Auditor. Write-only — it is echoed back as part of
+    # the baseline description and recorded in the audit log, not as a field.
+    override_reason = SanitizedCharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default="",
+        max_length=2000,
+        help_text=(
+            "Justification for creating this baseline although the SE-Auditor "
+            "reports blocking findings (error code SE_AUDITOR_BLOCKED). "
+            "Requires the 'admin' or 'approver' role; recorded in the audit "
+            "log and appended to the baseline description."
+        ),
+    )
+    # GH-821: per-finding waivers. The coarse override above accepts *all*
+    # remaining findings at once; this accepts individual ones, each with its
+    # own reason, and persists them so a later build does not have to re-state
+    # them. Same RBAC gate as override_reason.
+    waived_findings = BlockerWaiverSerializer(
+        many=True,
+        write_only=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Per-finding waivers for blocking SE-Auditor findings "
+            "(error code SE_AUDITOR_BLOCKED). Each entry accepts one reported "
+            "finding; findings that remain unwaived still block the baseline."
+        ),
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     entries = BaselineDeltaEntrySerializer(
         many=True, read_only=True, required=False
@@ -775,19 +1510,27 @@ class BaselineDiffSerializer(serializers.Serializer):
 
 
 class WorkflowDefinitionSerializer(
-    PresetAwareSerializerMixin, serializers.Serializer
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
 ):
-    """Serializer for WorkflowDefinition entity (REQ-L2-RA-001)."""
+    """Serializer for WorkflowDefinition entity (REQ-L2-RA-001).
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts, instead of the DRF default of silently dropping them.
+    """
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     artifact_id = serializers.UUIDField()
-    name = serializers.CharField(max_length=255)
-    version = serializers.IntegerField(read_only=True)
+    name = SanitizedCharField(max_length=255)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
-class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class WorkspaceSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for Workspace entity (REQ-L1-017, REQ-L1-042).
 
     ``terminology_profile`` is sourced from the optional
@@ -796,56 +1539,123 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     Lifecycle fields (REQ-L1-042):
       ``is_active``, ``closed_at``, ``closed_by`` — soft-delete / close metadata.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts. ``WorkspaceViewSet.create``/``partial_update`` read every
+    input key from this serializer's schema (``preset`` through
+    ``goals_ai_enabled``) plus the declared read-only lifecycle flag
+    ``is_active``, so a typo now answers 400 instead of a hollow 201/200.
     """
 
     id = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(max_length=255)
+    # #71: free-text name field — sanitize consistent with other narrative
+    # fields (SEC-03/B006) so HTML/script markup is stripped, not stored verbatim.
+    name = SanitizedCharField(max_length=255)
+    # #271: passthrough on write, normalised on read — see to_representation.
+    # As a JSONField this already accepts either shape (bare tier string or
+    # {"tier": ...} object) at the serializer level; GH-411's actual 400 came
+    # from WorkspaceViewSet.create/set_preset (rest_api/views.py) reading
+    # request.data directly and never going through this serializer for
+    # input — see extract_preset_tier() above for the shared parsing used
+    # by both of those handlers now.
     preset = serializers.JSONField(required=False, default=dict)
-    ai_prompts = serializers.JSONField(required=False, default=dict)
+    # SYSTEMAUDIT_2026-08-29 (REST finding 2): read-only, was writable-looking.
+    # ``Workspace.ai_prompts`` is a leftover from before #119 moved AI prompt
+    # configuration to the versioned ``PromptTemplate`` model; the only value
+    # still read from the blob is the ``context_token_budgets`` override, which
+    # is administered through MCP. Neither POST nor PATCH ever wrote it, so
+    # advertising it as an input field promised a write path that does not
+    # exist. Edit prompts via /api/v1/prompt-templates/ instead.
+    ai_prompts = serializers.JSONField(read_only=True, default=dict)
     decomposition_link_type = serializers.CharField(
-        required=False, default="parent-child", max_length=50
+        required=False, default="decomposes", max_length=50
     )
     default_link_type = serializers.CharField(
         required=False, default="derives-from", max_length=50
     )
+    goals_enabled = serializers.BooleanField(required=False, default=False)
+    goals_ai_enabled = serializers.BooleanField(required=False, default=False)
     terminology_profile = serializers.CharField(
         required=False, default="se_mode", max_length=32
     )
     language = serializers.CharField(required=False, default="en", max_length=8)
+    theme = serializers.CharField(required=False, default="dark", max_length=32)
     is_active = serializers.BooleanField(read_only=True, default=True)
     closed_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
     closed_by = serializers.UUIDField(read_only=True, allow_null=True, default=None)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        """Emit a single, canonical ``preset`` shape regardless of storage (#271)."""
+        data = super().to_representation(instance)
+        data["preset"] = normalize_preset_blob(data.get("preset"))
+        return data
 
-class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+
+class AdrSerializer(
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
     """Serializer for ADR entity (REQ-L1-029, COMP-AS-013)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "Adr"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = SanitizedCharField(max_length=200)
-    description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    # #890: 10000 mirrors the Adr.description TextField(max_length=10000) and
+    # AdrService._validate_description (create + update); the previous 20000
+    # came from the blanket #4/#26 description cap and accepted payloads the
+    # service then rejected, i.e. serializer and domain limit disagreed.
+    description = SanitizedCharField(allow_blank=True, default="", max_length=10000)
     # #104: matches the Adr.context/consequences model TextField(max_length=5000)
     # cap — previously unbounded at the serializer layer, allowing oversized
     # payloads to reach the model layer (where TextField.max_length is a
     # form-validator only, not a DB constraint, and is not enforced here since
     # this serializer doesn't call full_clean()).
     context = SanitizedCharField(allow_blank=True, default="", max_length=5000)
+    # #373: standard ADR terminology field (context/decision/consequences),
+    # previously missing — matches Adr.decision model TextField(max_length=5000).
+    decision = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     consequences = SanitizedCharField(allow_blank=True, default="", max_length=5000)
-    uid = serializers.CharField(read_only=True, allow_null=True)
-    status = serializers.ChoiceField(
-        choices=["Draft", "In Review", "Approved", "Rejected", "Superseded"],
-        default="Draft",
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
+    # #290: AdrViewSet.partial_update forwards ``data.get("change_reason")`` to
+    # AdrService.update_adr(), which records it on the audit event. The field was
+    # never declared here, so DRF dropped it from validated_data and the audit
+    # trail silently recorded ``None`` for every edit. Same silent-drop class as
+    # the custom_fields bug, different cause (missing declaration, not a
+    # metaclass-less mixin). Bounded like RequirementSerializer.change_reason.
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class RiskSerializer(
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
     """Serializer for Risk entity (REQ-L1-029, COMP-AS-014)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "Risk"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -868,8 +1678,12 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["technical", "operational", "organizational", "business"],
         default="technical",
     )
-    # #104: matches Risk.owner model field (CharField(max_length=255)).
-    owner = serializers.CharField(allow_blank=True, default="", max_length=255)
+    # Attribut v3 WS7 (#940): the legacy free-text owner column was renamed to
+    # ``owner_name`` (same DB column) so the Artifact-level ``owner`` Actor FK
+    # — declared by ArtifactSystemFieldsSerializerMixin — is no longer shadowed
+    # at the type model. The AWMS plan risk_owner_to_actor folds this value onto
+    # the Actor carrier.
+    owner_name = serializers.CharField(allow_blank=True, default="", max_length=255)
     # REQ-L1-029 (FMEA): structured User FK for risk assignment, kept alongside
     # the legacy free-text `owner` field.
     owner_user_id = serializers.UUIDField(allow_null=True, required=False)
@@ -878,18 +1692,94 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     detection = serializers.IntegerField(min_value=1, max_value=10, default=5)
     # #104: narrative field, unbounded before — cap at 10000 chars (DoS risk).
     mitigation_strategy = SanitizedCharField(allow_blank=True, default="", max_length=10000)
-    uid = serializers.CharField(read_only=True, allow_null=True)
-    status = serializers.ChoiceField(
-        choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
-        default="Identified",
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
+    # #290: see AdrSerializer.change_reason — RiskViewSet.partial_update
+    # forwards it to RiskService.update_risk() but DRF dropped it.
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for TestRun entity (REQ-L2-AS-030)."""
+class GoalSerializer(
+    CustomFieldsSerializerMixin,
+    WorkflowStateSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
+    """Serializer for Goal entity (REQ-L2-TE-020, Task 6).
+
+    ``CustomFieldsSerializerMixin`` also carries the ``UnknownFieldRejectionMixin``
+    behaviour (#851), so it supersedes the previous explicit base.
+    """
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "Goal"
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact, needed by the UI to read/write
+    # workspace-defined custom fields (UI concept ch. 12.11). Read-only —
+    # the Artifact is created by the service, never supplied by the client.
+    artifact_id = serializers.UUIDField(read_only=True)
+    lineage_id = serializers.UUIDField(required=False, allow_null=True)
+    sequence_number = serializers.IntegerField(read_only=True)
+    title = SanitizedCharField(max_length=255)
+    description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class MainGoalSerializer(
+    UnknownFieldRejectionMixin,
+    WorkflowStateSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
+    """Serializer for MainGoal entity (REQ-L2-TE-020, Task 6)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "MainGoal"
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    sequence_number = serializers.IntegerField(read_only=True)
+    content = SanitizedCharField(max_length=20000)
+    source = serializers.ChoiceField(choices=["ai", "manual"], read_only=True)
+    generated_from_goal_ids = serializers.ListField(
+        child=serializers.CharField(), read_only=True, required=False
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+    # UI-28 (Systemaudit 2026-08-27 AP-5): not a persisted column — only
+    # `MainGoalViewSet.generate()` ever populates it (from
+    # `MainGoalService.generate_ai()`'s response dict), every other action
+    # falls back to the default below so a mock-served draft can be flagged
+    # to the client right after generation without a schema migration.
+    is_mock_fallback = serializers.BooleanField(read_only=True, required=False, default=False)
+
+
+class TestRunSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
+    """Serializer for TestRun entity (REQ-L2-AS-030).
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts. ``TestRunViewSet.create`` reads ``test_case_ids`` straight
+    off the request body, so that key is declared here (write-only) to keep a
+    real create payload valid while a typo still answers 400.
+    """
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -900,20 +1790,39 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
             "Risk artifacts; named 'name' here for consistency with CI job naming)."
         ),
     )
-    uid = serializers.CharField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     status = serializers.CharField(read_only=True)
     # #104: matches TestRun.ci_job_id model field (CharField(max_length=255)).
     ci_job_id = serializers.CharField(allow_blank=True, default="", max_length=255)
+    # #851: TestRunViewSet.create reads this key directly to seed the run's
+    # per-testcase results. Declared write-only (UUID list) so the unknown-field
+    # guard accepts it and validates it here instead of the view coercing raw
+    # request.data. Never part of a response.
+    test_case_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        write_only=True,
+        help_text="Optional TestCase UUIDs to seed the run's result rows.",
+    )
     started_at = serializers.DateTimeField(read_only=True)
     finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
     result_summary = serializers.JSONField(read_only=True, required=False)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for TestRunResult entity (REQ-L2-AS-030)."""
+class TestRunResultSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
+    """Serializer for TestRunResult entity (REQ-L2-AS-030).
+
+    #851: wired into the ``/results/`` write path, so it carries the shared
+    unknown-field guard like every other top-level create/update serializer.
+    """
 
     id = serializers.UUIDField(read_only=True)
     test_run_id = serializers.UUIDField(read_only=True)
@@ -928,12 +1837,21 @@ class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer
     # #104: test log/failure message, unbounded before — cap at 10000 chars
     # (DoS risk; long enough for typical stack traces/assertion output).
     message = serializers.CharField(allow_blank=True, default="", max_length=10000)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
-class TestRunResultBulkSerializer(serializers.Serializer):
-    """Serializer for bulk result ingestion (REQ-L2-AS-031)."""
+class TestRunResultBulkSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Serializer for bulk result ingestion (REQ-L2-AS-031).
+
+    #851: wired into the ``/results/bulk/`` write path. The guard applies at
+    this top level (unknown keys next to ``results``) and, through the nested
+    child, to every entry in the batch.
+    """
 
     results = TestRunResultSerializer(many=True)
 
@@ -952,8 +1870,24 @@ class NormalizedChoiceField(serializers.ChoiceField):
         return super().to_internal_value(data)
 
 
-class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class IssueSerializer(
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
     """Serializer for Issue entity (REQ-L1-029, COMP-AS-015)."""
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer. Was
+    # previously a writable field (IssueViewSet.create() accepted a
+    # client-supplied initial status) — the WorkflowEngine already ignored
+    # that value on create (initialize_workflow_states() always seeds the
+    # workflow's own initial state), so the writable field only ever fed the
+    # legacy mirror column, never the true state. Aligning it read-only here
+    # closes that latent mirror/engine divergence instead of introducing one.
+    workflow_item_type = "Issue"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -966,37 +1900,50 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["defect", "improvement", "documentation", "question"],
         default="defect",
     )
-    uid = serializers.CharField(read_only=True, allow_null=True)
-    # REQ-165/REQ-166 (CR-08): stays writable (unlike RequirementSerializer/
-    # TestCaseSerializer.status) because IssueViewSet.create() legitimately
-    # accepts an initial status (no prior WorkflowItemState to diverge from) and
-    # several unit tests (test_serializers.py) validate/normalize this field
-    # directly. IssueViewSet.partial_update() deliberately does NOT forward
-    # `status` from PATCH to update_issue() — the WorkflowEngine is the single
-    # source of truth once the item exists (ADR-status-single-source.md); change
-    # the lifecycle state via POST /api/v1/issues/{id}/transitions/.
-    status = NormalizedChoiceField(
-        choices=["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
-        default="Open",
-        error_messages={
-            "invalid_choice": (
-                '"{input}" is not a valid choice. Valid choices are: '
-                "Open, In Progress, Resolved, Closed, Wontfix."
-            )
-        },
-    )
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
     tags = serializers.JSONField(required=False, default=list)
-    version = serializers.IntegerField(read_only=True)
+    # Task 20 finding: `Issue.due_date` (application/issue_service.py's
+    # create_issue/update_issue both already accept and persist it) was never
+    # declared on this serializer at all — same silent-discard class as Task
+    # 19's `owner_user_id` finding, but the model column had no REST field to
+    # even alias. This was REST-only: the MCP generic tool group forwards
+    # arbitrary params straight to the service and already round-tripped
+    # `due_date` (mcp_server/tests/test_generic_tool_group.py) before this fix.
+    # Writable/nullable like the rest of the optional Issue fields;
+    # `_issue_to_dict` and both view methods below now round-trip it via REST
+    # too.
+    due_date = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    # #290: see AdrSerializer.change_reason — IssueViewSet.partial_update
+    # forwards it to IssueService.update_issue() but DRF dropped it.
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class ChangeRequestSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class ChangeRequestSerializer(
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    WorkflowStateSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
     """Serializer for ChangeRequest entity (REQ-157, COMP-AS-017).
 
     Covers the full CCB approval lifecycle:
     draft → submitted → under_review → approved|rejected → implemented
+
+    ``CustomFieldsSerializerMixin`` also carries the ``UnknownFieldRejectionMixin``
+    behaviour (#851), so it supersedes the previous explicit base.
     """
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "ChangeRequest"
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1005,30 +1952,47 @@ class ChangeRequestSerializer(PresetAwareSerializerMixin, serializers.Serializer
     # #104: narrative CCB fields, unbounded before (DoS risk).
     impact_assessment = SanitizedCharField(allow_blank=True, default="", max_length=10000)
     change_reason = SanitizedCharField(allow_blank=True, default="", max_length=2000)
-    status = serializers.ChoiceField(
-        choices=["draft", "submitted", "under_review", "approved", "rejected", "implemented"],
-        default="draft",
-    )
     requestor_id = serializers.UUIDField(read_only=True, allow_null=True)
     assigned_reviewer_id = serializers.UUIDField(
         allow_null=True, required=False, default=None
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class IcdParameterSerializer(serializers.Serializer):
+class IcdParameterSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
     """Serializer for IcdParameter entity (REQ-L2-ICD-002, COMP-ICD-001).
 
-    Structured, version-specific interface parameter (unit, data type,
-    direction, numeric bounds, tolerance) attached to an IcdVersion.
+    Structured interface parameter (unit, data type, direction, numeric
+    bounds, tolerance) of an ICD's current contract. Task 28c-2 replaced
+    ``icd_version_id`` with ``icd_id``: parameters belong to the ICD, not to
+    one of its revisions.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts. ``IcdViewSet.parameters`` reads a body ``version`` directly
+    to refuse writes aimed at a historical revision, so that control key is
+    declared here (write-only) to keep the existing contract valid while a
+    typo answers 400.
     """
 
     id = serializers.UUIDField(read_only=True)
-    icd_version_id = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(max_length=200)
-    description = serializers.CharField(
+    icd_id = serializers.UUIDField(read_only=True)
+    name = SanitizedCharField(max_length=200)
+    # #851: create-only control key (see the class docstring). Write-only so it
+    # never appears in a parameter response.
+    version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Optional current ICD revision this write targets; a value other "
+            "than the current revision is refused."
+        ),
+    )
+    description = SanitizedCharField(
         allow_blank=True, default="", max_length=2000
     )
     unit = serializers.CharField(allow_blank=True, default="", max_length=50)
@@ -1055,143 +2019,18 @@ class IcdParameterSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class AttributeVisibilityConfigSerializer(serializers.Serializer):
-    """Serializer for AttributeVisibilityConfig (REQ-L1-058 AC2).
-
-    Admin configuration for field visibility per entity type and workspace.
-    Allows controlling which type-dependent fields are visible in the UI
-    and whether they are required in forms.
-
-    Constraint: Unique on (tenant_id, entity_type, attribute_name).
-    Index: Composite BTree on (tenant_id, entity_type) for fast bulk lookups.
-    """
-
-    id = serializers.UUIDField(read_only=True)
-    tenant_id = serializers.UUIDField(required=True)
-    entity_type = serializers.CharField(
-        max_length=64,
-        help_text="Target entity type (e.g., 'Requirement', 'ArchitectureElement')",
-    )
-    attribute_name = serializers.CharField(
-        max_length=128,
-        help_text="Field name (e.g., 'moscow_priority', 'asil_level')",
-    )
-    is_visible = serializers.BooleanField(
-        default=True,
-        help_text="Show/hide toggle for frontend",
-    )
-    is_required = serializers.BooleanField(
-        default=False,
-        help_text="Mark as required in forms",
-    )
-    created_by = serializers.CharField(
-        source='created_by.username',
-        read_only=True,
-        required=False,
-        help_text="Audit: username who created this config",
-    )
-    modified_by = serializers.CharField(
-        source='modified_by.username',
-        read_only=True,
-        required=False,
-        allow_null=True,
-        help_text="Audit: username who last modified this config",
-    )
-    created_at = serializers.DateTimeField(read_only=True)
-    modified_at = serializers.DateTimeField(read_only=True)
-    version = serializers.IntegerField(
-        read_only=True,
-        help_text="Audit: version counter",
-    )
-
-
-class CustomFieldDefinitionSerializer(serializers.Serializer):
-    """Serializer for CustomFieldDefinition (REQ-016).
-
-    Workspace-wide custom field definition. ``options`` is only meaningful for
-    ``field_type == "dropdown"`` and must then be a non-empty list of strings.
-    """
-
-    id = serializers.UUIDField(read_only=True)
-    workspace_id = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(max_length=128)
-    field_type = serializers.ChoiceField(
-        choices=["text", "number", "dropdown"],
-        default="text",
-    )
-    is_required = serializers.BooleanField(default=False)
-    options = serializers.ListField(
-        child=serializers.CharField(max_length=255),
-        required=False,
-        default=list,
-    )
-    order = serializers.IntegerField(required=False, default=0)
-    created_at = serializers.DateTimeField(read_only=True)
-    modified_at = serializers.DateTimeField(read_only=True)
-
-    # Custom field names end up as object keys wherever the frontend indexes a
-    # value map by field name; these three are unsafe there (prototype
-    # pollution via `obj[name] = value` bracket assignment) even though they
-    # are inert as plain Django CharField values (QA-66).
-    _RESERVED_NAMES = frozenset({"__proto__", "constructor", "prototype"})
-
-    def validate_name(self, value: str) -> str:
-        if value.strip().lower() in self._RESERVED_NAMES:
-            raise serializers.ValidationError(
-                f"'{value}' is a reserved name and cannot be used as a custom field name."
-            )
-        return value
-
-    def validate(self, attrs: dict) -> dict:
-        """Enforce that dropdown fields carry at least one option.
-
-        On partial updates ``field_type``/``options`` may be absent; the check
-        only fires when a dropdown type is being set without any option.
-        """
-        field_type = attrs.get("field_type")
-        options = attrs.get("options")
-        if field_type == "dropdown" and not options:
-            raise serializers.ValidationError(
-                {"options": "Dropdown fields require at least one option."}
-            )
-        return attrs
-
-
-class CustomFieldValueSerializer(serializers.Serializer):
-    """Serializer for a persisted CustomFieldValue joined with its definition (REQ-016).
-
-    Read output merges the value with its definition metadata so the frontend can
-    render the input control without a second request. On write only
-    ``definition_id`` and ``value`` are consumed.
-    """
-
-    id = serializers.UUIDField(read_only=True)
-    definition_id = serializers.UUIDField()
-    artifact_id = serializers.UUIDField(read_only=True)
-    # #104: custom field values are user-authored free text (field_type=="text")
-    # and were unbounded before — cap to prevent oversized payloads (DoS risk).
-    value = serializers.CharField(
-        allow_blank=True, allow_null=True, required=False, default="", max_length=5000
-    )
-    # Definition metadata (read-only convenience fields).
-    name = serializers.CharField(source="definition.name", read_only=True)
-    field_type = serializers.CharField(
-        source="definition.field_type", read_only=True
-    )
-    is_required = serializers.BooleanField(
-        source="definition.is_required", read_only=True
-    )
-    options = serializers.JSONField(source="definition.options", read_only=True)
-    order = serializers.IntegerField(source="definition.order", read_only=True)
-
-
 # ---------------------------------------------------------------------------
 # Queryset optimization helpers (REQ-L2-RA-013, COMP-RA-006 integration point)
 # ---------------------------------------------------------------------------
 
 QUERYSET_OPTIMIZATIONS: dict[str, dict[str, list[str]]] = {
     "requirement": {
-        "select_related": ["artifact", "artifact__workspace"],
+        "select_related": [
+            "artifact",
+            "artifact__workspace",
+            "artifact__owner",
+            "artifact__reporter",
+        ],
         "prefetch_related": [],
     },
     "artifact": {
@@ -1199,11 +2038,21 @@ QUERYSET_OPTIMIZATIONS: dict[str, dict[str, list[str]]] = {
         "prefetch_related": [],
     },
     "architecture_element": {
-        "select_related": ["artifact", "artifact__workspace"],
+        "select_related": [
+            "artifact",
+            "artifact__workspace",
+            "artifact__owner",
+            "artifact__reporter",
+        ],
         "prefetch_related": [],
     },
     "test_case": {
-        "select_related": ["artifact", "artifact__workspace"],
+        "select_related": [
+            "artifact",
+            "artifact__workspace",
+            "artifact__owner",
+            "artifact__reporter",
+        ],
         "prefetch_related": [],
     },
     "trace_link": {
@@ -1241,22 +2090,23 @@ def apply_queryset_optimizations(queryset: Any, entity_type: str) -> Any:
     return queryset
 
 
-class GlossaryTermVersionSerializer(serializers.Serializer):
-    """Serializer for GlossaryTermVersion (REQ-L2-RA-001)."""
-
-    id = serializers.UUIDField(read_only=True)
-    term_fk_id = serializers.UUIDField(read_only=True)
-    term_version = serializers.IntegerField(read_only=True)
-    # #104: matches GlossaryTermSerializer.definition — unbounded before (DoS risk).
-    definition = serializers.CharField(max_length=20000)
-    synonyms = serializers.JSONField(required=False, default=list)
-    abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
-    created_at = serializers.DateTimeField(read_only=True)
-    created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
+# Datenmodell-Konsolidierung Task 28b: GlossaryTermVersionSerializer (dead
+# code — never wired to a view; the `/glossary/{pk}/versions/` and `/diff/`
+# endpoints below already go through ArtifactDiffService) was removed here
+# together with the GlossaryTermVersion model it serialised.
 
 
-class GlossaryTermSerializer(serializers.Serializer):
-    """Serializer for GlossaryTerm (REQ-L2-RA-001)."""
+class GlossaryTermSerializer(
+    CustomFieldsSerializerMixin,
+    ArtifactSystemFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    serializers.Serializer,
+):
+    """Serializer for GlossaryTerm (REQ-L2-RA-001).
+
+    ``CustomFieldsSerializerMixin`` also carries the ``UnknownFieldRejectionMixin``
+    behaviour (#851), so it supersedes the previous explicit base.
+    """
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1269,9 +2119,34 @@ class GlossaryTermSerializer(serializers.Serializer):
     )
     # #104: narrative definition field, unbounded before (DoS risk).
     definition = SanitizedCharField(max_length=20000)
-    synonyms = serializers.JSONField(required=False, default=list)
-    abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
-    version = serializers.IntegerField(read_only=True)
+    # #269/4: both fields are user-authored prose that the SPA, the PDF report
+    # and the ReqIF export render verbatim, yet neither was guarded — only
+    # ``term``/``definition`` were. ``synonyms`` needs the JSON variant because
+    # its payload sits inside a list, which the scalar guard skipped.
+    synonyms = SanitizedJSONField(required=False, default=list)
+    abbreviation = SanitizedCharField(
+        required=False, allow_blank=True, default=""
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
+    # Declared so the GlossaryTerm read endpoints keep reporting the
+    # soft-delete state (issue #440): GlossaryTerm has no mirrored model
+    # ``status`` column, so the state comes from the DTO. Issue #831 settled
+    # the wire key on ``status`` — identical to every other workflow-backed
+    # artifact serializer (Requirement/Adr/Risk/Issue/... via
+    # WorkflowStateSerializerMixin) — instead of the former
+    # ``lifecycle_status`` outlier. The DTO resolves the value from the
+    # backing Artifact (``Artifact.lifecycle_status`` plus the workflow
+    # soft-delete overlay in GlossaryService.get()).
+    #
+    # Read-only: lifecycle changes go through DELETE / reactivate / the
+    # transitions endpoint. Note that ``_validate_patch_payload`` special-cases
+    # the key ``status`` globally (#263): an unchanged echo is accepted and
+    # ignored, a differing value is refused with a pointer at
+    # ``POST .../transitions/``. GlossaryTermViewSet overrides
+    # ``_current_status`` so that comparison can still read the current value.
+    status = serializers.CharField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
@@ -1285,18 +2160,78 @@ class UserProfileSerializer(serializers.Serializer):
     ``last_name`` are the only writable fields (a user may edit their own name
     but not their username, email, tenant or roles). ``update`` applies the
     partial change and persists only the touched columns.
+
+    QIRK-002 (#73): any other key in the payload is rejected with HTTP 400
+    rather than silently dropped. Silently returning 200 made callers believe a
+    password or privilege change had been applied when it had not.
     """
+
+    #: Writable via this endpoint. Everything else in the payload is an error.
+    WRITABLE_FIELDS = ("first_name", "last_name")
+
+    #: Security/identity fields that a caller must never set here. Listed
+    #: explicitly so the 400 can carry a targeted, actionable message.
+    PROTECTED_FIELDS = (
+        "password",
+        "is_admin",
+        "is_superuser",
+        "is_staff",
+        "is_active",
+        "roles",
+        "role",
+        "tenant_id",
+        "tenant",
+        "username",
+        "email",
+        "id",
+    )
 
     id = serializers.UUIDField(read_only=True)
     username = serializers.CharField(read_only=True)
     email = serializers.EmailField(read_only=True)
-    first_name = serializers.CharField(
+    # #269: user-authored and rendered in the navigation shell / audit trail,
+    # so they belong to the same free-text class as title/description.
+    first_name = SanitizedCharField(
         max_length=150, required=False, allow_blank=True, default=""
     )
-    last_name = serializers.CharField(
+    last_name = SanitizedCharField(
         max_length=150, required=False, allow_blank=True, default=""
     )
     is_active = serializers.BooleanField(read_only=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject protected and unknown keys with 400 (QIRK-002, #73).
+
+        DRF ignores non-writable keys by default, which is safe (no mass
+        assignment) but misleading: the caller gets 200 for an operation that
+        never happened. Validation happens before ``update()``, so a payload
+        mixing legal and rejected fields applies nothing at all.
+        """
+        supplied = getattr(self, "initial_data", None)
+        if not isinstance(supplied, dict):
+            return attrs
+
+        errors: dict[str, list[str]] = {}
+        for key in supplied:
+            if key in self.WRITABLE_FIELDS:
+                continue
+            if key == "password":
+                errors[key] = [
+                    "Passwords cannot be changed via this endpoint. Use the "
+                    "administrative user management instead."
+                ]
+            elif key in self.PROTECTED_FIELDS:
+                errors[key] = [
+                    "This field is read-only and cannot be changed via "
+                    "/auth/me/."
+                ]
+            else:
+                errors[key] = ["Unknown field."]
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         """Apply first_name/last_name changes to ``instance`` and persist them.
@@ -1314,6 +2249,51 @@ class UserProfileSerializer(serializers.Serializer):
         return instance
 
 
+class CommentSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
+    """Wire format for application.models.Comment (Menschen-im-System spec §4).
+
+    Read-only apart from ``text`` — comments are never edited, only created,
+    resolved and deleted.
+
+    ``text`` is user-authored prose and therefore guarded free text (#820): it
+    was a plain ``CharField``, so markup in a comment was accepted while the
+    very same string was a ``400`` on ``Requirement.title`` — the inconsistency
+    class #820 reported. ``ArtifactCommentsView`` runs this serializer, and
+    ``CommentService.create_comment`` re-checks the same rule for the MCP tool
+    group, which never touches DRF.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts, so a typo in the create body is a 400 instead of a comment
+    created without the text the caller thought they sent.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    artifact_id = serializers.UUIDField(read_only=True)
+    text = SanitizedCharField(max_length=10000)
+    author_id = serializers.UUIDField(read_only=True, allow_null=True)
+    author_display = serializers.SerializerMethodField()
+    resolved = serializers.BooleanField(read_only=True)
+    resolved_by_id = serializers.UUIDField(read_only=True, allow_null=True)
+    resolved_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+    def get_author_display(self, obj) -> str | None:
+        """Return the author's username, or None when the user was deleted."""
+        author = getattr(obj, "author", None)
+        return getattr(author, "username", None) if author is not None else None
+
+
+class NotificationSerializer(serializers.Serializer):
+    """Wire format for application.models.Notification (spec §5). Read-only."""
+
+    id = serializers.UUIDField(read_only=True)
+    kind = serializers.CharField(read_only=True)
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    message = serializers.CharField(read_only=True)
+    read = serializers.BooleanField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+
 __all__ = [
     "ArtifactSerializer",
     "StakeholderNeedSerializer",
@@ -1328,21 +2308,23 @@ __all__ = [
     "BaselineDiffSerializer",
     "WorkflowDefinitionSerializer",
     "WorkspaceSerializer",
+    "normalize_preset_blob",
+    "extract_preset_tier",
     "AdrSerializer",
     "RiskSerializer",
     "IssueSerializer",
-    "AttributeVisibilityConfigSerializer",
-    "CustomFieldDefinitionSerializer",
-    "CustomFieldValueSerializer",
     "TestRunSerializer",
     "TestRunResultSerializer",
     "TestRunResultBulkSerializer",
     "GlossaryTermSerializer",
-    "GlossaryTermVersionSerializer",
     "UserProfileSerializer",
+    "CommentSerializer",
+    "NotificationSerializer",
     "StandardPagination",
+    "TraceLinkPagination",
     "PresetAwareSerializerMixin",
     "CustomFieldsSerializerMixin",
+    "UnknownFieldRejectionMixin",
     "build_error_response",
     "get_error_message",
     "detect_lang",

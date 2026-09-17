@@ -1,13 +1,28 @@
+[tool.ruff]
+# H1: Line length configuration for ruff (SA-45).
+# The codebase is written with lines up to ~100+ chars, which is appropriate for
+# this project. E501 (line-too-long) warnings noise up the output if line-length
+# is left at the default 88. Setting it to 100 matches the actual code style.
+line-length = 100
+
 [tool.pytest.ini_options]
 # REQ-037: isolate the test suite from production config (cache/celery/llm).
 # pytest-django reads the uppercase DJANGO_SETTINGS_MODULE ini option.
-DJANGO_SETTINGS_MODULE = "reqflow.settings_test"
+DJANGO_SETTINGS_MODULE = "reqogniloom.settings_test"
 python_files = ["tests.py", "test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "--strict-markers -v"
 markers = [
     "slow: Performance-Tests, dauern > 1s",
+    "integration: benoetigt einen laufenden Live-Stack (z.B. Docker-Compose Backend); nicht Teil der Unit-Suite",
+    # SYSTEMAUDIT SA-62: `test_e2e_*.py` files exercise a full vertical slice
+    # (transport -> ProtocolHandler -> ToolRegistry -> ApplicationService)
+    # in-process against the pytest-django test DB. Deliberately distinct
+    # from `integration`: these do NOT need a live stack and stay part of
+    # the regular suite; `e2e` is a classification/selection marker only
+    # (`pytest -m e2e`), not an exclusion signal like `integration`.
+    "e2e: durchlaeuft einen vollstaendigen vertikalen Schnitt (Transport bis ApplicationService) in-process gegen die Test-DB; kein Live-Stack noetig, Teil der Unit-Suite",
 ]
 
 [tool.coverage.run]
@@ -16,6 +31,6 @@ omit = [
     "*/migrations/*",
     "*/tests/*",
     "manage.py",
-    "reqflow/wsgi.py",
-    "reqflow/asgi.py",
+    "reqogniloom/wsgi.py",
+    "reqogniloom/asgi.py",
 ]

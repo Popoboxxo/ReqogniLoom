@@ -96,7 +96,7 @@ export function SimilarIcdsPanel({
           disabled={state.status === "loading"}
           style={{
             background: "var(--color-primary)",
-            color: "white",
+            color: "var(--color-on-primary)",
             border: "none",
             borderRadius: "var(--radius-md)",
             padding: "var(--space-2) var(--space-4)",
@@ -184,7 +184,7 @@ export function SimilarIcdsPanel({
           }}
         >
           {state.results.map((hit) => (
-            <li key={hit.version_id}>
+            <li key={hit.icd_id}>
               <button
                 type="button"
                 data-testid={`similar-icd-result-${hit.icd_id}`}

@@ -33,10 +33,40 @@ from application.requirement_service import (
     DecompositionResultDTO,
     RequirementDTO,
     RequirementService,
+    detect_non_atomic_terms,
 )
 from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db
+
+
+class TestDetectNonAtomicTerms:
+    """#45 (IEEE 29148 §5.2.4): 'and'/'or' conjunctions hint a bundled title."""
+
+    def test_atomic_title_returns_empty_list(self):
+        assert detect_non_atomic_terms("The system shall log in a user") == []
+
+    def test_and_conjunction_is_detected(self):
+        assert detect_non_atomic_terms(
+            "System shall handle login and logout"
+        ) == ["and"]
+
+    def test_or_conjunction_is_detected(self):
+        assert detect_non_atomic_terms(
+            "System shall accept a username or an email"
+        ) == ["or"]
+
+    def test_both_conjunctions_are_deduplicated_and_sorted(self):
+        assert detect_non_atomic_terms(
+            "Handle login and logout and password reset or profile management"
+        ) == ["and", "or"]
+
+    def test_substring_matches_do_not_false_positive(self):
+        # "and"/"or" inside other words must not trigger (word-boundary match).
+        assert detect_non_atomic_terms("Support Android and Norway timezones") == ["and"]
+
+    def test_empty_title_returns_empty_list(self):
+        assert detect_non_atomic_terms("") == []
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +97,12 @@ def _make_requirement(**kwargs):
     req.category = kwargs.get("category", "Functional")
     req.status = kwargs.get("status", "draft")
     req.version = kwargs.get("version", 1)
+    # P1-9: must be a real value, not an auto-created MagicMock attribute.
+    # ``decompose()`` derives the child's cascade level from ``parent.level``
+    # and compares it against RequirementLevel.L4_PRESENTATION; a bare
+    # MagicMock raises TypeError on ``>=`` instead of behaving like the real
+    # nullable column, whose default is NULL.
+    req.level = kwargs.get("level", None)
     artifact = MagicMock()
     artifact.id = uuid.uuid4()
     artifact.workspace_id = kwargs.get("workspace_id", WS_ID)
@@ -229,6 +265,91 @@ class TestCreateRequirement:
 
 
 # ---------------------------------------------------------------------------
+# _generate_and_store_embedding — dimension-mismatch guard (Task 12)
+# ---------------------------------------------------------------------------
+
+
+class TestEmbeddingDimensionGuard:
+    """Regression guard for the Task 12 fix: a vector whose width differs from
+    ``Requirement.embedding``'s column width must be skipped, not handed to a
+    bare ``.update()`` inside the caller's ambient
+    (``@atomic_transaction``-wrapped) transaction — Postgres rejects it with a
+    ``DataError`` that poisons that transaction for every subsequent query in
+    the same request/test (see ``application/tests/test_adr_service.py``'s
+    original failure mode, documented in the Task 12 report).
+
+    Real, integration-level tests (real DB, real ``create_requirement`` call,
+    real column) rather than a mock of ``_generate_and_store_embedding``
+    itself, specifically so they catch a regression to the crash/poisoning
+    behaviour, not just a change in how the guard is implemented.
+
+    #794: the mismatched width used to be spelled ``384`` here, because that
+    was what the *shipped default* provider produced against a hardcoded
+    ``vector(1536)`` column — i.e. this test asserted that the default
+    configuration wrote no embeddings, and passed. The widths are now derived
+    from the column, and ``test_matching_dimension_is_written`` pins the
+    behaviour that actually matters.
+    """
+
+    def _patch_provider(self, monkeypatch, dimensions: int) -> None:
+        # Patched at the source module (not ``application.requirement_service``)
+        # because ``_generate_and_store_embedding`` imports
+        # ``generate_embedding`` lazily, inside the method body — there is no
+        # module-level name to intercept.
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.generate_embedding",
+            lambda text: [0.1] * dimensions,
+        )
+
+    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
+        from persistence.models import Requirement
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
+
+        column_dimensions = Requirement._meta.get_field("embedding").dimensions
+        self._patch_provider(monkeypatch, column_dimensions + 8)
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            requirement = RequirementService().create_requirement(
+                workspace_id=ws.id, title="Dimension guard test", ctx=ctx
+            )
+            requirement.refresh_from_db()
+
+        # (1) No exception propagated (create_requirement returned normally,
+        #     we reached refresh_from_db()).
+        # (2) The mismatched vector was never written — embedding stays
+        #     unset, not a resized/truncated/padded one.
+        assert requirement.embedding is None
+        # (3) The rest of the save completed: the Requirement itself IS
+        #     persisted (refresh_from_db() above would raise
+        #     Requirement.DoesNotExist otherwise), with its real data intact.
+        assert requirement.title == "Dimension guard test"
+
+    def test_matching_dimension_is_written(self, monkeypatch):
+        """#794: the point of the whole issue — a provider-shaped vector must
+        actually land in the column. This is what never happened under the
+        shipped default before #794, and it is why ``artifact.search``'s
+        semantic pass returned nothing on every default deployment."""
+        from persistence.models import Requirement
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
+
+        column_dimensions = Requirement._meta.get_field("embedding").dimensions
+        self._patch_provider(monkeypatch, column_dimensions)
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            requirement = RequirementService().create_requirement(
+                workspace_id=ws.id, title="Embedding write test", ctx=ctx
+            )
+            requirement.refresh_from_db()
+
+        assert requirement.embedding is not None
+        assert len(requirement.embedding) == column_dimensions
+
+
+# ---------------------------------------------------------------------------
 # update_requirement
 # ---------------------------------------------------------------------------
 
@@ -362,76 +483,18 @@ class TestUpdateRequirement:
         assert kw["entity_type"] == "Requirement"
 
 
-    def test_update_status_round_trip(self):
-        """Update requirement status and verify it persists (REQ-L3-RF003-002)."""
+    def test_update_status_kwarg_no_longer_accepted(self):
+        """Task 12: `status` is removed from update_requirement's signature
+        entirely -- the WorkflowEngine is the sole owner of Requirement
+        status (REQ-143), and the dropped column left the old low-level
+        escape hatch with nothing to write to. Supersedes
+        test_update_status_round_trip / test_update_status_none_leaves_status_unchanged
+        (REQ-L3-RF003-002), which exercised that now-removed parameter."""
         svc = RequirementService()
         ctx = _make_ctx()
-        mock_req = _make_requirement(status="draft")
 
-        mock_policy = MagicMock()
-        mock_policy.is_change_reason_required.return_value = False
-        svc._preset_policy = mock_policy
-
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-            patch("application.requirement_service.Requirement.objects.filter"),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            result = svc.update_requirement(
-                requirement_id=REQ_ID, ctx=ctx, status="approved"
-            )
-
-        assert mock_req.status == "approved"
-        assert result is mock_req
-
-    def test_update_status_none_leaves_status_unchanged(self):
-        """When status is None, the existing status must not be modified."""
-        svc = RequirementService()
-        ctx = _make_ctx()
-        mock_req = _make_requirement(status="review")
-
-        mock_policy = MagicMock()
-        mock_policy.is_change_reason_required.return_value = False
-        svc._preset_policy = mock_policy
-
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-            patch("application.requirement_service.Requirement.objects.filter"),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            svc.update_requirement(
-                requirement_id=REQ_ID, ctx=ctx, title="New Title"
-            )
-
-        assert mock_req.status == "review"
+        with pytest.raises(TypeError):
+            svc.update_requirement(requirement_id=REQ_ID, ctx=ctx, status="approved")
 
     def test_update_increments_version_atomically(self):
         """update_requirement atomically increments version via F() expression (REQ-L3-PL001-002).
@@ -522,15 +585,49 @@ class TestDeleteRequirement:
             with pytest.raises(NotFoundError, match="Requirement"):
                 svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
-    def test_delete_cascades_trace_links_and_deletes(self):
-        """delete_requirement soft-deletes by setting lifecycle_status='deleted' (REQ-006).
+    def test_delete_change_reason_required_raises_validation_error(self):
+        """Issue #604: delete_requirement must honour the workspace's
+        change_reason preset policy, same as StakeholderNeedService.delete()
+        already does (test_stakeholder_need_service.py) -- it used to ignore
+        the policy entirely and always soft-delete with a hardcoded reason,
+        a silent gap in the audit-trail requirement that other entities'
+        delete already enforce."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_req = _make_requirement()
 
-        Physical deletion and trace-link cascade were replaced by a soft-delete:
-        the requirement row and its TraceLinks remain for audit purposes.
+        mock_policy = MagicMock()
+        mock_policy.is_change_reason_required.return_value = True
+        svc._preset_policy = mock_policy
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_req))
+                    )
+                ),
+            ),
+        ):
+            with pytest.raises(ValidationError, match="change_reason"):
+                svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
+
+    def test_delete_cascades_trace_links_and_deletes(self):
+        """delete_requirement soft-deletes via workflow.services.outdate() (REQ-006, Phase 0).
+
+        Physical deletion is not performed: the requirement row and its
+        TraceLinks remain for audit purposes; the soft-delete marker is now
+        the workflow engine's "outdated" state instead of a direct field write.
         """
         svc = RequirementService()
         ctx = _make_ctx()
         mock_req = _make_requirement()
+        svc._preset_policy = MagicMock(is_change_reason_required=MagicMock(return_value=False))
 
         with (
             patch("application.requirement_service.ServiceBase._set_tenant_context"),
@@ -549,17 +646,24 @@ class TestDeleteRequirement:
             ),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
-        assert mock_req.lifecycle_status == "deleted"
-        mock_req.save.assert_called_once_with(update_fields=["lifecycle_status"])
+        mock_outdate.assert_called_once_with(
+            item_id=mock_req.id,
+            item_type="Requirement",
+            workspace_id=mock_req.artifact.workspace_id,
+            ctx=ctx,
+            reason="deleted via requirement.delete",
+        )
 
     def test_audit_entry_on_delete(self):
         """_audit is invoked with operation='delete'."""
         svc = RequirementService()
         ctx = _make_ctx()
         mock_req = _make_requirement()
+        svc._preset_policy = MagicMock(is_change_reason_required=MagicMock(return_value=False))
 
         with (
             patch("application.requirement_service.ServiceBase._set_tenant_context"),
@@ -579,6 +683,7 @@ class TestDeleteRequirement:
             patch.object(svc._trace_link_service, "cascade_delete_trace_links"),
             patch.object(svc, "_audit") as mock_audit,
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate"),
         ):
             svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
@@ -635,6 +740,35 @@ class TestGetRequirement:
             with pytest.raises(NotFoundError):
                 svc.get_requirement(REQ_ID, ctx)
 
+    def test_get_returns_outdated_requirement(self):
+        """GH-443: get_requirement resolves soft-deleted requirements instead of 404ing.
+
+        Inverted from the previous expectation: hiding the row made DELETE
+        indistinguishable from a hard delete over the API, and disagreed with
+        every sibling service (get_test_case/get_adr/get_issue/get_risk).
+        """
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_req = _make_requirement(status="outdated")
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_req)
+                        )
+                    )
+                ),
+            ),
+        ):
+            result = svc.get_requirement(REQ_ID, ctx)
+
+        assert result is mock_req
+        assert result.status == "outdated"
+
     def test_list_requirements_returns_list(self):
         """list_requirements returns a list of ORM instances, excluding soft-deleted (REQ-006)."""
         svc = RequirementService()
@@ -654,7 +788,11 @@ class TestGetRequirement:
         ):
             result = svc.list_requirements(WS_ID, ctx)
 
-        mock_filtered_qs.exclude.assert_called_once_with(lifecycle_status="deleted")
+        # Datenmodell-Konsolidierung Phase 1: the exclusion is now an
+        # ``id__in=state_reader.item_ids_in_state(...)`` subquery rather than
+        # a direct ``status="outdated"`` filter, so this only asserts that
+        # ``.exclude()`` was called once, not its exact kwargs.
+        mock_filtered_qs.exclude.assert_called_once()
         assert result == mock_reqs
 
 
@@ -710,7 +848,121 @@ class TestDecompose:
         assert result.children[0].title == "Child"
         # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4: decompose() always creates
         # LinkType.DECOMPOSES links — Workspace is no longer consulted.
-        assert mock_create_trace_link.call_args.kwargs["link_type"] == LinkType.DECOMPOSES.value
+        # Issue #395: plus the reciprocal 'derives-from' back-link.
+        link_types = [
+            call.kwargs["link_type"] for call in mock_create_trace_link.call_args_list
+        ]
+        assert link_types == [
+            LinkType.DECOMPOSES.value,
+            LinkType.DERIVES_FROM.value,
+        ]
+
+    def test_decompose_propagates_a_failed_derives_from_back_link(self):
+        """A failing back-link must abort, not commit half of the pair.
+
+        Issue #395 (review finding F2): the 'decomposes' link is best-effort,
+        but its reciprocal 'derives-from' is a correctness precondition — a
+        swallowed failure would silently produce exactly the graph TRACE-P5
+        reports as a BLOCKER. The exception has to escape so the surrounding
+        TransactionContextManager rolls the decomposition back.
+        """
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+
+        def _fail_on_derives_from(**kwargs):
+            if kwargs["link_type"] == LinkType.DERIVES_FROM.value:
+                raise RuntimeError("traceability engine unavailable")
+            return MagicMock(id=uuid.uuid4())
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req),
+            patch.object(
+                svc._trace_link_service,
+                "create_trace_link",
+                side_effect=_fail_on_derives_from,
+            ),
+            pytest.raises(RuntimeError, match="traceability engine unavailable"),
+        ):
+            svc.decompose(
+                requirement_id=REQ_ID,
+                ctx=ctx,
+                children=[{"title": "Child", "description": "desc"}],
+            )
+
+    def test_decompose_propagates_a_failed_decomposes_link(self):
+        """SDD Task 15 (spec 3.3): Artifact.parent and the 'decomposes' link
+        are written together or not at all.
+
+        Previously this half was best-effort (only warned) — a workspace
+        could end up with the parent FK set and 'derives-from' present but
+        no 'decomposes' link, invisible to the SE-Auditor. The failure must
+        now propagate so the surrounding atomic transaction rolls back both
+        writes; 'derives-from' must never even be attempted.
+        """
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+
+        def _fail_on_decomposes(**kwargs):
+            if kwargs["link_type"] == LinkType.DECOMPOSES.value:
+                raise RuntimeError("boom")
+            return MagicMock(id=uuid.uuid4())
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req),
+            patch.object(
+                svc._trace_link_service,
+                "create_trace_link",
+                side_effect=_fail_on_decomposes,
+            ) as mock_create_trace_link,
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                svc.decompose(
+                    requirement_id=REQ_ID,
+                    ctx=ctx,
+                    children=[{"title": "Child", "description": "desc"}],
+                )
+
+        # 'derives-from' must never be attempted once 'decomposes' failed.
+        link_types = [
+            call.kwargs["link_type"] for call in mock_create_trace_link.call_args_list
+        ]
+        assert link_types == [LinkType.DECOMPOSES.value]
 
     def test_decompose_ignores_workspace_decomposition_link_type(self):
         """decompose creates LinkType.DECOMPOSES even if the workspace is configured
@@ -744,7 +996,7 @@ class TestDecompose:
                 "application.requirement_service.Workspace.objects.filter",
                 return_value=MagicMock(
                     first=MagicMock(
-                        return_value=MagicMock(decomposition_link_type="satisfies")
+                        return_value=MagicMock(decomposition_link_type="allocated-to")
                     )
                 ),
             ),
@@ -760,7 +1012,10 @@ class TestDecompose:
                 children=[{"title": "Child", "description": "desc"}],
             )
 
-        assert mock_create_trace_link.call_args.kwargs["link_type"] == LinkType.DECOMPOSES.value
+        assert (
+            mock_create_trace_link.call_args_list[0].kwargs["link_type"]
+            == LinkType.DECOMPOSES.value
+        )
 
     def test_decompose_llm_not_configured_raises(self):
         """_decompose_via_llm raises LlmNotConfiguredError when LLM absent."""
@@ -854,8 +1109,16 @@ class TestDecompose:
                     )
                 ),
             ),
+            # Stubbed out because this test is about the allocation
+            # (REQ-L1-043), not about the hierarchy links. It used to raise
+            # Exception("no-op") as a shortcut, which only worked while
+            # decompose() swallowed every TraceLink error; the reciprocal
+            # 'derives-from' now propagates by design (issue #395 review F2),
+            # so the stub has to be an actual no-op.
             patch.object(
-                svc._trace_link_service, "create_trace_link", side_effect=Exception("no-op")
+                svc._trace_link_service,
+                "create_trace_link",
+                return_value=MagicMock(id=uuid.uuid4()),
             ),
             patch.object(
                 svc._trace_link_service, "allocate", return_value=MagicMock(id=uuid.uuid4())
@@ -978,8 +1241,172 @@ class TestDecompose:
 
 
 # ---------------------------------------------------------------------------
+# derive_requirement — description inheritance (Issue #459, finding 2)
+# ---------------------------------------------------------------------------
+
+
+class TestDeriveRequirementDescriptionInheritance:
+    """Issue #459 finding 2: derive_requirement must not create the child with
+    an empty description — it should inherit the parent's description unless
+    the caller explicitly supplies one (MCP ``requirement.derive`` / REST
+    ``/requirements/{id}/derive/`` both delegate here)."""
+
+    def test_derive_requirement_inherits_parent_description_when_omitted(self):
+        """No description passed → child inherits the parent's description."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement(description="Parent description text")
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+        arch_el_id = uuid.uuid4()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_parent)),
+            ) as mock_plain_filter,
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_parent))
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req) as mock_create,
+            patch("application.requirement_service.Workspace.objects.filter"),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(
+                    first=MagicMock(
+                        return_value=MagicMock(artifact=MagicMock(workspace_id=WS_ID))
+                    )
+                ),
+            ),
+            patch.object(
+                svc._trace_link_service, "create_trace_link", return_value=MagicMock(id=uuid.uuid4())
+            ),
+            patch.object(
+                svc._trace_link_service, "allocate", return_value=MagicMock(id=uuid.uuid4())
+            ),
+        ):
+            svc.derive_requirement(
+                parent_requirement_id=REQ_ID,
+                architecture_element_id=arch_el_id,
+                title="Child",
+                ctx=ctx,
+            )
+
+        mock_plain_filter.assert_called_once_with(id=REQ_ID)
+        assert mock_create.call_args.kwargs["description"] == "Parent description text"
+
+    def test_derive_requirement_keeps_explicit_description(self):
+        """An explicitly passed description must not be overridden by the parent's."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement(description="Parent description text")
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+        arch_el_id = uuid.uuid4()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.filter"
+            ) as mock_plain_filter,
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_parent))
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req) as mock_create,
+            patch("application.requirement_service.Workspace.objects.filter"),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(
+                    first=MagicMock(
+                        return_value=MagicMock(artifact=MagicMock(workspace_id=WS_ID))
+                    )
+                ),
+            ),
+            patch.object(
+                svc._trace_link_service, "create_trace_link", return_value=MagicMock(id=uuid.uuid4())
+            ),
+            patch.object(
+                svc._trace_link_service, "allocate", return_value=MagicMock(id=uuid.uuid4())
+            ),
+        ):
+            svc.derive_requirement(
+                parent_requirement_id=REQ_ID,
+                architecture_element_id=arch_el_id,
+                title="Child",
+                ctx=ctx,
+                description="Explicit child description",
+            )
+
+        # Explicit description present → the parent-description fallback lookup
+        # must be skipped entirely.
+        mock_plain_filter.assert_not_called()
+        assert mock_create.call_args.kwargs["description"] == "Explicit child description"
+
+
+# ---------------------------------------------------------------------------
 # RequirementDTO
 # ---------------------------------------------------------------------------
+
+
+class TestValidateRequirement:
+    """Issue #576: validate_artifact() returns a raw LlmResult dataclass on
+    success (see its docstring), not a dict -- the service must serialise it
+    into a structured JSON-able dict instead of falling back to str(result)
+    (a stringified Python repr, unusable for API/MCP consumers)."""
+
+    def test_validate_requirement_serialises_llm_result_to_dict(self):
+        from llm_adapter.interface import LlmResult
+
+        svc = RequirementService()
+        ctx = _make_ctx()
+        req_id = uuid.uuid4()
+        llm_result = LlmResult(
+            score=0.2,
+            suggestions=["Add acceptance criteria"],
+            provider="opencode_go",
+            model="gpt-4",
+            token_usage=42,
+        )
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter"
+            ) as mock_filter,
+            patch(
+                "llm_adapter.services.validate_artifact",
+                return_value=llm_result,
+            ),
+        ):
+            mock_filter.return_value.only.return_value.first.return_value = None
+            result = svc.validate_requirement(req_id, ctx)
+
+        assert result == {
+            "score": 0.2,
+            "suggestions": ["Add acceptance criteria"],
+            "provider": "opencode_go",
+            "model": "gpt-4",
+            "token_usage": 42,
+        }
 
 
 class TestCheckConsistency:
@@ -1019,6 +1446,99 @@ class TestCheckConsistency:
         assert {"id": str(r2.id), "title": "R2", "content": ""} in forwarded
 
 
+class TestGetConsistencyStatus:
+    """GH-796: check_consistency's task_id must be retrievable via a status
+    query, tenant-scoped the same way as BundleCompressionService."""
+
+    def test_get_consistency_status_returns_task_status_for_owning_tenant(self):
+        """A task_id dispatched by check_consistency is retrievable by the
+        same tenant via get_consistency_status."""
+        from django.core.cache import cache
+
+        svc = RequirementService()
+        ctx = _make_ctx()
+        ws_id = uuid.uuid4()
+
+        rows = MagicMock()
+        rows.exclude.return_value.only.return_value = []
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=rows,
+            ),
+            patch(
+                "llm_adapter.services.check_consistency",
+                return_value={"task_id": "gh796-task-1"},
+            ),
+        ):
+            dispatch_result = svc.check_consistency(ws_id, ctx)
+
+        assert dispatch_result == {"task_id": "gh796-task-1"}
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "llm_adapter.services.get_task_status",
+                return_value={"task_id": "gh796-task-1", "status": "done", "result": {"foo": "bar"}},
+            ) as mock_status,
+        ):
+            status = svc.get_consistency_status("gh796-task-1", ctx)
+
+        mock_status.assert_called_once_with("gh796-task-1")
+        assert status == {
+            "task_id": "gh796-task-1",
+            "status": "done",
+            "result": {"foo": "bar"},
+        }
+
+        cache.clear()
+
+    def test_get_consistency_status_reports_not_found_for_unknown_task_id(self):
+        """A task_id never dispatched (or dispatched by another tenant) must
+        report status=not_found instead of leaking cross-tenant task state."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+
+        with patch("application.requirement_service.ServiceBase._set_tenant_context"):
+            status = svc.get_consistency_status("never-dispatched-task", ctx)
+
+        assert status == {"task_id": "never-dispatched-task", "status": "not_found"}
+
+    def test_get_consistency_status_reports_not_found_for_foreign_tenant(self):
+        """A task_id dispatched by tenant A must not be pollable by tenant B."""
+        from django.core.cache import cache
+
+        svc = RequirementService()
+        ctx_a = _make_ctx()
+        ctx_b = _make_ctx()
+        ws_id = uuid.uuid4()
+
+        rows = MagicMock()
+        rows.exclude.return_value.only.return_value = []
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=rows,
+            ),
+            patch(
+                "llm_adapter.services.check_consistency",
+                return_value={"task_id": "gh796-task-cross-tenant"},
+            ),
+        ):
+            svc.check_consistency(ws_id, ctx_a)
+
+        with patch("application.requirement_service.ServiceBase._set_tenant_context"):
+            status = svc.get_consistency_status("gh796-task-cross-tenant", ctx_b)
+
+        assert status == {"task_id": "gh796-task-cross-tenant", "status": "not_found"}
+
+        cache.clear()
+
+
 class TestRequirementDTO:
     def test_from_orm_maps_fields(self):
         """RequirementDTO.from_orm maps all Requirement fields correctly."""
@@ -1034,3 +1554,235 @@ class TestRequirementDTO:
         assert dto.category == mock_req.category
         assert dto.status == mock_req.status
         assert dto.version == mock_req.version
+
+
+# ---------------------------------------------------------------------------
+# Regression: list_requirements() must exclude requirements soft-deleted via
+# workflow.services.outdate() (Phase 0 fix — outdate() mirrors "outdated"
+# into `status`, not `lifecycle_status`).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def req_outdate_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="req-outdate-tenant", slug="req-outdate-tenant")
+
+
+@pytest.fixture
+def req_outdate_user(req_outdate_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="req-outdate-user",
+        email="req-outdate@example.com",
+        tenant=req_outdate_tenant,
+    )
+
+
+@pytest.fixture
+def req_outdate_workspace(req_outdate_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(req_outdate_tenant.id)
+    try:
+        return Workspace.objects.create(
+            tenant=req_outdate_tenant, name="req-outdate-workspace"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def req_outdate_ctx(req_outdate_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=req_outdate_user.id,
+        tenant_id=req_outdate_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="req-outdate-tenant",
+    )
+
+
+class TestListRequirementsExcludesOutdated:
+    """Phase 0 regression: deleted (outdated) Requirements must not reappear
+    in list_requirements()."""
+
+    def test_deleted_requirement_excluded_from_default_list(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        from persistence.tenancy import TenantContext
+        from workflow.models import WorkflowItemState
+        from workflow.services import create_default_workflow
+
+        TenantContext.set_tenant(req_outdate_workspace.tenant_id)
+        try:
+            create_default_workflow(
+                workspace_id=req_outdate_workspace.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=req_outdate_workspace.tenant_id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        svc = RequirementService()
+        kept = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Kept Requirement",
+            ctx=req_outdate_ctx,
+        )
+        deleted = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Deleted Requirement",
+            ctx=req_outdate_ctx,
+        )
+
+        svc.delete_requirement(deleted.id, req_outdate_ctx)
+
+        # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow state
+        # is deliberately preserved.
+        from persistence.models import Artifact
+
+        assert (
+            Artifact.objects.get(pk=deleted.artifact_id).lifecycle_status == "outdated"
+        )
+        item_state = WorkflowItemState.objects.get(
+            item_id=deleted.id, item_type="Requirement"
+        )
+        assert item_state.current_state != "outdated"
+
+        results = svc.list_requirements(req_outdate_workspace.id, req_outdate_ctx)
+        ids = {r.id for r in results}
+        assert kept.id in ids
+        assert deleted.id not in ids
+
+        results_incl = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, include_deleted=True
+        )
+        ids_incl = {r.id for r in results_incl}
+        assert deleted.id in ids_incl
+
+
+# ---------------------------------------------------------------------------
+# Regression (Issue #267): GET /api/v1/requirements/?search=<term> silently
+# ignored the ``search`` query parameter and returned every item in the
+# workspace unfiltered — the RequirementViewSet.list() never read
+# request.query_params["search"], and list_requirements() had no ``search``
+# parameter at all. Fixed by threading ``search`` through to a
+# title/description/uid icontains filter on the queryset.
+# ---------------------------------------------------------------------------
+
+
+class TestListRequirementsSearchFilter:
+    """GET /api/v1/requirements/?workspace_id=...&search=<term> (Issue #267)."""
+
+    def test_search_filters_by_title_case_insensitive(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        svc = RequirementService()
+        matching = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Payment Gateway Integration",
+            ctx=req_outdate_ctx,
+        )
+        other = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Unrelated Requirement",
+            ctx=req_outdate_ctx,
+        )
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, search="payment gateway"
+        )
+        ids = {r.id for r in results}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+    def test_search_filters_by_description(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        svc = RequirementService()
+        matching = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Req A",
+            description="Handles OAuth token refresh.",
+            ctx=req_outdate_ctx,
+        )
+        other = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Req B",
+            description="Nothing related.",
+            ctx=req_outdate_ctx,
+        )
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, search="oauth"
+        )
+        ids = {r.id for r in results}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+    def test_search_filters_by_uid(self, req_outdate_ctx, req_outdate_workspace):
+        svc = RequirementService()
+        matching = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Req A",
+            ctx=req_outdate_ctx,
+            uid="REQ-L1-SPECIAL-001",
+        )
+        other = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Req B",
+            ctx=req_outdate_ctx,
+            uid="REQ-L1-OTHER-002",
+        )
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, search="special"
+        )
+        ids = {r.id for r in results}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+    def test_search_term_that_looks_like_sqli_is_treated_as_literal_text(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        """A SQLi-shaped search term must be treated as plain text (no items
+        match) rather than being evaluated as SQL or ignored entirely."""
+        svc = RequirementService()
+        svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Regular Requirement",
+            ctx=req_outdate_ctx,
+        )
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, search="' OR 1=1--"
+        )
+
+        assert list(results) == []
+
+    def test_no_search_param_returns_all(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        svc = RequirementService()
+        a = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id, title="Req A", ctx=req_outdate_ctx
+        )
+        b = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id, title="Req B", ctx=req_outdate_ctx
+        )
+
+        results = svc.list_requirements(req_outdate_workspace.id, req_outdate_ctx)
+        ids = {r.id for r in results}
+
+        assert {a.id, b.id} <= ids

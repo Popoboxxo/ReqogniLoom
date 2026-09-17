@@ -22,11 +22,12 @@ from typing import Iterator
 
 import pytest
 
-from application.ai_review_service import AiReviewService
-from application.audit_service import AuditService
+from application.ai_review_service import AiReviewResponseError, AiReviewService
+from application.audit_service import AuditFindingView, AuditReport, AuditService
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, Requirement, Tenant, User, Workspace
 from persistence.tenancy import TenantContext
+from traceability.audit import Finding, RemediationProposal, Severity
 
 pytestmark = pytest.mark.django_db
 
@@ -134,6 +135,38 @@ class TestReviewReferentialIntegrity:
             assert ref["artifact_ids"] == list(real.finding.artifact_ids)
             assert ref["scope_artifact_id"] == real.finding.scope_artifact_id
 
+    def test_over_daily_token_limit_raises_and_never_calls_provider(
+        self, tenant, workspace, ctx, monkeypatch, settings
+    ):
+        """Code review regression: audit.ai_review (N8) bypassed REQ-106
+        entirely -- no is_over_daily_limit() check existed at all before
+        this fix, unlike every other free-form LLM flow."""
+        from unittest.mock import MagicMock
+
+        from application.ai_derivation_service import LlmResponseError
+        from persistence.models import TokenUsageRecord
+
+        settings.TENANT_TOKEN_LIMIT_PER_DAY = 100
+        with _active(tenant):
+            TokenUsageRecord.objects.create(
+                provider="mock", capability="audit_ai_review",
+                input_tokens=150, output_tokens=0,
+            )
+            _requirement(tenant, workspace, "Root")
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            with pytest.raises(LlmResponseError):
+                AiReviewService().review(workspace.id, ctx, tier="extended")
+        # Load-bearing: the budget check runs BEFORE the provider is ever
+        # called, not just that some exception was eventually raised.
+        stub_provider.complete.assert_not_called()
+
     def test_no_findings_yields_no_packages_without_llm_call(
         self, tenant, workspace, ctx, monkeypatch
     ):
@@ -148,6 +181,170 @@ class TestReviewReferentialIntegrity:
 
         assert result.packages == []
         assert result.total_findings == 0
+
+    def test_records_estimated_token_counts_not_zero(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """SA-26: audit.ai_review used to hardcode input_tokens=0 on the
+        record_token_usage() call, leaving the daily budget (REQ-106) blind
+        to this flow's real spend. Both sides must now be estimated from the
+        actual prompt/completion via approximate_token_count()."""
+        from unittest.mock import MagicMock
+
+        from llm_adapter.token_tracking import approximate_token_count
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+        record_mock = MagicMock()
+        monkeypatch.setattr(
+            "llm_adapter.token_tracking.record_token_usage", record_mock
+        )
+
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+
+        record_mock.assert_called_once()
+        _, kwargs = record_mock.call_args
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert kwargs["input_tokens"] == approximate_token_count(sent_prompt)
+        assert kwargs["output_tokens"] == approximate_token_count("[]")
+        assert kwargs["input_tokens"] > 0
+        assert kwargs["output_tokens"] > 0
+
+    def test_prompt_carries_german_instruction_for_de_workspace(
+        self, tenant, ctx, monkeypatch
+    ):
+        """R5/R7 Sprache (systemaudit 2026-09-02): audit.ai_review never
+        referenced Workspace.language, so a `de` workspace's KI-Review
+        answered in English -- the one derive-family flow issue #795 did not
+        cover (that fix only touched AiDerivationService)."""
+        from unittest.mock import MagicMock
+
+        with _active(tenant):
+            de_workspace = Workspace.objects.create(
+                tenant=tenant, name="AiReview-WS-DE", language="de"
+            )
+            _requirement(tenant, de_workspace, "Root")
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            AiReviewService().review(de_workspace.id, ctx, tier="extended")
+
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert "Respond in German" in sent_prompt
+        assert "Respond in English" not in sent_prompt
+
+    def test_prompt_carries_english_instruction_for_en_workspace(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        """The default (`en`) workspace's prompt explicitly pins English too
+        -- mirrors AiDerivationService's convention (issue #795): an
+        un-instructed provider cannot be trusted to default to English on
+        its own."""
+        from unittest.mock import MagicMock
+
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+
+        stub_provider = MagicMock()
+        stub_provider.complete.return_value = "[]"
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda *a, **k: stub_provider
+        )
+
+        with _active(tenant):
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+
+        sent_prompt = stub_provider.complete.call_args[0][0]
+        assert "Respond in English" in sent_prompt
+        assert "Respond in German" not in sent_prompt
+
+
+# ---------------------------------------------------------------------------
+# BUG-15 code review M2 — the truncation signal from AuditService.run_audit()
+# must survive this layer, not be silently dropped.
+# ---------------------------------------------------------------------------
+
+
+class _StubAuditServiceForReport:
+    """Duck-typed AuditService stand-in that returns a pre-built report.
+
+    AiReviewService only ever calls ``run_audit()`` on its injected
+    ``audit_service`` — a plain stub avoids needing a real >500-finding
+    workspace just to prove the ``truncated`` flag propagates.
+    """
+
+    def __init__(self, report: AuditReport) -> None:
+        self._report = report
+
+    def run_audit(self, *args, **kwargs) -> AuditReport:
+        return self._report
+
+
+class TestReviewPropagatesTruncation:
+    def test_truncated_report_flag_survives_into_ai_review_result(
+        self, tenant, workspace, ctx
+    ):
+        finding = Finding(
+            rule_id="TRACE-P4",
+            severity=Severity.BLOCKER,
+            message="padding",
+            artifact_ids=(),
+        )
+        capped_report = AuditReport(
+            tier="extended",
+            scope=None,
+            scope_artifact_id=None,
+            findings=[
+                AuditFindingView(
+                    index=0,
+                    finding=finding,
+                    remediation=RemediationProposal(
+                        rule_id="TRACE-P4", automatic=False, reason="manual"
+                    ),
+                )
+            ],
+            truncated=True,
+            total_findings_available=4440,
+        )
+
+        with _active(tenant):
+            result = AiReviewService(
+                audit_service=_StubAuditServiceForReport(capped_report)
+            ).review(workspace.id, ctx, tier="extended")
+
+        assert result.truncated is True
+        assert result.total_findings_available == 4440
+        # to_dict() must expose it too — the actual REST/MCP wire shape.
+        assert result.to_dict()["truncated"] is True
+        assert result.to_dict()["total_findings_available"] == 4440
+
+    def test_non_truncated_report_flag_is_false(self, tenant, workspace, ctx):
+        empty_report = AuditReport(
+            tier="extended",
+            scope=None,
+            scope_artifact_id=None,
+            findings=[],
+            truncated=False,
+            total_findings_available=0,
+        )
+
+        with _active(tenant):
+            result = AiReviewService(
+                audit_service=_StubAuditServiceForReport(empty_report)
+            ).review(workspace.id, ctx, tier="extended")
+
+        assert result.truncated is False
+        assert result.total_findings_available == 0
 
 
 # ---------------------------------------------------------------------------
@@ -225,3 +422,133 @@ class TestReviewDropsHallucinatedIndices:
             result = AiReviewService().review(workspace.id, ctx, tier="extended")
 
         assert result.packages == []
+
+
+# ---------------------------------------------------------------------------
+# #312 / #342 — a slow/unresponsive provider must fail fast with a clear
+# error, not hang indefinitely or leak an unhandled provider exception.
+# ---------------------------------------------------------------------------
+
+
+class TestReviewHandlesProviderTimeout:
+    def test_provider_timeout_raises_a_clean_ai_review_error(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+
+        class _HangingProvider:
+            def complete(self, prompt, *, purpose="", context=None, timeout=None):
+                raise TimeoutError("provider did not respond in time")
+
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider", lambda: _HangingProvider()
+        )
+
+        with _active(tenant), pytest.raises(AiReviewResponseError) as exc_info:
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+
+        assert "did not answer" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# #951 — the failure message must be stable, actionable and secret-free
+# ---------------------------------------------------------------------------
+
+#: Text shaped like the provider failures the issue reports (a 429 with an SDK
+#: error string). It must never reach the client verbatim.
+_RAW_PROVIDER_ERROR = (
+    "GoUsageLimitError: 429 rate limit exceeded for key sk-live-951-secret "
+    "(request-id req_abc123) at https://opencode.ai/zen/go/v1/chat/completions"
+)
+
+#: How `llm_adapter.resilient_transport` delivers a real timeout to the
+#: service: the terminal failure is wrapped and the reason text is preserved.
+_WRAPPED_TIMEOUT_ERROR = (
+    "LLM provider 'opencode_go' call failed (timeout): TimeoutError: operation "
+    "on 'llm:opencode_go' exceeded 180.0s timeout"
+)
+
+
+def _raise_from_provider(error: BaseException, provider_name: str = "opencode_go"):
+    """Return a get_provider replacement whose complete() raises *error*."""
+
+    class _FailingProvider:
+        PROVIDER_NAME = provider_name
+
+        def complete(self, prompt, *, purpose="", context=None, timeout=None):
+            raise error
+
+    return lambda *args, **kwargs: _FailingProvider()
+
+
+class TestReviewProviderFailureMessage:
+    """Issue #951: a failed provider call must be diagnosable and leak nothing.
+
+    The pre-#951 message interpolated the raw provider exception and named
+    ``settings.LLM_PROVIDER`` — the *environment* default, not the provider the
+    effective config actually selected — and always described the failure as a
+    timeout. Operators and agents got "provider 'mock' did not answer within
+    180s (Missing credentials ...)" for a credential error against
+    'opencode_go'.
+    """
+
+    def _review(self, tenant, workspace, ctx, monkeypatch, error, provider_name):
+        with _active(tenant):
+            _requirement(tenant, workspace, "Root")
+
+        monkeypatch.setattr(
+            "llm_adapter.providers.get_provider",
+            _raise_from_provider(error, provider_name),
+        )
+
+        with _active(tenant), pytest.raises(AiReviewResponseError) as exc_info:
+            AiReviewService().review(workspace.id, ctx, tier="extended")
+        return str(exc_info.value)
+
+    def test_rate_limit_message_names_effective_provider_and_hides_raw_text(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        message = self._review(
+            tenant,
+            workspace,
+            ctx,
+            monkeypatch,
+            RuntimeError(_RAW_PROVIDER_ERROR),
+            "opencode_go",
+        )
+
+        # The provider that was actually called — `settings.LLM_PROVIDER` is
+        # 'mock' in the test environment, which is the misreport from #951.
+        assert "opencode_go" in message
+        assert "provider 'mock'" not in message
+        # CWE-209: no SDK internals, endpoint or credential material.
+        assert _RAW_PROVIDER_ERROR not in message
+        assert "sk-live-951-secret" not in message
+        assert "GoUsageLimitError" not in message
+        assert "chat/completions" not in message
+        # A non-timeout failure must not be described as one.
+        assert "did not answer" not in message
+        # ... but it must still be actionable.
+        assert "Check the provider configuration and credentials" in message
+
+    def test_wrapped_timeout_keeps_the_timeout_guidance_without_the_reason_text(
+        self, tenant, workspace, ctx, monkeypatch
+    ):
+        from llm_adapter.resilient_transport import LlmTransportError
+
+        message = self._review(
+            tenant,
+            workspace,
+            ctx,
+            monkeypatch,
+            LlmTransportError(_WRAPPED_TIMEOUT_ERROR),
+            "opencode_go",
+        )
+
+        # #342's actionable timeout guidance survives the #951 change ...
+        assert "did not answer" in message
+        assert "LLM_LONG_RUNNING_TIMEOUT" in message
+        # ... without the raw transport reason text.
+        assert _WRAPPED_TIMEOUT_ERROR not in message
+        assert "operation on 'llm:opencode_go'" not in message

@@ -89,7 +89,10 @@ def test_authenticate_credentials_wrong_password(tenant_a):
 
     with pytest.raises(AuthenticationFailed) as exc:
         _service().authenticate_credentials("alice", "battery-staple")
-    assert exc.value.code == "invalid_token"
+    # #271: ``invalid_credentials`` (not ``invalid_token``) — see the module
+    # docstring of auth_tenancy/errors.py. All three credential-rejection tests
+    # below assert the SAME code on purpose (anti-enumeration).
+    assert exc.value.code == "invalid_credentials"
 
 
 @pytest.mark.django_db
@@ -102,14 +105,14 @@ def test_authenticate_credentials_inactive_user(tenant_a):
 
     with pytest.raises(AuthenticationFailed) as exc:
         _service().authenticate_credentials("ghost", "correct-horse")
-    assert exc.value.code == "invalid_token"
+    assert exc.value.code == "invalid_credentials"
 
 
 @pytest.mark.django_db
 def test_authenticate_credentials_unknown_user():
     with pytest.raises(AuthenticationFailed) as exc:
         _service().authenticate_credentials("nobody", "whatever")
-    assert exc.value.code == "invalid_token"
+    assert exc.value.code == "invalid_credentials"
 
 
 # -- issue_token + round-trip --------------------------------------------
@@ -156,6 +159,78 @@ def test_issue_token_without_tenant_raises():
     user.save(update_fields=["password"])
     with pytest.raises(AuthenticationFailed):
         _service().issue_token(user, ())
+
+
+@pytest.mark.django_db
+def test_issue_token_has_access_typ_claim(tenant_a):
+    """Access tokens carry typ="access" (GitHub #135 type isolation)."""
+    from auth_tenancy.jwt_tokens import decode_jwt
+
+    user = User.objects.create(username="typed", email="typed@a.test", tenant=tenant_a)
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+
+    token = _service().issue_token(user, ())
+    claims = decode_jwt(token, secret=_SECRET, issuer=_ISSUER, audience=_AUDIENCE)
+    assert claims["typ"] == "access"
+
+
+# -- issue_refresh_token (GitHub #135) -----------------------------------
+
+
+@pytest.mark.django_db
+def test_issue_refresh_token_claim_set(tenant_a):
+    user = User.objects.create(username="refresh1", email="refresh1@a.test", tenant=tenant_a)
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+
+    token = _service().issue_refresh_token(user)
+    user_id, tenant_id = AuthenticationService(
+        jwt_secret=_SECRET, jwt_issuer=_ISSUER, jwt_audience=_AUDIENCE
+    ).validate_refresh_token(token)
+    assert str(user_id) == str(user.id)
+    assert str(tenant_id) == str(user.tenant_id)
+
+
+@pytest.mark.django_db
+def test_issue_refresh_token_without_tenant_raises():
+    user = User.objects.create(username="refresh-orphan", email="rorphan@a.test")
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+    with pytest.raises(AuthenticationFailed):
+        _service().issue_refresh_token(user)
+
+
+@pytest.mark.django_db
+def test_issue_refresh_token_cannot_authenticate_as_bearer(tenant_a):
+    """A minted refresh token is rejected by the bearer-token validator."""
+    user = User.objects.create(username="refresh2", email="refresh2@a.test", tenant=tenant_a)
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+
+    refresh_token = _service().issue_refresh_token(user)
+    validator = AuthenticationService(
+        jwt_secret=_SECRET, jwt_issuer=_ISSUER, jwt_audience=_AUDIENCE
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        validator.validate_bearer_token(refresh_token)
+    assert exc.value.code == "invalid_token"
+
+
+@pytest.mark.django_db
+def test_access_token_cannot_validate_as_refresh_token(tenant_a):
+    """A minted access token is rejected by the refresh-token validator."""
+    user = User.objects.create(username="refresh3", email="refresh3@a.test", tenant=tenant_a)
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+
+    access_token = _service().issue_token(user, ())
+    validator = AuthenticationService(
+        jwt_secret=_SECRET, jwt_issuer=_ISSUER, jwt_audience=_AUDIENCE
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        validator.validate_refresh_token(access_token)
+    assert exc.value.code == "invalid_token"
 
 
 @pytest.mark.django_db

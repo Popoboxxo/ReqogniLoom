@@ -1,0 +1,253 @@
+/**
+ * Interview-management web widget — frontend API client (plan Task 4).
+ *
+ * Thin wrapper over the REST facade `/api/v1/interviews/...` (plan Task 1/3),
+ * itself a thin adapter over `application.interview_service.InterviewService`
+ * -- the same engine the `interview.*` MCP tool group and the Hermes plugin's
+ * `mcpClient.ts` wrap. This module intentionally duplicates
+ * `InterviewField`/`InterviewState`/`InterviewSummary` rather than sharing
+ * them with the plugin: there is no shared package between the plugin and
+ * this frontend, so a small, independent duplication here is the correct
+ * choice over a premature shared-package abstraction.
+ */
+
+import { apiClient, getAllPages, getList } from "./client";
+import type { UUID } from "../types";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** One field the interview protocol still needs an answer for. */
+export interface InterviewField {
+  name: string;
+  type: "text" | "textarea" | "enum" | "number";
+  choices: string[] | null;
+}
+
+/** One turn in an interview session's conversation history. */
+export interface InterviewTranscriptEntry {
+  role: string;
+  /** Single-mode entries carry `text`; multi-mode entries carry `content`
+   * (backend `_generate_multi_chat_turn`, `interview_service.py:1827-1828`).
+   * Both optional here so a consumer must handle either shape explicitly. */
+  text?: string;
+  content?: string;
+  timestamp: string;
+}
+
+/**
+ * Full interview session state, as returned by the `state`/`answer`/`chat`
+ * actions. NOTE: `InterviewService.get_state()` (backend/application/
+ * interview_service.py) keys this dict as `session_id`, not `id` -- the REST
+ * facade's `state`/`answer`/`chat` actions return that dict as-is. Only the
+ * `start` action (`create()`, which merges `_session_to_dict()`'s `id` into
+ * the `get_state()` result) is guaranteed to carry `id`. See this file's
+ * developer report for the concrete risk this poses if the REST facade
+ * (backend Task 1/2/3, built concurrently) doesn't reconcile the two keys.
+ */
+export interface InterviewState {
+  id: string;
+  status: "in_progress" | "completed" | "abandoned";
+  /**
+   * Which mode the session runs in. Multi-kind ("discovery") sessions are
+   * bound to no protocol and drive the proposal/confirm flow instead of the
+   * per-field one. Optional because an older backend omits the key; absent
+   * reads as `"single"`, matching the backend's own normalisation.
+   */
+  session_kind?: "single" | "multi";
+  /**
+   * Single-mode only. `InterviewService.get_state()` omits `phase` and
+   * `missing_fields` for a multi session by design (it has no protocol and
+   * therefore no phase/field concept) -- declaring them required is exactly
+   * how the crash in `InterviewDetail` (`undefined.length`) slipped past
+   * TypeScript. Optional here so every consumer has to guard.
+   */
+  phase?: string;
+  collected_fields: Record<string, unknown>;
+  missing_fields?: InterviewField[];
+  grounding_snapshot: {
+    /** Absent until `/grounding/` is explicitly called (lazy AI-ranked
+     * computation) -- `start()` returns `{}`, not `{ candidates: [] }`. */
+    candidates?: { artifact_id: string; title: string; score: number | null }[];
+  };
+  transcript: InterviewTranscriptEntry[];
+  /**
+   * LLM-written digest of the turns already folded out of `transcript`
+   * (backend `_compress_transcript_if_needed`). Empty until the conversation
+   * grows past the sliding window; optional because multi-mode state payloads
+   * omit the key entirely (compression is a single-mode path).
+   */
+  transcript_summary?: string;
+}
+
+/** Summary shape returned by list()/get() (`_session_to_dict()`). */
+export interface InterviewSummary {
+  id: string;
+  workspace_id: string;
+  artifact_type: string;
+  status: string;
+}
+
+/**
+ * One proposed trace link inside a {@link ProposalItem}, referencing the
+ * batch by zero-based item index (`from`/`to`). Mirrors what
+ * `InterviewService._validate_confirmed_proposal()` accepts and what the
+ * REST facade's `confirmed_proposal` body carries.
+ */
+export interface ProposalLink {
+  from: number;
+  to: number;
+  type: string;
+}
+
+/**
+ * One proposed artifact in a multi-mode interview's pending proposal
+ * (`GET /interviews/{id}/propose/`) or caller-confirmed batch
+ * (`POST /interviews/{id}/formalize/` with `confirmed_proposal`).
+ */
+export interface ProposalItem {
+  type: string;
+  title: string;
+  fields: Record<string, unknown>;
+  links: ProposalLink[];
+}
+
+/** `formalize()` response for a single-kind session (backend `_formalize_single`). */
+export interface SingleFormalizeResult {
+  resulting_artifact_ids: string[];
+  status: string;
+}
+
+/**
+ * `formalize()` response for a multi-kind session (backend `_formalize_multi`):
+ * every confirmed proposal item becomes one artifact. Not yet the declared
+ * return type of {@link interviewsApi.formalize} (its current return type
+ * predates multi-mode and no frontend caller consumes this shape yet) --
+ * exported so the multi-mode contract is typed and ready for Task 10+'s UI.
+ */
+export interface MultiFormalizeResult {
+  created: { artifact_id: string; artifact_type: string }[];
+  status: string;
+}
+
+// ---------------------------------------------------------------------------
+// Client
+// ---------------------------------------------------------------------------
+
+export const interviewsApi = {
+  /**
+   * Start a new interview session in `workspaceId`. Single-mode sessions
+   * target one `artifactType`; multi-mode discovery sessions pass
+   * `artifactType: null` with `sessionKind: "multi"` (backend normalises a
+   * missing/absent `session_kind` to `"single"`, so existing two-argument
+   * call sites behave exactly as before).
+   */
+  start(
+    workspaceId: UUID,
+    artifactType: string | null,
+    sessionKind: "single" | "multi" = "single"
+  ): Promise<InterviewState> {
+    return apiClient.post<InterviewState>("/interviews/", {
+      workspace_id: workspaceId,
+      artifact_type: artifactType,
+      session_kind: sessionKind,
+    });
+  },
+
+  /** List interview sessions in `workspaceId`, optionally filtered by `status`. */
+  async list(workspaceId: UUID, status?: string): Promise<InterviewSummary[]> {
+    const params: Record<string, string> = { workspace_id: workspaceId };
+    if (status) params.status = status;
+    const page = await getList<InterviewSummary>("/interviews/", params);
+    return page.results;
+  },
+
+  /**
+   * Fetch all interview sessions for a workspace, following pagination links
+   * until exhaustion (same issue #443-style truncation `adrsApi.listAll` and
+   * siblings already fix -- `list()` above only returns the first page).
+   */
+  async listAll(workspaceId: UUID): Promise<InterviewSummary[]> {
+    return getAllPages<InterviewSummary>("/interviews/", { workspace_id: workspaceId });
+  },
+
+  /** Fetch a session's summary (id/workspace_id/artifact_type/status). */
+  get(id: UUID): Promise<InterviewSummary> {
+    return apiClient.get<InterviewSummary>(`/interviews/${id}/`);
+  },
+
+  /** Fetch a session's full state (phase, collected/missing fields, grounding). */
+  getState(id: UUID): Promise<InterviewState> {
+    return apiClient.get<InterviewState>(`/interviews/${id}/state/`);
+  },
+
+  /** Record an answer for `field` and return the updated state. */
+  answer(id: UUID, field: string, value: unknown): Promise<InterviewState> {
+    return apiClient.post<InterviewState>(`/interviews/${id}/answer/`, {
+      field,
+      value,
+    });
+  },
+
+  /** Structural + AI-ranked grounding candidates for the session. */
+  groundingContext(id: UUID): Promise<InterviewState["grounding_snapshot"]> {
+    return apiClient.get<InterviewState["grounding_snapshot"]>(
+      `/interviews/${id}/grounding/`
+    );
+  },
+
+  /**
+   * Fetch the multi-mode session's current pending proposal (LLM-generated,
+   * NOT yet persisted as artifacts). Returns `{ proposal: null }` while no
+   * proposal exists. The caller reviews/edits it and passes the confirmed
+   * batch to {@link formalize}.
+   */
+  propose(id: UUID): Promise<{ proposal: ProposalItem[] | null }> {
+    return apiClient.get<{ proposal: ProposalItem[] | null }>(
+      `/interviews/${id}/propose/`
+    );
+  },
+
+  /**
+   * Turn the session's collected answers into real artifact(s).
+   * Without `confirmedProposal` (single-kind session): backend
+   * `_formalize_single`. With a confirmed batch (multi-kind session):
+   * every item becomes one artifact plus its proposed trace links,
+   * atomically (backend `_formalize_multi`) -- that response carries the
+   * {@link MultiFormalizeResult} shape at runtime.
+   */
+  formalize(
+    id: UUID,
+    confirmedProposal?: ProposalItem[]
+  ): Promise<SingleFormalizeResult> {
+    return apiClient.post<SingleFormalizeResult>(
+      `/interviews/${id}/formalize/`,
+      confirmedProposal ? { confirmed_proposal: confirmedProposal } : {}
+    );
+  },
+
+  /**
+   * Provenance lookup for one artifact (multi-artifact-interview plan
+   * Task 14): returns the id of the interview session that created the
+   * artifact, or `null` when no provenance row exists.
+   */
+  getProvenance(artifactId: UUID): Promise<{ session_id: string | null }> {
+    return apiClient.get<{ session_id: string | null }>(
+      `/interviews/by-artifact/${artifactId}/`
+    );
+  },
+
+  /** Send a free-form chat message and get back the assistant's reply + updated state. */
+  chat(id: UUID, message: string): Promise<{ reply: string; state: InterviewState }> {
+    return apiClient.post<{ reply: string; state: InterviewState }>(
+      `/interviews/${id}/chat/`,
+      { message }
+    );
+  },
+
+  /** User-initiated cancel of an in-progress session (workflow: -> abandoned). */
+  abandon(id: UUID): Promise<{ status: string }> {
+    return apiClient.post<{ status: string }>(`/interviews/${id}/abandon/`, {});
+  },
+};

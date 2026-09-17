@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
+from presets.exceptions import CrossTenantWorkspaceError
 from presets.services import get_preset, is_feature_enabled
 
 
@@ -67,7 +68,14 @@ class FieldFilter:
 
 
 class PresetError(Exception):
-    """Raised when the PresetConfigEngine is unavailable or returns an error."""
+    """Raised when the PresetConfigEngine is unavailable or returns an error.
+
+    NOTE: this is a distinct class from ``presets.exceptions.PresetError`` —
+    same name, different module, unrelated exception hierarchies (SYSTEMAUDIT
+    -2026-08-27 AP-6 M-1). Do not conflate the two when writing ``except``
+    clauses; a bare ``except PresetError`` here does NOT catch the domain
+    exceptions raised by ``presets.gate`` / ``presets.services``.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +164,13 @@ class PresetGuard:
         """
         try:
             preset_rules = get_preset(workspace_id)
+        except CrossTenantWorkspaceError as exc:
+            # SYSTEMAUDIT-2026-08-27 AP-6 M-1: do NOT fold workspace_id into
+            # this message. CrossTenantWorkspaceError is deliberately raised
+            # with no tenant identifiers (see its docstring) so it cannot be
+            # used as a cross-tenant existence oracle; re-adding workspace_id
+            # here would undo that guarantee one layer up.
+            raise PresetError(f"PresetConfigEngine access denied: {exc}") from exc
         except Exception as exc:
             raise PresetError(
                 f"PresetConfigEngine unavailable for workspace {workspace_id}: {exc}"
@@ -194,8 +209,15 @@ class PresetGateMixin:
 
     preset_endpoint_key: str = ""  # Override in subclass
 
-    def _guard_preset(self) -> None:
-        """Check preset endpoint gate; raises Http404 or PermissionDenied."""
+    def _guard_preset(self, workspace_id_override: str | None = None) -> None:
+        """Check preset endpoint gate; raises Http404 or PermissionDenied.
+
+        Args:
+            workspace_id_override: Workspace id resolved by the caller (e.g.
+                a nested-route ``workspace_pk`` URL kwarg, issue #49). Takes
+                precedence over the request body/query-params/tenant-id
+                fallbacks below.
+        """
         from django.http import Http404
 
         if not self.preset_endpoint_key:
@@ -209,7 +231,8 @@ class PresetGateMixin:
         if self.request.method in ("POST", "PUT", "PATCH"):
             body_workspace_id = self.request.data.get("workspace_id") if hasattr(self.request, "data") else None
         workspace_id = (
-            body_workspace_id
+            workspace_id_override
+            or body_workspace_id
             or self.request.query_params.get("workspace_id")
             or (
                 str(auth_ctx.tenant_id)

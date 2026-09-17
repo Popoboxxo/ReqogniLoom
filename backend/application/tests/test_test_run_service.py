@@ -254,9 +254,19 @@ class TestAddResult:
                 return_value=MagicMock(first=MagicMock(return_value=mock_tc)),
             ),
             patch(
-                "application.test_run_service.TestRunResult.objects.create",
-                return_value=mock_result,
+                "application.test_run_service.TestRunResult.objects.update_or_create",
+                return_value=(mock_result, True),
             ),
+            # GH-584: the derived-status sync issues a real locked re-read
+            # (``TestRun.objects.select_for_update()``); this module mocks the
+            # ORM wholesale and never sets a TenantContext, so the DB concern
+            # is stubbed here and covered for real by
+            # rest_api/tests/test_test_run_auto_completion_584.py.
+            patch.object(
+                TestRunService,
+                "_sync_run_status_from_results",
+                return_value="in_progress",
+            ) as sync,
             patch.object(svc, "_audit"),
         ):
             result = svc.add_result(
@@ -269,6 +279,9 @@ class TestAddResult:
 
         assert result is mock_result
         assert result.status == "passed"
+        # GH-584: the run status is re-derived from the run id, never from a
+        # caller-held instance that a parallel writer may already have staled.
+        sync.assert_called_once_with(RUN_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -307,9 +320,15 @@ class TestAddResultsBulk:
                 )),
             ),
             patch(
-                "application.test_run_service.TestRunResult.objects.create",
-                return_value=MagicMock(status="passed"),
+                "application.test_run_service.TestRunResult.objects.update_or_create",
+                return_value=(MagicMock(status="passed"), True),
             ),
+            # GH-584: see test_add_result_success.
+            patch.object(
+                TestRunService,
+                "_sync_run_status_from_results",
+                return_value="passed",
+            ) as sync,
             patch.object(svc, "_audit"),
         ):
             created = svc.add_results_bulk(
@@ -319,6 +338,7 @@ class TestAddResultsBulk:
             )
 
         assert len(created) == 10
+        sync.assert_called_once_with(RUN_ID)
 
     def test_invalid_status_in_bulk_raises(self):
         """ValidationError when any entry has invalid status."""
@@ -368,6 +388,37 @@ class TestAddResultsBulk:
             ),
         ):
             with pytest.raises(ValidationError, match="test_case_id"):
+                svc.add_results_bulk(
+                    test_run_id=RUN_ID,
+                    results=results_data,
+                    ctx=ctx,
+                )
+
+    def test_malformed_test_case_id_raises_validation_error_not_500(self):
+        """Issue #578: a non-UUID test_case_id must raise ValidationError
+        (-> 400/404 at the MCP/REST boundary), not let Django's ORM raise its
+        own uncaught ValidationError deep inside TestCase.objects.filter(),
+        which the MCP tool handler's except clauses don't catch and which
+        therefore surfaces as an unhandled 500."""
+        svc = TestRunService()
+        ctx = _make_ctx()
+        mock_tr = _make_test_run()
+
+        results_data = [
+            {"test_case_id": "x", "status": "passed"},
+        ]
+
+        with (
+            patch("application.test_run_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.test_run_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.test_run_service.TestRun.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_tr)),
+            ),
+        ):
+            with pytest.raises(ValidationError, match="not a valid UUID"):
                 svc.add_results_bulk(
                     test_run_id=RUN_ID,
                     results=results_data,
@@ -618,3 +669,132 @@ class TestTenantIsolation:
             svc.get_test_run(RUN_ID, ctx)
 
         mock_stc.assert_called_once_with(ctx)
+
+
+# ---------------------------------------------------------------------------
+# GH-403: add_result / add_results_bulk upsert per (test_run, test_case)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestAddResultUpsertRealDb:
+    """Real-DB regression: reporting the same TestCase twice must update the
+    existing TestRunResult row, not create a second one — otherwise
+    result_summary.total (rest_api.views._result_summary) overcounts."""
+
+    @pytest.fixture()
+    def fx(self):
+        from persistence.models import Artifact, Tenant, TestCase, TestRun, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            id=uuid.uuid4(),
+            name="issue403-svc-tenant",
+            slug=f"issue403-svc-{uuid.uuid4().hex[:8]}",
+        )
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                name=f"issue403-svc-ws-{uuid.uuid4().hex[:6]}",
+                preset={"name": "standard"},
+            )
+            tc_artifact = Artifact.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="testcase",
+            )
+            test_case = TestCase.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                artifact=tc_artifact,
+                title="TC-403-svc",
+            )
+            test_run = TestRun.objects.create(
+                id=uuid.uuid4(),
+                tenant=tenant,
+                workspace=workspace,
+                name="issue403-svc-run",
+                status="in_progress",
+            )
+            ctx = _make_ctx(tenant_id=tenant.id)
+            yield {
+                "ctx": ctx,
+                "test_run": test_run,
+                "test_case": test_case,
+            }
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_add_result_called_twice_upserts_single_row(self, fx):
+        from persistence.models import TestRunResult
+
+        svc = TestRunService()
+        svc.add_result(
+            test_run_id=fx["test_run"].id,
+            test_case_id=fx["test_case"].id,
+            status="failed",
+            ctx=fx["ctx"],
+            message="first",
+        )
+        svc.add_result(
+            test_run_id=fx["test_run"].id,
+            test_case_id=fx["test_case"].id,
+            status="passed",
+            ctx=fx["ctx"],
+            message="second",
+        )
+
+        rows = TestRunResult.objects.filter(
+            test_run=fx["test_run"], test_case=fx["test_case"]
+        )
+        assert rows.count() == 1
+        assert rows.first().status == "passed"
+        assert rows.first().message == "second"
+
+    def test_add_results_bulk_called_twice_upserts_single_row(self, fx):
+        from persistence.models import TestRunResult
+
+        svc = TestRunService()
+        svc.add_results_bulk(
+            test_run_id=fx["test_run"].id,
+            results=[{"test_case_id": fx["test_case"].id, "status": "not_run"}],
+            ctx=fx["ctx"],
+        )
+        svc.add_results_bulk(
+            test_run_id=fx["test_run"].id,
+            results=[{"test_case_id": fx["test_case"].id, "status": "passed"}],
+            ctx=fx["ctx"],
+        )
+
+        rows = TestRunResult.objects.filter(
+            test_run=fx["test_run"], test_case=fx["test_case"]
+        )
+        assert rows.count() == 1
+        assert rows.first().status == "passed"
+
+    def test_close_after_upsert_reflects_true_test_case_count(self, fx):
+        """End-to-end: result_summary.total (via close) must equal the
+        number of distinct TestCases reported, not the number of report
+        calls (GH-403's concrete symptom)."""
+        svc = TestRunService()
+        svc.add_result(
+            test_run_id=fx["test_run"].id,
+            test_case_id=fx["test_case"].id,
+            status="failed",
+            ctx=fx["ctx"],
+        )
+        svc.add_result(
+            test_run_id=fx["test_run"].id,
+            test_case_id=fx["test_case"].id,
+            status="passed",
+            ctx=fx["ctx"],
+        )
+
+        closed = svc.close_test_run(test_run_id=fx["test_run"].id, ctx=fx["ctx"])
+
+        assert closed.results.count() == 1
+        assert closed.status == "passed"
+        assert closed.finished_at is not None

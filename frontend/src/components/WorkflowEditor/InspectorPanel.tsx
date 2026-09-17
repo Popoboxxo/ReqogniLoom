@@ -16,6 +16,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
   MousePointerClick,
@@ -82,6 +83,7 @@ export function InspectorPanel({
   editMode = false,
   edit,
 }: InspectorPanelProps): JSX.Element {
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState<number>(readWidth);
 
@@ -106,6 +108,26 @@ export function InspectorPanel({
       document.body.style.userSelect = "none";
       document.body.style.cursor = "col-resize";
       e.preventDefault();
+    },
+    [width]
+  );
+
+  // UI-27 (systemaudit 2026-08-27): the handle was mouse-only (WCAG 2.1.1
+  // Keyboard). ARIA APG "window splitter" pattern, mirroring RightSidebar's
+  // and SplitView's resize handles: Left/Right adjust in fixed steps
+  // (dragging left widens here too, see the comment above), Home/End snap to
+  // the configured bounds.
+  const RESIZE_STEP_PX = 20;
+  const onResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      let next: number | null = null;
+      if (e.key === "ArrowLeft") next = width + RESIZE_STEP_PX;
+      else if (e.key === "ArrowRight") next = width - RESIZE_STEP_PX;
+      else if (e.key === "Home") next = MIN_WIDTH_PX;
+      else if (e.key === "End") next = MAX_WIDTH_PX;
+      if (next === null) return;
+      e.preventDefault();
+      setWidth(Math.max(MIN_WIDTH_PX, Math.min(MAX_WIDTH_PX, next)));
     },
     [width]
   );
@@ -155,15 +177,15 @@ export function InspectorPanel({
       <aside
         className={styles.inspector}
         style={asideStyle}
-        aria-label="Inspector (collapsed)"
+        aria-label={t("workflow.inspector.ariaLabelCollapsed")}
         data-testid="workflow-inspector"
       >
         <div className={styles.inspectorCollapsed}>
           <button
             type="button"
             className={styles.iconButton}
-            aria-label="Expand inspector"
-            title="Expand inspector"
+            aria-label={t("workflow.inspector.expand")}
+            title={t("workflow.inspector.expand")}
             onClick={() => setCollapsed(false)}
             data-testid="workflow-inspector-expand"
           >
@@ -178,24 +200,29 @@ export function InspectorPanel({
     <aside
       className={styles.inspector}
       style={asideStyle}
-      aria-label="Inspector"
+      aria-label={t("workflow.inspector.ariaLabelExpanded")}
       data-testid="workflow-inspector"
     >
       <div
         className={styles.inspectorResize}
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize inspector"
+        aria-label={t("workflow.inspector.resize")}
+        aria-valuenow={width}
+        aria-valuemin={MIN_WIDTH_PX}
+        aria-valuemax={MAX_WIDTH_PX}
+        tabIndex={0}
         onMouseDown={onResizeMouseDown}
+        onKeyDown={onResizeKeyDown}
         data-testid="workflow-inspector-resize"
       />
       <header className={styles.inspectorHeader}>
-        <span className={styles.inspectorTitle}>Inspector</span>
+        <span className={styles.inspectorTitle}>{t("workflow.inspector.title")}</span>
         <button
           type="button"
           className={styles.iconButton}
-          aria-label="Collapse inspector"
-          title="Collapse inspector"
+          aria-label={t("workflow.inspector.collapse")}
+          title={t("workflow.inspector.collapse")}
           onClick={() => setCollapsed(true)}
           data-testid="workflow-inspector-collapse"
         >
@@ -222,7 +249,7 @@ export function InspectorPanel({
           <div className={styles.inspectorEmpty}>
             <Workflow size={32} aria-hidden="true" />
             <div className={styles.overlayText}>
-              Select a state or transition to inspect it.
+              {t("workflow.inspector.emptyPrompt")}
             </div>
           </div>
         )}
@@ -248,8 +275,9 @@ function StateInspector({
   editMode: boolean;
   edit?: InspectorEditActions;
 }): JSX.Element {
-  const outgoing = graph.transitions.filter((t) => t.from_state === state.id);
-  const incoming = graph.transitions.filter((t) => t.to_state === state.id);
+  const { t } = useTranslation();
+  const outgoing = graph.transitions.filter((tr) => tr.from_state === state.id);
+  const incoming = graph.transitions.filter((tr) => tr.to_state === state.id);
 
   return (
     <div data-testid="workflow-inspector-state">
@@ -261,25 +289,29 @@ function StateInspector({
         </span>
       </div>
 
-      <div className={styles.sectionLabel}>Outgoing Transitions ({outgoing.length})</div>
+      <div className={styles.sectionLabel}>
+        {t("workflow.inspector.outgoingTransitions", { count: outgoing.length })}
+      </div>
       {outgoing.length === 0 ? (
         <div className={styles.emptyHint}>
-          Terminal state — no outgoing transitions.
+          {t("workflow.inspector.terminalStateHint")}
         </div>
       ) : (
-        outgoing.map((t) => (
-          <TransitionRow key={t.id} transition={t} onSelect={onSelect} />
+        outgoing.map((tr) => (
+          <TransitionRow key={tr.id} transition={tr} onSelect={onSelect} />
         ))
       )}
 
-      <div className={styles.sectionLabel}>Incoming Transitions ({incoming.length})</div>
+      <div className={styles.sectionLabel}>
+        {t("workflow.inspector.incomingTransitions", { count: incoming.length })}
+      </div>
       {incoming.length === 0 ? (
         <div className={styles.emptyHint}>
-          Initial state — no incoming transitions.
+          {t("workflow.inspector.initialStateHint")}
         </div>
       ) : (
-        incoming.map((t) => (
-          <TransitionRow key={t.id} transition={t} onSelect={onSelect} showSource />
+        incoming.map((tr) => (
+          <TransitionRow key={tr.id} transition={tr} onSelect={onSelect} showSource />
         ))
       )}
 
@@ -292,7 +324,7 @@ function StateInspector({
             data-testid="workflow-inspector-edit-state"
           >
             <Pencil size={14} aria-hidden="true" />
-            Edit State
+            {t("workflow.inspector.editState")}
           </button>
           <button
             type="button"
@@ -301,7 +333,7 @@ function StateInspector({
             data-testid="workflow-inspector-delete-state"
           >
             <Trash2 size={14} aria-hidden="true" />
-            Delete
+            {t("workflow.inspector.deleteState")}
           </button>
         </div>
       )}
@@ -318,6 +350,7 @@ function TransitionRow({
   onSelect: (selection: Selection) => void;
   showSource?: boolean;
 }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -330,7 +363,10 @@ function TransitionRow({
         {showSource ? transition.from_state : transition.to_state}
       </span>
       {transition.change_reason_required && (
-        <span aria-label="requires change reason" title="Requires change reason">
+        <span
+          aria-label={t("workflow.inspector.requiresChangeReason")}
+          title={t("workflow.inspector.requiresChangeReason")}
+        >
           🔒
         </span>
       )}
@@ -351,6 +387,7 @@ function TransitionInspector({
   editMode: boolean;
   edit?: InspectorEditActions;
 }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div data-testid="workflow-inspector-transition">
       <div className={styles.inspectorStateHeader}>
@@ -358,31 +395,31 @@ function TransitionInspector({
         <span className={styles.inspectorStateName}>{transition.name}</span>
       </div>
 
-      <div className={styles.sectionLabel}>Flow</div>
+      <div className={styles.sectionLabel}>{t("workflow.inspector.flow")}</div>
       <div className={styles.flowRow}>
         <span className={styles.flowState}>{transition.from_state}</span>
         <ArrowRight size={14} aria-hidden="true" />
         <span className={styles.flowState}>{transition.to_state}</span>
       </div>
 
-      <div className={styles.sectionLabel}>Rules</div>
+      <div className={styles.sectionLabel}>{t("workflow.inspector.rules")}</div>
       <div className={styles.rulesGrid}>
-        <span className={styles.ruleKey}>Required Role</span>
+        <span className={styles.ruleKey}>{t("workflow.inspector.requiredRole")}</span>
         <span className={styles.ruleValue}>{transition.required_role ?? "—"}</span>
-        <span className={styles.ruleKey}>Change Reason</span>
+        <span className={styles.ruleKey}>{t("workflow.inspector.changeReason")}</span>
         <span className={styles.ruleValue}>
           {transition.change_reason_required ? (
             <>
-              Required
+              {t("workflow.inspector.required")}
               <span aria-hidden="true">🔒</span>
             </>
           ) : (
-            "Optional"
+            t("workflow.inspector.optional")
           )}
         </span>
-        <span className={styles.ruleKey}>Signature Gate</span>
+        <span className={styles.ruleKey}>{t("workflow.inspector.signatureGate")}</span>
         <span className={styles.ruleValue}>
-          {transition.signature_gate ? "Required" : "—"}
+          {transition.signature_gate ? t("workflow.inspector.required") : "—"}
         </span>
       </div>
 
@@ -400,7 +437,7 @@ function TransitionInspector({
             data-testid="workflow-inspector-edit-transition"
           >
             <Pencil size={14} aria-hidden="true" />
-            Edit Transition
+            {t("workflow.inspector.editTransition")}
           </button>
           <button
             type="button"
@@ -411,7 +448,7 @@ function TransitionInspector({
             data-testid="workflow-inspector-delete-transition"
           >
             <Trash2 size={14} aria-hidden="true" />
-            Delete
+            {t("workflow.inspector.deleteTransition")}
           </button>
         </div>
       )}

@@ -23,10 +23,12 @@ from persistence.models import (
     PromptTemplate,
     StakeholderNeed,
     Tenant,
+    TraceLink,
     User,
     Workspace as PersistenceWorkspace,
 )
 from persistence.tenancy import TenantContext
+from persistence.tests.factories import make_workspace
 
 pytestmark = pytest.mark.django_db
 
@@ -73,7 +75,35 @@ def auth_context(user):
 def workspace(tenant):
     TenantContext.set_tenant(tenant.id)
     try:
-        return PersistenceWorkspace.objects.create(tenant=tenant, name="ai-ws")
+        return make_workspace(tenant, name="ai-ws")
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def de_workspace(tenant):
+    """Same as ``workspace`` but with ``language="de"`` (issue #795)."""
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return make_workspace(tenant, name="ai-ws-de", language="de")
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def extended_workspace(tenant):
+    """Same as ``workspace`` but on the "extended" preset tier (GitHub #452).
+
+    ``Workspace.preset`` is the JSONField ``presets.gate`` reads to resolve
+    the active rigor tier (``presets.services.get_preset()``) -- distinct
+    from the unrelated ``create_default_workflow(preset=...)`` argument used
+    elsewhere in this file to pick a *workflow definition* template.
+    """
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return make_workspace(
+            tenant, name="ai-ws-extended", preset={"name": "extended"}
+        )
     finally:
         TenantContext.clear_tenant()
 
@@ -85,9 +115,103 @@ class _CaptureProvider:
         self.response = response
         self.calls: list[dict] = []
 
-    def complete(self, prompt, *, purpose="", context=None):
+    def complete(self, prompt, *, purpose="", context=None, timeout=None):
+        # timeout: accepted for interface parity with LlmCapabilityInterface
+        # (REQ-084) — AiDerivationService._complete() always passes it
+        # (fix #115/#116); this fake ignores the value itself.
         self.calls.append({"prompt": prompt, "purpose": purpose, "context": context})
         return self.response
+
+
+# ---------------------------------------------------------------------------
+# Task 2 (Phase 4) — _get_template_content unified fallback chain
+# ---------------------------------------------------------------------------
+
+
+def test_get_template_content_falls_back_workspace_then_global_then_factory(
+    tenant, workspace, auth_context
+):
+    """workspace override -> tenant-global -> factory default, in that order."""
+    from uuid import uuid4
+
+    from application.ai_derivation_service import TESTCASE_DERIVE_PROMPT_TEMPLATE
+
+    svc = AiDerivationService()
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        # No rows at all -> factory default
+        assert (
+            svc._get_template_content(auth_context, "testcase_derive")
+            == TESTCASE_DERIVE_PROMPT_TEMPLATE
+        )
+
+        # Tenant-global row exists -> used over factory default
+        PromptTemplate.objects.create(
+            tenant_id=auth_context.tenant_id,
+            name="testcase_derive",
+            content="GLOBAL OVERRIDE {req_title}",
+            version=1,
+            is_active=True,
+            workspace_id=None,
+        )
+        assert "GLOBAL OVERRIDE" in svc._get_template_content(
+            auth_context, "testcase_derive"
+        )
+
+        # Workspace-specific row exists -> used over tenant-global
+        PromptTemplate.objects.create(
+            tenant_id=auth_context.tenant_id,
+            name="testcase_derive",
+            content="WORKSPACE OVERRIDE {req_title}",
+            version=1,
+            is_active=True,
+            workspace_id=workspace.id,
+        )
+        assert "WORKSPACE OVERRIDE" in svc._get_template_content(
+            auth_context, "testcase_derive", workspace_id=workspace.id
+        )
+        # but a DIFFERENT workspace still gets the tenant-global one
+        assert "GLOBAL OVERRIDE" in svc._get_template_content(
+            auth_context, "testcase_derive", workspace_id=uuid4()
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def test_get_template_content_covers_all_eight_names():
+    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 12 template names.
+
+    Extended to 9 by Requirement Bundle Export, Plan 2 Task 1
+    (``bundle_compression`` — see application/bundle_compression_service.py),
+    then to 10 by Interview Management Engine Task 6
+    (``interview.grounding_rank`` — see application/interview_service.py),
+    then to 11 by Interview-Management Web Widget Task 2
+    (``interview.chat_turn`` — see application/interview_service.py's
+    ``generate_chat_turn``),
+    then to 12 by the interview transcript-compression slot
+    (``interview.transcript_summary``, commit e173fc1f — see
+    application/interview_service.py's transcript compression).
+
+    Stale expectation, not a defect: the 12th slot is a real, intentional
+    addition and the assertion simply was not grown with it.
+    """
+    from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
+
+    assert set(PROMPT_TEMPLATE_DEFAULTS.keys()) == {
+        "need_to_sysreq",
+        "sysreq_to_arch_assign",
+        "sysreq_decompose_next_level",
+        "testcase_derive",
+        "architecture_to_risk",
+        "workspace_to_glossary",
+        "decision_to_adr",
+        "goal_aggregate",
+        "bundle_compression",
+        "interview.grounding_rank",
+        "interview.chat_turn",
+        "interview.transcript_summary",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +229,10 @@ def test_derive_requirements_from_need_returns_drafts(auth_context, workspace):
         auth_context, need.id, n=2
     )
 
-    assert list(result.keys()) == ["drafts"]
+    # Systemaudit item 11: every flow now also reports whether the answer
+    # came from the mock fallback instead of the configured provider.
+    assert set(result.keys()) == {"drafts", "is_mock_fallback"}
+    assert result["is_mock_fallback"] is False
     assert len(result["drafts"]) == 2
     for draft in result["drafts"]:
         assert set(draft.keys()) == {
@@ -194,6 +321,111 @@ def test_suggest_architecture_already_assigned_is_validation_error(
         AiDerivationService().suggest_architecture_for_requirement(auth_context, req.id)
 
 
+def test_suggest_architecture_accepts_offered_element_objects(
+    auth_context, workspace, monkeypatch
+):
+    """Issue #825: an answer echoing the offered element object is not empty.
+
+    A real provider frequently returns the whole architecture-element object
+    from the prompt instead of a bare id string. That answer must still yield
+    the element's id instead of an empty ``suggested_arch_element_ids``.
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Object answer req", ctx=auth_context
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Login Component", ctx=auth_context
+    )
+    provider = _CaptureProvider(
+        json.dumps([{"id": str(arch.id), "name": "Login Component"}])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().suggest_architecture_for_requirement(
+        auth_context, req.id
+    )
+
+    assert result["suggested_arch_element_ids"] == [str(arch.id)]
+    assert result["is_mock_fallback"] is False
+
+
+def test_suggest_architecture_matches_ids_case_insensitively(
+    auth_context, workspace, monkeypatch
+):
+    """Issue #825: UUID case must not decide whether a suggestion is kept.
+
+    A UUID is case-insensitive, so a provider answer normalised to upper case
+    still references an element the prompt offered -- it must not be dropped
+    into an empty suggestion list.
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Upper case req", ctx=auth_context
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Login Component", ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps([str(arch.id).upper()]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().suggest_architecture_for_requirement(
+        auth_context, req.id
+    )
+
+    assert result["suggested_arch_element_ids"] == [str(arch.id)]
+
+
+def test_suggest_architecture_unusable_answer_is_visible_error(
+    auth_context, workspace, monkeypatch
+):
+    """Issue #825: an answer referencing no offered element must not look empty.
+
+    Mirrors the ``_usable_entries`` principle (issue #311) for the id-list
+    flow: a non-empty provider answer that extracts no offered id used to be
+    silently filtered down to ``suggested_arch_element_ids: []``, which is
+    indistinguishable from "the model proposed nothing" and was reported as
+    this issue. It has to surface as an error instead.
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Unusable answer req", ctx=auth_context
+    )
+    ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Login Component", ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps(["Login Component"]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError) as exc_info:
+        AiDerivationService().suggest_architecture_for_requirement(auth_context, req.id)
+
+    # The provider payload itself must never be echoed back.
+    assert "Login Component" not in str(exc_info.value)
+
+
+def test_suggest_architecture_empty_answer_stays_legal(
+    auth_context, workspace, monkeypatch
+):
+    """An empty provider array is still a legal "no candidate" answer (#311/#825).
+
+    Pins the boundary of the guard above: only a *non-empty* unusable answer is
+    an error, so "the model legitimately proposed nothing" keeps returning an
+    empty suggestion list rather than raising.
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="No candidate req", ctx=auth_context
+    )
+    ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Login Component", ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().suggest_architecture_for_requirement(
+        auth_context, req.id
+    )
+
+    assert result == {"suggested_arch_element_ids": [], "is_mock_fallback": False}
+
+
 # ---------------------------------------------------------------------------
 # Flow 3 — decompose a requirement to the next level
 # ---------------------------------------------------------------------------
@@ -236,6 +468,230 @@ def test_decompose_without_allocation_is_validation_error(auth_context, workspac
 
     with pytest.raises(ValidationError):
         AiDerivationService().decompose_requirement_next_level(auth_context, req.id)
+
+
+# ---------------------------------------------------------------------------
+# Issue #795 — Workspace.language must be injected into every
+# content-generating derive prompt, not left to the provider's whim.
+# ---------------------------------------------------------------------------
+
+
+def test_derive_requirements_prompt_carries_german_instruction_for_de_workspace(
+    auth_context, de_workspace, monkeypatch
+):
+    """A `de` workspace's derive_requirements_from_need prompt asks for German."""
+    need = _make_need(auth_context, de_workspace, "Need", "Description")
+    provider = _CaptureProvider(
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_requirements_from_need(auth_context, need.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Respond in German" in prompt
+    assert "Respond in English" not in prompt
+
+
+def test_derive_requirements_prompt_carries_english_instruction_for_en_workspace(
+    auth_context, workspace, monkeypatch
+):
+    """The default (`en`) workspace's prompt explicitly pins English too.
+
+    Issue #795 observed the SAME `de` workspace drift to Chinese on one flow
+    and English on another with no instruction at all -- an un-instructed
+    provider cannot be trusted to default to English by itself, so English
+    must be requested explicitly rather than assumed.
+    """
+    need = _make_need(auth_context, workspace, "Need", "Description")
+    provider = _CaptureProvider(
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_requirements_from_need(auth_context, need.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Respond in English" in prompt
+    assert "Respond in German" not in prompt
+
+
+def test_decompose_next_level_prompt_carries_german_instruction_for_de_workspace(
+    auth_context, de_workspace, monkeypatch
+):
+    """A `de` workspace's decompose_requirement_next_level prompt asks for German.
+
+    Mirrors the second flow issue #795 named explicitly (that QA session saw
+    it answer in English despite the `de` workspace).
+    """
+    req = RequirementService().create_requirement(
+        workspace_id=de_workspace.id, title="Parent req", ctx=auth_context
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=de_workspace.id, title="Component", ctx=auth_context
+    )
+    TraceLinkService().allocate(
+        requirement_id=req.id, architecture_element_id=arch.id, ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().decompose_requirement_next_level(auth_context, req.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Respond in German" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Issue #311 — an empty draft list must never be silent
+# ---------------------------------------------------------------------------
+
+
+def _allocated_requirement(auth_context, workspace, description=""):
+    """A Requirement with the mandatory allocated-to link the flow requires."""
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Allocated req",
+        description=description,
+        ctx=auth_context,
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Component C", ctx=auth_context
+    )
+    TraceLinkService().allocate(
+        requirement_id=req.id, architecture_element_id=arch.id, ctx=auth_context
+    )
+    return req
+
+
+def test_decompose_next_level_unusable_array_raises(
+    auth_context, workspace, monkeypatch
+):
+    """A JSON array without a single object is an extraction failure, not "no drafts".
+
+    Issue #311: the provider answered — the response just carries nothing this
+    flow can turn into a draft (e.g. a bare list of strings). Dropping every
+    entry and returning ``drafts: []`` made that indistinguishable from a
+    model that legitimately proposed nothing.
+    """
+    req = _allocated_requirement(auth_context, workspace, description="Some content.")
+    provider = _CaptureProvider(
+        json.dumps(["Sub-requirement one", "Sub-requirement two"])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError) as excinfo:
+        AiDerivationService().decompose_requirement_next_level(auth_context, req.id)
+
+    assert "2" in str(excinfo.value)
+
+
+def test_decompose_next_level_keeps_usable_entries_of_a_mixed_array(
+    auth_context, workspace, monkeypatch
+):
+    """A partially malformed array still yields the drafts it does contain."""
+    req = _allocated_requirement(auth_context, workspace, description="Some content.")
+    provider = _CaptureProvider(
+        json.dumps(
+            [
+                "junk entry",
+                {"title": "t", "description": "d", "rationale": "r"},
+            ]
+        )
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().decompose_requirement_next_level(
+        auth_context, req.id
+    )
+
+    assert [draft["title"] for draft in result["drafts"]] == ["t"]
+
+
+def test_decompose_next_level_empty_result_explains_itself(
+    auth_context, workspace, monkeypatch
+):
+    """An empty ``drafts`` list is annotated with why it is empty (issue #311).
+
+    An empty JSON array stays a legal answer ("nothing to decompose"), so this
+    is a note rather than an error — but the caller (an MCP agent) must be able
+    to tell that apart from a broken pipeline.
+    """
+    req = _allocated_requirement(auth_context, workspace, description="Some content.")
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().decompose_requirement_next_level(
+        auth_context, req.id
+    )
+
+    assert result["drafts"] == []
+    assert "note" in result
+    assert "empty" in result["note"].lower()
+
+
+def test_decompose_next_level_empty_result_flags_a_missing_description(
+    auth_context, workspace, monkeypatch
+):
+    """The note names the most common cause: a requirement with no description."""
+    req = _allocated_requirement(auth_context, workspace, description="")
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().decompose_requirement_next_level(
+        auth_context, req.id
+    )
+
+    assert "description" in result["note"].lower()
+
+
+def test_decompose_next_level_success_carries_no_note(auth_context, workspace):
+    """The note is additive and only present when there is nothing to report on."""
+    req = _allocated_requirement(auth_context, workspace, description="Some content.")
+
+    result = AiDerivationService().decompose_requirement_next_level(
+        auth_context, req.id
+    )
+
+    assert result["drafts"]
+    assert "note" not in result
+
+
+def test_derive_requirements_from_need_unusable_array_raises(
+    auth_context, workspace, monkeypatch
+):
+    """Same extraction guard on the sibling flow (issue #311, same defect class)."""
+    need = _make_need(auth_context, workspace, "N", "Some need content.")
+    provider = _CaptureProvider(json.dumps([1, 2, 3]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_requirements_from_need(auth_context, need.id, n=3)
+
+
+def test_derive_risks_from_architecture_unusable_array_raises(
+    auth_context, workspace, monkeypatch
+):
+    """Same extraction guard on the risk flow (issue #311, same defect class)."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element", ctx=auth_context
+    )
+    provider = _CaptureProvider(json.dumps(["a risk", "another risk"]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+
+def test_derive_glossary_from_workspace_unusable_array_raises(
+    auth_context, workspace, monkeypatch
+):
+    """Same extraction guard on the glossary flow (issue #311, same defect class)."""
+    provider = _CaptureProvider(json.dumps(["Term A", "Term B"]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_glossary_from_workspace(auth_context, workspace.id)
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +756,11 @@ def test_old_template_with_only_req_title_still_renders(
     try:
         PromptTemplate.objects.create(
             tenant_id=auth_context.tenant_id,
-            sysreq_to_arch_assign="Legacy prompt for {req_title} only.",
+            name="sysreq_to_arch_assign",
+            content="Legacy prompt for {req_title} only.",
+            version=1,
+            is_active=True,
+            workspace_id=None,
         )
     finally:
         TenantContext.clear_tenant()
@@ -320,7 +780,10 @@ def test_old_template_with_only_req_title_still_renders(
         auth_context, req.id
     )
 
-    assert result == {"suggested_arch_element_ids": []}
+    # Systemaudit item 11: `is_mock_fallback` is False here — the configured
+    # provider answered; the flag only marks an *unplanned* degradation to
+    # MockLlmProvider (a MOCK_FALLBACK_MARKER-prefixed completion).
+    assert result == {"suggested_arch_element_ids": [], "is_mock_fallback": False}
     prompt = provider.calls[0]["prompt"]
     assert prompt == "Legacy prompt for Legacy Requirement Title only."
 
@@ -434,4 +897,918 @@ def test_derive_testcase_truncates_long_requirement_description(
 
     prompt = provider.calls[0]["prompt"]
     assert long_description not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Flow 5 (Phase 3) — derive risk drafts from an architecture element
+# ---------------------------------------------------------------------------
+
+
+def test_derive_risks_from_architecture_returns_drafts_with_valid_probability_impact(
+    auth_context, workspace
+):
+    """Mock provider yields a risk draft with valid enum probability/impact."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Payment Gateway", ctx=auth_context
+    )
+
+    result = AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+    assert result["architecture_element_id"] == str(ae.id)
+    assert len(result["drafts"]) >= 1
+    for draft in result["drafts"]:
+        assert set(draft.keys()) == {
+            "title",
+            "description",
+            "probability",
+            "impact",
+            "category",
+        }
+        assert draft["probability"] in ("low", "medium", "high")
+        assert draft["impact"] in ("low", "medium", "high")
+        assert draft["category"] in (
+            "technical",
+            "operational",
+            "organizational",
+            "business",
+        )
+
+
+def test_derive_risks_from_architecture_formats_prompt(auth_context, workspace, monkeypatch):
+    """The rendered prompt substitutes the architecture element title/description."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id,
+        title="Distinctive Element Title",
+        description="Distinctive Element Description",
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Distinctive Element Title" in prompt
+    assert "Distinctive Element Description" in prompt
+    assert "{ae_title}" not in prompt and "{ae_description}" not in prompt
+    assert provider.calls[0]["purpose"] == "derive_risks_from_architecture"
+
+
+def test_derive_risks_from_architecture_clamps_invalid_enum_values(
+    auth_context, workspace, monkeypatch
+):
+    """An invalid/missing probability, impact or category is clamped, not raised."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element", ctx=auth_context
+    )
+    provider = _CaptureProvider(
+        json.dumps(
+            [
+                {
+                    "title": "Hallucinated risk",
+                    "description": "d",
+                    "probability": "extreme",
+                    "impact": None,
+                    "category": "not-a-category",
+                },
+                {"title": "Sparse risk"},
+            ]
+        )
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+    assert result["drafts"][0]["probability"] == "medium"
+    assert result["drafts"][0]["impact"] == "medium"
+    assert result["drafts"][0]["category"] == "technical"
+    assert result["drafts"][1]["probability"] == "medium"
+    assert result["drafts"][1]["impact"] == "medium"
+    assert result["drafts"][1]["category"] == "technical"
+
+
+def test_derive_risks_from_architecture_invalid_json_raises(
+    auth_context, workspace, monkeypatch
+):
+    """A non-JSON provider response surfaces as LlmResponseError."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element", ctx=auth_context
+    )
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _CaptureProvider("this is not json"),
+    )
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+
+def test_derive_risks_from_architecture_missing_element_raises(auth_context):
+    import uuid
+
+    with pytest.raises(NotFoundError):
+        AiDerivationService().derive_risks_from_architecture(auth_context, uuid.uuid4())
+
+
+def test_derive_risks_from_architecture_truncates_long_description(
+    auth_context, workspace, monkeypatch
+):
+    """An oversized element description is bounded before prompt embedding."""
+    long_description = "d" * (MAX_PROMPT_CONTENT_CHARS + 500)
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id,
+        title="Element",
+        description=long_description,
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert long_description not in prompt
     assert "[truncated]" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — write-mode helpers (_write_derived_entity / _auto_approve)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def need_with_workflow(auth_context, workspace):
+    """A StakeholderNeed's Artifact id + a Requirement workflow definition.
+
+    Uses the "extended" preset: its draft->in_review transition is reachable
+    by the shared ``auth_context`` fixture's "editor" role (unlike the
+    "standard" preset, whose only exits from draft require "approver"/"admin"
+    — see ``_standard_transitions``), so ``policy="auto"`` tests are
+    meaningful against the shared fixture.
+
+    Returns ``(need_artifact_id, workspace_id)`` rather than the
+    StakeholderNeed's own PK: ``TraceLinkService._resolve_artifact_id`` only
+    resolves Artifact/Requirement/ArchitectureElement/Adr ids, not
+    StakeholderNeed ids (confirmed by reading trace_link_service.py before
+    writing this fixture) — so a trace link sourced from a need must be
+    built from ``need.artifact_id``, exactly like ``mcp_server/tools/
+    ai_derivation.py``'s write-mode handler does.
+    """
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=auth_context.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+    need = _make_need(auth_context, workspace, "Users need workflow-aware derivation")
+    return need.artifact_id, workspace.id
+
+
+def test_write_derived_entity_creates_entity_and_trace_link(
+    need_with_workflow, auth_context
+):
+    need_id, workspace_id = need_with_workflow
+    svc = AiDerivationService()
+
+    result = svc._write_derived_entity(
+        ctx=auth_context,
+        workspace_id=workspace_id,
+        item_type="Requirement",
+        create_fn=lambda: RequirementService().create_requirement(
+            workspace_id=workspace_id,
+            title="Derived Req",
+            ctx=auth_context,
+            description="from need",
+        ),
+        source_entity_id=need_id,
+        source_item_type="StakeholderNeed",
+        link_type="derives-from",
+        # issue #341: 'derives-from' points child -> parent, so the new
+        # Requirement is the link source. Every production caller
+        # (mcp_server/tools/ai_derivation.py) passes this; the tests did not,
+        # and the inverted edge only became visible once endpoint validation
+        # stopped being se_mode-only.
+        new_entity_is_link_source=True,
+        policy="manual",
+    )
+
+    assert result["status"] == "draft"
+    from persistence.models import Requirement
+
+    assert Requirement.objects.filter(id=result["id"]).exists()
+    # TraceLink lives in persistence.models (already imported at module top) —
+    # confirmed against persistence/models.py before writing this test.
+    assert TraceLink.objects.filter(id=result["trace_link_id"]).exists()
+
+
+def test_write_derived_entity_rolls_back_entity_on_trace_link_failure(
+    need_with_workflow, auth_context
+):
+    """REQ-L3-PL003-002: a failing trace-link creation must not leave an
+    orphaned, un-linked entity behind.
+
+    ``create_trace_link`` raises ``ValidationError`` for an invalid
+    ``link_type`` *before* touching the database (confirmed by reading
+    ``TraceLinkService.create_trace_link`` before writing this test — the
+    ``link_type not in VALID_LINK_TYPES`` check runs first). Since
+    ``_write_derived_entity`` is wrapped in ``@atomic_transaction``, the
+    ``Requirement`` created moments earlier by ``create_fn()`` must be rolled
+    back together with the failed trace link — no partially-written entity
+    may survive in the database.
+    """
+    need_id, workspace_id = need_with_workflow
+    svc = AiDerivationService()
+
+    from persistence.models import Requirement
+
+    before_count = Requirement.objects.count()
+
+    with pytest.raises(ValidationError):
+        svc._write_derived_entity(
+            ctx=auth_context,
+            workspace_id=workspace_id,
+            item_type="Requirement",
+            create_fn=lambda: RequirementService().create_requirement(
+                workspace_id=workspace_id,
+                title="Should Be Rolled Back",
+                ctx=auth_context,
+                description="orphan candidate",
+            ),
+            source_entity_id=need_id,
+            source_item_type="StakeholderNeed",
+            link_type="not-a-real-link-type",
+            policy="manual",
+        )
+
+    assert Requirement.objects.count() == before_count
+    assert not Requirement.objects.filter(title="Should Be Rolled Back").exists()
+
+
+def test_write_derived_entity_policy_auto_advances_state(
+    need_with_workflow, auth_context
+):
+    need_id, workspace_id = need_with_workflow
+    svc = AiDerivationService()
+
+    result = svc._write_derived_entity(
+        ctx=auth_context,
+        workspace_id=workspace_id,
+        item_type="Requirement",
+        create_fn=lambda: RequirementService().create_requirement(
+            workspace_id=workspace_id, title="Derived Req 2", ctx=auth_context,
+        ),
+        source_entity_id=need_id,
+        source_item_type="StakeholderNeed",
+        link_type="derives-from",
+        # issue #341: 'derives-from' points child -> parent, so the new
+        # Requirement is the link source. Every production caller
+        # (mcp_server/tools/ai_derivation.py) passes this; the tests did not,
+        # and the inverted edge only became visible once endpoint validation
+        # stopped being se_mode-only.
+        new_entity_is_link_source=True,
+        policy="auto",
+    )
+
+    # "extended" preset's draft->in_review transition is allowed for the
+    # "editor" role held by auth_context, so the walk must advance past draft.
+    assert result["status"] != "draft"
+
+
+def test_write_derived_entity_policy_manual_stays_draft(
+    need_with_workflow, auth_context
+):
+    need_id, workspace_id = need_with_workflow
+    svc = AiDerivationService()
+
+    result = svc._write_derived_entity(
+        ctx=auth_context,
+        workspace_id=workspace_id,
+        item_type="Requirement",
+        create_fn=lambda: RequirementService().create_requirement(
+            workspace_id=workspace_id, title="Derived Req 3", ctx=auth_context,
+        ),
+        source_entity_id=need_id,
+        source_item_type="StakeholderNeed",
+        link_type="derives-from",
+        # issue #341: 'derives-from' points child -> parent, so the new
+        # Requirement is the link source. Every production caller
+        # (mcp_server/tools/ai_derivation.py) passes this; the tests did not,
+        # and the inverted edge only became visible once endpoint validation
+        # stopped being se_mode-only.
+        new_entity_is_link_source=True,
+        policy="manual",
+    )
+
+    assert result["status"] == "draft"
+
+
+def test_auto_approve_never_raises_when_role_lacks_permission(
+    need_with_workflow, workspace, auth_context
+):
+    """A ctx without a role that can perform the next transition stops the
+    walk at the current state instead of propagating WorkflowTransitionError.
+    """
+    need_id, workspace_id = need_with_workflow
+    viewer_ctx = AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("viewer",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+    svc = AiDerivationService()
+    created = RequirementService().create_requirement(
+        workspace_id=workspace_id, title="Derived Req 4", ctx=auth_context,
+    )
+
+    status = svc._auto_approve("Requirement", created.id, workspace_id, viewer_ctx)
+
+    assert status == "draft"
+
+
+def test_auto_approve_stops_before_approval_gate_for_risk(auth_context, workspace):
+    """Regression test: an actor holding "approver"+"admin" must not have a
+    freshly-derived Risk auto-walked all the way to "Closed".
+
+    ``risk_default`` (see ``_risk_transitions``) marks "Mitigated" as the
+    explicit ``auto_approve_target`` (Phase 3) — reachable via two
+    "editor"-gated, self-service hops (Identified->Monitored,
+    Monitored->Mitigated) with no approval gate to cross. "Closed" carries no
+    such marker (a closed risk is historically valuable, not an "auto"
+    destination), so the walk must stop at "Mitigated" instead of crossing
+    the approver-only "Mitigated -> Closed" gate.
+    """
+    from application.risk_service import RiskService
+    from workflow.services import create_default_workflow
+
+    admin_ctx = AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+
+    TenantContext.set_tenant(admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="risk_default",
+            item_type="Risk",
+            tenant_id=admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    created = RiskService().create_risk(
+        workspace_id=workspace.id,
+        title="Derived Risk",
+        probability="medium",
+        impact="medium",
+        ctx=admin_ctx,
+    )
+
+    svc = AiDerivationService()
+    status = svc._auto_approve("Risk", created.id, workspace.id, admin_ctx)
+
+    assert status not in ("Closed", "Accepted")
+    assert status == "Mitigated"
+
+
+def test_auto_approve_stops_before_approval_gate_for_adr(auth_context, workspace):
+    """Regression test: an actor holding "approver"+"admin" must not have a
+    freshly-derived Adr auto-walked all the way to "Superseded"/"Rejected".
+
+    ``adr_default`` (see ``_adr_transitions``) marks "Approved" as the
+    explicit ``auto_approve_target`` (Phase 3) — the intended "auto" steady
+    state for an ADR. The walk therefore *does* cross "In Review -> Approved"
+    (an approval-only gate) since that is the marked destination, but must
+    stop immediately once "Approved" is reached instead of continuing on to
+    the business-terminal "Superseded".
+    """
+    from application.adr_service import AdrService
+    from workflow.services import create_default_workflow
+
+    admin_ctx = AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+
+    TenantContext.set_tenant(admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="adr_default",
+            item_type="Adr",
+            tenant_id=admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    created = AdrService().create_adr(
+        workspace_id=workspace.id,
+        title="Derived ADR",
+        description="from decision",
+        ctx=admin_ctx,
+        context="ctx",
+        consequences="consequences",
+    )
+
+    svc = AiDerivationService()
+    status = svc._auto_approve("Adr", created.id, workspace.id, admin_ctx)
+
+    assert status not in ("Superseded", "Rejected")
+    assert status == "Approved"
+
+
+def test_auto_approve_falls_back_to_gate_stop_when_no_explicit_target(
+    auth_context, workspace
+):
+    """Preset without ``auto_approve_target`` metadata keeps the pre-Phase-3
+    behaviour: stop *before* the first approval-only gate, even for an actor
+    holding "approver"+"admin".
+
+    ``"extended"`` (see ``_extended_transitions``) has no ``auto_approve_target``
+    entries in its ``state_meta`` (only "deprecated" carries
+    ``is_outdated_equivalent``), so ``_auto_approve`` must fall back to the
+    gate-stop rule and never cross "in_review -> approved" (approver/admin-only)
+    unsupervised — regardless of the metadata added for ``adr_default`` /
+    ``risk_default``.
+    """
+    from workflow.services import create_default_workflow
+
+    admin_ctx = AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+
+    TenantContext.set_tenant(admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    created = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Derived Req Fallback", ctx=admin_ctx,
+    )
+
+    svc = AiDerivationService()
+    status = svc._auto_approve("Requirement", created.id, workspace.id, admin_ctx)
+
+    assert status == "in_review"
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 (REQ-L2-RV-001) — ReviewPolicy gates _auto_approve
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ai_derivation_service():
+    return AiDerivationService()
+
+
+@pytest.fixture
+def settings_service():
+    from application.settings_service import SettingsService
+
+    return SettingsService()
+
+
+@pytest.fixture
+def review_admin_ctx(auth_context):
+    """An approver/admin-held ctx in the same tenant as ``auth_context`` —
+    needed to reach a real approval gate (``auth_context`` itself only holds
+    "editor", which cannot cross one)."""
+    return AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+
+
+@pytest.fixture
+def adr_awaiting_approval(workspace, review_admin_ctx):
+    """A freshly created Adr, provisioned with ``adr_default``, one
+    self-service hop (Draft -> In Review, "editor"-allowed) plus one real
+    approval gate (In Review -> Approved, approver/admin-only) away from its
+    preset's explicit ``auto_approve_target`` ("Approved").
+    """
+    from application.adr_service import AdrService
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(review_admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="adr_default",
+            item_type="Adr",
+            tenant_id=review_admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    return AdrService().create_adr(
+        workspace_id=workspace.id,
+        title="Derived ADR (Phase 5 ReviewPolicy)",
+        description="from decision",
+        ctx=review_admin_ctx,
+        context="ctx",
+        consequences="consequences",
+    )
+
+
+def test_auto_approve_stops_immediately_under_review_all_policy(
+    ai_derivation_service,
+    workspace,
+    review_admin_ctx,
+    settings_service,
+    adr_awaiting_approval,
+):
+    """"review_all" never crosses an approval gate, even for an
+    approver/admin-held ctx and even though the preset marks "Approved" as
+    the explicit ``auto_approve_target`` beyond that gate. The walk still
+    takes the editor-open Draft -> In Review self-service hop (that hop is
+    not a gate at all), then stops.
+    """
+    settings_service.update_review_policy(
+        review_admin_ctx, workspace_id=workspace.id, mode="review_all", min_confidence=0.7
+    )
+
+    final_state = ai_derivation_service._auto_approve(
+        "Adr", adr_awaiting_approval.id, workspace.id, review_admin_ctx
+    )
+
+    assert final_state == "In Review"
+
+
+def test_auto_approve_review_high_risk_blocks_without_confidence_signal(
+    ai_derivation_service,
+    workspace,
+    review_admin_ctx,
+    settings_service,
+    adr_awaiting_approval,
+    monkeypatch,
+):
+    """"review_high_risk" never crosses an approval gate when
+    ``_estimate_confidence`` reports no signal (``None``) — treated as
+    always below ``min_confidence``.
+    """
+    settings_service.update_review_policy(
+        review_admin_ctx,
+        workspace_id=workspace.id,
+        mode="review_high_risk",
+        min_confidence=0.5,
+    )
+    monkeypatch.setattr(
+        ai_derivation_service, "_estimate_confidence", lambda *a, **kw: None
+    )
+
+    final_state = ai_derivation_service._auto_approve(
+        "Adr", adr_awaiting_approval.id, workspace.id, review_admin_ctx
+    )
+
+    assert final_state != "Approved"
+    assert final_state == "In Review"
+
+
+def test_auto_approve_unchanged_under_auto_policy_default(
+    ai_derivation_service, workspace, review_admin_ctx, adr_awaiting_approval
+):
+    """No ReviewPolicy row exists -> resolver default is "auto" -> identical
+    behaviour to pre-Phase-5 (regression guard alongside
+    ``test_auto_approve_stops_before_approval_gate_for_adr``): the explicit
+    ``auto_approve_target`` still lets the walk cross the approval gate.
+    """
+    final_state = ai_derivation_service._auto_approve(
+        "Adr", adr_awaiting_approval.id, workspace.id, review_admin_ctx
+    )
+
+    assert final_state == "Approved"
+
+
+def test_auto_approve_blocks_gate_for_extended_tier_under_default_auto_policy(
+    ai_derivation_service, extended_workspace, review_admin_ctx
+):
+    """GitHub #452 regression.
+
+    Same setup as ``test_auto_approve_unchanged_under_auto_policy_default``
+    (no explicit ReviewPolicy row -> resolver falls back to its hardcoded
+    default of mode="auto", min_confidence=0.7) but on an "extended"-tier
+    workspace instead of "minimal". Before the fix, ``_auto_approve`` would
+    still cross the ADR "In Review -> Approved" approval gate unsupervised,
+    because "auto" mode crosses any gate leading to an explicit
+    ``auto_approve_target`` regardless of ``min_confidence`` (that threshold
+    is only ever consulted for "review_high_risk") -- this is the actual
+    mechanism behind the issue's "auto-approve ab 0.7 Konfidenz" report.
+    After the fix, ``SettingsService.get_effective_review_policy`` floors
+    "auto" to "review_all" for the "extended" tier, so the walk must stop at
+    "In Review" instead of reaching "Approved".
+    """
+    from application.adr_service import AdrService
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(review_admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=extended_workspace.id,
+            preset="adr_default",
+            item_type="Adr",
+            tenant_id=review_admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    adr = AdrService().create_adr(
+        workspace_id=extended_workspace.id,
+        title="Derived ADR (extended tier, default policy)",
+        description="from decision",
+        ctx=review_admin_ctx,
+        context="ctx",
+        consequences="consequences",
+    )
+
+    final_state = ai_derivation_service._auto_approve(
+        "Adr", adr.id, extended_workspace.id, review_admin_ctx
+    )
+
+    assert final_state == "In Review"
+    assert final_state != "Approved"
+
+
+# ---------------------------------------------------------------------------
+# Flow 6 (Phase 3, Task 4) — derive glossary term drafts from a workspace
+# ---------------------------------------------------------------------------
+
+
+def test_derive_glossary_from_workspace_returns_term_definition_drafts(
+    auth_context, workspace
+):
+    RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Some requirement", ctx=auth_context
+    )
+
+    result = AiDerivationService().derive_glossary_from_workspace(
+        auth_context, workspace.id
+    )
+
+    assert result["workspace_id"] == str(workspace.id)
+    assert "drafts" in result
+    assert len(result["drafts"]) >= 1
+    for draft in result["drafts"]:
+        assert set(draft.keys()) == {
+            "term",
+            "definition",
+            "synonyms",
+            "abbreviation",
+        }
+        assert isinstance(draft["synonyms"], list)
+
+
+def test_derive_glossary_from_workspace_works_with_no_content_yet(
+    auth_context, workspace
+):
+    """An empty workspace (no requirements/architecture yet) does not raise."""
+    result = AiDerivationService().derive_glossary_from_workspace(
+        auth_context, workspace.id
+    )
+
+    assert result["workspace_id"] == str(workspace.id)
+    assert "drafts" in result
+
+
+def test_derive_glossary_from_workspace_formats_prompt(
+    auth_context, workspace, monkeypatch
+):
+    RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Distinctive Requirement Title",
+        description="Distinctive Requirement Description",
+        ctx=auth_context,
+    )
+    ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id,
+        title="Distinctive Element Title",
+        description="Distinctive Element Description",
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_glossary_from_workspace(auth_context, workspace.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Distinctive Requirement Title" in prompt
+    assert "Distinctive Requirement Description" in prompt
+    assert "Distinctive Element Title" in prompt
+    assert "Distinctive Element Description" in prompt
+    assert "{workspace_text}" not in prompt
+    assert provider.calls[0]["purpose"] == "derive_glossary_from_workspace"
+
+
+def test_derive_glossary_from_workspace_invalid_json_raises(
+    auth_context, workspace, monkeypatch
+):
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _CaptureProvider("this is not json"),
+    )
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_glossary_from_workspace(auth_context, workspace.id)
+
+
+def test_derive_glossary_from_workspace_missing_workspace_raises(auth_context):
+    import uuid
+
+    with pytest.raises(NotFoundError):
+        AiDerivationService().derive_glossary_from_workspace(auth_context, uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# _write_glossary_term_draft (Phase 3, Task 4)
+# ---------------------------------------------------------------------------
+
+
+def test_write_glossary_term_draft_persists_term_no_trace_link(
+    auth_context, workspace
+):
+    """The written entity carries no trace_link_id (no TraceLink is created)."""
+    from persistence.models import GlossaryTerm
+
+    svc = AiDerivationService()
+
+    result = svc._write_glossary_term_draft(
+        ctx=auth_context,
+        workspace_id=workspace.id,
+        term="Sprint",
+        definition="A fixed-length iteration.",
+        synonyms=["Iteration"],
+        abbreviation="",
+        policy="manual",
+    )
+
+    assert "trace_link_id" not in result
+    assert result["status"] == "draft"
+    assert GlossaryTerm.objects.filter(id=result["id"], term="Sprint").exists()
+
+
+def test_write_glossary_term_draft_duplicate_term_raises_validation_error(
+    auth_context, workspace
+):
+    """Colliding (workspace, term) surfaces as ValidationError, not an IntegrityError."""
+    svc = AiDerivationService()
+    svc._write_glossary_term_draft(
+        ctx=auth_context,
+        workspace_id=workspace.id,
+        term="Backlog",
+        definition="A prioritized list of work.",
+        synonyms=[],
+        abbreviation="",
+        policy="manual",
+    )
+
+    with pytest.raises(ValidationError):
+        svc._write_glossary_term_draft(
+            ctx=auth_context,
+            workspace_id=workspace.id,
+            term="Backlog",
+            definition="A different definition for the same term.",
+            synonyms=[],
+            abbreviation="",
+            policy="manual",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Flow 7 (Phase 3, Task 5) — derive an ADR draft from a free-text decision
+# ---------------------------------------------------------------------------
+
+
+def test_derive_adr_from_decision_returns_title_description_context(
+    auth_context, workspace
+):
+    result = AiDerivationService().derive_adr_from_decision(
+        auth_context,
+        workspace.id,
+        decision_description=(
+            "We will use Postgres instead of MySQL for better JSON support."
+        ),
+    )
+
+    assert result["workspace_id"] == str(workspace.id)
+    assert "draft" in result
+    for key in ("title", "description", "context", "consequences"):
+        assert key in result["draft"]
+
+
+def test_derive_adr_from_decision_formats_prompt(auth_context, workspace, monkeypatch):
+    provider = _CaptureProvider(
+        json.dumps(
+            {
+                "title": "t",
+                "description": "d",
+                "context": "c",
+                "consequences": "e",
+            }
+        )
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_adr_from_decision(
+        auth_context, workspace.id, decision_description="Distinctive decision text"
+    )
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Distinctive decision text" in prompt
+    assert "{decision_description}" not in prompt
+    assert provider.calls[0]["purpose"] == "derive_adr_from_decision"
+
+
+def test_derive_adr_from_decision_invalid_json_raises(
+    auth_context, workspace, monkeypatch
+):
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _CaptureProvider("this is not json"),
+    )
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_adr_from_decision(
+            auth_context, workspace.id, decision_description="Some decision"
+        )
+
+
+def test_derive_adr_from_decision_missing_workspace_raises(auth_context):
+    import uuid
+
+    with pytest.raises(NotFoundError):
+        AiDerivationService().derive_adr_from_decision(
+            auth_context, uuid.uuid4(), decision_description="Some decision"
+        )
+
+
+# ---------------------------------------------------------------------------
+# _write_adr_draft (Phase 3, Task 5)
+# ---------------------------------------------------------------------------
+
+
+def test_write_adr_draft_persists_adr_no_trace_link(auth_context, workspace):
+    """The written entity carries no trace_link_id (no TraceLink is created)."""
+    from application.models import Adr
+
+    svc = AiDerivationService()
+
+    result = svc._write_adr_draft(
+        ctx=auth_context,
+        workspace_id=workspace.id,
+        title="Use Postgres over MySQL",
+        description="We will use Postgres for better JSON support.",
+        context="Need strong JSON querying capabilities.",
+        consequences="Team must ramp up on Postgres-specific features.",
+        policy="manual",
+    )
+
+    assert "trace_link_id" not in result
+    assert result["status"] == "draft"
+    assert Adr.objects.filter(id=result["id"]).exists()
+
+
+def test_write_adr_draft_invalid_title_raises_validation_error(auth_context, workspace):
+    """Title below AdrService.create_adr's 3-char minimum surfaces as ValidationError."""
+    svc = AiDerivationService()
+
+    with pytest.raises(ValidationError):
+        svc._write_adr_draft(
+            ctx=auth_context,
+            workspace_id=workspace.id,
+            title="ab",
+            description="Some description.",
+            context="",
+            consequences="",
+            policy="manual",
+        )

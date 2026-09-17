@@ -23,7 +23,9 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 from __future__ import annotations
 
 import time
-from uuid import UUID
+from datetime import datetime
+from datetime import timezone as dt_timezone
+from uuid import UUID, uuid4
 
 from django.conf import settings
 
@@ -31,7 +33,7 @@ from persistence.models import User
 
 from ..errors import AuthenticationFailed
 from ..jwt_tokens import encode_hs256
-from ..models import UserRole
+from ..models import RefreshToken, UserRole
 
 def _dummy_password_hash() -> str:
     """Return a valid throwaway password hash for constant-time dummy checks.
@@ -86,7 +88,13 @@ class PasswordAuthenticationService:
         self._ttl_seconds = (
             token_ttl_seconds
             if token_ttl_seconds is not None
-            else int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 43200))
+            else int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 3600))
+        )
+        self._refresh_ttl_seconds = int(
+            getattr(settings, "AUTH_JWT_REFRESH_TTL_SECONDS", 2592000)
+        )
+        self._refresh_ttl_seconds = int(
+            getattr(settings, "AUTH_JWT_REFRESH_TTL_SECONDS", 2592000)
         )
 
     # -- Credential verification ------------------------------------------
@@ -106,10 +114,17 @@ class PasswordAuthenticationService:
             The authenticated, active :class:`~persistence.models.User`.
 
         Raises:
-            AuthenticationFailed: ``invalid_token`` if the credentials do not
-                match or the user is inactive. A single error code is used for
-                every failure mode so the boundary cannot leak which factor
+            AuthenticationFailed: ``invalid_credentials`` if the credentials do
+                not match or the user is inactive. A single error code is used
+                for every failure mode so the boundary cannot leak which factor
                 failed (no user-enumeration).
+
+                Issue #271 split this out of ``invalid_token``: that code is now
+                reserved for JWT parse/expiry failures on an already-issued
+                token, so a caller can tell "my access token expired" from "my
+                password is wrong". The anti-enumeration property is unchanged —
+                unknown user, wrong password and inactive user still share ONE
+                code and produce byte-identical responses.
         """
         # ``User`` is not tenant-scoped, so a plain lookup is correct here and runs
         # before any tenant context exists (mirrors API-key validation).
@@ -120,13 +135,13 @@ class PasswordAuthenticationService:
             from django.contrib.auth.hashers import check_password as _check
 
             _check(password, _dummy_password_hash())
-            raise AuthenticationFailed("invalid_token")
+            raise AuthenticationFailed("invalid_credentials")
 
         if not user.check_password(password):
-            raise AuthenticationFailed("invalid_token")
+            raise AuthenticationFailed("invalid_credentials")
 
         if not user.is_active:
-            raise AuthenticationFailed("invalid_token")
+            raise AuthenticationFailed("invalid_credentials")
 
         return user
 
@@ -138,6 +153,13 @@ class PasswordAuthenticationService:
         Read via the ``unscoped`` manager: token issuance happens before a tenant
         context is active, and the user's tenant is the natural scope. Roles are
         de-duplicated across workspaces for the token claim.
+
+        NOT an authorisation source for workspace-bound requests (GitHub #103).
+        No workspace is known at login time, so this claim can only ever be a
+        tenant-wide snapshot. ``AuthTenancyAuthentication`` therefore ignores it
+        whenever the request resolves to a workspace and re-reads the roles
+        workspace-scoped from ``UserRole``; the claim is used only for requests
+        that target no specific workspace.
         """
         roles = (
             UserRole.unscoped.filter(user_id=user.id, suspended_at__isnull=True)
@@ -177,6 +199,7 @@ class PasswordAuthenticationService:
             "user_id": str(user.id),
             "tenant_id": str(user.tenant_id),
             "roles": list(effective_roles),
+            "typ": "access",
             "iat": issued_at,
             "exp": issued_at + self._ttl_seconds,
         }
@@ -184,6 +207,74 @@ class PasswordAuthenticationService:
             claims["iss"] = self._jwt_issuer
         if self._jwt_audience is not None:
             claims["aud"] = self._jwt_audience
+
+        return encode_hs256(claims, self._jwt_secret)
+
+    def issue_refresh_token(
+        self, user: User, *, session_id: UUID | None = None
+    ) -> str:
+        """Mint a long-lived HS256 refresh JWT for ``user`` (GitHub #135).
+
+        Carries only ``user_id``/``tenant_id`` (no roles — roles are re-resolved
+        fresh from the database at refresh time, see
+        ``AuthenticationService.validate_refresh_token``) plus the ``typ``:
+        ``"refresh"`` claim that distinguishes it from an access token so it can
+        never authenticate a normal request (``validate_bearer_token`` rejects
+        it explicitly).
+
+        SA-32: the token additionally carries ``jti`` (this token) and ``sid``
+        (its rotation family), and a matching
+        :class:`~auth_tenancy.models.RefreshToken` row is persisted. That row is
+        what lets ``/auth/refresh/`` notice a token being presented twice and
+        revoke the whole family — see
+        :meth:`AuthenticationService.rotate_refresh_token`.
+
+        Args:
+            user: The user to mint a refresh token for; must have a tenant.
+            session_id: Family to attach the token to. ``None`` starts a new
+                family (login); rotation passes the incoming token's family so
+                reuse detection can revoke the chain as a unit.
+
+        Returns:
+            The compact JWT string (without the ``Bearer `` prefix).
+
+        Raises:
+            AuthenticationFailed: ``invalid_token`` if the JWT secret is not
+                configured or the user has no tenant.
+        """
+        if not self._jwt_secret:
+            raise AuthenticationFailed("invalid_token")
+        if user.tenant_id is None:
+            raise AuthenticationFailed("invalid_token")
+
+        issued_at = int(time.time())
+        expires_at = issued_at + self._refresh_ttl_seconds
+        jti = uuid4()
+        family_id = session_id or uuid4()
+
+        claims: dict[str, object] = {
+            "user_id": str(user.id),
+            "tenant_id": str(user.tenant_id),
+            "typ": "refresh",
+            "jti": str(jti),
+            "sid": str(family_id),
+            "iat": issued_at,
+            "exp": expires_at,
+        }
+        if self._jwt_issuer is not None:
+            claims["iss"] = self._jwt_issuer
+        if self._jwt_audience is not None:
+            claims["aud"] = self._jwt_audience
+
+        # unscoped: /auth/login/ and /auth/refresh/ are public endpoints that
+        # run before any tenant context exists (same rationale as ApiKey).
+        RefreshToken.unscoped.create(
+            user_id=user.id,
+            tenant_id=user.tenant_id,
+            jti=jti,
+            session_id=family_id,
+            expires_at=datetime.fromtimestamp(expires_at, tz=dt_timezone.utc),
+        )
 
         return encode_hs256(claims, self._jwt_secret)
 

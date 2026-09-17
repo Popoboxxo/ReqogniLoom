@@ -1,0 +1,1 @@
+import{l as e}from"./client-EWjGZe-7.js";import{t}from"./statusBadge-BLBsnA9L.js";var n=e();function r({status:e,label:r}){return(0,n.jsx)(`span`,{"data-testid":`status-badge`,style:t(e),children:r??e})}export{r as t};

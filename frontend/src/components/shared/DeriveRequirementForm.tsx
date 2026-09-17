@@ -69,6 +69,8 @@ export function DeriveRequirementForm({
   testIdPrefix,
 }: DeriveRequirementFormProps): JSX.Element {
   const { t } = useTranslation();
+  const titleInputId = React.useId();
+  const archSelectId = React.useId();
 
   if (!isOpen) {
     return (
@@ -94,8 +96,9 @@ export function DeriveRequirementForm({
         background: 'var(--color-surface-raised)',
       }}
     >
-      <label style={labelStyle}>{t('traceability.deriveTitle')} *</label>
+      <label htmlFor={titleInputId} style={labelStyle}>{t('traceability.deriveTitle')} *</label>
       <input
+        id={titleInputId}
         type="text"
         data-testid={`${testIdPrefix}-derive-title-input`}
         value={title}
@@ -107,13 +110,14 @@ export function DeriveRequirementForm({
 
       {showArchitectureField && (
         <>
-          <label style={labelStyle}>
+          <label htmlFor={archSelectId} style={labelStyle}>
             {architectureRequired
               ? t('traceability.deriveArchitectureElement')
               : t('needs.deriveArchOptional')}
             {architectureRequired ? ' *' : ''}
           </label>
           <select
+            id={archSelectId}
             data-testid={`${testIdPrefix}-derive-arch-select`}
             value={architectureElementId}
             onChange={(e) => onArchitectureElementChange(e.target.value)}
@@ -133,12 +137,27 @@ export function DeriveRequirementForm({
       )}
 
       {error && (
-        <p style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-2) 0' }}>
+        <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-2) 0' }}>
           {error}
         </p>
       )}
 
-      <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+      {/* `flexWrap` is what keeps this row inside the form when the column is
+          narrow. Without it the row is `nowrap` + `justify-content: flex-end`,
+          so once the buttons no longer fit they overflow past the *start*
+          edge, land outside the form's box and are covered by whatever sits
+          to the left of it (on the requirement route: the SplitView divider),
+          making the submit button unclickable. Same reasoning as the actions
+          group in PageHeader.tsx (issue #314). */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 'var(--space-2)',
+          justifyContent: 'flex-end',
+          minWidth: 0,
+        }}
+      >
         <button type="button" className="btn-ghost" onClick={onCancel} disabled={isSubmitting}>
           {t('actions.cancel')}
         </button>

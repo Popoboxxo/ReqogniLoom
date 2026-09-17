@@ -15,13 +15,13 @@ Covers:
 """
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from admin_ops.health_rest import STATUS_DOWN, STATUS_OK, SystemHealthView
+from admin_ops.health_rest import STATUS_DOWN, STATUS_OK, STATUS_UNKNOWN, SystemHealthView
 from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from auth_tenancy.rest import HasOperationPermission
@@ -101,8 +101,9 @@ class TestSystemHealthResponseShape:
     """GET returns the components + recent_events shape for an admin caller."""
 
     def test_admin_gets_200_with_expected_shape(
-        self, admin_ctx: AuthContext, tenant_a
+        self, admin_ctx: AuthContext, tenant_a, monkeypatch
     ) -> None:
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         patches = _patch_infra_checks()
         for p in patches:
             p.start()
@@ -127,6 +128,8 @@ class TestSystemHealthResponseShape:
             "celery_beat",
             "mcp_server",
             "llm_provider",
+            "memory_embedding",
+            "memory_backend",
         ]
         for component in body["components"]:
             assert set(component.keys()) == {"name", "status", "detail"}
@@ -237,7 +240,7 @@ class TestIndividualCheckGuards:
     def test_check_celery_worker_guards_broker_errors(self) -> None:
         from admin_ops import health_rest
 
-        with patch("reqflow.celery.app.control") as mock_control:
+        with patch("reqogniloom.celery.app.control") as mock_control:
             mock_control.inspect.side_effect = OSError("broker unreachable")
             result = health_rest._check_celery_worker()
 
@@ -262,3 +265,234 @@ class TestIndividualCheckGuards:
         assert result["name"] == "llm_provider"
         # Default settings run with LLM_PROVIDER=mock -> always ok.
         assert result["status"] == STATUS_OK
+
+    def test_check_llm_provider_reports_down_on_auth_failure(self, settings) -> None:
+        """R5/R7: a real probe call must surface a bad API key, not 'ok'.
+
+        Regression test for the live audit finding (systemaudit 2026-09-02):
+        /health/ reported llm_provider: ok for an entire session while every
+        real call was failing with 401 -- the old check only verified that
+        LLM_API_KEY was a non-empty string, never made a real call.
+        """
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-invalid-key-for-this-test"
+
+        fake_provider = MagicMock()
+        fake_provider.complete.side_effect = Exception("authentication failed (HTTP 401)")
+
+        with patch("llm_adapter.providers.get_provider", return_value=fake_provider):
+            result = health_rest._check_llm_provider()
+
+        assert result["name"] == "llm_provider"
+        assert result["status"] != STATUS_OK
+        assert "401" in result["detail"] or "authentication" in result["detail"].lower()
+
+    def test_check_llm_provider_reports_ok_on_successful_probe(self, settings) -> None:
+        """A real, successful probe call reports ok (not just 'key configured')."""
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-valid-key-for-this-test"
+
+        fake_provider = MagicMock()
+        fake_provider.complete.return_value = "pong"
+
+        with patch("llm_adapter.providers.get_provider", return_value=fake_provider):
+            result = health_rest._check_llm_provider()
+
+        assert result["name"] == "llm_provider"
+        assert result["status"] == STATUS_OK
+        fake_provider.complete.assert_called_once()
+
+    def test_llm_probe_uses_its_own_larger_timeout(self, settings) -> None:
+        """Final review: the probe must NOT reuse _CHECK_TIMEOUT_S (1.0s).
+
+        A real completion round-trip needs seconds, so a 1s budget would
+        report a healthy provider as "down" on nearly every poll — the exact
+        inverse of the bug this check exists to fix. The previous test only
+        asserted "complete was called", never *how*, which is why this slipped
+        through; assert the actual argument values here.
+        """
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-valid-key-for-this-test"
+
+        assert health_rest._LLM_PROBE_TIMEOUT_S > health_rest._CHECK_TIMEOUT_S
+
+        fake_provider = MagicMock()
+        fake_provider.complete.return_value = "pong"
+
+        with patch(
+            "llm_adapter.providers.get_provider", return_value=fake_provider
+        ) as get_provider_mock:
+            result = health_rest._check_llm_provider()
+
+        assert result["status"] == STATUS_OK
+        # The per-attempt timeout actually handed to the provider call.
+        assert (
+            fake_provider.complete.call_args.kwargs["timeout"]
+            == health_rest._LLM_PROBE_TIMEOUT_S
+        )
+        # ...and the same budget on the ProviderConfig the SDK client is built from.
+        cfg = get_provider_mock.call_args.args[0]
+        assert cfg.timeout == health_rest._LLM_PROBE_TIMEOUT_S
+
+    def test_llm_probe_does_not_use_shared_resilience_transport(
+        self, settings
+    ) -> None:
+        """Final review: the probe must not book failures against the shared
+        per-provider-class circuit breaker (``llm:<provider>``) that real
+        traffic uses — a repeatedly-failing probe would otherwise trip that
+        breaker Open and fast-fail production LLM calls.
+
+        The fake provider mirrors the real ``_chat`` shape (every transport
+        call goes through ``self._resilient``); if the probe did not
+        neutralise that hook, the call would raise and the check would report
+        "down".
+        """
+        from admin_ops import health_rest
+
+        settings.LLM_PROVIDER = "anthropic"
+        settings.LLM_API_KEY = "sk-valid-key-for-this-test"
+
+        class _FakeProvider:
+            def __init__(self) -> None:
+                self.completed_with: dict | None = None
+
+            def _resilient(self, call, timeout_seconds=None):  # noqa: ANN001
+                raise AssertionError(
+                    "health probe routed through the shared resilience "
+                    "transport / circuit breaker"
+                )
+
+            def complete(self, prompt, *, purpose="", context=None, timeout=None):  # noqa: ANN001
+                self.completed_with = {"prompt": prompt, "timeout": timeout}
+                # Mirrors the real providers: the transport call goes through
+                # self._resilient(...).
+                return self._resilient(lambda: "pong", timeout_seconds=timeout)
+
+        fake_provider = _FakeProvider()
+        with patch("llm_adapter.providers.get_provider", return_value=fake_provider):
+            result = health_rest._check_llm_provider()
+
+        assert result["status"] == STATUS_OK, result["detail"]
+        assert fake_provider.completed_with == {
+            "prompt": "ping",
+            "timeout": health_rest._LLM_PROBE_TIMEOUT_S,
+        }
+
+
+class TestSystemHealthMemoryComponents:
+    """The two new memory-admin-phase-2 component checks."""
+
+    def test_memory_embedding_ok_with_mock_provider(
+        self, admin_ctx: AuthContext, tenant_a, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        patches = _patch_infra_checks()
+        for p in patches:
+            p.start()
+        try:
+            with active_tenant(tenant_a):
+                request = _make_request(admin_ctx)
+                response = SystemHealthView().get(request)
+        finally:
+            for p in patches:
+                p.stop()
+
+        component = next(
+            c for c in response.data["components"] if c["name"] == "memory_embedding"
+        )
+        assert component["status"] == STATUS_OK
+
+    def test_memory_embedding_honours_the_db_override(self, tenant_a, monkeypatch) -> None:
+        """The embedding check must health-check the EFFECTIVE provider.
+
+        Regression test for I-1: it used to read ``_read_env_config()``, so
+        after a SystemMemorySettings override it reported on the wrong
+        provider (unlike the sibling backend check, which already resolved
+        the override). Env here is deliberately unresolvable, so passing
+        proves the override — not the env var — was used.
+        """
+        from admin_ops import health_rest
+        from memory.models import SystemMemorySettings
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "not-a-real-provider")
+        SystemMemorySettings.objects.create(embedding_provider="mock")
+
+        result = health_rest._check_memory_embedding()
+
+        assert result["status"] == STATUS_OK
+
+    def test_memory_embedding_skips_cold_load_when_override_names_a_new_model(
+        self, tenant_a, monkeypatch
+    ) -> None:
+        """Regression test for N-1.
+
+        I-2's fix keyed the sentence-transformers model cache by model
+        name. That means the cold-load guard here must ALSO compare names,
+        not just check ``_model is None`` — otherwise a worker that already
+        loaded model "A" sails past the guard when a SystemMemorySettings
+        override requests a different, not-yet-loaded model "B", and
+        ``.embed()`` triggers a real in-request cold load. Proven here by
+        installing a fake ``sentence_transformers`` module and asserting
+        its constructor is never called.
+        """
+        import sys
+        import types
+
+        from llm_adapter.embedding_service import SentenceTransformersEmbeddingProvider
+        from memory.models import SystemMemorySettings
+
+        constructed: list[str] = []
+
+        module = types.ModuleType("sentence_transformers")
+
+        class _FakeSentenceTransformer:
+            def __init__(self, model_name):
+                constructed.append(model_name)
+
+        module.SentenceTransformer = _FakeSentenceTransformer
+        monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+
+        # Simulate a worker that already loaded model "A" by real usage.
+        monkeypatch.setattr(SentenceTransformersEmbeddingProvider, "_model", object())
+        monkeypatch.setattr(
+            SentenceTransformersEmbeddingProvider, "_loaded_model_name", "model-a"
+        )
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "sentence-transformers")
+        SystemMemorySettings.objects.create(
+            embedding_provider="sentence-transformers", embedding_model_name="model-b"
+        )
+
+        from admin_ops import health_rest
+
+        result = health_rest._check_memory_embedding()
+
+        assert result["status"] == STATUS_UNKNOWN
+        assert constructed == []  # no cold load was triggered
+
+    def test_memory_backend_ok_with_pgvector(
+        self, admin_ctx: AuthContext, tenant_a, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+        patches = _patch_infra_checks()
+        for p in patches:
+            p.start()
+        try:
+            with active_tenant(tenant_a):
+                request = _make_request(admin_ctx)
+                response = SystemHealthView().get(request)
+        finally:
+            for p in patches:
+                p.stop()
+
+        component = next(
+            c for c in response.data["components"] if c["name"] == "memory_backend"
+        )
+        assert component["status"] == STATUS_OK

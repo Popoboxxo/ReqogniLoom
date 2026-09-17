@@ -1,0 +1,1 @@
+import{i as e,t}from"./client-EWjGZe-7.js";var n={list(t,n){let r={workspace_id:t};return n&&(r.parent_id=n),e(`/artifacts/`,r)},get(e){return t.get(`/artifacts/${e}/`)},create(e){return t.post(`/artifacts/`,e)},delete(e){return t.delete(`/artifacts/${e}/`)}};export{n as t};

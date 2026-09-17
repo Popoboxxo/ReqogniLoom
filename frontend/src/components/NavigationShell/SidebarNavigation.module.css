@@ -1,0 +1,666 @@
+/*
+ * Responsive layout for the sidebar (issue #160).
+ *
+ * Below 1024px there is no room for a fixed 220px sidebar next to content,
+ * so it becomes an off-canvas drawer toggled by a burger button. Above
+ * 1024px it behaves exactly as before (static, sticky, always visible).
+ *
+ * Colors/spacing stay inline (token-driven) in SidebarNavigation.tsx —
+ * only the layout-critical properties that a media query needs to
+ * override live here, since inline styles cannot be overridden by
+ * `@media` rules.
+ */
+
+.sidebarNav {
+  width: 220px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  z-index: 60;
+  transition: transform var(--transition-normal);
+}
+
+.burgerButton {
+  display: none;
+  position: fixed;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: 70;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-nav-border);
+  background: var(--color-nav-bg);
+  color: var(--color-nav-text);
+  font-size: var(--font-size-lg);
+}
+
+.overlay {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .sidebarNav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-card);
+  }
+
+  .sidebarNav.open {
+    transform: translateX(0);
+  }
+
+  .burgerButton {
+    display: inline-flex;
+  }
+
+  .overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: var(--color-nav-overlay-shadow);
+    z-index: 50;
+  }
+}
+
+/*
+ * Static chrome extracted from inline `style={{...}}` objects (issue #161 —
+ * inline-style ratchet). Colors/spacing are the same var(--color-nav-*) /
+ * var(--space-*) tokens that used to be assembled in JS SIDEBAR_* constants
+ * in SidebarNavigation.tsx; behavior/appearance is unchanged, only where the
+ * declarations live.
+ */
+
+.navRoot {
+  background: var(--color-nav-bg);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6) var(--space-4);
+  gap: var(--space-2);
+  box-sizing: border-box;
+  font-family: var(--font-sans);
+  color: var(--color-nav-text);
+  /* Issue #449 (repeated reopen despite the inner .scrollContent already
+     scrolling correctly, see its comment below): every QA re-report
+     measured `getComputedStyle(document.querySelector('nav')).overflowY`
+     on this exact element and found `hidden`, concluding "not scrollable" —
+     even though this outer flex container never needs to scroll itself
+     (its content is exactly `.scrollWrapper` (flex: 1 1 auto) + `.footer`
+     (flex: 0 0 auto), which by flex-column layout always sums to this
+     element's own height; the real overflow lives one level down, in
+     `.scrollContent`). `overflow: hidden` here was originally chosen only
+     to avoid an accidental outer scrollbar, but since this box's own
+     scrollHeight already equals its clientHeight by construction, `auto`
+     produces zero visual/behavioral change (no scrollbar can appear) while
+     removing the literal `hidden` value that automation keeps flagging as
+     "sidebar not scrollable" on the wrong element. overflow-x stays hidden
+     since horizontal scrolling was never desired here. */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.scrollWrapper {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.scrollContent {
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Issue #449: the scroll region already works (overflow-y: auto on this
+     element, not the outer <nav> — see #47/#168), but on some platforms
+     (overlay scrollbars, e.g. macOS/GNOME) the default scrollbar is
+     invisible until actively scrolling, so short viewports give no visual
+     cue that the remaining ~10 nav items are reachable below the fold.
+     A persistent, styled thin scrollbar makes the affordance obvious
+     regardless of OS scrollbar theme. Same pattern as RightSidebar.module.css
+     .panels and WorkflowEditor.module.css, just using the nav's own
+     (always-dark) color tokens instead of the app-theme-aware ones. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-nav-border) transparent;
+}
+
+.scrollContent::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scrollContent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollContent::-webkit-scrollbar-thumb {
+  background: var(--color-nav-border);
+  border-radius: var(--radius-full);
+}
+
+.scrollContent::-webkit-scrollbar-thumb:hover {
+  background: var(--color-nav-text-muted);
+}
+
+.logoRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-8);
+  padding: 0 var(--space-2);
+}
+
+.logoDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.2);
+}
+
+.logoText {
+  color: var(--color-nav-text);
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: 0.01em;
+}
+
+.searchWrapper {
+  position: relative;
+  margin-bottom: var(--space-4);
+}
+
+.searchInput {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-nav-overlay-hover);
+  border: 1px solid var(--color-nav-overlay-hover-border);
+  border-radius: var(--radius-md);
+  color: var(--color-nav-text);
+  font-size: var(--font-size-sm);
+  box-sizing: border-box;
+  font-family: inherit;
+  outline: none;
+}
+
+.dropdownList {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  background: var(--color-nav-bg);
+  border: 1px solid var(--color-nav-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px var(--color-nav-overlay-shadow);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.dropdownLoadingItem {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-nav-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.searchResultButton {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-nav-text);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition-fast);
+}
+
+.searchResultButton:hover {
+  background: var(--color-nav-hover-bg);
+}
+
+.searchResultTitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.searchResultType {
+  font-size: 0.7rem;
+  color: var(--color-nav-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.navGroupsWrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.navGroup {
+  margin-bottom: var(--space-3);
+}
+
+.navGroupLabel {
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-nav-text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.navList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.navListItem {
+  margin-bottom: var(--space-1);
+}
+
+.navLink {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border-left: 3px solid transparent;
+  text-decoration: none;
+  color: var(--color-nav-text);
+  background: transparent;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition: var(--transition-fast);
+}
+
+.navLink:hover {
+  background: var(--color-nav-hover-bg);
+}
+
+.navLinkActive {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  padding-left: calc(var(--space-3) - 3px);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-primary);
+  text-decoration: none;
+  color: var(--color-nav-text);
+  background: var(--color-nav-active-bg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  transition: var(--transition-fast);
+}
+
+.optionalToggleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-nav-border);
+  background: transparent;
+  color: var(--color-nav-text);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  text-align: left;
+}
+
+.optionalToggleBtn:hover {
+  background: var(--color-nav-hover-bg);
+}
+
+.switchTrack {
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  position: relative;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+  background: var(--color-nav-overlay-hover);
+}
+
+.switchTrackOn {
+  background: var(--color-primary);
+}
+
+.switchKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: white;
+  transition: var(--transition-fast);
+}
+
+.switchKnobOn {
+  left: 14px;
+}
+
+.workspaceSwitcherWrapper {
+  position: relative;
+  border-top: 1px solid var(--color-nav-border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2) 0;
+}
+
+.switcherToggleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-nav-border);
+  background: transparent;
+  color: var(--color-nav-text);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  text-align: left;
+}
+
+.switcherToggleBtn:hover {
+  background: var(--color-nav-hover-bg);
+}
+
+.switcherLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.chevron {
+  font-size: 0.7rem;
+  color: var(--color-nav-text-muted);
+  transform: rotate(0deg);
+  transition: var(--transition-fast);
+  display: inline-block;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.switcherMetaRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.presetBadge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5
+     finding 4): was `background: rgba(79, 110, 247, 0.2); color:
+     var(--color-primary);` — var(--color-primary) is theme-reactive
+     (tuned for --color-surface), but this badge lives on the sidebar's
+     permanently-dark chrome, so 4 of 5 themes failed WCAG AA (as low as
+     2.06:1). --color-nav-badge-bg/-text are dedicated, frozen tokens
+     (same pattern as --color-nav-text/-active-bg above) sized for this
+     exact context; white text on this bg now reaches ~13:1 in every
+     theme. */
+  background: var(--color-nav-badge-bg);
+  color: var(--color-nav-badge-text);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.terminologyLabel {
+  color: var(--color-nav-text-muted);
+  font-size: 0.7rem;
+}
+
+.createWorkspaceBtn {
+  margin-top: var(--space-2);
+  width: 100%;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  transition: var(--transition-fast);
+}
+
+.workspaceList {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: var(--space-2);
+  right: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  background: var(--color-nav-bg);
+  border: 1px solid var(--color-nav-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px var(--color-nav-overlay-shadow);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.workspaceOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-nav-text);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition-fast);
+}
+
+.workspaceOption:hover {
+  background: var(--color-nav-hover-bg);
+}
+
+.workspaceOptionActive {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-nav-active-bg);
+  color: var(--color-nav-text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition-fast);
+}
+
+.workspaceOptionLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.workspaceOptionCheck {
+  color: var(--color-primary);
+  font-size: 0.8rem;
+}
+
+.workspaceEmptyState {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: var(--space-2);
+  right: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-nav-bg);
+  border: 1px solid var(--color-nav-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px var(--color-nav-overlay-shadow);
+  z-index: 100;
+  color: var(--color-nav-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.scrollHint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* UI-LOW-1 (Systemaudit, LOW finding): was 28px with a linear
+     transparent -> var(--color-nav-bg) ramp over the whole band. A nav
+     link row is ~36px tall (space-2 padding top/bottom + font-size-sm
+     line height), so whenever a full label happened to render in that
+     bottom 28px it was already ~50-70% painted over by the fade partway
+     through its own text, not just its trailing whitespace — reported as
+     "Verknüpfungen" (nav.traceability) being hard to read. Shrinking the
+     band and keeping it fully transparent for its first half means the
+     opaque part only ever covers the row's bottom padding / gap to the
+     next item, never label text, while the chevron affordance (still
+     anchored to the very bottom, see .scrollHintChevron) stays legible
+     against the now-solid background right behind it.
+  */
+  height: 16px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent 0%, transparent 50%, var(--color-nav-bg) 100%);
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6: center the chevron affordance
+     (see .scrollHintChevron) within the fade band. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 1px;
+}
+
+.scrollHintChevron {
+  color: var(--color-nav-text-muted);
+  /* global.css already forces animation-duration to ~0 under
+     prefers-reduced-motion (see its top-level *, *::before, *::after
+     rule), so no separate override is needed here. */
+  animation: scrollHintBounce 1.4s ease-in-out infinite;
+}
+
+@keyframes scrollHintBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+
+.footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--color-nav-border);
+  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.footerBtn {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-nav-border);
+  background: transparent;
+  color: var(--color-nav-text);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  text-align: left;
+}
+
+.footerBtn:hover,
+.footerBtnActive {
+  background: var(--color-nav-hover-bg);
+}
+
+.buildVersion {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5
+     finding 5, §10.1): was `color: var(--color-text-muted); opacity:
+     0.7;` — var(--color-text-muted) is tuned for contrast against
+     --color-surface, but this element lives on the sidebar's
+     permanently-dark chrome (--color-nav-bg), not --color-surface, so
+     the 30% opacity cut compounded an already-mismatched color and fell
+     to 1.69-3.85:1 in all 5 themes (dropping only the opacity still left
+     light/bauhaus/sepia below 4.5:1, since their text-muted tones are
+     dark colors meant for light surfaces). Switched to
+     --color-nav-text-muted, the token this component's own sibling
+     .terminologyLabel already uses for the identical "muted text in the
+     sidebar" role a few rules above — 7.62:1 in every theme, no opacity
+     needed. */
+  color: var(--color-nav-text-muted);
+}
+
+/* F-02/F-04 (code review): visible feedback for the language quick-toggle —
+   a non-admin's session-local-only change, or a failed persist attempt for
+   an admin. Never silent. */
+.langNotice {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  /* Task 10 fix round 1 (contrast remediation): identical root cause to
+     .buildVersion above — var(--color-text-muted) is tuned for contrast
+     against --color-surface, but this element lives on the sidebar's
+     permanently-dark chrome (--color-nav-bg), not --color-surface. Measured
+     2.17:1 (light) / 2.61:1 (bauhaus) / 2.78:1 (sepia) against navy-900,
+     below WCAG AA's 4.5:1. Switched to --color-nav-text-muted, the same fix
+     already applied to .buildVersion and already used by .terminologyLabel
+     — 7.62:1 in every theme. */
+  color: var(--color-nav-text-muted);
+}
+
+.langNoticeError {
+  color: var(--color-danger);
+}

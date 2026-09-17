@@ -70,28 +70,6 @@ class TransitionOutcome:
     signature_seal: Optional[str] = None
 
 
-# REQ-143: denormalized `status` mirror on persistence-layer entities.
-# The workflow engine is the single source of truth for the lifecycle state;
-# these persistence models carry a read-only `status` column that is a pure
-# projection of WorkflowItemState.current_state and must only ever be written
-# from within a workflow transition. Maps the engine ``item_type`` to the
-# (module, class) of the mirroring model. Extend this map when a new entity is
-# wired into the WorkflowEngine.
-_STATUS_MIRROR_MODELS: dict[str, tuple[str, str]] = {
-    "Requirement": ("persistence.models", "Requirement"),
-    "StakeholderNeed": ("persistence.models", "StakeholderNeed"),
-    # REQ-165/REQ-166: universal per-entity workflow. Each mirrored model needs
-    # an ``unscoped`` manager (the four application models are plain, non-tenant
-    # models and declare one explicitly; TestCase inherits it from
-    # TenantScopedModel).
-    "Adr": ("application.models", "Adr"),
-    "Risk": ("application.models", "Risk"),
-    "Issue": ("application.models", "Issue"),
-    "ChangeRequest": ("application.models", "ChangeRequest"),
-    "TestCase": ("persistence.models", "TestCase"),
-}
-
-
 class StateLifecycleManager:
     """Manages WorkflowItemState lifecycle and append-only history.
 
@@ -114,6 +92,8 @@ class StateLifecycleManager:
         item_ids: list[UUID],
         item_type: str,
         workspace_id: UUID,
+        initial_state: str | None = None,
+        proposed_by: str = "",
     ) -> list[WorkflowItemState]:
         """Create initial WorkflowItemState records for all item_ids.
 
@@ -126,6 +106,10 @@ class StateLifecycleManager:
             item_ids:     List of item UUIDs to initialise.
             item_type:    Entity type string.
             workspace_id: Workspace UUID.
+            initial_state: Overrides the definition's own initial state. Used
+                by the agent-proposal path (spec §4.2), which seeds "proposed"
+                instead. None keeps the historical behaviour for every other
+                caller.
 
         Returns:
             List of created WorkflowItemState instances.
@@ -138,7 +122,8 @@ class StateLifecycleManager:
 
         # IF-WE-INT-003 — query COMP-WE-001 for initial_state
         dto = self._store.get_definition(workspace_id, item_type)
-        initial_state = dto.initial_state
+        if initial_state is None:
+            initial_state = dto.initial_state
 
         # Resolve the definition ORM record for the FK
         definition_record = WorkflowEngineDefinition.objects.filter(
@@ -151,6 +136,7 @@ class StateLifecycleManager:
             )
 
         created: list[WorkflowItemState] = []
+        seeded_off_default = initial_state != dto.initial_state
         for item_id in item_ids:
             state = WorkflowItemState.objects.create(
                 item_id=item_id,
@@ -160,6 +146,34 @@ class StateLifecycleManager:
                 current_state=initial_state,
             )
             created.append(state)
+
+            if not seeded_off_default:
+                continue
+
+            # Spec §4.2: "wer hat vorgeschlagen" lives in the history entry.
+            # Nothing wrote one at initialization before this — a plain
+            # initialization is not a transition and needs no record, but a
+            # proposal does, because it is the only provenance the artifact has.
+            # ``from_state=""`` marks "came into existence here".
+            #
+            # Plan deviation: no status/lifecycle mirror sync here (the plan's
+            # text called for one). Datenmodell-Konsolidierung Phase 1/Task 24
+            # (merged since the plan was written) removed the per-entity status
+            # mirror columns entirely -- WorkflowItemState.current_state is now
+            # the sole store, so there is nothing left to keep in sync. The
+            # history entry alone (same shape perform_transition already
+            # writes, `.unscoped.create` + explicit tenant_id) is now the full
+            # scope of this task.
+            WorkflowHistoryEntry.unscoped.create(
+                item_state=state,
+                from_state="",
+                to_state=initial_state,
+                transitioned_by=proposed_by or "agent",
+                transitioned_at=datetime.now(timezone.utc),
+                change_reason="",
+                workspace_id=workspace_id,
+                tenant_id=state.tenant_id,
+            )
 
         return created
 
@@ -326,11 +340,6 @@ class StateLifecycleManager:
                 f"(409 Conflict)"
             )
 
-        # REQ-143: update the denormalized `status` mirror on the persistence
-        # entity atomically within this same transaction, so the read-only
-        # projection can never diverge from WorkflowItemState.current_state.
-        self._sync_status_mirror(item_id, item_type, target_state)
-
         # Append-only history entry (REQ-L2-WE-003, ADR-L3-WE003-03).
         # Use the unscoped manager to bypass TenantManager.get_queryset()
         # during INSERT (tenant_id comes from item_state.tenant_id).
@@ -355,30 +364,68 @@ class StateLifecycleManager:
             signature_seal=validation_result.seal,
         )
 
-    @staticmethod
-    def _sync_status_mirror(item_id: UUID, item_type: str, new_state: str) -> None:
-        """Write the denormalized ``status`` mirror on the persistence entity (REQ-143).
+    @transaction.atomic
+    def force_transition(
+        self,
+        item_id: UUID,
+        item_type: str,
+        workspace_id: UUID,
+        target_state: str,
+        change_reason: str,
+        actor: str,
+    ) -> TransitionOutcome:
+        """Transition an item to ``target_state`` bypassing normal
+        preset-transition validation.
 
-        The persistence-layer ``status`` field is a read-only projection of the
-        workflow state. It is updated ONLY here, inside the transition's atomic
-        transaction, so it can never diverge from ``current_state``.
+        Used exclusively by the outdate()/reactivate() escape hatch —
+        outdating must work from ANY current state, on ANY preset, even ones
+        that never modeled a "rejected"-style path in their transitions list.
 
-        Uses the ``unscoped`` manager and filters by primary key (a globally
-        unique UUID) so the update does not depend on an active TenantContext.
-        A bare ``.update()`` is used deliberately: it neither bumps the entity
-        ``version`` nor emits a domain event — a workflow transition is not a
-        content edit of the artifact.
+        Args:
+            item_id:       UUID of the item to transition.
+            item_type:     Entity type string.
+            workspace_id:  Workspace UUID.
+            target_state:  New state to force onto the item.
+            change_reason: Audit reason string for the history entry.
+            actor:         User UUID string or AI-agent client identifier.
 
-        Unknown item types (not wired into the mirror map) are a silent no-op.
+        Returns:
+            TransitionOutcome with the transition details.
+
+        Raises:
+            WorkflowItemState.DoesNotExist: No item state record found.
         """
-        mapping = _STATUS_MIRROR_MODELS.get(item_type)
-        if mapping is None:
-            return
-        from importlib import import_module
+        item_state = (
+            WorkflowItemState.objects.select_for_update()
+            .get(item_id=item_id, item_type=item_type, workspace_id=workspace_id)
+        )
+        previous_state = item_state.current_state
+        item_state.current_state = target_state
+        item_state.version += 1
+        item_state.save(update_fields=["current_state", "version"])
 
-        module = import_module(mapping[0])
-        model = getattr(module, mapping[1])
-        model.unscoped.filter(pk=item_id).update(status=new_state)
+        # Use the unscoped manager to bypass TenantManager.get_queryset()
+        # during INSERT (tenant_id comes from item_state.tenant_id), mirroring
+        # perform_transition's history-append pattern above.
+        now = datetime.now(timezone.utc)
+        history = WorkflowHistoryEntry.unscoped.create(
+            item_state=item_state,
+            from_state=previous_state,
+            to_state=target_state,
+            transitioned_by=actor,
+            transitioned_at=now,
+            change_reason=change_reason or "",
+            workspace_id=workspace_id,
+            tenant_id=item_state.tenant_id,
+        )
+
+        return TransitionOutcome(
+            item_state_id=item_state.pk,
+            history_entry_id=history.pk,
+            previous_state=previous_state,
+            new_state=target_state,
+            signature_seal=None,
+        )
 
     # -- Read helpers ---------------------------------------------------------
 

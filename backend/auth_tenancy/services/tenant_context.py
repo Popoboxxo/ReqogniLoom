@@ -19,6 +19,8 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 """
 from __future__ import annotations
 
+from uuid import UUID
+
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant
 
@@ -56,6 +58,7 @@ class TenantContextService:
         claims: IdentityClaims,
         tenant_context: TenantContext,
         active_roles: tuple[str, ...],
+        workspace_id: UUID | None = None,
     ) -> AuthContext:
         """Build the immutable :class:`AuthContext` (REQ-L2-AT-005).
 
@@ -63,10 +66,26 @@ class TenantContextService:
             claims: Identity claims from COMP-AT-001.
             tenant_context: DB-resolved tenant.
             active_roles: Effective (non-suspended) roles from COMP-AT-002.
+            workspace_id: Workspace ``active_roles`` were resolved against, or
+                ``None`` when the request targets no specific workspace
+                (GitHub #103).
 
         Returns:
             A frozen :class:`AuthContext`. Mutation raises ``FrozenInstanceError``.
         """
+        # E2.1: a key restricted to specific workspaces must not carry roles
+        # anywhere else. Narrowing ``active_roles`` to () (rather than raising)
+        # keeps this a plain RBAC denial that every existing caller — REST
+        # RbacPermission, MCP _check_rbac/_check_read_rbac — already handles.
+        # A restricted key with NO workspace context is denied too: the
+        # workspace-less path resolves the tenant-wide role union, which would
+        # hand the key exactly the workspaces it was fenced out of.
+        allowed = claims.api_key_workspace_ids
+        if allowed and (
+            workspace_id is None or str(workspace_id) not in allowed
+        ):
+            active_roles = ()
+
         return AuthContext(
             user_id=claims.user_id,
             tenant_id=tenant_context.tenant_id,
@@ -74,6 +93,11 @@ class TenantContextService:
             auth_method=claims.auth_method,
             api_key_id=claims.api_key_id,
             tenant_name=tenant_context.tenant_name,
+            workspace_id=workspace_id,
+            actor_type=claims.actor_type,
+            agent_label=claims.agent_label,
+            scope=claims.scope,
+            api_key_workspace_ids=claims.api_key_workspace_ids,
         )
 
     def activate(self, tenant_context: TenantContext) -> None:

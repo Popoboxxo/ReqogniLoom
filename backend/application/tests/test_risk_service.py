@@ -41,8 +41,88 @@ RISK_ID = uuid.uuid4()
 TENANT_ID = uuid.uuid4()
 
 
+# ---------------------------------------------------------------------------
+# DB-backed fixtures (Task 1 / Phase 1 prerequisite cleanup: outdate() e2e)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def risk_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="risk-outdate-tenant", slug="risk-outdate-tenant")
+
+
+@pytest.fixture
+def risk_user(risk_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="risk-outdate-user",
+        email="risk-outdate@example.com",
+        tenant=risk_tenant,
+    )
+
+
+@pytest.fixture
+def risk_workspace(risk_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(risk_tenant.id)
+    try:
+        return Workspace.objects.create(tenant=risk_tenant, name="risk-outdate-workspace")
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def auth_ctx(risk_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=risk_user.id,
+        tenant_id=risk_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="risk-outdate-tenant",
+    )
+
+
+@pytest.fixture
+def risk(auth_ctx, risk_workspace):
+    """Persisted Risk with a default workflow, for outdate()-based delete tests."""
+    from persistence.tenancy import TenantContext
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(risk_workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=risk_workspace.id,
+            preset="risk_default",
+            item_type="Risk",
+            tenant_id=risk_workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    svc = RiskService()
+    return svc.create_risk(
+        workspace_id=risk_workspace.id,
+        title="Outdate Target Risk",
+        probability="low",
+        impact="low",
+        ctx=auth_ctx,
+    )
+
+
 def _make_risk(**kwargs):
-    risk = MagicMock(spec=Risk)
+    """Task 12: no longer ``spec=Risk`` -- the `status` column is dropped,
+    but `.status` here stands in for the engine-resolved, in-memory-only
+    value RiskService sets on real instances, which a real spec would now
+    reject."""
+    risk = MagicMock()
     risk.id = kwargs.get("id", RISK_ID)
     risk.workspace_id = kwargs.get("workspace_id", WS_ID)
     risk.tenant_id = kwargs.get("tenant_id", TENANT_ID)
@@ -53,7 +133,8 @@ def _make_risk(**kwargs):
     risk.impact = kwargs.get("impact", "high")
     risk.risk_score = kwargs.get("risk_score", 9)
     risk.severity = kwargs.get("severity", "high")
-    risk.owner = kwargs.get("owner", "")
+    # Attribut v3 WS7 (#940): Risk.owner -> Risk.owner_name (same DB column).
+    risk.owner_name = kwargs.get("owner", "")
     risk.mitigation_strategy = kwargs.get("mitigation_strategy", "")
     risk.status = kwargs.get("status", "Identified")
     risk.version = kwargs.get("version", 1)
@@ -457,7 +538,11 @@ class TestUpdateRisk:
 
 
 class TestDeleteRisk:
-    def test_cascades_tracelinks_and_deletes(self):
+    def test_does_not_cascade_tracelinks_and_calls_outdate_not_hard_delete(self):
+        """GH-484: delete_risk() no longer cascades TraceLinks — it only
+        routes the soft-delete through workflow.services.outdate() instead
+        of a hard Risk.delete(), so TraceLinks survive and reactivate()
+        (GH-443) restores them intact."""
         mock_tls = MagicMock()
         svc = RiskService(trace_link_service=mock_tls)
         ctx = _make_ctx(tenant_id=TENANT_ID)
@@ -470,12 +555,116 @@ class TestDeleteRisk:
             patch("application.risk_service.RiskService._audit"),
             patch("application.risk_service.RiskService._emit_event"),
             patch("application.risk_service.RiskService._make_event", return_value=MagicMock()),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             mock_mgr.filter.return_value.first.return_value = existing
             svc.delete_risk(risk_id=RISK_ID, ctx=ctx)
 
-        mock_tls.cascade_delete_trace_links.assert_called_once_with(RISK_ID, ctx)
-        existing.delete.assert_called_once()
+        mock_tls.cascade_delete_trace_links.assert_not_called()
+        mock_outdate.assert_called_once_with(
+            item_id=existing.id,
+            item_type="Risk",
+            workspace_id=existing.workspace_id,
+            ctx=ctx,
+            reason="deleted via risk.delete",
+        )
+        existing.delete.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# list_risks (REQ-006/Phase 0: outdated-filtering)
+# ---------------------------------------------------------------------------
+
+
+class TestListRisksExcludesOutdated:
+    """REQ-006/Phase 0: list_risks() excludes Risks soft-deleted via
+    workflow.services.outdate() by default."""
+
+    def test_list_risks_excludes_outdated_by_default(self):
+        """Phase 4 (D-3): the exclusion filters on
+        ``id__in=outdated_item_ids(...)`` — the ``Artifact.lifecycle_status``
+        seam. ``state_reader.item_ids_in_state(..., "outdated")`` no longer
+        matches anything, since ``outdate()`` writes the flag, not the state."""
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+            patch(
+                "workflow.services.outdated_item_ids",
+                return_value="OUTDATED_IDS",
+            ) as mock_seam,
+        ):
+            qs_mock = MagicMock()
+            qs_mock.exclude.return_value = qs_mock
+            qs_mock.order_by.return_value = []
+            mock_mgr.filter.return_value = qs_mock
+
+            svc.list_risks(workspace_id=WS_ID, ctx=ctx)
+
+        mock_seam.assert_called_once_with("Risk", tenant_id=ctx.tenant_id)
+        qs_mock.exclude.assert_called_once_with(id__in="OUTDATED_IDS")
+
+    def test_list_risks_include_deleted_skips_exclude(self):
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+        ):
+            qs_mock = MagicMock()
+            qs_mock.order_by.return_value = []
+            mock_mgr.filter.return_value = qs_mock
+
+            svc.list_risks(workspace_id=WS_ID, ctx=ctx, include_deleted=True)
+
+        qs_mock.exclude.assert_not_called()
+
+    def test_delete_then_list_excludes_end_to_end(self, risk, auth_ctx):
+        """DB-backed: delete_risk() (outdate()) removes the risk from the
+        default list_risks() result; include_deleted=True still returns it."""
+        svc = RiskService()
+
+        svc.delete_risk(risk_id=risk.id, ctx=auth_ctx)
+
+        results = list(svc.list_risks(workspace_id=risk.workspace_id, ctx=auth_ctx))
+        assert risk.id not in [r.id for r in results]
+
+        results_incl = list(
+            svc.list_risks(
+                workspace_id=risk.workspace_id, ctx=auth_ctx, include_deleted=True
+            )
+        )
+        assert risk.id in [r.id for r in results_incl]
+
+
+# ---------------------------------------------------------------------------
+# transition_status (I8/1: in-memory status staleness fix)
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionStatus:
+    def test_returned_instance_reports_the_new_state_not_the_frozen_column(
+        self, risk, auth_ctx
+    ):
+        """Datenmodell-Konsolidierung Phase 1: the engine no longer writes a
+        ``status`` mirror, so ``risk.refresh_from_db()`` alone would leave
+        the returned instance's ``.status`` at its stale, pre-transition
+        column value. Must be corrected in memory before returning (same
+        fix as IssueService.transition_status)."""
+        svc = RiskService()
+
+        updated = svc.transition_status(
+            risk_id=risk.id,
+            target_status="Monitored",
+            ctx=auth_ctx,
+        )
+
+        assert updated.status == "Monitored"
+        # Task 12: the `status` column is dropped entirely -- there is no
+        # frozen creation-time column value left to also check.
 
 
 # ---------------------------------------------------------------------------

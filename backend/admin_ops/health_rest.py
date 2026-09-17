@@ -3,7 +3,8 @@ admin_ops — REST adapter for the system health dashboard (admin-only).
 
 Drives ``GET /api/v1/admin/health/``: a single, fast, non-blocking snapshot
 of the runtime infrastructure (database, redis, celery worker/beat, MCP
-server, LLM provider config) plus the most recent audit-log entries.
+server, LLM provider config, memory embedding provider, memory backend)
+plus the most recent audit-log entries.
 
 Design constraints:
 
@@ -15,16 +16,19 @@ Design constraints:
   raises past the view — a broken Redis must not turn this into a 500,
   it must show up as one ``"down"`` row in the response.
 * Every check uses short, explicit timeouts (socket/inspect timeouts of
-  ~1s) so a slow/unreachable dependency cannot make this endpoint hang.
-* ``celery_beat`` cannot verify that a beat *process* is actually
-  running from inside a web worker without side effects (e.g. writing a
-  heartbeat key), so it intentionally reports ``"unknown"`` rather than
-  a potentially-misleading ``"ok"``/``"down"`` — it only confirms that
-  the periodic-task schedule table is reachable.
+  ~1s) for network-backed dependencies; the in-process embedding check
+  avoids probing an unloaded model instead of blocking (see
+  ``_check_memory_embedding``).
+* ``celery_beat`` liveness is derived from a cache-backed heartbeat written
+  by the beat-scheduled task ``admin_ops.record_celery_beat_heartbeat`` (see
+  :mod:`admin_ops.celery_beat_heartbeat`). A fresh timestamp proves the
+  ``beat -> broker -> worker`` chain is alive; the web worker only *reads* it,
+  so the check itself stays side-effect free.
 """
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from django.conf import settings
@@ -45,6 +49,12 @@ logger = logging.getLogger(__name__)
 # stay fast even when a dependency is unreachable.
 _CHECK_TIMEOUT_S = 1.0
 
+# The LLM provider probe is the one check that makes a real, external
+# model round-trip. ~1s is right for a local Redis PING but far too short
+# for a completion call: a perfectly healthy provider would be reported as
+# "down" on nearly every poll. It therefore gets its own, larger budget.
+_LLM_PROBE_TIMEOUT_S = 8.0
+
 STATUS_OK = "ok"
 STATUS_DEGRADED = "degraded"
 STATUS_DOWN = "down"
@@ -60,7 +70,7 @@ _RECENT_EVENTS_LIMIT = 20
 
 
 def _check_database() -> dict[str, str]:
-    """Check PostgreSQL connectivity (mirrors reqflow.health.HealthView)."""
+    """Check PostgreSQL connectivity (mirrors reqogniloom.health.HealthView)."""
     try:
         connection.ensure_connection()
         return {"name": "database", "status": STATUS_OK, "detail": "connected"}
@@ -89,7 +99,7 @@ def _check_redis() -> dict[str, str]:
 def _check_celery_worker() -> dict[str, str]:
     """Check for at least one responding Celery worker via a bounded ping."""
     try:
-        from reqflow.celery import app as celery_app  # noqa: PLC0415 - avoids circular import
+        from reqogniloom.celery import app as celery_app  # noqa: PLC0415 - avoids circular import
 
         replies = celery_app.control.inspect(timeout=_CHECK_TIMEOUT_S).ping()
         if not replies:
@@ -109,26 +119,68 @@ def _check_celery_worker() -> dict[str, str]:
 
 
 def _check_celery_beat() -> dict[str, str]:
-    """Check that the periodic-task schedule is reachable.
+    """Check beat liveness via the cache-backed heartbeat.
 
-    This does NOT confirm a beat *process* is actually running — doing so
-    would require a side-effecting heartbeat mechanism outside this
-    endpoint's scope. It only confirms the schedule table is queryable,
-    hence the deliberately non-committal ``"unknown"`` status.
+    Beat runs the periodic task ``admin_ops.record_celery_beat_heartbeat``,
+    which writes the current epoch timestamp into the shared cache. This
+    function only reads that value back and classifies its age.
+
+    Because the timestamp is written by a worker executing a beat-scheduled
+    task, a fresh heartbeat proves the whole ``beat -> broker -> worker``
+    chain is alive. Combined with :func:`_check_celery_worker` an operator can
+    tell a dead worker apart from a dead beat.
+
+    Status semantics:
+
+    * ``ok``      — a heartbeat exists and its age is within
+      :data:`admin_ops.celery_beat_heartbeat.HEARTBEAT_STALE_AFTER_SECONDS`.
+    * ``down``    — a heartbeat exists but is older than that threshold.
+    * ``unknown`` — no heartbeat has ever been recorded (beat has not started
+      since deploy) or the cache could not be read.
+
+    The check is read-only and never raises past this function.
     """
     try:
-        from django_celery_beat.models import PeriodicTask  # noqa: PLC0415
+        # The import and constant reads live inside the guard too: an import
+        # failure (e.g. a broken/partial deployment) must degrade to ``unknown``
+        # like any other failure, not escape past this function's contract.
+        from admin_ops import celery_beat_heartbeat as heartbeat
 
-        enabled_count = PeriodicTask.objects.filter(enabled=True).count()
+        interval = heartbeat.HEARTBEAT_INTERVAL_SECONDS
+        timestamp = heartbeat.read_heartbeat_timestamp()
+    except Exception as exc:  # noqa: BLE001 - import/cache unreachable/misconfigured
+        logger.warning("System health: celery beat heartbeat check failed - %s", exc)
         return {
             "name": "celery_beat",
             "status": STATUS_UNKNOWN,
-            "detail": f"{enabled_count} periodic task(s) configured "
-            "(process liveness not verified)",
+            "detail": f"heartbeat unreadable: {exc}",
         }
-    except Exception as exc:  # noqa: BLE001 - table missing/unmigrated, etc.
-        logger.warning("System health: celery beat check failed - %s", exc)
-        return {"name": "celery_beat", "status": STATUS_UNKNOWN, "detail": str(exc)}
+
+    if timestamp is None:
+        return {
+            "name": "celery_beat",
+            "status": STATUS_UNKNOWN,
+            "detail": (
+                "no heartbeat recorded - beat has not started since deploy "
+                f"(expected every {interval}s)"
+            ),
+        }
+
+    age = time.time() - timestamp
+    if age <= heartbeat.HEARTBEAT_STALE_AFTER_SECONDS:
+        return {
+            "name": "celery_beat",
+            "status": STATUS_OK,
+            "detail": f"heartbeat {age:.1f}s old (interval {interval}s)",
+        }
+    return {
+        "name": "celery_beat",
+        "status": STATUS_DOWN,
+        "detail": (
+            f"heartbeat stale: last seen {age:.1f}s ago, "
+            f"threshold {heartbeat.HEARTBEAT_STALE_AFTER_SECONDS}s"
+        ),
+    }
 
 
 def _check_mcp_server() -> dict[str, str]:
@@ -167,7 +219,36 @@ def _check_mcp_server() -> dict[str, str]:
 
 
 def _check_llm_provider() -> dict[str, str]:
-    """Check LLM adapter configuration (no network call — config-only)."""
+    """Check the LLM provider with a real, timeout-bounded probe call.
+
+    Beyond confirming an API key string is non-empty, this sends the
+    shortest possible prompt through ``LlmCapabilityInterface.complete()``
+    (REQ-L2-AI-002) — the same free-form completion capability every real
+    provider already exposes. A misconfigured or expired API key, or an
+    unreachable provider, now shows up as STATUS_DOWN with the real error
+    instead of a false STATUS_OK.
+
+    Regression context (systemaudit 2026-09-02, R5/R7): a live audit found
+    /health/ reported ``llm_provider: ok`` throughout an entire session
+    while every real LLM call was actually failing with 401 — the old check
+    only verified that ``LLM_API_KEY`` was a non-empty string.
+
+    Two deliberate deviations from the normal call path (final review):
+
+    * ``_LLM_PROBE_TIMEOUT_S`` instead of ``_CHECK_TIMEOUT_S`` — see the
+      constant's comment; 1s would make this probe report false negatives.
+    * The probe does **not** run through
+      ``llm_adapter.resilient_transport.resilient_call``. That transport
+      books failures against a circuit breaker keyed per provider *class*
+      (``llm:<provider_name>``) — the very same breaker real traffic
+      (decompose, validate, …) uses. A health probe that keeps failing
+      would trip that shared breaker Open and start fast-failing production
+      calls, i.e. the monitoring would cause the outage it reports. The
+      probe therefore neutralises the provider instance's ``_resilient``
+      hook for this one call: single attempt, no retries, no breaker
+      bookkeeping. The timeout is still enforced — every provider's
+      ``_chat`` passes its effective timeout straight to the SDK client.
+    """
     provider = settings.LLM_PROVIDER
     if provider == "mock":
         return {
@@ -175,17 +256,141 @@ def _check_llm_provider() -> dict[str, str]:
             "status": STATUS_OK,
             "detail": "provider=mock (no external calls)",
         }
-    if settings.LLM_API_KEY:
+    if not settings.LLM_API_KEY:
         return {
             "name": "llm_provider",
-            "status": STATUS_OK,
-            "detail": f"provider={provider}, API key configured",
+            "status": STATUS_DEGRADED,
+            "detail": f"provider={provider}, but LLM_API_KEY is not set",
         }
+    try:
+        from llm_adapter.providers import ProviderConfig, get_provider  # noqa: PLC0415
+
+        cfg = ProviderConfig(
+            provider_name=provider,
+            timeout=_LLM_PROBE_TIMEOUT_S,
+            api_key=settings.LLM_API_KEY,
+            api_base_url=settings.LLM_BASE_URL or None,
+            model_name=settings.LLM_MODEL,
+        )
+        probe_provider = get_provider(cfg)
+        # Bypass resilient_call/PolicyEngine for this instance only — see the
+        # docstring: the shared per-provider-class breaker must not be moved
+        # by health traffic.
+        probe_provider._resilient = (  # noqa: SLF001 - deliberate, see docstring
+            lambda call, timeout_seconds=None: call()
+        )
+        probe_provider.complete(
+            "ping", purpose="health_check", timeout=_LLM_PROBE_TIMEOUT_S
+        )
+    except Exception as exc:  # noqa: BLE001 - any probe failure is a "down" row
+        logger.warning("System health: LLM provider probe failed - %s", exc)
+        return {"name": "llm_provider", "status": STATUS_DOWN, "detail": str(exc)}
     return {
         "name": "llm_provider",
-        "status": STATUS_DEGRADED,
-        "detail": f"provider={provider}, but LLM_API_KEY is not set",
+        "status": STATUS_OK,
+        "detail": f"provider={provider}, probe call succeeded",
     }
+
+
+def _check_memory_embedding() -> dict[str, str]:
+    """Check the configured EmbeddingProvider by embedding a short string.
+
+    Uses the normal effective config — ``_read_config()``, i.e. the
+    ``SystemMemorySettings`` DB override overlaid on the env vars, matching
+    what ``get_embedding_provider()`` resolves at real call sites and what
+    the sibling ``_check_memory_backend`` already does — but overrides
+    ``timeout`` to ``_CHECK_TIMEOUT_S``. This bounds *network-backed* providers (``ollama``,
+    ``openai``) to ~1s. The default in-process ``sentence-transformers``
+    provider ignores ``config.timeout`` entirely -- its ``encode()`` call is
+    local/CPU-bound, not network I/O, so there is nothing to time out; a cold
+    model load or a slow CPU can still take longer than ~1s for that provider.
+
+    Special case: the in-process sentence-transformers provider's model is a
+    lazy class-level singleton (see SentenceTransformersEmbeddingProvider).
+    If it has not been loaded yet by real usage, this check deliberately
+    does NOT trigger a cold load — that can take 20-30s (dominated by the
+    torch/sentence_transformers import + model construction), which would
+    race this dashboard's own frontend request timeout and could blank out
+    every OTHER row on the dashboard too. It reports "unknown" instead, in
+    keeping with this dashboard's principle of preferring a truthful
+    "unknown" over performing expensive, unwanted work.
+
+    The model cache is keyed by model name (I-2 fix): ``_model`` can be
+    non-``None`` while loaded under a DIFFERENT name than what the resolved
+    config (env, possibly overlaid by a ``SystemMemorySettings.
+    embedding_model_name`` override) would actually request. So the guard
+    must also skip when the loaded name doesn't match the name this call
+    would use — otherwise an override to a not-yet-loaded model name would
+    still slip past the guard and trigger the exact cold load this check
+    exists to avoid.
+    """
+    try:
+        import dataclasses
+
+        from llm_adapter.embedding_service import (  # noqa: PLC0415
+            SentenceTransformersEmbeddingProvider,
+            _read_config,
+            get_embedding_provider,
+        )
+
+        cfg = dataclasses.replace(_read_config(), timeout=_CHECK_TIMEOUT_S)
+        provider = get_embedding_provider(cfg)
+
+        if isinstance(provider, SentenceTransformersEmbeddingProvider):
+            resolved_model_name = provider._model_name  # noqa: SLF001 - same class, health-check internal use
+            if (
+                SentenceTransformersEmbeddingProvider._model is None
+                or SentenceTransformersEmbeddingProvider._loaded_model_name != resolved_model_name
+            ):
+                return {
+                    "name": "memory_embedding",
+                    "status": STATUS_UNKNOWN,
+                    "detail": (
+                        "in-process sentence-transformers model not yet loaded "
+                        "under the currently-configured model name in this "
+                        "worker process; skipped to avoid a slow cold load "
+                        "(will report ok/down once loaded by real usage)"
+                    ),
+                }
+
+        vector = provider.embed("ping")
+        if vector is None:
+            return {
+                "name": "memory_embedding",
+                "status": STATUS_DOWN,
+                "detail": "embed() returned no vector",
+            }
+        if len(vector) != provider.dimensions:
+            return {
+                "name": "memory_embedding",
+                "status": STATUS_DEGRADED,
+                "detail": f"expected {provider.dimensions} dims, got {len(vector)}",
+            }
+        return {
+            "name": "memory_embedding",
+            "status": STATUS_OK,
+            "detail": f"{provider.dimensions}-dim vector returned",
+        }
+    except Exception as exc:  # noqa: BLE001 - provider unreachable/misconfigured
+        logger.warning("System health: memory embedding check failed - %s", exc)
+        return {"name": "memory_embedding", "status": STATUS_DOWN, "detail": str(exc)}
+
+
+def _check_memory_backend() -> dict[str, str]:
+    """Check the configured MemoryBackend via its own health_check()."""
+    try:
+        from memory.backends import get_memory_backend  # noqa: PLC0415
+
+        backend = get_memory_backend()
+        ok, detail = backend.health_check()
+        return {
+            "name": "memory_backend",
+            "status": STATUS_OK if ok else STATUS_DOWN,
+            "detail": detail,
+        }
+    except Exception as exc:  # noqa: BLE001 - backend unreachable/misconfigured
+        logger.warning("System health: memory backend check failed - %s", exc)
+        return {"name": "memory_backend", "status": STATUS_DOWN, "detail": str(exc)}
 
 
 def _recent_audit_events(limit: int = _RECENT_EVENTS_LIMIT) -> list[dict[str, Any]]:
@@ -233,9 +438,11 @@ class SystemHealthView(APIView):
             {"name": "database", "status": "ok", "detail": "..."},
             {"name": "redis", "status": "ok", "detail": "..."},
             {"name": "celery_worker", "status": "ok", "detail": "..."},
-            {"name": "celery_beat", "status": "unknown", "detail": "..."},
+            {"name": "celery_beat", "status": "ok", "detail": "..."},
             {"name": "mcp_server", "status": "ok", "detail": "..."},
-            {"name": "llm_provider", "status": "ok", "detail": "..."}
+            {"name": "llm_provider", "status": "ok", "detail": "..."},
+            {"name": "memory_embedding", "status": "ok", "detail": "..."},
+            {"name": "memory_backend", "status": "ok", "detail": "..."}
           ],
           "recent_events": [ {...AuditEntry...}, ... ]
         }
@@ -274,6 +481,8 @@ class SystemHealthView(APIView):
             _check_celery_beat(),
             _check_mcp_server(),
             _check_llm_provider(),
+            _check_memory_embedding(),
+            _check_memory_backend(),
         ]
         return Response(
             {

@@ -28,24 +28,21 @@ export type ArtifactKind =
   | "stakeholderNeed"
   | "requirement"
   | "architecture"
-  | "testCase";
+  | "testCase"
+  | "goal"
+  | "mainGoal";
 
 /**
- * The 8 link types that the TracePanel surfaces as filter chips
- * (UI standards §5.1 / §4.4). Mirrors the public LinkType union from
- * `frontend/src/types/index.ts`. The backend enum has 12 values; the
- * inspector subset is the public UI contract and any new type requires
- * a coordinated type + i18n update.
+ * A link-type key as the TracePanel handles it.
+ *
+ * A plain string, matching the project-wide `LinkType` in
+ * `frontend/src/types/index.ts` (widened in Task 22): link types are a
+ * per-workspace, tenant-extensible catalog (`useLinkTypes()`), so no
+ * frontend union can enumerate them. This used to be a closed 8-member
+ * union of *retired* types, and TracePanel silently dropped every link
+ * whose type was not in it.
  */
-export type LinkType =
-  | "parent-child"
-  | "derives-from"
-  | "satisfies"
-  | "verifies"
-  | "implements"
-  | "refines"
-  | "documents"
-  | "allocated-to";
+export type LinkType = string;
 
 /**
  * A single version entry surfaced by the VersionPanel. `baselineIds` is
@@ -57,6 +54,14 @@ export interface VersionRef {
   label: string;
   createdAt: string | null;
   baselineIds: string[];
+  /**
+   * Whether the backend can actually return this version's content. Rows
+   * without a stored snapshot (creation baseline, historical lock-counter
+   * values of single-row types) cannot be switched to or compared — see
+   * issue #213. Optional so that call sites building the *current* version
+   * ref (always retrievable) can omit it; `undefined` means `true`.
+   */
+  contentAvailable?: boolean;
 }
 
 /**
@@ -117,15 +122,3 @@ export const DIFF_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
   "diagram",
   "glossary",
 ]);
-
-/** The 8 link types — exported as a stable list for chip rendering. */
-export const ALL_LINK_TYPES: ReadonlyArray<LinkType> = [
-  "parent-child",
-  "derives-from",
-  "satisfies",
-  "verifies",
-  "implements",
-  "refines",
-  "documents",
-  "allocated-to",
-];

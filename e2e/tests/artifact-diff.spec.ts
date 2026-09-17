@@ -1,6 +1,6 @@
 // REQ-L1-040, REQ-L2-RF-014: Artifact Diff — visual diff view
 // Create a requirement, modify it, open diff view, assert changed field visible
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -11,37 +11,121 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await loginAsAdmin(page);
   });
 
-  test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {
-    test.setTimeout(10000);
+  /**
+   * Save the open requirement and wait for the detail-refetch GET.
+   *
+   * The seeded workspace runs the "extended" preset, whose policy rejects a
+   * PATCH without a change reason ("change_reason required by workspace preset
+   * policy", HTTP 400). Without filling the change-reason input the save
+   * never reaches the server successfully, no refetch is triggered, and the
+   * waitForResponse below hangs until the test times out.
+   *
+   * Task 25: the requirement editor now renders through the shared
+   * `ArtifactForm` (`RequirementArtifactForm`), whose entity-switch reset
+   * (`useEntityReset`, keyed on `artifactId`) — unlike the deleted
+   * `RequirementForm.tsx`'s own `useEffect(() => {...}, [requirement])` —
+   * does NOT re-run on a same-artifact refetch, only on an actual artifact
+   * switch. The retry this helper still performs is defense-in-depth against
+   * that now-fixed bug class (kept rather than removed: a false-negative
+   * retry is free, a flaky E2E failure is not), not a currently-reachable
+   * race.
+   */
+  async function saveWithChangeReason(page: Page, reason: string, attempt = 1): Promise<void> {
+    const reasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
+    await reasonInput.fill(reason);
+    try {
+      await Promise.all([
+        page.waitForResponse(
+          (resp) =>
+            /\/requirements\/[^/?]+\/?$/.test(new URL(resp.url()).pathname) &&
+            resp.request().method() === 'GET' &&
+            resp.status() === 200,
+          { timeout: attempt === 1 ? 8000 : 30000 }
+        ),
+        page.locator('[data-testid="artifact-form-save"]').click(),
+      ]);
+    } catch (err) {
+      const stillHasReason = await reasonInput.inputValue();
+      if (attempt === 1 && stillHasReason.trim() !== reason.trim()) {
+        await saveWithChangeReason(page, reason, attempt + 1);
+        return;
+      }
+      throw err;
+    }
+    await expect(page.locator('[data-testid="artifact-form-save"]')).toContainText(/Save|Speichern/, { timeout: 10000 });
+  }
 
-    // Navigate to requirements and create a new one
+  /**
+   * Expand the ArtifactInspector sidebar if it renders collapsed.
+   *
+   * GitHub #419 (predates this test) made the RightSidebar shell default to
+   * collapsed on viewports narrower than 1600px so the editor column stays
+   * usable — see RightSidebar.tsx's DEFAULT_COLLAPSE_BREAKPOINT_PX. The E2E
+   * suite runs at Playwright's 'Desktop Chrome' default viewport (1280x720),
+   * which is below that threshold, so a freshly created browser context
+   * (empty localStorage) always mounts the sidebar collapsed. Without this
+   * step every locator scoped to the panels inside the sidebar
+   * (inspector-diff-panel, artifact-diff-view, ...) times out because the
+   * panels never mount at all while collapsed — the collapsed strip renders
+   * icon-only buttons in their place. This mirrors what a real user on a
+   * narrow screen has to do (click the expand affordance) rather than
+   * assuming an always-expanded default that no longer matches the app.
+   */
+  async function ensureInspectorExpanded(page: Page): Promise<void> {
+    const expandBtn = page.locator('[data-testid="artifact-inspector-expand"]');
+    if (await expandBtn.isVisible().catch(() => false)) {
+      await expandBtn.click();
+    }
+    await expect(page.locator('[data-testid="artifact-inspector-collapsed"]')).toHaveCount(0);
+  }
+
+  test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {
+    // Bumped from 10000ms: the create flow needs an extra fill+click
+    // round-trip (req-new-title-input/req-new-save-btn) before the detail
+    // editor renders (issue #172), and every save additionally fills
+    // change-reason-input (extended-preset policy) and waits for the
+    // detail-refetch GET. 15000ms no longer covers two such saves.
+    test.setTimeout(30000);
+
+    // Navigate to requirements and create a new one. The create form
+    // (issue #172: PageHeader pattern) asks for the title up front via
+    // req-new-title-input/req-new-save-btn; the full editor (req-title etc.)
+    // only renders after Save navigates to the detail route.
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="req-new-title-input"]').fill('Diff Test Requirement');
+    await page.locator('[data-testid="req-new-save-btn"]').click();
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 
     // Fill in initial data
-    const titleInput = page.locator('[data-testid="req-title"]');
+    const titleInput = page.locator('[data-testid="artifact-field-title"]');
     await titleInput.fill('Diff Test Requirement');
 
-    // Save the requirement
-    await page.locator('[data-testid="save-btn"]').click();
-    // Wait for save to complete (button text returns from "Saving..." to "Save")
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    // Small delay for state stabilization
-    await page.waitForTimeout(1000);
+    // Save the requirement. The save handler PATCHes the requirement and
+    // then invalidates the detail query, which triggers a background GET
+    // refetch (../RequirementEditors/useRequirementData.ts refresh()).
+    // saveWithChangeReason waits for that refetch instead of a fixed delay, so
+    // the next edit is guaranteed to race against fresh, persisted state.
+    await saveWithChangeReason(page, 'initial content');
 
     // Now modify the title
     await titleInput.fill('Diff Test Requirement - Modified');
 
     // Save again to create a new version
-    await page.locator('[data-testid="save-btn"]').click();
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    await page.waitForTimeout(1000);
+    await saveWithChangeReason(page, 'renamed for the diff assertion');
 
-    // Click the "View Diff" button
-    const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 10000 });
-    await viewDiffBtn.click();
+    // Diff is no longer behind a "View Diff" modal trigger — since
+    // REQ-L2-RF-034/036 (RightSidebar shell) it is rendered inline in the
+    // persistent ArtifactInspector sidebar, always visible once a version
+    // exists (RequirementEditors.tsx renders <RightSidebar> unconditionally
+    // next to the form; DiffPanel wraps ArtifactDiff with an inspector
+    // section around it, see DiffPanel.tsx).
+    const inspector = page.locator('[data-testid="artifact-inspector"]');
+    await expect(inspector).toBeVisible({ timeout: 10000 });
+    await ensureInspectorExpanded(page);
+
+    const diffPanel = page.locator('[data-testid="inspector-diff-panel"]');
+    await expect(diffPanel).toBeVisible({ timeout: 10000 });
 
     // The diff view should appear
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
@@ -63,34 +147,43 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     const diffFields = page.locator('[data-testid="diff-fields"]');
     await expect(diffFields).toBeVisible({ timeout: 10000 });
 
-    // Close button should work
+    // The Close button is kept for visual/API parity with the standalone
+    // ArtifactDiff component, but per UI standards §1.2 the inspector is
+    // persistent and must NOT unmount on close (DiffPanel.tsx onClose is a
+    // deliberate no-op) — so clicking it must leave the diff view visible.
     const closeBtn = page.locator('[data-testid="diff-close-btn"]');
     await expect(closeBtn).toBeVisible({ timeout: 4000 });
     await closeBtn.click();
-
-    // Diff view should be hidden
-    await expect(diffView).not.toBeVisible({ timeout: 4000 });
+    await expect(diffView).toBeVisible({ timeout: 2000 });
   });
 
   test('[REQ-L2-RF-014] diff view shows version 0 baseline as all fields added', async ({ page }) => {
-    test.setTimeout(10000);
+    // Bumped from 10000ms: the create flow needs an extra fill+click
+    // round-trip (req-new-title-input/req-new-save-btn) before the detail
+    // editor renders (issue #172), and every save additionally fills
+    // change-reason-input (extended-preset policy) and waits for the
+    // detail-refetch GET. 15000ms no longer covers two such saves.
+    test.setTimeout(30000);
 
-    // Navigate to requirements and create a new one
+    // Navigate to requirements and create a new one. The create form
+    // (issue #172: PageHeader pattern) asks for the title up front via
+    // req-new-title-input/req-new-save-btn; the full editor (req-title etc.)
+    // only renders after Save navigates to the detail route.
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="req-new-title-input"]').fill('Baseline Diff Test');
+    await page.locator('[data-testid="req-new-save-btn"]').click();
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 
-    // Fill in data and save
-    await page.locator('[data-testid="req-title"]').fill('Baseline Diff Test');
-    await page.locator('[data-testid="save-btn"]').click();
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    await page.waitForTimeout(1000);
+    // Fill in data and save. See the previous test for why we wait for the
+    // detail-refetch GET rather than a fixed delay.
+    await page.locator('[data-testid="artifact-field-title"]').fill('Baseline Diff Test');
+    await saveWithChangeReason(page, 'initial content');
 
-    // Open diff view
-    const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 10000 });
-    await viewDiffBtn.click();
-
+    // Diff view is rendered inline in the persistent ArtifactInspector
+    // sidebar (REQ-L2-RF-034/036) — no separate "View Diff" trigger exists
+    // anymore, see the note in the previous test.
+    await ensureInspectorExpanded(page);
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
     await expect(diffView).toBeVisible({ timeout: 10000 });
 

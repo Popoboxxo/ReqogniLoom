@@ -42,8 +42,10 @@ test.describe('[COMP-RF-002] DashboardViews', () => {
     const text = await firstCard.innerText();
     // Preset name appears (minimal / standard / extended)
     expect(text).toMatch(/minimal|standard|extended/i);
-    // Either "Dev" or "SE" mode label is rendered (i18n English/German tolerant)
-    expect(text).toMatch(/(dev|developer|systems engineer|se mode|engineer)/i);
+    // Either "Dev" or "SE" mode label is rendered (i18n English/German tolerant).
+    // German locale renders "Entwickler-Modus" / "SE-Modus"
+    // (frontend/src/i18n/locales/de.json: settings.devMode / settings.seMode).
+    expect(text).toMatch(/(dev|developer|systems engineer|se mode|engineer|entwickler|se-modus)/i);
   });
 
   test('[REQ-L3-RF002-003] clicking workspace card navigates away from dashboard', async ({ page }) => {

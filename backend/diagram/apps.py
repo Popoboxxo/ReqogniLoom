@@ -10,7 +10,7 @@ class DiagramConfig(AppConfig):
       versioned artifacts with structured payload (Mermaid, PlantUML, or JSON).
     - Payload validation, immutable versioning, renderable representations.
     - Links diagrams to Requirements/ArchitectureElements via TraceabilityEngine
-      with link_type='documents' (IF-L1-034).
+      with link_type='references' (IF-L1-034).
     - Accessed from ApplicationService via DiagramFacadeService (IF-L1-032).
 
     See: docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/L2_DiagramServiceSystem_Architecture.md

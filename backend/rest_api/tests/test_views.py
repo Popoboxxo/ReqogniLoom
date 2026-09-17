@@ -54,7 +54,17 @@ def _make_auth_context(roles: tuple[str, ...] = ("admin",)) -> MagicMock:
 
 
 def _make_request(method: str, data: dict | None = None, params: dict | None = None, roles: tuple[str, ...] = ("admin",)) -> Any:
-    """Build an APIRequestFactory request with mock auth context attached."""
+    """Build an APIRequestFactory request with mock auth context attached.
+
+    Also activates ``TenantContext`` for the built request's tenant:
+    ``view(req)`` bypasses the real middleware stack that normally does this,
+    but WorkflowStateSerializerMixin's ``status`` field (Datenmodell-
+    Konsolidierung) needs an active tenant to resolve even when the service
+    layer itself is mocked. conftest.py's autouse fixture clears it after
+    each test.
+    """
+    from persistence.tenancy import TenantContext
+
     factory = APIRequestFactory()
     req_fn = getattr(factory, method.lower())
     url = "/api/v1/requirements/"
@@ -65,7 +75,9 @@ def _make_request(method: str, data: dict | None = None, params: dict | None = N
         req = req_fn(f"{url}?{query_string}")
     else:
         req = req_fn(url)
-    req.auth_context = _make_auth_context(roles)
+    auth_context = _make_auth_context(roles)
+    req.auth_context = auth_context
+    TenantContext.set_tenant(auth_context.tenant_id)
     return req
 
 
@@ -141,9 +153,14 @@ class TestAuthEnforcement:
 
 
 class _FakeSerializer:
-    """Minimal serializer stand-in: exposes the input dict as ``.data``."""
+    """Minimal serializer stand-in: exposes the input as ``.data`` verbatim.
 
-    def __init__(self, data: Any) -> None:
+    Accepts ``many=True`` (ignored beyond accepting the kwarg) since
+    ``_paginate(..., serialize_page=...)`` batches the whole page into one
+    ``XSerializer(dicts, many=True)`` call.
+    """
+
+    def __init__(self, data: Any, many: bool = False) -> None:
         self.data = data
 
 
@@ -262,6 +279,7 @@ class TestRequirementViewSetRouting:
             response = view(req)
         assert response.status_code == 400
 
+    @pytest.mark.django_db
     def test_create_returns_201(self) -> None:
         data = {
             "workspace_id": str(uuid.uuid4()),
@@ -284,28 +302,27 @@ class TestRequirementViewSetRouting:
         assert response.status_code == 400
         assert "error" in response.data
 
+    @pytest.mark.django_db
     def test_partial_update_returns_200(self) -> None:
         data = {"title": "Updated"}
-        factory = APIRequestFactory()
-        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
-        req.auth_context = _make_auth_context()
+        req = _make_request("patch", data=data)
         view = RequirementViewSet.as_view({"patch": "partial_update"})
         with patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200
 
+    @pytest.mark.django_db
     def test_partial_update_response_includes_uid(self) -> None:
         """Regression: PATCH response must expose stored uid (_dto_from_orm)."""
         data = {"title": "Updated"}
-        factory = APIRequestFactory()
-        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
-        req.auth_context = _make_auth_context()
+        req = _make_request("patch", data=data)
         view = RequirementViewSet.as_view({"patch": "partial_update"})
         with patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200
         assert response.data["uid"] == "SYS-REQ-042"
 
+    @pytest.mark.django_db
     def test_partial_update_does_not_forward_uid(self) -> None:
         """Regression: PATCH must not forward uid (read-only) to service.
 
@@ -313,9 +330,7 @@ class TestRequirementViewSetRouting:
         overwrite the stored uid with NULL. The view must omit uid entirely.
         """
         data = {"title": "Updated"}
-        factory = APIRequestFactory()
-        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
-        req.auth_context = _make_auth_context()
+        req = _make_request("patch", data=data)
         view = RequirementViewSet.as_view({"patch": "partial_update"})
         svc_mock = self._svc_mock()
         with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
@@ -377,14 +392,25 @@ class TestRequirementStatusSingleSource:
     def test_partial_update_rejects_status(self) -> None:
         """A client-sent `status` is rejected with a clear 400 (QA-123) instead
         of silently succeeding — a prior 200-with-silent-ignore misled callers
-        into believing their status change had applied."""
+        into believing their status change had applied.
+
+        #915: ``_current_status`` no longer reads the persistence row (the
+        ``status`` column was dropped, Datenmodell-Konsolidierung Task 12) but
+        resolves the state from ``workflow.state_reader``, so this unit test
+        stubs it as well to stay service-mock-only — it pins the *guard*. The
+        engine resolution itself is covered end to end by
+        ``test_readonly_and_unknown_field_rejection_915_916.py``.
+        """
         data = {"title": "Updated", "status": "approved"}
         factory = APIRequestFactory()
         req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
         req.auth_context = _make_auth_context()
         view = RequirementViewSet.as_view({"patch": "partial_update"})
         svc_mock = self._svc_mock(status="draft")
-        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+        with (
+            patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock),
+            patch.object(RequirementViewSet, "_current_status", return_value="draft"),
+        ):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 400
         assert "transitions" in response.data["error"]["message"]
@@ -439,9 +465,18 @@ class TestRequirementStatusSingleSource:
         view = RequirementViewSet.as_view({"post": "transitions"})
         # After the transition the mirror shows the new state.
         svc_mock = self._svc_mock(status="in_review")
+        # Datenmodell-Konsolidierung: the embedded requirement's `status` is
+        # now resolved from WorkflowItemState (rest_api/mixins/workflow_state.py),
+        # not svc_mock.status — mock the read seam directly to simulate "the
+        # transition already committed" the same way a real WorkflowFacade call
+        # would leave the row.
         with (
             patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock),
             patch("rest_api.mixins.workflow_transitions.WorkflowFacade", return_value=facade),
+            patch(
+                "rest_api.mixins.workflow_state.state_reader.current_states",
+                return_value={str(svc_mock.get_requirement.return_value.id): "in_review"},
+            ),
         ):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200
@@ -834,13 +869,59 @@ class TestRequirementListStatusFilter:
         assert svc_mock.list_requirements.call_args.kwargs["status"] is None
 
 
+class TestRequirementListSearchFilter:
+    """GET /api/v1/requirements/?workspace_id=...&search=<term> (Issue #267).
+
+    Regression: the ``search`` query parameter was never read from the
+    request and never forwarded to RequirementService.list_requirements(),
+    so it had zero effect on the response — every item in the workspace was
+    always returned regardless of the search term.
+    """
+
+    def _svc_mock(self) -> MagicMock:
+        svc = MagicMock()
+        svc.list_requirements.return_value = []
+        return svc
+
+    def test_list_forwards_search_query_param_to_service(self) -> None:
+        workspace_id = uuid.uuid4()
+        req = _make_request(
+            "get", params={"workspace_id": str(workspace_id), "search": "payment"}
+        )
+        view = RequirementViewSet.as_view({"get": "list"})
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = view(req)
+
+        assert response.status_code == 200
+        svc_mock.list_requirements.assert_called_once()
+        assert svc_mock.list_requirements.call_args.kwargs["search"] == "payment"
+
+    def test_list_without_search_passes_none(self) -> None:
+        workspace_id = uuid.uuid4()
+        req = _make_request("get", params={"workspace_id": str(workspace_id)})
+        view = RequirementViewSet.as_view({"get": "list"})
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = view(req)
+
+        assert response.status_code == 200
+        assert svc_mock.list_requirements.call_args.kwargs["search"] is None
+
+
 # ---------------------------------------------------------------------------
 # ArchitectureElementViewSet — PATCH wires expected_version
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestArchitectureElementViewSetRouting:
-    """PATCH /api/v1/architecture/{pk}/ passes expected_version to service."""
+    """PATCH /api/v1/architecture/{pk}/ passes expected_version to service.
+
+    ``django_db`` is required since WS1 (#935) wired ``ArchitectureElementSerializer``
+    onto the workflow engine seam: serializing the PATCH response now resolves the
+    ``status`` system attribute, which reads from the database.
+    """
 
     def _svc_mock(self) -> MagicMock:
         svc = MagicMock()
@@ -910,6 +991,34 @@ class TestArchitectureElementViewSetRouting:
             response = view(req, pk=str(pk))
         assert response.status_code == 200
         assert "uid" not in svc_mock.update_architecture_element.call_args.kwargs
+
+    def test_partial_update_optimistic_lock_error_returns_409(self) -> None:
+        """Regression: OptimisticLockError (both the pre-existing expected_version
+        mismatch path and the newly-guarded concurrent-write-between-read-and-
+        write path) must surface as 409 CONFLICT, not a generic 500 — it was
+        missing from _EXC_TO_HTTP/_EXC_TO_CODE entirely, so partial_update's
+        blanket `except Exception` handler mapped it to
+        INTERNAL_SERVER_ERROR/500, hiding the actionable "retry" signal from
+        the client."""
+        from application.base import OptimisticLockError
+
+        pk = uuid.uuid4()
+        data = {"title": "Updated", "expected_version": 1}
+        factory = APIRequestFactory()
+        req = factory.patch(f"/api/v1/architecture/{pk}/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = ArchitectureElementViewSet.as_view({"patch": "partial_update"})
+        svc_mock = self._svc_mock()
+        svc_mock.update_architecture_element.side_effect = OptimisticLockError(
+            "Concurrent modification detected"
+        )
+        with patch(
+            "rest_api.views.ArchitectureElementViewSet._svc",
+            return_value=svc_mock,
+        ):
+            response = view(req, pk=str(pk))
+        assert response.status_code == 409
+        assert response.data["error"]["code"] == "CONFLICT"
 
 
 # ---------------------------------------------------------------------------
@@ -1106,6 +1215,47 @@ class TestBaselinePresetGate:
                 view(req)
 
 
+class TestBaselineViewSetListWorkspaceScoping:
+    """GET /api/v1/baselines/ is workspace-scoped (#49).
+
+    The flat `/api/v1/baselines/?workspace_id=` route (this class) requires
+    `workspace_id` and returns 400 without it, then forwards it (plus
+    ctx.tenant_id) to `BaselineFacade.list_baselines()` ->
+    `baseline.services.list_baselines()`, so no unscoped listing is possible.
+    As of #49 a nested `/api/v1/workspaces/{id}/baselines/` route also exists
+    (mirroring Needs/Permissions/Audit/etc.) — see
+    rest_api/tests/test_baseline_workspace_routing.py.
+    """
+
+    def test_list_without_workspace_id_returns_400(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/baselines/")
+        req.auth_context = _make_auth_context()
+        req.query_params = {}
+        view = BaselineViewSet.as_view({"get": "list"})
+        with patch.object(BaselineViewSet, "_check_preset"):
+            response = view(req)
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_list_with_workspace_id_forwards_scope_to_service(self) -> None:
+        ws_id = uuid.uuid4()
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/baselines/", data={"workspace_id": str(ws_id)})
+        req.auth_context = _make_auth_context()
+        view = BaselineViewSet.as_view({"get": "list"})
+        svc_mock = MagicMock()
+        svc_mock.list_baselines.return_value = []
+        with (
+            patch.object(BaselineViewSet, "_check_preset"),
+            patch("rest_api.views.BaselineViewSet._svc", return_value=svc_mock),
+        ):
+            response = view(req)
+        assert response.status_code == 200
+        call_kwargs = svc_mock.list_baselines.call_args.kwargs
+        assert call_kwargs["workspace_id"] == str(ws_id)
+
+
 class TestBaselineViewSetCreate:
     """POST /api/v1/baselines/ creates baselines from the UI payload."""
 
@@ -1247,6 +1397,21 @@ class TestUrlRouting:
         for entity in expected:
             found = any(entity in _pattern_str(url) for url in router.get_urls())
             assert found, f"Route not registered for: {entity!r}"
+
+    def test_trace_links_kebab_case_route_registered(self) -> None:
+        """Regression test for #233: POST /api/v1/trace-links/ 404ed with an
+        HTML page because only the legacy "tracelinks" (no dash) route was
+        registered, inconsistent with every other multi-word route
+        (main-goals, change-requests, test-runs, ...).
+        """
+        from rest_api.urls import router
+
+        def _pattern_str(url) -> str:
+            p = url.pattern
+            return getattr(p, "_route", None) or getattr(p, "_regex", "") or str(p)
+
+        found = any("trace-links" in _pattern_str(url) for url in router.get_urls())
+        assert found, "Route not registered for: 'trace-links'"
 
 
 # ---------------------------------------------------------------------------

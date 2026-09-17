@@ -2502,6 +2502,58 @@ Das System muss alle Listen- und Such-Endpoints gegen Ressourcenerschöpfung abs
 
 ---
 
+### REQ-L1-100: Node Graph Diagram Payload Format
+
+Das System muss Diagramme mit dem `node_graph` Payload-Format — einer strukturierten Knoten/Kanten-Representation unabhängig vom freien Canvas-Format — speichern und validieren. Ein `node_graph` Payload ist eine JSON-Hülle mit `schema_version`, `nodes[]`, `edges[]` und optionalem `viewport`, wobei jeder Knoten ein optionales `artifact_ref` trägt zur späteren Verknüpfung mit Anforderungen/Architektur/Tests via DIAGRAM_REF Trace-Link.
+
+**Rationale:** Strukturierte Diagrammrepräsentation ermöglicht automatisierte Traceability-Reconciliation zwischen Diagramm-Inhalten und Artefaktmodell; Unterscheidung vom freien Canvas-Format ermöglicht unterschiedliche Editor-Implementierungen.
+
+**Implementation State:** Implemented
+
+**Review Findings:** Implementierung in Tasks 1-9 verifiziert; PayloadFormat.NODE_GRAPH definiert in backend/diagram/models.py; node_graph.py Pure-Funktions-Validator vorhanden.
+
+**Test Status:** Covered (pytest + Vitest, Tasks 1-9)
+
+**Domain:** software
+
+**Priorität:** desired
+
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Node-Graph-Format als erstes strukturiertes Diagramm-Format neben Canvas-Format"
+
+**Externe Interfaces:**
+- Eingang: DiagramDetail mit payload_format='node_graph', content=JSON-String
+- Ausgang: Validierte NodeGraphPayload mit Knotenliste, Kantenliste, Viewport-Metadaten
+
+**Traceability:** REQ-L1-027 (Integrierte Diagramm- und Grafik-Verwaltung)
+
+---
+
+### REQ-L1-101: DIAGRAM_REF Trace Link Type for Reconciler-Owned Diagram-Artifact References
+
+Das System muss einen speziellen Trace-Link-Typ `DIAGRAM_REF` (diagram-ref) bereitstellen, der ausschließlich vom Reconciler automatisch erstellt wird und per-Knoten `artifact_ref` eines node_graph Diagramms mit den referenzierten Anforderungen/Architektur-Elementen/Test-Cases verknüpft. Der DIAGRAM_REF Link ist: (1) nie von Hand geschrieben, (2) absichtlich ausgeschlossen aus SE_LINK_SEMANTICS (da System-Eigentum, nicht Disziplin-Disziplin), (3) am Diagramm.artifact shadow-Artefakt hängend.
+
+**Rationale:** Automatisierte Trace-Link-Erstellung aus Knoten-Referenzen eliminiert manuelle Synchronisation zwischen Diagramm-Inhalten und TraceLink-Registratur; Unterscheidung als dedizierter Link-Typ erlaubt explizites Filtern in UI-Dropdowns und Reports.
+
+**Implementation State:** Implemented
+
+**Review Findings:** LinkType.DIAGRAM_REF definiert in backend/traceability/types.py Line 59; Reconciler-Integration in Commit bb9a4068; absichtlich von SE_LINK_SEMANTICS ausgeschlossen (siehe types.py Kommentar Line 57-59).
+
+**Test Status:** Covered (pytest, Task 3)
+
+**Domain:** software
+
+**Priorität:** desired
+
+**Externe Interfaces:**
+- Eingang: Node mit artifact_ref + Diagram.artifact als TraceLink-Quelle, validierter Ziel-Artefakt
+- Ausgang: Automatisch erstellter TraceLink mit link_type='diagram-ref' (Reconciler-owned)
+
+**Traceability:** REQ-L1-027 (Integrierte Diagramm- und Grafik-Verwaltung), REQ-L1-003 (Traceability-Engine)
+
+---
+
 ## Master Traceability Matrix
 
 | REQ-L1 | Abgeleitet von REQ-L0 |
@@ -2583,4 +2635,7 @@ Das System muss alle Listen- und Such-Endpoints gegen Ressourcenerschöpfung abs
 | REQ-L1-093 | REQ-L0-062, REQ-L0-009 (i18n) |
 | REQ-L1-094 | REQ-L0-062, REQ-L0-009 (i18n) |
 | REQ-L1-095 | REQ-L0-062, REQ-L0-017 (ICDs), REQ-L0-018 (ADRs/Risks/Issues), REQ-L0-042 (Ontology variety) |
+| REQ-L1-099 | REQ-L0-062 (System constraints) |
+| REQ-L1-100 | REQ-L0-016 (GH-353 diagram management) |
+| REQ-L1-101 | REQ-L0-016 (GH-353 traceability) |
 

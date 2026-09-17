@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ###############################################################################
-# PostgreSQL Backup Script for ReqFlow
+# PostgreSQL Backup Script for ReqogniLoom
 #
 # Description:
 #   Backup the PostgreSQL database using pg_dump via Docker Compose.
@@ -16,17 +16,17 @@
 #   ./scripts/backup.sh --list       # List existing backups
 #
 # Environment Variables:
-#   DB_USER      - PostgreSQL username (default: reqflow)
-#   DB_PASSWORD  - PostgreSQL password (default: reqflow)
-#   DB_NAME      - Database name (default: reqflow)
+#   DB_USER      - PostgreSQL username (default: reqogniloom)
+#   DB_PASSWORD  - PostgreSQL password (default: reqogniloom)
+#   DB_NAME      - Database name (default: reqogniloom)
 #   BACKUP_RETENTION_DAYS - Days to keep backups (default: 7)
 #
 # Requirements:
 #   - docker/docker-compose installed
-#   - postgres service running (docker-compose.yml)
+#   - postgres service running (deploy/docker-compose.yml)
 #   - Write permission to ./backups/ directory
 #
-# Author: ReqFlow DevOps
+# Author: ReqogniLoom DevOps
 # Last Updated: 2026-07-14
 ###############################################################################
 
@@ -71,11 +71,16 @@ check_prerequisites() {
     exit 1
   fi
 
-  if [ ! -f "${PROJECT_ROOT}/docker-compose.yml" ]; then
-    log_error "docker-compose.yml not found at ${PROJECT_ROOT}"
+  if [ ! -f "${PROJECT_ROOT}/deploy/docker-compose.yml" ]; then
+    log_error "deploy/docker-compose.yml not found at ${PROJECT_ROOT}"
     exit 1
   fi
 
+  # NOTE: docker-compose.backup.yml has never existed in this repo — this
+  # script has been unreachable past this check since before the deploy/
+  # reorg (pre-dates the postgres-backup sidecar now built into
+  # deploy/docker-compose.yml, which is the actually-used backup mechanism).
+  # Left as-is, not part of this reorg — see docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md.
   if [ ! -f "${PROJECT_ROOT}/docker-compose.backup.yml" ]; then
     log_error "docker-compose.backup.yml not found at ${PROJECT_ROOT}"
     exit 1
@@ -95,9 +100,9 @@ run_backup() {
   cd "$PROJECT_ROOT"
 
   if docker-compose --version &> /dev/null; then
-    docker-compose -f docker-compose.yml -f docker-compose.backup.yml run --rm backup
+    docker-compose -f deploy/docker-compose.yml -f docker-compose.backup.yml --project-directory . run --rm backup
   else
-    docker compose -f docker-compose.yml -f docker-compose.backup.yml run --rm backup
+    docker compose -f deploy/docker-compose.yml -f docker-compose.backup.yml --project-directory . run --rm backup
   fi
 
   if [ $? -eq 0 ]; then
@@ -171,9 +176,9 @@ main() {
       echo "  --help        Show this help message"
       echo ""
       echo "Environment Variables:"
-      echo "  DB_USER              PostgreSQL username (default: reqflow)"
-      echo "  DB_PASSWORD          PostgreSQL password (default: reqflow)"
-      echo "  DB_NAME              Database name (default: reqflow)"
+      echo "  DB_USER              PostgreSQL username (default: reqogniloom)"
+      echo "  DB_PASSWORD          PostgreSQL password (default: reqogniloom)"
+      echo "  DB_NAME              Database name (default: reqogniloom)"
       echo "  BACKUP_RETENTION_DAYS Days to keep backups (default: 7)"
       ;;
     *)

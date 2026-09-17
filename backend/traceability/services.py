@@ -36,6 +36,7 @@ import uuid
 from typing import Optional
 
 from django.core.cache import cache
+from django.db.models import QuerySet
 
 from traceability.coverage_calculator import CoverageCalculator
 from traceability.exceptions import (  # noqa: F401  (re-exported for callers)
@@ -60,6 +61,7 @@ from traceability.types import (  # noqa: F401  (re-exported)
     TraceGraphData,
     TransitiveResult,
     VCRMMatrix,
+    VCRMRow,  # H1: Bug fix — was in __all__ but not imported
     VALID_LINK_TYPES,
 )
 from traceability.vcrm_report_generator import VCRMReportGenerator
@@ -83,7 +85,7 @@ _vcrm_gen = VCRMReportGenerator(
 # the shared Redis cache (REQ-033) with a short TTL and invalidated on any
 # TraceLink mutation (see application.cache_invalidation).
 TRACEABILITY_MATRIX_CACHE_TTL = 300  # seconds (5 minutes)
-_MATRIX_CACHE_PREFIX = "reqflow:traceability-matrix"
+_MATRIX_CACHE_PREFIX = "reqogniloom:traceability-matrix"
 
 
 def traceability_matrix_cache_key(
@@ -93,7 +95,7 @@ def traceability_matrix_cache_key(
     """Return the shared-cache key for a workspace's VCRM matrix (REQ-104).
 
     The key is workspace-scoped and varies by baseline snapshot so baseline
-    diffs never collide with the live matrix. It shares the ``reqflow:``
+    diffs never collide with the live matrix. It shares the ``reqogniloom:``
     namespace used by ``application.cache_invalidation`` so the existing
     workspace pattern-invalidation also reaches these keys.
     """
@@ -177,10 +179,15 @@ def get_coverage_data(
     """Return per-requirement test-case data (used by VCRMReportGenerator).
 
     IF-TE-INT-004. REQ-L2-TE-013.
+
+    Note: explicitly passes ``include_outdated=True`` to preserve this
+    facade's pre-existing behavior (show all requirements, including
+    outdated ones) regardless of the underlying calculator's new default.
     """
     return _coverage_calc.get_coverage_data(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
+        include_outdated=True,
     )
 
 
@@ -193,10 +200,15 @@ def create_trace_link(
     target_id: uuid.UUID,
     link_type: str,
     created_by_id: Optional[uuid.UUID] = None,
+    rationale: str = "",
 ):
     """Create a single TraceLink.
 
     IF-TE-EXT-IN-003. REQ-L2-TE-001 / REQ-L2-TE-002 / REQ-L2-TE-010 / REQ-L2-TE-011.
+
+    Args:
+        rationale: Q1.6 — optional free text stating why these two artifacts
+            are linked. Defaults to "" so existing callers are unaffected.
 
     Raises:
         InvalidLinkTypeError: link_type not in 8 valid types.
@@ -209,6 +221,7 @@ def create_trace_link(
         target_id=target_id,
         link_type=link_type,
         created_by_id=created_by_id,
+        rationale=rationale,
     )
 
 
@@ -218,6 +231,57 @@ def get_trace_link(link_id: uuid.UUID):
     IF-TE-EXT-IN-003. REQ-L2-TE-011.
     """
     return _manager.get(link_id=link_id)
+
+
+def list_trace_links(
+    workspace_id: Optional[uuid.UUID] = None,
+    filters: Optional[dict] = None,
+    link_type: Optional[str] = None,
+) -> list:
+    """List the actual TraceLink rows for the active tenant (fix #264).
+
+    IF-TE-EXT-IN-003. REQ-L2-TE-011 (tenant-scoped via TenantManager).
+
+    ``query()`` returns :class:`NeighborResult` projections, which carry the
+    *neighbour* entity but neither the TraceLink's own primary key nor both
+    endpoints. Callers that must prove a link really exists in the database
+    (round-trip verification after ``create_trace_link``) need the ORM rows
+    themselves, hence this thin read-only facade over
+    ``TraceLinkManager.get_trace_links``.
+
+    Args:
+        workspace_id: Restrict to links whose *source* lives in this workspace.
+        filters: Extra ORM filter kwargs, e.g. ``{"target_id": <uuid>}``.
+        link_type: Restrict to a single link type.
+
+    Returns:
+        List of TraceLink ORM instances (``source``/``target`` select_related).
+    """
+    return _manager.get_trace_links(
+        workspace_id=workspace_id,
+        filters=filters,
+        link_type=link_type,
+    )
+
+
+def list_trace_links_queryset(
+    workspace_id: Optional[uuid.UUID] = None,
+    filters: Optional[dict] = None,
+    link_type: Optional[str] = None,
+) -> QuerySet:
+    """Lazy variant of :func:`list_trace_links` for paginated REST listings.
+
+    Fix #571: unlike ``list_trace_links``, this does not materialize the
+    result set — it hands back the queryset itself so a caller (DRF's
+    paginator) can apply ``LIMIT``/``OFFSET`` at the database level instead
+    of loading every matching row (and its wide pgvector ``embedding`` vector)
+    into memory before pagination gets a chance to slice it.
+    """
+    return _manager.get_trace_links_queryset(
+        workspace_id=workspace_id,
+        filters=filters,
+        link_type=link_type,
+    )
 
 
 def update_trace_link(
@@ -364,6 +428,7 @@ __all__ = [
     # TraceLink CRUD
     "create_trace_link",
     "get_trace_link",
+    "list_trace_links",
     "update_trace_link",
     "delete_trace_link",
     "batch_create_trace_links",

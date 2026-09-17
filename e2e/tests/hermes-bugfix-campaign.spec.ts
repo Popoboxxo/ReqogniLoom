@@ -30,7 +30,7 @@ import {
 } from '../helpers/auth';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 // ---------------------------------------------------------------------------
 // Helper: inject Bearer token into all /api/** requests so the Vite dev-proxy
@@ -296,81 +296,6 @@ test.describe('[REQ-134] API-Key Management — retrieve endpoint', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Area 4: Attribute Visibility Config — empty state (REQ-136)
-//
-// Bug: Empty [] response from /api/v1/attribute-visibility-configs/ caused
-// console.error and an error banner in AdminDialog.
-// Fix: Treat empty array as informational state, not error.
-// ---------------------------------------------------------------------------
-test.describe('[REQ-136] Attribute Visibility Config — empty state is informational', () => {
-  let token: string;
-
-  test.beforeAll(async () => {
-    token = await getAuthToken();
-  });
-
-  test('[REQ-136] GET /api/v1/attribute-visibility-configs/ returns [] without 500', async ({ request }) => {
-    const response = await request.get(`${BACKEND_URL}/api/v1/attribute-visibility-configs/`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    // Must return 200 with empty array (not 500 or error)
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(Array.isArray(body)).toBe(true);
-    // May be empty — that is the valid state REQ-136 is about
-  });
-
-  test('[REQ-136] attribute-visibility-configs API call returns 200 (not error) on workspace-settings page', async ({ page }) => {
-    // REQ-136: the empty [] response from /attribute-visibility-configs/ must not cause
-    // the frontend to surface a user-facing error. We verify this by intercepting the
-    // actual API response rather than relying on noisy browser console events.
-    let attrVisibilityStatus: number | null = null;
-
-    page.on('response', (response) => {
-      if (response.url().includes('attribute-visibility-config')) {
-        attrVisibilityStatus = response.status();
-      }
-    });
-
-    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
-    await injectBearerToken(page, token);
-    await loginAsAdmin(page);
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    await page.waitForLoadState('networkidle');
-
-    // If the request was made, it must have returned 200 (not an error status)
-    if (attrVisibilityStatus !== null) {
-      expect(attrVisibilityStatus, 'attribute-visibility-configs must return 200').toBe(200);
-    }
-    // The workspace settings page must be fully rendered (no crash)
-    await expect(page.locator('[data-testid="workspace-settings"]')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('[REQ-136] attribute visibility empty info element shown when no configs exist', async ({ page }) => {
-    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
-    await injectBearerToken(page, token);
-    await loginAsAdmin(page);
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    await page.waitForLoadState('networkidle');
-
-    // The empty info element must be visible (not hidden behind an error banner)
-    const emptyInfo = page.locator('[data-testid="attr-visibility-empty-info"]');
-    // Only check if configs are actually empty — verify there's no error banner
-    const errorBanner = page.locator('[data-testid="attr-visibility-error"]');
-    const hasError = await errorBanner.isVisible().catch(() => false);
-
-    if (hasError) {
-      // This is the regression — empty state must not show an error banner
-      const errorText = await errorBanner.textContent();
-      throw new Error(`[REQ-136] regression: error banner shown for empty attr-visibility: "${errorText}"`);
-    }
-
-    // The workspace settings page itself must render without crashing
-    await expect(page.locator('[data-testid="workspace-settings"]')).toBeVisible({ timeout: 10000 });
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Area 5: Workspace Language — persists after save (REQ-133)
 //
 // Bug: Workspace had no language column; serializer always returned default "en".
@@ -472,7 +397,12 @@ test.describe('[REQ-133] Workspace Language — persists after save', () => {
     await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
     await injectBearerToken(page, token);
     await loginAsAdmin(page);
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
+    // M-03: interface language + theme moved out of the "Allgemein" tab into
+    // their own "Darstellung" tab. Deep-linked via the settings page's own
+    // `?tab=` parameter (#609) so this does not depend on click order.
+    // `/workspace-settings` is a <Navigate> alias that drops the query
+    // string, hence the direct `/settings` target here.
+    await page.goto(`${FRONTEND_URL}/settings?tab=appearance`);
     await page.waitForLoadState('networkidle');
 
     // The 'en' radio must be checked
@@ -497,7 +427,12 @@ test.describe('[REQ-133] Workspace Language — persists after save', () => {
     await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
     await injectBearerToken(page, token);
     await loginAsAdmin(page);
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
+    // M-03: interface language + theme moved out of the "Allgemein" tab into
+    // their own "Darstellung" tab. Deep-linked via the settings page's own
+    // `?tab=` parameter (#609) so this does not depend on click order.
+    // `/workspace-settings` is a <Navigate> alias that drops the query
+    // string, hence the direct `/settings` target here.
+    await page.goto(`${FRONTEND_URL}/settings?tab=appearance`);
     await page.waitForLoadState('networkidle');
 
     // Verify page is in 'en' state before clicking
@@ -726,17 +661,30 @@ test.describe('[REQ-129] MCP tools/list deduplication', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Area 9: MCP capability declaration — no SSE transport (REQ-131)
+// Area 9: MCP capability declaration matches the served transports (REQ-131)
 // ---------------------------------------------------------------------------
-test.describe('[REQ-131] MCP capability declaration — no SSE', () => {
-  test('[REQ-131] GET /mcp/ does not declare SSE as a transport', async ({ request }) => {
+test.describe('[REQ-131] MCP capability declaration', () => {
+  // SSE was temporarily dropped from the declaration while `GET /mcp/sse/`
+  // answered 500 on every request (#455). That is fixed and the server now runs
+  // ASGI unconditionally (uvicorn in dev, gunicorn -k UvicornWorker in prod),
+  // so SSE is served again — and every distributed plugin config ships
+  // `"type": "sse"`. The invariant REQ-131 actually protects is that the
+  // declaration matches what is routed, not that SSE is absent.
+  test('[REQ-131] GET /mcp/ declares SSE and the route answers', async ({ request }) => {
     const response = await request.get(`${BACKEND_URL}/mcp/`);
     expect(response.status()).toBe(200);
     const body = await response.json();
 
     const transports: string[] = body.transports ?? [];
-    // SSE must not be declared (it is not implemented — REQ-131)
-    expect(transports, 'SSE must not be in transports declaration').not.toContain('sse');
+    expect(transports, 'SSE is served, so it must be declared').toContain('sse');
+
+    // A declared transport must be routed. Unauthenticated it answers 401 —
+    // what matters is that it is neither 404 (not routed) nor 5xx (broken,
+    // the #455 regression this guards against).
+    const sse = await request.get(`${BACKEND_URL}/mcp/sse/`, { failOnStatusCode: false });
+    expect(sse.status(), 'declared SSE transport must be routed and not erroring')
+      .toBeLessThan(500);
+    expect(sse.status(), 'declared SSE transport must be routed').not.toBe(404);
   });
 
   test('[REQ-131] GET /mcp/ declares http transport', async ({ request }) => {

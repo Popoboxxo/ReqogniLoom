@@ -110,12 +110,23 @@ SUGGEST_LINKS_PROMPT_TEMPLATE = (
 )
 
 
+# Prompt purpose name — must stay in the workspace-wide set of
+# ``llm_adapter.timeouts.WORKSPACE_WIDE_PURPOSES`` (issue #342).
+_SUGGEST_LINKS_PURPOSE = "traceability_suggest_links"
+
+
 class SuggestLinksResponseError(RuntimeError):
-    """Raised when the LLM returns a response that cannot be parsed as JSON.
+    """Raised when the LLM call fails or returns unparseable content.
 
     Sibling of ``application.ai_review_service.AiReviewResponseError``: the
     request itself was valid, but the provider misbehaved. Maps to HTTP 500
     in the REST layer and to an INTERNAL_ERROR ToolResult in the MCP layer.
+
+    Issue #342: this also covers *transport* failures (timeout, open circuit
+    breaker, SDK error). They used to escape ``_complete`` raw as an
+    ``LlmTransportError`` and reached the MCP/REST boundary as an unhandled
+    exception; now every caller gets the same catchable error type with an
+    actionable message.
     """
 
 
@@ -176,13 +187,25 @@ class LinkSuggestion:
 
 @dataclass
 class SuggestLinksResult:
-    """Full N3 run: tier/provider metadata plus the ranked suggestions."""
+    """Full N3 run: tier/provider metadata plus the ranked suggestions.
+
+    ``truncated`` / ``total_findings_available`` (BUG-15 follow-up M2):
+    ``suggest_links()`` reads ``report.findings`` from
+    ``AuditService.run_audit``, which caps at
+    ``AuditService.MAX_REPORT_FINDINGS`` — so ``total_findings`` here is the
+    *returned* (possibly capped) count, same convention as
+    ``AuditReport.counts.total``. Propagated straight from the underlying
+    ``AuditReport`` so an MCP/REST caller can tell a capped run apart from a
+    genuinely complete one instead of the signal being dropped at this layer.
+    """
 
     tier: str
     provider: str
     degraded: bool
     total_findings: int = 0
     eligible_findings: int = 0
+    truncated: bool = False
+    total_findings_available: int = 0
     suggestions: List[LinkSuggestion] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -191,6 +214,8 @@ class SuggestLinksResult:
             "provider": self.provider,
             "degraded": self.degraded,
             "suggestions": [s.to_dict() for s in self.suggestions],
+            "truncated": self.truncated,
+            "total_findings_available": self.total_findings_available,
             "counts": {
                 "total_findings": self.total_findings,
                 "eligible_findings": self.eligible_findings,
@@ -257,6 +282,8 @@ class TraceabilitySuggestService(ServiceBase):
                 degraded=False,
                 total_findings=len(findings),
                 eligible_findings=0,
+                truncated=report.truncated,
+                total_findings_available=report.total_findings_available,
             )
 
         tenant_id = str(ctx.tenant_id)
@@ -289,9 +316,11 @@ class TraceabilitySuggestService(ServiceBase):
                 degraded=False,
                 total_findings=len(findings),
                 eligible_findings=0,
+                truncated=report.truncated,
+                total_findings_available=report.total_findings_available,
             )
 
-        raw, provider_name, degraded = self._complete(finding_payloads)
+        raw, provider_name, degraded = self._complete(finding_payloads, workspace_id=ws_id)
         proposed = self._parse_suggestions(raw)
 
         by_index: Dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
@@ -303,6 +332,8 @@ class TraceabilitySuggestService(ServiceBase):
             degraded=degraded,
             total_findings=len(findings),
             eligible_findings=len(finding_payloads),
+            truncated=report.truncated,
+            total_findings_available=report.total_findings_available,
             suggestions=suggestions,
         )
 
@@ -352,17 +383,50 @@ class TraceabilitySuggestService(ServiceBase):
         """
         from persistence.models import (
             ArchitectureElement,
-            LifecycleStatus,
             Requirement,
             StakeholderNeed,
         )
+        from workflow import state_reader
+        from workflow.services import outdated_item_ids
 
         pool: Dict[str, Tuple[str, str, str]] = {}
 
-        def _add(qs, artifact_type: str) -> None:
-            for artifact_id, title, description in qs.values_list(
-                "artifact_id", "title", "description"
-            ):
+        def _add(qs, artifact_type: str, item_type: "str | None" = None) -> None:
+            """Add every row of *qs* to *pool*, keyed by artifact_id.
+
+            *item_type* given: *qs* is not yet outdated-filtered — resolved
+            through WorkflowItemState (batched, Datenmodell-Konsolidierung
+            Phase 1). Task 12: the ``status`` column is dropped, so a row
+            never wired into one falls back to *item_type*'s preset initial
+            state instead (documented, reviewed data-loss tradeoff, see Task
+            12 report Finding 2). *item_type* ``None``: *qs* is already fully
+            filtered (e.g. ArchitectureElement's ``outdated_item_ids``
+            exclude, which has no status column to fall back to), so rows are
+            added as-is.
+            """
+            if item_type is None:
+                for artifact_id, title, description in qs.values_list(
+                    "artifact_id", "title", "description"
+                ):
+                    aid = str(artifact_id)
+                    if aid == source_id:
+                        continue
+                    pool[aid] = (title, description, artifact_type)
+                return
+
+            rows = list(
+                qs.values_list("id", "artifact_id", "title", "description")
+            )
+            # This service, like the SE-Auditor rules, is called outside a
+            # request-scoped TenantContext in some paths -- the explicit
+            # tenant_id= keeps the lookup correct regardless (N1).
+            states = state_reader.current_states(
+                item_type, (row[0] for row in rows), tenant_id=tenant_id
+            )
+            item_type_initial_state = state_reader.initial_state(item_type)
+            for row_id, artifact_id, title, description in rows:
+                if (states.get(str(row_id)) or item_type_initial_state) == "outdated":
+                    continue
                 aid = str(artifact_id)
                 if aid == source_id:
                     continue
@@ -371,17 +435,19 @@ class TraceabilitySuggestService(ServiceBase):
         if rule_id in (TRACE_P1, TRACE_P1B):
             needs = StakeholderNeed.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
-            ).exclude(lifecycle_status=LifecycleStatus.DELETED)
-            _add(needs, "stakeholder_need")
+            )
+            _add(needs, "stakeholder_need", "StakeholderNeed")
         if rule_id == TRACE_P1B:
             reqs = Requirement.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
-            ).exclude(lifecycle_status=LifecycleStatus.DELETED)
-            _add(reqs, "requirement")
+            )
+            _add(reqs, "requirement", "Requirement")
         if rule_id == TRACE_P2:
+            # ArchitectureElement has no status mirror — outdate() only writes
+            # WorkflowItemState (see workflow.services.outdated_item_ids).
             arch = ArchitectureElement.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
-            ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+            ).exclude(id__in=outdated_item_ids("ArchitectureElement", tenant_id=tenant_id))
             _add(arch, "architecture_element")
         return pool
 
@@ -519,7 +585,7 @@ class TraceabilitySuggestService(ServiceBase):
     # ------------------------------------------------------------------
 
     def _complete(
-        self, finding_payloads: List[Dict[str, Any]]
+        self, finding_payloads: List[Dict[str, Any]], *, workspace_id: str
     ) -> Tuple[str, str, bool]:
         """Call the LLM provider for a candidate ranking (graceful degradation).
 
@@ -527,14 +593,43 @@ class TraceabilitySuggestService(ServiceBase):
         provider configuration error it degrades to the credential-free
         deterministic mock so the suggest-links flow never crashes
         (REQ-L2-AI-002; default provider is ``mock``).
+
+        Issue #342: the prompt spans every finding in the workspace, so the
+        call runs under the workspace-wide timeout resolved by
+        :func:`llm_adapter.timeouts.resolve_timeout_seconds` instead of the
+        provider's 30s config default. Transport failures (timeout, open
+        circuit breaker) are mapped to :class:`SuggestLinksResponseError`
+        rather than escaping as an unhandled ``LlmTransportError``.
+
+        Code review finding: this call bypassed REQ-106 (per-tenant daily LLM
+        token budget) and the LlmAuditLog trail entirely -- neither an
+        is_over_daily_limit() check beforehand nor a
+        LlmAuditLogger.log_llm_call()/record_token_usage() call afterward,
+        unlike every other free-form LLM flow in this codebase. Both are now
+        applied here, mirroring AiDerivationService._complete /
+        BundleCompressionService._call_provider.
+
+        Raises:
+            SuggestLinksResponseError: The provider call failed outright.
+            LlmResponseError: The tenant's daily LLM token budget is already
+                exceeded (checked before the real-provider call only; the
+                mock-fallback path is exempt, ADR-02).
         """
         from django.conf import settings
 
+        from application.ai_derivation_service import LlmResponseError
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
             LlmProviderUnknownError,
             MockLlmProvider,
             get_provider,
+        )
+        from llm_adapter.timeouts import resolve_timeout_seconds
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            is_over_daily_limit,
+            record_token_usage,
         )
 
         prompt = SUGGEST_LINKS_PROMPT_TEMPLATE.format(
@@ -542,6 +637,7 @@ class TraceabilitySuggestService(ServiceBase):
         )
         context = {"findings": finding_payloads}
         provider_name = getattr(settings, "LLM_PROVIDER", "mock")
+        audit_logger = LlmAuditLogger()
         degraded = False
         try:
             provider = get_provider()
@@ -555,9 +651,71 @@ class TraceabilitySuggestService(ServiceBase):
             provider_name = "mock"
             degraded = True
 
-        raw = provider.complete(
-            prompt, purpose="traceability_suggest_links", context=context
-        )
+        if not degraded and is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=_SUGGEST_LINKS_PURPOSE,
+                artifact_id=workspace_id,
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise LlmResponseError(
+                "Daily LLM token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
+
+        timeout = resolve_timeout_seconds(_SUGGEST_LINKS_PURPOSE)
+        try:
+            raw = provider.complete(
+                prompt,
+                purpose=_SUGGEST_LINKS_PURPOSE,
+                context=context,
+                timeout=timeout,
+            )
+        except Exception as error:  # noqa: BLE001 — see class docstring (#342)
+            logger.warning(
+                "traceability.suggest_links: provider %s call failed "
+                "(timeout=%ss): %s",
+                provider_name,
+                timeout,
+                error,
+            )
+            if not degraded:
+                audit_logger.log_llm_call(
+                    provider=provider_name,
+                    capability=_SUGGEST_LINKS_PURPOSE,
+                    artifact_id=workspace_id,
+                    token_usage=None,
+                    success=False,
+                    error=str(error),
+                )
+            raise SuggestLinksResponseError(
+                f"The LLM provider '{provider_name}' did not answer the "
+                f"suggest_links request within {timeout:.0f}s. "
+                "Narrow the request (scope=document) or raise "
+                "LLM_LONG_RUNNING_TIMEOUT."
+            ) from error
+
+        if not degraded:
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=_SUGGEST_LINKS_PURPOSE,
+                artifact_id=workspace_id,
+                token_usage=None,
+                success=True,
+                error=None,
+            )
+            # SA-26: this used to hardcode input_tokens=0, leaving the daily
+            # budget (is_over_daily_limit above) blind to this call's real
+            # spend. Estimate both sides client-side, matching every other
+            # free-form path (see ``approximate_token_count``).
+            record_token_usage(
+                provider=provider_name,
+                capability=_SUGGEST_LINKS_PURPOSE,
+                input_tokens=approximate_token_count(prompt),
+                output_tokens=approximate_token_count(raw),
+            )
         return raw, provider_name, degraded
 
     @staticmethod

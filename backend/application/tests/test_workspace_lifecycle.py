@@ -22,6 +22,7 @@ from django.db.utils import InternalError
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.requirement_service import RequirementService
 from application.workspace_service import WorkspaceService
+from audit.models import AuditEntry
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -170,6 +171,31 @@ class TestReactivateWorkspace:
         svc = WorkspaceService()
         with pytest.raises(PermissionDeniedError, match="admin"):
             svc.reactivate_workspace(workspace.id, ctx)
+
+    def test_reactivate_workspace_writes_real_audit_entry(self):
+        """Regression test for #82: reactivate_workspace must not 500.
+
+        Unlike the tests above, this does NOT mock ``ServiceBase._audit`` so
+        the real AuditLogWriter/AuditEntry.full_clean() path is exercised.
+        Previously ``op="workspace.reactivate"`` was not part of
+        AuditEntry.OP_CHOICES, so full_clean() raised a Django
+        ValidationError ("not a valid choice") that propagated as a 500.
+        """
+        tenant, user = _create_tenant_and_user()
+        workspace = _create_workspace(tenant)
+        workspace.is_active = False
+        workspace.closed_at = "2026-01-01T00:00:00Z"
+        workspace.closed_by = user
+        workspace.save()
+
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+
+        result = svc.reactivate_workspace(workspace.id, ctx)
+
+        assert result.is_active is True
+        entry = AuditEntry.objects.get(entity_id=workspace.id, op="workspace.reactivate")
+        assert entry.entity_type == "Workspace"
 
 
 # ---------------------------------------------------------------------------
@@ -504,3 +530,162 @@ class TestWorkspaceProvisionsWorkflowDefinition:
         # source has no WorkspacePresetConfig -> clone_workspace defaults
         # active_tier to "standard".
         assert definition.preset == "standard"
+
+
+# ---------------------------------------------------------------------------
+# creator role assignment (GitHub #232)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceCreatorGetsAdminRole:
+    """Bugfix #232: create_workspace / clone_workspace must grant the
+    creating user an 'admin' UserRole in the new workspace.
+
+    Without this, a freshly created workspace has zero UserRole rows. The
+    REST Bearer-token path resolves roles tenant-globally so it never
+    noticed, but the MCP API-key dispatch path resolves roles strictly
+    per workspace_id (mcp_server/tool_registry.py._resolve_roles) and
+    returned an empty tuple, rejecting every write with
+    "Role '()' does not permit write operations" — even for the tenant
+    admin who just created the workspace.
+    """
+
+    def test_create_workspace_assigns_admin_role_to_creator(self):
+        from auth_tenancy.models import ROLE_ADMIN, UserRole
+
+        tenant, user = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+
+        svc = WorkspaceService()
+        with patch("application.workspace_service.ServiceBase._audit"):
+            workspace = svc.create_workspace(ctx, name="New WS Role Check", preset="standard")
+
+        role = UserRole.objects.filter(
+            user_id=user.id, workspace_id=workspace.id, suspended_at__isnull=True
+        ).first()
+        assert role is not None, (
+            "create_workspace must create a UserRole for the creator (#232)"
+        )
+        assert role.role == ROLE_ADMIN
+        assert role.tenant_id == tenant.id
+
+    def test_clone_workspace_assigns_admin_role_to_creator(self):
+        from auth_tenancy.models import ROLE_ADMIN, UserRole
+
+        tenant, user = _create_tenant_and_user()
+        source = _create_workspace(tenant, name="Source WS Role Check")
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+
+        svc = WorkspaceService()
+        with patch("application.workspace_service.ServiceBase._audit"):
+            target = svc.clone_workspace(ctx, source.id, "Cloned WS Role Check")
+
+        role = UserRole.objects.filter(
+            user_id=user.id, workspace_id=target.id, suspended_at__isnull=True
+        ).first()
+        assert role is not None, (
+            "clone_workspace must create a UserRole for the creator (#232)"
+        )
+        assert role.role == ROLE_ADMIN
+
+
+# ---------------------------------------------------------------------------
+# name/free-text hardening (Codeberg #56, #57, #80 part 2/4 dedup with #69)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceNameHardening:
+    """create_workspace/update_metadata write ``name`` etc. straight to the
+    ORM, bypassing WorkspaceSerializer's SanitizedCharField/max_length
+    entirely. Regression coverage for the resulting DoS (#56: oversized input
+    reaching the DB unchecked) and stored-XSS (#57: unescaped script markup
+    persisted verbatim) gaps.
+
+    #820: both gaps are closed the *same* way — the value is rejected. The
+    markup case used to be solved by ``strip_tags``, which silently rewrote
+    ``<script>alert(1)</script>`` to ``alert(1)`` while the REST serializer
+    rejected the identical payload, i.e. one policy per write path. Both paths
+    now share :mod:`persistence.free_text`."""
+
+    def test_create_workspace_rejects_oversized_name(self):
+        """A name longer than the DB column (255) must raise ValidationError,
+        not reach Workspace.objects.create() and crash with a DB-level error."""
+        tenant, _ = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id)
+        svc = WorkspaceService()
+
+        oversized = "\U0001F525" * 2000  # matches #56 repro (2000 emoji)
+        with pytest.raises(ValidationError):
+            svc.create_workspace(ctx, name=oversized)
+
+    def test_create_workspace_rejects_script_tags_in_name(self):
+        """A <script> payload in name must be rejected, not rewritten (#57/#820).
+
+        Pre-#820 this stored ``alert(1)`` (tags stripped) while
+        ``POST /api/v1/workspaces/`` rejected the same value with a 400.
+        """
+        tenant, user = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+
+        with patch("application.workspace_service.ServiceBase._audit"):
+            with pytest.raises(ValidationError):
+                svc.create_workspace(ctx, name="<script>alert(1)</script>")
+
+        assert not Workspace.unscoped.filter(
+            tenant=tenant, name__contains="alert(1)"
+        ).exists()
+
+    def test_create_workspace_keeps_sql_shaped_name_verbatim(self):
+        """SQL-looking *text* is data, not an attack (#820).
+
+        The ORM parameterises every query, so this string is a bind literal and
+        must round-trip byte-identically instead of being rejected as "looks
+        like SQL".
+        """
+        tenant, user = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+        hostile = "'; DROP TABLE users; --"
+
+        with patch("application.workspace_service.ServiceBase._audit"):
+            ws = svc.create_workspace(ctx, name=hostile)
+
+        assert ws.name == hostile
+        assert (
+            Workspace.unscoped.filter(tenant=tenant, name=hostile).count() == 1
+        )
+
+    def test_create_workspace_rejects_oversized_name_after_markup_check(self):
+        """Markup wins the message race, but neither case reaches the DB."""
+        tenant, _ = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id)
+        svc = WorkspaceService()
+
+        with pytest.raises(ValidationError) as excinfo:
+            svc.create_workspace(ctx, name="<b>" + "x" * 400)
+
+        assert "disallowed content" in str(excinfo.value)
+
+    def test_update_metadata_rejects_oversized_name(self):
+        tenant, user = _create_tenant_and_user()
+        workspace = _create_workspace(tenant)
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+
+        oversized = "\U0001F525" * 2000
+        with pytest.raises(ValidationError):
+            svc.update_metadata(ctx, workspace.id, name=oversized)
+
+    def test_update_metadata_rejects_script_tags_from_name(self):
+        """#820: reject instead of stripping — and leave the stored name alone."""
+        tenant, user = _create_tenant_and_user()
+        workspace = _create_workspace(tenant, name="Untouched Workspace")
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+
+        with pytest.raises(ValidationError):
+            svc.update_metadata(ctx, workspace.id, name="<script>alert(1)</script>")
+
+        workspace.refresh_from_db()
+        assert workspace.name == "Untouched Workspace"

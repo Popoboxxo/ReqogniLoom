@@ -1,39 +1,753 @@
+/*
+ * Design tokens — two layers (UI concept ch. 8.6, Task 8.1).
+ *
+ *   Layer 1  primitives   --palette-*   raw color values, theme-independent
+ *   Layer 2  semantics     --color-*    per theme, points at a primitive
+ *
+ * Components reference ONLY the semantic layer (ch. 8.1 + the ESLint gate of
+ * ch. 16.1). A `--color-*` declaration must therefore never carry a raw
+ * hex/rgb value — it always reads `var(--palette-*)`. Raw values live in the
+ * primitive block below and nowhere else.
+ *
+ * Adding a theme:
+ *   1. add any missing raw values to the primitive block (Layer 1),
+ *   2. add a `:root[data-theme="<id>"]` block that maps every semantic token
+ *      onto those primitives (Layer 2),
+ *   3. register the id in `THEMES` in src/context/ThemeContext.tsx so the
+ *      switcher offers it.
+ * No component code changes. Every new theme runs the same 4.5:1 contrast
+ * check as ch. 8.5 before it is released.
+ *
+ * The two themes below (`dark` = default-dark, `light` = default-light) are a
+ * value-identical migration of the previous single-layer token set — theming
+ * is an extension, not a redesign of the palette (ch. 4).
+ */
+
+/* ==========================================================================
+ * Layer 1 — Primitives. Raw color values, one shared pool for all themes.
+ * Named by color family + lightness step; `-aNN` suffix = same color at NN%
+ * alpha (kept as explicit rgba() so the resolved value is exact). Base tones
+ * are declared even where only the alpha variant is currently mapped — the
+ * pool documents the family, it is not a usage list.
+ * ========================================================================== */
+:root {
+  /* Neutrals */
+  --palette-white: #ffffff;
+  /* Contrast-audit follow-up (#140/#161 blast-radius analysis): --color-*-rgb
+     triplets (below, per theme) need a white/black anchor too, matching the
+     existing --palette-indigo-600-rgb-style pattern used by --color-primary-rgb. */
+  --palette-white-rgb: 255, 255, 255;
+  --palette-white-a05: rgba(255, 255, 255, 0.05);
+  --palette-white-a08: rgba(255, 255, 255, 0.08);
+  --palette-white-a10: rgba(255, 255, 255, 0.1);
+  /* create-trace-link-dialog.tsx's selected-chip overlay (was a raw
+     rgba(255,255,255,0.25) literal) — the only current consumer of this
+     specific alpha step. */
+  --palette-white-a25: rgba(255, 255, 255, 0.25);
+  --palette-white-a65: rgba(255, 255, 255, 0.65);
+  --palette-white-a70: rgba(255, 255, 255, 0.7);
+  --palette-white-a90: rgba(255, 255, 255, 0.9);
+  --palette-black: #000000;
+  --palette-black-rgb: 0, 0, 0;
+  /* MetricsDashboard.tsx's card boxShadow (was a raw rgba(0,0,0,0.04)
+     literal) — the only current consumer of this specific alpha step. */
+  --palette-black-a04: rgba(0, 0, 0, 0.04);
+  --palette-black-a20: rgba(0, 0, 0, 0.2);
+  --palette-black-a30: rgba(0, 0, 0, 0.3);
+  --palette-black-a40: rgba(0, 0, 0, 0.4);
+  --palette-black-a50: rgba(0, 0, 0, 0.5);
+
+  /* Slate — the surface/text/border ramp of both default themes */
+  --palette-slate-50: #f8fafc;
+  --palette-slate-50-a90: rgba(248, 250, 252, 0.9);
+  --palette-slate-200: #e2e8f0;
+  --palette-slate-300: #cbd5e1;
+  --palette-slate-400: #94a3b8;
+  --palette-slate-600: #475569;
+  --palette-slate-700: #334155;
+  --palette-slate-800: #1e293b;
+  --palette-slate-800-a65: rgba(30, 41, 59, 0.65);
+  --palette-slate-800-a80: rgba(30, 41, 59, 0.8);
+  --palette-slate-900: #0f172a;
+  --palette-slate-900-a05: rgba(15, 23, 42, 0.05);
+  --palette-slate-900-a06: rgba(15, 23, 42, 0.06);
+  --palette-slate-900-a08: rgba(15, 23, 42, 0.08);
+  --palette-slate-900-a10: rgba(15, 23, 42, 0.1);
+  --palette-slate-900-a80: rgba(15, 23, 42, 0.8);
+  --palette-gray-600: #4a5568;
+  /* Tailwind gray-500, exact match to MetricsDashboard.tsx's pre-existing
+     "neutral" tile bg literal rgba(107,114,128,...) — a slightly different
+     gray than --palette-gray-600 above (the fg color for the same tile);
+     that fg/bg gray mismatch pre-dates this token and is preserved as-is,
+     not corrected, by this pure hex->token migration. */
+  --palette-gray-500: #6b7280;
+  --palette-gray-500-rgb: 107, 114, 128;
+
+  /* Indigo — brand accent */
+  --palette-indigo-400: #818cf8;
+  --palette-indigo-500: #6366f1;
+  --palette-indigo-500-rgb: 99, 102, 241;
+  --palette-indigo-500-a08: rgba(99, 102, 241, 0.08);
+  --palette-indigo-500-a10: rgba(99, 102, 241, 0.1);
+  --palette-indigo-500-a15: rgba(99, 102, 241, 0.15);
+  --palette-indigo-500-a30: rgba(99, 102, 241, 0.3);
+  --palette-indigo-600: #4f46e5;
+  --palette-indigo-600-rgb: 79, 70, 229;
+  --palette-indigo-600-a06: rgba(79, 70, 229, 0.06);
+  --palette-indigo-600-a25: rgba(79, 70, 229, 0.25);
+  --palette-indigo-700: #4338ca;
+
+  /* Purple — second stop of the brand gradient */
+  --palette-purple-500: #a855f7;
+  --palette-purple-500-a08: rgba(168, 85, 247, 0.08);
+  --palette-purple-600: #9333ea;
+  --palette-purple-600-a06: rgba(147, 51, 234, 0.06);
+
+  /* Royal — sidebar active accent; a distinct blue-violet, not indigo-600 */
+  --palette-royal-500: #4f6ef7;
+  --palette-royal-500-a15: rgba(79, 110, 247, 0.15);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5
+     findings 4-5): same alpha the pre-existing .presetBadge hardcoded
+     inline (rgba(79, 110, 247, 0.2)) — extracted as a primitive so the
+     badge-bg token below no longer carries a raw literal. */
+  --palette-royal-500-a20: rgba(79, 110, 247, 0.2);
+
+  /* Navy — permanently dark sidebar chrome */
+  --palette-navy-900: #1a1f2e;
+
+  /* Status families */
+  --palette-emerald-300: #6ee7b7;
+  --palette-emerald-400: #34d399;
+  --palette-emerald-500: #10b981;
+  --palette-emerald-500-rgb: 16, 185, 129;
+  --palette-emerald-500-a20: rgba(16, 185, 129, 0.2);
+  --palette-emerald-600: #059669;
+  --palette-emerald-600-rgb: 5, 150, 105;
+  --palette-emerald-600-a15: rgba(5, 150, 105, 0.15);
+  --palette-emerald-700: #047857;
+  --palette-amber-300: #fcd34d;
+  --palette-amber-500: #f59e0b;
+  --palette-amber-500-rgb: 245, 158, 11;
+  --palette-amber-500-a20: rgba(245, 158, 11, 0.2);
+  --palette-amber-700: #b45309;
+  --palette-amber-700-rgb: 180, 83, 9;
+  --palette-red-300: #fca5a5;
+  --palette-red-500: #ef4444;
+  --palette-red-500-rgb: 239, 68, 68;
+  --palette-red-500-a20: rgba(239, 68, 68, 0.2);
+  --palette-red-600: #dc2626;
+  --palette-red-600-rgb: 220, 38, 38;
+  --palette-blue-300: #93c5fd;
+  --palette-blue-500: #3b82f6;
+  --palette-blue-500-a20: rgba(59, 130, 246, 0.2);
+  /* Task 9 (multi-artifact interview): teal/orange/rose were missing from
+     the status families; the artifact-type graph ramp below references
+     their -500 primitives. Values follow the same Tailwind-standard
+     provenance as the existing -500 entries above. Violet needs no new
+     primitive — purple-500 already is this project's violet family. */
+  --palette-teal-500: #14b8a6;
+  --palette-orange-500: #f97316;
+  --palette-rose-500: #f43f5e;
+  /* Contrast-audit follow-up (#140/#161 blast-radius analysis):
+     workspace-tree.tsx's L2 level badge (design ref
+     docs/architecture/DESIGN_TREE_VIEW_L0_L4_HIERARCHY.md §6) was left as a
+     raw `#06B6D4` hex literal at theming phase 2 checkpoint 1 for lack of a
+     close --palette-* match; added here, exact-value, purely so the last
+     remaining migratable .tsx hex literal has a home — no hue change. */
+  --palette-cyan-500: #06b6d4;
+
+  /* Pastel badge ramp — solid light-theme badge fills and their text tones.
+     A separate, flatter ramp than the status families above; it predates the
+     slate/indigo scales and is kept value-identical. */
+  --palette-sky-100: #bee3f8;
+  --palette-sky-800: #2c5282;
+  --palette-rose-100: #fed7d7;
+  --palette-rose-800: #9b2c2c;
+  --palette-green-100: #c6f6d5;
+  --palette-green-800: #276749;
+  --palette-yellow-100: #fefcbf;
+  --palette-yellow-800: #744210;
+
+  /* Bauhaus Enterprise palette primitives (#568 Phase 3) */
+  --palette-bauhaus-navy: #1A2B4C;
+  --palette-bauhaus-navy-rgb: 26, 43, 76;
+  --palette-bauhaus-mustard-50: #fbf9f4;
+  --palette-bauhaus-mustard-100: #f7f2e8;
+  --palette-bauhaus-mustard-200: #eee3ce;
+  --palette-bauhaus-mustard-300: #f3d495;
+  --palette-bauhaus-mustard-400: #edbd5e;
+  --palette-bauhaus-mustard-500: #EBB54A; /* user-specified anchor, kept exact */
+  --palette-bauhaus-mustard-600: #cf9117;
+  --palette-bauhaus-mustard-700: #aa7713;
+  --palette-bauhaus-mustard-800: #855d0f;
+  --palette-bauhaus-mustard-900: #5c420f;
+  --palette-bauhaus-terracotta-50: #faf5f5;
+  --palette-bauhaus-terracotta-100: #f4eceb;
+  --palette-bauhaus-terracotta-200: #e8d6d4;
+  --palette-bauhaus-terracotta-300: #e2ada7;
+  --palette-bauhaus-terracotta-400: #d38279;
+  --palette-bauhaus-terracotta-500: #C55A4E; /* user-specified anchor, kept exact */
+  --palette-bauhaus-terracotta-600: #ad4439;
+  /* Contrast-audit follow-up (#140/#161 blast-radius analysis,
+     2026-08-28): terracotta-500 (the anchor, used unmodified as
+     --color-danger below) measures only 3.31:1 against navy and 4.25:1
+     against white — both under WCAG AA's 4.5:1 floor. Rather than reuse an
+     existing ramp step (600 already backs no token and would jump straight
+     to 5.73:1, visibly darker than the brand anchor calls for), this new
+     rung sits between 500 and 600: computed (not eyeballed) so
+     white-on-#B74D42 clears AA with a small, deliberate margin —
+     WCAG relative luminance 0.1577, contrast (1.05)/(0.1577+0.05) = 5.06:1.
+     --color-danger now points here instead of -500; --color-danger-dark
+     below is unchanged (-700, still darker, ramp order preserved). */
+  --palette-bauhaus-terracotta-650: #b74d42;
+  --palette-bauhaus-terracotta-650-rgb: 183, 77, 66;
+  --palette-bauhaus-terracotta-700: #8e382f;
+  --palette-bauhaus-terracotta-800: #6f2c25;
+  --palette-bauhaus-terracotta-900: #4e221d;
+  --palette-bauhaus-amber-50: #faf8f4;
+  --palette-bauhaus-amber-100: #f6f1ea;
+  --palette-bauhaus-amber-200: #ebe0d1;
+  --palette-bauhaus-amber-300: #eacc9e;
+  --palette-bauhaus-amber-400: #e0b16c;
+  --palette-bauhaus-amber-500: #C98A2B; /* controller-derived warning, distinct hue-step from mustard-500 */
+  --palette-bauhaus-amber-500-rgb: 201, 138, 43;
+  --palette-bauhaus-amber-600: #bd8228;
+  --palette-bauhaus-amber-700: #9b6b21;
+  --palette-bauhaus-amber-800: #7a541a;
+  --palette-bauhaus-amber-900: #553c16;
+  --palette-bauhaus-teal-50: #f6f9f8;
+  --palette-bauhaus-teal-100: #edf2f1;
+  --palette-bauhaus-teal-200: #d9e3e1;
+  --palette-bauhaus-teal-300: #b6d3cd;
+  --palette-bauhaus-teal-400: #8fbcb3;
+  --palette-bauhaus-teal-500: #4A7C72; /* user-specified anchor, kept exact */
+  --palette-bauhaus-teal-500-rgb: 74, 124, 114;
+  --palette-bauhaus-teal-600: #569084;
+  --palette-bauhaus-teal-700: #47766d;
+  --palette-bauhaus-teal-800: #375d55;
+  --palette-bauhaus-teal-900: #29423d;
+  --palette-bauhaus-slate-50: #f7f8f8;
+  --palette-bauhaus-slate-100: #eff0f1;
+  --palette-bauhaus-slate-200: #dcdfe0;
+  --palette-bauhaus-slate-300: #bec6ca;
+  --palette-bauhaus-slate-400: #9da9af;
+  --palette-bauhaus-slate-500: #8E9CA3; /* user-specified anchor, kept exact */
+  --palette-bauhaus-slate-600: #67777f;
+  --palette-bauhaus-slate-700: #556268;
+  --palette-bauhaus-slate-800: #424c52;
+  --palette-bauhaus-slate-900: #31373a;
+  --palette-bauhaus-alabaster: #F4F4F0; /* user-specified surface anchor */
+
+  /* Nordic Frost palette primitives (#568 Phase 3) */
+  --palette-nordic-frost-50: #f6f7f9;
+  --palette-nordic-frost-100: #edeff3;
+  --palette-nordic-frost-200: #d7dde4;
+  --palette-nordic-frost-300: #b2c2d7;
+  --palette-nordic-frost-400: #89a3c2;
+  --palette-nordic-frost-500: #6183ad;
+  --palette-nordic-frost-600: #4e6f97; /* WCAG-adjusted primary, see plan header note 1 */
+  --palette-nordic-frost-700: #405b7d;
+  --palette-nordic-frost-800: #324862;
+  --palette-nordic-frost-900: #263445;
+  --palette-nordic-aurora-red-50: #f9f5f6;
+  --palette-nordic-aurora-red-100: #f4eced;
+  --palette-nordic-aurora-red-200: #e6d5d7;
+  --palette-nordic-aurora-red-300: #ddacb0;
+  --palette-nordic-aurora-red-400: #cc8087;
+  --palette-nordic-aurora-red-500: #BF616A; /* Nord nord11, anchor */
+  --palette-nordic-aurora-red-600: #a3424b;
+  --palette-nordic-aurora-red-700: #86363e;
+  --palette-nordic-aurora-red-800: #692b31;
+  --palette-nordic-aurora-red-900: #4a2125;
+  --palette-nordic-aurora-orange-50: #faf6f5;
+  --palette-nordic-aurora-orange-100: #f4edeb;
+  --palette-nordic-aurora-orange-200: #e8d9d4;
+  --palette-nordic-aurora-orange-300: #e2b5a7;
+  --palette-nordic-aurora-orange-400: #d38e79;
+  --palette-nordic-aurora-orange-500: #D08770; /* Nord nord12, anchor */
+  --palette-nordic-aurora-orange-600: #ad5539;
+  --palette-nordic-aurora-orange-700: #8e462f;
+  --palette-nordic-aurora-orange-800: #6f3625;
+  --palette-nordic-aurora-orange-900: #4e291d;
+  --palette-nordic-aurora-green-50: #f7f9f6;
+  --palette-nordic-aurora-green-100: #eff2ed;
+  --palette-nordic-aurora-green-200: #dde3d8;
+  --palette-nordic-aurora-green-300: #c3d5b4;
+  --palette-nordic-aurora-green-400: #a4bf8d;
+  --palette-nordic-aurora-green-500: #A3BE8C; /* Nord nord14, anchor */
+  --palette-nordic-aurora-green-600: #709353;
+  --palette-nordic-aurora-green-700: #5c7944;
+  --palette-nordic-aurora-green-800: #485e35;
+  --palette-nordic-aurora-green-900: #344328;
+  --palette-nordic-polar-50: #f7f7f8;
+  --palette-nordic-polar-100: #eeeff1;
+  --palette-nordic-polar-200: #dbdde1;
+  --palette-nordic-polar-300: #bbc1ce;
+  --palette-nordic-polar-400: #97a1b4;
+  --palette-nordic-polar-500: #73819b;
+  --palette-nordic-polar-600: #606c86;
+  --palette-nordic-polar-700: #4f596e;
+  --palette-nordic-polar-800: #3e4656;
+  --palette-nordic-polar-900: #2e333d;
+  --palette-nordic-night: #1B2430; /* surface anchor */
+  --palette-nordic-night-raised: #263344; /* surface-raised */
+  --palette-nordic-snow: #E5E9F0; /* text anchor */
+  --palette-nordic-frost-600-rgb: 78, 111, 151;
+  --palette-nordic-aurora-red-500-rgb: 191, 97, 106;
+  --palette-nordic-aurora-green-500-rgb: 163, 190, 140;
+  --palette-nordic-aurora-orange-500-rgb: 208, 135, 112;
+  --palette-nordic-frost-500-a15: rgba(97, 131, 173, 0.15); /* card-active-bg */
+  --palette-nordic-frost-500-a20: rgba(97, 131, 173, 0.2); /* badge-info-bg */
+  --palette-nordic-aurora-green-500-a20: rgba(163, 190, 140, 0.2); /* badge-success-bg */
+  --palette-nordic-aurora-orange-500-a20: rgba(208, 135, 112, 0.2); /* badge-warning-bg */
+  --palette-nordic-aurora-red-500-a20: rgba(191, 97, 106, 0.2); /* badge-danger-bg */
+  --palette-nordic-polar-500-a20: rgba(115, 129, 155, 0.2); /* badge-neutral-bg, badge-draft */
+
+  /* Sepia Archive palette primitives (#568 Phase 3) */
+  --palette-sepia-orange-50: #faf7f5;
+  --palette-sepia-orange-100: #f5efeb;
+  --palette-sepia-orange-200: #e9ddd3;
+  --palette-sepia-orange-300: #e5c1a3;
+  --palette-sepia-orange-400: #d8a073;
+  --palette-sepia-orange-500: #cb7f43;
+  --palette-sepia-orange-600: #b46b32;
+  --palette-sepia-orange-700: #945829; /* WCAG-adjusted primary, see plan header note 1 */
+  --palette-sepia-orange-800: #744520;
+  --palette-sepia-orange-900: #51321a;
+  --palette-sepia-brick-50: #faf5f5;
+  --palette-sepia-brick-100: #f5ebeb;
+  --palette-sepia-brick-200: #e9d3d3;
+  --palette-sepia-brick-300: #e4a5a5;
+  --palette-sepia-brick-400: #d67575;
+  --palette-sepia-brick-500: #A83232; /* user-adjacent proposal anchor */
+  --palette-sepia-brick-600: #b13535;
+  --palette-sepia-brick-700: #912b2b;
+  --palette-sepia-brick-800: #722222;
+  --palette-sepia-brick-900: #501b1b;
+  --palette-sepia-gold-50: #faf8f5;
+  --palette-sepia-gold-100: #f4f1eb;
+  --palette-sepia-gold-200: #e8e0d4;
+  --palette-sepia-gold-300: #e2caa7;
+  --palette-sepia-gold-400: #d3af78;
+  --palette-sepia-gold-500: #B8863C;
+  --palette-sepia-gold-600: #ad7e38;
+  --palette-sepia-gold-700: #8e682e;
+  --palette-sepia-gold-800: #705124;
+  --palette-sepia-gold-900: #4e3a1d;
+  --palette-sepia-forest-50: #f6f8f7;
+  --palette-sepia-forest-100: #eef2ef;
+  --palette-sepia-forest-200: #d9e2db;
+  --palette-sepia-forest-300: #b7d2bd;
+  --palette-sepia-forest-400: #91ba9b;
+  --palette-sepia-forest-500: #4E7C59; /* controller proposal anchor */
+  --palette-sepia-forest-600: #598d65;
+  --palette-sepia-forest-700: #497453;
+  --palette-sepia-forest-800: #395b41;
+  --palette-sepia-forest-900: #2b4130;
+  --palette-sepia-taupe-50: #f8f7f6;
+  --palette-sepia-taupe-100: #f2f0ed;
+  --palette-sepia-taupe-200: #e3ded9;
+  --palette-sepia-taupe-300: #d3c6b6;
+  --palette-sepia-taupe-400: #bca990;
+  --palette-sepia-taupe-500: #B8A48A; /* controller proposal anchor */
+  --palette-sepia-taupe-600: #8f7657;
+  --palette-sepia-taupe-700: #756147;
+  --palette-sepia-taupe-800: #5c4c38;
+  --palette-sepia-taupe-900: #41372a;
+  --palette-sepia-cream: #F7F1E3; /* surface anchor */
+  --palette-sepia-espresso: #3B2F2F; /* text anchor */
+  --palette-sepia-orange-700-rgb: 148, 88, 41;
+  --palette-sepia-brick-500-rgb: 168, 50, 50;
+  --palette-sepia-forest-500-rgb: 78, 124, 89;
+  --palette-sepia-gold-500-rgb: 184, 134, 60;
+
+  /* #568 Phase 3 fix (post-review): alpha variants for the 3 new palettes'
+     gradient-primary/gradient-body/shadow-glow tokens — the 9 non-`--color-*`
+     theme tokens (glass/gradient/shadow) that Tasks 1-2 missed. shadow-sm/
+     md/card and gradient-surface/glass-bg/glass-border reuse the existing
+     generic neutral alphas already defined above (they are mode-generic,
+     not hue-specific, exactly like `light`'s own definitions), so no new
+     primitives were needed for those 6 — only these 9 hue-specific ones. */
+  --palette-bauhaus-mustard-500-a30: rgba(235, 181, 74, 0.3);
+  --palette-bauhaus-mustard-500-a08: rgba(235, 181, 74, 0.08);
+  --palette-bauhaus-terracotta-500-a08: rgba(197, 90, 78, 0.08);
+  --palette-nordic-frost-600-a25: rgba(78, 111, 151, 0.25);
+  --palette-nordic-frost-600-a08: rgba(78, 111, 151, 0.08);
+  --palette-nordic-aurora-green-500-a08: rgba(163, 190, 140, 0.08);
+  --palette-sepia-orange-700-a25: rgba(148, 88, 41, 0.25);
+  --palette-sepia-orange-700-a08: rgba(148, 88, 41, 0.08);
+  --palette-sepia-gold-500-a08: rgba(184, 134, 60, 0.08);
+}
+
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `dark` (default-dark, the app's default
+ * identity). Lives on bare `:root` so it also applies before ThemeContext
+ * has written data-theme onto <html>.
+ * ========================================================================== */
 :root {
   /* Colors - Premium Deep Dark/Slate Theme */
-  --color-primary: #6366f1; /* Indigo 500 */
-  --color-primary-dark: #4f46e5; /* Indigo 600 */
-  --color-surface: #0f172a; /* Slate 900 */
-  --color-surface-raised: #1e293b; /* Slate 800 */
-  --color-border: #334155; /* Slate 700 */
-  --color-border-hover: #475569; /* Slate 600 */
-  --color-text: #f8fafc; /* Slate 50 */
-  --color-text-muted: #94a3b8; /* Slate 400 */
-  
-  --color-success: #10b981; /* Emerald 500 */
-  --color-warning: #f59e0b; /* Amber 500 */
-  --color-danger: #ef4444; /* Red 500 */
-  
+  /* #568 Phase 3 follow-up fix (2026-08-21): was --palette-indigo-500,
+     which only reaches 4.47:1 white-text contrast — 0.03 under WCAG AA's
+     4.5:1, caught by the new theme-contrast.test.ts. Darkened one ramp
+     step, exactly mirroring how the light theme below already handles the
+     identical case ("darker for AA contrast on white"): white-on-indigo-600
+     measures 6.29:1. */
+  --color-primary: var(--palette-indigo-600);
+  --color-primary-dark: var(--palette-indigo-700);
+  /* Comma-separated R,G,B triplet (not a #hex/rgb() string) for call sites
+     that build rgba(var(--color-primary-rgb), alpha) themselves — always
+     kept in sync with --color-primary above. */
+  --color-primary-rgb: var(--palette-indigo-600-rgb);
+  /* Same comma-separated-triplet pattern as --color-primary-rgb above, for
+     call sites tinting an overlay by the *text* color rather than the
+     background (e.g. create-trace-link-dialog.tsx's selected-chip tint). */
+  --color-on-primary-rgb: var(--palette-white-rgb);
+  --color-surface: var(--palette-slate-900);
+  --color-surface-raised: var(--palette-slate-800);
+  /* Disabled-control background (ArtifactForm fields) — reuses the same
+     raised shade already defined per theme rather than a new primitive. */
+  --color-surface-muted: var(--color-surface-raised);
+  --color-border: var(--palette-slate-700);
+  --color-border-hover: var(--palette-slate-600);
+  --color-border-subtle: var(--palette-white-a08);
+  --color-text: var(--palette-slate-50);
+  --color-text-muted: var(--palette-slate-400);
+  /* Text color for content placed on a solid --color-primary background
+     (e.g. primary buttons, selected chips). */
+  --color-on-primary: var(--palette-white);
+
+  --color-success: var(--palette-emerald-500);
+  --color-warning: var(--palette-amber-500);
+  --color-danger: var(--palette-red-500);
+  /* Darker danger shade for hover/active feedback (mirrors --color-primary/
+     --color-primary-dark). Theming phase 2, checkpoint 2: was a hardcoded
+     #dc2626 literal in WorkflowEditor.module.css's .btnDanger:hover, always
+     the same value regardless of theme, so declared identically in both
+     theme blocks below like the level-badge/gradient-ai tokens. Note: in the
+     light theme --color-danger already resolves to this same primitive
+     (--palette-red-600), so the hover state is a no-op color change there —
+     a pre-existing quirk of the original hardcoded value, preserved as-is
+     by this pure refactor, not introduced by it. */
+  --color-danger-dark: var(--palette-red-600);
+  /* Comma-separated R,G,B triplets, same pattern as --color-primary-rgb, for
+     rgba()-with-alpha call sites (MetricsDashboard.tsx,
+     PermissionsSection.tsx, etc. — contrast-audit follow-up #140/#161). */
+  --color-success-rgb: var(--palette-emerald-500-rgb);
+  --color-warning-rgb: var(--palette-amber-500-rgb);
+  --color-danger-rgb: var(--palette-red-500-rgb);
+  /* Text color for content placed on a solid --color-success/-warning/
+     -danger background (badges, buttons, MetricsDashboard tiles) —
+     contrast-audit follow-up (#140/#161 blast-radius analysis): the ESLint
+     rule extension (no-literal-color-in-inline-style) turned up dozens of
+     call sites hardcoding `color: "white"` on these backgrounds without
+     ever checking contrast. Recomputed WCAG for all 5 themes' actual
+     success/warning/danger colors against both white and black text and
+     picked whichever clears 4.5:1 per theme (none of the 5 needed a palette
+     change here — dark's own emerald-500/amber-500/red-500 measure
+     2.54:1/2.15:1/3.76:1 with white but 8.29:1/9.78:1/5.58:1 with black). */
+  --color-on-success: var(--palette-black);
+  --color-on-warning: var(--palette-black);
+  --color-on-danger: var(--palette-black);
+
   /* Badge Colors */
-  --color-badge-draft: rgba(255, 255, 255, 0.1);
-  --color-badge-draft-text: #cbd5e1;
-  --color-badge-approved: rgba(16, 185, 129, 0.2);
-  --color-badge-approved-text: #34d399;
+  --color-badge-draft: var(--palette-white-a10);
+  --color-badge-draft-text: var(--palette-slate-300);
+  --color-badge-approved: var(--palette-emerald-500-a20);
+  --color-badge-approved-text: var(--palette-emerald-400);
 
   /* Status Badge Variants (dark-mode base — translucent bg + light text) */
-  --color-badge-info-bg: rgba(59, 130, 246, 0.2);
-  --color-badge-info-text: #93c5fd;
-  --color-badge-danger-bg: rgba(239, 68, 68, 0.2);
-  --color-badge-danger-text: #fca5a5;
-  --color-badge-success-bg: rgba(16, 185, 129, 0.2);
-  --color-badge-success-text: #6ee7b7;
-  --color-badge-warning-bg: rgba(245, 158, 11, 0.2);
-  --color-badge-warning-text: #fcd34d;
-  --color-badge-neutral-bg: rgba(255, 255, 255, 0.1);
-  --color-badge-neutral-text: #cbd5e1;
+  --color-badge-info-bg: var(--palette-blue-500-a20);
+  --color-badge-info-text: var(--palette-blue-300);
+  --color-badge-danger-bg: var(--palette-red-500-a20);
+  --color-badge-danger-text: var(--palette-red-300);
+  --color-badge-success-bg: var(--palette-emerald-500-a20);
+  --color-badge-success-text: var(--palette-emerald-300);
+  --color-badge-warning-bg: var(--palette-amber-500-a20);
+  --color-badge-warning-text: var(--palette-amber-300);
+  --color-badge-neutral-bg: var(--palette-white-a10);
+  --color-badge-neutral-text: var(--palette-slate-300);
 
   /* Active Card Background (translucent primary — theme-safe) */
-  --color-card-active-bg: rgba(99, 102, 241, 0.15);
+  --color-card-active-bg: var(--palette-indigo-500-a15);
 
+  /* Sidebar navigation (issue #157) — was hardcoded in SidebarNavigation.tsx */
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation): .presetBadge previously read
+     var(--color-primary) as its text color on this translucent royal-blue
+     chip — that token is theme-reactive (tuned for contrast against each
+     theme's own --color-surface), but the badge sits on the sidebar's
+     permanently-dark chrome, not --color-surface, so 4 of 5 themes failed
+     WCAG AA (as low as 2.06:1; only bauhaus's bright mustard primary
+     happened to pass). No single alpha on the existing royal-500 bg could
+     fix all 5 simultaneously (verified by sweep: dark/light cap at
+     ~2.34:1 at any alpha), so this is a dedicated pair, frozen like the
+     other --color-nav-* chrome tokens above — white text already reaches
+     13:1 on this bg, so opacity was intentionally left unchanged. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
+
+  /* Sidebar overlay tints/shadows (theme presets): hover tints assume a
+     dark nav background here; the light theme inverts them to black-tinted
+     overlays so the sidebar stays readable once a palette renders it
+     light. Consumed by SidebarNavigation.module.css. */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
+
+  /* Keyboard focus ring (issue #158 — WCAG 2.4.7 Focus Visible) */
+  --color-focus: var(--palette-indigo-400);
+
+  /* Architecture level badge ramp (L0-L4), WorkspaceTree showLevelBadge
+     (design ref: docs/architecture/DESIGN_TREE_VIEW_L0_L4_HIERARCHY.md §6:
+     "L0=dunkelblau, L1=blau, L2=cyan, L3=grün, L4=grau"). Theming phase 2,
+     checkpoint 1: was a hardcoded 5-value hex map in workspace-tree.tsx,
+     always rendered the same regardless of theme, so both theme blocks
+     declare identical values here (same pattern as the nav tokens above).
+     L2 (cyan) had no close --palette-* primitive at the time (nearest,
+     emerald-400, was a very different hue) and was left as a raw hex
+     literal in workspace-tree.tsx — see the checkpoint-1 report and the
+     ui-ratchet.test.ts history comment. Contrast-audit follow-up (#140/#161
+     blast-radius analysis, 2026-08-28) added a dedicated --palette-cyan-500
+     (exact value, no hue change) so L2 is tokenized like its siblings. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l2: var(--palette-cyan-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  /* Same contrast-audit follow-up: workspace-tree.tsx's level badge
+     hardcoded `color: 'white'` for all 5 backgrounds above. Recomputed WCAG
+     contrast (all 5 are frozen, theme-independent) found only L0 (sky-800,
+     7.97:1) clears AA with white — L1/L2/L3/L4 measure 3.68/2.43/2.54/2.56:1
+     with white but 5.71/8.65/8.29/8.19:1 with black. */
+  --color-level-l0-text: var(--palette-white);
+  --color-level-l1-text: var(--palette-black);
+  --color-level-l2-text: var(--palette-black);
+  --color-level-l3-text: var(--palette-black);
+  --color-level-l4-text: var(--palette-black);
+
+  /* AI-derive action gradient (TraceLinkPanel "Ableiten" button). Theming
+     phase 2, checkpoint 1: was a hardcoded gradient literal, always the
+     same regardless of theme, so fixed across themes like the tokens
+     above. */
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors (GraphEdge.tsx, TransitionEdge.tsx),
+     theming phase 2, checkpoint 2. Both files carried a pre-existing code
+     comment claiming "SVG stroke cannot resolve CSS custom properties
+     reliably" and kept raw hex mirroring these tokens' values by hand.
+     Investigated for this checkpoint: found no evidence the claim holds for
+     this codebase's actual usage (a plain style prop setting `stroke` to a
+     CSS custom property reference on a React-rendered `<path>`, standard,
+     well-supported CSS) — the
+     react-flow marker (arrowhead) does not inherit from this stroke value
+     either way (no `color` is set on `markerEnd`, so it always uses
+     react-flow's own default), and the only SVG *export* path in this app
+     (POST /diagrams/{id}/export?format=svg) regenerates SVG server-side
+     from the stored node_graph JSON, never serializing this component's
+     live DOM — so no consumer reads a resolved CSS value out of it. var()
+     was substituted; the full test suite was re-run to confirm no
+     regression. Declared theme-independent (identical in both blocks,
+     matching the level-badge/gradient-ai pattern above) purely because the
+     source hex values were, not because of the resolution claim — so even
+     if that claim turns out to be right after all in some browser this
+     wasn't tested against, the visual result is unchanged either way. All
+     three are exact-value matches to their source hex. GraphEdge's
+     "containment" edge type (#64748b) has no exact or acceptably-close
+     --palette-* primitive without colliding with the "association" edge's
+     slate-600 (its closest candidate, dist 12.3%, was rejected for exactly
+     that collision reason) and was left as raw hex — see the checkpoint-2
+     report, which also flags this whole substitution as a judgment call
+     worth a manual visual check in a real browser before merge. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges (ArtifactDiff.tsx STATUS_STYLES + the error/note
+     banners), theming phase 2, checkpoint 3. All were hardcoded pastel
+     bg/text pairs, always the same regardless of theme, so frozen here
+     exactly like the level-badge/gradient-ai/diagram-edge tokens above.
+     added/removed/modified/unchanged map to green/rose/yellow/slate — all
+     exact-value primitive matches except -added-text (#22543d in the
+     source, ~5.2% RGB distance from the closest primitive, green-800,
+     already used elsewhere for the same "success text on pastel bg" role
+     in --color-badge-success-text's light-theme mapping). The error banner
+     reuses -removed-bg/-text (identical source values, same rose family,
+     "error" semantically parallel to "removed"/danger). See the
+     checkpoint-3 report for the full distance table. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+
+  /* TestRun result-summary tile colors (TestRunDetailEditor.tsx), theming
+     phase 2, checkpoint 3. Hardcoded, theme-independent before this
+     migration, so frozen like the tokens above rather than pointed at the
+     already theme-reactive --color-success/--color-danger (which would
+     have shifted the light-theme value away from the original hex).
+     -failed is an exact match (red-500); -passed is the closest primitive
+     to the source's plain Tailwind green (~9.3% RGB distance — the
+     codebase's own "success" semantic is already emerald-family
+     everywhere else, e.g. StatusBadge's passed->success mapping in
+     utils/statusBadge.ts, so this also aligns the one remaining outlier);
+     -notrun has no close primitive (~12.1% distance) but reuses gray-600,
+     which is already the primitive backing --color-badge-neutral-text —
+     the same "neutral" semantic this tile represents. Flagged in the
+     checkpoint-3 report as a lower-confidence judgment call. */
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+
+  /* Requirement-type badge ramp (RequirementList.tsx getTypeColor), theming
+     phase 2, checkpoint 3. Same fixed-badge-with-white-text role as the
+     architecture level ramp above (badge={ bg: getTypeColor(type), color:
+     'white' }), always rendered the same regardless of theme, so frozen
+     here too. -syreq and -featurereq are exact matches; -usecase is the
+     closest primitive (purple-500, ~6.8% distance) to the source's
+     indigo-leaning violet; -default (the "unknown type" fallback) has no
+     close primitive (~11.3% distance) but reuses gray-600, same reasoning
+     as -notrun above. See the checkpoint-3 report for the full distance
+     table. */
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  /* Contrast-audit follow-up (#140/#161 blast-radius analysis): the badge's
+     hardcoded `color: 'white'` cleared AA only against -default (gray-600,
+     7.53:1) — -syreq/-usecase/-featurereq measure 2.54/3.96/2.15:1 with
+     white but 8.29/5.31/9.78:1 with black, hence a per-variant text color
+     (frozen, same reasoning as the level badge above) instead of one
+     constant. */
+  --color-reqtype-syreq-text: var(--palette-black);
+  --color-reqtype-usecase-text: var(--palette-black);
+  --color-reqtype-featurereq-text: var(--palette-black);
+  --color-reqtype-default-text: var(--palette-white);
+
+  /* Artifact-type colors for the multi-artifact interview proposal graph.
+     Declared once in :root — they reference palette primitives directly,
+     so themes inherit them unless explicitly overridden. Deviation from
+     plan (Task 9): -goal maps to the existing --palette-purple-500 instead
+     of a violet-500 token; purple-500 is this project's established violet
+     family (same reasoning as -usecase above). */
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
+
+  /* Trace-link-type inline badge (TraceLinksForm.tsx and
+     TraceabilityView.tsx both carry an identical `background: "#eef",
+     color: "#2c5282"` pill around the link_type label), theming phase 2,
+     checkpoint 3. Frozen like the tokens above — hardcoded, theme-
+     independent before this migration. -text is an exact match
+     (sky-800, already the --color-badge-info-text light-theme primitive
+     and the --color-level-l0 primitive). -bg has no close saturated-blue
+     primitive for the source's near-white "#eef" lavender tint; the
+     closest overall is slate-50 (~3.6% distance), which is otherwise only
+     used as the light theme's --color-surface — reused here as a raw
+     primitive reference, not implying any --color-surface relationship. */
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+
+  /* Settings/admin/dashboard surfaces, theming phase 2, checkpoint 4.
+     MetricsDashboard.tsx's STATUS_COLORS ramp (healthy/warning/critical/
+     neutral tile dot + sparkline stroke) was hardcoded, theme-independent
+     before this migration, so frozen like the tokens above rather than
+     pointed at the theme-reactive --color-success/-warning/-danger (which
+     would have shifted the light-theme value away from the original hex).
+     -healthy/-warning/-critical are exact-value primitive matches
+     (emerald-500/amber-500/red-500 — incidentally the same primitives
+     already backing checkpoint 3's --color-summary-passed/-failed, but
+     kept as distinct tokens here since the semantic domain — SE metric
+     health, not test-run result — is different, matching this codebase's
+     convention of not conflating same-value-different-role tokens).
+     -neutral has no close primitive (~11.3% RGB distance — the same
+     figure, and the same gray-600 primitive, as checkpoint 3's
+     -notrun/-default tokens; NOT ~7.4%, which is ErrorBoundary.tsx's
+     distance below — a copy-paste error in an earlier draft of this
+     comment, caught in post-commit review and corrected here) but reuses
+     gray-600, the same "neutral/muted" primitive already established in
+     checkpoint 3's -notrun/-default tokens. ErrorBoundary.tsx's crash-
+     fallback message text (`color: "#666"`, hardcoded, no theme awareness
+     — this component deliberately doesn't use any other design tokens
+     either, being the top-level crash fallback) has no close primitive
+     (~7.4% distance, same gray-600 primitive, kept as its own token rather
+     than reusing -metric-neutral since the roles are unrelated).
+     global.css's `a:hover` color (`#818cf8`, commented "Indigo 400" in the
+     source) is an exact match to the indigo-400 primitive; kept as its own
+     token rather than reused from --color-focus (dark-theme-only exact
+     match; also a different UI role — link hover vs. focus ring — so
+     conflating them would be a coincidence of value, not a shared
+     semantic). MermaidEditor.module.css's `.errorBanner` background
+     (`#fef2f2`) maps to **white**, not the nearer-in-hue rose-100 (a
+     post-commit review caught this): the banner already carries 3
+     independent error signals (red border, red text, an error icon), so
+     the background is a decorative 4th cue, not load-bearing — meaning
+     accessibility and raw distance should decide it, not hue-matching.
+     White is ~4.17% RGB distance and keeps the light-theme banner text
+     (var(--color-danger) = red-600 #dc2626) at 4.83:1 contrast, passing
+     WCAG AA's 4.5:1 minimum per this file's own header requirement.
+     rose-100 — the primitive originally picked here, and still the one
+     backing checkpoint 3's --color-diff-removed-bg — is actually farther
+     by distance (~8.65%) AND drops that same text-on-background contrast
+     to 3.66:1, failing AA. Given its own token rather than reusing
+     --color-diff-removed-bg regardless, since this is a genuinely
+     different file/component, not the diff view. */
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  /* MetricsDashboard.tsx's STATUS_COLORS.neutral translucent tile bg (a raw
+     rgba(107,114,128,...) literal, contrast-audit follow-up #140/#161) uses
+     a slightly different gray than --color-metric-neutral's own gray-600 —
+     a pre-existing fg/bg mismatch, preserved exactly, not corrected, by
+     this hex->token migration (see --palette-gray-500's own comment). */
+  --color-metric-neutral-bg-rgb: var(--palette-gray-500-rgb);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
+
+  /* Shadows - Smooth glowing shadows */
+  --shadow-sm: 0 1px 2px var(--palette-black-a30);
+  --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
+  --shadow-card: 0 10px 15px -3px var(--palette-black-a50), 0 4px 6px -2px var(--palette-black-a30);
+  --shadow-glow: 0 0 15px var(--palette-indigo-500-a30);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, var(--palette-indigo-500) 0%, var(--palette-purple-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-slate-800-a80) 0%, var(--palette-slate-900-a80) 100%);
+
+  /* Body background accent gradient (issue #170) — theme-aware, was hardcoded
+     in global.css and did not adapt when switching to the light theme. */
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-indigo-500-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-purple-500-a08), transparent 25%);
+
+  /* Glassmorphism */
+  --glass-bg: var(--palette-slate-800-a65);
+  --glass-border: var(--palette-white-a08);
+}
+
+/* ==========================================================================
+ * Theme-independent tokens. Spacing, typography, radii, motion and layout do
+ * not change with the theme, so they have no primitive/semantic split.
+ * ========================================================================== */
+:root {
   /* Spacing */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -43,14 +757,39 @@
   --space-6: 1.5rem;
   --space-8: 2rem;
 
-  /* Typography */
-  --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  /* Typography (UI concept ch. 9: one family, three cuts, self-hosted). */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  /* Mono family for artifact identifiers (UI concept ch. 12.4: <ArtifactId>).
+     IBM Plex Mono shares the same hand as --font-sans and disambiguates
+     0/O and 1/l/I, which matters for identifiers like SYS-REQ-001. */
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas,
+    monospace;
+  /* Condensed cut for badges, table headers and counters (UI concept 9.3). */
+  --font-cond: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-base: 1rem;
+  --font-size-md: 1.0625rem;
   --font-size-lg: 1.125rem;
   --font-size-xl: 1.25rem;
   --font-size-2xl: 1.5rem;
+  /* UI concept ch. 12.1: the single <h1> of every PageHeader. */
+  --font-size-3xl: 1.875rem;
+
+  /* Typographic rhythm (UI concept Anhang A) */
+  --leading-tight: 1.15;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.06em;
+  /* Maximum line length for running text. */
+  --measure: 72ch;
+
+  /* Font weights */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
 
   /* Borders */
   --radius-sm: 6px;
@@ -58,72 +797,752 @@
   --radius-lg: 16px;
   --radius-full: 9999px;
 
-  /* Shadows - Smooth glowing shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
-  --shadow-card: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
-  --shadow-glow: 0 0 15px rgba(99, 102, 241, 0.3);
-
-  /* Gradients */
-  --gradient-primary: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-  --gradient-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.8) 100%);
-  
-  /* Glassmorphism */
-  --glass-bg: rgba(30, 41, 59, 0.65);
-  --glass-border: rgba(255, 255, 255, 0.08);
+  /*
+   * Button metrics (issue #954) — the single height/radius vocabulary for the
+   * shared `.btn-*` system in `global.css`. Before these tokens every dialog
+   * re-derived its own button padding/radius inline, which produced nine
+   * different button heights (20-54px) and two radii (6px vs 12px) inside the
+   * same button family. Call sites now either use a `.btn-*` class (which
+   * reads `--btn-h-md` + `--radius-btn` directly) or, when they need a
+   * semantic colour the canonical classes do not provide, reference these
+   * tokens for the geometry instead of inventing padding.
+   *
+   * Like the `--palette-*` pool above, the size scale is declared in full
+   * (`sm`/`md`/`lg`) even where a level has no consumer yet — the scale
+   * documents the vocabulary, it is not a usage list.
+   */
+  --btn-h-sm: 32px;
+  --btn-h-md: 36px;
+  --btn-h-lg: 44px;
+  --radius-btn: var(--radius-sm);
 
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layout (UI concept ch. 6.1) */
+  --nav-width: 240px;
+  --list-min: 380px;
+  --detail-min: 520px;
+
+  /*
+   * Mobile bottom-sheet metrics (issue #874, UI concept ch. 12.8). Below the
+   * shared `<Dialog>` primitive's 640px breakpoint the centred modal becomes a
+   * bottom sheet; these are the only numbers that sheet shape needs, so they
+   * live here instead of as literals inside `Dialog.module.css` (project
+   * convention: no hardcoded sizes in components).
+   *
+   * `--sheet-viewport-height` / `--sheet-keyboard-inset` are *runtime* values,
+   * not design decisions: `useSheetViewport()` overwrites them per panel from
+   * `window.visualViewport` while a dialog is open. The defaults below are what
+   * applies when the API is unavailable (desktop, jsdom, older Safari) — the
+   * sheet then falls back to plain `dvh` sizing.
+   *
+   * The grabber is 40x4px per the issue's DoD; `--sheet-max-height: 90dvh`
+   * keeps the sheet clear of the mobile browser chrome.
+   */
+  --sheet-handle-width: 40px;
+  --sheet-handle-height: 4px;
+  --sheet-max-height: 90dvh;
+  --sheet-viewport-height: 100dvh;
+  --sheet-keyboard-inset: 0px;
+
+  /*
+   * Layout breakpoints (issue #160, UI concept ch. 6.3). CSS custom
+   * properties cannot be referenced inside `@media` conditions (no browser
+   * support), so these are the documented single source of truth — every
+   * `@media` query in the codebase MUST use these exact pixel values
+   * instead of inventing new ones:
+   *   --bp-lg: 1024px  (sidebar collapses to an off-canvas drawer,
+   *                     trace spine turns horizontal)
+   *   --bp-md:  768px  (split-view stacks to a single column)
+   *   --bp-xl: 1600px  (SE-metrics KPI row fits five tiles side by side,
+   *                     #809; below it the five tiles lay out 3+2)
+   */
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1600px;
 }
 
-/*
- * Light theme — mirrors every token above so any component built against
- * var(--color-*) is contrast-safe in both modes. Activated by ThemeContext
- * setting data-theme="light" on <html> (see src/context/ThemeContext.tsx).
- */
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `light` (default-light). Mirrors every semantic
+ * token of the dark theme so any component built against var(--color-*) is
+ * contrast-safe in both modes. Activated by ThemeContext setting
+ * data-theme="light" on <html> (see src/context/ThemeContext.tsx).
+ * ========================================================================== */
 :root[data-theme="light"] {
-  --color-primary: #4f46e5; /* Indigo 600 — darker for AA contrast on white */
-  --color-primary-dark: #4338ca; /* Indigo 700 */
-  --color-surface: #f8fafc; /* Slate 50 */
-  --color-surface-raised: #ffffff;
-  --color-border: #cbd5e1; /* Slate 300 */
-  --color-border-hover: #94a3b8; /* Slate 400 */
-  --color-text: #0f172a; /* Slate 900 */
-  --color-text-muted: #475569; /* Slate 600 */
+  --color-primary: var(--palette-indigo-600); /* darker for AA contrast on white */
+  --color-primary-dark: var(--palette-indigo-700);
+  --color-primary-rgb: var(--palette-indigo-600-rgb);
+  --color-on-primary-rgb: var(--palette-white-rgb);
+  --color-surface: var(--palette-slate-50);
+  --color-surface-raised: var(--palette-white);
+  --color-surface-muted: var(--color-surface-raised);
+  --color-border: var(--palette-slate-300);
+  --color-border-hover: var(--palette-slate-400);
+  --color-border-subtle: var(--palette-slate-900-a08);
+  --color-text: var(--palette-slate-900);
+  --color-text-muted: var(--palette-slate-600);
+  --color-on-primary: var(--palette-white);
 
-  --color-success: #059669; /* Emerald 600 */
-  --color-warning: #b45309; /* Amber 700 */
-  --color-danger: #dc2626; /* Red 600 */
+  --color-success: var(--palette-emerald-600);
+  --color-warning: var(--palette-amber-700);
+  --color-danger: var(--palette-red-600);
+  /* Same primitive as --color-danger in this theme — see the dark block's
+     comment above for why (pre-existing hardcoded-hover quirk, preserved
+     as-is). */
+  --color-danger-dark: var(--palette-red-600);
+  /* Contrast-audit follow-up (#140/#161 blast-radius analysis) — see the
+     dark block's comment above for the full rationale. Light's own
+     emerald-600/amber-700/red-600 measure 3.77:1/5.02:1/4.83:1 with white
+     (amber-700 and red-600 already clear AA; emerald-600 does not) and
+     5.57:1/4.18:1/n.a. with black, so success needs black text while
+     warning and danger keep white. */
+  --color-success-rgb: var(--palette-emerald-600-rgb);
+  --color-warning-rgb: var(--palette-amber-700-rgb);
+  --color-danger-rgb: var(--palette-red-600-rgb);
+  --color-on-success: var(--palette-black);
+  --color-on-warning: var(--palette-white);
+  --color-on-danger: var(--palette-white);
 
-  --color-badge-draft: rgba(15, 23, 42, 0.08);
-  --color-badge-draft-text: #334155;
-  --color-badge-approved: rgba(5, 150, 105, 0.15);
-  --color-badge-approved-text: #047857;
+  --color-badge-draft: var(--palette-slate-900-a08);
+  --color-badge-draft-text: var(--palette-slate-700);
+  --color-badge-approved: var(--palette-emerald-600-a15);
+  --color-badge-approved-text: var(--palette-emerald-700);
 
   /* Status Badge Variants (light-mode — solid pastel bg + dark text) */
-  --color-badge-info-bg: #bee3f8;
-  --color-badge-info-text: #2c5282;
-  --color-badge-danger-bg: #fed7d7;
-  --color-badge-danger-text: #9b2c2c;
-  --color-badge-success-bg: #c6f6d5;
-  --color-badge-success-text: #276749;
-  --color-badge-warning-bg: #fefcbf;
-  --color-badge-warning-text: #744210;
-  --color-badge-neutral-bg: #e2e8f0;
-  --color-badge-neutral-text: #4a5568;
+  --color-badge-info-bg: var(--palette-sky-100);
+  --color-badge-info-text: var(--palette-sky-800);
+  --color-badge-danger-bg: var(--palette-rose-100);
+  --color-badge-danger-text: var(--palette-rose-800);
+  --color-badge-success-bg: var(--palette-green-100);
+  --color-badge-success-text: var(--palette-green-800);
+  --color-badge-warning-bg: var(--palette-yellow-100);
+  --color-badge-warning-text: var(--palette-yellow-800);
+  --color-badge-neutral-bg: var(--palette-slate-200);
+  --color-badge-neutral-text: var(--palette-gray-600);
 
-  --color-card-active-bg: rgba(99, 102, 241, 0.1);
+  --color-card-active-bg: var(--palette-indigo-500-a10);
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
-  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -1px rgba(15, 23, 42, 0.06);
-  --shadow-card: 0 10px 15px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
-  --shadow-glow: 0 0 15px rgba(79, 70, 229, 0.25);
+  /* Sidebar navigation — same dark palette in both themes by design (issue
+     #157): the sidebar is a permanently-dark "chrome" element, unlike the
+     rest of the UI which switches with the theme. */
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation) — see the `dark` block above for the
+     full rationale; frozen identically like the other --color-nav-*
+     chrome tokens. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
 
-  --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
-  --gradient-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+  /* Sidebar overlay tints/shadows (theme presets) — inverted vs. the dark
+     block: black-tinted overlays on a light nav background, same opacity
+     levels. See the dark block's comment above. */
+  --color-nav-overlay-hover: rgba(0, 0, 0, 0.1);
+  --color-nav-overlay-hover-border: rgba(0, 0, 0, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.35);
 
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(15, 23, 42, 0.08);
+  /* Keyboard focus ring (issue #158) — darker for AA contrast on white */
+  --color-focus: var(--palette-indigo-600);
+
+  /* Level badge ramp + AI-derive gradient — identical to the dark block
+     above by design (theming phase 2, checkpoint 1): both were fixed,
+     theme-independent hex literals before this migration. See the dark
+     block's comment for the full rationale, including the L2 exception. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l2: var(--palette-cyan-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-level-l0-text: var(--palette-white);
+  --color-level-l1-text: var(--palette-black);
+  --color-level-l2-text: var(--palette-black);
+  --color-level-l3-text: var(--palette-black);
+  --color-level-l4-text: var(--palette-black);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — identical to the dark block above by
+     design (theming phase 2, checkpoint 2): fixed, theme-independent hex
+     literals before this migration. See the dark block's comment for the
+     full rationale, including the containment exception. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — identical to the dark block above by design
+     (theming phase 2, checkpoint 3): all were fixed, theme-independent hex
+     literals before this migration. See the dark block's comments for the
+     full rationale and distance table. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-reqtype-syreq-text: var(--palette-black);
+  --color-reqtype-usecase-text: var(--palette-black);
+  --color-reqtype-featurereq-text: var(--palette-black);
+  --color-reqtype-default-text: var(--palette-white);
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  /* MetricsDashboard.tsx's STATUS_COLORS.neutral translucent tile bg (a raw
+     rgba(107,114,128,...) literal, contrast-audit follow-up #140/#161) uses
+     a slightly different gray than --color-metric-neutral's own gray-600 —
+     a pre-existing fg/bg mismatch, preserved exactly, not corrected, by
+     this hex->token migration (see --palette-gray-500's own comment). */
+  --color-metric-neutral-bg-rgb: var(--palette-gray-500-rgb);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
+
+  --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
+  --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
+  --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
+  --shadow-glow: 0 0 15px var(--palette-indigo-600-a25);
+
+  --gradient-primary: linear-gradient(135deg, var(--palette-indigo-600) 0%, var(--palette-purple-600) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-white-a90) 0%, var(--palette-slate-50-a90) 100%);
+
+  /* Body background accent gradient (issue #170) — softer opacity on light
+     backgrounds so the accent stays subtle instead of muddying the page. */
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-indigo-600-a06), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-purple-600-a06), transparent 25%);
+
+  --glass-bg: var(--palette-white-a70);
+  --glass-border: var(--palette-slate-900-a08);
+}
+
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `bauhaus` (Bauhaus Enterprise, light, #568
+ * Phase 3). User-approved exact-hex anchors: alabaster surface, deep-navy
+ * text, mustard primary, terracotta danger, muted-teal success, slate-gray
+ * muted/border (see plan header). The 41 "frozen" tokens below are copied
+ * verbatim from the `dark` block above (theming phase 2's design decision
+ * that these status/branding constants are theme-independent — not
+ * revisited by this phase).
+ * ========================================================================== */
+:root[data-theme="bauhaus"] {
+  --color-primary: var(--palette-bauhaus-mustard-500);
+  --color-primary-dark: var(--palette-bauhaus-mustard-600);
+  --color-primary-rgb: 235, 181, 74;
+  --color-on-primary-rgb: var(--palette-bauhaus-navy-rgb);
+  --color-surface: var(--palette-bauhaus-alabaster);
+  --color-surface-raised: var(--palette-white);
+  --color-surface-muted: var(--color-surface-raised);
+  --color-border: var(--palette-bauhaus-slate-300);
+  --color-border-hover: var(--palette-bauhaus-slate-400);
+  --color-border-subtle: var(--palette-bauhaus-slate-300);
+  --color-text: var(--palette-bauhaus-navy);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5,
+     §10.1): slate-600 measured 4.21:1 against this theme's alabaster
+     surface, just under WCAG AA's 4.5:1 floor. Bumped one step to
+     slate-700 (5.71:1) — the next rung of the same already-defined
+     bauhaus-slate ramp, no new primitive needed. Light/Dark/Nordic were
+     not reported as failing and are left untouched. */
+  --color-text-muted: var(--palette-bauhaus-slate-700);
+  --color-on-primary: var(--palette-bauhaus-navy);
+
+  /* Contrast-audit follow-up (#140/#161 blast-radius analysis, 2026-08-28):
+     terracotta-500 (previously the danger base) measured 3.31:1 against
+     navy and 4.25:1 against white — both under WCAG AA's 4.5:1 floor,
+     causing a live contrast bug (color-on-danger=white on this bg). Now
+     backed by the new --palette-bauhaus-terracotta-650 rung (see its own
+     comment in the primitive block for the exact contrast math: 5.06:1
+     white-on-#B74D42). --color-danger-dark is unchanged (-700, still
+     darker, ramp order preserved). */
+  --color-success: var(--palette-bauhaus-teal-500);
+  --color-warning: var(--palette-bauhaus-amber-500);
+  --color-danger: var(--palette-bauhaus-terracotta-650);
+  --color-danger-dark: var(--palette-bauhaus-terracotta-700);
+  /* Same follow-up: teal-500/amber-500/the new terracotta-650 measure
+     4.76:1/2.94:1/5.06:1 with white and 4.42:1/7.15:1/n.a. with black —
+     success keeps white, warning switches to black, danger keeps white
+     (now that the palette itself was fixed above). */
+  --color-success-rgb: var(--palette-bauhaus-teal-500-rgb);
+  --color-warning-rgb: var(--palette-bauhaus-amber-500-rgb);
+  --color-danger-rgb: var(--palette-bauhaus-terracotta-650-rgb);
+  --color-on-success: var(--palette-white);
+  --color-on-warning: var(--palette-black);
+  --color-on-danger: var(--palette-white);
+
+  --color-badge-draft: var(--palette-bauhaus-slate-100);
+  --color-badge-draft-text: var(--palette-bauhaus-slate-800);
+  --color-badge-approved: var(--palette-bauhaus-teal-100);
+  --color-badge-approved-text: var(--palette-bauhaus-teal-800);
+
+  --color-badge-info-bg: var(--palette-bauhaus-mustard-100);
+  --color-badge-info-text: var(--palette-bauhaus-mustard-800);
+  --color-badge-danger-bg: var(--palette-bauhaus-terracotta-100);
+  --color-badge-danger-text: var(--palette-bauhaus-terracotta-800);
+  --color-badge-success-bg: var(--palette-bauhaus-teal-100);
+  --color-badge-success-text: var(--palette-bauhaus-teal-800);
+  --color-badge-warning-bg: var(--palette-bauhaus-amber-100);
+  --color-badge-warning-text: var(--palette-bauhaus-amber-800);
+  --color-badge-neutral-bg: var(--palette-bauhaus-slate-100);
+  --color-badge-neutral-text: var(--palette-bauhaus-slate-800);
+
+  --color-card-active-bg: var(--palette-bauhaus-mustard-100);
+
+  /* Sidebar navigation — frozen, same permanently-dark chrome as every theme. */
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation) — see the `dark` block above for the
+     full rationale; frozen identically like the other --color-nav-*
+     chrome tokens. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
+
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
+
+  --color-focus: var(--palette-bauhaus-mustard-600);
+
+  /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l2: var(--palette-cyan-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-level-l0-text: var(--palette-white);
+  --color-level-l1-text: var(--palette-black);
+  --color-level-l2-text: var(--palette-black);
+  --color-level-l3-text: var(--palette-black);
+  --color-level-l4-text: var(--palette-black);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — frozen, identical to `dark`. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — frozen, identical to `dark`. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-reqtype-syreq-text: var(--palette-black);
+  --color-reqtype-usecase-text: var(--palette-black);
+  --color-reqtype-featurereq-text: var(--palette-black);
+  --color-reqtype-default-text: var(--palette-white);
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  /* MetricsDashboard.tsx's STATUS_COLORS.neutral translucent tile bg (a raw
+     rgba(107,114,128,...) literal, contrast-audit follow-up #140/#161) uses
+     a slightly different gray than --color-metric-neutral's own gray-600 —
+     a pre-existing fg/bg mismatch, preserved exactly, not corrected, by
+     this hex->token migration (see --palette-gray-500's own comment). */
+  --color-metric-neutral-bg-rgb: var(--palette-gray-500-rgb);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — light-style, mode-generic
+     shadow/glass values copied verbatim from the `light` block; gradient
+     accents mapped onto bauhaus's own mustard/terracotta hue pair
+     instead of indigo/purple. */
+  --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
+  --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
+  --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
+  --shadow-glow: 0 0 15px var(--palette-bauhaus-mustard-500-a30);
+  --gradient-primary: linear-gradient(135deg, var(--palette-bauhaus-mustard-500) 0%, var(--palette-bauhaus-terracotta-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-white-a90) 0%, var(--palette-slate-50-a90) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-bauhaus-mustard-500-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-bauhaus-terracotta-500-a08), transparent 25%);
+  --glass-bg: var(--palette-white-a70);
+  --glass-border: var(--palette-slate-900-a08);
+}
+
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `nordic` (Nordic Frost, dark, #568 Phase 3).
+ * Controller-proposed, user-approved anchors (Nord-inspired): night-blue
+ * surface, snow text, frost-blue primary (WCAG-adjusted, see plan header
+ * note 1), aurora red/orange/green status colors, polar-gray muted/border.
+ * The 41 "frozen" tokens below are copied verbatim from the `dark` block.
+ * ========================================================================== */
+:root[data-theme="nordic"] {
+  --color-primary: var(--palette-nordic-frost-600);
+  --color-primary-dark: var(--palette-nordic-frost-700);
+  --color-primary-rgb: var(--palette-nordic-frost-600-rgb);
+  --color-on-primary-rgb: var(--palette-white-rgb);
+  --color-surface: var(--palette-nordic-night);
+  --color-surface-raised: var(--palette-nordic-night-raised);
+  --color-surface-muted: var(--color-surface-raised);
+  --color-border: var(--palette-nordic-polar-700);
+  --color-border-hover: var(--palette-nordic-polar-600);
+  --color-border-subtle: var(--palette-nordic-polar-700);
+  --color-text: var(--palette-nordic-snow);
+  --color-text-muted: var(--palette-nordic-polar-400);
+  --color-on-primary: var(--palette-white);
+
+  --color-success: var(--palette-nordic-aurora-green-500);
+  --color-warning: var(--palette-nordic-aurora-orange-500);
+  --color-danger: var(--palette-nordic-aurora-red-500);
+  --color-danger-dark: var(--palette-nordic-aurora-red-400);
+  /* Contrast-audit follow-up (#140/#161 blast-radius analysis): nordic's own
+     aurora-green-500/-orange-500/-red-500 (all Nord-anchor pastels) measure
+     2.04:1/2.85:1/4.09:1 with white — all under AA — but 10.30:1/7.38:1/
+     5.13:1 with black, so all three switch to black text (no palette
+     change needed, unlike bauhaus). */
+  --color-success-rgb: var(--palette-nordic-aurora-green-500-rgb);
+  --color-warning-rgb: var(--palette-nordic-aurora-orange-500-rgb);
+  --color-danger-rgb: var(--palette-nordic-aurora-red-500-rgb);
+  --color-on-success: var(--palette-black);
+  --color-on-warning: var(--palette-black);
+  --color-on-danger: var(--palette-black);
+
+  --color-badge-draft: var(--palette-nordic-polar-500-a20);
+  --color-badge-draft-text: var(--palette-nordic-polar-300);
+  --color-badge-approved: var(--palette-nordic-aurora-green-500-a20);
+  --color-badge-approved-text: var(--palette-nordic-aurora-green-300);
+
+  --color-badge-info-bg: var(--palette-nordic-frost-500-a20);
+  --color-badge-info-text: var(--palette-nordic-frost-300);
+  --color-badge-danger-bg: var(--palette-nordic-aurora-red-500-a20);
+  --color-badge-danger-text: var(--palette-nordic-aurora-red-300);
+  --color-badge-success-bg: var(--palette-nordic-aurora-green-500-a20);
+  --color-badge-success-text: var(--palette-nordic-aurora-green-300);
+  --color-badge-warning-bg: var(--palette-nordic-aurora-orange-500-a20);
+  --color-badge-warning-text: var(--palette-nordic-aurora-orange-300);
+  --color-badge-neutral-bg: var(--palette-nordic-polar-500-a20);
+  --color-badge-neutral-text: var(--palette-nordic-polar-300);
+
+  --color-card-active-bg: var(--palette-nordic-frost-500-a15);
+
+  /* Sidebar navigation — frozen, same permanently-dark chrome as every theme. */
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation) — see the `dark` block above for the
+     full rationale; frozen identically like the other --color-nav-*
+     chrome tokens. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
+
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
+
+  --color-focus: var(--palette-nordic-frost-400);
+
+  /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l2: var(--palette-cyan-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-level-l0-text: var(--palette-white);
+  --color-level-l1-text: var(--palette-black);
+  --color-level-l2-text: var(--palette-black);
+  --color-level-l3-text: var(--palette-black);
+  --color-level-l4-text: var(--palette-black);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — frozen, identical to `dark`. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — frozen, identical to `dark`. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-reqtype-syreq-text: var(--palette-black);
+  --color-reqtype-usecase-text: var(--palette-black);
+  --color-reqtype-featurereq-text: var(--palette-black);
+  --color-reqtype-default-text: var(--palette-white);
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  /* MetricsDashboard.tsx's STATUS_COLORS.neutral translucent tile bg (a raw
+     rgba(107,114,128,...) literal, contrast-audit follow-up #140/#161) uses
+     a slightly different gray than --color-metric-neutral's own gray-600 —
+     a pre-existing fg/bg mismatch, preserved exactly, not corrected, by
+     this hex->token migration (see --palette-gray-500's own comment). */
+  --color-metric-neutral-bg-rgb: var(--palette-gray-500-rgb);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — dark-style, mode-generic
+     shadow/glass values copied verbatim from the `dark` block; gradient
+     accents mapped onto nordic's own frost-blue/aurora-green hue pair
+     instead of indigo/purple. */
+  --shadow-sm: 0 1px 2px var(--palette-black-a30);
+  --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
+  --shadow-card: 0 10px 15px -3px var(--palette-black-a50), 0 4px 6px -2px var(--palette-black-a30);
+  --shadow-glow: 0 0 15px var(--palette-nordic-frost-600-a25);
+  --gradient-primary: linear-gradient(135deg, var(--palette-nordic-frost-600) 0%, var(--palette-nordic-aurora-green-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-slate-800-a80) 0%, var(--palette-slate-900-a80) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-nordic-frost-600-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-nordic-aurora-green-500-a08), transparent 25%);
+  --glass-bg: var(--palette-slate-800-a65);
+  --glass-border: var(--palette-white-a08);
+}
+
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `sepia` (Sepia Archive, light, #568 Phase 3).
+ * Controller-proposed, user-approved anchors: cream surface, espresso text,
+ * burnt-orange primary (WCAG-adjusted, see plan header note 1), brick/gold/
+ * forest status colors, taupe muted/border. The 41 "frozen" tokens below are
+ * copied verbatim from the `dark` block.
+ * ========================================================================== */
+:root[data-theme="sepia"] {
+  --color-primary: var(--palette-sepia-orange-700);
+  --color-primary-dark: var(--palette-sepia-orange-800);
+  --color-primary-rgb: var(--palette-sepia-orange-700-rgb);
+  --color-on-primary-rgb: var(--palette-white-rgb);
+  --color-surface: var(--palette-sepia-cream);
+  --color-surface-raised: var(--palette-white);
+  --color-surface-muted: var(--color-surface-raised);
+  --color-border: var(--palette-sepia-taupe-300);
+  --color-border-hover: var(--palette-sepia-taupe-400);
+  --color-border-subtle: var(--palette-sepia-taupe-300);
+  --color-text: var(--palette-sepia-espresso);
+  /* Task 10 (contrast remediation, GESAMTTEST_BERICHT_2026-08-21 §5,
+     §10.1): taupe-600 measured 3.81:1 against this theme's cream surface,
+     under WCAG AA's 4.5:1 floor. Bumped one step to taupe-700 (5.24:1) —
+     the next rung of the same already-defined sepia-taupe ramp, no new
+     primitive needed. Light/Dark/Nordic were not reported as failing and
+     are left untouched. */
+  --color-text-muted: var(--palette-sepia-taupe-700);
+  --color-on-primary: var(--palette-white);
+
+  --color-success: var(--palette-sepia-forest-500);
+  --color-warning: var(--palette-sepia-gold-500);
+  --color-danger: var(--palette-sepia-brick-500);
+  --color-danger-dark: var(--palette-sepia-brick-700);
+  /* Contrast-audit follow-up (#140/#161 blast-radius analysis): sepia's own
+     forest-500/gold-500/brick-500 measure 4.83:1/3.22:1/6.63:1 with white —
+     forest and brick already clear AA, gold does not — and 4.35:1/6.52:1/
+     n.a. with black, so warning switches to black while success/danger
+     keep white. */
+  --color-success-rgb: var(--palette-sepia-forest-500-rgb);
+  --color-warning-rgb: var(--palette-sepia-gold-500-rgb);
+  --color-danger-rgb: var(--palette-sepia-brick-500-rgb);
+  --color-on-success: var(--palette-white);
+  --color-on-warning: var(--palette-black);
+  --color-on-danger: var(--palette-white);
+
+  --color-badge-draft: var(--palette-sepia-taupe-100);
+  --color-badge-draft-text: var(--palette-sepia-taupe-800);
+  --color-badge-approved: var(--palette-sepia-forest-100);
+  --color-badge-approved-text: var(--palette-sepia-forest-800);
+
+  --color-badge-info-bg: var(--palette-sepia-orange-100);
+  --color-badge-info-text: var(--palette-sepia-orange-800);
+  --color-badge-danger-bg: var(--palette-sepia-brick-100);
+  --color-badge-danger-text: var(--palette-sepia-brick-800);
+  --color-badge-success-bg: var(--palette-sepia-forest-100);
+  --color-badge-success-text: var(--palette-sepia-forest-800);
+  --color-badge-warning-bg: var(--palette-sepia-gold-100);
+  --color-badge-warning-text: var(--palette-sepia-gold-800);
+  --color-badge-neutral-bg: var(--palette-sepia-taupe-100);
+  --color-badge-neutral-text: var(--palette-sepia-taupe-800);
+
+  --color-card-active-bg: var(--palette-sepia-orange-100);
+
+  /* Sidebar navigation — frozen, same permanently-dark chrome as every theme. */
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
+  /* Task 10 (contrast remediation) — see the `dark` block above for the
+     full rationale; frozen identically like the other --color-nav-*
+     chrome tokens. */
+  --color-nav-badge-bg: var(--palette-royal-500-a20);
+  --color-nav-badge-text: var(--palette-white);
+
+  /* Sidebar overlay tints/shadows — identical to the dark block by
+  design: these palettes are dark-oriented today (theme presets). */
+  --color-nav-overlay-hover: rgba(255, 255, 255, 0.1);
+  --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
+  --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
+
+  --color-focus: var(--palette-sepia-orange-800);
+
+  /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
+  --color-level-l0: var(--palette-sky-800);
+  --color-level-l1: var(--palette-blue-500);
+  --color-level-l2: var(--palette-cyan-500);
+  --color-level-l3: var(--palette-emerald-500);
+  --color-level-l4: var(--palette-slate-400);
+  --color-level-l0-text: var(--palette-white);
+  --color-level-l1-text: var(--palette-black);
+  --color-level-l2-text: var(--palette-black);
+  --color-level-l3-text: var(--palette-black);
+  --color-level-l4-text: var(--palette-black);
+  --color-gradient-ai-start: var(--palette-royal-500);
+  --color-gradient-ai-end: var(--palette-purple-600);
+
+  /* Diagram/workflow edge colors — frozen, identical to `dark`. */
+  --color-diagram-edge-primary: var(--palette-indigo-500);
+  --color-diagram-edge-default: var(--palette-slate-600);
+  --color-diagram-edge-dependency: var(--palette-amber-500);
+
+  /* Diff status badges, TestRun summary tiles, requirement-type badges and
+     the trace-link-type pill — frozen, identical to `dark`. */
+  --color-diff-added-bg: var(--palette-green-100);
+  --color-diff-added-text: var(--palette-green-800);
+  --color-diff-removed-bg: var(--palette-rose-100);
+  --color-diff-removed-text: var(--palette-rose-800);
+  --color-diff-modified-bg: var(--palette-yellow-100);
+  --color-diff-modified-text: var(--palette-yellow-800);
+  --color-diff-unchanged-bg: var(--palette-slate-200);
+  --color-diff-unchanged-text: var(--palette-gray-600);
+  --color-diff-note-bg: var(--palette-sky-100);
+  --color-diff-note-text: var(--palette-sky-800);
+  --color-summary-passed: var(--palette-emerald-500);
+  --color-summary-failed: var(--palette-red-500);
+  --color-summary-notrun: var(--palette-gray-600);
+  --color-reqtype-syreq: var(--palette-emerald-500);
+  --color-reqtype-usecase: var(--palette-purple-500);
+  --color-reqtype-featurereq: var(--palette-amber-500);
+  --color-reqtype-default: var(--palette-gray-600);
+  --color-reqtype-syreq-text: var(--palette-black);
+  --color-reqtype-usecase-text: var(--palette-black);
+  --color-reqtype-featurereq-text: var(--palette-black);
+  --color-reqtype-default-text: var(--palette-white);
+  --color-artifacttype-stakeholderneed: var(--palette-blue-500);
+  --color-artifacttype-requirement: var(--palette-emerald-500);
+  --color-artifacttype-architectureelement: var(--palette-indigo-500);
+  --color-artifacttype-risk: var(--palette-red-500);
+  --color-artifacttype-testcase: var(--palette-teal-500);
+  --color-artifacttype-adr: var(--palette-orange-500);
+  --color-artifacttype-issue: var(--palette-rose-500);
+  --color-artifacttype-goal: var(--palette-purple-500);
+  --color-artifacttype-glossaryterm: var(--palette-amber-500);
+  --color-artifacttype-default: var(--palette-gray-600);
+  --color-linktype-badge-bg: var(--palette-slate-50);
+  --color-linktype-badge-text: var(--palette-sky-800);
+  --color-metric-healthy: var(--palette-emerald-500);
+  --color-metric-warning: var(--palette-amber-500);
+  --color-metric-critical: var(--palette-red-500);
+  --color-metric-neutral: var(--palette-gray-600);
+  /* MetricsDashboard.tsx's STATUS_COLORS.neutral translucent tile bg (a raw
+     rgba(107,114,128,...) literal, contrast-audit follow-up #140/#161) uses
+     a slightly different gray than --color-metric-neutral's own gray-600 —
+     a pre-existing fg/bg mismatch, preserved exactly, not corrected, by
+     this hex->token migration (see --palette-gray-500's own comment). */
+  --color-metric-neutral-bg-rgb: var(--palette-gray-500-rgb);
+  --color-errorboundary-text: var(--palette-gray-600);
+  --color-link-hover: var(--palette-indigo-400);
+  --color-danger-banner-bg: var(--palette-white);
+
+  /* #568 Phase 3 fix: shadow/gradient/glass — light-style, mode-generic
+     shadow/glass values copied verbatim from the `light` block; gradient
+     accents mapped onto sepia's own orange/gold hue pair instead of indigo. */
+  --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
+  --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
+  --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
+  --shadow-glow: 0 0 15px var(--palette-sepia-orange-700-a25);
+  --gradient-primary: linear-gradient(135deg, var(--palette-sepia-orange-700) 0%, var(--palette-sepia-gold-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-white-a90) 0%, var(--palette-slate-50-a90) 100%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-sepia-orange-700-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-sepia-gold-500-a08), transparent 25%);
+  --glass-bg: var(--palette-white-a70);
+  --glass-border: var(--palette-slate-900-a08);
 }

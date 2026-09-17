@@ -36,10 +36,11 @@ WS_ID = str(uuid.uuid4())
 
 
 def test_key_builders_are_namespaced_and_workspace_scoped():
-    assert ci.preset_cache_key(WS_ID) == f"reqflow:preset:{WS_ID}"
-    assert ci.terminology_cache_key(WS_ID) == f"reqflow:terminology:{WS_ID}"
-    assert ci.features_cache_key(WS_ID) == f"reqflow:features:{WS_ID}"
-    assert ci.workflow_def_cache_key(WS_ID) == f"reqflow:workflow-def:{WS_ID}"
+    assert ci.preset_cache_key(WS_ID) == f"reqogniloom:preset:{WS_ID}"
+    assert ci.terminology_cache_key(WS_ID) == f"reqogniloom:terminology:{WS_ID}"
+    assert ci.features_cache_key(WS_ID) == f"reqogniloom:features:{WS_ID}"
+    assert ci.workflow_def_cache_key(WS_ID) == f"reqogniloom:workflow-def:{WS_ID}"
+    assert ci.attribute_def_cache_key(WS_ID) == f"reqogniloom:attribute-def:{WS_ID}"
 
 
 # ---------------------------------------------------------------------------
@@ -56,12 +57,21 @@ def test_key_builders_are_namespaced_and_workspace_scoped():
     }
 )
 def test_invalidate_deletes_all_shared_workspace_keys():
-    keys = [
+    # Sourced from the real key list rather than a hand-maintained copy: a
+    # separately hardcoded list stayed green after ``attribute_def_cache_key``
+    # was added to ``_workspace_keys`` but not to this test (Task 7 review
+    # I-5). The explicit set-equality check below additionally catches the
+    # opposite drift — a key silently dropped from ``_workspace_keys`` itself
+    # (verified live: commenting out ``attribute_def_cache_key`` there fails
+    # this assertion).
+    keys = ci._workspace_keys(WS_ID)
+    assert set(keys) == {
         ci.preset_cache_key(WS_ID),
         ci.terminology_cache_key(WS_ID),
         ci.features_cache_key(WS_ID),
         ci.workflow_def_cache_key(WS_ID),
-    ]
+        ci.attribute_def_cache_key(WS_ID),
+    }
     for key in keys:
         cache.set(key, "stale", timeout=300)
     # An unrelated workspace key must survive.
@@ -226,3 +236,98 @@ def test_register_signals_connects_save_and_delete_idempotently():
         delete_uids = [r[0][0] for r in post_delete.receivers]
         assert save_uids.count(save_uid) == 1
         assert delete_uids.count(delete_uid) == 1
+
+
+# ---------------------------------------------------------------------------
+# _resolve_workspace_id — TraceLink (review M3, #625)
+# ---------------------------------------------------------------------------
+#
+# TraceLink is the one watched model whose workspace is not on the instance:
+# it is reached through the source Artifact. #625 added a fast path that reads
+# that Artifact from the instance's relation cache when it is already there
+# (TraceLinkManager.create builds ``TraceLink(source=source, ...)``, so on
+# post_save it always is), falling back to the original values_list query
+# otherwise — which is what post_delete and any freshly loaded row get.
+#
+# Both branches must agree on the answer; only the query count differs. These
+# are the only DB-backed tests in this module, hence the local imports.
+
+
+@pytest.mark.django_db
+class TestResolveWorkspaceIdForTraceLink:
+    @staticmethod
+    def _fixtures():
+        from persistence.models import Artifact, Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(name="T-ci-625", slug="t-ci-625")
+        TenantContext.set_tenant(tenant.id)
+        workspace = Workspace.objects.create(tenant=tenant, name="WS-ci-625")
+        source = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="requirement"
+        )
+        target = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="requirement"
+        )
+        return tenant, workspace, source, target
+
+    def test_cached_source_relation_costs_no_query(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from persistence.models import TraceLink
+        from persistence.tenancy import TenantContext
+
+        try:
+            tenant, workspace, source, target = self._fixtures()
+            # Exactly the shape TraceLinkManager.create() produces.
+            link = TraceLink(
+                source=source,
+                target=target,
+                link_type="references",
+                tenant_id=tenant.id,
+            )
+
+            with CaptureQueriesContext(connection) as cap:
+                resolved = ci._resolve_workspace_id(link)
+        finally:
+            TenantContext.clear_tenant()
+
+        assert resolved == str(workspace.id)
+        assert len(cap.captured_queries) == 0, (
+            "the source Artifact was already in the relation cache but "
+            "_resolve_workspace_id queried for it anyway (#625):\n"
+            + "\n".join(q["sql"] for q in cap.captured_queries)
+        )
+
+    def test_uncached_source_relation_falls_back_to_one_query(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from persistence.models import TraceLink
+        from persistence.tenancy import TenantContext
+
+        try:
+            tenant, workspace, source, target = self._fixtures()
+            saved = TraceLink.objects.create(
+                source=source,
+                target=target,
+                link_type="references",
+                tenant_id=tenant.id,
+            )
+            # Reload: no select_related, so the relation cache is empty —
+            # the post_delete / plain-queryset shape.
+            reloaded = TraceLink.objects.get(pk=saved.pk)
+            assert "source" not in reloaded._state.fields_cache
+
+            with CaptureQueriesContext(connection) as cap:
+                resolved = ci._resolve_workspace_id(reloaded)
+        finally:
+            TenantContext.clear_tenant()
+
+        assert resolved == str(workspace.id), (
+            "the fallback branch disagrees with the cached branch"
+        )
+        assert len(cap.captured_queries) == 1, (
+            "the fallback should be a single values_list lookup, got:\n"
+            + "\n".join(q["sql"] for q in cap.captured_queries)
+        )
+        assert '"pl_artifact"' in cap.captured_queries[0]["sql"]

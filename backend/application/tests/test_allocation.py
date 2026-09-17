@@ -38,24 +38,38 @@ def user(tenant):
 @pytest.fixture
 def workspace(tenant):
     """Create test workspace."""
+    from link_types.workspace_store import provision_workspace_link_types
     from persistence.tenancy import TenantContext
+
     TenantContext.set_tenant(tenant.id)
     try:
-        return PersistenceWorkspace.objects.create(
+        ws = PersistenceWorkspace.objects.create(
             tenant=tenant,
             name="test-workspace",
         )
+        # Same call WorkspaceService makes: link validation is always-on, so an
+        # unprovisioned workspace rejects every trace link.
+        provision_workspace_link_types(workspace_id=ws.id, tenant_id=tenant.id)
+        return ws
     finally:
         TenantContext.clear_tenant()
 
 
 @pytest.fixture
 def auth_context(user):
-    """Create auth context."""
+    """Create auth context.
+
+    active_roles=("editor",): these tests exercise allocation/coverage logic,
+    not the RBAC gate, so the context needs a real write-permitting role.
+    An empty tuple used to slip past ``ServiceBase._assert_write_permission``
+    only because that check was fail-open for any non-("viewer",) value
+    (Systemaudit #100) — now fixed to be fail-closed, an empty role tuple is
+    correctly denied.
+    """
     return AuthContext(
         user_id=user.id,
         tenant_id=user.tenant.id,
-        active_roles=(),
+        active_roles=("editor",),
         auth_method="test",
         api_key_id=None,
         tenant_name="test-tenant",

@@ -56,6 +56,7 @@ from llm_adapter.providers import (
     LlmProviderUnknownError,
     get_provider,
 )
+from llm_adapter.timeouts import sync_timeout_seconds
 from llm_adapter.token_tracking import (
     LLM_TOKEN_LIMIT_EXCEEDED,
     is_over_daily_limit,
@@ -89,13 +90,12 @@ def _sync_timeout_seconds() -> float:
     Read from ``settings.LLM_SYNC_TIMEOUT_SECONDS`` (env ``LLM_SYNC_TIMEOUT``,
     default 25s — below the typical 30s Gunicorn worker timeout). Falls back
     to 25 when Django settings are not configured (isolated unit tests).
-    """
-    try:
-        from django.conf import settings  # noqa: PLC0415
 
-        return float(getattr(settings, "LLM_SYNC_TIMEOUT_SECONDS", 25))
-    except Exception:  # noqa: BLE001 — settings unavailable outside Django
-        return 25.0
+    Delegates to :mod:`llm_adapter.timeouts`, the single seam for LLM timeout
+    resolution (issue #342). The router's own capabilities are all
+    single-artifact, so no workspace-wide purpose applies here.
+    """
+    return sync_timeout_seconds()
 
 
 def _read_enabled_capabilities() -> Set[str]:
@@ -116,6 +116,11 @@ def _read_enabled_capabilities() -> Set[str]:
 # ---------------------------------------------------------------------------
 # Error response helpers
 # ---------------------------------------------------------------------------
+
+
+#: Canonical, non-identifying message for an unmapped provider failure
+#: (#697, CWE-209). The raw exception text is logged/audited instead.
+_GENERIC_PROVIDER_ERROR = "The LLM provider reported an error."
 
 
 def _not_configured_response(message: str = "LLM not configured") -> Dict[str, Any]:
@@ -316,8 +321,14 @@ class CapabilityRouter:
             return _provider_error_response("Request timed out")
 
         except Exception as exc:  # noqa: BLE001
-            # Categorise by message content (Rate limit, API error, generic)
+            # Categorise by message content (Rate limit, API error, generic).
+            #
+            # #697 (CWE-209): ``msg`` is only *classified* here. The raw text of
+            # an unmapped provider/plumbing exception can name hosts, DSNs or
+            # SDK internals, so it goes to the audit row and the log — never
+            # into the client-visible ``error.message``.
             msg = str(exc)
+            error_msg = _GENERIC_PROVIDER_ERROR
             if "429" in msg or "Rate limit" in msg.lower() or "rate limit" in msg.lower():
                 error_msg = "Rate limit exceeded"
             elif any(f"API error: {c}" in msg or f"{c}" in msg for c in ["500", "502", "503", "504"]):
@@ -326,10 +337,12 @@ class CapabilityRouter:
                     if code in msg:
                         error_msg = f"API error: {code}"
                         break
-                else:
-                    error_msg = msg
-            else:
-                error_msg = msg
+            logger.warning(
+                "LLM provider '%s' call for capability '%s' failed",
+                provider_name,
+                capability_name,
+                exc_info=exc,
+            )
 
             self._audit_logger.log_llm_call(
                 provider=provider_name,
@@ -339,7 +352,7 @@ class CapabilityRouter:
                 or kwargs.get("workspace_id"),
                 token_usage=None,
                 success=False,
-                error=error_msg,
+                error=msg,
             )
             return _provider_error_response(error_msg)
 
@@ -361,9 +374,21 @@ class CapabilityRouter:
         ends when the provider's own HTTP timeout fires) and a built-in
         ``TimeoutError`` is raised for the existing timeout handling path.
 
-        The active tenant context (thread-local) is re-established inside the
-        worker thread so tenant-scoped reads (LlmSettings, breaker state)
-        behave exactly as in the request thread.
+        The active tenant context is re-established inside the worker thread —
+        both the Python-side thread-local (TenantManager filtering) *and* the
+        PostgreSQL ``app.current_tenant`` session variable RLS policies read —
+        so tenant-scoped reads (LlmSettings, breaker state) behave exactly as
+        in the request thread.
+
+        SA-37: this worker thread gets its own DB connection (Django connections
+        are thread-local), so ``TenantContext.set_tenant()`` alone only ever
+        satisfied the ORM-side ``TenantManager`` filter here — it never issued
+        ``SET app.current_tenant`` on *this* connection, leaving every RLS
+        policy's USING/WITH CHECK clause to silently hide reads / reject writes
+        on this thread. ``llm_adapter/tasks.py`` (Celery, #444) hit the exact
+        same gap; ``set_request_tenant``/``clear_request_tenant`` (used there)
+        set/reset both layers together and are reused here instead of touching
+        ``TenantContext`` directly.
 
         Raises:
             TimeoutError: When the call exceeds the configured sync timeout.
@@ -376,16 +401,21 @@ class CapabilityRouter:
 
             tenant_id = TenantContext.get_tenant()
         except Exception:  # noqa: BLE001 — no tenant context → run without one
-            TenantContext = None  # type: ignore[assignment]
+            pass
 
         def _call() -> Any:
-            if tenant_id is not None and TenantContext is not None:
-                TenantContext.set_tenant(tenant_id)
+            from persistence.middleware import (  # noqa: PLC0415
+                clear_request_tenant,
+                set_request_tenant,
+            )
+
+            if tenant_id is not None:
+                set_request_tenant(tenant_id)
             try:
                 return method(**kwargs)
             finally:
-                if tenant_id is not None and TenantContext is not None:
-                    TenantContext.clear_tenant()
+                if tenant_id is not None:
+                    clear_request_tenant()
 
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="llm-sync")
         try:
@@ -446,6 +476,13 @@ class CapabilityRouter:
             return {"task_id": result}
 
         except Exception as exc:  # noqa: BLE001
+            # #697 (CWE-209): the cause stays in the audit row and the log; the
+            # caller gets the canonical provider-error message.
+            logger.warning(
+                "Celery dispatch for capability '%s' failed",
+                capability_name,
+                exc_info=exc,
+            )
             self._audit_logger.log_llm_call(
                 provider="celery",
                 capability=capability_name,
@@ -456,7 +493,7 @@ class CapabilityRouter:
                 success=False,
                 error=str(exc),
             )
-            return _provider_error_response(str(exc))
+            return _provider_error_response(_GENERIC_PROVIDER_ERROR)
 
     # ------------------------------------------------------------------
     # Task status proxy

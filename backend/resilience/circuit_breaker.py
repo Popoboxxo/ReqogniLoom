@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from persistence.tenancy import TenantContext
@@ -82,6 +82,32 @@ class CircuitBreaker:
                 return True
             return False
 
+    # -- diagnostics ---------------------------------------------------------
+
+    def peek_state(self) -> tuple[str, int, "object | None"] | None:
+        """Read-only snapshot of the persisted row, for logging only (issue #714).
+
+        Unlike :meth:`can_execute` / :meth:`report_failure`, this never locks
+        or creates a row — it must be safe to call from a code path (fast-fail
+        logging) that runs *after* ``can_execute()`` already made the
+        Open/Closed decision, without perturbing a concurrent
+        can_execute()/report_failure() transaction on the same row.
+
+        Returns:
+            ``(state, failure_count, opened_at)`` when a row exists for this
+            target, or ``None`` when the breaker has never recorded a failure
+            (still implicitly Closed, nothing interesting to log).
+        """
+        row = (
+            CircuitBreakerState.objects.filter(
+                target_subsystem=self.target_subsystem
+            )
+            .first()
+        )
+        if row is None:
+            return None
+        return (row.state, row.failure_count, row.opened_at)
+
     # -- IF-RO-INT-004 -----------------------------------------------------
 
     def report_success(self) -> None:
@@ -102,11 +128,23 @@ class CircuitBreaker:
 
         REQ-L3-RO-003-02: accumulates failures; trips to Open at the threshold.
         REQ-L3-RO-003-04: a failure in Half-Open re-opens the circuit.
+
+        SA-18: accumulation is windowed by ``Policy.failure_window_seconds`` —
+        the counter restarts at 1 when the previous failure is older than the
+        window, so ``failure_count`` measures the current burst rather than the
+        row's lifetime total (which is what ``failure_count``'s own help_text
+        always claimed, and what ``failure_threshold`` is calibrated for).
         """
         with transaction.atomic():
             row = self._locked_or_create()
             now = timezone.now()
-            row.failure_count += 1
+            # SA-18: sliding window. ``failure_count`` must describe the current
+            # failure burst, not the row's lifetime history — otherwise a target
+            # that failed four times months ago trips on its next single blip.
+            if self._failure_window_expired(row, now):
+                row.failure_count = 1
+            else:
+                row.failure_count += 1
             row.last_failure_at = now
 
             if row.state == CircuitBreakerState.STATE_HALF_OPEN:
@@ -131,25 +169,61 @@ class CircuitBreaker:
 
         REQ-L3-RO-003-01: new targets start Closed (model default). ``select_for_update``
         serialises concurrent failure/success reports across workers.
+
+        SA-18 (Systemaudit 2026-08-27): the lock cannot serialise the *first*
+        report for a (tenant, target) pair — there is no row yet to lock, so two
+        workers observing the same first failure both fall through to the INSERT
+        and the UniqueConstraint on (tenant, target_subsystem) turns the loser
+        into an IntegrityError. That surfaced as a 500 on the very call the
+        breaker exists to protect. The loser now simply re-reads the winner's
+        row: the create is wrapped in its own savepoint so the IntegrityError
+        does not poison the caller's transaction, and the retry is a plain
+        locked SELECT that is guaranteed to find the committed row.
         """
-        row = (
+        row = self._select_locked()
+        if row is not None:
+            return row
+
+        try:
+            # Nested atomic == savepoint: an IntegrityError here must stay
+            # recoverable inside the report_success/report_failure transaction.
+            with transaction.atomic():
+                # The tenant-scoped manager filters by tenant but does not inject
+                # it on insert, so set the active tenant explicitly
+                # (REQ-L1-032 isolation).
+                created = CircuitBreakerState.objects.create(
+                    target_subsystem=self.target_subsystem,
+                    tenant_id=TenantContext.get_tenant(),
+                )
+        except IntegrityError:
+            # Lost the create race: the concurrent winner's row is committed.
+            row = self._select_locked()
+            if row is None:  # pragma: no cover - defensive
+                raise
+            return row
+
+        # Re-fetch under lock for consistent concurrent semantics.
+        return CircuitBreakerState.objects.select_for_update().get(pk=created.pk)
+
+    def _select_locked(self) -> CircuitBreakerState | None:
+        """Return this target's row locked ``FOR UPDATE``, or None if absent."""
+        return (
             CircuitBreakerState.objects.select_for_update()
             .filter(target_subsystem=self.target_subsystem)
             .first()
         )
-        if row is None:
-            # The tenant-scoped manager filters by tenant but does not inject it
-            # on insert, so set the active tenant explicitly (REQ-L1-032 isolation).
-            row = CircuitBreakerState.objects.create(
-                target_subsystem=self.target_subsystem,
-                tenant_id=TenantContext.get_tenant(),
-            )
-            # Re-fetch under lock for consistent concurrent semantics.
-            row = (
-                CircuitBreakerState.objects.select_for_update()
-                .get(pk=row.pk)
-            )
-        return row
+
+    def _failure_window_expired(self, row: CircuitBreakerState, now) -> bool:
+        """True if the previous failure is older than the policy's window (SA-18).
+
+        A row that has never recorded a failure (``last_failure_at is None``) is
+        not "expired" — it is simply at count 0, and the caller's ``+= 1`` is the
+        first failure of a new burst either way.
+        """
+        if row.last_failure_at is None:
+            return False
+        window = timedelta(seconds=self.policy.failure_window_seconds)
+        return now - row.last_failure_at > window
 
     def _recovery_elapsed(self, row: CircuitBreakerState) -> bool:
         """True if the recovery timeout has passed since the breaker opened.

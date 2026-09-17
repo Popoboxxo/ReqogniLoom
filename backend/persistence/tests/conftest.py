@@ -55,3 +55,14 @@ def workspace_a(tenant_a: Tenant) -> Workspace:
 def workspace_b(tenant_b: Tenant) -> Workspace:
     with active_tenant(tenant_b):
         return Workspace.objects.create(tenant=tenant_b, name="WS-B")
+
+
+@pytest.fixture
+def tenant(db: None) -> Tenant:
+    return Tenant.objects.create(name="Tenant", slug="tenant")
+
+
+@pytest.fixture
+def workspace(tenant: Tenant) -> Workspace:
+    with active_tenant(tenant):
+        return Workspace.objects.create(tenant=tenant, name="WS")

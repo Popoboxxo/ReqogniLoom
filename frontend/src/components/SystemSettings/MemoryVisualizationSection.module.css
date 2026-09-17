@@ -1,0 +1,244 @@
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+}
+
+.switcherRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.switcherGroup {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.switcherButton {
+  appearance: none;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.switcherButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.switcherButtonActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 600;
+}
+
+.filterRow {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.filterInput {
+  flex: 1;
+  min-width: 220px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  text-align: left;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.contentCell {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.pageButton {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.pageButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pageInfo {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.notice {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.clusterList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.clusterGroup {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.clusterGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-2);
+}
+
+.clusterSwatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.clusterMembers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.clusterMember {
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+}
+
+.scatterWrapper {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  overflow: hidden;
+}
+
+.scatterSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.scatterPoint {
+  stroke: var(--color-surface);
+  stroke-width: 1;
+  opacity: 0.85;
+}
+
+.clusterColor0 {
+  fill: var(--color-level-l0);
+}
+
+.clusterColor1 {
+  fill: var(--color-level-l1);
+}
+
+.clusterColor2 {
+  fill: var(--color-level-l3);
+}
+
+.clusterColor3 {
+  fill: var(--color-level-l4);
+}
+
+.clusterColor4 {
+  fill: var(--color-diagram-edge-primary);
+}
+
+.clusterColor5 {
+  fill: var(--color-diagram-edge-dependency);
+}
+
+.clusterColor6 {
+  fill: var(--color-reqtype-usecase);
+}
+
+.clusterColor7 {
+  fill: var(--color-diff-removed-text);
+}
+
+.empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  padding: var(--space-4) 0;
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  padding: var(--space-3) 0;
+}
+
+.loading {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  padding: var(--space-3) 0;
+}

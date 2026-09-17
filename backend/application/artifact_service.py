@@ -43,6 +43,7 @@ from auth_tenancy.context import AuthContext
 TenantContext = AuthContext
 
 from persistence.models import Artifact, Tenant, Workspace
+from persistence.custom_fields import coerce_custom_fields
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -53,6 +54,10 @@ logger = logging.getLogger(__name__)
 
 # Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}".
 _UNSET = object()
+
+#: Datenmodell-Konsolidierung Phase 1: status is no longer denormalized onto
+#: the entity row. WorkflowItemState is the only store; read it through
+#: ``workflow.services.outdated_item_ids`` / ``workflow.state_reader``.
 
 
 def _clean_custom_fields(value: object) -> dict:
@@ -72,6 +77,109 @@ def _clean_custom_fields(value: object) -> dict:
         raise ValidationError(exc.messages[0] if exc.messages else str(exc))
 
 
+def clean_free_text_field(value: Optional[str], field_name: str) -> Optional[str]:
+    """Reject HTML markup / script URIs in a single free-text field (#269, #709).
+
+    Defense in depth, same shape as :func:`_clean_custom_fields`: the REST
+    serializer's ``SanitizedCharField`` plus ``FreeTextSanitizationMixin``
+    already reject this at the REST boundary (GitHub #269), but that guard
+    lives in ``rest_api`` and only fires for requests that go through a DRF
+    ViewSet. The service is the single write entry point (ADR-01); MCP tools
+    (e.g. ``requirement.create``) call it directly and never touch the DRF
+    layer, so without this check a ``<script>`` payload sent over MCP was
+    persisted verbatim (#709 regression).
+
+    ``None`` passes through unchanged (mirrors the "field not provided" idiom
+    used by ``update_*`` methods across this module — callers gate the
+    assignment on ``is not None``, not this helper).
+
+    Raises:
+        application.base.ValidationError: if *value* contains HTML markup or
+            a script-capable URI scheme.
+    """
+    if value is None:
+        return None
+
+    from persistence.free_text import find_free_text_violation
+
+    violation = find_free_text_violation(value)
+    if violation is not None:
+        raise ValidationError(f"{field_name} {violation}")
+    return value
+
+
+# ---------------------------------------------------------------------------
+# Version-bump gating (#269, finding 5)
+# ---------------------------------------------------------------------------
+
+#: Columns that must not take part in the "did anything actually change?"
+#: comparison: ``version`` is the counter under test, and the timestamps are
+#: bookkeeping that changes on every write by definition.
+_VERSION_NEUTRAL_FIELDS = frozenset({"version", "created_at", "modified_at"})
+
+
+def snapshot_versioned_fields(instance: Any) -> Dict[str, Any]:
+    """Capture an entity's concrete column values before an update applies.
+
+    Pair with :func:`has_field_changes` to decide whether an update is a real
+    change or a no-op. Reads ``_meta.concrete_fields`` so a newly added column
+    is covered automatically rather than needing a hand-maintained list.
+
+    Returns an empty mapping for anything that cannot be introspected (a test
+    double, most notably), which :func:`has_field_changes` reads as "unknown"
+    and therefore treats as changed — see its docstring.
+
+    Args:
+        instance: A loaded Django model instance, before any field assignment.
+
+    Returns:
+        Mapping of column attname -> current value; empty if not introspectable.
+    """
+    try:
+        concrete_fields = list(instance._meta.concrete_fields)
+    except (AttributeError, TypeError):
+        return {}
+    return {
+        field.attname: getattr(instance, field.attname)
+        for field in concrete_fields
+        if field.attname not in _VERSION_NEUTRAL_FIELDS
+    }
+
+
+def has_field_changes(instance: Any, snapshot: Dict[str, Any]) -> bool:
+    """Return True if any snapshotted column now holds a different value.
+
+    #269 finding 5: ``version`` used to be incremented for every ``update_*()``
+    call regardless of whether a single column actually moved, so a PATCH that
+    changed nothing still reported a bumped version. Since the baseline diff
+    engine compares stored version numbers, those phantom bumps produced diffs
+    between identical snapshots. Gating the increment on this predicate keeps
+    ``version`` an honest change counter.
+
+    An **empty snapshot means "cannot tell"**, not "nothing changed", and is
+    reported as changed. Every real model has at least a primary key, so this
+    only triggers for non-introspectable objects — in practice the ``MagicMock``
+    ORM doubles in the service unit tests. Failing towards a bump keeps the
+    conservative pre-existing behaviour whenever the comparison is blind: losing
+    a legitimate version increment would corrupt the baseline history, whereas a
+    surplus one is merely the old, tolerated inaccuracy.
+
+    Args:
+        instance: The same instance passed to :func:`snapshot_versioned_fields`,
+            after the update assignments have been applied.
+        snapshot: The mapping returned by :func:`snapshot_versioned_fields`.
+
+    Returns:
+        True if at least one column differs from its snapshotted value, or if
+        the snapshot is empty.
+    """
+    if not snapshot:
+        return True
+    return any(
+        getattr(instance, name) != value for name, value in snapshot.items()
+    )
+
+
 # ---------------------------------------------------------------------------
 # DTOs
 # ---------------------------------------------------------------------------
@@ -84,11 +192,19 @@ class TreeNodeDTO:
     id: UUID
     artifact_type: str
     children: List["TreeNodeDTO"] = field(default_factory=list)
+    #: REQ-L2-AS-037 / Epic #934 WS1: extended attributes of this node's
+    #: backing Artifact, so ``artifact.get_tree`` reports attributes too.
+    custom_fields: Dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
             "id": str(self.id),
             "artifact_type": self.artifact_type,
+            "custom_fields": (
+                dict(self.custom_fields)
+                if isinstance(self.custom_fields, dict)
+                else {}
+            ),
             "children": [c.as_dict() for c in self.children],
         }
 
@@ -261,6 +377,18 @@ class ArtifactService(ServiceBase):
         if artifact is None:
             raise NotFoundError(f"Artifact {artifact_id} not found")
 
+        # Rule 0 (security review M1): a hard delete bypasses the
+        # TransitionValidator exactly like outdate() does, so an AI agent
+        # could erase its own proposal here instead of leaving it for a human
+        # — worse than discarding it, because nothing is left behind. Guarded
+        # against the *backing artifact's* own state: delete_artifact is the
+        # generic path, so the concrete item_type is whatever the row says.
+        from workflow.services import assert_agent_may_not_delete_proposed_artifact
+
+        assert_agent_may_not_delete_proposed_artifact(
+            ctx, artifact_id, artifact.artifact_type, artifact.workspace_id
+        )
+
         # IF-AS-INT-001: cascade delete trace links first
         self._trace_link_service.cascade_delete_trace_links(artifact_id, ctx)
 
@@ -301,12 +429,37 @@ class ArtifactService(ServiceBase):
     def resolve_artifact_titles(
         self, artifact_ids: List[Any]
     ) -> "Dict[str, Dict[str, Any]]":
-        """Batch-resolve artifact IDs to ``{title, artifact_type}`` dicts.
+        """Batch-resolve artifact IDs to ``{title, artifact_type, is_outdated}``.
 
         REQ-002: Provides human-readable labels for TraceLink endpoints without
-        N+1 queries. Runs at most 6 DB queries regardless of the number of
-        links: one Artifact query for types + one per domain entity table.
+        N+1 queries. Runs a small, constant number of DB queries regardless of
+        the number of links: one Artifact query for types + one per domain
+        entity table (+1 for the ArchitectureElement workflow-state lookup).
         REQ-066: ORM access lives in the service layer, not the REST view.
+
+        ``is_outdated`` reports whether the backing entity has been soft-deleted
+        via ``workflow.services.outdate()``. TraceLinks are deliberately
+        *preserved* when their endpoint is soft-deleted (see
+        ``AdrService.delete_adr``: "TraceLinks are preserved for audit trail
+        purposes"), so the link keeps showing up in
+        ``GET /api/v1/tracelinks/``. Without this flag every consumer rendered
+        such a link as a perfectly live, named neighbour — indistinguishable
+        from a link to an existing artifact. The title is still resolved on
+        purpose: dropping it would only degrade the row to a raw UUID stub and
+        hide *why* it looks odd. Marking lets the presentation layer grey the
+        row out and keep it out of "live neighbour" counts.
+
+        Datenmodell-Konsolidierung Phase 1: the ``status``/``lifecycle_status``
+        columns are no longer written by the workflow engine for any entity,
+        so every type here (Requirement, StakeholderNeed, TestCase, Adr,
+        ArchitectureElement) resolves ``is_outdated`` the same way — via
+        ``workflow.services.outdated_item_ids`` (same idiom as
+        ``ArchitectureService.list_architecture_elements``).
+
+        Only the literal state ``"outdated"`` counts as soft-deleted. Business-
+        terminal states (an ADR's ``Rejected``/``Superseded``, a Requirement's
+        ``deprecated``) stay live on purpose — see the contract note on
+        ``workflow.services.outdated_item_ids``.
         """
         from persistence.models import (
             ArchitectureElement,
@@ -328,29 +481,84 @@ class ArtifactService(ServiceBase):
             result[str(art["id"])] = {
                 "title": "",
                 "artifact_type": art["artifact_type"],
+                "is_outdated": False,
             }
+
+        from workflow.services import outdated_item_ids
 
         # Each domain entity is OneToOne on Artifact — a single artifact_id__in
         # scan per table enriches all matching entries without N+1 queries.
-        for model in (Requirement, ArchitectureElement, StakeholderNeed, TestCase):
-            for row in model.objects.filter(artifact_id__in=str_ids).values(
-                "artifact_id", "title"
-            ):
+        # Datenmodell-Konsolidierung Phase 4 (D-3): ``is_outdated`` is resolved
+        # through ``Artifact.lifecycle_status`` — same seam as the
+        # ArchitectureElement block below, narrowed to the ids referenced
+        # here instead of materializing every outdated item of the tenant.
+        # The narrowing filter is ``id__in``: ``outdated_item_ids`` now returns
+        # a queryset over the *entity* table (whose pk is ``id``), not over
+        # ``WorkflowItemState`` (whose entity key was ``item_id``).
+        for model, item_type in (
+            (Requirement, "Requirement"),
+            (StakeholderNeed, "StakeholderNeed"),
+            (TestCase, "TestCase"),
+        ):
+            rows = list(
+                model.objects.filter(artifact_id__in=str_ids).values(
+                    "id", "artifact_id", "title"
+                )
+            )
+            if not rows:
+                continue
+            outdated_ids = set(
+                outdated_item_ids(item_type).filter(
+                    id__in=[row["id"] for row in rows]
+                )
+            )
+            for row in rows:
                 key = str(row["artifact_id"])
                 if key in result:
                     result[key]["title"] = row["title"] or ""
+                    result[key]["is_outdated"] = row["id"] in outdated_ids
+
+        # ArchitectureElement has no status mirror — consult WorkflowItemState.
+        ae_rows = list(
+            ArchitectureElement.objects.filter(artifact_id__in=str_ids).values(
+                "id", "artifact_id", "title"
+            )
+        )
+        if ae_rows:
+            # Narrow the state lookup to the elements actually referenced here
+            # instead of materializing every outdated element of the tenant.
+            outdated_ae_ids = set(
+                outdated_item_ids("ArchitectureElement").filter(
+                    id__in=[row["id"] for row in ae_rows]
+                )
+            )
+            for row in ae_rows:
+                key = str(row["artifact_id"])
+                if key in result:
+                    result[key]["title"] = row["title"] or ""
+                    result[key]["is_outdated"] = row["id"] in outdated_ae_ids
 
         # ADR lives in the application layer (not persistence) — import locally
         # to avoid circular imports (adr_service imports TraceLinkService).
         try:
             from application.models import Adr
 
-            for row in Adr.objects.filter(artifact_id__in=str_ids).values(
-                "artifact_id", "title"
-            ):
-                key = str(row["artifact_id"])
-                if key in result:
-                    result[key]["title"] = row["title"] or ""
+            adr_rows = list(
+                Adr.objects.filter(artifact_id__in=str_ids).values(
+                    "id", "artifact_id", "title"
+                )
+            )
+            if adr_rows:
+                outdated_adr_ids = set(
+                    outdated_item_ids("Adr").filter(
+                        id__in=[row["id"] for row in adr_rows]
+                    )
+                )
+                for row in adr_rows:
+                    key = str(row["artifact_id"])
+                    if key in result:
+                        result[key]["title"] = row["title"] or ""
+                        result[key]["is_outdated"] = row["id"] in outdated_adr_ids
         except Exception:  # noqa: BLE001 — ADR model absent in some test configs
             pass
 
@@ -401,34 +609,47 @@ class ArtifactService(ServiceBase):
 
         REQ-L2-AS-002: < 200ms for 500 artifacts in 5 levels.
         ADR-L3-AS001-02: single SQL query, no N+1.
+
+        #38: *root_id* is resolved the same way TraceLinkService resolves
+        TraceLink endpoints — callers naturally pass the more user-facing
+        Requirement/ArchitectureElement/Adr ID (as returned by
+        requirement.create, etc.), which is a distinct UUID from its backing
+        Artifact row. Without this resolution step the CTE's anchor query
+        (``WHERE id = %s``) never matches and a real, existing artifact is
+        reported as "not found".
         """
         self._set_tenant_context(ctx)
+
+        from application.trace_link_service import TraceLinkService
+
+        root_id = TraceLinkService()._resolve_artifact_id(root_id)
 
         # Recursive CTE: fetch all descendants in one query
         sql = """
             WITH RECURSIVE tree AS (
-                SELECT id, parent_id, artifact_type, 0 AS depth
+                SELECT id, parent_id, artifact_type, custom_fields, 0 AS depth
                 FROM pl_artifact
                 WHERE id = %s
                   AND workspace_id = %s
 
                 UNION ALL
 
-                SELECT a.id, a.parent_id, a.artifact_type, t.depth + 1
+                SELECT a.id, a.parent_id, a.artifact_type, a.custom_fields, t.depth + 1
                 FROM pl_artifact a
                 INNER JOIN tree t ON a.parent_id = t.id
                 WHERE t.depth < 20
             )
-            SELECT id, parent_id, artifact_type FROM tree ORDER BY depth;
+            SELECT id, parent_id, artifact_type, custom_fields FROM tree ORDER BY depth;
         """
 
         rows: Dict[UUID, Dict] = {}
         with connection.cursor() as cursor:
             cursor.execute(sql, [str(root_id), str(workspace_id)])
-            for row_id, parent_id, artifact_type in cursor.fetchall():
+            for row_id, parent_id, artifact_type, custom_fields in cursor.fetchall():
                 rows[row_id] = {
                     "parent_id": parent_id,
                     "artifact_type": artifact_type,
+                    "custom_fields": coerce_custom_fields(custom_fields),
                     "children": [],
                 }
 
@@ -439,7 +660,11 @@ class ArtifactService(ServiceBase):
 
         # Build nested structure
         nodes: Dict[UUID, TreeNodeDTO] = {
-            uid: TreeNodeDTO(id=uid, artifact_type=data["artifact_type"])
+            uid: TreeNodeDTO(
+                id=uid,
+                artifact_type=data["artifact_type"],
+                custom_fields=data["custom_fields"],
+            )
             for uid, data in rows.items()
         }
         root_node: Optional[TreeNodeDTO] = None

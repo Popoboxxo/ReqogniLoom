@@ -5,18 +5,21 @@ leaf_id: COMP-ICD-001
 req_id:  REQ-L2-ICD-002
 arch_id: ARCH-L1-014
 
-CRUD for :class:`icd.models.IcdParameter` — structured, version-specific
-interface parameters that extend the free-text pre/post/invariant JSON lists
-on :class:`icd.models.IcdVersion` with typed values (unit, data_type,
-direction, min/max bounds, tolerance).
+CRUD for :class:`icd.models.IcdParameter` — structured interface parameters
+that extend the free-text pre/post/invariant JSON lists on
+:class:`icd.models.Icd` with typed values (unit, data_type, direction, min/max
+bounds, tolerance).
 
-Parameters are attached to a concrete IcdVersion. IcdVersion rows themselves
-are immutable (DB trigger, ADR-ICD-01), but IcdParameter rows are NOT under
-that trigger — they may be added/edited/removed within the lifetime of a
-version to correct structured metadata without forcing a new contract
-revision. Mirrors the tenant-scoping convention used by
-:mod:`icd.icd_manager` (explicit ``tenant_id`` argument + ``unscoped``
-manager, rather than relying solely on thread-local ``TenantContext``).
+Datenmodell-Konsolidierung Task 28c-2: parameters hang off the ICD, not off a
+contract revision. They were never really per-revision — the rows have always
+been mutable in place and ``update_icd`` never carried them forward — so the
+flattening removed a distinction the system did not maintain. Historical
+parameter sets are preserved by value in each ``ArtifactVersion`` payload's
+``parameters_snapshot`` key (see :attr:`icd.models.Icd.parameters_snapshot`).
+
+Mirrors the tenant-scoping convention used by :mod:`icd.icd_manager` (explicit
+``tenant_id`` argument + ``unscoped`` manager, rather than relying solely on
+thread-local ``TenantContext``).
 
 External interfaces served:
   IF-L1-037 (ApplicationService CRUD) — REST layer (rest_api/icd_views.py)
@@ -31,14 +34,14 @@ from typing import Optional
 
 from django.db.models import QuerySet
 
-from icd.models import IcdParameter, IcdVersion
+from icd.models import Icd, IcdParameter
 
 
 @dataclass
 class IcdParameterCreateDTO:
     """Input payload for creating a new IcdParameter (REQ-L2-ICD-002)."""
 
-    icd_version_id: uuid.UUID
+    icd_id: uuid.UUID
     name: str
     unit: str = ""
     data_type: str = "other"
@@ -77,7 +80,7 @@ class IcdParameterNotFoundError(LookupError):
 
 
 class IcdParameterService:
-    """CRUD for structured IcdVersion parameters (REQ-L2-ICD-002).
+    """CRUD for an ICD's structured contract parameters (REQ-L2-ICD-002).
 
     leaf_id: COMP-ICD-001
     req_id:  REQ-L2-ICD-002
@@ -85,7 +88,7 @@ class IcdParameterService:
 
     def create_parameter(
         self,
-        icd_version_id: uuid.UUID,
+        icd_id: uuid.UUID,
         name: str,
         tenant_id: uuid.UUID,
         unit: str = "",
@@ -98,10 +101,10 @@ class IcdParameterService:
         tolerance: str = "",
         ordering: int = 0,
     ) -> IcdParameter:
-        """Create a structured parameter on an IcdVersion.
+        """Create a structured parameter on an ICD.
 
         Args:
-            icd_version_id: UUID of the target IcdVersion.
+            icd_id: UUID of the target Icd.
             name: Parameter name (required).
             tenant_id: Active tenant primary key (isolation boundary).
             unit: Physical/logical unit (e.g. "V", "m/s"), optional.
@@ -112,31 +115,28 @@ class IcdParameterService:
             max_value: Optional numeric upper bound.
             nominal_value: Optional symbolic/default value (enum/string types).
             tolerance: Optional free-text tolerance (e.g. "±5%").
-            ordering: Display order within the version's parameter list.
+            ordering: Display order within the ICD's parameter list.
 
         Returns:
             Persisted IcdParameter instance.
 
         Raises:
             ValueError: When ``name`` is blank.
-            IcdVersion.DoesNotExist: When the IcdVersion is not found for
-                the given tenant.
+            Icd.DoesNotExist: When the Icd is not found for the given tenant.
 
         req_id: REQ-L2-ICD-002
         """
         if not name or not name.strip():
             raise ValueError("IcdParameter name is required")
 
-        version = IcdVersion.unscoped.filter(
-            id=icd_version_id, tenant_id=tenant_id
-        ).first()
-        if version is None:
-            raise IcdVersion.DoesNotExist(f"IcdVersion {icd_version_id} not found")
+        icd = Icd.unscoped.filter(id=icd_id, tenant_id=tenant_id).first()
+        if icd is None:
+            raise Icd.DoesNotExist(f"Icd {icd_id} not found")
 
         parameter = IcdParameter(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
-            icd_version=version,
+            icd=icd,
             name=name.strip(),
             unit=unit,
             data_type=data_type,
@@ -245,12 +245,12 @@ class IcdParameterService:
         parameter.delete()
 
     def list_parameters(
-        self, icd_version_id: uuid.UUID, tenant_id: uuid.UUID
+        self, icd_id: uuid.UUID, tenant_id: uuid.UUID
     ) -> QuerySet[IcdParameter]:
-        """Return all IcdParameters for a given IcdVersion (tenant-scoped).
+        """Return all IcdParameters of an ICD's current contract (tenant-scoped).
 
         Args:
-            icd_version_id: UUID of the target IcdVersion.
+            icd_id: UUID of the target Icd.
             tenant_id: Active tenant primary key (isolation boundary).
 
         Returns:
@@ -260,7 +260,7 @@ class IcdParameterService:
         req_id: REQ-L2-ICD-002
         """
         return IcdParameter.unscoped.filter(
-            icd_version_id=icd_version_id, tenant_id=tenant_id
+            icd_id=icd_id, tenant_id=tenant_id
         ).order_by("ordering", "name")
 
 

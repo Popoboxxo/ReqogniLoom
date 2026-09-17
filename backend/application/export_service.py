@@ -17,7 +17,12 @@ Round-trip fidelity: the exported column set is driven by the shared
 ``ENTITY_FIELD_SPECS`` registry and includes identity/audit columns (id,
 artifact_id, version, created_at, modified/updated timestamp) so that
 ``export_csv -> ImportService.import_csv`` is a lossless round-trip (the ReqFlow
-self-migration safety net).
+self-migration safety net) -- with one deliberate exception (SA-31, Systemaudit
+2026-08-27 AP-6): a string field starting with ``=``/``+``/``-``/``@``/TAB/CR
+is prefixed with a leading ``'`` on export (see :func:`_csv_cell`), the
+OWASP-documented CSV/formula-injection mitigation. Re-importing that cell
+therefore recovers the quote-prefixed text, not byte-for-byte the original --
+an accepted, security-motivated trade-off, not a bug.
 
 PDF support: Implemented via reportlab. Delegates to pdf_report_generator
 for workspace-level document exports.
@@ -46,6 +51,7 @@ from auth_tenancy.context import AuthContext
 TenantContext = AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.csv_safety import neutralize_csv_formula
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +99,10 @@ _COMMON_APP_FIELDS = [
     ("id", "uuid"),
     ("artifact_id", "uuid"),
     ("version", "int"),
-    ("created_by", "str"),
+    # Datenmodell-Konsolidierung Task 14: model attribute renamed
+    # created_by -> created_by_name (same DB column); the CSV column
+    # follows so getattr(obj, col) keeps resolving.
+    ("created_by_name", "str"),
     ("created_at", "datetime"),
     ("updated_at", "datetime"),
 ]
@@ -157,7 +166,10 @@ ENTITY_FIELD_SPECS: Dict[str, List[tuple]] = {
         ("impact", "str"),
         ("risk_score", "int"),
         ("severity", "str"),
-        ("owner", "str"),
+        # Attribut v3 WS7 (#940): Risk.owner was renamed to owner_name (same DB
+        # column) so it no longer shadows the Artifact.owner Actor FK; the CSV
+        # column follows so getattr(obj, col) keeps resolving.
+        ("owner_name", "str"),
         ("mitigation_strategy", "str"),
         ("detection", "int"),
         ("status", "str"),
@@ -208,17 +220,34 @@ def _export_value(value: Any, kind: str) -> Any:
     return value
 
 
+#: SYSTEMAUDIT-2026-08-27 AP-6 L-4: the trigger set and the escaping logic
+#: live in :mod:`application.csv_safety`, shared with
+#: :func:`application.requirement_bundle_formatters._csv_safe` (same
+#: OWASP-documented CSV/formula-injection mitigation, same set — SA-31,
+#: Systemaudit 2026-08-27 AP-6: this exporter was the one CSV output path
+#: that used to skip it).
+
+
 def _csv_cell(value: Any) -> str:
     """Flatten a native export value to a single CSV cell string.
 
     Complex values (list/dict) and booleans are rendered as JSON so the import
     side can recover them losslessly with :func:`json.loads`; ``None`` becomes an
     empty cell.
+
+    String cells starting with ``=``, ``+``, ``-``, ``@``, TAB or CR are
+    prefixed with a single quote (SA-31: CSV/formula injection, see
+    :func:`application.csv_safety.neutralize_csv_formula`). Requirement/
+    ArchitectureElement/... titles and descriptions are free text written by
+    any editor-role tenant user, and this export is served directly as
+    ``text/csv`` for the caller to open in a spreadsheet application -- an
+    unescaped ``=cmd|'/c calc'!A1`` title would otherwise execute on whoever
+    opens the file.
     """
     if value is None:
         return ""
     if isinstance(value, str):
-        return value
+        return neutralize_csv_formula(value)
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (list, dict)):
@@ -565,12 +594,63 @@ class ExportService(ServiceBase):
                 flt["artifact_id"] = UUID(str(artifact_id))
             qs = model.objects.filter(**flt)
 
-        return [ExportService._serialize_row(obj, spec) for obj in qs]
+        rows = list(qs)
+
+        # Datenmodell-Konsolidierung Phase 1: ``status`` is no longer written
+        # by the workflow engine, so a row with "status" in its spec must
+        # have it resolved through workflow.state_reader (batched — one
+        # query per entity type, not per row), or every export would report
+        # every entity as permanently "draft"/whatever it was at creation,
+        # and re-importing that export would write the wrong value back (the
+        # module docstring's promised lossless round-trip). Task 12: the
+        # ``status`` column is dropped, so a row with no WorkflowItemState
+        # falls back to *entity_type*'s preset initial state instead of the
+        # column's own value (documented, reviewed data-loss tradeoff, see
+        # the Task 12 report Finding 2).
+        status_map: Dict[str, str] = {}
+        status_fallback: Optional[str] = None
+        if rows and any(col == "status" for col, _kind in spec):
+            from workflow import state_reader
+
+            status_map = state_reader.current_states(
+                entity_type, (obj.id for obj in rows)
+            )
+            status_fallback = state_reader.initial_state(entity_type)
+
+        return [
+            ExportService._serialize_row(
+                obj,
+                spec,
+                resolved_status=status_map.get(str(obj.id), status_fallback),
+            )
+            for obj in rows
+        ]
 
     @staticmethod
-    def _serialize_row(obj: Any, spec: List[tuple]) -> Dict[str, Any]:
-        """Serialise a single ORM *obj* into a row dict per *spec*."""
-        return {col: _export_value(getattr(obj, col, None), kind) for col, kind in spec}
+    def _serialize_row(
+        obj: Any, spec: List[tuple], *, resolved_status: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Serialise a single ORM *obj* into a row dict per *spec*.
+
+        *resolved_status*, when given, overrides the (now-dropped) ``status``
+        column with the engine-resolved current state, or the entity type's
+        preset initial state when the engine has no ``WorkflowItemState`` row
+        for *obj* (Task 12).
+        """
+        row = {col: _export_value(getattr(obj, col, None), kind) for col, kind in spec}
+        if resolved_status is not None and "status" in row:
+            row["status"] = resolved_status
+        if "lifecycle_status" in row:
+            # Datenmodell-Konsolidierung Task 24: the per-entity
+            # `lifecycle_status` mirror column is dropped from StakeholderNeed/
+            # Requirement/ArchitectureElement; the flag lives on the backing
+            # Artifact now (Decision D-3). `_fetch_entities` already
+            # `select_related("artifact")` for these types, so this is free.
+            artifact = getattr(obj, "artifact", None)
+            row["lifecycle_status"] = (
+                artifact.lifecycle_status if artifact is not None else "active"
+            )
+        return row
 
 
 __all__ = [

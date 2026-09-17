@@ -22,9 +22,16 @@ from persistence.models import Requirement, TestRun, TestRunResult, TraceLink
 
 logger = logging.getLogger(__name__)
 
-# Link type that connects a Requirement artifact (source) to a TestCase
-# artifact (target). Kept as a module constant so callers and tests can
-# reference the same string. See traceability.types.LinkType.VERIFIES.
+# Link type that connects a TestCase artifact (source) to the Requirement
+# artifact it verifies (target). Kept as a module constant so callers and tests
+# can reference the same string.
+#
+# Direction: SOURCE = TestCase, TARGET = Requirement. This is the convention
+# declared in traceability.types.SE_LINK_SEMANTICS
+# (``VERIFIES: {(TestCase, Requirement), (TestCase, ArchitectureElement)}``)
+# and used by traceability.coverage_calculator._get_verifies_links_detail.
+# This module used to walk it backwards, which made the walk return nothing
+# for correctly-linked data.
 VERIFIES_LINK_TYPE = "verifies"
 
 
@@ -37,9 +44,12 @@ def get_verified_requirements(test_run: TestRun) -> list[Requirement]:
     Steps:
       1. Collect TestCase artifact IDs from the run's results (skipping
          results whose ``test_case`` is null — the FK is SET_NULL).
-      2. Find all ``verifies`` TraceLinks whose target is one of those
+      2. Find all ``verifies`` TraceLinks whose **source** is one of those
          TestCase artifacts.
-      3. Resolve the source Artifact of each link to its Requirement.
+      3. Resolve the **target** Artifact of each link to its Requirement.
+
+    Direction follows ``traceability.types.SE_LINK_SEMANTICS``: a ``verifies``
+    link goes TestCase (source) -> Requirement (target).
 
     Duplicates are removed (a Requirement verified by two different
     TestCases in the same run still yields one entry).
@@ -61,12 +71,12 @@ def get_verified_requirements(test_run: TestRun) -> list[Requirement]:
     if not test_case_artifacts:
         return []
 
-    # 2. Source artifact IDs of `verifies` links pointing at those TestCases
+    # 2. Target artifact IDs of `verifies` links originating at those TestCases
     requirement_artifacts: set[str] = set(
         TraceLink.objects.filter(
             link_type=VERIFIES_LINK_TYPE,
-            target_id__in=test_case_artifacts,
-        ).values_list("source_id", flat=True)
+            source_id__in=test_case_artifacts,
+        ).values_list("target_id", flat=True)
     )
     if not requirement_artifacts:
         return []

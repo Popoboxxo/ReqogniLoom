@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   permissionDefaultsApi,
   normalizeMatrix,
@@ -18,6 +19,7 @@ import {
   type PermissionMatrix,
 } from "../../api/permission-defaults";
 import { PermissionMatrixEditor } from "../PermissionMatrix/PermissionMatrixEditor";
+import { useToast } from "../shared/Toast/useToast";
 import { EnforcementModePanel } from "./EnforcementModePanel";
 import { MismatchReviewTable } from "./MismatchReviewTable";
 
@@ -49,12 +51,13 @@ const hintStyle: React.CSSProperties = {
 };
 
 function GlobalPermissionMatrixCard(): JSX.Element {
+  const { t } = useTranslation();
   const [def, setDef] = useState<GlobalPermissionDefinition | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -78,17 +81,16 @@ function GlobalPermissionMatrixCard(): JSX.Element {
       setSaving(true);
       setError(null);
       setSavedOk(false);
-      setToast(null);
+      toast.clear();
       try {
         const updated = await permissionDefaultsApi.replaceGlobal(matrix);
         setDef(updated);
         setSavedOk(true);
         if (typeof updated.propagated_workspace_count === "number") {
           const n = updated.propagated_workspace_count;
-          setToast(
-            `Change propagated to ${n} workspace${n === 1 ? "" : "s"} currently on default.`
+          toast.show(
+            t("systemSettings.permissionDefaults.propagatedToast", { count: n })
           );
-          window.setTimeout(() => setToast(null), 3000);
         }
       } catch (err) {
         setError(extractErrorMessage(err));
@@ -101,10 +103,9 @@ function GlobalPermissionMatrixCard(): JSX.Element {
 
   return (
     <section style={cardStyle} data-testid="global-permission-matrix-section">
-      <h3 style={headingStyle}>Global Permission Matrix</h3>
+      <h3 style={headingStyle}>{t("systemSettings.permissionDefaults.globalMatrixTitle")}</h3>
       <p style={hintStyle}>
-        The tenant-wide default role→capability matrix that every new workspace
-        inherits. Saving propagates into all workspaces currently on the default.
+        {t("systemSettings.permissionDefaults.globalMatrixHint")}
       </p>
       {loading ? (
         <p style={{ color: "var(--color-text-muted)" }}>…</p>
@@ -115,17 +116,17 @@ function GlobalPermissionMatrixCard(): JSX.Element {
       ) : (
         def && (
           <>
-            {toast && (
+            {toast.message && (
               <p
                 data-testid="global-matrix-propagated-toast"
                 role="status"
                 style={{
-                  color: "var(--color-success, #16a34a)",
+                  color: "var(--color-success)",
                   fontSize: "var(--font-size-sm)",
                   marginBottom: "var(--space-2)",
                 }}
               >
-                {toast}
+                {toast.message}
               </p>
             )}
             <PermissionMatrixEditor

@@ -1,0 +1,109 @@
+# Spec Index
+
+This index lists every design/spec document in this directory tree and its implementation status,
+proven against the source code (not against the spec's own claims). Mirrors the structure of
+`docs/superpowers/plans/index.md` — a spec and its corresponding implementation plan(s) are tracked
+independently since a spec can be superseded/decided-against without its later plan doc changing, and
+vice versa.
+
+- **`Archive/`** — specs whose full scope has been implemented and verified. Kept for historical
+  design rationale; no more action expected.
+- **This directory (top level)** — specs with real open work, or explicitly decided against.
+
+## Archive/ — fully implemented
+
+## [Archive/2026-07-12-frontend-feedback-strategie-design.md](Archive/2026-07-12-frontend-feedback-strategie-design.md)
+All planned features are implemented.
+- **Impact-Graph-Visualisierung (C1):** `frontend/src/components/ImpactView.tsx` and `impact-preset.ts`.
+- **Traces for Risks and Issues (C2, C3):** `RiskEditors.tsx`/`IssueEditors.tsx` integrate `TraceLinkPanel`/`TraceSpine`.
+- **TestRun Assignments (C4, C5):** `TestRunsList.tsx`'s `selectedTestCaseIds`, `TestRunDetailEditor.tsx` loads assigned `TestCase` results.
+- **Custom Fields (C6):** `CustomFieldDefinition` across backend models, serializers, views, and frontend forms.
+- **Glossary Synonyms (C10):** `synonyms = models.JSONField()` on the glossary models.
+- **Editable User Profile (C11):** `first_name`/`last_name` update logic in `frontend/src/components/UserProfileSettings/ProfileSection.tsx`.
+- **Tags for Issues (B4):** `tags = serializers.JSONField()` backend + `tags?: string[]` frontend.
+
+## [Archive/2026-07-23-reqogniloom-status-unification-design.md](Archive/2026-07-23-reqogniloom-status-unification-design.md)
+All planned features are implemented.
+- **Status Model Unification:** `is_outdated_equivalent` populated in `backend/workflow/definition_store.py` and migrations.
+- **WorkspaceGoal:** `Goal`/`MainGoal` models in `backend/application/models.py`.
+- **Context Generators:** `context.test_coverage`, `context.change_impact`, `workspace.llm_system_prompt` in `backend/mcp_server/tools/cross_cutting.py`.
+- **Review Endpoints:** `backend/mcp_server/tools/review.py`.
+
+## [Archive/2026-07-30-ziele-und-hauptziel-design.md](Archive/2026-07-30-ziele-und-hauptziel-design.md)
+All planned features are implemented.
+- **Goal and MainGoal Models:** implemented with trace properties in `backend/application/models.py`.
+- **Prompt Template Integration:** `goal_aggregate` present in `prompt_slots.py`, `models.py`, `settings_views.py`, AI derivation services.
+- **MCP and REST Integration:** `goal.read` in `backend/mcp_server/tools/goals.py`; REST endpoints in `main_goal_service.py`.
+
+## [Archive/2026-08-08-requirement-bundle-export-design.md](Archive/2026-08-08-requirement-bundle-export-design.md)
+All planned features are implemented.
+- **Separated Services:** `RequirementBundleQueryService` (`requirement_bundle_service.py`), `BundleCompressionService` (`bundle_compression_service.py`).
+- **MCP Tools:** `requirement_bundle.export` and schema endpoints in `backend/mcp_server/tools/requirement_bundle.py`.
+- **Prompt Template:** `bundle_compression` references in `bundle_compression_service.py` and related AI tests.
+
+## [Archive/2026-08-14-interview-management-hermes-plugin-design.md](Archive/2026-08-14-interview-management-hermes-plugin-design.md)
+All planned features are implemented. `InterviewListView.tsx`/`InterviewFormView.tsx` present, `mcpClient.ts` handles JSON-RPC, `interview_protocol.py` implements `ProtocolField`'s `type`/`choices`.
+
+## [Archive/2026-08-14-interview-management-web-widget-design.md](Archive/2026-08-14-interview-management-web-widget-design.md)
+All planned features are implemented. `InterviewSession.transcript` JSONField exists, `POST /api/v1/interviews/{id}/chat/` in `interview_views.py`, `InterviewWidget` mounted in `NavigationShell.tsx`, `AiPromptsSection.tsx` auto-discovers `interview.protocol.<type>` slots.
+
+## [Archive/2026-08-21-multi-user-management-design.md](Archive/2026-08-21-multi-user-management-design.md)
+All planned features are implemented (2026-08-23). Matches 1:1 the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-08-21-multi-user-management.md`): `TenantRole` model, last-admin invariant at both workspace and tenant scope, `UserAccountService`, shared REST/MCP RBAC-matrix test. No scope in the spec beyond what the plan covers.
+
+## [Archive/2026-08-23-system-workspace-banners-design.md](Archive/2026-08-23-system-workspace-banners-design.md)
+All planned features are implemented (2026-08-23, PR #713). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-08-23-system-workspace-banners.md`). One deliberate deviation: the spec's Data Model section describes a new standalone `banners` Django app, but the model was actually placed in the existing `admin_ops` app (`backend/admin_ops/models.py`) — a documented, architecturally-justified filing decision in the plan itself ("Layer 0, alongside `admin_ops`/`audit`"), not a scope gap.
+
+## [Archive/2026-09-03-attribute-definition-design.md](Archive/2026-09-03-attribute-definition-design.md)
+All planned features are implemented (PR #888, merged). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-09-03-attribute-definition.md`).
+
+## [Archive/2026-09-03-datenmodell-konsolidierung-design.md](Archive/2026-09-03-datenmodell-konsolidierung-design.md)
+All planned features are implemented (PR #880, merged). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-09-03-datenmodell-konsolidierung.md`).
+
+## [Archive/2026-09-03-traceability-semantik-design.md](Archive/2026-09-03-traceability-semantik-design.md)
+All planned features are implemented (PR #891, open — CI green, mergeable, awaiting human merge). Matches the already-verified implementation plan (`docs/superpowers/plans/Archive/2026-09-03-traceability-semantik.md`).
+
+## [Archive/2026-08-13-hermes-ide-plugin-design.md](Archive/2026-08-13-hermes-ide-plugin-design.md)
+All items resolved (2026-09-11). Item 1 (Requirements Views and APIs) was never built and is superseded by the interview-management approach (see the archived `interview-management-*-design.md` entries). Item 2 (Status bar item) was resolved by PR #633 (merged 2026-08-20), which added the explicit `ctx.register({ id: "reqogniloom.status", area: "statusBar.right", ... })` call in `activate.ts`. Note: the corresponding plan (`docs/superpowers/plans/2026-08-13-hermes-ide-plugin-requirements-mvp.md`) stays at top level deliberately — superseded, not implemented as written.
+
+## [Archive/2026-08-20-multi-palette-theming-design.md](Archive/2026-08-20-multi-palette-theming-design.md)
+All planned features are implemented, and the structural gap (**#707**) that previously kept this spec (and its three phase plans) out of Archive/ is resolved by [the theme-presets plan](../plans/Archive/2026-08-24-theme-presets.md) (PR #745) — palette and light/dark mode are now two independent, freely combinable axes. `gh issue view 707` confirms `state: CLOSED` (re-verified 2026-09-11).
+
+## [Archive/2026-09-03-ki-vorschlag-als-zustand-design.md](Archive/2026-09-03-ki-vorschlag-als-zustand-design.md)
+All planned features are implemented (PR #904, merged 2026-09-11, CHANGELOG [1.8.0-beta.10]). Agent-authored workflow items (MainGoals, Requirements, TraceLinks, …) enter a `proposed` state that the same agent can never confirm; `ApiKey` gains agent identity, scope and expiry; `proposed_by`/`proposed_at` are exposed over REST and the review queue gained an AI-proposals mode with bulk confirm. Matches the archived implementation plan (`Archive/2026-09-03-ki-vorschlag-als-zustand.md`). One non-blocking spec inconsistency remains (confirming a link nulls `TraceLink.proposed_by`/`proposed_at`, destroying link provenance) — recorded, not a scope gap.
+
+## [Archive/2026-09-03-interview-engine-fix-design.md](Archive/2026-09-03-interview-engine-fix-design.md)
+All planned features are implemented (PR #903, merged 2026-09-11, CHANGELOG [1.8.0-beta.10]). `formalize()` dispatches through the `ARTIFACT_CREATION_ADAPTERS` registry for all 8 in-scope artifact types; interview provenance shows on every artifact detail view; `InterviewSession.transcript_summary` + a sliding-window compressor cap prompt growth; `/interviews?start=multi` is a real discovery entry point. Matches the archived implementation plan (`Archive/2026-09-03-interview-engine-fix.md`). The earlier GlossaryTerm blocker was resolved by datenmodell-konsolidierung (PR #880).
+
+## [Archive/2026-09-11-attribute-definition-v2-design.md](Archive/2026-09-11-attribute-definition-v2-design.md)
+All planned features are implemented (spec/plan PRs #901/#902, implementation PR #905, merged 2026-09-11, CHANGELOG [1.8.0-beta.10]). Adds create/delete of custom attribute definitions at Global and Workspace scope through the shared validation path, a table/list toggle, an options editor with a `count_usages` safety check, origin badges + type icons, `sections[]` with visibility toggling and a half/full CSS-Grid layout, and export/import with skip/overwrite/rename collision handling plus REST + MCP surface. Matches the archived implementation plan (`Archive/2026-09-11-attribute-definition-v2.md`). The catalog concept (v2 spec §5) remains an explicitly out-of-scope future extension.
+
+---
+
+## Open / deferred (not archived)
+
+## [2026-07-25-phase6-agent-templates-design.md](2026-07-25-phase6-agent-templates-design.md)
+**Decided against (2026-08-20), not a gap to fix.** Mirrors the corresponding implementation plan's status (`docs/superpowers/plans/2026-07-25-phase6-agent-templates.md`): `requirements-architect.md` was never created under that exact name — `requirements-architecture-manager.md` exists instead. Reviewed and the user explicitly chose not to rename/create the file to match. The rest of the spec (`change-manager.md`, `quality-auditor.md`, `risk-analyst.md`, `test-engineer.md`, hook scripts) is implemented. Do not re-flag the naming deviation.
+
+## [2026-08-14-interview-management-engine-design.md](2026-08-14-interview-management-engine-design.md)
+**Not implemented — newly found gap (2026-08-20), not previously tracked.** The spec requires a CI job that runs the plugin-package build scripts (`build_opencode_package.py`, etc.) in a temp directory and diffs against the committed `dist/` state, to close a drift gap from commit `c49a503`. No such job exists in `.github/workflows/` — `version-drift-check.yml` only checks deployed API versions against git history, not the plugin packages. No GitHub issue filed yet for this specific gap.
+
+## [2026-08-16-prompt-variable-catalog-design.md](2026-08-16-prompt-variable-catalog-design.md)
+**Not implemented — tracked separately.** Phase 3 (Promptfoo test infrastructure) is entirely missing: no `export_promptfoo_configs` management command, no `backend/application/prompt_testing/cases/` directory, no CI job. Already tracked as GitHub Issue #587 ("feat: Promptfoo test infrastructure for prompt templates (Phase 3, Prompt Variable Catalog)") — do not file a duplicate.
+
+## [2026-09-03-menschen-im-system-design.md](2026-09-03-menschen-im-system-design.md)
+**Partly implemented, partly superseded (2026-09-15) — kept at top level because not completely implemented.** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. Q1.1 (audit's own #1 priority by value/effort). Sixth of several independent follow-up specs from the same audit. The **owner/assignee half** is superseded by the merged Attribut-System v3 (#934/#936/#940) and AWMS, which put attribution on one central `Artifact.owner`/`Artifact.reporter` pair of `Actor` FKs; the physical drop of `Risk.owner_name`/`Issue.assignee_id` is an AWMS-owned contract step. The **Comment + Notification half** is implemented (PR #956; archived plan: [`plans/Archive/2026-09-03-menschen-im-system-collaboration.md`](../plans/Archive/2026-09-03-menschen-im-system-collaboration.md)). Deliberately excludes per-transition assignment/deadlines/escalation/delegation (Q2.5 — a separate, deeper concept per the audit's own framing).
+
+## [2026-09-03-github-jira-integration-design.md](2026-09-03-github-jira-integration-design.md)
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. W/E1/Q2.10. Seventh of several independent follow-up specs from the same audit. Follows the audit's own 3-stage plan (Link-Only / Inbound-Sync / Outbound+Agent). `ExternalRef` gets its own Artifact-backing row (same pattern as Diagram/Icd/GlossaryTerm in the datenmodell-konsolidierung spec) so it can participate in `TraceLink` via `references` — required an amendment to the traceability-semantik spec (`references`' allowed targets). Inbound sync rules extend the Workflow Engine with an `external_trigger` field on transitions rather than a parallel mechanism. Outbound credentials: per-workspace Personal Access Token (explicit user choice over full OAuth-App flow). GitLab and webhook self-service (E2.2) explicitly out of scope. Implementation plan not yet written.
+
+## [2026-09-03-mcp-modernisierung-design.md](2026-09-03-mcp-modernisierung-design.md)
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. C5/C6/E3.4/I.7. Eighth of several independent follow-up specs from the same audit. Protocol version bump (2024-11-05 → 2025-06-18), Streamable HTTP with `Mcp-Session-Id` (legacy SSE kept, not removed), `resources/*` for artifact markdown, `prompts/*` for the existing PromptTemplate system, new `icd.*` read tool group for REST/MCP parity. Two manifest-size filters with explicitly different enforcement: `ApiKey.scope` (from the ki-vorschlag-als-zustand spec) is a real security boundary enforced at both `tools/list` and `tools/call`; new `ApiKey.tool_groups` is list-only curation — `tools/call` still works for any permitted tool regardless of `tool_groups`, a distinction the user explicitly asked to have clarified before approving. The pure bugfixes from Kap. H1/H4/R4 are already tracked as GitHub issue #846, not part of this spec. Implementation plan not yet written.
+
+## [2026-09-03-tabellenansicht-design.md](2026-09-03-tabellenansicht-design.md)
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. Q1.3/C8. Ninth of several independent follow-up specs from the same audit. Table view with type-aware per-column filtering and multi-sort, driven by the same Attribute-Definition metadata `ArtifactForm` already uses (also structurally fixes C8's "filters not in schema" complaint as a byproduct). Two persistence concepts per explicit design choice: `UserTableViewState` (unnamed, auto-updating "where I left off") and `SavedView` (named, explicitly saved, optionally workspace-shared) — the user asked specifically for saveable filters. Generic `ARTIFACT_UPDATE_ADAPTERS`-based bulk-update/bulk-transition endpoints with partial-success responses; workflow-state fields (`editable: "workflow"`) are hard-rejected from bulk-update regardless of caller, enforced in code per explicit user requirement ("unter Wahrung aller Workflows"), not just documented. Explicitly excludes formulas/pivot-tables/drag-fill. Implementation plan not yet written.
+
+## [2026-09-03-dokumentensicht-design.md](2026-09-03-dokumentensicht-design.md)
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. Q1.4. Tenth of several independent follow-up specs from the same audit. New `Document`/`DocumentSection` entities with three reused mechanisms instead of new ones: sections reuse the tabellenansicht spec's filter DSL (`content_type="query"`), a curated fixed list, or the existing `Artifact.parent`-subtree walk `Baseline.scope="document"` already does today (verified against `baseline/delta_index_builder.py` — that scope currently resolves an arbitrary root artifact's subtree, no real Document object behind it). Read mode and MCP `resources/read` (mcp-modernisierung spec) share one markdown renderer. `Baseline.scope="document"` gets rebound to a real `Document.id` with a migration path for existing document-scope baselines. Implementation plan not yet written.
+
+## [2026-09-03-rollenbasierte-sichten-design.md](2026-09-03-rollenbasierte-sichten-design.md)
+**Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. T (T1-T3). Eleventh and last of the follow-up specs from this audit's original 11-theme decomposition. Three views (Leser/Autor/Experte) mapped onto existing RBAC roles, no new role system. Supersedes already-filed GitHub issue #848 (viewer sees all write buttons/admin nav) rather than duplicating it — #848 should be closed as covered by this spec's implementation, not fixed separately. Two runtime-configurability requests from the user, both solved by reusing the established Global/Workspace system-object pattern a fourth time: `audience: basic | expert` is a native amendment to the attribute-definition spec (not just referenced from here — a real toggle in the same `AttributeEditorPage` editor), and navigation role-gating becomes a new `GlobalNavigationVisibility`/`WorkspaceNavigationVisibility` pair replacing the hardcoded `NAV_ITEMS.requires` frontend array. `ArtifactForm.mode` (read/edit) stays code logic derived from role+workflow-state, deliberately not made configurable data — a security boundary, not a display-density preference. Implementation plan not yet written.

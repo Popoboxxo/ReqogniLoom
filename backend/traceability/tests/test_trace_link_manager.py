@@ -55,20 +55,20 @@ class TestTraceLinkCRUD:
             link = manager.create(
                 source_id=src_art.id,
                 target_id=tgt_art.id,
-                link_type="satisfies",
+                link_type="allocated-to",
             )
 
         assert link.id is not None
         assert isinstance(link.id, uuid.UUID)
-        assert link.link_type == "satisfies"
+        assert link.link_type == "allocated-to"
         assert link.source_id == src_art.id
         assert link.target_id == tgt_art.id
 
     def test_create_all_8_link_types(self, manager, tenant_a, workspace_a):
         """REQ-L2-TE-001: All 8 link types are accepted."""
         valid_types = [
-            "parent-child", "derives-from", "satisfies", "verifies",
-            "implements", "refines", "documents", "realizes",
+            "derives-from", "decomposes", "allocated-to", "verifies",
+            "decides", "mitigates", "references", "diagram-ref",
         ]
         with active_tenant(tenant_a):
             for lt in valid_types:
@@ -103,7 +103,7 @@ class TestTraceLinkCRUD:
                 manager.create(
                     source_id=uuid.uuid4(),
                     target_id=tgt.id,
-                    link_type="satisfies",
+                    link_type="allocated-to",
                 )
 
     def test_create_missing_target(self, manager, tenant_a, workspace_a):
@@ -115,7 +115,7 @@ class TestTraceLinkCRUD:
                 manager.create(
                     source_id=src.id,
                     target_id=uuid.uuid4(),
-                    link_type="satisfies",
+                    link_type="allocated-to",
                 )
 
     def test_read_link(self, manager, tenant_a, workspace_a):
@@ -123,7 +123,7 @@ class TestTraceLinkCRUD:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "satisfies")
+            link = manager.create(src.id, tgt.id, "allocated-to")
 
             retrieved = manager.get(link.id)
         assert retrieved.id == link.id
@@ -133,16 +133,16 @@ class TestTraceLinkCRUD:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "satisfies")
-            updated = manager.update(link.id, link_type="implements")
-        assert updated.link_type == "implements"
+            link = manager.create(src.id, tgt.id, "allocated-to")
+            updated = manager.update(link.id, link_type="decomposes")
+        assert updated.link_type == "decomposes"
 
     def test_delete_link(self, manager, tenant_a, workspace_a):
         """REQ-L2-TE-001: delete removes the TraceLink."""
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "satisfies")
+            link = manager.create(src.id, tgt.id, "allocated-to")
             link_id = link.id
             manager.delete(link_id)
 
@@ -168,7 +168,7 @@ class TestTenantIsolation:
 
         with active_tenant(tenant_a):
             with pytest.raises(CrossTenantLinkError):
-                manager.create(src.id, tgt.id, "satisfies")
+                manager.create(src.id, tgt.id, "allocated-to")
 
     def test_tenant_b_cannot_read_tenant_a_link(
         self, manager, tenant_a, workspace_a, tenant_b
@@ -177,7 +177,7 @@ class TestTenantIsolation:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "satisfies")
+            link = manager.create(src.id, tgt.id, "allocated-to")
             link_id = link.id
 
         with active_tenant(tenant_b):
@@ -191,7 +191,7 @@ class TestTenantIsolation:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            manager.create(src.id, tgt.id, "satisfies")
+            manager.create(src.id, tgt.id, "allocated-to")
 
         # tenant_b has no workspace / links — get_trace_links must return empty
         from persistence.models import Workspace
@@ -214,10 +214,10 @@ class TestCycleDetection:
             art_a = make_artifact(tenant_a, workspace_a, "requirement")
             art_b = make_artifact(tenant_a, workspace_a, "requirement")
 
-            manager.create(art_a.id, art_b.id, "parent-child")
+            manager.create(art_a.id, art_b.id, "decomposes")
 
             with pytest.raises(CycleDetectedError):
-                manager.create(art_b.id, art_a.id, "parent-child")
+                manager.create(art_b.id, art_a.id, "decomposes")
 
     def test_indirect_cycle_rejected(self, manager, tenant_a, workspace_a):
         """A -> B -> C -> A must be rejected at the last step."""
@@ -239,8 +239,8 @@ class TestCycleDetection:
             art_b = make_artifact(tenant_a, workspace_a, "requirement")
             art_c = make_artifact(tenant_a, workspace_a, "requirement")
 
-            link1 = manager.create(art_a.id, art_b.id, "satisfies")
-            link2 = manager.create(art_a.id, art_c.id, "satisfies")
+            link1 = manager.create(art_a.id, art_b.id, "allocated-to")
+            link2 = manager.create(art_a.id, art_c.id, "allocated-to")
 
         assert link1 is not None
         assert link2 is not None
@@ -253,10 +253,10 @@ class TestCycleDetection:
             art_a = make_artifact(tenant_a, workspace_a, "requirement")
             art_b = make_artifact(tenant_a, workspace_a, "requirement")
 
-            link = manager.create(art_a.id, art_b.id, "parent-child")
+            link = manager.create(art_a.id, art_b.id, "decomposes")
 
             with pytest.raises(CycleDetectedError):
-                manager.create(art_b.id, art_a.id, "parent-child")
+                manager.create(art_b.id, art_a.id, "decomposes")
 
             # Original link must still exist
             retrieved = manager.get(link.id)
@@ -275,7 +275,7 @@ class TestBatchOperations:
         with active_tenant(tenant_a):
             arts = [make_artifact(tenant_a, workspace_a, "requirement") for _ in range(5)]
             items = [
-                {"source_id": arts[i].id, "target_id": arts[i + 1].id, "link_type": "satisfies"}
+                {"source_id": arts[i].id, "target_id": arts[i + 1].id, "link_type": "allocated-to"}
                 for i in range(4)
             ]
             created = manager.batch_create(items)
@@ -292,7 +292,7 @@ class TestBatchOperations:
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
             items = [
-                {"source_id": src.id, "target_id": tgt.id, "link_type": "satisfies"},
+                {"source_id": src.id, "target_id": tgt.id, "link_type": "allocated-to"},
                 {"source_id": tgt.id, "target_id": src.id, "link_type": "NOT-VALID"},
             ]
             with pytest.raises(InvalidLinkTypeError):
@@ -310,9 +310,9 @@ class TestBatchOperations:
             art_c = make_artifact(tenant_a, workspace_a, "requirement")
 
             items = [
-                {"source_id": art_a.id, "target_id": art_b.id, "link_type": "parent-child"},
-                {"source_id": art_b.id, "target_id": art_c.id, "link_type": "parent-child"},
-                {"source_id": art_c.id, "target_id": art_a.id, "link_type": "parent-child"},
+                {"source_id": art_a.id, "target_id": art_b.id, "link_type": "decomposes"},
+                {"source_id": art_b.id, "target_id": art_c.id, "link_type": "decomposes"},
+                {"source_id": art_c.id, "target_id": art_a.id, "link_type": "decomposes"},
             ]
             with pytest.raises(CycleDetectedError) as exc_info:
                 manager.batch_create(items)
@@ -352,7 +352,7 @@ class TestReferentialIntegrity:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "satisfies")
+            link = manager.create(src.id, tgt.id, "allocated-to")
 
             # Delete source artifact — CASCADE must remove the link
             src.delete()
@@ -366,7 +366,7 @@ class TestReferentialIntegrity:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "satisfies")
+            link = manager.create(src.id, tgt.id, "allocated-to")
 
             tgt.delete()
 
@@ -389,7 +389,7 @@ class TestAuditMetadata:
             )
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "satisfies", created_by_id=user.id)
+            link = manager.create(src.id, tgt.id, "allocated-to", created_by_id=user.id)
 
         assert link.created_by_id == user.id
         assert link.created_at is not None
@@ -403,9 +403,9 @@ class TestAuditMetadata:
             )
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "satisfies", created_by_id=user.id)
+            link = manager.create(src.id, tgt.id, "allocated-to", created_by_id=user.id)
 
-            updated = manager.update(link.id, link_type="implements", modified_by_id=user.id)
+            updated = manager.update(link.id, link_type="decomposes", modified_by_id=user.id)
 
         assert updated.modified_by_id == user.id
         assert updated.created_by_id == user.id  # unchanged

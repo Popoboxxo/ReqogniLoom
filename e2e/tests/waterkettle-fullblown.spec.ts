@@ -25,6 +25,7 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  createIsolatedWorkspace,
 } from '../helpers/auth';
 import {
   createRequirementViaUI,
@@ -32,7 +33,6 @@ import {
   createDiagramViaUI,
   createIcdViaUI,
   createTraceLinkViaUI,
-  createArchTraceLinkViaUI,
   createIssueViaUI,
   createRiskViaUI,
   createAdrViaUI,
@@ -218,16 +218,9 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
   test.beforeAll(async () => {
     token = await getAuthToken();
-    // Aktive Workspace-ID dynamisch ermitteln
-    const apiCtx = await pwRequest.newContext({
-      baseURL: BACKEND_URL,
-      extraHTTPHeaders: { Authorization: `Bearer ${token}` },
-    });
-    const wsResp = await apiCtx.get('/api/v1/workspaces/');
-    const wsList = (await wsResp.json()).results;
-    const demo = wsList.find((w: { is_active?: boolean }) => w.is_active !== false) ?? wsList[0];
-    const workspaceId = demo.id as string;
-    await apiCtx.dispose();
+    // Eigene, leere Workspace — verhindert [I5]-Kollisionen (max. 1 Root-
+    // ArchitectureElement pro Workspace) mit der geteilten Demo-Workspace.
+    const workspaceId = await createIsolatedWorkspace(token);
 
     ids = {
       workspaceId,
@@ -343,7 +336,7 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     ids.requirementIds['L1-999-ENC'] = id;
 
     await page.goto(`${FRONTEND_URL}/requirements/${id}`);
-    const titleInput = page.locator('[data-testid="req-title"]');
+    const titleInput = page.locator('[data-testid="artifact-field-title"]');
     const value = await titleInput.inputValue();
     if (value !== tricky) {
       logBug(
@@ -358,11 +351,20 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   // PHASE 1f — 8 Architektur-Elemente über UI
   // ===========================================================================
   test('Phase 1f: 8 Architektur-Elemente über UI anlegen (alle 5 element_types)', async ({ page }) => {
-    for (const a of SCENARIO.ARCH) {
-      const id = await createArchitectureElementViaUI(page, {
-        title: a.title,
-        elementType: a.elementType,
-      });
+    // [I5]: nur ein Root-ArchitectureElement pro Workspace erlaubt — das
+    // erste Element wird als Root angelegt, alle weiteren als seine Kinder.
+    const [root, ...rest] = SCENARIO.ARCH;
+    const rootId = await createArchitectureElementViaUI(page, {
+      title: root.title,
+      elementType: root.elementType,
+    });
+    ids.architectureIds[root.id] = rootId;
+    for (const a of rest) {
+      const id = await createArchitectureElementViaUI(
+        page,
+        { title: a.title, elementType: a.elementType },
+        rootId
+      );
       ids.architectureIds[a.id] = id;
     }
     // 5 element_types abgedeckt: module, component, layer, interface, subsystem
@@ -381,7 +383,10 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(500);
+    // Wait for the requirement tree to actually render (RequirementList.tsx
+    // data-testid="req-list-tree") instead of a fixed delay, before probing
+    // for the long-title card below.
+    await expect(page.locator('[data-testid="req-list-tree"]')).toBeVisible({ timeout: 8000 });
     const card = page.getByText(longTitle.slice(0, 25)).first();
     const visible = await card.isVisible().catch(() => false);
     if (visible) {
@@ -414,19 +419,24 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     await expect(page.locator('[data-testid="req-tracelink-panel"]')).toBeVisible({ timeout: 8000 });
   });
 
-  test('Phase 2b: Architektur → Requirement satisfies Links über UI', async ({ page }) => {
+  test('Phase 2b: Requirement → Architektur allocated-to Links über UI', async ({ page }) => {
     const archId = ids.architectureIds['A-HEAT'];
     const reqId = ids.requirementIds['L1-PERF'];
     if (!archId || !reqId) {
       test.skip(true, 'IDs fehlen — Phase 1 fehlgeschlagen');
       return;
     }
-    await createArchTraceLinkViaUI(page, archId, reqId, 'satisfies');
+    // link-types catalog migration (2026-09): 'satisfies' (ArchitectureElement
+    // -> Requirement) was retired and folded into 'allocated-to', with the
+    // endpoints swapped (Requirement -> ArchitectureElement) — see Task 17 of
+    // docs/superpowers/plans/2026-09-03-traceability-semantik.md. Created from
+    // the requirement side now, not the architecture side.
+    await createTraceLinkViaUI(page, reqId, archId, 'allocated-to');
     await page.goto(`${FRONTEND_URL}/architecture/${archId}`);
     // Renamed to arch-linked-reqs-panel; link items carry a per-type badge
     // testid (trace-type-<linkType>), not a generic "-item" wrapper.
     await expect(page.locator('[data-testid="arch-linked-reqs-panel"]')).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('[data-testid="trace-type-satisfies"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="trace-type-allocated-to"]')).toBeVisible({ timeout: 8000 });
   });
 
   // ===========================================================================
@@ -545,7 +555,10 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
       description: 'Zustandsmaschine',
       content: `graph LR\n  A[Idle] --> B[Heating]\n  B --> C[Done]\n  B --> D[Error]\n  C --> A\n  D --> A`,
     });
-    await page.waitForTimeout(1500);
+    // createDiagramViaUI() already waits for networkidle after saving; the
+    // retrying toBeVisible() assertion below is the real wait for the new
+    // diagram to show up after navigating to the list, so no extra fixed
+    // delay is needed here.
     await page.goto(`${FRONTEND_URL}/diagrams`);
     await page.waitForLoadState('networkidle');
     await expect(page.getByText(name).first()).toBeVisible({ timeout: 10000 });
@@ -553,20 +566,57 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
   test('Phase 4d: Diagramm editieren — erzeugt das eine neue Version?', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams`);
+    // Filter first — the diagram list grows with every phase (and every prior
+    // run against a persistent dev database), so a bare getByText can be left
+    // waiting on an entry that is simply further down the list.
+    await page.getByTestId('diagram-list-search-input').fill('WK-Block-001');
     await page.getByText('WK-Block-001: Wasserkessel Top-Level').first().click();
-    await expect(page.locator('[data-testid="diagram-edit-btn"]')).toBeVisible();
-    await page.locator('[data-testid="diagram-edit-btn"]').click();
-    await page.locator('[data-testid="diagram-source-textarea"]').waitFor({ timeout: 6000 });
 
+    // GH-353 Task 9 / D4: mermaid (like node_graph and canvas_stroke) is edited
+    // in a fullscreen editor, so the detail pane's primary action navigates
+    // there instead of turning into an inline source form. Only plantuml/json
+    // still render diagram-edit-btn + diagram-source-textarea.
     const detailContent = await page.content();
     const hasV1 = detailContent.includes('v1') || detailContent.includes('v—') || detailContent.includes('—');
+
+    await expect(page.locator('[data-testid="diagram-open-editor-btn"]')).toBeVisible();
+    await page.locator('[data-testid="diagram-open-editor-btn"]').click();
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     const newContent = `graph LR
   A[Stromversorgung] --> B[Heizelement v2]
   B --> C[Wasserbehälter v2]`;
-    await page.locator('[data-testid="diagram-source-textarea"]').fill(newContent);
-    await page.locator('[data-testid="diagram-save-btn"]').click();
-    await page.waitForTimeout(1500);
+    // CodeMirror renders a contenteditable div, not a textarea — select-all
+    // and retype (same helper shape as tests/mermaid-diagram.spec.ts).
+    const cmContent = page.locator('[data-testid="mermaid-code-editor"] .cm-content');
+    await cmContent.waitFor({ state: 'visible', timeout: 10000 });
+    await cmContent.click();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Delete');
+    await page.keyboard.type(newContent, { delay: 10 });
+
+    // The fullscreen editor owns its own state and persists the source through
+    // PUT /diagrams/{id}/mermaid-source/ (diagramsApi.saveMermaidSource) — not
+    // the PATCH the inline form used to send. Click before the 2s auto-save
+    // timer fires, otherwise the manual save is a no-op (isDirty already false)
+    // and nothing further would be sent.
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/diagrams\/[^/]+\/mermaid-source\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'PUT' &&
+          resp.status() < 400
+      ),
+      page.locator('[data-testid="mermaid-save-btn"]').click(),
+    ]);
+
+    // Back to the detail pane to read the (possibly bumped) version label.
+    await page.goto(`${FRONTEND_URL}/diagrams`);
+    await page.getByTestId('diagram-list-search-input').fill('WK-Block-001');
+    await page.getByText('WK-Block-001: Wasserkessel Top-Level').first().click();
+    await expect(page.locator('[data-testid="diagram-open-editor-btn"]')).toBeVisible({
+      timeout: 10000,
+    });
 
     const afterContent = await page.content();
     const hasV2 = afterContent.includes('v2');
@@ -584,13 +634,24 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   // PHASE 5 — Baselines über UI (mehrere)
   // ===========================================================================
   test('Phase 5a: Baseline RC1 (project scope) über UI', async ({ page }) => {
-    await createBaselineViaUI(page, { scope: 'project' });
+    // This scenario deliberately builds up the SE graph in stages, so by
+    // this phase several requirements are still missing
+    // derives-from/verifies/allocated-to links — the SE-Auditor gate
+    // (GH-490/GH-513) reliably reports BLOCKER findings and rejects a plain
+    // project-scope create. allowGateOverride mirrors what an admin
+    // snapshotting a WIP state would actually do (see wk-helpers.ts);
+    // without it the gate block is a loud failure, not a silent no-op.
+    await createBaselineViaUI(page, { scope: 'project', allowGateOverride: true });
     await page.goto(`${FRONTEND_URL}/baselines`);
     await expect(page.locator('[data-testid="baseline-list"]')).toBeVisible({ timeout: 10000 });
   });
 
   test('Phase 5b: Baseline doc1 (document scope) über UI', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/baselines`);
+    // Task 5.2: creation lives in the PageHeader overflow menu (same as
+    // createBaselineViaUI in wk-helpers.ts).
+    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await page.locator('[data-testid="create-baseline-form"]').waitFor({ timeout: 6000 });
     await page.locator('[data-testid="baseline-scope-document"]').check();
@@ -600,7 +661,9 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     if (options > 1) {
       const value = await artifactSelect.locator('option').nth(1).getAttribute('value');
       if (value) {
-        await createBaselineViaUI(page, { scope: 'document', artifactId: value });
+        // See the allowGateOverride note in Phase 5a — the same partially-
+        // linked WIP state can trip the SE-Auditor gate for document scope too.
+        await createBaselineViaUI(page, { scope: 'document', artifactId: value, allowGateOverride: true });
       }
     }
     await page.goto(`${FRONTEND_URL}/baselines`);

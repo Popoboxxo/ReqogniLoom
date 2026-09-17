@@ -63,6 +63,10 @@ ARCH_003 = "ARCH-003"
 VERIF_P8 = "VERIF-P8"
 CONS_P9 = "CONS-P9"
 CONS_P10 = "CONS-P10"
+#: P1-9 (SYSTEMAUDIT_2026-08-27) — not part of the original §2.2
+#: Pflichtmatrix; added when RequirementLevel was realigned with the
+#: documented V-model cascade. See rules/level_progression.py.
+CONS_P11 = "CONS-P11"
 
 # ---------------------------------------------------------------------------
 # Preset → active rule ids (single source of truth, §2.2)
@@ -89,8 +93,19 @@ _EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
         TRACE_P7,
         ARCH_003,
         VERIF_P8,
+        CONS_P11,
     }
 )
+
+#: The "Full-SE" mandate, coupled to **stage 3 / Extended only** (Epic #934
+#: WS6, #939). These are the rules that demand a complete SE chain —
+#: architecture derivation (TRACE-P3/P5), level progression (TRACE-P7),
+#: architecture decomposition (ARCH-003), leaf-requirement verification
+#: (VERIF-P8) and configurable-preset coverage (CONS-P11). A stage-1 (Minimal)
+#: or stage-2 (Standard) workspace must never fail on them: Minimal maps to the
+#: empty rule set structurally, and Standard's baseline set is disjoint from
+#: this one by construction. ``test_se_auditor_stage_coupling`` pins both.
+FULL_SE_RULE_IDS: FrozenSet[str] = _EXTENDED_ONLY_RULES
 
 #: Tier → set of active rule ids. Minimal is intentionally empty ("Minimal =
 #: no SE-Auditor mandate", §2.2) and this emptiness is enforced structurally
@@ -143,6 +158,11 @@ def _get_rule_preset_map() -> Mapping[str, FrozenSet[str]]:
     # Structural enforcement: Minimal is always empty.
     merged["minimal"] = frozenset()
     return merged
+
+
+def full_se_rule_ids() -> FrozenSet[str]:
+    """Return the Full-SE rule ids (stage 3 / Extended only). See the constant."""
+    return FULL_SE_RULE_IDS
 
 
 def active_rule_ids_for_tier(tier: str) -> FrozenSet[str]:
@@ -269,8 +289,10 @@ __all__ = [
     "get_registered_rules",
     "clear_registry",
     "active_rule_ids_for_tier",
+    "full_se_rule_ids",
     "RULE_PRESET_MAP",
     "ALL_RULE_IDS",
+    "FULL_SE_RULE_IDS",
     "TRACE_P1",
     "TRACE_P1B",
     "TRACE_P2",
@@ -283,4 +305,5 @@ __all__ = [
     "VERIF_P8",
     "CONS_P9",
     "CONS_P10",
+    "CONS_P11",
 ]

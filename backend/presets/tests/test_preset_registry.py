@@ -201,46 +201,33 @@ class TestDefaultPresetImmutability:
 
 
 # ---------------------------------------------------------------------------
-# REQ-L3-PC001-004: Custom Presets (optional)
+# REQ-L3-PC001-004: Custom Presets (locked for v1 — SYSTEMAUDIT SA-57)
 # ---------------------------------------------------------------------------
 
 
 class TestCustomPresets:
-    """REQ-L3-PC001-004 (optional, priority: optional)."""
+    """SA-57: custom presets are rejected unconditionally, not just gated to
+    Extended mode. Even when the (now-historical) Extended-only check passed,
+    ``get_preset_config()`` could never retrieve what ``create_custom_preset``
+    built — it only ever reads ``_DEFAULT_REGISTRY``, never the in-memory
+    ``_custom`` dict the old implementation wrote to. Persisting full custom
+    preset *definitions* needs a real schema change to
+    ``WorkspacePresetConfig`` (see the ``create_custom_preset`` docstring);
+    until that lands, the path stays locked with a clear error for every tier.
+    """
 
-    def test_create_custom_in_extended_accepted(
-        self, registry: PresetRegistry
+    @pytest.mark.parametrize(
+        "workspace_current_tier", [TIER_MINIMAL, TIER_STANDARD, TIER_EXTENDED]
+    )
+    def test_create_custom_always_rejected(
+        self, registry: PresetRegistry, workspace_current_tier: str
     ) -> None:
-        custom = registry.create_custom_preset(
-            workspace_id="ws-001",
-            name="Compliance-Lite",
-            base_tier=TIER_STANDARD,
-            workspace_current_tier=TIER_EXTENDED,
-        )
-        assert custom.tier == "Compliance-Lite"
-        assert custom.is_default is False
-        assert custom.parent_tier == TIER_STANDARD
-
-    def test_create_custom_in_minimal_rejected(
-        self, registry: PresetRegistry
-    ) -> None:
-        with pytest.raises(CustomPresetNotAllowedError, match="Extended mode"):
+        with pytest.raises(CustomPresetNotAllowedError, match="not yet supported"):
             registry.create_custom_preset(
                 workspace_id="ws-001",
-                name="Any",
+                name="Compliance-Lite",
                 base_tier=TIER_STANDARD,
-                workspace_current_tier=TIER_MINIMAL,
-            )
-
-    def test_create_custom_in_standard_rejected(
-        self, registry: PresetRegistry
-    ) -> None:
-        with pytest.raises(CustomPresetNotAllowedError):
-            registry.create_custom_preset(
-                workspace_id="ws-001",
-                name="Any",
-                base_tier=TIER_STANDARD,
-                workspace_current_tier=TIER_STANDARD,
+                workspace_current_tier=workspace_current_tier,
             )
 
 

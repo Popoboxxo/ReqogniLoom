@@ -1,7 +1,7 @@
 // REQ-L1-056, REQ-L2-DS-006: Canvas Editor E2E User Journey Tests
 //
 // Validates the Canvas Editor workflow end-to-end:
-// - Editor loads with toolbar and pen tool
+// - Editor loads with toolbar (select tool active by default)
 // - Drawing simulation, tool switching, color/width changes
 // - Undo via Ctrl+Z
 // - Auto-save and manual save
@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
@@ -22,7 +22,11 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
       data: {
         workspace_id: SEEDED_WORKSPACE_ID,
         name: 'E2E Canvas Test Diagram',
-        diagram_type: 'block',
+        // Content shape below ({objects, background}) is the free-drawing
+        // canvas payload (DiagramType.CANVAS) — 'block' requires a top-level
+        // 'nodes' key (backend/diagram/validator.py _JSON_REQUIRED_KEYS) and
+        // rejects this payload with a 400 VALIDATION_ERROR.
+        diagram_type: 'canvas',
         payload_format: 'json',
         content: JSON.stringify({ objects: [], background: '#ffffff' }),
         description: 'Created by E2E canvas test suite',
@@ -65,8 +69,10 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await expect(page.locator('[data-testid="canvas-tool-select"]')).toBeVisible();
     await expect(page.locator('[data-testid="canvas-tool-eraser"]')).toBeVisible();
 
-    // Pen tool should be active by default (status bar shows "pen")
-    await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
+    // Select tool is active by default (diagram editing default since the
+    // rect/ellipse/text/connector tools were added — see CanvasEditor.tsx
+    // useState<CanvasTool>("select")); status bar reflects it.
+    await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('select', { timeout: 8000 });
 
     // Undo/Redo buttons exist and are disabled initially
     const undoBtn = page.locator('[data-testid="canvas-undo"]');
@@ -107,12 +113,16 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await expect(page.locator('[data-testid="canvas-width-slider"]')).toBeVisible();
     await expect(page.locator('[data-testid="canvas-width-label"]')).toHaveText('2px');
 
-    // Change stroke width via JS evaluation (range input)
-    await page.locator('[data-testid="canvas-width-slider"]').evaluate((el: HTMLInputElement) => {
-      el.value = '10';
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    // Drive the slider by keyboard (step=1, so 2px + 8 × ArrowRight = 10px).
+    // Assigning `el.value` from evaluate() cannot work here: the slider is a
+    // controlled React input, and React's value tracker swallows the synthetic
+    // `input` event that follows a direct assignment, so onChange never runs.
+    // Keyboard is what a real user does and goes through the native setter.
+    const slider = page.locator('[data-testid="canvas-width-slider"]');
+    await slider.focus();
+    for (let i = 0; i < 8; i++) {
+      await page.keyboard.press('ArrowRight');
+    }
     await expect(page.locator('[data-testid="canvas-width-label"]')).toHaveText('10px');
 
     // Change color using a quick-color palette button (blue #4f6ef7)
@@ -129,7 +139,9 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
     await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
 
-    // Wait for canvas to fully initialize (status bar shows "pen")
+    // Default tool is "select" (see test_canvas_editor_loads_with_toolbar);
+    // switch to the pen tool so mouse-drag below draws a free-hand stroke.
+    await page.locator('[data-testid="canvas-tool-pen"]').click();
     await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
 
     // Get canvas element position for drawing
@@ -154,7 +166,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await expect(page.locator('[data-testid="canvas-undo"]')).toBeEnabled({ timeout: 3000 });
 
     // Save status should show "Unsaved changes" (isDirty = true)
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Unsaved', { timeout: 3000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Unsaved|Ungespeicherte/, { timeout: 3000 });
   });
 
   // -------------------------------------------------------------------------
@@ -163,6 +175,9 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   test('[REQ-L1-056] test_canvas_undo_via_ctrl_z', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
     await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
+
+    // Default tool is "select"; switch to pen to draw a free-hand stroke.
+    await page.locator('[data-testid="canvas-tool-pen"]').click();
     await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
 
     // Draw on canvas
@@ -183,13 +198,14 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
 
     // Press Ctrl+Z to undo
     await page.keyboard.press('Control+z');
-    await page.waitForTimeout(500);
 
-    // Undo button should be disabled again (undo stack is empty after single stroke undo)
+    // Undo button should be disabled again (undo stack is empty after single
+    // stroke undo). expect(...).toBeDisabled() already polls/retries, so it
+    // doubles as the wait for the undo state update — no fixed delay needed.
     await expect(page.locator('[data-testid="canvas-undo"]')).toBeDisabled({ timeout: 3000 });
 
     // After undo, the save status still shows unsaved (handleUndo sets isDirty = true)
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Unsaved', { timeout: 2000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Unsaved|Ungespeicherte/, { timeout: 2000 });
   });
 
   // -------------------------------------------------------------------------
@@ -198,6 +214,9 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   test('[REQ-L1-056] test_canvas_manual_save_sends_put', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
     await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
+
+    // Default tool is "select"; switch to pen to draw a free-hand stroke.
+    await page.locator('[data-testid="canvas-tool-pen"]').click();
     await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
 
     // Draw on canvas to make it dirty
@@ -214,7 +233,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await page.mouse.up();
 
     // Wait for dirty state
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Unsaved', { timeout: 3000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Unsaved|Ungespeicherte/, { timeout: 3000 });
 
     // Set up PUT request interceptor
     const putPromise = page.waitForResponse(
@@ -232,7 +251,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     expect(response.status()).toBe(200);
 
     // Save status should show "Saved"
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Saved', { timeout: 5000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Saved|Gespeichert/, { timeout: 5000 });
   });
 
   // -------------------------------------------------------------------------
@@ -241,6 +260,9 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   test('[REQ-L1-056] test_canvas_auto_save_fires_after_drawing', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
     await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
+
+    // Default tool is "select"; switch to pen to draw a free-hand stroke.
+    await page.locator('[data-testid="canvas-tool-pen"]').click();
     await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
 
     // Draw on canvas to make it dirty
@@ -257,7 +279,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await page.mouse.up();
 
     // Wait for dirty state
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Unsaved', { timeout: 3000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Unsaved|Ungespeicherte/, { timeout: 3000 });
 
     // Wait for auto-save (fires every 5s when dirty)
     const putPromise = page.waitForResponse(
@@ -271,6 +293,6 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     expect(response.status()).toBe(200);
 
     // After auto-save, the dirty flag is cleared and status shows "Saved"
-    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText('Saved', { timeout: 5000 });
+    await expect(page.locator('[data-testid="canvas-save-status"]')).toContainText(/Saved|Gespeichert/, { timeout: 5000 });
   });
 });

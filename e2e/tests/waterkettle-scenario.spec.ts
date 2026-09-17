@@ -36,9 +36,10 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  createIsolatedWorkspace,
 } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // ---------------------------------------------------------------------------
@@ -116,16 +117,9 @@ async function seedWaterkettleScenario(): Promise<SeededFixture> {
   });
   const headers = { Authorization: `Bearer ${token}` };
 
-  // ---- Workspace dynamisch ermitteln (Demo-Workspace des Test-Tenants) ----
-  const wsResp = await apiCtx.get('/api/v1/workspaces/');
-  if (!wsResp.ok()) {
-    throw new Error(`workspaces list failed: ${wsResp.status()}`);
-  }
-  const wsBody = await wsResp.json();
-  const wsList = Array.isArray(wsBody) ? wsBody : wsBody.results ?? [];
-  const demo = wsList.find((w: { is_active?: boolean }) => w.is_active !== false) ?? wsList[0];
-  if (!demo) throw new Error('no workspace available for E2E scenario');
-  const workspaceId = demo.id as string;
+  // Eigene, leere Workspace — verhindert [I5]-Kollisionen (max. 1 Root-
+  // ArchitectureElement pro Workspace) mit der geteilten Demo-Workspace.
+  const workspaceId = await createIsolatedWorkspace(token);
 
   const requirementIds: Record<string, string> = {};
   const architectureIds: Record<string, string> = {};
@@ -152,6 +146,9 @@ async function seedWaterkettleScenario(): Promise<SeededFixture> {
   }
 
   // ---- Architecture elements (L1) ----
+  // [I5]: nur ein Root-ArchitectureElement pro Workspace erlaubt — das
+  // erste Element wird als Root angelegt, alle weiteren als seine Kinder.
+  let archRootId: string | undefined;
   for (const a of WK_ARCH) {
     const resp = await apiCtx.post('/api/v1/architecture/', {
       headers,
@@ -160,6 +157,7 @@ async function seedWaterkettleScenario(): Promise<SeededFixture> {
         title: a.title,
         description: a.description,
         element_type: a.element_type,
+        ...(archRootId ? { parent_id: archRootId } : {}),
       },
     });
     if (!resp.ok()) {
@@ -169,6 +167,7 @@ async function seedWaterkettleScenario(): Promise<SeededFixture> {
     }
     const body = await resp.json();
     architectureIds[a.id] = body.id;
+    if (!archRootId) archRootId = body.id;
   }
 
   // ---- TestCases (L2) ----
@@ -314,20 +313,21 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
   test('REQ-L1-002: Requirement-Detail öffnen → Workflow-State + Title editierbar', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements/${fix.requirementIds['WK-001-FUNC']}`);
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('[data-testid="req-title"]')).toHaveValue(/Wasser auf 100/);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(/Wasser auf 100/);
 
-    // REQ-143: aktueller Status wird immer read-only angezeigt; das
-    // Transitions-Select ("req-workflow") rendert nur, wenn vom aktuellen
-    // Status Übergänge verfügbar sind — sonst "req-workflow-locked".
+    // REQ-161: aktueller Status wird immer read-only über das
+    // WorkflowStatusEditor-Badge angezeigt; ein "Change status"-Trigger
+    // rendert nur, wenn vom aktuellen Status Übergänge verfügbar sind —
+    // sonst "workflow-no-transitions".
     // States sind kein festes Enum mehr, sondern dynamische Backend-Transitionen.
-    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 5000 });
-    const workflow = page.locator('[data-testid="req-workflow"]');
-    const locked = page.locator('[data-testid="req-workflow-locked"]');
-    await expect(workflow.or(locked)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible({ timeout: 5000 });
+    const trigger = page.locator('[data-testid="workflow-transition-trigger"]');
+    const noTransitions = page.locator('[data-testid="workflow-no-transitions"]');
+    await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 5000 });
 
     // Category sichtbar
-    const category = page.locator('[data-testid="req-category"]');
+    const category = page.locator('[data-testid="artifact-field-category"]');
     await expect(category).toBeVisible({ timeout: 5000 });
   });
 
@@ -345,12 +345,12 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
   test('REQ-L1-004: Architecture-Detail öffnen → element_type-Select mit 5 Optionen', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture/${fix.architectureIds['WK-CTRL']}`);
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('[data-testid="arch-title"]')).toHaveValue(/Steuerungs-Platine/);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(/Steuerungs-Platine/);
 
     // REQ-006/D5: element_type ist ein Freitext-Input mit Autocomplete-
     // Vorschlägen, kein festes <select> mit 5 Optionen mehr.
-    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    const typeInput = page.locator('[data-testid="artifact-field-element_type"]');
     await expect(typeInput).toBeVisible({ timeout: 6000 });
     await typeInput.fill('Module');
     await expect(typeInput).toHaveValue('Module');
@@ -371,7 +371,12 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
       expect(page.locator('[data-testid="traceability-list"]')).toBeVisible({ timeout: 8000 }).catch(() => null),
       expect(page.locator('[data-testid="traceability-empty"]')).toBeVisible({ timeout: 8000 }).catch(() => null),
     ]);
-    // PDF-Export-Button ist immer sichtbar (REQ-L1-003 Traceability-Matrix)
+    // PDF-Export liegt seit der PageHeader-Migration (#172, UI-Konzept 12.1)
+    // im "⋯"-Overflow-Menü und ist erst nach dem Öffnen gemountet — siehe
+    // tests/pdf-export.spec.ts, gleicher Ablauf.
+    const overflowTrigger = page.locator('[data-testid="page-header-overflow-trigger"]');
+    await expect(overflowTrigger).toBeVisible({ timeout: 10000 });
+    await overflowTrigger.click();
     const exportBtn = page.locator('[data-testid="export-pdf-btn"]');
     await expect(exportBtn).toBeVisible({ timeout: 6000 });
   });
@@ -385,41 +390,31 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
   });
 
   test('REQ-L1-035: TestRun-Detail öffnen → Aggregate-Status failed (1 von 3)', async ({ page, request }) => {
-    // Vor dem Close: TestRun ist in_progress; result_summary zeigt die
-    // hinzugefügten Ergebnisse (1 fail, 2 passed, 3 total).
+    // GH-690: seit der Backend-Auto-Completion (GH-584, `_recompute_status`)
+    // ist der Run bereits terminal ("failed", finished_at gesetzt), sobald
+    // alle 3 Results in `seedWaterkettleScenario()`'s beforeAll gemeldet
+    // wurden — es gibt keinen manuellen "in_progress" Zwischenzustand mehr
+    // und folglich auch keinen Close-Button zum Klicken. Ein Assert auf
+    // "vor dem Close: in_progress" bzw. ein anschließender UI-Close-Flow
+    // sind daher gegen die aktuelle Backend-Semantik hinfällig.
     const token = await getAuthToken();
-    const before = await request.get(`${BACKEND_URL}/api/v1/test-runs/${fix.testRunId}/`, {
+    const resp = await request.get(`${BACKEND_URL}/api/v1/test-runs/${fix.testRunId}/`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    expect(before.ok()).toBeTruthy();
-    const open = await before.json();
-    expect(open.status).toBe('in_progress');
-    expect(open.result_summary.passed).toBe(2);
-    expect(open.result_summary.failed).toBe(1);
-    expect(open.result_summary.total).toBe(3);
-    expect(open.finished_at).toBeNull();
+    expect(resp.ok()).toBeTruthy();
+    const run = await resp.json();
+    expect(run.status).toBe('failed');
+    expect(run.result_summary.passed).toBe(2);
+    expect(run.result_summary.failed).toBe(1);
+    expect(run.result_summary.total).toBe(3);
+    expect(run.finished_at).not.toBeNull();
 
-    // Close via UI
+    // UI: Detail öffnen und bestätigen, dass kein Close-Button mehr
+    // angeboten wird (TestRunDetailEditor.tsx rendert ihn nur bei
+    // status === "in_progress") — der Run ist bereits terminal.
     await page.goto(`${FRONTEND_URL}/test-runs`);
     await page.getByText(WK_TESTRUN_NAME).first().click();
-    const closeBtn = page.getByRole('button', { name: /close test run/i });
-    await expect(closeBtn).toBeVisible({ timeout: 8000 });
-    await closeBtn.click();
-    // Two-step inline confirmation (REQ-012) — the first click only reveals
-    // the confirm button, it doesn't call the close API by itself.
-    await page.getByTestId('testrun-confirm-close-btn').click();
-    await page.waitForTimeout(1500);
-
-    // Nach dem Close: aggregate status "failed" + finished_at gesetzt
-    const after = await request.get(`${BACKEND_URL}/api/v1/test-runs/${fix.testRunId}/`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(after.ok()).toBeTruthy();
-    const closed = await after.json();
-    expect(closed.status).toBe('failed');
-    expect(closed.finished_at).not.toBeNull();
-    expect(closed.result_summary.passed).toBe(2);
-    expect(closed.result_summary.failed).toBe(1);
+    await expect(page.getByTestId('testrun-close-btn')).toHaveCount(0, { timeout: 8000 });
   });
 
   // -------------------------------------------------------------------------
@@ -435,7 +430,10 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
       expect(page.locator('[data-testid="baselines-empty"]')).toBeVisible({ timeout: 10000 }).catch(() => null),
     ]);
 
-    // UI-Form für Baseline-Erstellung öffnen
+    // UI-Form für Baseline-Erstellung öffnen. Task 5.2: die Aktion liegt im
+    // Overflow-Menü des PageHeaders, nicht als primärer Button.
+    await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await expect(page.locator('[data-testid="create-baseline-form"]')).toBeVisible({ timeout: 6000 });
 

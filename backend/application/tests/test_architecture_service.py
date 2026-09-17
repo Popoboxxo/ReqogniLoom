@@ -370,6 +370,59 @@ class TestUpdateArchitectureElement:
                     arch_el_id=ARCH_EL_ID, ctx=ctx, expected_version=1
                 )
 
+    def test_concurrent_modification_between_read_and_write_raises(self):
+        """Code review regression: the compare-and-swap UPDATE's row count was
+        previously discarded. If another request modifies (and version-bumps)
+        the row between this method's own initial read and its final
+        filter(id=..., version=current_version).update(...), that UPDATE
+        legitimately matches zero rows -- Django's .update() returns 0 and
+        raises nothing on its own. This must now surface as
+        OptimisticLockError, not a silent no-op that reports the caller's
+        edits as if they were persisted."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=1)
+
+        # Simulate the race: the guarded UPDATE affects 0 rows, exactly as
+        # Django's QuerySet.update() does when the WHERE clause (id AND
+        # version=current_version) matches nothing because a concurrent
+        # writer already bumped the version.
+        mock_filter_qs = MagicMock()
+        mock_filter_qs.update = MagicMock(return_value=0)
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_el))
+                    )
+                ),
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=mock_filter_qs,
+            ),
+            patch.object(svc, "_audit") as mock_audit,
+            patch.object(svc, "_emit_event") as mock_emit,
+        ):
+            with pytest.raises(OptimisticLockError, match="Concurrent modification"):
+                svc.update_architecture_element(
+                    arch_el_id=ARCH_EL_ID,
+                    ctx=ctx,
+                    title="Would silently overwrite the concurrent edit",
+                )
+
+        # Nothing downstream of the failed UPDATE must run — @atomic_transaction
+        # rolls the whole method back, but a defensive assertion here also
+        # catches a regression that reorders these calls before the guard.
+        mock_audit.assert_not_called()
+        mock_emit.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # delete_architecture_element
@@ -401,8 +454,9 @@ class TestDeleteArchitectureElement:
             with pytest.raises(NotFoundError, match="ArchitectureElement"):
                 svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
 
-    def test_soft_delete_sets_lifecycle_status(self):
-        """REQ-006: delete_architecture_element sets lifecycle_status='deleted', does NOT hard-delete."""
+    def test_delete_calls_outdate(self):
+        """REQ-006/Phase 0: delete_architecture_element routes the soft-delete
+        through workflow.services.outdate(), does NOT hard-delete."""
         svc = ArchitectureService()
         ctx = _make_ctx()
         mock_el = _make_arch_el()
@@ -425,13 +479,19 @@ class TestDeleteArchitectureElement:
             ),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
 
-        # REQ-006: lifecycle_status set to 'deleted', NOT hard-deleted
-        assert mock_el.lifecycle_status == "deleted"
-        mock_el.save.assert_called_once_with(update_fields=["lifecycle_status"])
+        mock_outdate.assert_called_once_with(
+            item_id=mock_el.id,
+            item_type="ArchitectureElement",
+            workspace_id=mock_el.artifact.workspace_id,
+            ctx=ctx,
+            reason="deleted via architecture.delete",
+        )
         mock_el.delete.assert_not_called()
+        mock_el.save.assert_not_called()
 
     def test_soft_delete_does_not_cascade_tracelinks(self):
         """REQ-006: soft-delete must NOT cascade-delete TraceLinks (preserve audit trail)."""
@@ -460,6 +520,7 @@ class TestDeleteArchitectureElement:
             ) as mock_cascade,
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate"),
         ):
             svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
 
@@ -490,6 +551,7 @@ class TestGetArchitectureElement:
                     )
                 ),
             ),
+            patch("workflow.services.outdated_item_ids", return_value=[]),
         ):
             result = svc.get_architecture_element(ARCH_EL_ID, ctx)
 
@@ -514,6 +576,29 @@ class TestGetArchitectureElement:
             with pytest.raises(NotFoundError):
                 svc.get_architecture_element(ARCH_EL_ID, ctx)
 
+    def test_get_raises_not_found_when_outdated(self):
+        """REQ-006: get_architecture_element treats soft-deleted (outdated) elements as not found."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el()
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_el)
+                        )
+                    )
+                ),
+            ),
+            patch("workflow.services.outdated_item_ids", return_value=[mock_el.id]),
+        ):
+            with pytest.raises(NotFoundError):
+                svc.get_architecture_element(ARCH_EL_ID, ctx)
+
     def test_list_returns_all_elements(self):
         """list_architecture_elements returns active elements, excludes deleted (REQ-006)."""
         svc = ArchitectureService()
@@ -530,11 +615,20 @@ class TestGetArchitectureElement:
                 "application.architecture_service.ArchitectureElement.objects.select_related",
                 return_value=mock_qs,
             ),
+            # Phase 4 (D-3): the exclusion reads Artifact.lifecycle_status via
+            # outdated_item_ids, not WorkflowItemState. Patched at the seam
+            # (as the sibling tests above already do) rather than at whichever
+            # table currently backs it — with _set_tenant_context mocked out,
+            # letting the real query run would raise TenantContextNotSetError.
+            patch("workflow.services.outdated_item_ids", return_value=[]),
         ):
             result = svc.list_architecture_elements(WS_ID, ctx)
 
-        # REQ-006: .exclude(lifecycle_status='deleted') must be called by default
-        mock_qs.exclude.assert_called_once_with(lifecycle_status="deleted")
+        # Phase 0: ArchitectureElement is not wired into _STATUS_MIRROR_MODELS,
+        # so the default filter excludes ids whose WorkflowItemState is
+        # "outdated" (id__in=<outdated ids>), instead of a lifecycle_status field.
+        mock_qs.exclude.assert_called_once()
+        assert "id__in" in mock_qs.exclude.call_args.kwargs
         assert result == mock_elements
 
     def test_list_include_deleted_skips_exclude(self):
@@ -587,6 +681,7 @@ class TestTenantIsolation:
                     )
                 ),
             ),
+            patch("workflow.services.outdated_item_ids", return_value=[]),
         ):
             svc.get_architecture_element(ARCH_EL_ID, ctx)
 
@@ -1146,6 +1241,16 @@ class TestInvariantServiceIntegration:
                 "application.architecture_service.ArchitectureElement.objects.create",
                 return_value=_make_arch_el(version=1),
             ),
+            # Index 6 — issue #366: create_architecture_element resolves the
+            # parent element's backing Artifact id before writing the Artifact
+            # row. Appended (not inserted) so the [:5] / [5] slices above keep
+            # their meaning.
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=MagicMock(
+                    **{"values_list.return_value.first.return_value": None}
+                ),
+            ),
         ]
 
     def test_create_with_parent_runs_validator(self):
@@ -1470,5 +1575,266 @@ class TestInvariantI5SingleRoot:
                 new_parent_id=None, workspace_id=WS_ID, element_id=el_id
             )
         assert captured["exclude_id"] == el_id
+
+
+# ---------------------------------------------------------------------------
+# Regression: list_architecture_elements must exclude outdated elements
+# (Phase 0 fix — WorkflowItemState is the only source of truth, since
+# ArchitectureElement is not wired into workflow._STATUS_MIRROR_MODELS).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def arch_outdate_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="arch-outdate-tenant", slug="arch-outdate-tenant")
+
+
+@pytest.fixture
+def arch_outdate_user(arch_outdate_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="arch-outdate-user",
+        email="arch-outdate@example.com",
+        tenant=arch_outdate_tenant,
+    )
+
+
+@pytest.fixture
+def arch_outdate_workspace(arch_outdate_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(arch_outdate_tenant.id)
+    try:
+        return Workspace.objects.create(
+            tenant=arch_outdate_tenant, name="arch-outdate-workspace"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def arch_outdate_ctx(arch_outdate_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=arch_outdate_user.id,
+        tenant_id=arch_outdate_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="arch-outdate-tenant",
+    )
+
+
+class TestListArchitectureElementsExcludesOutdated:
+    """Phase 0 regression: deleted (outdated) ArchitectureElements must not
+    reappear in list_architecture_elements()."""
+
+    def test_deleted_element_excluded_from_default_list(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        from persistence.tenancy import TenantContext
+        from workflow.models import WorkflowItemState
+        from workflow.services import create_default_workflow
+
+        TenantContext.set_tenant(arch_outdate_workspace.tenant_id)
+        try:
+            create_default_workflow(
+                workspace_id=arch_outdate_workspace.id,
+                preset="architecture_default",
+                item_type="ArchitectureElement",
+                tenant_id=arch_outdate_workspace.tenant_id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        svc = ArchitectureService()
+        kept = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Kept Component",
+            ctx=arch_outdate_ctx,
+        )
+        # I5 invariant: only one root per workspace — attach the second
+        # element under the first instead of making it a second root.
+        deleted = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Deleted Component",
+            ctx=arch_outdate_ctx,
+            parent_id=kept.id,
+        )
+
+        svc.delete_architecture_element(arch_el_id=deleted.id, ctx=arch_outdate_ctx)
+
+        # Phase 4 (D-3): soft-delete is the Artifact flag; the workflow state
+        # is deliberately preserved.
+        from persistence.models import Artifact
+
+        assert (
+            Artifact.objects.get(pk=deleted.artifact_id).lifecycle_status == "outdated"
+        )
+        item_state = WorkflowItemState.objects.get(
+            item_id=deleted.id, item_type="ArchitectureElement"
+        )
+        assert item_state.current_state != "outdated"
+
+        elements = svc.list_architecture_elements(
+            workspace_id=arch_outdate_workspace.id, ctx=arch_outdate_ctx
+        )
+        ids = {el.id for el in elements}
+        assert kept.id in ids
+        assert deleted.id not in ids
+
+        elements_incl = svc.list_architecture_elements(
+            workspace_id=arch_outdate_workspace.id,
+            ctx=arch_outdate_ctx,
+            include_deleted=True,
+        )
+        ids_incl = {el.id for el in elements_incl}
+        assert deleted.id in ids_incl
+
+
+class TestListArchitectureElementsSearchFilter:
+    """Issue #267 (same root cause as RequirementService.list_requirements):
+    GET /api/v1/architecture-elements/?search=<term> must filter on
+    title/description/uid instead of being silently ignored."""
+
+    def test_search_filters_by_title_case_insensitive(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        svc = ArchitectureService()
+        matching = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Payment Gateway Component",
+            ctx=arch_outdate_ctx,
+        )
+        other = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Unrelated Component",
+            ctx=arch_outdate_ctx,
+            parent_id=matching.id,
+        )
+
+        elements = svc.list_architecture_elements(
+            workspace_id=arch_outdate_workspace.id,
+            ctx=arch_outdate_ctx,
+            search="payment gateway",
+        )
+        ids = {el.id for el in elements}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+
+class TestArtifactParentMirrorsElementHierarchy:
+    """Issue #366: the backing Artifact tree must mirror the element tree.
+
+    ``ArchitectureElement.parent`` and ``Artifact.parent`` are two
+    representations of the same hierarchy. ``create_architecture_element``
+    used to populate only the former, so ``artifact.get_tree`` (a recursive
+    CTE over ``pl_artifact.parent_id``) reported every architecture element
+    as a childless root.
+    """
+
+    def test_create_child_sets_backing_artifact_parent(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Root System",
+            ctx=arch_outdate_ctx,
+        )
+        child = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Child Component",
+            ctx=arch_outdate_ctx,
+            parent_id=root.id,
+        )
+
+        child.artifact.refresh_from_db()
+        root.artifact.refresh_from_db()
+        # The Artifact parent is the *parent element's Artifact*, never the
+        # ArchitectureElement primary key (a distinct id space).
+        assert child.artifact.parent_id == root.artifact_id
+        assert root.artifact.parent_id is None
+
+    def test_create_root_leaves_backing_artifact_parent_null(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Root System",
+            ctx=arch_outdate_ctx,
+        )
+        root.artifact.refresh_from_db()
+        assert root.artifact.parent_id is None
+
+    def test_reparenting_updates_backing_artifact_parent(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Root System",
+            ctx=arch_outdate_ctx,
+        )
+        first = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="First Branch",
+            ctx=arch_outdate_ctx,
+            parent_id=root.id,
+        )
+        moving = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Moving Component",
+            ctx=arch_outdate_ctx,
+            parent_id=root.id,
+        )
+
+        svc.update_architecture_element(
+            arch_el_id=moving.id, ctx=arch_outdate_ctx, parent_id=first.id
+        )
+
+        moving.artifact.refresh_from_db()
+        assert moving.artifact.parent_id == first.artifact_id
+
+    def test_get_tree_returns_architecture_children(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        from application.artifact_service import ArtifactService
+
+        svc = ArchitectureService()
+        root = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Root System",
+            ctx=arch_outdate_ctx,
+        )
+        child = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Child Component",
+            ctx=arch_outdate_ctx,
+            parent_id=root.id,
+        )
+        grandchild = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Grandchild Component",
+            ctx=arch_outdate_ctx,
+            parent_id=child.id,
+        )
+
+        tree = ArtifactService().get_tree(
+            root_id=root.id,
+            workspace_id=arch_outdate_workspace.id,
+            ctx=arch_outdate_ctx,
+        )
+
+        assert tree.id == root.artifact_id
+        assert [c.id for c in tree.children] == [child.artifact_id]
+        assert [g.id for g in tree.children[0].children] == [grandchild.artifact_id]
 
 

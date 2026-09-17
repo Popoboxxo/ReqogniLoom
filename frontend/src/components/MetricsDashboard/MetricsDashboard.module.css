@@ -1,0 +1,32 @@
+/* SE-process metric tiles (COMP-RF-006) — layout contract for issues #809/#806.
+   Layout only: every colour and size comes from styles/tokens.css. */
+
+.tileGrid {
+  display: grid;
+  /* The five tiles must never end a row with a single orphan card (#809), so
+     the column count is restricted to values that divide five evenly: 1, 3 and
+     5. `repeat(auto-fit, minmax(<min>, <max>))` cannot express that — its
+     repetition count depends on the viewport width, so every width range that
+     happens to fit exactly four (or two) tracks leaves the fifth tile alone on
+     a second row. Tracks are `1fr`, so a row always spans the full content
+     width instead of leaving it partly empty (#806). */
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+/* --bp-md (768px): three columns — the five tiles lay out 3+2, never 4+1. */
+@media (min-width: 768px) {
+  .tileGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* --bp-xl (1600px): all five tiles in one row. Below this width a 5-up row
+   would squeeze each tile under its readable minimum (roughly 250px: a 120px
+   sparkline, the "last update" column and the card padding), which is why the
+   switch sits above --bp-lg rather than at it. */
+@media (min-width: 1600px) {
+  .tileGrid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}

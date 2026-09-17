@@ -8,6 +8,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -21,6 +22,8 @@ from application.workspace_service import WorkspaceService
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 from se_metrics.services import compute_metrics
+
+logger = logging.getLogger(__name__)
 
 
 class MetricsViewSet(ViewSet):
@@ -42,42 +45,58 @@ class MetricsViewSet(ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # SA-38: this thread-local must be cleared on every exit path (early
+        # 400/404 returns included), otherwise a pooled worker thread carries
+        # this request's tenant into whichever request runs on it next —
+        # same hygiene contract tool_registry.py's try/finally already
+        # documents for the MCP side.
         from persistence.tenancy import TenantContext
         TenantContext.set_tenant(ctx.tenant_id)
-
-        workspace_id = request.query_params.get("workspace_id")
-        if not workspace_id:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="workspace_id query parameter is required"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         try:
-            workspace_uuid = UUID(str(workspace_id))
-        except ValueError:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            workspace_id = request.query_params.get("workspace_id")
+            if not workspace_id:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id query parameter is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        try:
-            WorkspaceService().get_workspace(workspace_uuid, ctx)
-        except NotFoundError:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message=f"Workspace {workspace_id} not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            try:
+                workspace_uuid = UUID(str(workspace_id))
+            except ValueError:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        try:
-            result = compute_metrics(
-                workspace_id=str(workspace_id),
-                timeframe=request.query_params.get("timeframe"),
-                scope_filter=None,
-            )
-            data = result.to_dict()
-            return Response(data, status=status.HTTP_200_OK)
-        except Exception as exc:
-            return Response(
-                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            try:
+                WorkspaceService().get_workspace(workspace_uuid, ctx)
+            except NotFoundError:
+                return Response(
+                    build_error_response("NOT_FOUND", lang, message=f"Workspace {workspace_id} not found"),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            try:
+                result = compute_metrics(
+                    workspace_id=str(workspace_id),
+                    timeframe=request.query_params.get("timeframe"),
+                    scope_filter=None,
+                )
+                data = result.to_dict()
+                return Response(data, status=status.HTTP_200_OK)
+            except Exception:
+                # fix #108 / SYSTEMAUDIT-2026-08-27 finding B (CWE-209): compute_metrics
+                # aggregates straight over the ORM, so an unmapped failure here is a
+                # DatabaseError/ProgrammingError whose str() carries SQL fragments and
+                # table/column names. Same policy as rest_api.views._service_error_response:
+                # the real detail goes to the log, the client gets the canonical
+                # localised message that build_error_response derives from the code.
+                logger.exception(
+                    "compute_metrics failed for workspace %s", workspace_id
+                )
+                return Response(
+                    build_error_response("INTERNAL_SERVER_ERROR", lang),
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        finally:
+            TenantContext.clear_tenant()

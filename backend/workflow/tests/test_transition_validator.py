@@ -197,9 +197,43 @@ class TestTransitionValidatorRules:
         assert result.valid is False
         assert result.error_code == EC_CHANGE_REASON_REQUIRED
         # REQ-135: message now carries workspace/preset context for the user.
+        # Issue #270: the tier is resolved, not hardcoded — this definition
+        # carries preset="extended", and the (nonexistent) workspace cannot be
+        # looked up, so the definition's tier is the fallback.
         message = result.error_message or ""
         assert "change_reason" in message
         assert "extended preset" in message
+
+    def test_change_reason_message_omits_tier_when_unresolvable(self):
+        """Issue #270: never claim a preset tier the workspace does not have.
+
+        Entity-specific schema names ("goal_default", "risk_default", ...) are
+        not tiers, and the workspace row does not exist in this unit test, so
+        the message must simply drop the parenthetical rather than inventing
+        "extended".
+        """
+        dfn = _make_definition()
+        dfn = WorkflowDefinitionDTO(
+            states=dfn.states,
+            transitions=dfn.transitions,
+            workspace_id=dfn.workspace_id,
+            item_type="Goal",
+            preset="goal_default",
+        )
+        validator = _make_validator(dfn)
+        req, _ = _req(
+            current_state="in_review",
+            target_state="approved",
+            roles=("approver",),
+            change_reason="",
+            definition=dfn,
+        )
+        result = validator.validate(req)
+        assert result.error_code == EC_CHANGE_REASON_REQUIRED
+        message = result.error_message or ""
+        assert "change_reason" in message
+        assert "preset)" not in message
+        assert "extended" not in message
 
     def test_change_reason_provided(self):
         """in_review→approved with change_reason → valid=True."""

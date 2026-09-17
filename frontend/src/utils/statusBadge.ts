@@ -11,15 +11,25 @@
 
 import type { CSSProperties } from 'react';
 
-type BadgeVariant = 'info' | 'danger' | 'success' | 'warning' | 'neutral';
+import { BADGE_BASE_STYLE } from './badgeBase';
 
-const BADGE_BASE: CSSProperties = {
-  borderRadius: 'var(--radius-full)',
-  fontSize: 'var(--font-size-sm)',
-  padding: '2px 8px',
-  fontWeight: 500,
-  whiteSpace: 'nowrap',
-};
+/**
+ * The five semantic variants of UI concept ch. 8.2. Exported because
+ * <StatusBadge> accepts an explicit variant, which is the seam a future
+ * server-provided `badge_variant` on the workflow definition would plug
+ * into (see resolveBadgeVariant).
+ */
+export type BadgeVariant = 'info' | 'danger' | 'success' | 'warning' | 'neutral';
+
+/**
+ * Geometry now comes from the app-wide badge base (issue #675). This used to
+ * be a local `--radius-full` / `--font-size-sm` box, which made the status
+ * badge visibly taller and rounder than the level and version badges sitting
+ * next to it in the same `<ArtifactRow>` line. Only the colour channel — the
+ * one thing that is semantically load-bearing here (ch. 8.1) — is still
+ * decided in this file.
+ */
+const BADGE_BASE: CSSProperties = BADGE_BASE_STYLE;
 
 const VARIANT_COLORS: Record<BadgeVariant, { bg: string; color: string }> = {
   info: { bg: 'var(--color-badge-info-bg)', color: 'var(--color-badge-info-text)' },
@@ -33,6 +43,18 @@ const VARIANT_COLORS: Record<BadgeVariant, { bg: string; color: string }> = {
  * Maps raw status/type strings (any casing, space or underscore separated)
  * to a badge variant. Keys are lowercase; both `in_progress` and
  * `in progress` style spellings are covered.
+ *
+ * **One flat table across all domains — deliberate, not an oversight.**
+ * The UI audit flagged that run status, result status and workflow status
+ * share it, so a string cannot mean two things (`accepted` is approval for an
+ * ADR but deliberate exposure for a Risk). Splitting it per domain was
+ * rejected: `components/Goals/goal-workflow.ts` uses the *variant* as a
+ * semantic classifier — `resolveBadgeVariant(state) === 'warning'` is how the
+ * archive transition is found and `=== 'success'` how an approved goal is
+ * counted, precisely so no German state name is hardcoded (issue #220). A
+ * per-domain table would silently reclassify those states and break the Goal
+ * lifecycle. Domain-specific colouring therefore goes through the explicit
+ * `badgeVariant` argument at the call site, never through a second table.
  */
 const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   // Positive / done
@@ -41,6 +63,17 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   done: 'success',
   passed: 'success',
   resolved: 'success',
+  implemented: 'success',
+  verified: 'success',
+  mitigated: 'success',
+  // Goal / MainGoal workflow (backend/workflow/definition_store.py) uses
+  // German state names; without these keys every Goal badge fell back to
+  // neutral grey, i.e. "approved" and "draft" looked identical (ch. 8.2).
+  freigegeben: 'success',
+
+  // Spec §4.4: a proposal is informational, not a warning — it needs a human
+  // look, it is not a problem. `rejected` already maps to `danger`.
+  proposed: 'info',
 
   // In-progress / under review
   review: 'info',
@@ -49,6 +82,10 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   in_progress: 'info',
   'in progress': 'info',
   monitored: 'info',
+  submitted: 'info',
+  under_review: 'info',
+  'under review': 'info',
+  ready: 'info',
 
   // Negative
   rejected: 'danger',
@@ -57,27 +94,92 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   wontfix: 'danger',
   superseded: 'danger',
 
-  // Warning / attention
+  // Warning / attention — "outdated"/"archived" mean superseded but
+  // recoverable, which ch. 8.2 maps to warning rather than danger.
   suspect: 'warning',
   partial: 'warning',
+  outdated: 'warning',
+  archiviert: 'warning',
+  archived: 'warning',
+  // Test-result vocabulary (`mcp_server/tools/tests.py::
+  // _VALID_RUN_RESULT_STATUSES` = passed|failed|blocked|not_run, plus the
+  // ReqIF/baseline "skipped"). Both were missing entirely, so a blocked
+  // result rendered in the same neutral grey as an untouched `not_run` one —
+  // i.e. "we tried and could not" was indistinguishable from "nobody looked
+  // at it yet" (UI-55). `blocked` is a reported outcome that needs attention,
+  // `skipped` is a deliberate omission.
+  blocked: 'warning',
+  skipped: 'warning',
 
   // Neutral / draft / terminal
   draft: 'neutral',
+  entwurf: 'neutral',
   open: 'neutral',
+  identified: 'neutral',
   accepted: 'neutral',
   closed: 'neutral',
   not_run: 'neutral',
 };
 
 /**
+ * Resolves the semantic badge variant for a workflow state.
+ *
+ * UI concept ch. 8.2.1 wants this to come from the workflow definition
+ * (`badge_variant` per state) so workspace-defined states get a deliberate
+ * colour instead of a guess. That field does **not** exist in the backend
+ * today — neither on WorkflowDefinition nor on any serializer — so the
+ * signature already accepts it while the name-based table below stays the
+ * fallback. Once the backend ships it, callers pass it through and this
+ * table only serves legacy/unknown states.
+ */
+export const resolveBadgeVariant = (
+  status: string,
+  badgeVariant?: BadgeVariant | null,
+): BadgeVariant => {
+  if (badgeVariant && badgeVariant in VARIANT_COLORS) return badgeVariant;
+  return STATUS_VARIANT_MAP[status.toLowerCase().trim()] ?? 'neutral';
+};
+
+const colorsFor = (variant?: BadgeVariant | null): { bg: string; color: string } =>
+  (variant ? VARIANT_COLORS[variant] : undefined) ?? VARIANT_COLORS.neutral;
+
+/**
+ * The **single** variant → token mapping every badge in the app renders
+ * through (issue #675). `<Badge>` is the only consumer component; the
+ * migrated call sites (audit count/severity/artifact chips, the trace-link
+ * counters and outdated marker, the workspace-tree type badge) and
+ * `getStatusBadgeStyle` all delegate here instead of re-deriving
+ * `--color-badge-*-bg` / `-text` pairs locally.
+ *
+ * Semantic contract — the *same state* must resolve to the *same* variant
+ * everywhere, and the variant alone decides the colour channel (UI concept
+ * ch. 8.1, "colour belongs to state"). See `STATUS_VARIANT_MAP` above for the
+ * state→variant half of that contract:
+ *
+ * | variant   | meaning                              | states (see STATUS_VARIANT_MAP) |
+ * |-----------|--------------------------------------|---------------------------------|
+ * | `success` | approved / verified / done           | approved, active, done, passed, resolved, implemented, verified, mitigated, freigegeben |
+ * | `info`    | in progress / needs a look, not a problem | proposed, review, in_review, in_progress, monitored, submitted, under_review, ready |
+ * | `warning` | recoverable / needs attention        | suspect, partial, outdated, archived, archiviert, blocked, skipped |
+ * | `danger`  | rejected / failed / gone             | rejected, deprecated, failed, wontfix, superseded |
+ * | `neutral` | not started / informational          | draft, entwurf, open, identified, accepted, closed, not_run, *unknown* |
+ *
+ * Geometry (box model, radius, font size) is NOT variant-specific — it comes
+ * from `BADGE_BASE_STYLE` so every variant is the same physical size.
+ */
+export const getBadgeVariantStyle = (variant?: BadgeVariant | null): CSSProperties => {
+  const colors = colorsFor(variant);
+  return { ...BADGE_BASE, background: colors.bg, color: colors.color };
+};
+
+/**
  * Returns the inline style for a status badge based on its raw status string.
  * Unknown statuses fall back to the neutral variant.
  */
-export const getStatusBadgeStyle = (status: string): CSSProperties => {
-  const variant: BadgeVariant = STATUS_VARIANT_MAP[status.toLowerCase()] ?? 'neutral';
-  const colors = VARIANT_COLORS[variant];
-  return { ...BADGE_BASE, background: colors.bg, color: colors.color };
-};
+export const getStatusBadgeStyle = (
+  status: string,
+  badgeVariant?: BadgeVariant | null,
+): CSSProperties => getBadgeVariantStyle(resolveBadgeVariant(status, badgeVariant));
 
 /** Background style for the currently selected/active card in a list. */
 export const ACTIVE_CARD_STYLE: CSSProperties = {

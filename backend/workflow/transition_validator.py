@@ -28,6 +28,16 @@ from typing import Optional
 from uuid import UUID
 
 from .definition_store import WorkflowDefinitionDTO, WorkflowDefinitionError, WorkflowDefinitionStore
+from .precondition_rules import (
+    EC_MANDATORY_FIELDS_MISSING,
+    EC_VERIFICATION_EVIDENCE_MISSING,
+    EC_VERIFIES_LINK_MISSING,
+    check_mandatory_fields,
+    check_verification_evidence,
+    check_verifies_link,
+    is_approval_transition,
+    is_verification_transition,
+)
 from .signature_gate import CredentialVerificationRequest, SignatureGateVerifier
 
 
@@ -41,6 +51,11 @@ EC_CHANGE_REASON_REQUIRED = "CHANGE_REASON_REQUIRED"
 EC_SIGNATURE_REQUIRED = "SIGNATURE_REQUIRED"
 EC_SIGNATURE_INVALID = "SIGNATURE_INVALID"
 EC_DEFINITION_NOT_FOUND = "DEFINITION_NOT_FOUND"
+EC_AGENT_SELF_CONFIRM = "AGENT_SELF_CONFIRM_FORBIDDEN"
+
+# Preset *tier* names (presets.registry). Entity-specific workflow schema keys
+# such as "goal_default" live in the same ``preset`` field but are not tiers.
+_PRESET_TIERS = frozenset({"minimal", "standard", "extended"})
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +76,21 @@ class ValidationRequest:
         user_id:       UUID of the requesting user.
         user_roles:    Effective roles of the requesting user.
         tenant_id:     Active tenant UUID (for scoped queries).
+        actor_type:    "user" or "agent" (AuthContext.actor_type). Drives
+                       rule 0 -- an agent may never move an item out of the
+                       "proposed" state, nor escalate beyond the human
+                       confirmation gate an artifact it authored (GH-913).
+        agent_label:   Display name of the calling agent (AuthContext.
+                       agent_label); empty for humans. Part of the caller's
+                       identity string for the rule-0 authorship check --
+                       the same value :func:`workflow.services.
+                       initialize_workflow_states` records for the proposal.
+        proposal_author: Identity string of the actor that authored the
+                       item's proposal ("" when the item was not proposed).
+                       Resolved by the caller from the append-only
+                       ``-> "proposed"`` history entry, which survives the
+                       human confirmation -- that is what lets rule 0 keep
+                       applying after the item left the ``proposed`` state.
         change_reason: Optional non-empty string; required when the transition
                        has requires_change_reason=True.
         credential:    Optional password or TOTP token string for SignatureGate
@@ -76,6 +106,9 @@ class ValidationRequest:
     user_id: UUID
     user_roles: tuple[str, ...]
     tenant_id: UUID
+    actor_type: str = "user"
+    agent_label: str = ""
+    proposal_author: str = ""
     change_reason: str = ""
     credential: str = ""
     timestamp: Optional[datetime] = None
@@ -151,13 +184,28 @@ class TransitionValidator:
     """Four-rule sequential gateway for workflow state transitions (COMP-WE-002).
 
     Rules (executed in order, fail-fast):
+      0. Agent guard: an agent may neither confirm/discard its own proposal
+         nor approve/verify an artifact it proposed (GH-913).
       1. Transition exists in the active WorkflowDefinition.
       2. Requesting user has an allowed role.
       3. change_reason is present when required.
+      5. Mandatory-field completeness on approval transitions (tier-driven).
+      6. Verification evidence on "-> verified" transitions (V&V §3 "Passed").
       4. SignatureGate: credential present and valid.
 
+    Rules 5 and 6 are data preconditions (see
+    :mod:`workflow.precondition_rules`) and run *before* the signature gate —
+    countersigning an incomplete or unverified artifact is pointless. They are
+    no-ops for every transition that is not an approval / verification gate,
+    and fail open when they cannot be evaluated.
+
     Performance: < 10 ms for rules 1–3 + SignatureGate delegation is
-    excluded from the budget (ADR-L3-WE002-01, REQ-L2-WE-008).
+    excluded from the budget (ADR-L3-WE002-01, REQ-L2-WE-008). Rules 5 and 6
+    are likewise outside that budget: they only run on approval / verification
+    transitions (a small minority of all transitions) and each issues a
+    bounded, indexed handful of queries — rule 5 one primary-key lookup plus
+    the cached preset read, rule 6 one trace-link scan plus the existing
+    coverage aggregation.
     """
 
     def __init__(
@@ -182,6 +230,47 @@ class TransitionValidator:
         except WorkflowDefinitionError:
             return None
 
+    @staticmethod
+    def _resolve_preset_tier(
+        workspace_id: str, definition: WorkflowDefinitionDTO
+    ) -> Optional[str]:
+        """Return the workspace's active preset tier, or ``None`` if unknown.
+
+        Issue #270 finding 1: the change_reason error message used to claim
+        "extended preset" unconditionally, sending users of Minimal/Standard
+        workspaces hunting for a setting they never made. The tier is read
+        from the PresetConfigEngine (IF-PC-EXT-IN-001) instead.
+
+        ``definition.preset`` is only a usable fallback when it happens to be
+        a tier name — every entity-specific schema ("goal_default",
+        "risk_default", ...) drives one entity type and says nothing about
+        the workspace's tier.
+        """
+        tier: Optional[str] = None
+        try:
+            from presets.services import get_preset
+
+            tier = get_preset(workspace_id).preset
+        except Exception:  # noqa: BLE001 — never fail a validation on a label
+            tier = None
+        if tier in _PRESET_TIERS:
+            return tier
+        if definition.preset in _PRESET_TIERS:
+            return definition.preset
+        return None
+
+    @classmethod
+    def _change_reason_message(
+        cls, workspace_id: str, definition: WorkflowDefinitionDTO
+    ) -> str:
+        """Build the CHANGE_REASON_REQUIRED message with real preset context."""
+        tier = cls._resolve_preset_tier(workspace_id, definition)
+        scope = f"This workspace ({tier} preset)" if tier else "This workspace"
+        return (
+            f"{scope} requires a change_reason for this transition. "
+            "Please describe your change."
+        )
+
     def validate(self, request: ValidationRequest) -> ValidationResult:
         """Run four-rule sequential validation (REQ-L3-WE002-001).
 
@@ -195,6 +284,54 @@ class TransitionValidator:
             valid=False with error_code and error_message on first rule failure.
         """
         ws_str = str(request.workspace_id)
+
+        # ---- Rule 0: an agent never confirms or approves its own proposal ----
+        # (spec §4.3, GH-913)
+        # Checked here, not via allowed_roles, so a workspace admin who
+        # accidentally grants an agent-held role on the proposed-> transitions
+        # cannot switch the control off. Runs before the definition load
+        # because it needs no definition and must not be reachable past any
+        # rule that could pass first.
+        from .definition_store import PROPOSED_STATE
+
+        if request.actor_type == "agent":
+            if request.current_state == PROPOSED_STATE:
+                return ValidationResult(
+                    valid=False,
+                    error_code=EC_AGENT_SELF_CONFIRM,
+                    error_message=(
+                        "An AI agent may not confirm or discard a proposal. "
+                        "A human principal must perform this transition."
+                    ),
+                )
+            # GH-913: tying the guard to the state name alone left the gate
+            # open for good. Once a human confirmed the proposal the item is an
+            # ordinary artifact, so the *same* agent that wrote it could walk
+            # it to "approved"/"verified" itself — the exact self-approval the
+            # release note promises cannot happen. The gate therefore hangs on
+            # the author, not on the state: as long as the item's proposal was
+            # authored by the calling agent, the escalation transitions stay
+            # closed to it, whatever state the human confirmation left behind.
+            # A human principal (actor_type != "agent") is never affected, and
+            # an agent escalating an item it did not propose is not either.
+            if (
+                request.proposal_author
+                and (
+                    is_approval_transition(request.target_state)
+                    or is_verification_transition(request.target_state)
+                )
+                and request.proposal_author
+                == (request.agent_label or str(request.user_id))
+            ):
+                return ValidationResult(
+                    valid=False,
+                    error_code=EC_AGENT_SELF_CONFIRM,
+                    error_message=(
+                        "An AI agent may not approve or verify an artifact it "
+                        "proposed. A human principal must perform this "
+                        "transition."
+                    ),
+                )
 
         # ---- Load WorkflowDefinition (IF-WE-INT-001) -------------------------
         definition = self._load_definition(ws_str, request.item_type)
@@ -240,10 +377,50 @@ class TransitionValidator:
             return ValidationResult(
                 valid=False,
                 error_code=EC_CHANGE_REASON_REQUIRED,
-                error_message=(
-                    "This workspace (extended preset) requires a change_reason "
-                    "for all modifications. Please describe your change."
-                ),
+                error_message=self._change_reason_message(ws_str, definition),
+            )
+
+        # ---- Rule 5: mandatory-field completeness (SE lever 1) ---------------
+        # Only fires on approval transitions; tier-driven via
+        # presets.registry.mandatory_fields. See workflow.precondition_rules.
+        violation = check_mandatory_fields(
+            workspace_id=ws_str,
+            item_type=request.item_type,
+            item_id=request.item_id,
+            target_state=request.target_state,
+            change_reason=request.change_reason,
+        )
+        if violation is not None:
+            return ValidationResult(
+                valid=False, error_code=violation[0], error_message=violation[1]
+            )
+
+        # ---- Rule 7: TestCase verifies-link coverage (#584) ------------------
+        # Only fires when approving a TestCase on a tier that declares
+        # "traceability_target" (Extended). Placed before rule 6 because both
+        # are graph checks and a TestCase never reaches "verified" anyway.
+        violation = check_verifies_link(
+            workspace_id=ws_str,
+            item_type=request.item_type,
+            item_id=request.item_id,
+            target_state=request.target_state,
+        )
+        if violation is not None:
+            return ValidationResult(
+                valid=False, error_code=violation[0], error_message=violation[1]
+            )
+
+        # ---- Rule 6: verification evidence (SE lever 3) ----------------------
+        # Only fires on "-> verified"; derives the V&V strategy §3 "Passed"
+        # state from the actual trace links + latest test-run results.
+        violation = check_verification_evidence(
+            item_type=request.item_type,
+            item_id=request.item_id,
+            target_state=request.target_state,
+        )
+        if violation is not None:
+            return ValidationResult(
+                valid=False, error_code=violation[0], error_message=violation[1]
             )
 
         # ---- Rule 4: SignatureGate -------------------------------------------
@@ -292,4 +469,7 @@ __all__ = [
     "EC_SIGNATURE_REQUIRED",
     "EC_SIGNATURE_INVALID",
     "EC_DEFINITION_NOT_FOUND",
+    "EC_MANDATORY_FIELDS_MISSING",
+    "EC_VERIFICATION_EVIDENCE_MISSING",
+    "EC_VERIFIES_LINK_MISSING",
 ]

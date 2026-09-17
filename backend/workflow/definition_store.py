@@ -192,6 +192,18 @@ def _extended_transitions() -> list[dict[str, Any]]:
             "requires_change_reason": True,
             "signature_gate": False,
         },
+        # Issue #338: "verified" was a dead-end state — no transition led out
+        # of it, so a verified artifact could never be retired. Mirrors the
+        # existing approved->deprecated gate (same allowed_roles/
+        # requires_change_reason shape) since deprecating a verified artifact
+        # is an equivalent-weight governance action.
+        {
+            "from_state": "verified",
+            "to_state": "deprecated",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
     ]
 
 
@@ -368,6 +380,57 @@ def _adr_transitions() -> list[dict[str, Any]]:
     ]
 
 
+def _goal_transitions() -> list[dict[str, Any]]:
+    # State values match application.models.Goal.status / MainGoal.status
+    # (denormalized mirror columns, both default "Entwurf"). "Entwurf" is the
+    # initial_state (states[0], REQ-165/REQ-166 convention). Mirrors the
+    # adr_default shape: an approver/admin-gated approval, a reversible
+    # rework-path back to "Entwurf", an archive step and a reactivation path.
+    return [
+        {
+            "from_state": "Entwurf",
+            "to_state": "Freigegeben",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Freigegeben",
+            "to_state": "Archiviert",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            # Issue #216: goal.delete archives a Goal version regardless of
+            # its current state. Without this edge only an already-approved
+            # version could be archived — a Draft first had to detour through
+            # Freigegeben, which is neither how archiving is expected to work
+            # nor how the sibling adr/risk/issue soft-delete escape hatch
+            # (workflow.services.outdate(), state-agnostic) behaves.
+            "from_state": "Entwurf",
+            "to_state": "Archiviert",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Freigegeben",
+            "to_state": "Entwurf",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Archiviert",
+            "to_state": "Entwurf",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+    ]
+
+
 def _risk_transitions() -> list[dict[str, Any]]:
     # State values match application.models.Risk.RiskStatus.
     return [
@@ -465,38 +528,187 @@ def _issue_transitions() -> list[dict[str, Any]]:
     ]
 
 
-def _testcase_transitions() -> list[dict[str, Any]]:
-    # State values match persistence.models.TestCase.Status.
+def _interview_transitions() -> list[dict[str, Any]]:
+    # State values match persistence.models.InterviewSession.STATUS_CHOICES.
+    # No approval gate: an interview's completion/abandonment is a direct
+    # consequence of the chat flow (formalize() / the 30-day lazy-abandon
+    # sweep), not a business sign-off someone reviews and approves — every
+    # transition is editor-self-service, matching who is already allowed to
+    # run interview.* in the first place.
     return [
         {
-            "from_state": "Draft",
-            "to_state": "Ready",
+            "from_state": "in_progress",
+            "to_state": "completed",
             "allowed_roles": ["editor", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
         {
-            "from_state": "Ready",
-            "to_state": "Approved",
+            "from_state": "in_progress",
+            "to_state": "abandoned",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
+def _testcase_transitions() -> list[dict[str, Any]]:
+    # State values match persistence.models.TestCase.Status VALUE strings.
+    #
+    # GH-453: lowercased (was "Draft"/"Ready"/"Approved"/"Deprecated"). TestCase
+    # was the only persistence-app entity spelling its states in Title Case,
+    # which broke case-sensitive cross-entity queries ("give me every draft
+    # item"). Existing rows are rewritten by
+    # workflow/migrations/0014_testcase_status_lowercase.py — that migration and
+    # this list must stay in sync.
+    return [
+        {
+            "from_state": "draft",
+            "to_state": "ready",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "ready",
+            "to_state": "approved",
             "allowed_roles": ["approver", "admin"],
             "requires_change_reason": True,
             "signature_gate": False,
         },
         {
-            "from_state": "Ready",
-            "to_state": "Draft",
+            "from_state": "ready",
+            "to_state": "draft",
             "allowed_roles": ["editor", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
         {
-            "from_state": "Approved",
-            "to_state": "Deprecated",
+            "from_state": "approved",
+            "to_state": "deprecated",
             "allowed_roles": ["approver", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
     ]
+
+
+# ---------------------------------------------------------------------------
+# "proposed" — the AI-proposal state (KI-Vorschlag-als-Zustand spec §4.1)
+# ---------------------------------------------------------------------------
+
+#: The state an artifact created by an ``actor_type="agent"`` principal lands
+#: in, when the resolved graph knows it. One literal, never localized: the
+#: initialization check (workflow.services.initial_state_for) and the
+#: agent-confirmation guard (TransitionValidator rule 0) both key on it.
+PROPOSED_STATE = "proposed"
+
+#: Roles allowed to confirm or discard a proposal. Deliberately the normal
+#: editing roles — a proposal is a review chore, not an approval decision.
+PROPOSED_ROLES: tuple[str, ...] = ("editor", "approver", "admin")
+
+#: Preset keys that must NOT gain "proposed" (spec §4.1: minimal keeps its
+#: graph). Only "minimal" — see Decision 3 in the plan: the 12 fixed-preset
+#: entity types have no per-tier graph variant to exempt.
+#: Preset schemas the proposal state must NOT be injected into.
+#:
+#: * ``minimal`` — the minimal rigor preset has no review step by design.
+#: * ``interview_default`` — security review M3. An InterviewSession is
+#:   *process* state (in_progress -> completed/abandoned), not a reviewable
+#:   artifact: it mirrors ``InterviewSession.STATUS_CHOICES`` one-for-one and
+#:   is driven by the chat flow, not by a human sign-off. Injecting the
+#:   proposal state froze the single most important MCP path — an
+#:   agent-started interview is seeded into ``proposed`` by
+#:   ``workflow.services.initial_state_for``, whose only exits are
+#:   ``in_progress`` and ``rejected``, and Rule 0 forbids the agent from
+#:   taking either. The session could never reach ``completed``, and no
+#:   review surface exists to let a human unblock it. Neither ``proposed``
+#:   nor the injected ``rejected`` is a valid InterviewSession status either.
+SCHEMAS_WITHOUT_PROPOSED: frozenset[str] = frozenset({"minimal", "interview_default"})
+
+#: Per-schema override for the discard target. Every schema not listed gets a
+#: new "rejected" state. These four already own a terminal dead-end whose name
+#: a lowercase "rejected" would shadow ("Rejected" vs "rejected" on the same
+#: Adr.status column) or duplicate.
+_PROPOSED_REJECT_STATE: dict[str, str] = {
+    "adr_default": "Rejected",
+    "ccb_approval": "rejected",
+    "goal_default": "Archiviert",
+    "main_goal_default": "Archiviert",
+}
+
+_DEFAULT_REJECT_STATE = "rejected"
+
+
+def inject_proposed_state(
+    schema: dict[str, Any], reject_state: str = _DEFAULT_REJECT_STATE
+) -> dict[str, Any]:
+    """Return a copy of *schema* extended with the "proposed" state.
+
+    Adds the state at index **1** — never index 0. ``states[0]`` is the
+    definition's ``initial_state`` (:pyattr:`WorkflowDefinitionDTO.initial_state`)
+    and must keep matching the entity's ``status`` column default, because
+    ``StateLifecycleManager._sync_status_mirror`` writes ``current_state``
+    verbatim into that column.
+
+    Two outgoing transitions are added:
+
+    * confirm: ``proposed -> states[0]`` (no change_reason)
+    * discard: ``proposed -> reject_state`` (change_reason required)
+
+    A *reject_state* that is not already a member gets appended and flagged
+    ``is_outdated_equivalent`` — the existing "treat as terminal / hide from
+    active lists" signal, so no downstream consumer needs to learn a new state.
+
+    Idempotent: re-injecting an already-injected schema is a no-op. The input
+    is never mutated.
+
+    Args:
+        schema: A ``{"states": [...], "transitions": [...], "state_meta": {...}}``
+            preset schema.
+        reject_state: The discard target state name.
+
+    Returns:
+        A deep copy carrying the proposal state, transitions and metadata.
+    """
+    result = copy.deepcopy(schema)
+    states: list[str] = list(result.get("states") or [])
+    if not states:
+        return result
+    initial_state = states[0]
+
+    if PROPOSED_STATE not in states:
+        states.insert(1, PROPOSED_STATE)
+    if reject_state not in states:
+        states.append(reject_state)
+        state_meta = result.get("state_meta", {})
+        state_meta[reject_state] = {
+            **state_meta.get(reject_state, {}),
+            "is_outdated_equivalent": True,
+        }
+        result["state_meta"] = state_meta
+    result["states"] = states
+
+    transitions: list[dict[str, Any]] = list(result.get("transitions") or [])
+    existing = {(t["from_state"], t["to_state"]) for t in transitions}
+    for to_state, needs_reason in (
+        (initial_state, False),
+        (reject_state, True),
+    ):
+        if (PROPOSED_STATE, to_state) in existing:
+            continue
+        transitions.append(
+            {
+                "from_state": PROPOSED_STATE,
+                "to_state": to_state,
+                "allowed_roles": list(PROPOSED_ROLES),
+                "requires_change_reason": needs_reason,
+                "signature_gate": False,
+            }
+        )
+    result["transitions"] = transitions
+    return result
 
 
 PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -507,6 +719,7 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "standard": {
         "states": ["draft", "approved", "deprecated"],
         "transitions": _standard_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "extended": {
         # REQ-L2-WE-011: "implemented"/"verified" added after "approved" to
@@ -516,6 +729,7 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         # both states remain valid members of this preset (backward-compatible).
         "states": ["draft", "in_review", "approved", "implemented", "verified", "deprecated"],
         "transitions": _extended_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "ccb_approval": {
         # REQ-157: CCB (Configuration Control Board) approval workflow for
@@ -579,33 +793,107 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
                 "signature_gate": False,
             },
         ],
+        "state_meta": {"rejected": {"is_outdated_equivalent": True}},
     },
     # REQ-165/REQ-166: per-entity-type defaults (see builders above).
     "need_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _need_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "adr_default": {
         "states": ["Draft", "In Review", "Approved", "Rejected", "Superseded"],
         "transitions": _adr_transitions(),
+        # REQ-Phase3: "auto" derivation policy should reach the entity's
+        # intended steady state, not stop at the first approval gate
+        # ("In Review" -> "Approved" is approver/admin-only). "Approved" is
+        # explicitly marked as the auto-approve target so _auto_approve
+        # crosses that one gate and then stops (never continues on to the
+        # business-terminal "Superseded").
+        #
+        # SYSTEMAUDIT P1-16: "Rejected" and "Superseded" are this preset's
+        # terminal dead-ends — a rejected ADR was never adopted, a superseded
+        # one has been replaced by its successor (adr_service links the two
+        # via ``superseded_by_id``). Both carry the same meaning as
+        # ``ccb_approval``'s "rejected", ``issue_default``'s "Wontfix" and
+        # ``interview_default``'s "abandoned", so they get the same flag: no
+        # automatic policy (``ai_derivation_service._auto_approve``,
+        # ``review.approve``) may ever walk an item *into* them.
+        # NOTE: this preset is the first with TWO is_outdated_equivalent
+        # states. Any future consumer that resolves "the" outdated-equivalent
+        # state by taking the first match in ``states`` (as
+        # ``GoalService._resolve_archive_state`` does for goal_default) would
+        # pick "Rejected" here — which is a rejection, not an archive. Such a
+        # consumer must scope its lookup, not assume uniqueness.
+        "state_meta": {
+            "Approved": {"auto_approve_target": True},
+            "Rejected": {"is_outdated_equivalent": True},
+            "Superseded": {"is_outdated_equivalent": True},
+        },
     },
     "risk_default": {
         "states": ["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
         "transitions": _risk_transitions(),
+        # REQ-Phase3: "Mitigated" is the sensible auto-approve endpoint — it
+        # is reachable via editor-only hops (no gate-crossing needed here),
+        # sits directly before the approver-only "Closed" gate, and matches
+        # the intermediate state already asserted by the regression test
+        # (test_auto_approve_stops_before_approval_gate_for_risk).
+        #
+        # SYSTEMAUDIT P1-16: "Closed" is the terminal disposition — the risk
+        # is off the register and no longer actively managed. Flagging it
+        # keeps the automatic policies off it, exactly as "Mitigated"
+        # (a genuine steady state) stays reachable. This does NOT hide closed
+        # risks from any list: is_outdated_equivalent is a "never transition
+        # into this automatically" marker, not a visibility filter — the
+        # soft-delete filter is the mirrored ``Risk.status == "outdated"``
+        # column (see lifecycle_manager._STATUS_MIRROR_MODELS).
+        "state_meta": {
+            "Mitigated": {"auto_approve_target": True},
+            "Closed": {"is_outdated_equivalent": True},
+        },
     },
     "issue_default": {
         "states": ["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
         "transitions": _issue_transitions(),
+        # REQ-Phase3 / GH-370: "Resolved" is the intended auto-approve
+        # destination — review.approve() must move an Issue towards being
+        # fixed, never towards the reject-equivalent "Wontfix" state (see
+        # is_outdated_equivalent below). Without this flag,
+        # ReviewToolGroup._transition_to_gate_target's fallback picked the
+        # first approval-gated transition it found, which from "Open" is
+        # "Open" -> "Wontfix" (the only approver/admin-gated hop) — the
+        # opposite of what "approve" should mean.
+        "state_meta": {
+            "Wontfix": {"is_outdated_equivalent": True},
+            "Resolved": {"auto_approve_target": True},
+        },
     },
+    # 2026-08-20: Interview-Session UI-visibility fix. "abandoned" is the
+    # is_outdated_equivalent state (an abandoned session should be excluded
+    # from list views the same way every other type's terminal-reject state
+    # is) — "completed" is a genuine terminal success state, not equivalent
+    # to outdated.
+    "interview_default": {
+        "states": ["in_progress", "completed", "abandoned"],
+        "transitions": _interview_transitions(),
+        "state_meta": {"abandoned": {"is_outdated_equivalent": True}},
+    },
+    # GH-453: lowercase state values (was Title Case) so "draft"/"approved"
+    # mean the same string here as for Requirement/StakeholderNeed/Need/
+    # Architecture. The human-readable spelling lives in TestCase.Status's
+    # *label* and in the frontend label map, not in the value.
     "testcase_default": {
-        "states": ["Draft", "Ready", "Approved", "Deprecated"],
+        "states": ["draft", "ready", "approved", "deprecated"],
         "transitions": _testcase_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     # REQ-171: ArchitectureElement default workflow (no status mirror; state
     # lives in WorkflowItemState only). "draft" is the initial_state.
     "architecture_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _architecture_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     # REQ-173: Icd, Diagram, GlossaryTerm share one design/review/approve/retire
     # lifecycle (see _design_lifecycle_transitions). None has a denormalized
@@ -614,16 +902,67 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "icd_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _design_lifecycle_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "diagram_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _design_lifecycle_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "glossary_term_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _design_lifecycle_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
+    },
+    # REQ-L2-TE-020: Goal/MainGoal share one draft/approve/archive lifecycle.
+    # Both models mirror workflow state into a denormalized "status" column
+    # (application.models.Goal.status / MainGoal.status, default "Entwurf"),
+    # so they are wired into lifecycle_manager._STATUS_MIRROR_MODELS. "Entwurf"
+    # is the initial_state (states[0]).
+    "goal_default": {
+        "states": ["Entwurf", "Freigegeben", "Archiviert"],
+        "transitions": _goal_transitions(),
+        "state_meta": {"Archiviert": {"is_outdated_equivalent": True}},
+    },
+    "main_goal_default": {
+        "states": ["Entwurf", "Freigegeben", "Archiviert"],
+        "transitions": _goal_transitions(),
+        "state_meta": {"Archiviert": {"is_outdated_equivalent": True}},
     },
 }
+
+# Spec §4.1: every default graph except "minimal" gains the proposal state.
+# Applied here rather than inline in each literal so the 16 schemas cannot
+# drift apart and so `SCHEMAS_WITHOUT_PROPOSED` stays the single exemption
+# list. Runs once at import; PRESET_SCHEMAS is rebound in place so existing
+# `from .definition_store import PRESET_SCHEMAS` importers see the result.
+for _preset_key in list(PRESET_SCHEMAS):
+    if _preset_key in SCHEMAS_WITHOUT_PROPOSED:
+        continue
+    PRESET_SCHEMAS[_preset_key] = inject_proposed_state(
+        PRESET_SCHEMAS[_preset_key],
+        reject_state=_PROPOSED_REJECT_STATE.get(_preset_key, _DEFAULT_REJECT_STATE),
+    )
+del _preset_key
+
+
+def get_state_meta(workflow_json: dict, state_name: str) -> dict:
+    """Return per-state metadata (`is_outdated_equivalent`, `auto_approve_target`).
+
+    Backward-compatible: workflow_json blobs written before either key
+    existed have no "state_meta" entry at all, and any state not explicitly
+    listed inside "state_meta" defaults to not-outdated / not-an-auto-target.
+    Callers that only set one of the two keys on a given state (e.g. Phase 0's
+    ``{"is_outdated_equivalent": True}``) still get the other key back via
+    this default so ``.get("auto_approve_target")`` never raises on old data.
+    """
+    state_meta = workflow_json.get("state_meta", {})
+    entry = state_meta.get(state_name, {})
+    return {
+        "is_outdated_equivalent": False,
+        "auto_approve_target": False,
+        **entry,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -739,6 +1078,33 @@ class WorkflowDefinitionStore:
     """
 
     # -- Read (IF-WE-INT-001, IF-WE-INT-003) ---------------------------------
+
+    def get_workflow_json(
+        self, workspace_id: UUID | str, item_type: str
+    ) -> dict[str, Any]:
+        """Return the raw ``workflow_json`` for a workspace / item-type.
+
+        ``get_definition`` projects the record onto ``WorkflowDefinitionDTO``,
+        which deliberately drops the per-state metadata block. Callers that
+        need ``get_state_meta`` (e.g. the ``auto_approve_target`` flag used by
+        the ``review.*`` MCP tools) therefore need the untouched document.
+
+        Unlike ``get_definition`` this does **not** raise when nothing is
+        configured — it returns an empty dict, so callers can treat "no
+        workflow" and "workflow without metadata" uniformly.
+
+        Args:
+            workspace_id: Owning workspace.
+            item_type:    Entity type key (e.g. ``"Requirement"``).
+
+        Returns:
+            The stored ``workflow_json`` document, or ``{}`` if no definition
+            exists for that workspace/type.
+        """
+        record = WorkflowEngineDefinition.objects.filter(
+            workspace_id=str(workspace_id), item_type=item_type
+        ).first()
+        return record.workflow_json if record is not None else {}
 
     def get_definition(
         self, workspace_id: UUID | str, item_type: str
@@ -1295,4 +1661,9 @@ __all__ = [
     "StateReferencedError",
     "NoGlobalSourceError",
     "PRESET_SCHEMAS",
+    "get_state_meta",
+    "PROPOSED_STATE",
+    "PROPOSED_ROLES",
+    "SCHEMAS_WITHOUT_PROPOSED",
+    "inject_proposed_state",
 ]

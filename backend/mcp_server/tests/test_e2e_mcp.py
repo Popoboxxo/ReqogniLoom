@@ -34,12 +34,17 @@ from datetime import datetime, timezone
 from unittest.mock import ANY, MagicMock, patch
 from uuid import UUID
 
+import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
 
 from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
+
+# SYSTEMAUDIT SA-62: classification marker for the `test_e2e_*.py` family —
+# see the `e2e` marker docstring in pyproject.toml.
+pytestmark = pytest.mark.e2e
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +57,7 @@ USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 API_KEY_ID = UUID("00000000-0000-0000-0000-000000000003")
 WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000010")
 WORKSPACE_NAME = "Production Workspace"
-VALID_API_KEY = "rf_e2e_admin_key"
+VALID_API_KEY = "reqlo_e2e_admin_key"
 
 
 def _claims(roles=("admin",)):
@@ -111,16 +116,20 @@ def _build_registry(*, roles=("admin",), service: MagicMock = None):
 
 
 def _post(handler: ProtocolHandler, method: str, params: dict, request_id: int = 1, *, api_key: str = VALID_API_KEY):
-    """Build a JSON-RPC body and run it through ProtocolHandler."""
-    payload = {"api_key": api_key}
-    payload.update(params)
+    """Build a JSON-RPC body and run it through ProtocolHandler.
+
+    The key is supplied via the ``Authorization`` header, not the JSON-RPC
+    body: the HTTP transport no longer honours ``params.api_key`` (D-1 /
+    REQ-018 — see TestApiKeyTransportRestriction in test_protocol_handler.py).
+    """
     body = json.dumps({
         "jsonrpc": "2.0",
         "method": method,
         "id": request_id,
-        "params": payload,
+        "params": params,
     }).encode()
-    return handler.handle_http_request(body=body)
+    headers = {"HTTP_AUTHORIZATION": f"Bearer {api_key}"}
+    return handler.handle_http_request(body=body, headers=headers)
 
 
 def _handler(registry: ToolRegistry) -> ProtocolHandler:
@@ -132,6 +141,13 @@ def _handler(registry: ToolRegistry) -> ProtocolHandler:
 # ---------------------------------------------------------------------------
 
 
+# ``django_db``: these E2E classes drive the real
+# ``ToolRegistry.dispatch_request``, which arms the PostgreSQL RLS session
+# variable via ``persistence.middleware.set_request_tenant`` (``SET
+# app.current_tenant``, COMP-PL-006 / fix #110) and resets it in the
+# ``finally``. That is a real DB round-trip on the production path, so the
+# tests need DB access even though every collaborator below is mocked.
+@pytest.mark.django_db
 class TestE2EWorkspaceClose:
     @patch("mcp_server.tools.admin.write_mcp_audit")
     def test_successful_close_returns_jsonrpc_result_envelope(self, mock_audit):
@@ -234,6 +250,7 @@ class TestE2EWorkspaceClose:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestE2EWorkspaceReactivate:
     @patch("mcp_server.tools.admin.write_mcp_audit")
     def test_successful_reactivate_returns_jsonrpc_result_envelope(self, mock_audit):
@@ -281,6 +298,7 @@ class TestE2EWorkspaceReactivate:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestE2EWorkspaceDelete:
     @patch("mcp_server.tools.admin.write_mcp_audit")
     def test_successful_delete_with_correct_captcha(self, mock_audit):
@@ -370,6 +388,7 @@ class TestE2EWorkspaceDelete:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestE2EWorkspaceNamespace:
     def test_workspace_get_context_falls_through_to_cross_cutting(self):
         """The new AdminToolGroup owns the ``workspace`` prefix but

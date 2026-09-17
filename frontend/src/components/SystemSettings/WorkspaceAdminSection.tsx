@@ -17,6 +17,8 @@ import { workspacesApi } from "../../api/workspaces";
 import { BackupRestoreSection } from "../WorkspaceSettings/BackupRestoreSection";
 import { SystemHealthDialog } from "../AdminDialog/SystemHealthDialog";
 import { TriLabelOverviewDialog } from "../AdminDialog/TriLabelOverviewDialog";
+import { Dialog } from "../shared/Dialog";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 const cardStyle: React.CSSProperties = {
   background: "var(--color-surface)",
@@ -34,15 +36,44 @@ const headingStyle: React.CSSProperties = {
   margin: "0 0 var(--space-4) 0",
 };
 
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "white",
+/*
+ * Solid semantic-colour buttons (close = warning, reactivate = success,
+ * delete = danger). The canonical `.btn-*` set only ships a solid primary
+ * (`btn-primary`), a neutral outline (`btn-secondary`) and an *outline*
+ * danger (`btn-danger`) — none of which preserve these buttons' solid
+ * warning/success/danger emphasis, so their colours stay local. Their
+ * geometry, however, now comes from the shared button tokens (issue #954)
+ * so they are the same 36px tall / 6px radius as every `.btn-*` button
+ * instead of the former one-off padding per button.
+ */
+const solidActionStyle: React.CSSProperties = {
   border: "none",
-  borderRadius: "var(--radius-md)",
+  borderRadius: "var(--radius-btn)",
   padding: "var(--space-2) var(--space-4)",
+  minHeight: "var(--btn-h-md)",
   fontSize: "var(--font-size-sm)",
   fontWeight: 600,
   cursor: "pointer",
+};
+
+const closeWorkspaceButtonStyle: React.CSSProperties = {
+  ...solidActionStyle,
+  background: "var(--color-warning)",
+  color: "var(--color-on-warning)",
+  marginRight: "var(--space-2)",
+};
+
+const reactivateWorkspaceButtonStyle: React.CSSProperties = {
+  ...solidActionStyle,
+  background: "var(--color-success)",
+  color: "var(--color-on-success)",
+  marginRight: "var(--space-2)",
+};
+
+const deleteWorkspaceButtonStyle: React.CSSProperties = {
+  ...solidActionStyle,
+  background: "var(--color-danger)",
+  color: "var(--color-on-danger)",
 };
 
 export function WorkspaceAdminSection(): JSX.Element {
@@ -62,9 +93,11 @@ export function WorkspaceAdminSection(): JSX.Element {
   const [isClosing, setIsClosing] = useState(false);
   const [cloneName, setCloneName] = useState("");
   const [isCloning, setIsCloning] = useState(false);
+  // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   const handleCloseWorkspace = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || !window.confirm(t("settings.closeConfirm"))) return;
+    if (!activeWorkspace) return;
     setSaveError(null);
     setIsClosing(true);
     try {
@@ -76,7 +109,7 @@ export function WorkspaceAdminSection(): JSX.Element {
     } finally {
       setIsClosing(false);
     }
-  }, [activeWorkspace, reloadWorkspaces, t]);
+  }, [activeWorkspace, reloadWorkspaces]);
 
   const handleReactivateWorkspace = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
@@ -151,9 +184,9 @@ export function WorkspaceAdminSection(): JSX.Element {
         </p>
         <button
           type="button"
+          className="btn-primary"
           data-testid="system-health-open-btn"
           onClick={() => setShowSystemHealth(true)}
-          style={primaryButtonStyle}
         >
           {t("systemHealth.openButton", "View System Health")}
         </button>
@@ -182,9 +215,9 @@ export function WorkspaceAdminSection(): JSX.Element {
         </p>
         <button
           type="button"
+          className="btn-primary"
           data-testid="tri-label-overview-open-btn"
           onClick={() => setShowTriLabelOverview(true)}
-          style={primaryButtonStyle}
         >
           {t("triLabelOverview.openButton", "View Tri-Label Overview")}
         </button>
@@ -206,20 +239,9 @@ export function WorkspaceAdminSection(): JSX.Element {
           <button
             type="button"
             data-testid="close-workspace-btn"
-            onClick={() => void handleCloseWorkspace()}
+            onClick={() => setShowCloseConfirm(true)}
             disabled={isClosing}
-            style={{
-              background: "var(--color-warning, #f59e0b)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-              marginRight: "var(--space-2)",
-              opacity: isClosing ? 0.5 : 1,
-            }}
+            style={{ ...closeWorkspaceButtonStyle, opacity: isClosing ? 0.5 : 1 }}
           >
             {isClosing ? "…" : t("settings.closeWorkspace", "Close Workspace")}
           </button>
@@ -236,20 +258,16 @@ export function WorkspaceAdminSection(): JSX.Element {
                 padding: "var(--space-2)",
                 borderRadius: "var(--radius-md)",
                 border: "1px solid var(--color-border)",
-                background: "var(--color-background)",
+                background: "var(--color-surface-raised)",
                 color: "var(--color-text)",
               }}
             />
             <button
               type="button"
+              className="btn-primary"
               data-testid="clone-workspace-btn"
               onClick={() => void handleCloneWorkspace()}
               disabled={isCloning || !cloneName.trim()}
-              style={{
-                ...primaryButtonStyle,
-                cursor: isCloning || !cloneName.trim() ? "not-allowed" : "pointer",
-                opacity: isCloning || !cloneName.trim() ? 0.5 : 1,
-              }}
             >
               {isCloning ? "Cloning…" : "Create Sandbox"}
             </button>
@@ -261,17 +279,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             type="button"
             data-testid="reactivate-workspace-btn"
             onClick={() => void handleReactivateWorkspace()}
-            style={{
-              background: "var(--color-success, #16a34a)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-              marginRight: "var(--space-2)",
-            }}
+            style={reactivateWorkspaceButtonStyle}
           >
             {t("settings.reactivateWorkspace", "Reactivate Workspace")}
           </button>
@@ -281,36 +289,40 @@ export function WorkspaceAdminSection(): JSX.Element {
           type="button"
           data-testid="delete-workspace-btn"
           onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeleteConfirmation(""); }}
-          style={{
-            background: "var(--color-danger, #dc2626)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
+          style={deleteWorkspaceButtonStyle}
         >
           {t("settings.deleteWorkspace", "Delete Workspace")}
         </button>
 
         {showDeleteModal && (
-          <div
-            data-testid="delete-modal"
-            role="dialog"
-            style={{
-              marginTop: "var(--space-4)",
-              padding: "var(--space-4)",
-              background: "var(--color-background, #f9fafb)",
-              border: "1px solid var(--color-danger, #dc2626)",
-              borderRadius: "var(--radius-md)",
-            }}
+          <Dialog
+            title={t("settings.deleteConfirmTitle", "Delete Workspace")}
+            onClose={() => { setShowDeleteModal(false); setDeleteConfirmation(""); setDeleteError(null); }}
+            size="sm"
+            testId="delete-modal"
+            footer={
+              <>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  data-testid="delete-cancel-btn"
+                  onClick={() => { setShowDeleteModal(false); setDeleteConfirmation(""); setDeleteError(null); }}
+                >
+                  {t("actions.cancel", "Cancel")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="delete-confirm-btn"
+                  onClick={() => void handleDeleteWorkspace()}
+                  disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
+                  style={{ ...deleteWorkspaceButtonStyle, opacity: (isDeleting || deleteConfirmation !== activeWorkspace.name) ? 0.5 : 1 }}
+                >
+                  {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
+                </button>
+              </>
+            }
           >
-            <p style={{ fontWeight: 600, marginBottom: "var(--space-2)" }}>
-              {t("settings.deleteConfirmTitle", "Delete Workspace")}
-            </p>
-            <p style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)" }}>
+            <p style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)", marginTop: 0 }}>
               {t("settings.deleteCaptchaPrompt", { name: activeWorkspace.name })}
             </p>
             <input
@@ -332,48 +344,11 @@ export function WorkspaceAdminSection(): JSX.Element {
               }}
             />
             {deleteError && (
-              <div role="alert" data-testid="delete-error" style={{ color: "var(--color-danger, #dc2626)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
+              <div role="alert" data-testid="delete-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
                 {deleteError}
               </div>
             )}
-            <div style={{ display: "flex", gap: "var(--space-2)" }}>
-              <button
-                type="button"
-                data-testid="delete-confirm-btn"
-                onClick={() => void handleDeleteWorkspace()}
-                disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
-                style={{
-                  background: "var(--color-danger, #dc2626)",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  opacity: (isDeleting || deleteConfirmation !== activeWorkspace.name) ? 0.5 : 1,
-                }}
-              >
-                {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
-              </button>
-              <button
-                type="button"
-                data-testid="delete-cancel-btn"
-                onClick={() => { setShowDeleteModal(false); setDeleteConfirmation(""); setDeleteError(null); }}
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text-muted)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-sm)",
-                  cursor: "pointer",
-                }}
-              >
-                {t("actions.cancel", "Cancel")}
-              </button>
-            </div>
-          </div>
+          </Dialog>
         )}
       </section>
 
@@ -383,9 +358,23 @@ export function WorkspaceAdminSection(): JSX.Element {
         </div>
       )}
       {savedOk && (
-        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success, #16a34a)", padding: "var(--space-3)" }}>
+        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success)", padding: "var(--space-3)" }}>
           {t("settings.saved")}
         </div>
+      )}
+
+      {showCloseConfirm && (
+        <ConfirmDialog
+          title={t("settings.closeWorkspace", "Close Workspace")}
+          message={t("settings.closeConfirm")}
+          confirmLabel={t("settings.closeWorkspace", "Close Workspace")}
+          onConfirm={() => {
+            setShowCloseConfirm(false);
+            void handleCloseWorkspace();
+          }}
+          onCancel={() => setShowCloseConfirm(false)}
+          testId="close-workspace-confirm"
+        />
       )}
     </>
   );

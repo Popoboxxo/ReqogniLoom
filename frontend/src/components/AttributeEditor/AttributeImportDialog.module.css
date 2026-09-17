@@ -1,0 +1,6 @@
+/* AttributeImportDialog (Task 11, spec section 6). */
+
+.radioLabel {
+  display: block;
+  padding-block: var(--space-1);
+}

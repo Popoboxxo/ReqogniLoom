@@ -6,7 +6,7 @@ req_id:  REQ-L1-028, REQ-L2-ICD-002, REQ-L2-ICD-003
 arch_id: ARCH-L1-014
 IF:      IF-ICD-INT-001 (IcdManager -> ContractValidator)
 
-Stateless module that enforces Design-by-Contract rules between two IcdVersion
+Stateless module that enforces Design-by-Contract rules between two ICD contract
 snapshots. Detects breaking changes according to the Liskov Substitution Principle
 covariance/contravariance rules:
 
@@ -137,7 +137,7 @@ class ContractValidator:
         new_postconditions: list[str],
         new_invariants: list[str],
     ) -> ValidationResult:
-        """Semantically compare two IcdVersion contract snapshots for breaking changes.
+        """Semantically compare two ICD contract snapshots for breaking changes.
 
         Applies three LSP-derived rules:
 
@@ -149,9 +149,9 @@ class ContractValidator:
           Invariants are structural guarantees that must be maintained.
 
         Args:
-            old_preconditions:  Preconditions from the current (old) IcdVersion.
-            old_postconditions: Postconditions from the current (old) IcdVersion.
-            old_invariants:     Invariants from the current (old) IcdVersion.
+            old_preconditions:  Preconditions from the current (old) contract.
+            old_postconditions: Postconditions from the current (old) contract.
+            old_invariants:     Invariants from the current (old) contract.
             new_preconditions:  Proposed new preconditions.
             new_postconditions: Proposed new postconditions.
             new_invariants:     Proposed new invariants.

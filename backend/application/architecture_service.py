@@ -39,8 +39,10 @@ from persistence.models import (
 from persistence.transactions import atomic_transaction
 
 from application.artifact_service import _clean_custom_fields
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
+from application.optimistic_lock import assert_expected_version
 from application.validators import ArchitectureElementInvariantValidator
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,30 @@ class ArchitectureService(ServiceBase):
         """
         normalized = (element_type or "").strip().lower()
         return normalized or ElementType.COMPONENT
+
+    @staticmethod
+    def _parent_artifact_id(parent_element_id: Optional[UUID]) -> Optional[UUID]:
+        """Map an ArchitectureElement parent id to its backing Artifact id.
+
+        Issue #366: ``ArchitectureElement.parent`` and ``Artifact.parent`` are
+        two representations of the same hierarchy, but live in different id
+        spaces. Only the former was ever populated, so the recursive-CTE tree
+        queries over ``pl_artifact.parent_id`` (``ArtifactService.get_tree``,
+        document-scope baselines) saw a forest of roots instead of the real
+        decomposition tree.
+
+        Returns ``None`` for a root element and for an unresolvable parent —
+        the latter is already rejected by the I3 invariant check / the
+        ArchitectureElement FK constraint, which stay the single source of the
+        error message.
+        """
+        if parent_element_id is None:
+            return None
+        return (
+            ArchitectureElement.objects.filter(id=parent_element_id)
+            .values_list("artifact_id", flat=True)
+            .first()
+        )
 
     # ---------- CRUD (REQ-L2-AS-004) ----------
 
@@ -113,22 +139,31 @@ class ArchitectureService(ServiceBase):
         if workspace is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
 
-        artifact = Artifact.objects.create(
-            tenant=tenant,
-            workspace=workspace,
-            artifact_type="ArchitectureElement",
-            custom_fields=_clean_custom_fields(custom_fields),
-        )
-
         # REQ-L1-044 + SysEng 2.0 §1.2 (I5): hierarchy invariants, rigor-gated via
         # workspace preset. For a child (parent_id set) I1/I3 apply; for a root
         # (parent_id is None) I5 rejects a second root in the same workspace. The
         # validator is therefore invoked for every create, not only for children.
         # I3 also rejects cross-workspace parents (400 instead of 404 for a
         # dangling parent_id).
+        # Runs before the Artifact row is written so a rejected parent leaves no
+        # trace at all (previously the backing Artifact was created first).
         validator = ArchitectureElementInvariantValidator.for_workspace(workspace_id)
         validator.validate_parent_assignment(
             parent_id=parent_id, workspace_id=workspace_id
+        )
+
+        # Issue #366: mirror the element hierarchy onto the backing Artifact
+        # tree. ``parent_id`` is an ArchitectureElement primary key, while
+        # ``Artifact.parent`` points at another *Artifact* — two disjoint id
+        # spaces. Leaving Artifact.parent NULL made artifact.get_tree (a
+        # recursive CTE over pl_artifact.parent_id) report every architecture
+        # element as a childless root.
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="ArchitectureElement",
+            parent_id=self._parent_artifact_id(parent_id),
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         arch_el = ArchitectureElement.objects.create(
@@ -142,6 +177,14 @@ class ArchitectureService(ServiceBase):
             asil_level=asil_level,
             make_or_buy=make_or_buy,
             uid=uid,
+        )
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_architecture_element takes no change_reason.
+        ArtifactVersionService().record(
+            arch_el.artifact_id,
+            snapshot_fields(arch_el, "ArchitectureElement"),
+            ctx,
         )
 
         # Initialise workflow state
@@ -165,7 +208,8 @@ class ArchitectureService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.ARCHITECTURE_ELEMENT_CREATED,
                 entity_id=arch_el.id,
                 workspace_id=workspace_id,
-                payload={"title": title, "element_type": element_type},
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"title": title, "element_type": element_type, "artifact_id": str(artifact.id)},
             )
         )
         return arch_el
@@ -208,12 +252,15 @@ class ArchitectureService(ServiceBase):
         if arch_el is None:
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
 
-        # Optimistic lock check (REQ-L2-AS-004)
-        if expected_version is not None and arch_el.version != expected_version:
-            raise OptimisticLockError(
-                f"Stale version: expected {expected_version}, "
-                f"current is {arch_el.version}"
-            )
+        # Optimistic lock check (REQ-L2-AS-004). No ``lock_for_version_check``
+        # here, unlike the other versioned services: this method persists via a
+        # compare-and-swap ``UPDATE ... WHERE version = <current>`` below whose
+        # row count is checked, so a concurrent writer is caught at write time
+        # without holding a row lock. The services that persist via a full-row
+        # ``save()`` have no such guard and must lock the row instead.
+        assert_expected_version(
+            arch_el, expected_version, entity_type="ArchitectureElement"
+        )
 
         changed_fields: dict = {}
         if title is not None:
@@ -259,15 +306,52 @@ class ArchitectureService(ServiceBase):
             )
             arch_el.parent_id = parent_id
             changed_fields["parent_id"] = parent_id
+            # Issue #366: keep the backing Artifact tree in sync with the
+            # element tree, otherwise a re-parented element keeps reporting
+            # its old position through artifact.get_tree.
+            new_artifact_parent_id = self._parent_artifact_id(parent_id)
+            if arch_el.artifact.parent_id != new_artifact_parent_id:
+                arch_el.artifact.parent_id = new_artifact_parent_id
+                arch_el.artifact.save(update_fields=["parent", "modified_at"])
 
         # Atomic version increment + field persistence — guarded by
         # expected_version when provided.  Changed fields are written in the
         # same UPDATE (fix: they were previously assigned in memory only).
+        #
+        # Code review finding: this compare-and-swap UPDATE's row count was
+        # previously discarded. When another request modified (and thus
+        # version-bumped) this row between our read above and this UPDATE,
+        # filter(id=..., version=current_version) legitimately matches zero
+        # rows — Django's .update() returns 0 and raises nothing on its own.
+        # Silently continuing meant changed_fields were dropped with no
+        # error, and the caller's own edits (already merged onto the
+        # in-memory arch_el above) were reported back as if persisted,
+        # while refresh_from_db(["version"]) only reloaded the *other*
+        # request's version number. This is exactly the class of bug
+        # optimistic locking exists to prevent, on the REST API's normal
+        # (expected_version-omitted) path specifically.
         current_version = expected_version if expected_version is not None else arch_el.version
-        ArchitectureElement.objects.filter(id=arch_el_id, version=current_version).update(
-            version=F("version") + 1, **changed_fields
-        )
+        updated_count = ArchitectureElement.objects.filter(
+            id=arch_el_id, version=current_version
+        ).update(version=F("version") + 1, **changed_fields)
+        if updated_count == 0:
+            raise OptimisticLockError(
+                f"Concurrent modification detected: ArchitectureElement "
+                f"{arch_el_id} was changed by another request between read "
+                f"and write (expected version {current_version})."
+            )
         arch_el.refresh_from_db(fields=["version"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded after the
+        # compare-and-swap UPDATE, which is this service's version-bump gate.
+        # Unlike its sibling services it bumps unconditionally, so the revision
+        # follows that same (pre-existing) semantics. update_architecture_element
+        # takes no change_reason.
+        ArtifactVersionService().record(
+            arch_el.artifact_id,
+            snapshot_fields(arch_el, "ArchitectureElement"),
+            ctx,
+        )
 
         self._audit(ctx=ctx, operation="update", entity_type="ArchitectureElement", entity_id=arch_el_id)
         self._emit_event(
@@ -275,6 +359,8 @@ class ArchitectureService(ServiceBase):
                 event_type=DomainEventOutbox.EventType.ARCHITECTURE_ELEMENT_UPDATED,
                 entity_id=arch_el_id,
                 workspace_id=arch_el.artifact.workspace_id,
+                # artifact_id: additive, for context_graph.projector (Issue #377).
+                payload={"artifact_id": str(arch_el.artifact_id)},
             )
         )
         return arch_el
@@ -298,9 +384,17 @@ class ArchitectureService(ServiceBase):
 
         workspace_id = arch_el.artifact.workspace_id
 
-        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
-        arch_el.lifecycle_status = "deleted"
-        arch_el.save(update_fields=["lifecycle_status"])
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of writing lifecycle_status directly.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=arch_el.id,
+            item_type="ArchitectureElement",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via architecture.delete",
+        )
 
         self._audit(ctx=ctx, operation="delete", entity_type="ArchitectureElement", entity_id=arch_el_id)
         self._emit_event(
@@ -311,23 +405,46 @@ class ArchitectureService(ServiceBase):
             )
         )
 
-    def get_architecture_element(self, arch_el_id: UUID, ctx: AuthContext) -> ArchitectureElement:
-        """Fetch a single ArchitectureElement."""
+    def get_architecture_element(
+        self, arch_el_id: UUID, ctx: AuthContext, *, include_deleted: bool = False
+    ) -> ArchitectureElement:
+        """Fetch a single ArchitectureElement.
+
+        REQ-006: soft-deleted elements (outdate()'d, tracked only via
+        WorkflowItemState since ArchitectureElement has no mirrored status
+        column) are treated as not found by default, matching
+        list_architecture_elements(). Pass include_deleted=True for flows
+        that legitimately need to see an outdated item (e.g.
+        architecture.reactivate).
+        """
         self._set_tenant_context(ctx)
         arch_el = ArchitectureElement.objects.select_related("artifact").filter(
             id=arch_el_id
         ).first()
         if arch_el is None:
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
+        if not include_deleted:
+            from workflow.services import outdated_item_ids
+            if arch_el.id in outdated_item_ids("ArchitectureElement"):
+                raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
         return arch_el
 
     def list_architecture_elements(
-        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        include_deleted: bool = False,
+        search: Optional[str] = None,
     ) -> List[ArchitectureElement]:
         """Return ArchitectureElements in *workspace_id*.
 
         REQ-006: Excludes soft-deleted elements (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
+
+        Issue #267 (same root cause as RequirementService.list_requirements):
+        ``search`` case-insensitively filters on title/description/uid. Applied
+        *after* level/role annotation (which needs the full, unfiltered tree to
+        resolve ancestors correctly) rather than as a queryset filter.
         """
         self._set_tenant_context(ctx)
         # select_related("artifact") avoids one query per element when the
@@ -336,7 +453,14 @@ class ArchitectureService(ServiceBase):
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            qs = qs.exclude(lifecycle_status="deleted")
+            # Phase 0: delete_architecture_element() routes soft-delete through
+            # workflow.services.outdate(). ArchitectureElement is NOT wired into
+            # _STATUS_MIRROR_MODELS (no mirrored status column), so the
+            # workflow state lives solely in WorkflowItemState — filter there
+            # instead of on the now-dead `lifecycle_status` column.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("ArchitectureElement"))
         elements = list(qs)
         # REQ-L2-RA-013 / REQ-070: eliminate N+1 on tree depth. The ``level``
         # property recurses into the DB (one query per ancestor per element)
@@ -347,6 +471,15 @@ class ArchitectureService(ServiceBase):
         # from tree position in the same single-pass fashion (no per-element
         # children query).
         self._annotate_roles(elements)
+        if search:
+            needle = search.lower()
+            elements = [
+                el
+                for el in elements
+                if needle in (el.title or "").lower()
+                or needle in (el.description or "").lower()
+                or needle in (el.uid or "").lower()
+            ]
         return elements
 
     @staticmethod

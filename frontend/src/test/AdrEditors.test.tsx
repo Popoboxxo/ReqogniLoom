@@ -13,10 +13,17 @@
  * architectureApi.get (via resolveArtifactRef).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+// Real i18next instance (EN resources) so the Task 2.1 assertions below can
+// check actual rendered copy (title, summary, dialog title) instead of raw
+// keys — the suite above only ever checked testids/markup and never needed
+// this, so it is a new, additive setup step for this file.
+import "../i18n/index";
+import { i18n } from "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules (must precede component import)
@@ -55,7 +62,7 @@ vi.mock("../api/client", () => ({
 }));
 
 // vi.hoisted so these are available inside the hoisted vi.mock factories below.
-const { ADR, ARCH_ARTIFACT_ID } = vi.hoisted(() => ({
+const { ADR, ARCH_ARTIFACT_ID, ARCH_ENTITY_ID } = vi.hoisted(() => ({
   ADR: {
     id: "adr-001",
     workspace_id: "ws-001",
@@ -63,12 +70,16 @@ const { ADR, ARCH_ARTIFACT_ID } = vi.hoisted(() => ({
     description: "Append-only log.",
     context: "",
     consequences: "",
-    status: "Draft",
+    status: "Draft" as const,
     version: 1,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
   },
   ARCH_ARTIFACT_ID: "arch-artifact-999",
+  // #414: the ArchitectureElement's own primary key — a *different* UUID from
+  // its Artifact id. The TraceLink below carries the artifact id; the title
+  // lookup and the editor route must use this one.
+  ARCH_ENTITY_ID: "arch-entity-111",
 }));
 
 vi.mock("../api/adrs", () => ({
@@ -80,6 +91,8 @@ vi.mock("../api/adrs", () => ({
     delete: vi.fn(),
     versions: vi.fn().mockResolvedValue([]),
     diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
+    listAll: vi.fn().mockResolvedValue([ADR]),
+    supersede: vi.fn(),
   },
 }));
 
@@ -89,6 +102,8 @@ vi.mock("../api/tracelinks", () => ({
     listForArtifact: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
+    // Task 3.3: <TraceSpine>'s useDerivationChain calls impact() on mount.
+    impact: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -96,6 +111,19 @@ vi.mock("../api/artifacts", () => ({
   artifactsApi: {
     get: vi.fn(),
   },
+}));
+
+// #414: TraceLinkPanel resolves a link endpoint (an Artifact id) to its
+// domain entity through GET /api/v1/traceability/resolve/ before fetching the
+// title or building the route.
+vi.mock("../api/traceability", () => ({
+  traceabilityApi: {
+    resolve: vi.fn(),
+    impact: vi.fn().mockResolvedValue([]),
+  },
+  // artifactRefs chunks its batches by this constant; vitest raises on a
+  // missing export from a mocked module, so it has to be declared here.
+  RESOLVE_BATCH_LIMIT: 200,
 }));
 
 vi.mock("../api/architecture", () => ({
@@ -119,6 +147,39 @@ vi.mock("../api/testcases", () => ({
   },
 }));
 
+// F-2 regression (code review, Task 21 fix round): AdrArtifactForm renders
+// on the definition-driven ArtifactForm, which needs a resolved attribute
+// definition to render anything at all — including the `status` attribute's
+// WorkflowStatusEditor, which the F-2 regression test below asserts against.
+// Kept real (not mocked away like ArtifactForm.test.tsx does) so the actual
+// remount-on-status-change behaviour under test is exercised, not stubbed.
+vi.mock("../api/attribute-definitions", () => ({
+  attributeDefinitionsApi: {
+    getWorkspace: vi.fn().mockResolvedValue({
+      item_type: "Adr",
+      preset: "standard",
+      is_customized: false,
+      version: 1,
+      attributes: [
+        {
+          name: "title", kind: "core", type: "text", widget_key: null, fields: [],
+          options: [], required: true, visible: true, locked: false, editable: true,
+          section: "general", order: 1, label: { de: "Titel", en: "Title" },
+          help_text: { de: "", en: "" }, default: null, validation: {},
+          ai_elicit: false, export: true, audience: "basic",
+        },
+        {
+          name: "status", kind: "core", type: "enum", widget_key: null, fields: [],
+          options: [], required: false, visible: true, locked: true, editable: "workflow",
+          section: "general", order: 2, label: { de: "Status", en: "Status" },
+          help_text: { de: "", en: "" }, default: null, validation: {},
+          ai_elicit: false, export: true, audience: "basic",
+        },
+      ],
+    }),
+  },
+}));
+
 // Isolate from the ArtifactInspector sidebar (its own data fetching is out of
 // scope for this test).
 vi.mock("../components/shared/ArtifactInspector", () => ({
@@ -131,19 +192,38 @@ vi.mock("../context/WorkspaceContext", () => ({
   WorkspaceProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// Task 23: CreateTraceLinkDialog (mounted inside TraceLinkPanel, which this
+// tree pulls in transitively) now reads the link-type catalog via
+// useLinkTypes() — needs a provider-free mock here, same as every other
+// non-dialog-focused test that renders it incidentally.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
 // Must import AFTER vi.mock
 import AdrEditors from "../components/AdrEditors/AdrEditors";
 import { tracelinksApi } from "../api/tracelinks";
-import { artifactsApi } from "../api/artifacts";
 import { architectureApi } from "../api/architecture";
+import { traceabilityApi } from "../api/traceability";
+import { adrsApi } from "../api/adrs";
+import type { Adr } from "../types";
 
-function renderEditor(): ReturnType<typeof render> {
+function renderEditor(initialPath = `/adrs/${ADR.id}`): ReturnType<typeof render> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/adrs/${ADR.id}`]}>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route path="/adrs" element={<AdrEditors />} />
           <Route path="/adrs/:id" element={<AdrEditors />} />
@@ -174,17 +254,22 @@ describe("AdrEditors TraceLinkPanel (REQ-L2-TE-020)", () => {
       ],
     } as any);
 
-    // resolveArtifactRef: artifact type lookup then entity title lookup.
-    vi.mocked(artifactsApi.get).mockImplementation(async (id: string) => {
-      if (id === ARCH_ARTIFACT_ID) {
-        return { id, artifact_type: "ArchitectureElement" } as any;
-      }
-      return { id, artifact_type: "Adr" } as any;
-    });
-    vi.mocked(architectureApi.get).mockResolvedValue({
-      id: ARCH_ARTIFACT_ID,
-      title: "EventStore Component",
-    } as any);
+    // #414: resolveArtifactRefs — bridge the Artifact id to the entity id,
+    // then fetch the title with the *entity* id.
+    vi.mocked(traceabilityApi.resolve).mockImplementation(async (ids: string[]) =>
+      ids.map((artifact_id) => ({
+        artifact_id,
+        resolved: artifact_id === ARCH_ARTIFACT_ID,
+        entity_type: artifact_id === ARCH_ARTIFACT_ID ? "ArchitectureElement" : null,
+        entity_id: artifact_id === ARCH_ARTIFACT_ID ? ARCH_ENTITY_ID : null,
+      })) as any
+    );
+    vi.mocked(architectureApi.get).mockImplementation(async (id: string) =>
+      // Passing the Artifact id here is the #414 bug — the real API 404s on it.
+      id === ARCH_ENTITY_ID
+        ? ({ id, title: "EventStore Component" } as any)
+        : Promise.reject(new Error(`404 — ${id} is not an ArchitectureElement id`))
+    );
   });
 
   it("renders the TraceLinkPanel with the linked ArchitectureElement", async () => {
@@ -200,10 +285,281 @@ describe("AdrEditors TraceLinkPanel (REQ-L2-TE-020)", () => {
       expect(screen.getByText("EventStore Component")).toBeInTheDocument();
     });
 
-    // The 'decides' link-type label is rendered.
-    expect(screen.getByText("Decides")).toBeInTheDocument();
+    // The 'decides' link-type label is rendered (neutral EN label: "Decision").
+    expect(screen.getByText("Decision")).toBeInTheDocument();
 
     // The panel queried links for the ADR's own id.
     expect(tracelinksApi.listForArtifact).toHaveBeenCalledWith("ws-001", ADR.id);
+  });
+});
+
+describe("AdrEditors Task 2.1 concept remodel (PageHeader / ArtifactRow / Dialog / EmptyState)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(adrsApi.list).mockResolvedValue({ results: [ADR], count: 1, next: null, previous: null });
+    vi.mocked(adrsApi.listAll).mockResolvedValue([ADR]);
+    vi.mocked(adrsApi.get).mockResolvedValue(ADR);
+  });
+
+  it("renders exactly one <h1> with an always-visible summary (12.1)", async () => {
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("ADRs");
+    // Summary is visible without any active search/filter.
+    expect(screen.getByTestId("page-header-count")).toHaveTextContent("1 ADR");
+  });
+
+  it("moves the primary create action into the PageHeader, named after the result", async () => {
+    renderEditor("/adrs");
+    await waitFor(() => {
+      expect(screen.getByTestId("page-header")).toBeInTheDocument();
+    });
+    // Exactly one create action exists, inside the header, labelled after the
+    // result ("New ADR") rather than the gesture ("+ New").
+    const createButton = screen.getByTestId("create-adr-btn");
+    expect(screen.getByTestId("page-header")).toContainElement(createButton);
+    expect(createButton).toHaveTextContent("New ADR");
+    // No inline create form in the list anymore — creation only happens
+    // through the Dialog, not yet open.
+    expect(screen.queryByTestId("adr-new-title-input")).not.toBeInTheDocument();
+  });
+
+  it("renders each ADR as an ArtifactRow with id, status and title", async () => {
+    renderEditor("/adrs");
+    await waitFor(() => {
+      expect(screen.getByTestId(`adr-row-${ADR.id}`)).toBeInTheDocument();
+    });
+    const row = screen.getByTestId(`adr-row-${ADR.id}`);
+    expect(row).toHaveTextContent(ADR.title);
+    expect(screen.getByTestId(`adr-row-${ADR.id}-status`)).toHaveTextContent(ADR.status);
+  });
+
+  it("shows the empty variant with a create action when there are no ADRs at all", async () => {
+    vi.mocked(adrsApi.listAll).mockResolvedValue([]);
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-list-empty")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("adr-list-empty-create")).toBeInTheDocument();
+    expect(screen.queryByTestId("adr-list-no-match")).not.toBeInTheDocument();
+  });
+
+  it("shows the no-match variant with only a reset-filters action when the filter matches nothing", async () => {
+    renderEditor("/adrs");
+    await waitFor(() => {
+      expect(screen.getByTestId(`adr-row-${ADR.id}`)).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByTestId("adr-list-search-input"), "no such adr title");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-list-no-match")).toBeInTheDocument();
+    });
+    // The no-match variant offers only "reset filters", never a create action.
+    expect(screen.getByTestId("adr-list-no-match-reset-filters")).toBeInTheDocument();
+    expect(screen.queryByTestId("adr-list-empty")).not.toBeInTheDocument();
+  });
+
+  it("opens the create dialog from the header action, titled after the button label, and creates via shared/Dialog", async () => {
+    vi.mocked(adrsApi.create).mockResolvedValue({ ...ADR, id: "adr-new-1" });
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-adr-btn"));
+
+    const dialog = await screen.findByTestId("adr-create-dialog");
+    expect(dialog).toHaveAttribute("role", "dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    // Dialog title repeats the button's label (ch. 12.8).
+    expect(screen.getByRole("heading", { name: "New ADR" })).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("adr-new-title-input"), "Adopt CQRS");
+    await user.click(screen.getByTestId("adr-new-save-btn"));
+
+    await waitFor(() => {
+      expect(adrsApi.create).toHaveBeenCalledWith({
+        workspace_id: "ws-001",
+        title: "Adopt CQRS",
+      });
+    });
+  });
+
+  /**
+   * BUG-11 (Systemaudit 2026-08-18, §4, Mittel) — `description` is an
+   * ordinary adrsApi.create() field the backend already accepts but had no
+   * editor in this dialog.
+   */
+  it("sends the typed description alongside the title on create (BUG-11)", async () => {
+    vi.mocked(adrsApi.create).mockResolvedValue({ ...ADR, id: "adr-new-2" });
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-adr-btn"));
+    await screen.findByTestId("adr-create-dialog");
+
+    await user.type(screen.getByTestId("adr-new-title-input"), "Adopt CQRS");
+    await user.type(screen.getByTestId("adr-new-description-input"), "Split read/write models");
+    await user.click(screen.getByTestId("adr-new-save-btn"));
+
+    await waitFor(() => {
+      expect(adrsApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Adopt CQRS",
+          description: "Split read/write models",
+        })
+      );
+    });
+  });
+});
+
+describe("AdrEditors i18n — ADR title placeholder (#658)", () => {
+  const previousLanguage = i18n.language;
+
+  afterEach(() => {
+    void i18n.changeLanguage(previousLanguage);
+  });
+
+  it("shows an ADR-appropriate placeholder, translated to German", async () => {
+    await i18n.changeLanguage("de");
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-adr-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-new-title-input")).toBeInTheDocument();
+    });
+
+    // UI-37: see the English variant below for the full rationale.
+    expect(
+      screen.getByPlaceholderText("z.B. PostgreSQL als primären Datenspeicher einsetzen")
+    ).toBeInTheDocument();
+  });
+
+  it("shows an ADR-appropriate placeholder in English", async () => {
+    await i18n.changeLanguage("en");
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-adr-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-new-title-input")).toBeInTheDocument();
+    });
+
+    // UI-37 (Systemaudit 2026-08-27 AP-5): this placeholder used to be a
+    // copy-pasted Need-style prompt ("e.g. As a user, I need...") on the
+    // ADR title field — fixed to an actual architecture-decision example.
+    expect(
+      screen.getByPlaceholderText("e.g. Use PostgreSQL as the primary datastore")
+    ).toBeInTheDocument();
+  });
+
+  it("uses the unified + New ADR trigger label instead of bare Erstellen", async () => {
+    const previousLanguage = i18n.language;
+    await i18n.changeLanguage("de");
+
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("create-adr-btn")).toHaveTextContent("+ Neue ADR");
+    expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
+
+    void i18n.changeLanguage(previousLanguage);
+  });
+});
+
+describe("AdrEditors Supersede leaves no stale status (F-2 regression, code review Task 21 fix round)", () => {
+  // `ArtifactForm`'s `useEntityReset` only fires on `entityId` change; a
+  // Supersede keeps the same ADR id and only flips `status`, so without the
+  // `key={\`${item.id}:${item.status}\`}` fix at the AdrEditors call site the
+  // form (and the WorkflowStatusEditor it renders) would keep showing the
+  // pre-Supersede status.
+  const APPROVED_ADR: Adr = { ...ADR, id: "adr-approved-1", status: "Approved" };
+  const SUCCESSOR_ADR: Adr = { ...ADR, id: "adr-successor-1", title: "Successor ADR", status: "Draft" };
+  const SUPERSEDED_ADR: Adr = { ...APPROVED_ADR, status: "Superseded", version: 2 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(adrsApi.listAll).mockResolvedValue([APPROVED_ADR, SUCCESSOR_ADR]);
+    vi.mocked(adrsApi.list).mockResolvedValue({
+      results: [APPROVED_ADR, SUCCESSOR_ADR],
+      count: 2,
+      next: null,
+      previous: null,
+    });
+    // `adrsApi.get` must track the "current server state" across the
+    // Supersede call, not just the initial fetch: `useAdrData.refresh` both
+    // writes the mutation's own response into the cache AND invalidates the
+    // detail query, which triggers a background refetch through this same
+    // mock. A static `mockResolvedValue(APPROVED_ADR)` would let that
+    // refetch silently revert the optimistic write back to "Approved" and
+    // make the regression test flaky instead of red on a real regression.
+    let currentAdr: Adr = APPROVED_ADR;
+    vi.mocked(adrsApi.get).mockImplementation(async () => currentAdr);
+    vi.mocked(adrsApi.supersede).mockImplementation(async () => {
+      currentAdr = SUPERSEDED_ADR;
+      return SUPERSEDED_ADR;
+    });
+  });
+
+  it("no longer shows the pre-Supersede status once the Supersede flow completes", async () => {
+    renderEditor(`/adrs/${APPROVED_ADR.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workflow-current-status")).toHaveTextContent("Approved");
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("adr-supersede-btn"));
+    await user.selectOptions(
+      screen.getByTestId("adr-supersede-target-select"),
+      SUCCESSOR_ADR.id
+    );
+    await user.click(screen.getByTestId("adr-supersede-confirm-btn"));
+
+    await waitFor(() => {
+      expect(adrsApi.supersede).toHaveBeenCalledWith(APPROVED_ADR.id, SUCCESSOR_ADR.id, "");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workflow-current-status")).not.toHaveTextContent("Approved");
+    });
   });
 });

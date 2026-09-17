@@ -4,8 +4,10 @@
  * Verifies:
  * - form renders after the settings load
  * - the api_key field is type=password
- * - base_url input only appears for the ollama provider
+ * - base_url input appears for the ollama, opencode_go, anthropic and
+ *   openai providers
  * - Save omits api_key when the user did not type a new one (write-only field)
+ * - an unrecognized server-side provider is never silently replaced (#274)
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -71,6 +73,55 @@ describe("LlmSettingsSection (REQ-L2-LLM-001)", () => {
     expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
   });
 
+  // opencode_go defaults server-side to https://opencode.ai/zen/go/v1 but
+  // self-hosted overrides need a UI-reachable custom base-URL field, same as
+  // ollama (#275).
+  it("shows the base_url input for the opencode_go provider", async () => {
+    (llmSettingsModule as { LLM_PROVIDERS: readonly string[] }).LLM_PROVIDERS = [
+      "anthropic",
+      "openai",
+      "ollama",
+      "opencode_go",
+      "mock",
+    ];
+    render(<LlmSettingsSection />);
+    await screen.findByTestId("llm-provider-select");
+    expect(screen.queryByTestId("llm-base-url-input")).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByTestId("llm-provider-select"),
+      "opencode_go"
+    );
+    expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
+  });
+
+  // Custom base URLs (proxies, self-hosted gateways) must also be
+  // configurable for the two "cloud" providers, not just the self-hosted
+  // ones (#212).
+  it("shows the base_url input for the anthropic provider", async () => {
+    render(<LlmSettingsSection />);
+    await screen.findByTestId("llm-provider-select");
+    expect(screen.queryByTestId("llm-base-url-input")).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByTestId("llm-provider-select"),
+      "anthropic"
+    );
+    expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
+  });
+
+  it("shows the base_url input for the openai provider", async () => {
+    render(<LlmSettingsSection />);
+    await screen.findByTestId("llm-provider-select");
+    expect(screen.queryByTestId("llm-base-url-input")).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByTestId("llm-provider-select"),
+      "openai"
+    );
+    expect(screen.getByTestId("llm-base-url-input")).toBeInTheDocument();
+  });
+
   it("omits api_key from the payload when left blank", async () => {
     render(<LlmSettingsSection />);
     const saveBtn = await screen.findByTestId("llm-settings-save");
@@ -96,5 +147,74 @@ describe("LlmSettingsSection (REQ-L2-LLM-001)", () => {
     const payload = vi.mocked(llmSettingsModule.llmSettingsApi.update).mock
       .calls[0][0];
     expect(payload).toMatchObject({ api_key: "sk-new-secret" });
+  });
+
+  // -------------------------------------------------------------------------
+  // Unknown server-side provider (#274)
+  //
+  // `LLM_PROVIDERS` is stubbed above WITHOUT "opencode_go", reproducing a
+  // frontend build that predates a backend enum value.
+  // -------------------------------------------------------------------------
+  describe("unrecognized server provider (#274)", () => {
+    beforeEach(() => {
+      vi.mocked(llmSettingsModule.llmSettingsApi.get).mockResolvedValue({
+        provider: "opencode_go" as never,
+        base_url: "",
+        model_name: "gpt-oss",
+        api_key_is_set: true,
+      });
+    });
+
+    it("renders the server value instead of falling back to the first option", async () => {
+      render(<LlmSettingsSection />);
+      const select = (await screen.findByTestId(
+        "llm-provider-select"
+      )) as HTMLSelectElement;
+      expect(select.value).toBe("opencode_go");
+      expect(select.value).not.toBe("anthropic");
+      expect(
+        screen.getByTestId("llm-provider-unsupported-hint")
+      ).toBeInTheDocument();
+    });
+
+    it("omits provider from the payload when the user did not change it", async () => {
+      render(<LlmSettingsSection />);
+      const saveBtn = await screen.findByTestId("llm-settings-save");
+      await userEvent.click(saveBtn);
+
+      await waitFor(() =>
+        expect(llmSettingsModule.llmSettingsApi.update).toHaveBeenCalled()
+      );
+      const payload = vi.mocked(llmSettingsModule.llmSettingsApi.update).mock
+        .calls[0][0];
+      // Neither the wrong value nor the unknown one is echoed back: leaving
+      // `provider` out keeps the working server-side configuration intact.
+      expect(payload).not.toHaveProperty("provider");
+      expect(payload).toMatchObject({ model_name: "gpt-oss" });
+    });
+
+    it("sends the provider once the user explicitly picks a known one", async () => {
+      render(<LlmSettingsSection />);
+      const select = await screen.findByTestId("llm-provider-select");
+      await userEvent.selectOptions(select, "ollama");
+      expect(
+        screen.queryByTestId("llm-provider-unsupported-hint")
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByTestId("llm-settings-save"));
+      await waitFor(() =>
+        expect(llmSettingsModule.llmSettingsApi.update).toHaveBeenCalled()
+      );
+      const payload = vi.mocked(llmSettingsModule.llmSettingsApi.update).mock
+        .calls[0][0];
+      expect(payload).toMatchObject({ provider: "ollama" });
+    });
+  });
+
+  it("exposes opencode_go as a selectable provider", async () => {
+    const actual = await vi.importActual<typeof llmSettingsModule>(
+      "../../api/llm-settings"
+    );
+    expect(actual.LLM_PROVIDERS).toContain("opencode_go");
   });
 });

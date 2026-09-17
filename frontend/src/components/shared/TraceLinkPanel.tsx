@@ -1,12 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { TraceLink, UUID, type LinkType } from "../../types";
 import { tracelinksApi } from "../../api/tracelinks";
-import { resolveArtifactRef, type ArtifactRef } from "../../api/artifactRefs";
+import { resolveArtifactRefs, type ArtifactRef } from "../../api/artifactRefs";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { CreateTraceLinkDialog } from "./CreateTraceLinkDialog";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { Badge } from "./Badge";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { extractErrorMessage } from "../../api/client";
 
 
 interface TraceLinkPanelProps {
@@ -15,6 +18,22 @@ interface TraceLinkPanelProps {
   onDerive?: () => void;
   isDeriving?: boolean;
 }
+
+/**
+ * Inline counter next to a section heading. Issue #675: it is a plain
+ * `info` badge from the shared `<Badge>`; only the leading gap is local.
+ */
+const INLINE_COUNT_BADGE_STYLE: CSSProperties = {
+  marginLeft: "var(--space-1)",
+};
+
+/** Muted, struck-through label for a soft-deleted endpoint. */
+const outdatedLabelStyle: CSSProperties = {
+  fontSize: "0.85rem",
+  color: "var(--color-text-muted)",
+  fontFamily: "monospace",
+  textDecoration: "line-through",
+};
 
 export function TraceLinkPanel({
   workspaceId,
@@ -27,64 +46,73 @@ export function TraceLinkPanel({
   const { activeWorkspace } = useWorkspace();
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
   const [showDialog, setShowDialog] = useState(false);
   const [refsById, setRefsById] = useState<Record<UUID, ArtifactRef>>({});
+  // UI-09 (systemaudit 2026-08-29, Bug 1): deleting a trace link is
+  // destructive and irreversible — require explicit confirmation, matching
+  // the pattern already used in ReqTraceLinkPanel.tsx.
+  const [pendingDeleteLinkId, setPendingDeleteLinkId] = useState<UUID | null>(null);
 
   const loadLinks = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await tracelinksApi.listForArtifact(workspaceId, artifactId);
       setLinks(res.results);
 
-      // REQ-002: build refsById from backend-supplied titles first. For any
-      // endpoint that still lacks a title (legacy API response), fall back to
-      // resolveArtifactRef (2 extra HTTP calls per artifact). This keeps the
-      // panel functional against older backend versions.
-      const refsFromBackend: Record<UUID, ArtifactRef> = {};
+      // REQ-002: prefer the backend-supplied title when there is one — it is
+      // already resolved across every artifact type and saves a detail call.
+      //
+      // #414: only the *title* may come from here. This block used to build
+      // the route as `/<type>/<l.source_id>`, but a TraceLink endpoint id is
+      // an **Artifact** id while the editor routes take the domain-entity id,
+      // so every such route led to a 404 on an artifact that exists. The route
+      // now comes exclusively from resolveArtifactRefs, which bridges the two
+      // id spaces through GET /api/v1/traceability/resolve/.
+      const titlesFromBackend: Record<UUID, string> = {};
       res.results.forEach((l) => {
         if (l.source_title && l.source_title.length > 0) {
-          refsFromBackend[l.source_id] = {
-            title: l.source_title,
-            route: l.source_type
-              ? `/${l.source_type.toLowerCase().replace("architectureelement", "architecture").replace("testcase", "testcases").replace("stakeholderneed", "needs")}/${l.source_id}`
-              : "",
-          };
+          titlesFromBackend[l.source_id] = l.source_title;
         }
         if (l.target_title && l.target_title.length > 0) {
-          refsFromBackend[l.target_id] = {
-            title: l.target_title,
-            route: l.target_type
-              ? `/${l.target_type.toLowerCase().replace("architectureelement", "architecture").replace("testcase", "testcases").replace("stakeholderneed", "needs")}/${l.target_id}`
-              : "",
-          };
+          titlesFromBackend[l.target_id] = l.target_title;
         }
       });
 
-      // For IDs not resolved via backend titles, fall back to resolveArtifactRef.
-      const unresolvedIds = new Set<UUID>();
+      // #512: only the *other* endpoint of a link is ever rendered
+      // (renderLinkItem takes `otherId`), and only the other endpoint is
+      // reliably an Artifact id. GET /tracelinks/?artifact_id=<id> echoes the
+      // requested id back verbatim as this link's own endpoint
+      // (rest_api/views.py::TraceLinkViewSet.list) — and the editors pass their
+      // *entity* id (ArchitectureElement.id, not .artifact_id), which the
+      // backend resolves internally but does not translate in the response.
+      // Resolving that endpoint therefore meant a request against the wrong id
+      // space that 404s on every panel load, for a title that is never
+      // displayed. Resolve only what is rendered.
+      const renderedIds = new Set<UUID>();
       res.results.forEach((l) => {
-        if (!refsFromBackend[l.source_id]) unresolvedIds.add(l.source_id);
-        if (!refsFromBackend[l.target_id]) unresolvedIds.add(l.target_id);
+        renderedIds.add(l.source_id === artifactId ? l.target_id : l.source_id);
       });
 
-      const fallbackEntries = await Promise.all(
-        Array.from(unresolvedIds).map(async (id) => {
-          try {
-            const ref = await resolveArtifactRef(id);
-            return [id, ref] as const;
-          } catch {
-            return [id, { title: id, route: "" }] as const;
-          }
-        })
-      );
+      // #414: one batched resolve for every rendered endpoint. Routes always
+      // come from here (entity id space); backend titles only override the
+      // label.
+      const resolved = await resolveArtifactRefs(Array.from(renderedIds));
+      const merged: Record<UUID, ArtifactRef> = {};
+      for (const id of renderedIds) {
+        const ref = resolved[id] ?? { title: "", route: "" };
+        merged[id] = {
+          title: titlesFromBackend[id] || ref.title,
+          route: ref.route,
+        };
+      }
 
-      setRefsById({
-        ...Object.fromEntries(fallbackEntries),
-        ...refsFromBackend, // backend titles take precedence
-      });
+      setRefsById(merged);
     } catch (err) {
       console.error("Failed to load trace links", err);
+      setError(extractErrorMessage(err) || t("tracelinks.loadFailed", "Trace links could not be loaded."));
     } finally {
       setLoading(false);
     }
@@ -98,22 +126,51 @@ export function TraceLinkPanel({
 
   const handleDelete = async (linkId: UUID) => {
     try {
+      setError(null);
       await tracelinksApi.delete(linkId);
       loadLinks();
     } catch (err) {
       console.error("Delete tracelink failed:", err);
+      setError(extractErrorMessage(err) || t("tracelinks.deleteFailed", "Trace link could not be deleted."));
     }
+  };
+
+  const confirmDeleteLink = async () => {
+    if (!pendingDeleteLinkId) return;
+    const linkId = pendingDeleteLinkId;
+    setPendingDeleteLinkId(null);
+    await handleDelete(linkId);
   };
 
   const upstream = links.filter((l) => l.target_id === artifactId);
   const downstream = links.filter((l) => l.source_id === artifactId);
 
+  /**
+   * UI-P3: is the *far* endpoint of this link soft-deleted?
+   *
+   * The panel classifies a link by comparing against the raw `artifactId` it
+   * queried with (see the #512 endpoint-echo contract in
+   * `rest_api/views.py::TraceLinkViewSet.list`), so the far side is the source
+   * for an upstream link and the target for a downstream one.
+   */
+  const isOtherEndpointOutdated = (trace: TraceLink): boolean =>
+    trace.target_id === artifactId
+      ? (trace.source_is_outdated ?? false)
+      : (trace.target_is_outdated ?? false);
+
+  // Links to soft-deleted artifacts stay visible (audit trail) but must not
+  // inflate the "how many live relations does this artifact have" counters.
+  const liveUpstreamCount = upstream.filter((l) => !isOtherEndpointOutdated(l)).length;
+  const liveDownstreamCount = downstream.filter((l) => !isOtherEndpointOutdated(l)).length;
+
   const renderLinkItem = (trace: TraceLink, otherId: string) => {
     const label = refsById[otherId]?.title || otherId.slice(0, 8);
     const route = refsById[otherId]?.route;
+    const isOutdated = isOtherEndpointOutdated(trace);
     return (
       <li
         key={trace.id}
+        data-testid={isOutdated ? `trace-link-outdated-${trace.id}` : undefined}
         style={{
           background: "var(--color-surface-raised)",
           border: "1px solid var(--color-border)",
@@ -123,6 +180,7 @@ export function TraceLinkPanel({
           gap: "var(--space-3)",
           alignItems: "center",
           marginBottom: "var(--space-2)",
+          opacity: isOutdated ? 0.65 : 1,
         }}
       >
         <span
@@ -140,9 +198,33 @@ export function TraceLinkPanel({
         >
           {getLinkTypeLabel(trace.link_type)}
         </span>
-        {route ? (
+        {isOutdated ? (
+          // The artifact is soft-deleted: every detail route filters outdated
+          // rows out, so linking there would only produce a 404. Render a dead,
+          // struck-through label plus an explicit badge instead.
+          <>
+            <span data-testid={`trace-link-label-${trace.id}`} style={outdatedLabelStyle}>
+              {label}
+            </span>
+            {/* UI-P3: badge marking a link whose far endpoint was soft-deleted.
+                Such links are retained by the backend on purpose (audit trail).
+                Issue #675: rendered as the shared neutral `<Badge>` instead of
+                a local pill so its geometry/colour cannot drift. */}
+            <Badge
+              variant="neutral"
+              testId={`trace-link-outdated-badge-${trace.id}`}
+              title={t(
+                "tracelinks.outdatedHint",
+                "Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten."
+              )}
+            >
+              {t("tracelinks.outdated", "Gelöscht")}
+            </Badge>
+          </>
+        ) : route ? (
           <button
              type="button"
+             data-testid={`trace-link-open-${trace.id}`}
              onClick={() => navigate(route)}
              style={{
                fontFamily: "monospace",
@@ -161,7 +243,8 @@ export function TraceLinkPanel({
           <span style={{ fontSize: "0.85rem", color: "var(--color-text)", fontFamily: "monospace" }}>{label}</span>
         )}
         <button
-          onClick={() => void handleDelete(trace.id)}
+          data-testid={`trace-link-delete-${trace.id}`}
+          onClick={() => setPendingDeleteLinkId(trace.id)}
           style={{
             marginLeft: "auto",
             background: "none",
@@ -172,8 +255,12 @@ export function TraceLinkPanel({
             lineHeight: 1,
           }}
           title={t("actions.delete")}
+          // #741: `title` alone is only the last-resort fallback in the
+          // accessible-name computation and is never surfaced on touch —
+          // an icon-only button needs an explicit aria-label.
+          aria-label={t("actions.delete")}
         >
-          ×
+          <span aria-hidden="true">×</span>
         </button>
       </li>
     );
@@ -203,10 +290,12 @@ export function TraceLinkPanel({
           {onDerive && (
             <button
               className="btn-primary"
+              data-testid="trace-link-derive-btn"
               onClick={onDerive}
               disabled={isDeriving}
               style={{
-                background: "linear-gradient(135deg, #4f6ef7, #8e2de2)",
+                background:
+                  "linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))",
               }}
             >
               ✨ {isDeriving ? t("actions.deriving", "Ableiten...") : t("actions.derive", "Ableiten")}
@@ -241,6 +330,16 @@ export function TraceLinkPanel({
         defaultLinkType={(activeWorkspace?.default_link_type as LinkType) || 'derives-from'}
       />
 
+      {error && (
+        <p
+          role="alert"
+          data-testid="trace-link-panel-error"
+          style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)" }}
+        >
+          {error}
+        </p>
+      )}
+
       {loading && (
         <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>{t("loading")}</p>
       )}
@@ -250,7 +349,7 @@ export function TraceLinkPanel({
           {/* Upstream / Incoming */}
           <div>
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.upstream", "Incoming")} {upstream.length > 0 && <span style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{upstream.length}</span>}
+              {t("tracelinks.upstream", "Incoming")} {liveUpstreamCount > 0 && <Badge variant="info" testId="trace-link-upstream-count" style={INLINE_COUNT_BADGE_STYLE}>{liveUpstreamCount}</Badge>}
             </h4>
             {upstream.length === 0 && (
               <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>
@@ -265,7 +364,7 @@ export function TraceLinkPanel({
           {/* Downstream / Outgoing */}
           <div>
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.downstream", "Outgoing")} {downstream.length > 0 && <span style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{downstream.length}</span>}
+              {t("tracelinks.downstream", "Outgoing")} {liveDownstreamCount > 0 && <Badge variant="info" testId="trace-link-downstream-count" style={INLINE_COUNT_BADGE_STYLE}>{liveDownstreamCount}</Badge>}
             </h4>
             {downstream.length === 0 && (
               <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>
@@ -277,6 +376,20 @@ export function TraceLinkPanel({
             </ul>
           </div>
         </div>
+      )}
+
+      {pendingDeleteLinkId && (
+        <ConfirmDialog
+          title={t("traceability.deleteConfirmTitle", "TraceLink löschen")}
+          message={t(
+            "traceability.deleteConfirmMessage",
+            "Diesen TraceLink löschen? Diese Aktion kann nicht rückgängig gemacht werden."
+          )}
+          confirmLabel={t("actions.delete", "Löschen")}
+          onConfirm={() => void confirmDeleteLink()}
+          onCancel={() => setPendingDeleteLinkId(null)}
+          testId="tracelink-panel-delete-confirm"
+        />
       )}
     </div>
   );

@@ -19,29 +19,48 @@
  * Refactored to use:
  * - SplitView component for resizable list/detail layout
  * - RequirementList (left panel) — searchable list with filtering
- * - RequirementForm (right panel) — type-dependent form with Moscow/Fibonacci/Verification fields
- * - EntityTypeProvider for context-aware field rendering
+ * - RequirementArtifactForm (right panel, Task 25) — definition-driven
+ *   `ArtifactForm` renderer (spec section 6.2). Field visibility/order comes
+ *   from the resolved attribute definition; the legacy `EntityTypeProvider` /
+ *   attribute-visibility prop chain is retired for this type, same as
+ *   every other migrated rollout wave.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData } from './useRequirementData';
+import { useHasRole } from '../../hooks/useHasRole';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
 import { workspacesApi } from '../../api/workspaces';
 import { requirementsApi } from '../../api/requirements';
+import { extractApiErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { EntityTypeProvider } from '../../context/EntityTypeContext';
-import { attributeVisibilityApi } from '../../api';
 import { SplitView } from '../SplitView/SplitView';
+import { PageHeader } from '../shared/PageHeader';
+import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { RequirementList } from './RequirementList';
-import { RequirementForm } from './RequirementForm';
+import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './RequirementArtifactForm';
+import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
+import { Dialog } from '../shared/Dialog';
+import { ConfirmDialog } from '../shared/ConfirmDialog';
+import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
+import { useFormDirty } from '../../hooks/use-form-dirty';
+import { useEntityReset } from '../../hooks/use-entity-reset';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
-import type { RequirementType } from '../../types';
+import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
+import type { ChainArtifact } from '../shared/TraceSpine';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
+import { REQ_CATEGORIES } from '../../types';
+import styles from './RequirementEditors.module.css';
+// F-04 (code review, 2026-08-19): '.createLabelInline'/'.createInput' live in
+// the shared module (see its own header comment) so this create form
+// doesn't duplicate them locally.
+import fieldHints from '../shared/FieldHints.module.css';
 
 /**
  * RequirementEditors — main view with SplitView (list | detail)
@@ -51,17 +70,51 @@ export default function RequirementEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
+  // R2/T1 (systemaudit 2026-09-02): a viewer must not see the "Testfall
+  // generieren" trigger or the ✨ "Ableiten" button (REQ-008) — only the
+  // server rejected those writes before. Shared with SidebarNavigation/
+  // RequirementForm/RequirementList via useHasRole.
+  const hasRole = useHasRole();
+  // Shared with the other artifact routes so the CTA cannot drift.
+  const interviewCta = useInterviewStartCta('Requirement');
+  // GH-443: opt-in to soft-deleted requirements (status="outdated").
+  const [includeDeleted, setIncludeDeleted] = useState(false);
+  // Issue #672: does the currently-open RequirementArtifactForm have unsaved
+  // local edits? Reported by the form itself via onDirtyChange. `pendingId`
+  // holds a tree-node click that arrived while dirty, so it can be confirmed
+  // or discarded instead of silently overwriting the open edit.
+  const [formDirty, setFormDirty] = useState(false);
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
   const {
     requirements,
     requirement,
-    upstreamLinks,
-    downstreamLinks,
-    linkedTitles,
-    linkedRoutes,
     isLoading,
     error,
     refresh,
-  } = useRequirementData(selectedId);
+  } = useRequirementData(selectedId, { includeDeleted });
+
+  // Task 25: custom_fields is a free-form JSON blob the definition-driven
+  // RequirementArtifactForm cannot render (no `kind: "extended"` attribute
+  // exists for Requirement), so the CustomFieldsEditor lives here as a
+  // sibling — same scope boundary as TestCaseEditors'/NeedsEditors'
+  // customFieldsDraft (Tasks 22/23). Reset on requirement switch, not on
+  // every refetch of the same one.
+  const [customFieldsDraft, setCustomFieldsDraft] = useState<Record<string, unknown>>({});
+  // customFieldsDraft must feed the same dirty gate isFormDirty does, or
+  // editing only a custom field and switching to another requirement
+  // silently discards the edit with no unsaved-changes dialog — the
+  // CustomFieldsEditor is a sibling of RequirementArtifactForm, not wired
+  // into its own useFormDirty/onDirtyChange at all.
+  const { isDirty: customFieldsDirty, markClean: markCustomFieldsClean } = useFormDirty(
+    customFieldsDraft,
+    requirement?.custom_fields ?? {},
+  );
+  useEntityReset(requirement?.id ?? '__none__', () => {
+    const baseline = requirement?.custom_fields ?? {};
+    setCustomFieldsDraft(baseline);
+    markCustomFieldsClean(baseline);
+  });
+  const isFormDirty = formDirty || customFieldsDirty;
 
   const createRequirement = useCreateRequirement();
   const deleteRequirement = useDeleteRequirement();
@@ -69,7 +122,20 @@ export default function RequirementEditors(): JSX.Element {
   // Create form state
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // BUG-11 (Systemaudit 2026-08-18, §4): `description`/`category` are
+  // ordinary requirementsApi.create() fields the backend already accepts —
+  // they simply had no editor here, so every new requirement started empty
+  // and required an immediate follow-up edit to fill them in.
+  const [newDescription, setNewDescription] = useState('');
+  const [newCategory, setNewCategory] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  // #340: a rejected create (e.g. the free-text guard refusing markup in the
+  // title) must be visible in the create form itself — this used to be a bare
+  // console.error, which reads as "Save did nothing" to the user.
+  const [createError, setCreateError] = useState<string | null>(null);
+  // #340: same for the list-level actions that have no form of their own
+  // (delete, PDF export) — rendered as a banner under the page header.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // PDF export state
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -82,38 +148,6 @@ export default function RequirementEditors(): JSX.Element {
   // SysEng 2.0 N5 (test.derive_from_requirement): AI TestCase-draft copilot
   const [showDeriveTestcasePanel, setShowDeriveTestcasePanel] = useState(false);
 
-  // Dynamic attribute configurations
-  const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
-    complexity_fibonacci: true,
-    verification_method: true,
-  });
-  const [requiredFields, setRequiredFields] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    let isMounted = true;
-    attributeVisibilityApi.list()
-      .then((data) => {
-        if (!isMounted) return;
-        const vMap: Record<string, boolean> = {};
-        const rMap: Record<string, boolean> = {};
-        data.filter(cfg => cfg.entity_type === 'requirement').forEach(cfg => {
-          vMap[cfg.attribute_name] = cfg.is_visible;
-          rMap[cfg.attribute_name] = cfg.is_required || false;
-        });
-        
-        if (!('complexity_fibonacci' in vMap)) vMap['complexity_fibonacci'] = true;
-        if (!('verification_method' in vMap)) vMap['verification_method'] = true;
-        
-        setAttributeVisibility(vMap);
-        setRequiredFields(rMap);
-      })
-      // An empty config set is a valid, expected state (no seed data by
-      // design); only genuine HTTP/network failures reach here — log them as a
-      // warning, not an error (REQ-136).
-      .catch(err => console.warn('Could not load attribute configs; using defaults', err));
-    return () => { isMounted = false; };
-  }, []);
-
   // Split-view state for localStorage persistence
   
   /**
@@ -121,37 +155,161 @@ export default function RequirementEditors(): JSX.Element {
    */
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
-    const title = newTitle.trim() || t('editor.newRequirementTitle');
+    // BUG-02 (SYSTEMAUDIT_2026-08-18 §4): title is a required field. This
+    // used to silently substitute the placeholder copy for a blank/
+    // whitespace-only input and submit that — the save button below is now
+    // disabled for the same condition, this guard only protects against a
+    // direct form submit (e.g. pressing Enter) bypassing that.
+    const title = newTitle.trim();
+    if (!title) return;
     setIsCreating(true);
+    setCreateError(null);
     try {
       const created = await createRequirement.mutateAsync({
         workspace_id: activeWorkspace.id,
         title,
+        // BUG-11: only send what the user actually typed — an empty string
+        // for a field the backend treats as optional should not clobber a
+        // server-side default.
+        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
+        ...(newCategory ? { category: newCategory } : {}),
       });
       setShowCreateForm(false);
       setNewTitle('');
+      setNewDescription('');
+      setNewCategory('');
       navigate(`/requirements/${created.id}`);
     } catch (err: unknown) {
-      console.error('Create failed:', err);
+      // #340: the server rejects e.g. `<script>alert(1)</script>` as a title
+      // with a 400 whose `error.details[0].errors[0]` names the offending
+      // field. Swallowing that into console.error left the form open with no
+      // visible reason, i.e. an apparent silent no-op. The form deliberately
+      // stays open so the typed title is preserved and can be corrected.
+      setCreateError(extractApiErrorMessage(err) ?? t('req.createFailed'));
     } finally {
       setIsCreating(false);
     }
-  }, [activeWorkspace, createRequirement, navigate, newTitle, t]);
+  }, [activeWorkspace, createRequirement, navigate, newTitle, newDescription, newCategory, t]);
+
+  /** ArtifactForm owns definition validation, nested values and save errors. */
+  const handleDefinitionCreate = useCallback(async (values: ArtifactFormValues): Promise<void> => {
+    if (!activeWorkspace) throw new Error(t('req.createFailed'));
+    const title = typeof values.title === 'string' ? values.title.trim() : '';
+    if (!title) throw new Error(t('req.createFailed'));
+    const created = await createRequirement.mutateAsync({
+      ...values,
+      workspace_id: activeWorkspace.id,
+      title,
+    });
+    setShowCreateForm(false);
+    navigate(`/requirements/${created.id}`);
+  }, [activeWorkspace, createRequirement, navigate, t]);
+
+  /** Open/close the inline create form, discarding any stale error. */
+  const toggleCreateForm = useCallback((): void => {
+    setCreateError(null);
+    setShowCreateForm((open) => !open);
+  }, []);
+
+  // F-08 (Dialog migration): the create dialog's own close affordances
+  // (Escape, backdrop click, × button) must discard the draft exactly like
+  // the existing Cancel button already does — extracted so both share one
+  // implementation instead of duplicating the reset logic.
+  const handleCancelCreate = useCallback((): void => {
+    setShowCreateForm(false);
+    setCreateError(null);
+    setNewTitle('');
+    setNewDescription('');
+    setNewCategory('');
+  }, []);
+
+  // F-08: Dialog's focus trap moves focus to the first focusable element in
+  // the panel by default — that would be its own × close button, ahead of
+  // the title input this form used to `autoFocus`. Pointing initialFocusRef
+  // at the title input preserves the previous UX.
+  //
+  // Issue #800: the native `autoFocus` attribute used to stay on this input
+  // *in addition* to `initialFocusRef` — two independent focus-management
+  // mechanisms racing on the same element. The native attribute's focusing
+  // steps run as a queued task (HTML autofocus processing model), not
+  // synchronously during mount, so it could win *after* the focus trap's
+  // effect already ran, and — observed in real-browser QA — misdirect
+  // initial focus onto the description field instead. `initialFocusRef` is
+  // now the single source of truth; `autoFocus` was removed from the input.
+  const newTitleInputRef = useRef<HTMLInputElement | null>(null);
+  const focusFallbackTitle = useCallback((input: HTMLInputElement | null): void => {
+    newTitleInputRef.current = input;
+    input?.focus();
+  }, []);
+
+  /**
+   * Issue #672: navigating the tree used to call `navigate()` directly,
+   * which swaps the URL — and therefore the `requirement` prop the open
+   * RequirementForm is bound to — immediately, discarding any unsaved edit
+   * with no warning. Unsaved edits now gate the navigation behind a
+   * confirmation instead of running it straight away.
+   */
+  const selectRequirement = useCallback(
+    (id: string): void => {
+      if (isFormDirty && id !== selectedId) {
+        setPendingSelectId(id);
+        return;
+      }
+      navigate(`/requirements/${id}`);
+    },
+    [isFormDirty, navigate, selectedId]
+  );
+
+  const confirmPendingSelect = useCallback((): void => {
+    if (!pendingSelectId) return;
+    const target = pendingSelectId;
+    setPendingSelectId(null);
+    setFormDirty(false);
+    // Discarding: re-anchor the custom-fields baseline to whatever is
+    // currently drafted so isFormDirty drops immediately, not just once the
+    // target requirement's own useEntityReset callback fires after
+    // navigation (same fix TestCaseEditors/NeedsEditors already needed).
+    markCustomFieldsClean(customFieldsDraft);
+    navigate(`/requirements/${target}`);
+  }, [pendingSelectId, navigate, customFieldsDraft, markCustomFieldsClean]);
+
+  // F-2-class fix (Task 23 fix round 4 / Task 22): a save that touched
+  // customFieldsDraft would otherwise leave customFieldsDirty stuck `true`
+  // forever — markCustomFieldsClean was only ever called from
+  // useEntityReset/confirmPendingSelect, never after a successful save, so
+  // the very next requirement switch showed a false unsaved-changes dialog.
+  const handleSaved = useCallback((): void => {
+    markCustomFieldsClean(customFieldsDraft);
+    refresh();
+  }, [customFieldsDraft, markCustomFieldsClean, refresh]);
 
   /**
    * Handle delete requirement with confirmation.
+   *
+   * Issue #811: returns whether the delete actually succeeded so the caller
+   * (the confirm dialog in RequirementList) knows whether it may close
+   * itself. It used to be `void`-returning and fire-and-forget, so the
+   * dialog closed unconditionally the moment the user clicked "Löschen" —
+   * including on a 400 (e.g. the extended preset's mandatory `change_reason`)
+   * — leaving the requirement undeleted but the UI looking like it had
+   * succeeded.
    */
   const handleDelete = useCallback(
-    async (id: string): Promise<void> => {
-      if (!activeWorkspace) return;
+    async (id: string, changeReason?: string): Promise<boolean> => {
+      if (!activeWorkspace) return false;
+      setActionError(null);
       try {
-        await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id });
+        await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id, changeReason });
         navigate('/requirements');
+        return true;
       } catch (err: unknown) {
-        console.error('Delete failed:', err);
+        // #340: a refused delete (permission, workflow gate) must not look
+        // like the row simply stayed where it was.
+        setActionError(extractApiErrorMessage(err) ?? t('req.deleteFailed'));
+        return false;
       }
     },
-    [activeWorkspace, deleteRequirement, navigate]
+    [activeWorkspace, deleteRequirement, navigate, t]
   );
 
   /**
@@ -160,6 +318,7 @@ export default function RequirementEditors(): JSX.Element {
   const handleExportPdf = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
     setIsExportingPdf(true);
+    setActionError(null);
     try {
       const blob = await workspacesApi.downloadPdfReport(activeWorkspace.id);
       const url = URL.createObjectURL(blob);
@@ -171,11 +330,12 @@ export default function RequirementEditors(): JSX.Element {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
-      console.error('PDF export failed:', err);
+      // #340: a failed export produced no download and no message at all.
+      setActionError(extractApiErrorMessage(err) ?? t('req.pdfExportFailed'));
     } finally {
       setIsExportingPdf(false);
     }
-  }, [activeWorkspace]);
+  }, [activeWorkspace, t]);
 
   /**
    * REQ-008: AI-assisted decomposition of the selected requirement to
@@ -189,12 +349,16 @@ export default function RequirementEditors(): JSX.Element {
     try {
       const result = await requirementsApi.aiDecomposeNextLevel(requirement.id);
       const count = result.drafts?.length ?? 0;
-      setAiDeriveStatus(
-        count > 0
-          ? t('needs.deriveSuccess')
-          : t('needs.deriveSuccess')
-      );
-      refresh();
+      // Issue #311: both branches used to render the same success message, so
+      // a run that produced zero drafts reported "derived successfully" and
+      // left no trace of the fact that nothing had happened.
+      if (count > 0) {
+        setAiDeriveStatus(t('needs.deriveSuccess'));
+        refresh();
+        return;
+      }
+      setAiDeriveIsError(true);
+      setAiDeriveStatus(t('req.aiDeriveEmpty'));
     } catch (err: unknown) {
       const apiErr = err as { error?: { message?: string } };
       setAiDeriveIsError(true);
@@ -214,6 +378,25 @@ export default function RequirementEditors(): JSX.Element {
     };
   }, [requirement]);
 
+  // Trace spine (Task 3.3 — UI concept ch. 5). Uses the resolve-endpoint
+  // backed isOpenable/resolveEntry from the hook itself; unlike Architecture
+  // (Task 3.2's pilot, which predates the resolve endpoint) this page has no
+  // cheaper local id mapping to fall back on.
+  const derivationChain = useDerivationChain(
+    requirement?.artifact_id ?? requirement?.id ?? null,
+    'Requirement',
+    null,
+    { enabled: !!requirement },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
+
   // Loading state
   if (isLoading) {
     return <p role="status">{t('loading')}</p>;
@@ -224,7 +407,9 @@ export default function RequirementEditors(): JSX.Element {
     return (
       <div role="alert">
         <p style={{ color: 'var(--color-danger)' }}>{error}</p>
-        <button onClick={refresh}>{t('actions.reload')}</button>
+        <button data-testid="requirements-reload-btn" onClick={refresh}>
+          {t('actions.reload')}
+        </button>
       </div>
     );
   }
@@ -232,70 +417,101 @@ export default function RequirementEditors(): JSX.Element {
   /**
    * Left panel: Requirements list + toolbar
    */
+  /**
+   * Page header — lives at page level, above the SplitView, exactly like
+   * every other artifact route (Adr/Risk/Issue/Needs/TestCase/Architecture).
+   *
+   * It used to be rendered INSIDE `leftPanel` with `density="compact"`, which
+   * is the migration step UI concept ch. 6.1/17 step 3 left open. That made
+   * Requirements the one route whose <h1> was 18px instead of 30px and whose
+   * header was as narrow as the list panel (~520px) rather than the page
+   * (~1160px) — the single most visible header divergence in the app.
+   *
+   * PDF export, CSV import and the guided-interview start move into
+   * `overflowActions`: per this component's own contract they are rare
+   * actions, and keeping them as visible buttons would leave Requirements
+   * with secondary buttons where every other route has exactly one.
+   *
+   * #797: the interview CTA used to sit in `secondaryActions` "so it sits in
+   * the same place on all seven routes" — but it never did: it was only ever
+   * mounted by the seven interview-capable routes, so Requirements showed two
+   * visible create buttons (`+ Neue Anforderung` next to it) while Glossary,
+   * ICD, Test Runs and Diagrams showed one. It is a second *create path*, not
+   * a variant of the primary one, so it belongs in the overflow menu with the
+   * other secondary actions (ch. 12.1).
+   */
+  const pageHeader = (
+    <PageHeader
+      title={t('nav.requirements')}
+      summary={t('requirements.summary', { count: requirements.length })}
+      // R2/T1: the route's primary create trigger is a write action — a
+      // viewer must not find it in the DOM at all (same gate as Save/Delete/
+      // Ableiten below and the list's create/delete triggers).
+      primaryAction={
+        hasRole('editor')
+          ? {
+              // Names the result, not the gesture (UI concept ch. 12.1 / 14.2,
+              // GH-343): every other artifact route reads "New <Entity>".
+              label: t('requirements.newRequirement'),
+              prefixWithPlus: true,
+              onClick: toggleCreateForm,
+              testId: 'create-req-btn',
+            }
+          : undefined
+      }
+      overflowActions={[
+        interviewCta,
+        {
+          label: t('requirements.exportPdf', 'PDF-Export'),
+          onClick: () => void handleExportPdf(),
+          disabled: isExportingPdf || requirements.length === 0,
+          testId: 'export-pdf-btn',
+        },
+        {
+          label: t('requirements.importCsv', 'CSV-Import'),
+          onClick: () => navigate('/import'),
+          disabled: !activeWorkspace,
+          testId: 'csv-import-toolbar-btn',
+        },
+      ]}
+    />
+  );
+
+  /**
+   * Left panel: Requirements list + toolbar
+   */
   const leftPanel = (
     <div>
-      {/* Toolbar: Export, Import, Create buttons */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          rowGap: 'var(--space-2)',
-          marginBottom: 'var(--space-3)',
-        }}
-      >
-        <h3
-          style={{
-            fontSize: 'var(--font-size-lg)',
-            fontWeight: 600,
-            margin: 0,
-            color: 'var(--color-text)',
-          }}
-        >
-          {t('nav.requirements')}
-        </h3>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-          <button
-            data-testid="export-pdf-btn"
-            onClick={() => void handleExportPdf()}
-            disabled={isExportingPdf || requirements.length === 0}
-            style={{
-              background: 'var(--color-surface)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-2) var(--space-4)',
-              fontSize: 'var(--font-size-sm)',
-              cursor: isExportingPdf ? 'not-allowed' : 'pointer',
-              opacity: isExportingPdf ? 0.6 : 1,
-            }}
-            title={t('editor.exportPdf', 'PDF')}
-          >
-            PDF
-          </button>
-          <button
-            data-testid="csv-import-toolbar-btn"
-            onClick={() => navigate('/import')}
-            disabled={!activeWorkspace}
-            style={{
-              background: 'var(--color-surface)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-2) var(--space-4)',
-              fontSize: 'var(--font-size-sm)',
-              cursor: 'pointer',
-              opacity: !activeWorkspace ? 0.5 : 1,
-            }}
-          >
-            {t('import.upload', 'CSV')}
-          </button>
-        </div>
-      </div>
+      {/* #340: failures of the header actions (PDF export) and of the list's
+          row actions (delete) have no form to attach to — they surface here,
+          right under the header that triggered them. */}
+      {actionError && (
+        <p role="alert" data-testid="req-action-error" className={styles.actionError}>
+          {actionError}
+        </p>
+      )}
 
-      {/* Create form */}
+      {/* Create form — F-08: wrapped in the shared Dialog primitive so it
+          gets a real focus trap and Escape-to-close (GESAMTTEST_BERICHT
+          2026-08-21 §5 finding 8); the form markup itself is unchanged. */}
       {showCreateForm && (
+        <Dialog
+          title={t('requirements.newRequirement')}
+          onClose={handleCancelCreate}
+          initialFocusRef={newTitleInputRef}
+          testId="req-new-dialog"
+          size="lg"
+        >
+        <ArtifactForm
+          itemType="Requirement"
+          artifactId={null}
+          initialValues={{ title: '' }}
+          attributeOverrides={REQUIREMENT_ATTRIBUTE_OVERRIDES}
+          onSave={handleDefinitionCreate}
+          onCancel={handleCancelCreate}
+          fieldTestIds={{ title: 'req-new-title-input' }}
+          saveTestId="req-new-save-btn"
+          definitionFallback={
         <form
           data-testid="create-req-form"
           onSubmit={(e) => {
@@ -326,10 +542,15 @@ export default function RequirementEditors(): JSX.Element {
           <input
             id="new-req-title"
             data-testid="req-new-title-input"
+            ref={focusFallbackTitle}
             type="text"
             value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            autoFocus
+            onChange={(e) => {
+              setNewTitle(e.target.value);
+              // The message described the *previous* attempt; keep it until
+              // the user actually starts correcting the input.
+              if (createError) setCreateError(null);
+            }}
             disabled={isCreating}
             placeholder={t('editor.newRequirementTitle')}
             style={{
@@ -343,58 +564,114 @@ export default function RequirementEditors(): JSX.Element {
               boxSizing: 'border-box',
             }}
           />
+
+          {/* BUG-11: description/category — ordinary create() fields the
+              backend already accepts, previously missing from this form. */}
+          <label htmlFor="new-req-description" className={fieldHints.createLabelInline}>
+            {t('editor.description')}
+          </label>
+          <textarea
+            id="new-req-description"
+            data-testid="req-new-description-input"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            disabled={isCreating}
+            rows={3}
+            className={fieldHints.createInput}
+          />
+
+          <label htmlFor="new-req-category" className={fieldHints.createLabelInline}>
+            {t('editor.category')}
+          </label>
+          <select
+            id="new-req-category"
+            data-testid="req-new-category-select"
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            disabled={isCreating}
+            className={fieldHints.createInput}
+          >
+            <option value="">{t('editor.categoryPlaceholder')} --</option>
+            {REQ_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+
+          {/* #340: the server's own reason (e.g. "contains disallowed
+              content: HTML markup is not permitted in free-text fields")
+              belongs directly under the field that produced it — see
+              docs/architecture/UI_STYLE_GUIDE.md §5.2. */}
+          {createError && (
+            <p role="alert" data-testid="req-create-error" className={styles.formError}>
+              {createError}
+            </p>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+            {/* issue #719: the create dialog now uses the same shared
+                btn-secondary/btn-primary pair and the same "Erstellen"
+                (not "Speichern") verb as the Adr/Risk/Issue/TestCase create
+                dialogs. The hand-rolled inline styles below reproduced
+                btn-primary imprecisely — different padding and no shared
+                disabled/hover treatment — which is exactly the divergence
+                the audit flagged. */}
             <button
               data-testid="req-new-cancel-btn"
               type="button"
-              onClick={() => {
-                setShowCreateForm(false);
-                setNewTitle('');
-              }}
+              className="btn-secondary"
+              onClick={handleCancelCreate}
               disabled={isCreating}
-              style={{
-                background: 'var(--color-surface)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-3)',
-                fontSize: 'var(--font-size-sm)',
-                cursor: isCreating ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-              }}
             >
               {t('actions.cancel')}
             </button>
             <button
               data-testid="req-new-save-btn"
               type="submit"
-              disabled={isCreating}
-              style={{
-                background: 'var(--color-primary)',
-                color: 'white',
-                border: 'none',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-3)',
-                fontSize: 'var(--font-size-sm)',
-                cursor: isCreating ? 'not-allowed' : 'pointer',
-                opacity: isCreating ? 0.6 : 1,
-                fontWeight: 600,
-              }}
+              className="btn-primary"
+              // BUG-02: title is required — disable rather than silently
+              // substitute a placeholder title on submit.
+              disabled={isCreating || !newTitle.trim()}
             >
-              {isCreating ? t('actions.saving') : t('actions.save')}
+              {isCreating ? t('actions.saving') : t('actions.create', 'Erstellen')}
             </button>
           </div>
         </form>
+          }
+        />
+        </Dialog>
       )}
+
+      {/*
+        GH-443: DELETE is a soft-delete — the requirement survives with
+        status="outdated" and the list endpoint hides it by default. Without
+        this opt-in a deleted requirement would be unreachable from the UI and
+        the list's status filter could never offer "outdated" at all, since its
+        options are derived from the loaded items.
+      */}
+      <label
+        data-testid="req-list-include-deleted-label"
+        className={styles.includeDeletedToggle}
+      >
+        <input
+          type="checkbox"
+          data-testid="req-list-include-deleted"
+          checked={includeDeleted}
+          onChange={(e) => setIncludeDeleted(e.target.checked)}
+        />
+        {t('editor.showDeleted', 'Show deleted')}
+      </label>
 
       {/* Requirement list */}
       <RequirementList
         requirements={requirements}
         selectedId={selectedId}
-        onSelect={(id) => navigate(`/requirements/${id}`)}
+        onSelect={selectRequirement}
         onDelete={handleDelete}
-        onCreateNew={() => setShowCreateForm(!showCreateForm)}
-        isCreating={isCreating}
+        onCreateNew={() => {
+          setCreateError(null);
+          setShowCreateForm(true);
+        }}
       />
     </div>
   );
@@ -405,35 +682,52 @@ export default function RequirementEditors(): JSX.Element {
   const rightPanel = requirement ? (
     <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
       <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
-      <EntityTypeProvider
-        entityType="requirement"
-        entitySubType={(requirement.type || 'SyReq') as RequirementType}
-        visibleFields={attributeVisibility}
-        requiredFields={requiredFields}
-      >
-        <RequirementForm
-          requirement={requirement}
-          upstreamLinks={upstreamLinks}
-          downstreamLinks={downstreamLinks}
-          linkedTitles={linkedTitles}
-          linkedRoutes={linkedRoutes}
-          requirements={requirements}
-          workspaceId={activeWorkspace!.id}
-          onSaved={refresh}
-          onCancel={() => navigate('/requirements')}
+      <TraceSpine
+        stations={derivationChain.stations}
+        isLoading={derivationChain.isLoading}
+        error={derivationChain.error}
+        onOpenArtifact={handleOpenChainArtifact}
+        isOpenable={derivationChain.isOpenable}
+      />
+      <RequirementArtifactForm
+        key={requirement.id}
+        requirement={requirement}
+        onSaved={handleSaved}
+        onDeleted={() => {
+          refresh();
+          navigate('/requirements');
+        }}
+        onDirtyChange={setFormDirty}
+        customFields={customFieldsDraft}
+      />
+
+      {/* Sibling of the definition-driven form, not inside it — see
+          RequirementArtifactForm's docstring for why (REQ-L2-AS-037). */}
+      <div className={styles.customFieldsSection}>
+        <h3 className={styles.customFieldsSectionHeading}>
+          {t('customFields.section')}
+        </h3>
+        <CustomFieldsEditor
+          key={requirement.id}
+          value={requirement.custom_fields}
+          onChange={setCustomFieldsDraft}
         />
-      </EntityTypeProvider>
+      </div>
 
       {/* TraceLink management incl. "Ableiten" (REQ-L2-RF-006) — restored
           after the SplitView refactor dropped this panel. The read-only
-          trace view lives in the ArtifactInspector inside RequirementForm. */}
+          trace view lives in the ArtifactInspector inside RequirementArtifactForm. */}
       {activeWorkspace && (
         <ReqTraceLinkPanel
           workspaceId={activeWorkspace.id}
           requirementId={requirement.id}
           requirements={requirements}
           onLinksChanged={refresh}
-          onAiDerive={handleAiDerive}
+          // R2/T1: ReqTraceLinkPanel already renders the ✨ Ableiten button
+          // conditionally on `onAiDerive` being provided (see its own props
+          // doc) — reused here instead of adding a second gate inside the
+          // panel.
+          onAiDerive={hasRole('editor') ? handleAiDerive : undefined}
           isAiDeriving={isAiDeriving}
         />
       )}
@@ -451,16 +745,20 @@ export default function RequirementEditors(): JSX.Element {
         </div>
       )}
 
-      {/* SysEng 2.0 N5: AI-generate a TestCase draft for this requirement */}
-      <div style={{ marginTop: 'var(--space-2)' }}>
-        <button
-          type="button"
-          onClick={() => setShowDeriveTestcasePanel(true)}
-          data-testid="req-derive-testcase-btn"
-        >
-          {t('deriveTestcase.trigger')}
-        </button>
-      </div>
+      {/* SysEng 2.0 N5: AI-generate a TestCase draft for this requirement.
+          R2/T1: rendered conditionally, not just disabled — a viewer must
+          not find this trigger in the DOM at all. */}
+      {hasRole('editor') && (
+        <div style={{ marginTop: 'var(--space-2)' }}>
+          <button
+            type="button"
+            onClick={() => setShowDeriveTestcasePanel(true)}
+            data-testid="req-derive-testcase-btn"
+          >
+            {t('deriveTestcase.trigger')}
+          </button>
+        </div>
+      )}
 
       {/* REQ-L2-VS-004: semantic similarity search */}
       <SimilarRequirementsPanel
@@ -473,6 +771,7 @@ export default function RequirementEditors(): JSX.Element {
           kind="requirement"
           artifactId={requirement.id}
           currentVersion={currentVersion}
+          hideTraceLinks
         />
       )}
     </div>
@@ -491,50 +790,49 @@ export default function RequirementEditors(): JSX.Element {
 
   return (
     <>
-      {showDeriveTestcasePanel && requirement && activeWorkspace && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 1000,
-            overflow: 'auto',
-            padding: 'var(--space-4)',
-          }}
-          data-testid="derive-testcase-dialog"
-        >
-          <div
-            style={{
-              background: 'var(--color-surface)',
-              borderRadius: 'var(--radius-lg)',
-              boxShadow: 'var(--shadow-md)',
-              maxWidth: '600px',
-              width: '100%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-            }}
-          >
-            <DeriveTestCasePanel
-              workspaceId={activeWorkspace.id}
-              requirement={{ id: requirement.id, title: requirement.title }}
-              onCreated={() => setShowDeriveTestcasePanel(false)}
-              onClose={() => setShowDeriveTestcasePanel(false)}
-            />
-          </div>
-        </div>
+      {pendingSelectId && (
+        <ConfirmDialog
+          title={t('editor.unsavedChangesTitle')}
+          message={t('editor.unsavedChangesMessage')}
+          confirmLabel={t('editor.discardChanges')}
+          onConfirm={confirmPendingSelect}
+          onCancel={() => setPendingSelectId(null)}
+          testId="req-unsaved-changes-dialog"
+        />
       )}
-      <SplitView
-        leftPanel={leftPanel}
-        rightPanel={rightPanel}
-        leftMinWidth={260}
-        leftMaxWidthPercent={70}
-        moduleType="requirements"
-      />
+      {showDeriveTestcasePanel && requirement && activeWorkspace && (
+        <Dialog
+          title={t('deriveTestcase.title')}
+          description={requirement.title}
+          onClose={() => setShowDeriveTestcasePanel(false)}
+          size="lg"
+          testId="derive-testcase-dialog"
+        >
+          <DeriveTestCasePanel
+            workspaceId={activeWorkspace.id}
+            requirement={{ id: requirement.id, title: requirement.title }}
+            onCreated={() => setShowDeriveTestcasePanel(false)}
+          />
+        </Dialog>
+      )}
+      {/* Same page shell as RiskEditors/AdrEditors/IssueEditors: header at
+          page level, SplitView filling the rest. */}
+      <div
+        data-testid="requirements-page"
+        style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
+      >
+        {pageHeader}
+
+        <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
+          <SplitView
+            leftPanel={leftPanel}
+            rightPanel={rightPanel}
+            leftMinWidth={260}
+            leftMaxWidthPercent={70}
+            moduleType="requirements"
+          />
+        </div>
+      </div>
     </>
   );
 }

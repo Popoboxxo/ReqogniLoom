@@ -53,7 +53,7 @@ from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import ItemPermissionService, Operation
 from auth_tenancy.services.item_permission import PermissionDecision
 
-from application.base import (
+from persistence.errors import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,

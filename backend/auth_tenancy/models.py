@@ -5,6 +5,8 @@ Defines the auth-specific persistent entities that do NOT live in the
 PersistenceLayer foundation:
 
 * :class:`ApiKey` — hashed API-key record (COMP-AT-001, REQ-L3-AT001-002/003).
+* :class:`RefreshToken` — one row per issued refresh JWT, enabling
+  rotation-with-reuse-detection (SA-32, SYSTEMAUDIT-2026-08-27 §4.6 F7).
 * :class:`UserRole` — workspace-scoped RBAC role assignment (COMP-AT-002,
   REQ-L3-AT002-002/003, REQ-L2-AT-006).
 * :class:`ItemPermission` — item-level RBAC rules as defense-in-depth over the
@@ -26,7 +28,7 @@ from __future__ import annotations
 
 from django.db import models
 
-from persistence.models import TenantScopedModel
+from persistence.models import AuditableModel, TenantScopedModel
 
 # Allowed role names (COMP-AT-002 RBAC matrix). ``approver`` is gated to the
 # Extended preset by PresetPolicyValidator, not by the schema.
@@ -56,15 +58,72 @@ ITEM_PERMISSION_LEVEL_CHOICES = (
 # Maximum number of simultaneously active API keys per user (REQ-L3-AT001-003).
 MAX_ACTIVE_API_KEYS_PER_USER = 10
 
+# Principal type of an API key (KI-Vorschlag-als-Zustand spec §3). ``agent``
+# makes the key act as an AI agent in its own right, not as the owning human:
+# the resolved AuthContext carries ``actor_type="agent"`` and every artifact the
+# key creates lands in the "proposed" workflow state where the graph has one.
+PRINCIPAL_TYPE_USER = "user"
+PRINCIPAL_TYPE_AGENT = "agent"
+PRINCIPAL_TYPE_CHOICES = (
+    (PRINCIPAL_TYPE_USER, "User"),
+    (PRINCIPAL_TYPE_AGENT, "Agent"),
+)
+
+# Capability scope of an API key (#865, audit finding E2.1). Ordered tiers:
+# ``read_only`` reads, ``author`` reads + ordinary content writes, ``admin``
+# everything including governance operations (baseline gate override/waiver,
+# key management, user/role management, admin_ops). The two legacy values are
+# kept and keep their exact historical meaning — ``read`` is the READ_ONLY
+# tier, ``write`` is the ADMIN tier (a legacy ``write`` key can still reach
+# every operation its owner's roles allow). See
+# ``auth_tenancy.services.authorization`` for the tier mapping and the gate.
+API_KEY_SCOPE_READ_ONLY = "read_only"
+API_KEY_SCOPE_AUTHOR = "author"
+API_KEY_SCOPE_ADMIN = "admin"
+API_KEY_SCOPE_READ = "read"
+API_KEY_SCOPE_WRITE = "write"
+API_KEY_SCOPE_CHOICES = (
+    (API_KEY_SCOPE_READ, "Read (legacy alias of read_only)"),
+    (API_KEY_SCOPE_WRITE, "Write (legacy alias of admin)"),
+    (API_KEY_SCOPE_READ_ONLY, "Read-only"),
+    (API_KEY_SCOPE_AUTHOR, "Author (content writes only)"),
+    (API_KEY_SCOPE_ADMIN, "Admin (all operations)"),
+)
+
+#: Every accepted scope name, lower-cased — canonical names plus the two
+#: legacy aliases. Anything else is rejected at the API boundary.
+API_KEY_SCOPE_NAMES: frozenset[str] = frozenset(
+    name for name, _label in API_KEY_SCOPE_CHOICES
+)
+
+
+def normalize_api_key_scope(value: object) -> str | None:
+    """Return the canonical scope name for *value*, or ``None`` if invalid.
+
+    Case-insensitive and whitespace-tolerant; legacy ``read``/``write`` are
+    returned unchanged so they keep behaving exactly as before (#865).
+    """
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().lower()
+    return candidate if candidate in API_KEY_SCOPE_NAMES else None
+
 
 class ApiKey(TenantScopedModel):
     """Hashed API-key credential for AI agents / API clients (COMP-AT-001).
 
-    Stores only the SHA-256 hash of the key (``sha256:<hex>``); the plaintext is
-    returned to the caller exactly once at creation and never persisted or logged
+    Stores only a hash of the key; the plaintext is returned to the caller
+    exactly once at creation and never persisted or logged
     (REQ-L3-AT001-002/003). Lookup during authentication happens *before* a tenant
     context exists, so callers must query via the ``unscoped`` manager
     (inherited from :class:`TenantScopedModel`).
+
+    ``key_hash`` carries a version prefix (SA-34): ``"sha256p1:<hex>"`` is
+    HMAC-SHA256 keyed with ``settings.API_KEY_PEPPER``, ``"sha256:<hex>"`` is
+    the original bare digest kept for keys issued before a pepper was
+    configured. The prefix is what lets both coexist without a data migration —
+    the plaintext needed to re-hash an old row is deliberately unrecoverable.
+    See ``auth_tenancy.services.authentication.api_key_hash_candidates``.
 
     Inherits from ``TenantScopedModel``: UUID PK, ``tenant`` FK, audit fields and
     the tenant-isolating default manager (used for tenant-scoped admin listings).
@@ -76,10 +135,31 @@ class ApiKey(TenantScopedModel):
         related_name="api_keys",
     )
     name = models.CharField(max_length=255)
-    # Format: "sha256:<64 hex chars>". Indexed for O(1) credential lookup.
+    # Format: "sha256p1:<64 hex>" (peppered, SA-34) or "sha256:<64 hex>"
+    # (legacy). 80 chars leaves room for both prefixes plus future versions.
+    # Indexed for O(1) credential lookup.
     key_hash = models.CharField(max_length=80, unique=True, db_index=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
+    #: ``agent`` makes the key a principal of its own (spec §3). Default
+    #: ``user`` keeps every pre-existing key behaving exactly as before — this
+    #: feature is opt-in per key, never retroactive.
+    principal_type = models.CharField(
+        max_length=16, choices=PRINCIPAL_TYPE_CHOICES, default=PRINCIPAL_TYPE_USER
+    )
+    #: Human-readable agent name shown wherever the owning user's name would
+    #: otherwise appear (provenance labels, audit trail, workflow history).
+    agent_label = models.CharField(max_length=255, blank=True, default="")
+    #: Capability scope of this key, checked at the REST and MCP permission
+    #: seams (#865). Default ``write`` = the legacy, widest (ADMIN) tier.
+    scope = models.CharField(
+        max_length=16, choices=API_KEY_SCOPE_CHOICES, default=API_KEY_SCOPE_WRITE
+    )
+    #: Workspace UUIDs (as strings) this key may act in. Empty list = every
+    #: workspace the owning user holds a role in (the historical behaviour).
+    workspace_ids = models.JSONField(default=list, blank=True)
+    #: Hard expiry. NULL = never expires (historical behaviour).
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "at_api_key"
@@ -95,6 +175,88 @@ class ApiKey(TenantScopedModel):
     def is_active(self) -> bool:
         """Return whether the key has not been revoked (REQ-L3-AT001-002)."""
         return self.revoked_at is None
+
+    @property
+    def is_expired(self) -> bool:
+        """Return whether the key's hard expiry has passed (NULL = never)."""
+        if self.expires_at is None:
+            return False
+        from django.utils import timezone
+
+        return self.expires_at <= timezone.now()
+
+
+class RefreshToken(TenantScopedModel):
+    """Server-side record of one issued refresh JWT (SA-32, GitHub #135).
+
+    SYSTEMAUDIT-2026-08-27 §4.6 F7: refresh tokens were pure stateless JWTs.
+    ``RefreshView`` rotated them, but nothing marked the *previous* token as
+    spent, so a stolen refresh token stayed usable for its full 30-day lifetime
+    even after the legitimate user had already rotated it. Detecting that reuse
+    requires exactly one bit of server-side state per issued token — this table.
+
+    Rotation model (the standard OAuth 2.0 BCP §4.13.2 refresh-token-rotation
+    scheme):
+
+    * ``jti`` identifies a single token. Every issued refresh JWT carries it.
+    * ``session_id`` identifies the **family**: the login plus every token
+      rotated out of it. A family is the unit of revocation.
+    * Presenting a token whose row already has ``used_at`` set means two parties
+      hold the same token — the legitimate client and a thief. Which is which is
+      unknowable, so the whole family is revoked and both must log in again.
+
+    Only opaque identifiers are stored. The JWT itself (and therefore its
+    signature) is never persisted, so this table leaks no credential if read.
+
+    Inherits ``TenantScopedModel``; like :class:`ApiKey` it is looked up on the
+    public ``/auth/refresh/`` endpoint *before* a tenant context exists, so
+    callers must use the ``unscoped`` manager.
+    """
+
+    user = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="refresh_tokens",
+    )
+    #: ``jti`` claim of this specific token — the rotation unit.
+    jti = models.UUIDField(unique=True, db_index=True)
+    #: ``sid`` claim shared by every token rotated out of one login.
+    session_id = models.UUIDField(db_index=True)
+    #: Mirrors the JWT ``exp``; lets the cleanup command purge dead rows.
+    expires_at = models.DateTimeField()
+    #: Set when this token was exchanged. A second exchange is reuse.
+    used_at = models.DateTimeField(null=True, blank=True)
+    #: Set on logout or when reuse revoked the whole family.
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    #: Why the family was revoked: ``"reuse_detected"`` or ``"logout"``. Empty
+    #: for a normal rotation, which sets ``used_at`` and nothing else.
+    revoked_reason = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta:
+        db_table = "at_refresh_token"
+        indexes = [
+            models.Index(
+                fields=["session_id", "revoked_at"],
+                name="idx_refresh_session_active",
+            ),
+            models.Index(
+                fields=["expires_at"], name="idx_refresh_expires"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        if self.revoked_at is not None:
+            state = "revoked"
+        elif self.used_at is not None:
+            state = "used"
+        else:
+            state = "active"
+        return f"RefreshToken({self.jti}, {state})"
+
+    @property
+    def is_spendable(self) -> bool:
+        """Return whether this token may still be exchanged."""
+        return self.used_at is None and self.revoked_at is None
 
 
 class UserRole(TenantScopedModel):
@@ -143,6 +305,61 @@ class UserRole(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"UserRole({self.user_id}, {self.role}@{self.workspace_id})"
+
+    @property
+    def is_active(self) -> bool:
+        """Return whether the assignment is effective (not suspended)."""
+        return self.suspended_at is None
+
+
+class TenantRole(TenantScopedModel):
+    """Tenant-wide admin role assignment (issue: multi-user management).
+
+    Distinct from the workspace-scoped ``UserRole``: this grants
+    administrative authority over the whole tenant (creating users,
+    assigning workspace roles across any workspace in the tenant),
+    not just one workspace. Only ``role="admin"`` exists today; modelled
+    as a role table (not a boolean flag on ``User``) for symmetry with
+    ``UserRole`` — same audit trail (``assigned_by``), same
+    suspend/reactivate mechanism (``suspended_at``), same last-admin
+    invariant enforcement code shape as the workspace level.
+
+    Inherits ``TenantScopedModel``: UUID PK, audit fields, the ``tenant``
+    FK and the tenant-isolating default manager.
+    """
+
+    ROLE_ADMIN = "admin"
+    ROLE_CHOICES = ((ROLE_ADMIN, "Admin"),)
+
+    user = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="tenant_role_assignments",
+    )
+    role = models.CharField(max_length=32, choices=ROLE_CHOICES, default=ROLE_ADMIN)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    assigned_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "at_tenant_role"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user", "role"],
+                name="uq_tenantrole_tenant_user_role",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "user"], name="idx_tenantrole_tenant_user"),
+        ]
+
+    def __str__(self) -> str:
+        return f"TenantRole({self.user_id}, {self.role}@{self.tenant_id})"
 
     @property
     def is_active(self) -> bool:
@@ -273,6 +490,27 @@ class UserWorkspacePreference(TenantScopedModel):
         return (
             f"UserWorkspacePreference({self.user_id}, ws={self.workspace_id})"
         )
+
+
+class UserNotificationPreference(AuditableModel):
+    """Per-user opt-out from in-app notification triggers (OD-1, 2026-09-15).
+
+    One row per user, across every tenant and workspace — ``User`` is itself an
+    ``AuditableModel`` without tenant scoping (`persistence/models.py:463`), so
+    the preference follows the same global identity. A missing row, or a kind
+    absent from ``disabled_triggers``, means the trigger is ENABLED: opting out
+    is the deviation, not opting in.
+    """
+
+    user = models.OneToOneField(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="notification_preference",
+    )
+    disabled_triggers = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "at_user_notification_preference"
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +743,9 @@ class PermissionDecisionMismatch(TenantScopedModel):
 
 __all__ = [
     "ApiKey",
+    "RefreshToken",
     "UserRole",
+    "TenantRole",
     "ItemPermission",
     "GlobalPermissionDefinition",
     "WorkspacePermissionDefinition",
@@ -521,4 +761,12 @@ __all__ = [
     "ITEM_PERMISSION_NONE",
     "ITEM_PERMISSION_LEVEL_CHOICES",
     "MAX_ACTIVE_API_KEYS_PER_USER",
+    "API_KEY_SCOPE_ADMIN",
+    "API_KEY_SCOPE_AUTHOR",
+    "API_KEY_SCOPE_CHOICES",
+    "API_KEY_SCOPE_NAMES",
+    "API_KEY_SCOPE_READ",
+    "API_KEY_SCOPE_READ_ONLY",
+    "API_KEY_SCOPE_WRITE",
+    "normalize_api_key_scope",
 ]

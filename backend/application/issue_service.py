@@ -5,7 +5,7 @@ leaf_id : COMP-AS-015
 req_id  : REQ-L1-029
 
 Orchestrates:
-  IF-AS-INT-002   TraceLinkService.create_trace_link / cascade_delete_trace_links
+  IF-AS-INT-002   TraceLinkService.create_trace_link
   IF-AS-INT-003   WorkflowFacade.transition (status transitions)
   IF-AS-INT-017   DomainEventBus → IssueCreated/Updated/Deleted (Outbox)
   IF-AS-EXT-OUT-007  application.models.Issue (Django ORM)
@@ -30,13 +30,34 @@ from auth_tenancy.context import AuthContext
 from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
+from application.artifact_service import (
+    _clean_custom_fields,
+    has_field_changes,
+    snapshot_versioned_fields,
+)
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox, Issue
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
+from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
 # Supported TraceLink types for Issues (REQ-L3-ISSUE-006)
 ISSUE_LINK_TYPES = frozenset({"related-to", "blocks", "blocked-by", "caused-by", "resolves"})
+
+#: Task 20 review finding F-2: ``update_issue``'s ``due_date`` default used to
+#: be plain ``None``, which cannot distinguish "the client omitted this
+#: field" (leave the stored value unchanged) from "the client explicitly
+#: cleared it" (``PATCH {"due_date": null}``) — both collapsed onto
+#: ``if due_date is not None`` never firing, so a due date could be set but
+#: never cleared. Same sentinel pattern already used for this exact class of
+#: bug in architecture_service.py/artifact_service.py/requirement_service.py/
+#: stakeholder_need_service.py (see also Issue #409 in rest_api/views.py).
+_UNSET = object()
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +86,9 @@ class IssueDTO:
     tags: List[str] = field(default_factory=list)
 
     @classmethod
-    def from_orm(cls, issue: Issue) -> "IssueDTO":
+    def from_orm(cls, issue: Issue, *, status: str = "") -> "IssueDTO":
+        """Build a DTO. ``status`` comes from the workflow engine (Phase 1)."""
+        resolved_status = status
         return cls(
             id=issue.id,
             workspace_id=issue.workspace_id,
@@ -75,7 +98,7 @@ class IssueDTO:
             severity=issue.severity,
             category=issue.category,
             assignee_id=issue.assignee_id,
-            status=issue.status,
+            status=resolved_status,
             version=issue.version,
             tags=issue.tags if isinstance(issue.tags, list) else [],
         )
@@ -95,6 +118,9 @@ class IssueValidator:
 
     VALID_SEVERITIES = frozenset(Issue.Severity.values)
     VALID_CATEGORIES = frozenset(Issue.Category.values)
+    # Datenmodell-Konsolidierung Phase 1: still used by transition_status()'s
+    # target-state validation — unrelated to create-time status, which is
+    # retired below (no longer a validate_create input).
     VALID_STATUSES = frozenset(Issue.IssueStatus.values)
 
     @classmethod
@@ -103,9 +129,8 @@ class IssueValidator:
         title: str,
         severity: str,
         category: str = "defect",
-        status: str = "Open",
     ) -> None:
-        """Validate fields for Issue creation."""
+        """Validate fields for Issue creation. Status is not an input (Phase 1)."""
         if not title:
             raise ValidationError("Issue title is required")
         if severity not in cls.VALID_SEVERITIES:
@@ -117,11 +142,6 @@ class IssueValidator:
             raise ValidationError(
                 f"Issue category '{category}' invalid; "
                 f"must be one of {sorted(cls.VALID_CATEGORIES)}"
-            )
-        if status not in cls.VALID_STATUSES:
-            raise ValidationError(
-                f"Issue status '{status}' invalid; "
-                f"must be one of {sorted(cls.VALID_STATUSES)}"
             )
 
 
@@ -163,10 +183,13 @@ class IssueService(ServiceBase):
         assignee_id: Optional[UUID] = None,
         due_date=None,
         tags: Optional[List[str]] = None,
-        status: str = "Open",
         uid: Optional[str] = None,
+        custom_fields: Optional[dict] = None,
     ) -> Issue:
         """Create an Issue with initial workflow state (REQ-L3-ISSUE-001).
+
+        The initial state comes from the workflow definition, not from the
+        caller (Datenmodell-Konsolidierung Phase 1).
 
         Args:
             workspace_id: Target workspace UUID.
@@ -178,7 +201,6 @@ class IssueService(ServiceBase):
             assignee_id: Optional UUID of the assignee.
             due_date: Optional due datetime.
             tags: Optional list of string tags.
-            status: Initial status (default: Open).
 
         Returns:
             Persisted Issue ORM instance.
@@ -187,10 +209,7 @@ class IssueService(ServiceBase):
         self._assert_write_permission(ctx)
 
         IssueValidator.validate_create(
-            title=title,
-            severity=severity,
-            category=category,
-            status=status,
+            title=title, severity=severity, category=category
         )
 
         # REQ-L2-TE-020: create the backing Artifact first so the Issue can
@@ -210,8 +229,14 @@ class IssueService(ServiceBase):
             tenant=tenant,
             workspace=workspace,
             artifact_type="Issue",
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
+        # Datenmodell-Konsolidierung Phase 1: `status` is no longer a create
+        # parameter at all — WorkflowItemState.current_state (seeded below
+        # from the workflow definition's initial_state) is the sole
+        # authority. The model field's own default keeps the column non-null
+        # until it is dropped (Task 12).
         issue = Issue.objects.create(
             artifact=artifact,
             workspace_id=workspace_id,
@@ -223,9 +248,14 @@ class IssueService(ServiceBase):
             assignee_id=assignee_id,
             due_date=due_date,
             tags=tags or [],
-            status=status,
             uid=uid,
-            created_by=str(ctx.user_id),
+            created_by_name=str(ctx.user_id),
+        )
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. create_issue takes no change_reason.
+        ArtifactVersionService().record(
+            issue.artifact_id, snapshot_fields(issue, "Issue"), ctx
         )
 
         # Initialize workflow state (IF-AS-EXT-OUT-001)
@@ -263,9 +293,11 @@ class IssueService(ServiceBase):
         description: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
-        due_date=None,
+        due_date: object = _UNSET,
         tags: Optional[List[str]] = None,
         change_reason: Optional[str] = None,
+        custom_fields: object = _UNSET,
+        expected_version: Optional[int] = None,
     ) -> Issue:
         """Update an Issue, incrementing its version (REQ-L3-ISSUE-003, ADR-L3-ISSUE-01).
 
@@ -278,19 +310,37 @@ class IssueService(ServiceBase):
             description: New description (optional).
             severity: New severity (optional).
             category: New category (optional).
-            due_date: New due date (optional).
+            due_date: New due date, or ``None`` to explicitly clear it.
+                Defaults to the ``_UNSET`` sentinel, meaning "not sent by the
+                caller, leave the stored value unchanged" — distinct from an
+                explicit ``None`` (F-2 fix, Task 20 review round).
             tags: New tags list (optional).
             change_reason: Optional change rationale for audit.
+            expected_version: Caller's last-seen ``version``. When supplied and
+                stale, the update is refused with ``OptimisticLockError`` (409)
+                instead of overwriting a concurrent edit. Omitting it keeps the
+                previous last-writer-wins behaviour.
 
         Returns:
             Updated Issue ORM instance.
+
+        Raises:
+            OptimisticLockError: *expected_version* does not match the stored one.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        issue = Issue.objects.filter(id=issue_id, tenant_id=ctx.tenant_id).first()
+        issue = lock_for_version_check(
+            Issue.objects.filter(id=issue_id, tenant_id=ctx.tenant_id), expected_version
+        ).first()
         if issue is None:
             raise NotFoundError(f"Issue {issue_id} not found")
+        assert_expected_version(issue, expected_version, entity_type="Issue")
+
+        # #269 finding 5: snapshot BEFORE any assignment so the version bump
+        # below can be gated on a real value change.
+        _before = snapshot_versioned_fields(issue)
+        _custom_fields_changed = False
 
         if title is not None:
             if not title:
@@ -306,17 +356,44 @@ class IssueService(ServiceBase):
             if category not in IssueValidator.VALID_CATEGORIES:
                 raise ValidationError(f"Invalid category '{category}'")
             issue.category = category
-        if due_date is not None:
+        if due_date is not _UNSET:
             issue.due_date = due_date
         if tags is not None:
             issue.tags = tags
 
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
+        # outside the Issue snapshot and has to be compared separately. Legacy
+        # rows created before REQ-L2-TE-020 may have no backing Artifact yet
+        # (nullable FK) — reject rather than silently drop the write.
+        if custom_fields is not _UNSET:
+            if issue.artifact is None:
+                raise ValidationError(
+                    "Issue has no backing Artifact; custom_fields is unsupported "
+                    "for this legacy record"
+                )
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            _custom_fields_changed = (
+                cleaned_custom_fields != (issue.artifact.custom_fields or {})
+            )
+            issue.artifact.custom_fields = cleaned_custom_fields
+            issue.artifact.save(update_fields=["custom_fields", "modified_at"])
+
         # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
         # then issue a single SQL UPDATE that increments version at the database
         # level — avoids the read-modify-write race condition of `version += 1`.
+        # #269 finding 5: only a real value change is a new revision.
         issue.save()
-        Issue.objects.filter(id=issue.id).update(version=F("version") + 1)
-        issue.refresh_from_db(fields=["version"])
+        if has_field_changes(issue, _before) or _custom_fields_changed:
+            Issue.objects.filter(id=issue.id).update(version=F("version") + 1)
+            issue.refresh_from_db(fields=["version"])
+            # Datenmodell-Konsolidierung Phase 5 (spec §6.1): recorded under
+            # the same "this really changed something" gate as the version bump.
+            ArtifactVersionService().record(
+                issue.artifact_id,
+                snapshot_fields(issue, "Issue"),
+                ctx,
+                change_reason=change_reason or "",
+            )
 
         self._audit(
             ctx=ctx,
@@ -337,7 +414,12 @@ class IssueService(ServiceBase):
 
     @atomic_transaction
     def delete_issue(self, issue_id: UUID, ctx: AuthContext) -> None:
-        """Delete Issue and cascade-delete TraceLinks (REQ-L3-ISSUE-004).
+        """Soft-delete an Issue via the workflow engine (REQ-L3-ISSUE-004).
+
+        GH-484: TraceLinks are no longer hard-deleted on soft-delete — they
+        survive alongside the outdated Issue, symmetric with
+        Requirement/ADR/Need/etc., so ``reactivate()`` (GH-443) restores the
+        record with its links intact instead of silently losing them.
 
         Args:
             issue_id: UUID of the Issue to delete.
@@ -352,15 +434,17 @@ class IssueService(ServiceBase):
 
         workspace_id = issue.workspace_id
 
-        try:
-            self._trace_link_service.cascade_delete_trace_links(issue_id, ctx)
-        except Exception:
-            logger.debug(
-                "IssueService.delete_issue: cascade TraceLink delete skipped for issue=%s",
-                issue_id,
-            )
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of hard-deleting the row.
+        from workflow.services import outdate
 
-        issue.delete()
+        outdate(
+            item_id=issue.id,
+            item_type="Issue",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via issue.delete",
+        )
 
         self._audit(
             ctx=ctx, operation="delete", entity_type="Issue", entity_id=issue_id
@@ -389,12 +473,20 @@ class IssueService(ServiceBase):
             raise NotFoundError(f"Issue {issue_id} not found")
         return issue
 
-    def list_issues(self, workspace_id: UUID, ctx: AuthContext) -> QuerySet[Issue]:
+    def list_issues(
+        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+    ) -> QuerySet[Issue]:
         """Return all Issues in *workspace_id* (tenant-scoped, REQ-L3-ISSUE-011).
 
         Args:
             workspace_id: Target workspace UUID.
             ctx: Resolved AuthContext.
+            include_deleted: When False (default), excludes Issues soft-deleted
+                via ``workflow.services.outdate()`` (REQ-006, Phase 0). ``Issue``
+                is registered in
+                ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, so
+                ``outdate()`` writes ``"outdated"`` into the mirrored
+                ``status`` field.
 
         Returns:
             QuerySet of Issue ORM instances.
@@ -403,9 +495,44 @@ class IssueService(ServiceBase):
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
-        return Issue.objects.filter(
-            workspace_id=workspace_id, tenant_id=ctx.tenant_id
-        ).order_by("created_at")
+        qs = Issue.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
+        if not include_deleted:
+            # Datenmodell-Konsolidierung Phase 4 (D-3): soft-delete routes
+            # through workflow.services.outdate(), which sets
+            # Artifact.lifecycle_status and no longer writes an "outdated"
+            # workflow state -- so this must read the flag seam, not
+            # state_reader.item_ids_in_state, which would match nothing.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("Issue", tenant_id=ctx.tenant_id))
+        return qs.order_by("created_at")
+
+    def list_issues_by_status(
+        self, workspace_id: UUID, status: str, ctx: AuthContext
+    ) -> List[Issue]:
+        """Return Issues filtered by workflow *status* (REQ-L3-ISSUE-011).
+
+        Args:
+            workspace_id: Target workspace UUID.
+            status: Workflow state name to match.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            Filtered list of Issue ORM instances.
+        """
+        self._set_tenant_context(ctx)
+        # Phase 4 (D-3): *status* is caller-supplied and may be "outdated",
+        # which now lives on Artifact.lifecycle_status rather than being a
+        # workflow state -- item_ids_with_status routes it accordingly.
+        from workflow.services import item_ids_with_status
+
+        return list(
+            Issue.objects.filter(
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                id__in=item_ids_with_status("Issue", status, tenant_id=ctx.tenant_id),
+            ).order_by("created_at")
+        )
 
     def list_issues_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext
@@ -479,7 +606,22 @@ class IssueService(ServiceBase):
             workspace_id=workspace_id, tenant_id=ctx.tenant_id
         )
         if statuses:
-            qs = qs.filter(status__in=statuses)
+            # Datenmodell-Konsolidierung Phase 1: Issue.status is no longer
+            # written by the workflow engine — resolve through the status
+            # seams instead, same as list_issues_by_status. Phase 4 (D-3):
+            # via item_ids_with_status, since "outdated" is a valid member of
+            # *statuses* and now lives on Artifact.lifecycle_status. Each seam
+            # only matches one status at a time, so the id sets are unioned in
+            # Python (bounded by the small IssueStatus vocabulary, not a
+            # per-row loop).
+            from workflow.services import item_ids_with_status
+
+            matched_ids: set = set()
+            for status in statuses:
+                matched_ids |= set(
+                    item_ids_with_status("Issue", status, tenant_id=ctx.tenant_id)
+                )
+            qs = qs.filter(id__in=matched_ids)
         if severities:
             qs = qs.filter(severity__in=severities)
         return list(qs.order_by("created_at"))
@@ -575,10 +717,8 @@ class IssueService(ServiceBase):
         # enforced by the engine; their errors propagate and abort this atomic
         # transaction instead of being swallowed (the previous bare
         # ``except Exception: pass`` silently flipped the status even when a gate
-        # denied the move). The engine also writes the denormalized ``status``
-        # mirror inside its own transaction (StateLifecycleManager
-        # ._sync_status_mirror), so no direct status assignment is done here. A
-        # workflow transition is not a content edit, so ``version`` is not bumped.
+        # denied the move). A workflow transition is not a content edit, so
+        # ``version`` is not bumped.
         from application.workflow_facade import WorkflowFacade
 
         WorkflowFacade().transition(
@@ -590,7 +730,18 @@ class IssueService(ServiceBase):
             change_reason=change_reason or "",
             credential=credential or "",
         )
-        issue.refresh_from_db(fields=["status", "version"])
+        issue.refresh_from_db(fields=["version"])
+        # Datenmodell-Konsolidierung Phase 1 (Task 12): the ``status`` column
+        # is dropped, so it can no longer be refreshed or read as a fallback.
+        # Set the in-memory (not persisted) ``.status`` from the engine so the
+        # returned Issue instance still exposes the real current state, same
+        # fallback convention as GoalService.transition_status. The engine
+        # state is guaranteed to exist here (the transition above just
+        # succeeded), so ``state_reader.initial_state`` never actually
+        # triggers.
+        issue.status = state_reader.current_state(
+            "Issue", issue.id
+        ) or state_reader.initial_state("Issue")
 
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine (WorkflowFacade._audit, op="transition") inside the same

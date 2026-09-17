@@ -19,25 +19,28 @@ test.describe('Workspace Lifecycle (REQ-L1-042)', () => {
   });
 
   test('close button visible to admin', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    // Lifecycle controls live under the "Administration" tab (REQ-013 settings redesign).
-    await page.locator('[data-testid="settings-tab-admin"]').click();
+    await page.goto(`${FRONTEND_URL}/system-settings`);
+    // REQ-184: lifecycle controls moved to the tenant-wide SystemSettings
+    // shell; "administration" is the default tab, so no click is needed.
+    await expect(page.locator('[data-testid="system-settings-tab-administration"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="lifecycle-section"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="close-workspace-btn"]')).toBeVisible({ timeout: 5000 });
   });
 
   test('delete button visible to admin', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    // Lifecycle controls live under the "Administration" tab (REQ-013 settings redesign).
-    await page.locator('[data-testid="settings-tab-admin"]').click();
+    await page.goto(`${FRONTEND_URL}/system-settings`);
+    // REQ-184: lifecycle controls moved to the tenant-wide SystemSettings
+    // shell; "administration" is the default tab, so no click is needed.
+    await expect(page.locator('[data-testid="system-settings-tab-administration"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="lifecycle-section"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="delete-workspace-btn"]')).toBeVisible({ timeout: 5000 });
   });
 
   test('delete modal opens on button click', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    // Lifecycle controls live under the "Administration" tab (REQ-013 settings redesign).
-    await page.locator('[data-testid="settings-tab-admin"]').click();
+    await page.goto(`${FRONTEND_URL}/system-settings`);
+    // REQ-184: lifecycle controls moved to the tenant-wide SystemSettings
+    // shell; "administration" is the default tab, so no click is needed.
+    await expect(page.locator('[data-testid="system-settings-tab-administration"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="delete-workspace-btn"]')).toBeVisible({ timeout: 10000 });
     await page.click('[data-testid="delete-workspace-btn"]');
     await expect(page.locator('[data-testid="delete-modal"]')).toBeVisible({ timeout: 5000 });
@@ -45,9 +48,10 @@ test.describe('Workspace Lifecycle (REQ-L1-042)', () => {
   });
 
   test('delete requires captcha mismatch shows error', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    // Lifecycle controls live under the "Administration" tab (REQ-013 settings redesign).
-    await page.locator('[data-testid="settings-tab-admin"]').click();
+    await page.goto(`${FRONTEND_URL}/system-settings`);
+    // REQ-184: lifecycle controls moved to the tenant-wide SystemSettings
+    // shell; "administration" is the default tab, so no click is needed.
+    await expect(page.locator('[data-testid="system-settings-tab-administration"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="delete-workspace-btn"]')).toBeVisible({ timeout: 10000 });
     await page.click('[data-testid="delete-workspace-btn"]');
     await expect(page.locator('[data-testid="delete-modal"]')).toBeVisible({ timeout: 5000 });
@@ -61,9 +65,10 @@ test.describe('Workspace Lifecycle (REQ-L1-042)', () => {
   });
 
   test('delete confirm button disabled when captcha does not match', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    // Lifecycle controls live under the "Administration" tab (REQ-013 settings redesign).
-    await page.locator('[data-testid="settings-tab-admin"]').click();
+    await page.goto(`${FRONTEND_URL}/system-settings`);
+    // REQ-184: lifecycle controls moved to the tenant-wide SystemSettings
+    // shell; "administration" is the default tab, so no click is needed.
+    await expect(page.locator('[data-testid="system-settings-tab-administration"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="delete-workspace-btn"]')).toBeVisible({ timeout: 10000 });
     await page.click('[data-testid="delete-workspace-btn"]');
     await expect(page.locator('[data-testid="delete-modal"]')).toBeVisible({ timeout: 5000 });
@@ -77,9 +82,10 @@ test.describe('Workspace Lifecycle (REQ-L1-042)', () => {
   });
 
   test('delete cancel button closes modal', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/workspace-settings`);
-    // Lifecycle controls live under the "Administration" tab (REQ-013 settings redesign).
-    await page.locator('[data-testid="settings-tab-admin"]').click();
+    await page.goto(`${FRONTEND_URL}/system-settings`);
+    // REQ-184: lifecycle controls moved to the tenant-wide SystemSettings
+    // shell; "administration" is the default tab, so no click is needed.
+    await expect(page.locator('[data-testid="system-settings-tab-administration"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="delete-workspace-btn"]')).toBeVisible({ timeout: 10000 });
     await page.click('[data-testid="delete-workspace-btn"]');
     await expect(page.locator('[data-testid="delete-modal"]')).toBeVisible({ timeout: 5000 });

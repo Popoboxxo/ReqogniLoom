@@ -63,8 +63,9 @@ def decode_jwt(
     """Verify and decode an HS256 JWT, returning its claims (REQ-L3-AT001-001).
 
     Verifies, in order: structural validity, HS256 signature (constant-time),
-    ``exp`` expiry, ``iss`` issuer (if configured) and ``aud`` audience
-    (if configured).
+    ``exp`` expiry (mandatory — a token without ``exp`` is rejected), ``nbf``
+    not-before (if present), ``iss`` issuer (if configured) and ``aud``
+    audience (if configured).
 
     Args:
         token: Compact JWT string (``header.payload.signature``).
@@ -76,8 +77,9 @@ def decode_jwt(
         The decoded claims dict.
 
     Raises:
-        AuthenticationFailed: With ``invalid_token`` (malformed/unsupported alg),
-            ``invalid_signature`` (bad signature / iss / aud) or ``token_expired``.
+        AuthenticationFailed: With ``invalid_token`` (malformed/unsupported alg,
+            or missing ``exp``/not-yet-valid ``nbf``), ``invalid_signature``
+            (bad signature / iss / aud) or ``token_expired``.
     """
     parts = token.split(".")
     if len(parts) != 3:
@@ -104,8 +106,17 @@ def decode_jwt(
         raise AuthenticationFailed("invalid_signature")
 
     exp = claims.get("exp")
-    if exp is not None and int(exp) < int(time.time()):
+    if exp is None:
+        # A token without an expiry would be valid forever once issued,
+        # defeating token rotation/revocation entirely. Treat it the same
+        # as any other structurally invalid token (REQ-L3-AT001-001).
+        raise AuthenticationFailed("invalid_token")
+    if int(exp) < int(time.time()):
         raise AuthenticationFailed("token_expired")
+
+    nbf = claims.get("nbf")
+    if nbf is not None and int(nbf) > int(time.time()):
+        raise AuthenticationFailed("invalid_token")
 
     if issuer is not None and claims.get("iss") != issuer:
         raise AuthenticationFailed("invalid_signature")

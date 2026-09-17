@@ -33,18 +33,52 @@
  *   IF-RF-EXT-OUT-001 → GET  /api/v1/requirements/{id}/diff/, /versions/
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SplitView } from "../SplitView/SplitView";
+import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { ArtifactDiff, type DiffEntityType } from "../ArtifactDiff/ArtifactDiff";
 import { type AllowedTransition } from "../../api/requirements";
-import type { WorkflowArtifactType } from "../../api/workflow-transitions";
+import {
+  workflowTransitionsApi,
+  type WorkflowArtifactType,
+} from "../../api/workflow-transitions";
 import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError } from "../../api/errors";
-import { useReviewsData } from "./useReviewsData";
+import { useReviewsData, type ReviewQueueMode } from "./useReviewsData";
 import { SignatureDialog } from "./SignatureDialog";
 import { ReviewHistoryPanel } from "./ReviewHistoryPanel";
+import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
+
+// UI-34 (Systemaudit 2026-08-27 AP-5): the queue rendered every loaded item
+// in one unbounded `<ul>` with no pagination controls at all. This paginates
+// what `useReviewsData` already loaded (mirrors the client-side pagination
+// pattern other list views use); it does not change how many items are
+// fetched per page from the backend — see the caveat on `PAGE_SIZE` in the
+// component below.
+const REVIEWS_PAGE_SIZE = 20;
+
+// UI-34: hoisted named style constants for the pagination row instead of
+// inline literals (ui-ratchet.test.ts style-brace ceiling).
+const paginationRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "var(--space-3)",
+  marginTop: "var(--space-3)",
+};
+// Task 20: hoisted named style for the proposals-mode row (checkbox + button)
+// instead of an inline literal (ui-ratchet.test.ts style-brace ceiling).
+const reviewRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+};
+const paginationIndicatorStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+};
 
 type ReviewTab = "details" | "history";
 
@@ -72,6 +106,16 @@ const REVIEW_ACTION_CONFIG: Record<
   // REQ-173: diagrams join the review queue on the default approved/draft pair;
   // the server-side state machine stays authoritative.
   diagram: { approve: "approved", reject: "draft" },
+  // Issue #372: Goal/MainGoal (workflow/definition_store.py goal_default /
+  // main_goal_default) use their own "Entwurf" -> "Freigegeben" ->
+  // "Archiviert" lifecycle (no draft/approved/in_review naming). The queue
+  // lists items in "Entwurf" (see useReviewsData's PENDING_STATE_OVERRIDES),
+  // so "approve" targets "Freigegeben"; there is no earlier state to reject
+  // back to, so "reject" targets "Archiviert" (discard the draft), mirroring
+  // the Entwurf -> Archiviert escape-hatch transition goal_default already
+  // defines for goal.delete (issue #216).
+  goal: { approve: "Freigegeben", reject: "Archiviert" },
+  "main-goal": { approve: "Freigegeben", reject: "Archiviert" },
 };
 
 // REQ-168: the entity types the review queue can switch between, derived from
@@ -103,7 +147,41 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
   icd: "icd",
   glossary: "glossary",
   diagram: "diagram",
+  // Issue #372: ArtifactKind (shared/ArtifactInspector/types.ts) already
+  // defines "goal"/"mainGoal" diff kinds; wire them here so ArtifactDiff
+  // labels/routes correctly. Note: GoalViewSet/MainGoalViewSet only expose
+  // a `versions` action today (no `diff` action yet), so "View Diff" will
+  // surface a fetch error for these two types until that backend gap is
+  // closed separately — out of scope for this fix (pending list + filter +
+  // approve/reject).
+  goal: "goal",
+  "main-goal": "mainGoal",
 };
+
+/**
+ * Confirm a list of proposals one at a time (spec §4.4, minimal bulk edit).
+ *
+ * Sequential on purpose: each call is a workflow transition with optimistic
+ * locking and a server-side validator, and firing N of them in parallel turns
+ * a partial failure into an unreadable pile of 409s. A failing item never
+ * aborts the run — the caller reports both lists.
+ */
+export async function bulkConfirm(
+  ids: readonly string[],
+  confirmOne: (id: string) => Promise<unknown>,
+): Promise<{ confirmed: string[]; failed: string[] }> {
+  const confirmed: string[] = [];
+  const failed: string[] = [];
+  for (const id of ids) {
+    try {
+      await confirmOne(id);
+      confirmed.push(id);
+    } catch {
+      failed.push(id);
+    }
+  }
+  return { confirmed, failed };
+}
 
 function findTransition(
   transitions: AllowedTransition[] | undefined,
@@ -138,9 +216,11 @@ export default function ReviewsView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [isActing, setIsActing] = useState(false);
   const [pendingTransition, setPendingTransition] = useState<AllowedTransition | null>(null);
-
-  const { approve: APPROVE_TARGET, reject: REJECT_TARGET } =
-    REVIEW_ACTION_CONFIG[selectedArtifactType];
+  const [queueMode, setQueueMode] = useState<ReviewQueueMode>("review");
+  const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
+  const [bulkResult, setBulkResult] = useState<{ ok: number; failed: number } | null>(
+    null,
+  );
 
   const {
     items,
@@ -154,11 +234,34 @@ export default function ReviewsView({
     transition,
     diff,
     versions,
+    refreshList,
   } = useReviewsData({
     selectedId,
     includeHistory: tab === "history",
     artifactType: selectedArtifactType,
+    queueMode,
   });
+
+  // In proposals mode the confirm target is the graph's own initial state and
+  // the discard target its reject state — both come back in
+  // `transitions.allowed_transitions`, so read them rather than maintaining a
+  // second per-type table that would drift from the backend graph.
+  //
+  // SCOPE (security review M4): `transitions` belongs to `selectedId`, the item
+  // open in the DETAIL pane, so this pair is only ever valid for the detail
+  // Approve/Reject buttons. It must NOT be reused for bulk actions over
+  // `selectedIds` — see `confirmProposal` below, which resolves per item. The
+  // `?? "draft"`/`?? "rejected"` fallbacks below are unreachable in a request:
+  // with no `transitions`, `approveAllowed`/`rejectAllowed` resolve to
+  // undefined and both buttons are disabled.
+  const { approve: APPROVE_TARGET, reject: REJECT_TARGET } = useMemo(() => {
+    if (queueMode !== "proposals") return REVIEW_ACTION_CONFIG[selectedArtifactType];
+    const allowed = transitions?.allowed_transitions ?? [];
+    return {
+      approve: allowed.find((t) => !t.requires_change_reason)?.target_state ?? "draft",
+      reject: allowed.find((t) => t.requires_change_reason)?.target_state ?? "rejected",
+    };
+  }, [queueMode, selectedArtifactType, transitions]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -169,6 +272,72 @@ export default function ReviewsView({
         (r.uid ?? "").toLowerCase().includes(q)
     );
   }, [items, search]);
+
+  // UI-34: page state for the queue list, reset whenever the filtered set's
+  // origin changes (new search term or a different artifact type) so a page
+  // number from a longer previous result set cannot point past the end of a
+  // shorter one.
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / REVIEWS_PAGE_SIZE));
+  const clampedPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () =>
+      filtered.slice(
+        (clampedPage - 1) * REVIEWS_PAGE_SIZE,
+        clampedPage * REVIEWS_PAGE_SIZE
+      ),
+    [filtered, clampedPage]
+  );
+
+  useEffect(() => {
+    setPage(1);
+    setSelectedIds([]);
+    // Security review minor: without this the "N proposals confirmed" toast
+    // survived a switch to a different artifact type or back to review mode,
+    // where it describes a run against a queue that is no longer on screen.
+    setBulkResult(null);
+  }, [search, selectedArtifactType, queueMode]);
+
+  /**
+   * Confirm one proposal, resolving its target state from the item ITSELF.
+   *
+   * Security review M4. This used to reuse `APPROVE_TARGET`, which is derived
+   * from `transitions` — the allowed transitions of the item currently open in
+   * the detail pane, not of the items being bulk-confirmed. In the normal bulk
+   * flow (tick checkboxes, click confirm) nothing is selected for detail at
+   * all, so `transitions` was `undefined` and the target fell back to the
+   * literal `"draft"`, which is not a valid target for most types
+   * (adr -> `Draft`, goal -> `Entwurf`, risk -> `Identified`, issue -> `Open`)
+   * — every bulk-confirm click failed.
+   *
+   * One GET per item is the price of correctness here: the confirm target is
+   * the item's graph's own initial state, which varies by artifact type AND by
+   * workspace customization, so there is no table to read it from. The run is
+   * already sequential (see `bulkConfirm`).
+   */
+  const confirmProposal = useCallback(
+    async (id: string): Promise<void> => {
+      const detail = await workflowTransitionsApi.getTransitions(
+        selectedArtifactType,
+        id,
+      );
+      // The proposal graph gives `proposed` exactly two moves: confirm (to the
+      // initial state, no change_reason) and discard (to the reject state,
+      // change_reason required). Confirm is the one that needs no reason.
+      const confirm = (detail?.allowed_transitions ?? []).find(
+        (candidate) => !candidate.requires_change_reason,
+      );
+      if (!confirm) {
+        throw new Error(`No confirm transition available for ${id}`);
+      }
+      await workflowTransitionsApi.transition(
+        selectedArtifactType,
+        id,
+        confirm.target_state,
+      );
+    },
+    [selectedArtifactType],
+  );
 
   const selected = useMemo(
     () => items.find((r) => r.id === selectedId) ?? null,
@@ -264,14 +433,56 @@ export default function ReviewsView({
   // REQ-168: keep the generic "Approve"/"Reject" wording for the default
   // requirement-style targets, but surface the concrete state name for types
   // whose approve/reject lands somewhere else (e.g. "Mitigated", "Accepted").
+  // UI-34 (Systemaudit 2026-08-27 AP-5): this used to run the raw target
+  // state through `toTitleCase` (a mechanical word-capitalizer), not through
+  // the shared `getWorkflowStatusLabel` i18n-aware mapping every other
+  // workflow view (AdrForm, WorkflowStatusEditor's badge, ...) already uses
+  // — so e.g. a Goal's "Freigegeben" target rendered as the raw German word
+  // instead of going through the same label pipeline as everywhere else.
   const approveLabel =
     APPROVE_TARGET === "approved"
       ? t("reviews.approve", "Approve")
-      : toTitleCase(APPROVE_TARGET);
+      : getWorkflowStatusLabel(APPROVE_TARGET);
   const rejectLabel =
     REJECT_TARGET === "draft"
       ? t("reviews.reject", "Reject")
-      : toTitleCase(REJECT_TARGET);
+      : getWorkflowStatusLabel(REJECT_TARGET);
+
+  // UI-34: the Approve/Reject buttons disabled themselves whenever the
+  // target state was missing from `allowed_transitions` with no indication
+  // why — the GET .../transitions/ contract only lists moves that ARE
+  // allowed, so a disabled button could mean "still loading", "already in
+  // that state", or "role/precondition denied" with no way to tell them
+  // apart from the response alone. This surfaces the one case the frontend
+  // *can* distinguish (already in the target state) and otherwise names the
+  // two remaining possibilities together, rather than leaving the disabled
+  // button unexplained.
+  const buildDisabledReason = useCallback(
+    (targetState: string, allowed: AllowedTransition | undefined): string | undefined => {
+      if (!selected) return undefined;
+      if (transitionsLoading) {
+        return t("reviews.disabledLoading", "Loading available actions...");
+      }
+      if (allowed) return undefined;
+      if (transitions && transitions.current_state === targetState) {
+        return t("reviews.disabledAlreadyInState", {
+          state: getWorkflowStatusLabel(targetState),
+          defaultValue: `Already ${getWorkflowStatusLabel(targetState)}.`,
+        });
+      }
+      // Reuses the existing `transitionUnavailable` copy (already shown as
+      // the action-error banner on a stale click) rather than a near-
+      // duplicate string, since the frontend cannot distinguish "role
+      // missing" from "precondition not met" from the GET response alone.
+      return t(
+        "reviews.transitionUnavailable",
+        "This transition is not available (role or workflow configuration)."
+      );
+    },
+    [selected, transitionsLoading, transitions, t]
+  );
+  const approveDisabledReason = buildDisabledReason(APPROVE_TARGET, approveAllowed);
+  const rejectDisabledReason = buildDisabledReason(REJECT_TARGET, rejectAllowed);
 
   const listPanel = (
     <div data-testid="reviews-list">
@@ -318,6 +529,47 @@ export default function ReviewsView({
         </select>
       </div>
 
+      <label data-testid="reviews-queue-mode-toggle">
+        <input
+          type="checkbox"
+          data-testid="reviews-queue-mode-checkbox"
+          checked={queueMode === "proposals"}
+          onChange={(e) =>
+            setQueueMode(e.target.checked ? "proposals" : "review")
+          }
+        />
+        {t("workflow.proposal.queueMode")}
+      </label>
+
+      {queueMode === "proposals" && selectedIds.length > 0 && (
+        <button
+          type="button"
+          data-testid="reviews-bulk-confirm-btn"
+          disabled={isActing}
+          onClick={async () => {
+            setIsActing(true);
+            const { confirmed, failed } = await bulkConfirm(
+              selectedIds,
+              confirmProposal,
+            );
+            setSelectedIds([]);
+            setBulkResult({ ok: confirmed.length, failed: failed.length });
+            await refreshList();
+            setIsActing(false);
+          }}
+        >
+          {t("workflow.proposal.bulkConfirm")} ({selectedIds.length})
+        </button>
+      )}
+      {bulkResult && (
+        <p role="status" data-testid="reviews-bulk-confirm-result">
+          {t("workflow.proposal.bulkConfirmDone", { count: bulkResult.ok })}
+          {bulkResult.failed > 0
+            ? ` — ${t("workflow.proposal.bulkConfirmFailed", { count: bulkResult.failed })}`
+            : ""}
+        </p>
+      )}
+
       <ListToolbar
         searchValue={search}
         onSearchChange={setSearch}
@@ -345,14 +597,31 @@ export default function ReviewsView({
       )}
 
       <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-        {filtered.map((r) => (
-          <li key={r.id}>
+        {paged.map((r) => (
+          <li key={r.id} style={reviewRowStyle}>
+            {queueMode === "proposals" && (
+              <input
+                type="checkbox"
+                data-testid={`review-select-${r.id}`}
+                checked={selectedIds.includes(r.id)}
+                onChange={(e) =>
+                  setSelectedIds((prev) =>
+                    e.target.checked
+                      ? [...prev, r.id]
+                      : prev.filter((id) => id !== r.id),
+                  )
+                }
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
             <button
               type="button"
               data-testid={`review-list-item-${r.id}`}
               onClick={() => handleSelect(r.id)}
               style={{
                 width: "100%",
+                flex: "1 1 0",
+                minWidth: 0,
                 textAlign: "left",
                 padding: "var(--space-2) var(--space-3)",
                 marginBottom: "var(--space-1)",
@@ -360,7 +629,7 @@ export default function ReviewsView({
                 border: "1px solid var(--color-border)",
                 background:
                   r.id === selectedId
-                    ? "var(--color-surface-hover, #eef2ff)"
+                    ? "var(--color-card-active-bg)"
                     : "var(--color-surface)",
                 cursor: "pointer",
               }}
@@ -375,12 +644,45 @@ export default function ReviewsView({
           </li>
         ))}
       </ul>
+
+      {filtered.length > REVIEWS_PAGE_SIZE && (
+        <div
+          data-testid="reviews-pagination"
+          style={paginationRowStyle}
+        >
+          <button
+            type="button"
+            data-testid="reviews-pagination-prev"
+            className="btn-secondary"
+            disabled={clampedPage <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            {t("actions.previous", "Previous")}
+          </button>
+          <span style={paginationIndicatorStyle}>
+            {t("reviews.pageIndicator", {
+              page: clampedPage,
+              totalPages,
+              defaultValue: `Page ${clampedPage} / ${totalPages}`,
+            })}
+          </span>
+          <button
+            type="button"
+            data-testid="reviews-pagination-next"
+            className="btn-secondary"
+            disabled={clampedPage >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            {t("actions.next", "Next")}
+          </button>
+        </div>
+      )}
     </div>
   );
 
   const detailPanel = !selected ? (
     <p data-testid="review-detail-empty" style={{ color: "var(--color-text-muted)" }}>
-      {t("reviews.selectPrompt", "Select a requirement from the list.")}
+      {t("reviews.selectPrompt", "Select a requirement from the list to view details.")}
     </p>
   ) : (
     <div data-testid="review-detail">
@@ -467,6 +769,12 @@ export default function ReviewsView({
               className="btn-primary"
               disabled={isActing || transitionsLoading || !approveAllowed}
               onClick={() => handleAction(APPROVE_TARGET)}
+              title={!isActing ? approveDisabledReason : undefined}
+              aria-label={
+                !isActing && approveDisabledReason
+                  ? `${approveLabel}: ${approveDisabledReason}`
+                  : undefined
+              }
             >
               {isActing ? t("reviews.approving", "Approving...") : approveLabel}
             </button>
@@ -476,6 +784,12 @@ export default function ReviewsView({
               className="btn-danger"
               disabled={isActing || transitionsLoading || !rejectAllowed}
               onClick={() => handleAction(REJECT_TARGET)}
+              title={!isActing ? rejectDisabledReason : undefined}
+              aria-label={
+                !isActing && rejectDisabledReason
+                  ? `${rejectLabel}: ${rejectDisabledReason}`
+                  : undefined
+              }
             >
               {isActing ? t("reviews.rejecting", "Rejecting...") : rejectLabel}
             </button>
@@ -498,7 +812,10 @@ export default function ReviewsView({
 
   return (
     <div data-testid="reviews-view">
-      <h1 style={{ marginTop: 0 }}>{t("nav.reviews", "Reviews")}</h1>
+      <PageHeader
+        title={t("nav.reviews", "Reviews")}
+        count={{ shown: filtered.length, total: items.length }}
+      />
       <SplitView leftPanel={listPanel} rightPanel={detailPanel} moduleType="reviews" />
     </div>
   );

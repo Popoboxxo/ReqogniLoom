@@ -5,17 +5,27 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.db.models import F, Q
-from persistence.models import GlossaryTerm, GlossaryTermVersion, Workspace
+from persistence.artifact_backing import ensure_artifact
+from persistence.models import GlossaryTerm, Workspace
 from persistence.transactions import atomic_transaction
 
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
+from application.artifact_service import _clean_custom_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.optimistic_lock import (
+    assert_expected_version,
+    lock_for_version_check,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Sentinel distinguishing "custom_fields omitted" from "clear to {}".
+_UNSET = object()
 
 
 @dataclass
@@ -27,11 +37,42 @@ class GlossaryTermDTO:
     synonyms: list
     abbreviation: str
     version: int
-    lifecycle_status: str = "active"  # REQ-006: soft-delete lifecycle
+    # #831: the wire key is ``status`` like every other workflow-backed
+    # artifact (Requirement/Adr/Risk/Issue/...) — ``lifecycle_status`` was the
+    # lone outlier. REQ-006: soft-delete lifecycle state.
+    status: str = "active"
+    # Datenmodell-Konsolidierung Task 29 (Milestone M5): exposed so REST views
+    # can call ArtifactDiffService.list_versions/.diff(artifact_id, ...)
+    # without a direct GlossaryTerm ORM query (layering: views use
+    # Serializer + Service, not the model directly).
+    artifact_id: Optional[UUID] = None
+    # REQ-L2-AS-037 / Epic #934 WS1: extended user-defined attributes live on
+    # the backing Artifact; exposed so both transports can read them back.
+    custom_fields: Optional[dict] = None
+
+    @property
+    def artifact(self) -> Any:
+        """The DTO's backing ``persistence.Artifact`` row, or ``None``.
+
+        Attribut v3 WS2 (#936): the ArtifactAttributeGateway needs the backing
+        row to persist and read the Artifact-level system fields
+        (owner/reporter/priority) — the DTO itself carries no persistence
+        method. Mirror of ``StakeholderNeedDTO.artifact``: kept as an instance
+        attribute (set in :meth:`from_orm`) rather than a dataclass field, so
+        ``dataclasses.asdict()`` never tries to serialise a Django model.
+        """
+        return getattr(self, "_artifact", None)
 
     @classmethod
     def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
-        return cls(
+        # Datenmodell-Konsolidierung Task 24: GlossaryTerm's own
+        # `lifecycle_status` mirror column is dropped; the flag now lives
+        # only on the backing Artifact (Decision D-3). Rows without one yet
+        # (workspace-less legacy rows, Task 20) default to "active".
+        # #831: surfaced on the DTO as ``status`` (the artifact-consistent
+        # wire key), not ``lifecycle_status``.
+        status = term.artifact.lifecycle_status if term.artifact_id else "active"
+        dto = cls(
             id=term.id,
             workspace_id=term.workspace_id,
             term=term.term,
@@ -39,32 +80,76 @@ class GlossaryTermDTO:
             synonyms=term.synonyms,
             abbreviation=term.abbreviation,
             version=term.version,
-            lifecycle_status=getattr(term, "lifecycle_status", "active"),
+            status=status,
+            artifact_id=term.artifact_id,
+            custom_fields=(
+                getattr(term.artifact, "custom_fields", None) or {}
+                if term.artifact_id
+                else {}
+            ),
         )
+        # WS2 #936: keep the backing row reachable so the gateway can persist
+        # and read the Artifact-level system fields for both transports.
+        dto._artifact = term.artifact if term.artifact_id else None
+        return dto
 
 
 class GlossaryService(ServiceBase):
     """Handles CRUD and versioning for GlossaryTerm."""
 
     def get(self, ctx: AuthContext, term_id: UUID) -> GlossaryTermDTO:
-        term = GlossaryTerm.objects.filter(id=term_id).first()
+        """Fetch a single GlossaryTerm (detail view).
+
+        Issue #440: GlossaryTerm has no mirrored ``status`` column (it is
+        NOT wired into ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``,
+        see ``list_by_workspace``), so ``delete()`` (which routes through
+        ``workflow.services.outdate()``) never touches the model's
+        ``lifecycle_status`` field — it stays ``"active"`` forever. Without
+        this check, a soft-deleted term was still returned with
+        ``status="active"`` via GET, even though it had already
+        disappeared from the (WorkflowItemState-filtered) list. Overlay the
+        real workflow state onto the DTO here so the detail view is
+        consistent with the list view and with the other soft-deletable
+        entities (TestCase, Issue, ADR, Risk, StakeholderNeed), which report
+        ``status="outdated"`` on GET after delete via their mirrored column.
+        """
+        term = GlossaryTerm.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
+            id=term_id
+        ).first()
         if not term:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
-        return GlossaryTermDTO.from_orm(term)
+        dto = GlossaryTermDTO.from_orm(term)
+
+        from workflow.services import outdated_item_ids
+
+        if term.id in outdated_item_ids("GlossaryTerm"):
+            dto.status = "outdated"
+        return dto
 
     def list_by_workspace(
         self, ctx: AuthContext, workspace_id: UUID, include_deleted: bool = False
     ) -> List[GlossaryTermDTO]:
         """Return GlossaryTerms for *workspace_id*.
 
-        REQ-006: Excludes soft-deleted terms (lifecycle_status='deleted') by default.
-        Pass ``include_deleted=True`` for admin/audit access.
+        REQ-006: Excludes soft-deleted terms (``status`` == "outdated") by
+        default. Pass ``include_deleted=True`` for admin/audit access.
         """
-        qs = GlossaryTerm.objects.filter(
+        qs = GlossaryTerm.objects.select_related(
+            "artifact", "artifact__owner", "artifact__reporter"
+        ).filter(
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
         )
         if not include_deleted:
-            qs = qs.exclude(lifecycle_status="deleted")
+            # Phase 0: delete() routes soft-delete through
+            # workflow.services.outdate(). GlossaryTerm is NOT wired into
+            # _STATUS_MIRROR_MODELS (no mirrored status column), so the
+            # workflow state lives solely in WorkflowItemState — filter there
+            # instead of on the now-dead `lifecycle_status` column.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("GlossaryTerm"))
         return [GlossaryTermDTO.from_orm(t) for t in qs.order_by("term")]
 
     @atomic_transaction
@@ -76,6 +161,7 @@ class GlossaryService(ServiceBase):
         definition: str,
         synonyms: Optional[list] = None,
         abbreviation: str = "",
+        custom_fields: Optional[dict] = None,
     ) -> GlossaryTermDTO:
         if not term.strip() or not definition.strip():
             raise ValidationError("Term and definition are required.")
@@ -101,15 +187,43 @@ class GlossaryService(ServiceBase):
             modified_by_id=ctx.user_id,
         )
 
-        GlossaryTermVersion.objects.create(
-            term_fk=gt,
-            term_version=gt.version,
-            definition=gt.definition,
-            synonyms=gt.synonyms,
-            abbreviation=gt.abbreviation,
-            # Changed from actor_id to user_id to fix bug
-        created_by_id=ctx.user_id,
+        # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the backing
+        # Artifact up front so a GlossaryTerm is a valid TraceLink endpoint
+        # and interview target from birth (see the field's docstring in
+        # persistence/models.py for the interview_artifact_adapters gap this
+        # closes).
+        ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=workspace_id)
+
+        # REQ-L2-AS-037 / Epic #934 WS1: persist extended attributes on the
+        # backing Artifact (previously silently dropped by this service).
+        if custom_fields is not None:
+            gt.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            gt.artifact.save(update_fields=["custom_fields", "modified_at"])
+
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
+        # appends a revision. Task 28b removed the legacy GlossaryTermVersion
+        # dual-write below this comment — ArtifactVersionService is now the
+        # only history store. create() takes no change_reason.
+        ArtifactVersionService().record(
+            gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
         )
+
+        # Initialise workflow state (REQ-006/Phase 0): without this,
+        # delete()'s workflow.services.outdate() call has no WorkflowItemState
+        # to transition and raises WorkflowItemState.DoesNotExist.
+        try:
+            from workflow.services import initialize_workflow_states
+
+            initialize_workflow_states(
+                item_ids=[gt.id],
+                item_type="GlossaryTerm",
+                workspace_id=workspace_id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug(
+                "GlossaryService: workflow init skipped for term=%s", gt.id
+            )
 
         return GlossaryTermDTO.from_orm(gt)
 
@@ -118,15 +232,44 @@ class GlossaryService(ServiceBase):
         self,
         ctx: AuthContext,
         term_id: UUID,
+        term: Optional[str] = None,
         definition: Optional[str] = None,
         synonyms: Optional[list] = None,
         abbreviation: Optional[str] = None,
+        expected_version: Optional[int] = None,
+        custom_fields: object = _UNSET,
     ) -> GlossaryTermDTO:
-        gt = GlossaryTerm.objects.filter(id=term_id).first()
+        """Update a GlossaryTerm (REQ-L1-044).
+
+        Args:
+            term: New label for the term. #82: PATCH previously silently
+                dropped this field, so a term's label could only ever be set
+                at creation time (POST) — inconsistent with every other
+                artifact type where the title/label is PATCH-able.
+            definition: New narrative definition.
+            synonyms: New synonym list.
+            abbreviation: New abbreviation.
+            expected_version: Caller's last-seen ``version``. When supplied and
+                stale, the update is refused with ``OptimisticLockError`` (409)
+                instead of overwriting a concurrent edit. Omitting it keeps the
+                previous last-writer-wins behaviour.
+            custom_fields: REQ-L2-AS-037 extended attributes. ``_UNSET`` leaves
+                the stored map untouched; ``{}`` clears it.
+
+        Raises:
+            OptimisticLockError: *expected_version* does not match the stored one.
+        """
+        gt = lock_for_version_check(
+            GlossaryTerm.objects.filter(id=term_id), expected_version
+        ).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
+        assert_expected_version(gt, expected_version, entity_type="GlossaryTerm")
 
         changed = False
+        if term is not None and term != gt.term:
+            gt.term = term
+            changed = True
         if definition is not None and definition != gt.definition:
             gt.definition = definition
             changed = True
@@ -137,30 +280,44 @@ class GlossaryService(ServiceBase):
             gt.abbreviation = abbreviation
             changed = True
 
-        if not changed:
+        custom_fields_changed = False
+        if custom_fields is not _UNSET:
+            ensure_artifact(
+                gt, artifact_type="GlossaryTerm", workspace_id=gt.workspace_id
+            )
+            cleaned_custom_fields = _clean_custom_fields(custom_fields)
+            if cleaned_custom_fields != (gt.artifact.custom_fields or {}):
+                gt.artifact.custom_fields = cleaned_custom_fields
+                gt.artifact.save(update_fields=["custom_fields", "modified_at"])
+                custom_fields_changed = True
+
+        if not changed and not custom_fields_changed:
             return GlossaryTermDTO.from_orm(gt)
 
         # Update version and save
         gt.version = F("version") + 1
         gt.modified_by_id = ctx.user_id
-        gt.save(update_fields=["definition", "synonyms", "abbreviation", "version", "modified_at", "modified_by"])
+        gt.save(update_fields=["term", "definition", "synonyms", "abbreviation", "version", "modified_at", "modified_by"])
         gt.refresh_from_db(fields=["version"])
 
-        GlossaryTermVersion.objects.create(
-            term_fk=gt,
-            term_version=gt.version,
-            definition=gt.definition,
-            synonyms=gt.synonyms,
-            abbreviation=gt.abbreviation,
-            # Changed from actor_id to user_id to fix bug
-        created_by_id=ctx.user_id,
+        # Datenmodell-Konsolidierung Phase 5 (spec §6.1): guarded by the
+        # ``if not changed: return`` above, so this only runs for a real
+        # content write. ``ensure_artifact`` is idempotent and returns
+        # immediately when the backing already exists — it is called here so a
+        # pre-Phase-3 term (created before the backing Artifact was written at
+        # create time) starts its history instead of being silently skipped.
+        # update() takes no change_reason.
+        ensure_artifact(gt, artifact_type="GlossaryTerm", workspace_id=gt.workspace_id)
+        ArtifactVersionService().record(
+            gt.artifact_id, snapshot_fields(gt, "GlossaryTerm"), ctx
         )
 
         return GlossaryTermDTO.from_orm(gt)
 
     @atomic_transaction
     def delete(self, ctx: AuthContext, term_id: UUID) -> None:
-        """Soft-delete GlossaryTerm by setting lifecycle_status to 'deleted' (REQ-006).
+        """Soft-delete GlossaryTerm by routing it through the workflow engine
+        (``status`` becomes "outdated", REQ-006).
 
         Physical deletion is intentionally avoided for end-user operations.
         The term remains in the database for audit purposes.
@@ -169,6 +326,14 @@ class GlossaryService(ServiceBase):
         gt = GlossaryTerm.objects.filter(id=term_id).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
-        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
-        gt.lifecycle_status = "deleted"
-        gt.save(update_fields=["lifecycle_status"])
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of writing lifecycle_status directly.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=gt.id,
+            item_type="GlossaryTerm",
+            workspace_id=gt.workspace_id,
+            ctx=ctx,
+            reason="deleted via glossary.delete",
+        )

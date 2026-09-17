@@ -23,7 +23,7 @@ export const WORKFLOW_PRESETS: readonly WorkspacePreset[] = [
   "extended",
 ] as const;
 
-/** The 7 entity types the editor visualises, with human-readable labels. */
+/** The entity types the editor visualises, with human-readable labels. */
 export interface EntityTypeDescriptor {
   type: WorkflowEntityType;
   label: string;
@@ -37,6 +37,8 @@ export const WORKFLOW_ENTITY_TYPES: readonly EntityTypeDescriptor[] = [
   { type: "Risk", label: "Risk" },
   { type: "TestCase", label: "Test Case" },
   { type: "Issue", label: "Issue" },
+  { type: "Goal", label: "Goal" },
+  { type: "MainGoal", label: "Main Goal" },
 ] as const;
 
 /** Default entity type shown when the route carries none. */

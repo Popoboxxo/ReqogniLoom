@@ -17,7 +17,7 @@
 import { test, expect, APIRequestContext, Route } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 interface CreatedRequirement {
@@ -37,6 +37,13 @@ async function createRequirement(
       title,
       description: 'Created by review-workflow.spec.ts (REQ-144)',
       category: 'Functional',
+      // #412: the approve gate rejects an in_review -> approved transition
+      // while a preset-mandatory field is empty ("the 'extended' preset
+      // requires the following field(s) to be filled in first:
+      // acceptance_criteria"). Without this the approve tests below can never
+      // pass — the POST 400s, the signature dialog stays open and the item
+      // stays in the queue.
+      acceptance_criteria: 'Given the review queue, when approved, then the status is approved.',
     },
   });
   expect(response.ok()).toBeTruthy();

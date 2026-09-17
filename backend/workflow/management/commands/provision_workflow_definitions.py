@@ -58,6 +58,9 @@ _ENTITY_PRESETS = (
     ("Icd", "icd_default"),
     ("Diagram", "diagram_default"),
     ("GlossaryTerm", "glossary_term_default"),
+    ("Goal", "goal_default"),
+    ("MainGoal", "main_goal_default"),
+    ("Interview", "interview_default"),
 )
 
 

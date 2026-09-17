@@ -1,10 +1,26 @@
-"""URL routing tests for StakeholderNeedViewSet (REQ-128).
+"""URL routing tests for StakeholderNeedViewSet (REQ-128, issue #710).
 
-The DRF router's default pk pattern ([^/.]+) matched custom action segments
+The DRF router's default pk pattern ([^/.]+) matches custom action segments
 such as "derive-requirements" as a pk value, so
-GET /api/v1/needs/derive-requirements/ reached retrieve() and 500ed while
-parsing the pk as a UUID. Constraining lookup_value_regex to a UUID pattern
-makes that path 404 at routing time instead.
+GET /api/v1/needs/derive-requirements/ resolves to retrieve() with
+pk="derive-requirements". REQ-128 originally worked around the resulting 500
+(UUID parsing failure) with a UUID-shaped ``lookup_value_regex`` that made
+routing decline the segment outright, 404ing before the view ever ran.
+
+Issue #710 flagged the side effect: needs answered 404 for *any* malformed
+pk, including a genuinely malformed one like "not-a-uuid", while every other
+BaseEntityViewSet subclass answers 400 via the generic uuid_url_kwargs guard
+in initial() (issue #271). Removing the regex aligned the malformed-pk case
+with the rest of the API but regressed REQ-128, whose contract is 404/405 for
+``/needs/derive-requirements/`` — a *route* that does not exist, not a
+malformed id (the E2E specs hermes-bugfix-campaign / ui-test-campaign pin
+that and started failing with 400).
+
+Both contracts now hold at once, without a router-level regex: the #271 guard
+distinguishes the two cases by asking the ViewSet which detail-action
+``url_path``s it declares. A pk segment equal to one of them is an unknown
+route -> 404; anything else malformed stays a malformed id -> 400. See
+``BaseEntityViewSet._reject_malformed_uuid_path_kwargs``.
 """
 from __future__ import annotations
 
@@ -12,16 +28,58 @@ import uuid
 from unittest.mock import patch
 
 import pytest
-from django.urls import Resolver404, resolve
-from rest_framework.test import APIRequestFactory
+from django.urls import resolve
+from rest_framework.test import APIClient, APIRequestFactory
 
 from rest_api.views import StakeholderNeedViewSet
 
 
-def test_non_uuid_detail_segment_does_not_resolve() -> None:
-    """A non-UUID segment must not match the needs detail route (REQ-128)."""
-    with pytest.raises(Resolver404):
-        resolve("/api/v1/needs/derive-requirements/")
+def test_non_uuid_detail_segment_reaches_the_viewset() -> None:
+    """A non-UUID segment now matches the needs detail route (issue #710).
+
+    Before #710 this asserted the opposite (``api_not_found``, REQ-128's
+    routing-level rejection). Removing StakeholderNeedViewSet's
+    ``lookup_value_regex`` means routing no longer declines the segment —
+    ``initial()``'s guard is what now rejects it, uniformly with every other
+    entity ViewSet.
+    """
+    match = resolve("/api/v1/needs/derive-requirements/")
+
+    assert match.func.cls is StakeholderNeedViewSet
+    assert match.kwargs["pk"] == "derive-requirements"
+
+
+def test_non_uuid_detail_segment_never_500s() -> None:
+    """The REQ-128 safety property survives #710: never a 500 from parsing
+    "derive-requirements" as a UUID. An anonymous caller is rejected by
+    authentication first (401/403); the point is that it is never 500."""
+    response = APIClient().get("/api/v1/needs/derive-requirements/")
+
+    assert response.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+def test_action_name_in_pk_slot_returns_404_not_400(authed_client) -> None:
+    """REQ-128: ``/needs/derive-requirements/`` is an unknown *route*, not a
+    malformed id, so it must answer 404 (the E2E contract accepts 404/405).
+
+    Regression guard for the #710 fix, which removed the router-level regex and
+    let the segment fall into the generic malformed-UUID guard -> 400.
+    """
+    response = authed_client.get("/api/v1/needs/derive-requirements/")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_genuinely_malformed_pk_still_returns_400(authed_client) -> None:
+    """#710: a real garbage pk is still a malformed id -> 400, so the REQ-128
+    carve-out above stays limited to declared detail-action names."""
+    response = authed_client.get("/api/v1/needs/not-a-uuid/")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_uuid_detail_segment_resolves_to_viewset() -> None:
@@ -72,6 +130,7 @@ def test_flat_list_route_without_workspace_id_returns_400() -> None:
     assert response.status_code == 400
 
 
+@pytest.mark.django_db
 def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
     """Regression (CR-06/CR-07): POST /api/v1/needs/ (flat, no workspace_pk
     URL kwarg) must read workspace_id from the request body. Previously the
@@ -79,6 +138,8 @@ def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
     called the service with workspace_id=None and failed with a 404
     ("Workspace None not found")."""
     from unittest.mock import MagicMock
+
+    from persistence.tenancy import TenantContext
 
     ws_id = str(uuid.uuid4())
     factory = APIRequestFactory()
@@ -89,9 +150,10 @@ def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
     )
     from auth_tenancy.context import AuthContext, AuthMethod
 
+    tenant_id = uuid.uuid4()
     req.auth_context = AuthContext(
         user_id=uuid.uuid4(),
-        tenant_id=uuid.uuid4(),
+        tenant_id=tenant_id,
         active_roles=("admin",),
         auth_method=AuthMethod.BEARER_TOKEN,
     )
@@ -112,11 +174,20 @@ def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
     }
-    with patch(
-        "application.stakeholder_need_service.StakeholderNeedService.create",
-        return_value=fake_dto,
-    ) as mock_create:
-        response = view(req)
+    # Datenmodell-Konsolidierung: RequirementSerializer's status field now
+    # queries WorkflowItemState (tenant-scoped) even though the service call
+    # itself is mocked here — a real request has TenantContext set by
+    # middleware before the view runs, which this bare APIRequestFactory call
+    # bypasses.
+    TenantContext.set_tenant(tenant_id)
+    try:
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeedService.create",
+            return_value=fake_dto,
+        ) as mock_create:
+            response = view(req)
+    finally:
+        TenantContext.clear_tenant()
 
     assert response.status_code == 201
     assert str(mock_create.call_args.kwargs["workspace_id"]) == ws_id

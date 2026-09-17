@@ -117,6 +117,7 @@ def build(
 def diff(
     baseline_a_id: uuid.UUID,
     baseline_b_id: uuid.UUID,
+    tenant_id: uuid.UUID,
 ) -> DiffResult:
     """Compute the structural diff between two Baselines of the same scope.
 
@@ -125,6 +126,8 @@ def diff(
     Args:
         baseline_a_id: Reference baseline (from / older).
         baseline_b_id: Target baseline (to / newer).
+        tenant_id: Active tenant UUID (row-level isolation) — either baseline
+            belonging to a different tenant is treated as not found.
 
     Returns:
         DiffResult with:
@@ -133,7 +136,7 @@ def diff(
           changed: items in both with different versions
 
     Raises:
-        BaselineNotFoundError: Either baseline does not exist.
+        BaselineNotFoundError: Either baseline does not exist for this tenant.
         ScopeMismatchError: Baselines have different scopes.
 
     REQ-L2-BL-003
@@ -141,6 +144,7 @@ def diff(
     return get_engine().diff(
         baseline_a_id=baseline_a_id,
         baseline_b_id=baseline_b_id,
+        tenant_id=tenant_id,
     )
 
 
@@ -149,23 +153,24 @@ def diff(
 # ---------------------------------------------------------------------------
 
 
-def get(baseline_id: uuid.UUID) -> BaselineDetail:
+def get(baseline_id: uuid.UUID, tenant_id: uuid.UUID) -> BaselineDetail:
     """Return the full Baseline record including all delta entries.
 
     IF-BL-EXT-IN-001 (ApplicationService → BaselineStore).
 
     Args:
         baseline_id: UUID of the target baseline.
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
         BaselineDetail with all DeltaIndexTuple entries.
 
     Raises:
-        BaselineNotFoundError: If the baseline does not exist.
+        BaselineNotFoundError: If the baseline does not exist for this tenant.
 
     REQ-L2-BL-006
     """
-    return get_store().get(baseline_id=baseline_id)
+    return get_store().get(baseline_id=baseline_id, tenant_id=tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +210,7 @@ def list_baselines(
 
 
 def get_item_at_baseline(
-    baseline_id: uuid.UUID, item_id: str
+    baseline_id: uuid.UUID, item_id: str, tenant_id: uuid.UUID
 ) -> ItemPayload:
     """Reconstruct the historical payload of an item at baseline time.
 
@@ -214,12 +219,13 @@ def get_item_at_baseline(
     Args:
         baseline_id: UUID of the target baseline.
         item_id: String UUID of the item (Artifact/Requirement).
+        tenant_id: Active tenant UUID (row-level isolation).
 
     Returns:
         ItemPayload with title, description, content at the recorded version.
 
     Raises:
-        BaselineNotFoundError: Baseline does not exist.
+        BaselineNotFoundError: Baseline does not exist for this tenant.
         ItemNotInBaselineError: item_id is not part of this baseline.
         VersionNotFoundError: Version not found in version history.
 
@@ -228,6 +234,7 @@ def get_item_at_baseline(
     return get_reconstructor().get_item_at_baseline(
         baseline_id=baseline_id,
         item_id=item_id,
+        tenant_id=tenant_id,
     )
 
 
@@ -302,6 +309,7 @@ def resolve_scope_item_ids(
     workspace_id: uuid.UUID,
     tenant_id: uuid.UUID,
     artifact_id: Optional[uuid.UUID] = None,
+    exclude_diagram_shadow_artifacts: bool = True,
 ) -> list[str]:
     """Return the full ordered list of artifact ids contained in *scope*.
 
@@ -313,7 +321,8 @@ def resolve_scope_item_ids(
 
     Scope semantics (REQ-L2-BL-001):
       document — the root Artifact + all descendants reachable via
-                 ``pl_artifact.parent_id`` (``artifact_id`` is required)
+                 ``pl_artifact.parent_id`` OR via ``derives-from``/``refines``
+                 TraceLinks (``artifact_id`` is required)
       project  — all Artifacts in the Workspace
       global   — all Artifacts in the Tenant (``workspace_id`` is ignored for
                  the filter, but is still required for upstream permission
@@ -325,6 +334,20 @@ def resolve_scope_item_ids(
         tenant_id: Active tenant UUID (required for row-level isolation).
         artifact_id: Required when ``scope == "document"``; the root artifact
             whose subtree is being resolved.
+        exclude_diagram_shadow_artifacts: When ``True`` (default), a Diagram's
+            shadow Artifact (``artifact_type='Diagram'``, created lazily by
+            ``diagram.traceability_connector._resolve_artifact_id``) is
+            excluded from project/global scope, mirroring what actually gets
+            snapshotted by :class:`baseline.delta_index_builder.ScopeResolver`
+            (M3, Codeberg #353 final review). :func:`preview_scope_items`
+            relies on this default so the preview matches the real snapshot.
+            ``AuditContext.scope_item_ids`` (SE-Auditor) passes ``False``: the
+            shadow Artifact is a real endpoint of ``documents``/``diagram-ref``
+            TraceLinks, and excluding it here — while it stays a valid link
+            endpoint — made TRACE-P7 misfire a BLOCKER on every diagram-sourced
+            trace link (Codeberg #353 regression fix). Ignored for
+            ``scope == "document"`` (descendant resolution never included
+            Diagram shadow Artifacts to begin with).
 
     Returns:
         Ordered list of artifact id strings. Empty list when ``tenant_id`` is
@@ -350,51 +373,80 @@ def resolve_scope_item_ids(
 
     from django.db import connection
 
+    # M3 (Codeberg #353 final review): a Diagram's shadow Artifact
+    # (artifact_type='Diagram', diagram.traceability_connector
+    # ._resolve_artifact_id) exists purely to give the TraceabilityEngine a
+    # source row for DIAGRAM_REF/documents links — it is not a real domain
+    # artifact and must never appear as a synthetic, mostly-empty item in a
+    # project/global-scope baseline preview. Excluded from both scope queries
+    # below, but ONLY when the caller asked for it (default): the SE-Auditor
+    # (AuditContext.scope_item_ids) passes exclude_diagram_shadow_artifacts=
+    # False, because excluding it here left the shadow Artifact's TraceLinks
+    # (still real, still present) with exactly one endpoint "in scope",
+    # tripping a false TRACE-P7 BLOCKER (Codeberg #353 regression fix).
+    diagram_filter_sql = " AND a.artifact_type != 'Diagram'" if exclude_diagram_shadow_artifacts else ""
     if scope == "project":
-        sql_ids = """
+        sql_ids = f"""
             SELECT a.id::text
             FROM pl_artifact a
             WHERE a.workspace_id = %s
               AND a.tenant_id = %s
+              {diagram_filter_sql}
             ORDER BY a.id
         """
         id_params: list = [str(workspace_id), str(tenant_id)]
     elif scope == "global":
-        sql_ids = """
+        sql_ids = f"""
             SELECT a.id::text
             FROM pl_artifact a
             WHERE a.tenant_id = %s
+              {diagram_filter_sql}
             ORDER BY a.id
         """
         id_params = [str(tenant_id)]
     else:  # document
-        # TODO (hierarchy consolidation): this recursive CTE walks
-        # pl_artifact.parent_id, which is deprecated and left NULL by
-        # RequirementService/StakeholderNeedService/AdrService/... (they use
-        # 'derives-from' TraceLinks for hierarchy instead — see
-        # persistence/models.py Artifact.parent docstring). For artifacts
-        # created by those services, "document" scope effectively resolves
-        # to only the root artifact (no descendants found via parent_id).
-        # Revisit: resolve descendants via TraceLinkService instead.
+        # Descendant resolution walks two edge sources (issue #42):
+        # pl_artifact.parent_id (legacy pointer, still populated for some
+        # artifact types) AND 'derives-from' TraceLinks
+        # (source=child -> target=parent), which is the hierarchy mechanism
+        # used by RequirementService/StakeholderNeedService/AdrService/...
+        # (see persistence/models.py Artifact.parent docstring). Without the
+        # TraceLink branch, "document" scope for artifacts created by those
+        # services effectively resolved to only the root artifact.
+        # Postgres allows at most one self-reference to the recursive table
+        # per recursive CTE, so the two edge sources (parent_id, TraceLinks)
+        # are first unioned into a plain (non-recursive) 'edges' CTE; the
+        # recursive 'descendants' term then joins that single relation once.
         sql_ids = """
-            WITH RECURSIVE descendants AS (
+            WITH RECURSIVE edges AS (
+                SELECT a.id AS child_id, a.parent_id AS parent_id
+                FROM pl_artifact a
+                WHERE a.parent_id IS NOT NULL
+                  AND a.tenant_id = %s
+                UNION ALL
+                SELECT tl.source_id AS child_id, tl.target_id AS parent_id
+                FROM pl_tracelink tl
+                WHERE tl.tenant_id = %s
+                  AND tl.link_type = 'derives-from'
+            ),
+            descendants AS (
                 SELECT a.id
                 FROM pl_artifact a
                 WHERE a.id = %s
                   AND a.workspace_id = %s
                   AND a.tenant_id = %s
-                UNION ALL
-                SELECT a.id
-                FROM pl_artifact a
-                INNER JOIN descendants d ON a.parent_id = d.id
-                WHERE a.tenant_id = %s
+                UNION
+                SELECT e.child_id
+                FROM edges e
+                INNER JOIN descendants d ON e.parent_id = d.id
             )
             SELECT id::text FROM descendants ORDER BY id
         """
         id_params = [
+            str(tenant_id),
+            str(tenant_id),
             str(artifact_id),
             str(workspace_id),
-            str(tenant_id),
             str(tenant_id),
         ]
 

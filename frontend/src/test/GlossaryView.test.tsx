@@ -25,9 +25,14 @@ import type { GlossaryTerm } from "../types";
 // Mocks (must precede component import)
 // ---------------------------------------------------------------------------
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
-}));
+vi.mock("react-i18next", () => {
+  // Second arg is either a string fallback or an i18n interpolation options
+  // object (e.g. { count, defaultValue }) — mirror BaselinesView's mock so
+  // PageHeader's `summary` (interpolated) doesn't render a raw object.
+  const t = (key: string, fallbackOrOptions?: string | Record<string, unknown>): string =>
+    typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
+  return { useTranslation: () => ({ t }) };
+});
 
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
@@ -35,9 +40,15 @@ vi.mock("../context/WorkspaceContext", () => ({
 
 // Isolate from the ArtifactInspector sidebar — its own data fetching is out
 // of scope for this test (TracePanel behavior for glossary is covered by the
-// pre-existing "backend gap" documentation, not re-tested here).
+// pre-existing "backend gap" documentation, not re-tested here). Captures the
+// props GlossaryView passes in (UI-59: `currentVersion` wiring) without
+// rendering the real sidebar.
+const rightSidebarPropsSpy = vi.hoisted(() => vi.fn());
 vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
+  RightSidebar: (props: unknown) => {
+    rightSidebarPropsSpy(props);
+    return null;
+  },
 }));
 
 // Stub CreateTraceLinkDialog so this test only asserts GlossaryView passes
@@ -121,9 +132,11 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
       expect(screen.getByText("Requirement")).toBeInTheDocument();
     });
 
-    // Open the edit form for TERM_A via its Edit icon button.
-    const editButtons = screen.getAllByTitle("Edit");
-    await user.click(editButtons[0]);
+    // Open the edit form for TERM_A via its Edit icon button. Queried by
+    // data-testid, not by title: #741 replaced the hardcoded English
+    // `title="Edit"` with a translated label, so under the test i18n stub
+    // (which echoes raw keys) the literal string "Edit" no longer exists.
+    await user.click(screen.getByTestId("glossary-edit-term-a"));
 
     const linkButton = await screen.findByTestId("glossary-create-link-button");
     await user.click(linkButton);
@@ -135,7 +148,12 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
   });
 
   it("C10: renders a synonym matching an existing term as a clickable link", async () => {
+    const user = userEvent.setup();
     renderView();
+
+    // Synonyms render in the detail pane (relocated with the SplitView
+    // migration, issue #180) — select the term row first.
+    await user.click(await screen.findByTestId("glossary-row-term-a"));
 
     // "Anforderung" (TERM_A's synonym) matches TERM_B's term text exactly.
     const linkedChip = await screen.findByTestId("glossary-synonym-link-term-a-0");
@@ -146,6 +164,7 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
     const user = userEvent.setup();
     renderView();
 
+    await user.click(await screen.findByTestId("glossary-row-term-a"));
     const linkedChip = await screen.findByTestId("glossary-synonym-link-term-a-0");
     await user.click(linkedChip);
 
@@ -159,6 +178,7 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
     const user = userEvent.setup();
     renderView();
 
+    await user.click(await screen.findByTestId("glossary-row-term-a"));
     const linkTrigger = await screen.findByTestId("glossary-synonym-linkbtn-term-a-1");
     await user.click(linkTrigger);
 
@@ -168,6 +188,125 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
     await waitFor(() => {
       expect(glossaryApi.update).toHaveBeenCalledWith("term-a", {
         synonyms: ["Anforderung", "Anforderung"],
+      });
+    });
+  });
+
+  // Regression test for the WCAG 4.1.2/3.3.2 fix: each create-form field must
+  // be queryable via its accessible name (First Rule of ARIA — a passing
+  // getByLabelText query is direct proof the <label htmlFor> association
+  // works, not just that a <label> text node happens to render nearby).
+  it("a11y: create-form fields (term, abbreviation, definition, synonyms) are queryable by label", async () => {
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByTestId("create-glossary-term-btn"));
+
+    expect(screen.getByLabelText("glossary.term *")).toBeInTheDocument();
+    expect(screen.getByLabelText("glossary.abbreviation")).toBeInTheDocument();
+    expect(screen.getByLabelText("glossary.definition *")).toBeInTheDocument();
+    expect(screen.getByLabelText("glossary.synonyms")).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------
+  // #802: Need/Glossary created via an inline form while the other five
+  // entities used the shared <Dialog>. Creating a term now goes through that
+  // primitive too, so it is a real modal (role/aria-modal, overlay, focus
+  // trap, Escape-to-close) instead of a right-pane form.
+  // -------------------------------------------------------------------
+  describe("create flow uses the shared Dialog (#802)", () => {
+    it("renders the create form inside a modal dialog, portaled out of the view", async () => {
+      const user = userEvent.setup();
+      renderView();
+
+      await user.click(await screen.findByTestId("create-glossary-term-btn"));
+
+      const dialog = screen.getByTestId("glossary-create-dialog");
+      expect(dialog).toHaveAttribute("role", "dialog");
+      expect(dialog).toHaveAttribute("aria-modal", "true");
+      expect(dialog).toContainElement(screen.getByTestId("glossary-form"));
+
+      // The dialog portals into document.body: the form is no longer part of
+      // the split view's right pane (the #802 finding: list controls and form
+      // fields shared one DOM scope).
+      expect(
+        screen.getByTestId("glossary-form").closest('[data-testid="glossary-view"]')
+      ).toBeNull();
+
+      // Term field gets the initial focus — the dialog's own first tabbable
+      // element would be its close button.
+      expect(document.activeElement).toBe(document.getElementById("glossary-term-input"));
+    });
+
+    it("closes the create dialog on Escape", async () => {
+      const user = userEvent.setup();
+      renderView();
+
+      await user.click(await screen.findByTestId("create-glossary-term-btn"));
+      expect(screen.getByTestId("glossary-create-dialog")).toBeInTheDocument();
+
+      await user.keyboard("{Escape}");
+
+      expect(screen.queryByTestId("glossary-create-dialog")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("glossary-form")).not.toBeInTheDocument();
+    });
+
+    it("keeps editing in the right pane (only the create flow moved into the dialog)", async () => {
+      const user = userEvent.setup();
+      renderView();
+
+      await user.click(await screen.findByTestId("glossary-edit-term-a"));
+
+      expect(screen.getByTestId("glossary-form")).toBeInTheDocument();
+      expect(screen.queryByTestId("glossary-create-dialog")).not.toBeInTheDocument();
+      expect(screen.getByDisplayValue("Requirement")).toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // UI-59 (Systemaudit 2026-08-27 AP-5): version-history/diff wiring.
+  //
+  // The shared VersionPanel/DiffPanel (REQ-142) already fully support
+  // kind="glossary" (glossaryApi.versions/.diff) — the only gap was
+  // GlossaryView always passing `currentVersion={undefined}`, which the
+  // panel treats as "no version to compare against" and disables the
+  // compare/is-current affordances for. These tests pin the actual prop
+  // GlossaryView now builds from `selectedTerm.version`.
+  // -------------------------------------------------------------------
+  describe("version history / diff wiring (UI-59)", () => {
+    it("passes a real currentVersion into RightSidebar once a versioned term is selected", async () => {
+      const versionedTerm: GlossaryTerm = { ...TERM_A, version: 3, updated_at: "2026-02-01T00:00:00Z" };
+      vi.mocked(glossaryApi.list).mockResolvedValue([versionedTerm, TERM_B]);
+      const user = userEvent.setup();
+      renderView();
+
+      await user.click(await screen.findByTestId("glossary-row-term-a"));
+
+      await waitFor(() => {
+        const lastCall = rightSidebarPropsSpy.mock.calls[rightSidebarPropsSpy.mock.calls.length - 1]?.[0] as
+          | { kind: string; artifactId: string; currentVersion?: { version: number; label: string } }
+          | undefined;
+        expect(lastCall?.kind).toBe("glossary");
+        expect(lastCall?.artifactId).toBe("term-a");
+        expect(lastCall?.currentVersion).toEqual(
+          expect.objectContaining({ version: 3, label: "v3" }),
+        );
+      });
+    });
+
+    it("falls back to currentVersion=undefined for a term with no version field (legacy/optimistic data)", async () => {
+      // TERM_B has no `version` field at all.
+      const user = userEvent.setup();
+      renderView();
+
+      await user.click(await screen.findByTestId("glossary-row-term-b"));
+
+      await waitFor(() => {
+        const lastCall = rightSidebarPropsSpy.mock.calls[rightSidebarPropsSpy.mock.calls.length - 1]?.[0] as
+          | { artifactId: string; currentVersion?: unknown }
+          | undefined;
+        expect(lastCall?.artifactId).toBe("term-b");
+        expect(lastCall?.currentVersion).toBeUndefined();
       });
     });
   });

@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import WorkspaceSettings from "./WorkspaceSettings";
 
@@ -17,8 +17,13 @@ vi.mock("react-i18next", () => {
   return { useTranslation: () => ({ t }) };
 });
 
+const { mockSearchParams } = vi.hoisted(() => ({
+  mockSearchParams: { current: new URLSearchParams() },
+}));
+
 vi.mock("react-router-dom", () => ({
   useNavigate: () => vi.fn(),
+  useSearchParams: () => [mockSearchParams.current],
 }));
 
 const activeWorkspace = {
@@ -27,6 +32,7 @@ const activeWorkspace = {
   preset: "standard",
   terminology_profile: "dev_mode",
   language: "de",
+  theme: "dark",
   decomposition_link_type: "parent-child",
   is_active: true,
 };
@@ -41,6 +47,89 @@ vi.mock("../../context/WorkspaceContext", () => ({
 
 vi.mock("../../context/AuthContext", () => ({
   useAuth: () => ({ roles: ["admin"] }),
+}));
+
+// Task 23: WorkspaceSettings now reads its link-type dropdowns from the
+// catalog. `activeWorkspace.decomposition_link_type` above is deliberately
+// still the retired "parent-child" (pre-Task-16 fixture data) — this is the
+// real-world scenario the "unavailable" disabled-option fallback exists for
+// (Finding 3): "parent-child" is not in the mocked catalog below.
+const MOCK_CREATABLE_LINK_TYPES = [
+  {
+    key: "decomposes",
+    definition: {
+      label: {
+        de: { downstream: "zerlegt sich in", upstream: "ist Teil von", neutral: "Zerlegung" },
+        en: { downstream: "decomposes into", upstream: "is part of", neutral: "Decomposition" },
+      },
+      allowed_pairs: [{ source_type: "Requirement", target_type: "Requirement" }],
+      coverage_relevant: false,
+      suspect_rule: "parent_change_flags_children",
+      impact_weight: 1,
+      manual_creatable: true,
+      system_owned: false,
+      active: true,
+      built_in: true,
+    },
+  },
+  {
+    key: "derives-from",
+    definition: {
+      label: {
+        de: { downstream: "leitet sich ab von", upstream: "ist Grundlage für", neutral: "Ableitung" },
+        en: { downstream: "derives from", upstream: "is basis for", neutral: "Derivation" },
+      },
+      allowed_pairs: [{ source_type: "Requirement", target_type: "Requirement" }],
+      coverage_relevant: false,
+      suspect_rule: "target_change_flags_source",
+      impact_weight: 1,
+      manual_creatable: true,
+      system_owned: false,
+      active: true,
+      built_in: true,
+    },
+  },
+];
+
+vi.mock("../../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: MOCK_CREATABLE_LINK_TYPES,
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: MOCK_CREATABLE_LINK_TYPES,
+    definitionFor: (key: string) =>
+      MOCK_CREATABLE_LINK_TYPES.find((row) => row.key === key)?.definition,
+    isAllowedPair: () => true,
+    labelFor: (key: string, lang: "de" | "en") =>
+      MOCK_CREATABLE_LINK_TYPES.find((row) => row.key === key)?.definition.label[lang]?.neutral ?? key,
+  }),
+}));
+
+const setPreferenceMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../context/ThemeContext", () => ({
+  useTheme: () => ({
+    paletteKey: "default",
+    mode: "dark",
+    palettes: [
+      {
+        key: "default",
+        label: "Default",
+        is_system: true,
+        dark_tokens: {},
+        light_tokens: {},
+      },
+      {
+        key: "nordic",
+        label: "Nordic",
+        is_system: true,
+        dark_tokens: {},
+        light_tokens: {},
+      },
+    ],
+    setPreference: setPreferenceMock,
+  }),
 }));
 
 vi.mock("../../api/workspaces", () => ({
@@ -66,26 +155,31 @@ vi.mock("./PermissionsSection", () => ({
 vi.mock("./LlmSettingsSection", () => ({
   LlmSettingsSection: () => <div data-testid="stub-llm" />,
 }));
-vi.mock("./PromptTemplateSection", () => ({
-  PromptTemplateSection: () => <div data-testid="stub-prompts" />,
+vi.mock("./AiPromptsSection", () => ({
+  AiPromptsSection: () => <div data-testid="stub-prompts" />,
 }));
-vi.mock("../AdminDialog/AttributeVisibilityAdmin", () => ({
-  AttributeVisibilityAdmin: () => <div data-testid="stub-visibility" />,
-}));
-
-// Stub CustomFieldsSection (REQ-016) to prevent api calls in unit tests.
-vi.mock("./CustomFieldsSection", () => ({
-  CustomFieldsSection: () => <div data-testid="stub-custom-fields" />,
+// Stub McpConnectionSection — it renders a router <Link>, which the stubbed
+// react-router-dom above does not provide. Covered by its own test file.
+vi.mock("./McpConnectionSection", () => ({
+  McpConnectionSection: () => <div data-testid="stub-mcp-connection" />,
 }));
 
 describe("WorkspaceSettings tabs (REQ-015)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSearchParams.current = new URLSearchParams();
   });
 
   it("renders the workspace-scoped tabs and shows the General tab by default", () => {
     render(<WorkspaceSettings />);
-    for (const id of ["general", "traceability", "visibility", "llm", "workflows-permissions"]) {
+    for (const id of [
+      "general",
+      // M-03: language + theme split out of "general" into their own tab.
+      "appearance",
+      "traceability",
+      "llm",
+      "workflows-permissions",
+    ]) {
       expect(screen.getByTestId(`settings-tab-${id}`)).toBeInTheDocument();
     }
     // The Administration tab relocated to System Settings (REQ-184) — gone here.
@@ -95,6 +189,62 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByTestId("workspace-name-input")).toBeInTheDocument();
     // A control from another tab is not mounted.
     expect(screen.queryByTestId("decomposition-link-type-select")).not.toBeInTheDocument();
+  });
+
+  // Regression test for the WCAG 4.1.2/3.3.2 fix: the name field must be
+  // queryable via its accessible name (aria-labelledby -> the "Workspace
+  // Name" heading), not just visually adjacent to it.
+  it("a11y: the workspace-name field is queryable by its accessible name", () => {
+    render(<WorkspaceSettings />);
+    expect(screen.getByLabelText("Workspace Name")).toBe(screen.getByTestId("workspace-name-input"));
+  });
+
+  it("#609: opens directly on the LLM tab when deep-linked via ?tab=llm", () => {
+    mockSearchParams.current = new URLSearchParams("tab=llm");
+    render(<WorkspaceSettings />);
+
+    expect(screen.getByTestId("settings-tab-llm")).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("workspace-name-input")).not.toBeInTheDocument();
+  });
+
+  it("#609: falls back to the General tab for an unknown ?tab= value", () => {
+    mockSearchParams.current = new URLSearchParams("tab=not-a-real-tab");
+    render(<WorkspaceSettings />);
+
+    expect(screen.getByTestId("settings-tab-general")).toHaveAttribute("aria-selected", "true");
+  });
+
+  // M-03: language and theme moved off "Allgemein" onto their own
+  // "Darstellung" tab, so these three now have to open it first.
+  it("groups language and theme on the Appearance tab, not on General", async () => {
+    render(<WorkspaceSettings />);
+    // Not on the default (General) panel any more.
+    expect(screen.queryByTestId("theme-palette-picker")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("language-option-de")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("settings-tab-appearance"));
+
+    expect(screen.getByTestId("settings-tab-appearance")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("language-option-de")).toBeInTheDocument();
+    expect(screen.getByTestId("theme-palette-picker")).toBeInTheDocument();
+    expect(screen.getByTestId("theme-mode-picker")).toBeInTheDocument();
+    expect(screen.queryByTestId("theme-option-dark")).not.toBeInTheDocument(); // old flat-list testid gone
+    // Workspace-configuration controls stay behind on General.
+    expect(screen.queryByTestId("workspace-name-input")).not.toBeInTheDocument();
+  });
+
+  it("lets the user pick an independent palette without touching the mode", async () => {
+    render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("settings-tab-appearance"));
+    await userEvent.click(screen.getByTestId("theme-palette-option-nordic"));
+    expect(setPreferenceMock).toHaveBeenCalledWith("nordic", "dark");
+  });
+
+  it("lets the user flip the mode without touching the palette", async () => {
+    render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("settings-tab-appearance"));
+    await userEvent.click(screen.getByTestId("theme-mode-light"));
+    expect(setPreferenceMock).toHaveBeenCalledWith("default", "light");
   });
 
   it("shows the rebuilt Workflows & Permissions tab (SCR-202)", async () => {
@@ -116,11 +266,64 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.queryByTestId("workspace-name-input")).not.toBeInTheDocument();
   });
 
+  // Task 23 / Finding 3: both selects are now catalog-driven, and a stored
+  // value absent from the catalog (here the retired "parent-child" default,
+  // see the `activeWorkspace` fixture above) renders as an extra disabled
+  // option instead of silently falling back to option[0] on next save.
+  it("renders the catalog-driven options and a disabled fallback for the stale stored value (Task 23)", async () => {
+    render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("settings-tab-traceability"));
+
+    const decompositionSelect = screen.getByTestId("decomposition-link-type-select") as HTMLSelectElement;
+    const decompositionOptions = Array.from(decompositionSelect.querySelectorAll("option"));
+    expect(decompositionOptions.map((o) => o.value)).toEqual(
+      expect.arrayContaining(["decomposes", "derives-from", "parent-child"]),
+    );
+    const staleOption = decompositionOptions.find((o) => o.value === "parent-child");
+    expect(staleOption).toHaveTextContent("(unavailable)");
+    expect(staleOption).toBeDisabled();
+
+    const defaultSelect = screen.getByTestId("default-link-type-select") as HTMLSelectElement;
+    const defaultOptions = Array.from(defaultSelect.querySelectorAll("option")).map((o) => o.value);
+    expect(defaultOptions).toEqual(["decomposes", "derives-from"]);
+  });
+
   it("renders the LLM and prompt sections together on the LLM tab", async () => {
     render(<WorkspaceSettings />);
     await userEvent.click(screen.getByTestId("settings-tab-llm"));
 
     expect(screen.getByTestId("stub-llm")).toBeInTheDocument();
     expect(screen.getByTestId("stub-prompts")).toBeInTheDocument();
+  });
+
+  // M-03: "KI-Gedächtnis" used to sit at the bottom of the General tab.
+  it("groups the AI memory settings with the LLM configuration", async () => {
+    render(<WorkspaceSettings />);
+    expect(screen.queryByTestId("memory-settings-section")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("settings-tab-llm"));
+
+    expect(screen.getByTestId("memory-settings-section")).toBeInTheDocument();
+  });
+
+  it("disables the save button when the name is emptied", () => {
+    render(<WorkspaceSettings />);
+    const input = screen.getByTestId("workspace-name-input");
+    fireEvent.change(input, { target: { value: "" } });
+    expect(screen.getByTestId("workspace-name-save")).toBeDisabled();
+  });
+
+  it("disables the save button when the name is only whitespace", () => {
+    render(<WorkspaceSettings />);
+    const input = screen.getByTestId("workspace-name-input");
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(screen.getByTestId("workspace-name-save")).toBeDisabled();
+  });
+
+  it("renders preset features with a consistent symbol-prefixed format", () => {
+    render(<WorkspaceSettings />);
+    const summary = screen.getByTestId("preset-features-extended");
+    expect(summary).not.toHaveTextContent("change_reason:");
+    expect(summary.textContent).toMatch(/✓ Baselines/);
   });
 });

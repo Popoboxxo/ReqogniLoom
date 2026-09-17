@@ -2,7 +2,7 @@
 import { test, expect } from '@playwright/test';
 import { getAuthToken, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 test.describe('[REQ-L2-DS-001] Diagram CRUD API', () => {
   test('[REQ-L2-DS-001] Full CRUD round-trip for diagrams', async ({ request }) => {
@@ -10,9 +10,13 @@ test.describe('[REQ-L2-DS-001] Diagram CRUD API', () => {
     const headers = { Authorization: `Bearer ${token}` };
 
     // Step 1: Create a diagram
+    // workspace_id is required: without it, Diagram.workspace_id stays None
+    // and DELETE (workflow.services.outdate -> UUID(str(None))) 500s instead
+    // of soft-deleting (backend/diagram/services.py delete_diagram).
     const createResp = await request.post(`${BACKEND_URL}/api/v1/diagrams/`, {
       headers,
       data: {
+        workspace_id: SEEDED_WORKSPACE_ID,
         name: 'E2E Test Diagram',
         diagram_type: 'block',
         payload_format: 'json',

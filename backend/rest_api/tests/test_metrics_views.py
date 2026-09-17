@@ -69,3 +69,69 @@ def test_list_returns_400_without_workspace_id() -> None:
     view = MetricsViewSet.as_view({"get": "list"})
     response = view(req)
     assert response.status_code == 400
+
+
+class TestTenantContextHygiene:
+    """SA-38 (SYSTEMAUDIT_2026-08-27 §4.3 F-09): ``TenantContext.set_tenant()``
+    at the top of ``list()`` used to have no matching ``clear_tenant()`` in a
+    ``finally`` — every early-return path (missing/malformed workspace_id,
+    404) left the thread-local armed for whatever request the pool worker
+    thread serves next. All four response paths below must leave the
+    thread-local context cleared.
+    """
+
+    def _assert_cleared(self) -> None:
+        from persistence.tenancy import TenantContext
+
+        assert not TenantContext.is_set(), (
+            "TenantContext leaked past MetricsViewSet.list() — a pooled "
+            "worker thread would carry this tenant into the next request."
+        )
+
+    def test_context_cleared_after_missing_workspace_id(self) -> None:
+        req = _metrics_request()
+        view = MetricsViewSet.as_view({"get": "list"})
+        view(req)
+        self._assert_cleared()
+
+    def test_context_cleared_after_malformed_workspace_id(self) -> None:
+        req = _metrics_request(params={"workspace_id": "not-a-uuid"})
+        view = MetricsViewSet.as_view({"get": "list"})
+        view(req)
+        self._assert_cleared()
+
+    def test_context_cleared_after_workspace_not_found(self) -> None:
+        req = _metrics_request(params={"workspace_id": str(uuid.uuid4())})
+        view = MetricsViewSet.as_view({"get": "list"})
+        with patch(
+            "rest_api.metrics_views.WorkspaceService.get_workspace",
+            side_effect=NotFoundError("not found"),
+        ):
+            view(req)
+        self._assert_cleared()
+
+    def test_context_cleared_after_success(self) -> None:
+        req = _metrics_request(params={"workspace_id": str(uuid.uuid4())})
+        view = MetricsViewSet.as_view({"get": "list"})
+        result = MagicMock()
+        result.to_dict.return_value = {"coverage": {}}
+        with patch(
+            "rest_api.metrics_views.WorkspaceService.get_workspace",
+            return_value=MagicMock(),
+        ), patch("rest_api.metrics_views.compute_metrics", return_value=result):
+            view(req)
+        self._assert_cleared()
+
+    def test_context_cleared_after_unhandled_exception(self) -> None:
+        req = _metrics_request(params={"workspace_id": str(uuid.uuid4())})
+        view = MetricsViewSet.as_view({"get": "list"})
+        with patch(
+            "rest_api.metrics_views.WorkspaceService.get_workspace",
+            return_value=MagicMock(),
+        ), patch(
+            "rest_api.metrics_views.compute_metrics",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = view(req)
+        assert response.status_code == 500
+        self._assert_cleared()

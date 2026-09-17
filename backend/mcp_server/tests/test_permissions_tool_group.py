@@ -16,6 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
 
@@ -28,7 +29,11 @@ from auth_tenancy.models import (
     ITEM_PERMISSION_WRITE,
 )
 from auth_tenancy.services import ItemPermissionService
-from auth_tenancy.services.item_permission import PermissionDecision
+from auth_tenancy.services.authorization import AuthorizationService
+from auth_tenancy.services.item_permission import (
+    NO_RULE_REASON,
+    PermissionDecision,
+)
 
 from mcp_server.tools.permissions import PermissionsToolGroup
 
@@ -54,7 +59,23 @@ EDITOR_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
-VALID_API_KEY = "rf_test_admin_key"
+VIEWER_CTX = AuthContext(
+    user_id=UUID("00000000-0000-0000-0000-000000000001"),
+    tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+    active_roles=("viewer",),
+    auth_method=AuthMethod.API_KEY,
+    api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+)
+
+NO_ROLE_CTX = AuthContext(
+    user_id=UUID("00000000-0000-0000-0000-000000000001"),
+    tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+    active_roles=(),
+    auth_method=AuthMethod.API_KEY,
+    api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+)
+
+VALID_API_KEY = "reqlo_test_admin_key"
 
 WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000010")
 USER_ID = UUID("00000000-0000-0000-0000-000000000020")
@@ -316,7 +337,7 @@ class TestPermissionsRevoke:
 
             result = group.execute_tool(
                 tool_name="permissions.revoke",
-                params={"permission_id": str(PERMISSION_ID)},
+                params={"permission_id": str(PERMISSION_ID), "workspace_id": str(WORKSPACE_ID)},
                 auth_context=ADMIN_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -329,6 +350,24 @@ class TestPermissionsRevoke:
         audit_kwargs = mock_audit.call_args.kwargs
         assert audit_kwargs["tool_name"] == "permissions.revoke"
         assert audit_kwargs["entity_id"] == PERMISSION_ID
+        # Security regression: the lookup must be scoped to the caller's own
+        # tenant AND the workspace_id param, not a bare filter(id=...) that
+        # could match another tenant's/workspace's row (code review finding).
+        mock_unscoped.filter.assert_called_once_with(
+            id=PERMISSION_ID, tenant_id=ADMIN_CTX.tenant_id, workspace_id=WORKSPACE_ID
+        )
+
+    def test_revoke_missing_workspace_id_returns_validation_error(self):
+        group, svc = _group()
+        result = group.execute_tool(
+            tool_name="permissions.revoke",
+            params={"permission_id": str(PERMISSION_ID)},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.revoke_permission.assert_not_called()
 
     def test_revoke_unknown_id_returns_not_found(self):
         with patch(
@@ -341,7 +380,7 @@ class TestPermissionsRevoke:
             group, svc = _group()
             result = group.execute_tool(
                 tool_name="permissions.revoke",
-                params={"permission_id": str(PERMISSION_ID)},
+                params={"permission_id": str(PERMISSION_ID), "workspace_id": str(WORKSPACE_ID)},
                 auth_context=ADMIN_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -376,7 +415,7 @@ class TestPermissionsRevoke:
             )
             result = group.execute_tool(
                 tool_name="permissions.revoke",
-                params={"permission_id": str(PERMISSION_ID)},
+                params={"permission_id": str(PERMISSION_ID), "workspace_id": str(WORKSPACE_ID)},
                 auth_context=EDITOR_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -396,7 +435,7 @@ class TestPermissionsRevoke:
             svc.revoke_permission.return_value = False
             result = group.execute_tool(
                 tool_name="permissions.revoke",
-                params={"permission_id": str(PERMISSION_ID)},
+                params={"permission_id": str(PERMISSION_ID), "workspace_id": str(WORKSPACE_ID)},
                 auth_context=ADMIN_CTX,
                 api_key=VALID_API_KEY,
             )
@@ -451,10 +490,16 @@ class TestPermissionsCheck:
         # read is not >= write -> denied
         assert result.data["decision"]["is_allowed"] is False
 
-    def test_check_deny_returns_denied(self):
+    def test_check_deny_returns_denied_when_rbac_also_denies(self):
+        """No item rule (closed-world default) AND no RBAC role at all ->
+        still correctly denied (no loosening beyond #716)."""
         group, svc = _group()
         svc.check_permission.return_value = PermissionDecision(
-            level="deny", reason="no rule applies (default deny)"
+            level="deny",
+            reason=NO_RULE_REASON,
+            # Structured discriminator (#722): no rule row exists, so the item
+            # layer is silent and base RBAC governs.
+            has_explicit_rule=False,
         )
 
         result = group.execute_tool(
@@ -463,13 +508,114 @@ class TestPermissionsCheck:
                 "workspace_id": str(WORKSPACE_ID),
                 "permission_level": "read",
             },
-            auth_context=ADMIN_CTX,
+            auth_context=NO_ROLE_CTX,
             api_key=VALID_API_KEY,
         )
 
         assert result.success is True
         assert result.data["decision"]["is_allowed"] is False
         assert result.data["decision"]["level"] == "deny"
+
+    def test_check_no_item_rule_falls_back_to_rbac_for_viewer(self):
+        """Fix #716: a Viewer with NO item-level rule is reported as
+        allowed for 'read' — the item layer's closed-world 'deny' default
+        must not silently override a role the base RBAC matrix grants."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny",
+            reason=NO_RULE_REASON,
+            # Structured discriminator (#722): no rule row exists, so the item
+            # layer is silent and base RBAC governs.
+            has_explicit_rule=False,
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "read",
+            },
+            auth_context=VIEWER_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "read"
+        assert result.data["decision"]["is_allowed"] is True
+
+    def test_check_no_item_rule_viewer_denied_for_write(self):
+        """Same no-item-rule fallback to RBAC, but a Viewer still has no
+        'write' -> denied (the fix does not grant more than the role has)."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny",
+            reason=NO_RULE_REASON,
+            # Structured discriminator (#722): no rule row exists, so the item
+            # layer is silent and base RBAC governs.
+            has_explicit_rule=False,
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "write",
+            },
+            auth_context=VIEWER_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "read"
+        assert result.data["decision"]["is_allowed"] is False
+
+    def test_check_explicit_item_deny_overrides_editor_rbac(self):
+        """An explicit item-level 'none' rule still restricts an Editor
+        below their RBAC grant (defense-in-depth is preserved)."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny", reason="artifact-scoped rule grants 'none' (explicit deny)"
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "read",
+                "artifact_id": str(ARTIFACT_ID),
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "deny"
+        assert result.data["decision"]["is_allowed"] is False
+
+    def test_check_explicit_item_rule_cannot_escalate_beyond_rbac(self):
+        """An explicit item-level 'write' rule cannot grant a Viewer more
+        than their RBAC role permits (item layer restricts only, per
+        auth_tenancy.services.item_permission's module docstring)."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level=ITEM_PERMISSION_WRITE,
+            reason="artifact-scoped rule grants 'write'",
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "write",
+                "artifact_id": str(ARTIFACT_ID),
+            },
+            auth_context=VIEWER_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "read"
+        assert result.data["decision"]["is_allowed"] is False
 
     def test_check_missing_level_returns_validation_error(self):
         group, svc = _group()
@@ -497,6 +643,100 @@ class TestPermissionsCheck:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
         svc.check_permission.assert_not_called()
+
+    def test_check_reason_text_equal_to_default_still_restricts(self):
+        """#722 Finding 1: the merge must key off ``has_explicit_rule``, not
+        off the ``reason`` text. A rule-backed deny whose reason happens to
+        read exactly like the closed-world default still restricts an Editor.
+        """
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny", reason=NO_RULE_REASON, has_explicit_rule=True
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "read",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "deny"
+        assert result.data["decision"]["is_allowed"] is False
+
+    def test_check_silent_item_layer_with_custom_reason_defers_to_rbac(self):
+        """Inverse direction of the same discriminator: no rule row (flag
+        unset) means the item layer stays silent whatever its reason says."""
+        group, svc = _group()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny",
+            reason="artifact-scoped rule grants 'none' (explicit deny)",
+            has_explicit_rule=False,
+        )
+
+        result = group.execute_tool(
+            tool_name="permissions.check",
+            params={
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "write",
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["decision"]["level"] == "write"
+        assert result.data["decision"]["is_allowed"] is True
+
+    def test_check_delegates_combination_to_layer2_service(self):
+        """#722 Finding 2 (ADR-01): the combination is not re-implemented in
+        the transport layer — the handler forwards to the Layer-2 service."""
+        from application.effective_permission_service import (
+            EffectivePermission,
+            EffectivePermissionService,
+        )
+
+        group, svc = _group()
+
+        with patch.object(
+            EffectivePermissionService, "resolve_effective_permission"
+        ) as mock_resolve:
+            mock_resolve.return_value = EffectivePermission(
+                level="read", reason="rbac reason", is_allowed=True, queried_level="read"
+            )
+            result = group.execute_tool(
+                tool_name="permissions.check",
+                params={
+                    "workspace_id": str(WORKSPACE_ID),
+                    "permission_level": "read",
+                    "artifact_id": str(ARTIFACT_ID),
+                },
+                auth_context=VIEWER_CTX,
+                api_key=VALID_API_KEY,
+            )
+
+        assert result.success is True
+        assert result.data["decision"] == {
+            "level": "read",
+            "reason": "rbac reason",
+            "is_allowed": True,
+        }
+        assert result.data["queried_level"] == "read"
+        kwargs = mock_resolve.call_args.kwargs
+        assert mock_resolve.call_args.args == ()
+        assert kwargs["active_roles"] == VIEWER_CTX.active_roles
+        assert kwargs["user_id"] == VIEWER_CTX.user_id
+        assert kwargs["workspace_id"] == WORKSPACE_ID
+        assert kwargs["artifact_id"] == ARTIFACT_ID
+        assert kwargs["level"] == "read"
+        # The mocked item service belongs to the group, so the Layer-2
+        # resolver was bound to the group's own collaborators.
+        assert isinstance(group._effective_permissions()._item_permissions, MagicMock)
+        assert group._effective_permissions()._item_permissions is svc
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +800,14 @@ def _build_registry(*, roles=("admin",), service: MagicMock | None = None):
 
     authz_svc = MagicMock()
     authz_svc.active_roles_for.return_value = roles
-    authz_svc.decide_access.return_value = MagicMock(allow=("viewer" not in roles))
+    # Delegate to the real matrix instead of the old ``allow="viewer" not in
+    # roles`` stub. That stub predates the read gate (Systemaudit 2026-08-29
+    # §6.5) and was operation-blind, so once ``dispatch_request`` started
+    # asking about ``Operation.READ`` it wrongly denied a Viewer a *read* —
+    # something the real service never does (``_RBAC_MATRIX[viewer]`` contains
+    # READ). ``decide_access`` is pure, in-memory and DB-free, so delegating
+    # costs nothing and cannot drift from production semantics again.
+    authz_svc.decide_access.side_effect = AuthorizationService().decide_access
 
     registry = ToolRegistry(
         auth_service=auth_svc,
@@ -576,17 +823,31 @@ def _build_registry(*, roles=("admin",), service: MagicMock | None = None):
 
 
 def _post(handler, method, params, *, request_id: int = 1, api_key: str = VALID_API_KEY):
+    """Build a JSON-RPC body and run it through ProtocolHandler.
+
+    The key is supplied via the ``Authorization`` header, not the JSON-RPC
+    body: the HTTP transport no longer honours ``params.api_key`` (D-1 /
+    REQ-018 — see TestApiKeyTransportRestriction in test_protocol_handler.py).
+    """
     import json
 
     body = json.dumps({
         "jsonrpc": "2.0",
         "method": method,
         "id": request_id,
-        "params": {"api_key": api_key, **params},
+        "params": params,
     }).encode()
-    return handler.handle_http_request(body=body)
+    headers = {"HTTP_AUTHORIZATION": f"Bearer {api_key}"}
+    return handler.handle_http_request(body=body, headers=headers)
 
 
+# ``django_db``: these E2E classes drive the real
+# ``ToolRegistry.dispatch_request``, which arms the PostgreSQL RLS session
+# variable via ``persistence.middleware.set_request_tenant`` (``SET
+# app.current_tenant``, COMP-PL-006 / fix #110) and resets it in the
+# ``finally``. That is a real DB round-trip on the production path, so the
+# tests need DB access even though every collaborator below is mocked.
+@pytest.mark.django_db
 class TestE2EPermissions:
     @patch("mcp_server.tools.permissions.write_mcp_audit")
     def test_set_rule_e2e_returns_jsonrpc_result(self, mock_audit):
@@ -659,6 +920,33 @@ class TestE2EPermissions:
 
         assert "result" in response
         assert len(response["result"]["permissions"]) == 1
+
+    def test_check_e2e_viewer_with_no_item_rule_reads_allow(self):
+        """Real ToolRegistry/ProtocolHandler pipeline, real (unmocked)
+        PermissionsToolGroup._authz_service — reproduces the exact QA repro
+        for #716: a Viewer with no ItemPermission row calling
+        ``permissions.check`` for 'read' must get ``is_allowed: true``."""
+        from mcp_server.protocol_handler import ProtocolHandler
+
+        svc = MagicMock()
+        svc.check_permission.return_value = PermissionDecision(
+            level="deny", reason=NO_RULE_REASON, has_explicit_rule=False
+        )
+        registry = _build_registry(roles=("viewer",), service=svc)
+        handler = ProtocolHandler(tool_registry=registry)
+
+        response = _post(
+            handler,
+            "permissions.check",
+            {
+                "workspace_id": str(WORKSPACE_ID),
+                "permission_level": "read",
+            },
+        )
+
+        assert "result" in response, response
+        assert response["result"]["decision"]["is_allowed"] is True
+        assert response["result"]["decision"]["level"] == "read"
 
     def test_registry_routes_permissions_prefix_to_permissions_group(self):
         from mcp_server.tools.permissions import PermissionsToolGroup
