@@ -112,6 +112,65 @@ def test_generate_then_commit_roundtrip(n1_ctx):
     assert ArchitectureElement.objects.filter(parent_id=root.id).count() == 2
 
 
+def test_commit_persists_rationale_and_reads_it_back(n1_ctx):
+    """issue #583 — the generated rationale must survive the commit.
+
+    ``architecture.decompose`` already returns the node's generated rationale
+    in the draft, but ``architecture.decompose_commit`` forwarded only
+    title/description to the create services, so it was dropped for both
+    created entity types. ``rationale`` is an extended attribute for each
+    (Requirement: ISO 29148, ArchitectureElement: ISO 42010), carried by
+    ``Artifact.custom_fields["rationale"]`` — it must round-trip on read.
+    """
+    from mcp_server.tools.requirements import RequirementsToolGroup
+
+    tenant, ctx, workspace = n1_ctx
+    switch_preset(str(workspace.id), "extended")
+    root, _anchor = _seed(tenant, workspace)
+    group = ArchitectureToolGroup()
+
+    gen = _exec(
+        group,
+        "architecture.decompose",
+        {"element_id": str(root.id), "max_breadth": 1, "max_depth": 1},
+        ctx,
+    )
+    assert gen.success
+    draft = gen.data["draft"]
+    rationale = draft["nodes"][0]["requirement"]["rationale"]
+    assert rationale, "generated draft must carry a rationale"
+
+    commit = _exec(
+        group,
+        "architecture.decompose_commit",
+        {"workspace_id": str(workspace.id), "draft": draft},
+        ctx,
+    )
+    assert commit.success
+
+    element_read = _exec(
+        group,
+        "architecture.get",
+        {"id": commit.data["created_element_ids"][0]},
+        ctx,
+    )
+    assert element_read.success
+    assert element_read.data["architecture_element"]["custom_fields"] == {
+        "rationale": rationale
+    }
+
+    requirement_read = _exec(
+        RequirementsToolGroup(),
+        "requirement.get",
+        {"id": commit.data["created_requirement_ids"][0]},
+        ctx,
+    )
+    assert requirement_read.success
+    assert requirement_read.data["requirement"]["custom_fields"] == {
+        "rationale": rationale
+    }
+
+
 def test_generate_blocked_in_minimal_preset(n1_ctx):
     tenant, ctx, workspace = n1_ctx
     # fresh workspace is minimal by default

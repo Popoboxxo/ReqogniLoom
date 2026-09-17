@@ -82,10 +82,56 @@ from rest_api.serializers import (
     StandardPagination,
     build_error_response,
     detect_lang,
+    reject_unknown_fields,
 )
-from rest_api.views import BaseEntityViewSet
+from rest_api.views import BaseEntityViewSet, _SYSTEM_FIELD_NAMES
 
 logger = logging.getLogger(__name__)
+
+
+#: Request keys ``IcdViewSet.create()`` reads off ``request.data`` (#851).
+#: Icd has no dedicated DRF serializer — the handler hand-builds an
+#: ``IcdCreateDTO`` — so the allowed set is declared here and enforced through
+#: ``reject_unknown_fields``. ``owner``/``reporter``/``priority`` are read by
+#: ``_apply_artifact_system_fields``; ``custom_fields`` is handled by the
+#: attribute-definition guard.
+_ICD_CREATE_FIELDS: frozenset[str] = frozenset(
+    {
+        "name",
+        "workspace_id",
+        "source_element_id",
+        "target_element_id",
+        "direction",
+        "interface_type",
+        "semantic_description",
+        "preconditions",
+        "postconditions",
+        "invariants",
+        "custom_fields",
+        "status",
+        *_SYSTEM_FIELD_NAMES,
+    }
+)
+
+#: Request keys ``IcdViewSet.partial_update()`` accepts. ``name`` is listed
+#: because ``icdsApi.update()`` sends it (the service ignores it today);
+#: rejecting it would break a currently working call. ``status`` is a declared
+#: (read-only) field on every artifact serializer, so the mixin would accept it
+#: there too — an echo must not start failing here.
+_ICD_UPDATE_FIELDS: frozenset[str] = frozenset(
+    {
+        "name",
+        "direction",
+        "interface_type",
+        "semantic_description",
+        "preconditions",
+        "postconditions",
+        "invariants",
+        "custom_fields",
+        "status",
+        *_SYSTEM_FIELD_NAMES,
+    }
+)
 
 
 class IcdRevisionNotFoundError(LookupError):
@@ -444,6 +490,11 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """POST /api/v1/icds/ — create a new ICD with initial version."""
         lang = detect_lang(request)
         try:
+            # #851: no serializer on this path, so carry the guard here.
+            invalid = reject_unknown_fields(request.data, _ICD_CREATE_FIELDS, lang)
+            if invalid is not None:
+                return invalid
+
             ctx = get_auth_context(request)
             tenant = self._resolve_tenant(request)
             user = self._resolve_user(request)
@@ -580,6 +631,11 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """PATCH /api/v1/icds/<pk>/ — update ICD (creates new version)."""
         lang = detect_lang(request)
         try:
+            # #851: no serializer on this path, so carry the guard here.
+            invalid = reject_unknown_fields(request.data, _ICD_UPDATE_FIELDS, lang)
+            if invalid is not None:
+                return invalid
+
             ctx = get_auth_context(request)
             user = self._resolve_user(request)
 

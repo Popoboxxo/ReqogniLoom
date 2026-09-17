@@ -709,6 +709,124 @@ class TestReportedRegressionsDoNotReproduce:
                 {"temp_id": "n1", "title": "   ", "requirement": {"title": ""}}
             )
 
+    def test_commit_persists_generated_rationale_for_both_entity_types(
+        self, tenant, workspace, ctx
+    ):
+        """issue #583: commit_draft dropped the node's generated rationale.
+
+        The draft carries one LLM rationale per node
+        (``DraftRequirement.rationale``) and it is an extended attribute for
+        both created entity types (``attribute_definitions.stage_matrix``:
+        Requirement -> ISO 29148, ArchitectureElement -> ISO 42010). Its
+        carrier is ``Artifact.custom_fields["rationale"]``, so both the child
+        element and the derived requirement must carry it.
+        """
+        from application.architecture_decompose_service import (
+            DraftNode,
+            DraftRequirement,
+        )
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, max_breadth=1, max_depth=1)
+            draft.nodes = [
+                DraftNode(
+                    temp_id="n1",
+                    parent_temp_id=None,
+                    title="Telemetry Component",
+                    description="Emits telemetry.",
+                    element_type="component",
+                    requirement=DraftRequirement(
+                        title="Telemetry requirement",
+                        description="The system shall emit telemetry.",
+                        rationale="Because faults must be observable.",
+                    ),
+                )
+            ]
+
+            result = svc.commit_draft(ctx, draft)
+
+            element = ArchitectureElement.objects.select_related("artifact").get(
+                id=result.created_element_ids[0]
+            )
+            requirement = Requirement.objects.select_related("artifact").get(
+                id=result.created_requirement_ids[0]
+            )
+            assert element.artifact.custom_fields == {
+                "rationale": "Because faults must be observable."
+            }
+            assert requirement.artifact.custom_fields == {
+                "rationale": "Because faults must be observable."
+            }
+
+    def test_commit_of_mock_draft_persists_the_generated_rationale(
+        self, tenant, workspace, ctx
+    ):
+        """The default (mock) provider does produce a rationale — the exact
+        text must survive the commit, not just be non-empty."""
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, max_breadth=1, max_depth=1)
+
+            rationale = draft.nodes[0].requirement.rationale
+            assert rationale, "mock provider must generate a rationale"
+
+            result = svc.commit_draft(ctx, draft)
+
+            element = ArchitectureElement.objects.select_related("artifact").get(
+                id=result.created_element_ids[0]
+            )
+            requirement = Requirement.objects.select_related("artifact").get(
+                id=result.created_requirement_ids[0]
+            )
+            assert element.artifact.custom_fields == {"rationale": rationale}
+            assert requirement.artifact.custom_fields == {"rationale": rationale}
+
+    def test_commit_without_rationale_creates_no_bogus_custom_field(
+        self, tenant, workspace, ctx
+    ):
+        """An empty rationale must not produce a ``{"rationale": ""}`` entry —
+        both entities keep the ``{}`` every create without custom fields uses."""
+        from application.architecture_decompose_service import (
+            DraftNode,
+            DraftRequirement,
+        )
+
+        with _active(tenant):
+            switch_preset(str(workspace.id), "extended")
+            root, _ = _seed_anchored_element(tenant, workspace)
+            svc = ArchitectureDecomposeService()
+            draft = svc.generate_draft(ctx, root.id, max_breadth=1, max_depth=1)
+            draft.nodes = [
+                DraftNode(
+                    temp_id="n1",
+                    parent_temp_id=None,
+                    title="Telemetry Component",
+                    description="Emits telemetry.",
+                    element_type="component",
+                    requirement=DraftRequirement(
+                        title="Telemetry requirement",
+                        description="The system shall emit telemetry.",
+                        rationale="",
+                    ),
+                )
+            ]
+
+            result = svc.commit_draft(ctx, draft)
+
+            element = ArchitectureElement.objects.select_related("artifact").get(
+                id=result.created_element_ids[0]
+            )
+            requirement = Requirement.objects.select_related("artifact").get(
+                id=result.created_requirement_ids[0]
+            )
+            assert element.artifact.custom_fields == {}
+            assert requirement.artifact.custom_fields == {}
+
     def test_commit_never_persists_a_blank_titled_requirement(
         self, tenant, workspace, ctx
     ):

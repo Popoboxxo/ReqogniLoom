@@ -28,10 +28,11 @@ Design:
 """
 from __future__ import annotations
 
+from collections.abc import Container
 from typing import Any, Optional
 
 from django.utils import translation
-from rest_framework import pagination, serializers
+from rest_framework import pagination, serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -638,14 +639,62 @@ class UnknownFieldRejectionMixin:
 
     def to_internal_value(self, data: Any) -> Any:
         validated = super().to_internal_value(data)  # type: ignore[misc]
-        if isinstance(data, dict):
-            allowed = set(self.fields) | set(_ALWAYS_ALLOWED_PATCH_FIELDS)
-            errors = {
-                key: ["Unknown field."] for key in data if key not in allowed
-            }
-            if errors:
-                raise serializers.ValidationError(errors)
+        errors = unknown_field_errors(data, set(self.fields))
+        if errors:
+            raise serializers.ValidationError(errors)
         return validated
+
+
+#: Per-field error text for a request key no declared field accepts (#851).
+#: Shared by :class:`UnknownFieldRejectionMixin` (serializer routes) and
+#: :func:`reject_unknown_fields` (raw ``request.data`` handlers) so both
+#: surfaces report exactly the same message instead of a second format.
+UNKNOWN_FIELD_MESSAGE = "Unknown field."
+
+
+def unknown_field_errors(
+    data: Any, allowed_keys: Container[str]
+) -> dict[str, list[str]]:
+    """Return ``{key: [UNKNOWN_FIELD_MESSAGE]}`` for undeclared keys (#851).
+
+    ``data`` is only inspected when it is a mapping — a non-dict body is DRF's
+    own concern, not an unknown-key one. The always-allowed write keys
+    (:data:`rest_api.mixins.workflow_transitions._ALWAYS_ALLOWED_PATCH_FIELDS`)
+    pass even when the caller's *allowed_keys* omits them, exactly as in the
+    serializer mixin.
+    """
+    if not isinstance(data, dict):
+        return {}
+    allowed = set(allowed_keys) | set(_ALWAYS_ALLOWED_PATCH_FIELDS)
+    return {key: [UNKNOWN_FIELD_MESSAGE] for key in data if key not in allowed}
+
+
+def reject_unknown_fields(
+    data: Any,
+    allowed_keys: Container[str],
+    lang: str = "en",
+) -> Response | None:
+    """Reject keys outside *allowed_keys* with a 400, or return ``None`` (#851).
+
+    The raw-handler counterpart to :class:`UnknownFieldRejectionMixin`: a view
+    that reads ``request.data`` directly cannot inherit the serializer mixin, so
+    it calls this first and returns the response when it is not ``None``. The
+    envelope — 400 ``VALIDATION_ERROR`` with one ``error.details`` entry per
+    offending key, carrying :data:`UNKNOWN_FIELD_MESSAGE` — is identical to what
+    the guarded-serializer routes produce, because both build on
+    :func:`unknown_field_errors`.
+    """
+    errors = unknown_field_errors(data, allowed_keys)
+    if not errors:
+        return None
+    return Response(
+        build_error_response(
+            "VALIDATION_ERROR",
+            lang,
+            details=[{"field": k, "errors": v} for k, v in errors.items()],
+        ),
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1461,9 +1510,13 @@ class BaselineDiffSerializer(serializers.Serializer):
 
 
 class WorkflowDefinitionSerializer(
-    PresetAwareSerializerMixin, serializers.Serializer
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
 ):
-    """Serializer for WorkflowDefinition entity (REQ-L2-RA-001)."""
+    """Serializer for WorkflowDefinition entity (REQ-L2-RA-001).
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts, instead of the DRF default of silently dropping them.
+    """
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1475,7 +1528,9 @@ class WorkflowDefinitionSerializer(
     created_at = serializers.DateTimeField(read_only=True)
 
 
-class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class WorkspaceSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for Workspace entity (REQ-L1-017, REQ-L1-042).
 
     ``terminology_profile`` is sourced from the optional
@@ -1484,6 +1539,12 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     Lifecycle fields (REQ-L1-042):
       ``is_active``, ``closed_at``, ``closed_by`` — soft-delete / close metadata.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts. ``WorkspaceViewSet.create``/``partial_update`` read every
+    input key from this serializer's schema (``preset`` through
+    ``goals_ai_enabled``) plus the declared read-only lifecycle flag
+    ``is_active``, so a typo now answers 400 instead of a hollow 201/200.
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -1709,8 +1770,16 @@ class MainGoalSerializer(
     is_mock_fallback = serializers.BooleanField(read_only=True, required=False, default=False)
 
 
-class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for TestRun entity (REQ-L2-AS-030)."""
+class TestRunSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
+    """Serializer for TestRun entity (REQ-L2-AS-030).
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts. ``TestRunViewSet.create`` reads ``test_case_ids`` straight
+    off the request body, so that key is declared here (write-only) to keep a
+    real create payload valid while a typo still answers 400.
+    """
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -1725,6 +1794,17 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     status = serializers.CharField(read_only=True)
     # #104: matches TestRun.ci_job_id model field (CharField(max_length=255)).
     ci_job_id = serializers.CharField(allow_blank=True, default="", max_length=255)
+    # #851: TestRunViewSet.create reads this key directly to seed the run's
+    # per-testcase results. Declared write-only (UUID list) so the unknown-field
+    # guard accepts it and validates it here instead of the view coercing raw
+    # request.data. Never part of a response.
+    test_case_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        write_only=True,
+        help_text="Optional TestCase UUIDs to seed the run's result rows.",
+    )
     started_at = serializers.DateTimeField(read_only=True)
     finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
     result_summary = serializers.JSONField(read_only=True, required=False)
@@ -1735,8 +1815,14 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for TestRunResult entity (REQ-L2-AS-030)."""
+class TestRunResultSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
+    """Serializer for TestRunResult entity (REQ-L2-AS-030).
+
+    #851: wired into the ``/results/`` write path, so it carries the shared
+    unknown-field guard like every other top-level create/update serializer.
+    """
 
     id = serializers.UUIDField(read_only=True)
     test_run_id = serializers.UUIDField(read_only=True)
@@ -1757,8 +1843,15 @@ class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer
     created_at = serializers.DateTimeField(read_only=True)
 
 
-class TestRunResultBulkSerializer(serializers.Serializer):
-    """Serializer for bulk result ingestion (REQ-L2-AS-031)."""
+class TestRunResultBulkSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Serializer for bulk result ingestion (REQ-L2-AS-031).
+
+    #851: wired into the ``/results/bulk/`` write path. The guard applies at
+    this top level (unknown keys next to ``results``) and, through the nested
+    child, to every entry in the batch.
+    """
 
     results = TestRunResultSerializer(many=True)
 
@@ -1870,18 +1963,35 @@ class ChangeRequestSerializer(
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class IcdParameterSerializer(serializers.Serializer):
+class IcdParameterSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
     """Serializer for IcdParameter entity (REQ-L2-ICD-002, COMP-ICD-001).
 
     Structured interface parameter (unit, data type, direction, numeric
     bounds, tolerance) of an ICD's current contract. Task 28c-2 replaced
     ``icd_version_id`` with ``icd_id``: parameters belong to the ICD, not to
     one of its revisions.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts. ``IcdViewSet.parameters`` reads a body ``version`` directly
+    to refuse writes aimed at a historical revision, so that control key is
+    declared here (write-only) to keep the existing contract valid while a
+    typo answers 400.
     """
 
     id = serializers.UUIDField(read_only=True)
     icd_id = serializers.UUIDField(read_only=True)
     name = SanitizedCharField(max_length=200)
+    # #851: create-only control key (see the class docstring). Write-only so it
+    # never appears in a parameter response.
+    version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Optional current ICD revision this write targets; a value other "
+            "than the current revision is refused."
+        ),
+    )
     description = SanitizedCharField(
         allow_blank=True, default="", max_length=2000
     )
@@ -2139,7 +2249,7 @@ class UserProfileSerializer(serializers.Serializer):
         return instance
 
 
-class CommentSerializer(serializers.Serializer):
+class CommentSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
     """Wire format for application.models.Comment (Menschen-im-System spec §4).
 
     Read-only apart from ``text`` — comments are never edited, only created,
@@ -2151,6 +2261,10 @@ class CommentSerializer(serializers.Serializer):
     class #820 reported. ``ArtifactCommentsView`` runs this serializer, and
     ``CommentService.create_comment`` re-checks the same rule for the MCP tool
     group, which never touches DRF.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts, so a typo in the create body is a 400 instead of a comment
+    created without the text the caller thought they sent.
     """
 
     id = serializers.UUIDField(read_only=True)

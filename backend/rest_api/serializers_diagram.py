@@ -27,6 +27,7 @@ from diagram.node_graph import (
     SCHEMA_VERSION,
     STYLE_ACCENTS,
 )
+from rest_api.serializers import UnknownFieldRejectionMixin
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +83,15 @@ class CanvasStrokeElementSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, default="", allow_blank=True)
 
 
-class CanvasStrokeDataSerializer(serializers.Serializer):
+class CanvasStrokeDataSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
     """Input serializer for canvas stroke data (IF-L1-058).
 
     The frontend pushes the complete stroke list on every auto-save.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
     """
 
     strokes = CanvasStrokeElementSerializer(many=True)
@@ -115,8 +121,12 @@ class CanvasStrokeResponseSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 
-class MermaidSourceSerializer(serializers.Serializer):
-    """Input serializer for Mermaid source code (IF-L1-059)."""
+class MermaidSourceSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
+    """Input serializer for Mermaid source code (IF-L1-059).
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
+    """
 
     source = serializers.CharField(allow_blank=True)
 

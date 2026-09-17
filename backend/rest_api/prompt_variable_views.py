@@ -31,10 +31,16 @@ from application.base import NotFoundError, ValidationError
 from application.prompt_variable_service import PromptVariableService
 from auth_tenancy.models import ROLE_ADMIN
 from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
-from rest_api.serializers import build_error_response, detect_lang
+from rest_api.serializers import (
+    UnknownFieldRejectionMixin,
+    build_error_response,
+    detect_lang,
+)
 
 
-class PromptVariableWriteSerializer(serializers.Serializer):
+class PromptVariableWriteSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
     """Body of PUT /prompt-variables/<name>/.
 
     ``value`` is a ``JSONField`` because a variable may be an int, string,

@@ -122,6 +122,29 @@ ARCH_DECOMPOSE_PROMPT_TEMPLATE = (
 )
 
 
+def _rationale_custom_fields(rationale: object) -> Optional[Dict[str, Any]]:
+    """Return the extended-attribute carrier for a node's generated rationale.
+
+    ``rationale`` is an extended (``kind="extended"``) attribute for **both**
+    entity types this commit creates (``attribute_definitions.stage_matrix``:
+    Requirement -> ISO 29148, ArchitectureElement -> ISO 42010), so it is
+    persisted under ``Artifact.custom_fields["rationale"]`` — the carrier
+    ``RequirementService.create_requirement`` and
+    ``ArchitectureService.create_architecture_element`` already accept. A
+    top-level ``rationale`` field is rejected by design (#915/#916), and
+    forwarding only title/description silently dropped the generated rationale
+    on commit — the N1 counterpart of the derivation fix (issue #583).
+
+    A draft without a non-empty rationale yields ``None`` so the created entity
+    keeps the same empty ``custom_fields`` map (``{}``) that every other create
+    call without custom fields produces, instead of a bogus
+    ``{"rationale": ""}`` entry.
+    """
+    if isinstance(rationale, str) and rationale:
+        return {"rationale": rationale}
+    return None
+
+
 class DecompositionNotAvailableError(PermissionDeniedError):
     """Raised when N1 is invoked in a ``minimal``-rigor workspace.
 
@@ -494,6 +517,16 @@ class ArchitectureDecomposeService(ServiceBase):
                 parent_element_id, parent_req_id = self._resolve_parents(
                     node, root_element, anchor, created
                 )
+                # The draft carries one generated rationale per node
+                # (``DraftRequirement.rationale`` — the DTO has no separate
+                # element-level rationale, see DraftNode). It is an extended
+                # attribute for BOTH created entity types, so it is persisted
+                # under Artifact.custom_fields["rationale"] for each of them:
+                # forwarding only title/description (+ element_type/parent)
+                # silently dropped it (issue #583).
+                rationale_fields = _rationale_custom_fields(
+                    node.requirement.rationale
+                )
                 child_element = self._architecture.create_architecture_element(
                     workspace_id=UUID(workspace_id),
                     title=node.title,
@@ -501,6 +534,7 @@ class ArchitectureDecomposeService(ServiceBase):
                     description=node.description,
                     element_type=node.element_type,
                     parent_id=parent_element_id,
+                    custom_fields=rationale_fields,
                 )
                 child_req = self._requirements.create_requirement(
                     workspace_id=UUID(workspace_id),
@@ -508,6 +542,7 @@ class ArchitectureDecomposeService(ServiceBase):
                     ctx=ctx,
                     description=node.requirement.description,
                     parent_id=req_artifact_ids.get(parent_req_id),
+                    custom_fields=rationale_fields,
                 )
                 req_artifact_ids[child_req.id] = child_req.artifact_id
                 created[node.temp_id] = (child_element.id, child_req.id)

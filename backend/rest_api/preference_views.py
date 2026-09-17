@@ -26,7 +26,11 @@ from rest_framework.views import APIView
 from auth_tenancy.services import PreferenceService
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.query_params import parse_workspace_id
-from rest_api.serializers import build_error_response, detect_lang
+from rest_api.serializers import (
+    UnknownFieldRejectionMixin,
+    build_error_response,
+    detect_lang,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -43,8 +47,14 @@ class UserWorkspacePreferenceSerializer(serializers.Serializer):
     optional_artifact_visibility = serializers.JSONField(read_only=True)
 
 
-class PreferenceUpdateSerializer(serializers.Serializer):
-    """Write serializer — validates PATCH body for visibility overrides."""
+class PreferenceUpdateSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Write serializer — validates PATCH body for visibility overrides.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
+    """
 
     workspace_id = serializers.UUIDField()
     optional_artifact_visibility = serializers.JSONField(required=True)

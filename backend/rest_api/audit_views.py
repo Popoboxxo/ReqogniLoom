@@ -49,7 +49,11 @@ from application.audit_service import AuditService
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from traceability.audit import AuditScope
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.serializers import build_error_response, detect_lang
+from rest_api.serializers import (
+    UnknownFieldRejectionMixin,
+    build_error_response,
+    detect_lang,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +65,14 @@ _VALID_SCOPES = frozenset({"document", "project", "global"})
 # ---------------------------------------------------------------------------
 
 
-class RemediateRequestSerializer(serializers.Serializer):
-    """Body of POST .../audit/remediate/ — identifies one finding to adopt."""
+class RemediateRequestSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Body of POST .../audit/remediate/ — identifies one finding to adopt.
+
+    ``UnknownFieldRejectionMixin`` (#851) rejects request keys no declared
+    field accepts instead of the DRF default of silently dropping them.
+    """
 
     rule_id = serializers.CharField(max_length=64)
     artifact_ids = serializers.ListField(

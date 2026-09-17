@@ -132,6 +132,7 @@ from rest_api.serializers import (
     StandardPagination,
     TestCaseSerializer,
     TestRunSerializer,
+    TestRunResultBulkSerializer,
     TestRunResultSerializer,
     TraceLinkPagination,
     TraceLinkSerializer,
@@ -7140,24 +7141,31 @@ class TestRunViewSet(BaseEntityViewSet):
                 return _service_error_response(exc, lang)
             return Response([_test_run_result_to_dict(r) for r in run.results.all()])
 
-        # POST — add a single result (existing behaviour)
+        # POST — add a single result (existing behaviour). #851: validate with
+        # TestRunResultSerializer (which now carries UnknownFieldRejectionMixin)
+        # instead of reading request.data key by key, so a key no declared field
+        # accepts is a 400 rather than a silent drop.
         lang = detect_lang(request)
-        test_case_id = request.data.get("test_case_id")
-        status_val = request.data.get("status", "not_run")
-        if not test_case_id:
+        ser = TestRunResultSerializer(data=request.data)
+        if not ser.is_valid():
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message="test_case_id is required"),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        payload = ser.validated_data
         try:
             ctx = get_auth_context(request)
             result = self._svc().add_result(
                 test_run_id=UUID(pk),
-                test_case_id=UUID(str(test_case_id)),
-                status=str(status_val),
+                test_case_id=payload["test_case_id"],
+                status=payload.get("status", "not_run"),
                 ctx=ctx,
-                message=str(request.data.get("message", "")),
-                duration_ms=request.data.get("duration_ms"),
+                message=payload.get("message", ""),
+                duration_ms=payload.get("duration_ms"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -7168,9 +7176,22 @@ class TestRunViewSet(BaseEntityViewSet):
     @action(detail=True, methods=["post"], url_path="results/bulk")
     def results_bulk(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """POST /api/v1/test-runs/{id}/results/bulk/ — add multiple results (CI-friendly)."""
+        # #851: TestRunResultBulkSerializer rejects unknown keys next to
+        # ``results`` and inside each entry. The empty-array check stays: an
+        # empty batch is valid to DRF but is still a client error here.
         lang = detect_lang(request)
-        results_data = request.data.get("results", [])
-        if not results_data or not isinstance(results_data, list):
+        ser = TestRunResultBulkSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        results_data = ser.validated_data["results"]
+        if not results_data:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message="results array is required"),
                 status=status.HTTP_400_BAD_REQUEST,
