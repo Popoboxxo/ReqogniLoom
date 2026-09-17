@@ -414,9 +414,12 @@ export function ArtifactForm({
   }, []);
 
   // Create requiredness comes from the definition, not from edit-time gates.
-  // Check the value rather than truthiness: false and 0 are valid values.
+  // The bootstrap rule is `required = not blank AND not has_default`, so a
+  // required attribute that declares a default is satisfiable without input —
+  // the backend applies the default for a field the create payload omits.
   const missingCreateValue = artifactId === null && (definition?.attributes ?? []).some((attribute) => {
     if (!attribute.required || attribute.editable !== true || attribute.type === "widget") return false;
+    if (attribute.default != null) return false;
     const value = readValue(values, attribute);
     return value == null || (typeof value === "string" && !value.trim()) ||
       (Array.isArray(value) && value.length === 0);

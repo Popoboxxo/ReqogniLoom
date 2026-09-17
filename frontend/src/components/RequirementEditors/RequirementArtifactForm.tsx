@@ -88,7 +88,7 @@ const READ_ONLY_KEYS = new Set([
  * object identity stays stable across renders (see `ArtifactFormProps
  * .attributeOverrides`).
  */
-const REQUIREMENT_ATTRIBUTE_OVERRIDES: Record<string, Partial<AttributeSpec>> = {
+export const REQUIREMENT_ATTRIBUTE_OVERRIDES: Record<string, Partial<AttributeSpec>> = {
   category: { type: "enum", options: REQ_CATEGORY_OPTIONS },
 };
 

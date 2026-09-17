@@ -40,7 +40,8 @@ import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { RequirementList } from './RequirementList';
-import { RequirementArtifactForm } from './RequirementArtifactForm';
+import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './RequirementArtifactForm';
+import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
@@ -190,6 +191,20 @@ export default function RequirementEditors(): JSX.Element {
     }
   }, [activeWorkspace, createRequirement, navigate, newTitle, newDescription, newCategory, t]);
 
+  /** ArtifactForm owns definition validation, nested values and save errors. */
+  const handleDefinitionCreate = useCallback(async (values: ArtifactFormValues): Promise<void> => {
+    if (!activeWorkspace) throw new Error(t('req.createFailed'));
+    const title = typeof values.title === 'string' ? values.title.trim() : '';
+    if (!title) throw new Error(t('req.createFailed'));
+    const created = await createRequirement.mutateAsync({
+      ...values,
+      workspace_id: activeWorkspace.id,
+      title,
+    });
+    setShowCreateForm(false);
+    navigate(`/requirements/${created.id}`);
+  }, [activeWorkspace, createRequirement, navigate, t]);
+
   /** Open/close the inline create form, discarding any stale error. */
   const toggleCreateForm = useCallback((): void => {
     setCreateError(null);
@@ -222,6 +237,10 @@ export default function RequirementEditors(): JSX.Element {
   // initial focus onto the description field instead. `initialFocusRef` is
   // now the single source of truth; `autoFocus` was removed from the input.
   const newTitleInputRef = useRef<HTMLInputElement | null>(null);
+  const focusFallbackTitle = useCallback((input: HTMLInputElement | null): void => {
+    newTitleInputRef.current = input;
+    input?.focus();
+  }, []);
 
   /**
    * Issue #672: navigating the tree used to call `navigate()` directly,
@@ -481,7 +500,16 @@ export default function RequirementEditors(): JSX.Element {
           onClose={handleCancelCreate}
           initialFocusRef={newTitleInputRef}
           testId="req-new-dialog"
+          size="lg"
         >
+        <ArtifactForm
+          itemType="Requirement"
+          artifactId={null}
+          initialValues={{ title: '' }}
+          attributeOverrides={REQUIREMENT_ATTRIBUTE_OVERRIDES}
+          onSave={handleDefinitionCreate}
+          onCancel={handleCancelCreate}
+          definitionFallback={
         <form
           data-testid="create-req-form"
           onSubmit={(e) => {
@@ -512,7 +540,7 @@ export default function RequirementEditors(): JSX.Element {
           <input
             id="new-req-title"
             data-testid="req-new-title-input"
-            ref={newTitleInputRef}
+            ref={focusFallbackTitle}
             type="text"
             value={newTitle}
             onChange={(e) => {
@@ -607,6 +635,8 @@ export default function RequirementEditors(): JSX.Element {
             </button>
           </div>
         </form>
+          }
+        />
         </Dialog>
       )}
 
