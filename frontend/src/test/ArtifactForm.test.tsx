@@ -1025,7 +1025,8 @@ describe("ArtifactForm field mapping (WS2 #936)", () => {
       />
     );
     const chip = await screen.findByTestId("artifact-field-deciders-chip");
-    expect(chip).toHaveTextContent("Alice Admin");
+    // The actor directory loads asynchronously; wait until the chip resolves the id.
+    await waitFor(() => expect(chip).toHaveTextContent("Alice Admin"));
   });
 
   it("maps the priority enum onto a select with the low|medium|high|critical scale", async () => {
