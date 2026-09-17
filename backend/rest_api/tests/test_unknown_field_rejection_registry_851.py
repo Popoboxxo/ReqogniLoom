@@ -18,13 +18,18 @@ from __future__ import annotations
 import importlib
 import inspect
 import uuid
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import serializers as drf_serializers
+from rest_framework.test import APIRequestFactory
 
 from application.settings_service import SettingsService
+from auth_tenancy.context import AuthContext, AuthMethod
 from rest_api.architecture_decompose_views import GenerateDraftRequestSerializer
 from rest_api.audit_views import RemediateRequestSerializer
+from rest_api.icd_views import IcdViewSet
 from rest_api.notification_preference_views import (
     NotificationPreferenceUpdateSerializer,
 )
@@ -46,6 +51,8 @@ from rest_api.serializers import (
     RiskSerializer,
     StakeholderNeedSerializer,
     TestCaseSerializer,
+    TestRunResultBulkSerializer,
+    TestRunResultSerializer,
     TestRunSerializer,
     TraceLinkSerializer,
     UnknownFieldRejectionMixin,
@@ -91,6 +98,9 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     WorkspaceSerializer,
     WorkflowDefinitionSerializer,
     TestRunSerializer,
+    # wired into the raw /results/ and /results/bulk/ write paths
+    TestRunResultSerializer,
+    TestRunResultBulkSerializer,
     IcdParameterSerializer,
     CommentSerializer,
     PreferenceUpdateSerializer,
@@ -130,14 +140,6 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "FieldChangeSerializer": "read-only response serializer",
     "DiffItemSerializer": "read-only response serializer",
     "BaselineDiffSerializer": "read-only response serializer",
-    "TestRunResultSerializer": (
-        "not wired to a REST write path: the /results/ and /results/bulk/ "
-        "endpoints read request.data directly"
-    ),
-    "TestRunResultBulkSerializer": (
-        "not wired to a REST write path: the /results/bulk/ endpoint reads "
-        "request.data directly"
-    ),
     # --- rest_api.serializers_diagram -----------------------------------
     "CanvasPointSerializer": "nested child of CanvasStrokeElementSerializer",
     "CanvasStrokeElementSerializer": (
@@ -197,6 +199,22 @@ _FULL_PAYLOADS: dict[type, dict] = {
         "name": "Full run",
         "ci_job_id": "ci-42",
         "test_case_ids": [str(uuid.uuid4())],
+    },
+    TestRunResultSerializer: {
+        "test_case_id": str(uuid.uuid4()),
+        "status": "passed",
+        "message": "all assertions passed",
+        "duration_ms": 120,
+    },
+    TestRunResultBulkSerializer: {
+        "results": [
+            {
+                "test_case_id": str(uuid.uuid4()),
+                "status": "passed",
+                "message": "entry ok",
+                "duration_ms": 5,
+            }
+        ],
     },
     IcdParameterSerializer: {
         "name": "voltage",
@@ -353,3 +371,286 @@ def test_guarded_serializer_carries_the_mixin(serializer_cls: type) -> None:
     assert issubclass(serializer_cls, UnknownFieldRejectionMixin), (
         f"{serializer_cls.__name__} must inherit UnknownFieldRejectionMixin"
     )
+
+
+# ---------------------------------------------------------------------------
+# Route-level: the raw request.data handlers (#851)
+# ---------------------------------------------------------------------------
+#
+# Icd entity writes have no DRF serializer (the handler builds the
+# IcdCreateDTO/IcdUpdateDTO by hand) and the test-run result handlers used to
+# read ``request.data`` key by key. Both now run ``reject_unknown_fields``, so
+# these tests pin the same 400 envelope the guarded serializer routes produce.
+
+_FAKE_TENANT_ID = uuid.uuid4()
+_FAKE_USER_ID = uuid.uuid4()
+_FAKE_ICD_ID = uuid.uuid4()
+
+
+def _http_auth_context() -> AuthContext:
+    return AuthContext(
+        user_id=_FAKE_USER_ID,
+        tenant_id=_FAKE_TENANT_ID,
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+
+
+_ICD_CREATE_PAYLOAD: dict = {
+    "name": "Full ICD",
+    "workspace_id": str(uuid.uuid4()),
+    "source_element_id": str(uuid.uuid4()),
+    "target_element_id": str(uuid.uuid4()),
+    "direction": "bidirectional",
+    "interface_type": "CAN",
+    "semantic_description": "full contract",
+    "preconditions": ["power on"],
+    "postconditions": ["bus idle"],
+    "invariants": ["voltage stable"],
+}
+
+
+def _icd_result_stub() -> MagicMock:
+    fake_icd = MagicMock()
+    fake_icd.id = _FAKE_ICD_ID
+    fake_icd.name = "Full ICD"
+    fake_icd.workspace_id = uuid.uuid4()
+    fake_icd.source_element_id = uuid.uuid4()
+    fake_icd.target_element_id = uuid.uuid4()
+    fake_icd.created_at = None
+    fake_result = MagicMock()
+    fake_result.icd = fake_icd
+    fake_result.current_version.version_number = 1
+    fake_result.current_version.direction = "bidirectional"
+    return fake_result
+
+
+def _post_icd(payload: dict, create_icd: MagicMock) -> Any:
+    factory = APIRequestFactory()
+    req = factory.post("/api/v1/icds/", data=payload, format="json")
+    req.auth_context = _http_auth_context()
+    view = IcdViewSet.as_view({"post": "create"})
+    with (
+        patch("rest_api.icd_views.get_auth_context", return_value=req.auth_context),
+        patch("rest_api.icd_views.get_tenant"),
+        patch("rest_api.icd_views.get_user"),
+        patch("rest_api.icd_views.create_icd", create_icd),
+    ):
+        return view(req)
+
+
+def test_icd_create_with_full_payload_returns_201() -> None:
+    """Positive control: every key the create handler reads still passes."""
+    response = _post_icd(
+        dict(_ICD_CREATE_PAYLOAD), MagicMock(return_value=_icd_result_stub())
+    )
+
+    assert response.status_code == 201, response.data
+
+
+def test_icd_create_rejects_unknown_field() -> None:
+    """A key the create handler does not read is a 400, not a silent drop."""
+    payload = dict(_ICD_CREATE_PAYLOAD)
+    payload["not_a_real_icd_field"] = "dropped"
+    create_icd = MagicMock()
+
+    response = _post_icd(payload, create_icd)
+
+    assert response.status_code == 400, response.data
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+    details = {d["field"]: d["errors"] for d in response.data["error"]["details"]}
+    assert details["not_a_real_icd_field"] == ["Unknown field."]
+    create_icd.assert_not_called()
+
+
+def _patch_icd(payload: dict, update_icd: MagicMock) -> Any:
+    factory = APIRequestFactory()
+    req = factory.patch(
+        f"/api/v1/icds/{_FAKE_ICD_ID}/", data=payload, format="json"
+    )
+    req.auth_context = _http_auth_context()
+    view = IcdViewSet.as_view({"patch": "partial_update"})
+    with (
+        patch("rest_api.icd_views.get_auth_context", return_value=req.auth_context),
+        patch("rest_api.icd_views.get_user"),
+        patch("rest_api.icd_views.update_icd", update_icd),
+    ):
+        return view(req, pk=str(_FAKE_ICD_ID))
+
+
+def test_icd_partial_update_with_full_payload_returns_200() -> None:
+    """Positive control: the update handler's accepted keys still pass."""
+    response = _patch_icd(
+        {"semantic_description": "v2", "name": "Renamed ICD"},
+        MagicMock(return_value=_icd_result_stub()),
+    )
+
+    assert response.status_code == 200, response.data
+
+
+def test_icd_partial_update_rejects_unknown_field() -> None:
+    update_icd = MagicMock()
+
+    response = _patch_icd(
+        {"semantic_description": "v2", "not_a_real_icd_field": "dropped"},
+        update_icd,
+    )
+
+    assert response.status_code == 400, response.data
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+    details = {d["field"]: d["errors"] for d in response.data["error"]["details"]}
+    assert details["not_a_real_icd_field"] == ["Unknown field."]
+    update_icd.assert_not_called()
+
+
+def _test_run_result_stub() -> MagicMock:
+    test_case = MagicMock()
+    test_case.id = uuid.uuid4()
+    test_case.title = "TC-Login"
+    result = MagicMock()
+    result.id = uuid.uuid4()
+    result.test_run_id = uuid.uuid4()
+    result.test_case = test_case
+    result.test_case_id = test_case.id
+    result.test_case_title = test_case.title
+    result.status = "passed"
+    result.message = ""
+    result.duration_ms = 12
+    result.executed_at = None
+    result.version = 1
+    result.created_at = None
+    result.created_by = None
+    return result
+
+
+def _post_test_run_results(action: str, data: dict, svc: MagicMock) -> Any:
+    # Lazy import: a module-level ``TestRunViewSet`` would be collected by
+    # pytest as a test class (its name starts with "Test").
+    from rest_api.views import TestRunViewSet
+
+    factory = APIRequestFactory()
+    pk = str(uuid.uuid4())
+    req = factory.post(
+        f"/api/v1/test-runs/{pk}/results/", data=data, format="json"
+    )
+    req.auth_context = _http_auth_context()
+    view = TestRunViewSet.as_view({"post": action})
+    with patch.object(TestRunViewSet, "_svc", return_value=svc):
+        return view(req, pk=pk)
+
+
+@pytest.mark.django_db
+def test_test_run_single_result_with_full_payload_returns_201() -> None:
+    """Positive control: the /results/ handler's accepted keys still pass."""
+    svc = MagicMock()
+    svc.add_result.return_value = _test_run_result_stub()
+
+    response = _post_test_run_results(
+        "results",
+        {
+            "test_case_id": str(uuid.uuid4()),
+            "status": "passed",
+            "message": "all good",
+            "duration_ms": 12,
+        },
+        svc,
+    )
+
+    assert response.status_code == 201, response.data
+    svc.add_result.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_test_run_single_result_rejects_unknown_field() -> None:
+    """A key the /results/ handler does not read is now a 400 (#851)."""
+    svc = MagicMock()
+
+    response = _post_test_run_results(
+        "results",
+        {
+            "test_case_id": str(uuid.uuid4()),
+            "status": "passed",
+            "not_a_real_result_field": "dropped",
+        },
+        svc,
+    )
+
+    assert response.status_code == 400, response.data
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+    details = {d["field"]: d["errors"] for d in response.data["error"]["details"]}
+    assert details["not_a_real_result_field"] == ["Unknown field."]
+    svc.add_result.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_test_run_bulk_results_with_full_payload_returns_201() -> None:
+    """Positive control: the /results/bulk/ handler's accepted keys still pass."""
+    svc = MagicMock()
+    svc.add_results_bulk.return_value = [_test_run_result_stub()]
+
+    response = _post_test_run_results(
+        "results_bulk",
+        {
+            "results": [
+                {
+                    "test_case_id": str(uuid.uuid4()),
+                    "status": "failed",
+                    "message": "assertion failed",
+                    "duration_ms": 3,
+                }
+            ]
+        },
+        svc,
+    )
+
+    assert response.status_code == 201, response.data
+    svc.add_results_bulk.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_test_run_bulk_results_rejects_unknown_top_level_field() -> None:
+    svc = MagicMock()
+
+    response = _post_test_run_results(
+        "results_bulk",
+        {
+            "results": [
+                {"test_case_id": str(uuid.uuid4()), "status": "passed"}
+            ],
+            "not_a_real_bulk_field": "dropped",
+        },
+        svc,
+    )
+
+    assert response.status_code == 400, response.data
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+    details = {d["field"]: d["errors"] for d in response.data["error"]["details"]}
+    assert details["not_a_real_bulk_field"] == ["Unknown field."]
+    svc.add_results_bulk.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_test_run_bulk_results_rejects_unknown_entry_field() -> None:
+    """The guard reaches each nested batch entry, not just the top level."""
+    svc = MagicMock()
+
+    response = _post_test_run_results(
+        "results_bulk",
+        {
+            "results": [
+                {
+                    "test_case_id": str(uuid.uuid4()),
+                    "status": "passed",
+                    "not_a_real_entry_field": "dropped",
+                }
+            ]
+        },
+        svc,
+    )
+
+    assert response.status_code == 400, response.data
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+    assert any(
+        d["field"] == "results" for d in response.data["error"]["details"]
+    )
+    svc.add_results_bulk.assert_not_called()

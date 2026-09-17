@@ -28,10 +28,11 @@ Design:
 """
 from __future__ import annotations
 
+from collections.abc import Container
 from typing import Any, Optional
 
 from django.utils import translation
-from rest_framework import pagination, serializers
+from rest_framework import pagination, serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -638,14 +639,62 @@ class UnknownFieldRejectionMixin:
 
     def to_internal_value(self, data: Any) -> Any:
         validated = super().to_internal_value(data)  # type: ignore[misc]
-        if isinstance(data, dict):
-            allowed = set(self.fields) | set(_ALWAYS_ALLOWED_PATCH_FIELDS)
-            errors = {
-                key: ["Unknown field."] for key in data if key not in allowed
-            }
-            if errors:
-                raise serializers.ValidationError(errors)
+        errors = unknown_field_errors(data, set(self.fields))
+        if errors:
+            raise serializers.ValidationError(errors)
         return validated
+
+
+#: Per-field error text for a request key no declared field accepts (#851).
+#: Shared by :class:`UnknownFieldRejectionMixin` (serializer routes) and
+#: :func:`reject_unknown_fields` (raw ``request.data`` handlers) so both
+#: surfaces report exactly the same message instead of a second format.
+UNKNOWN_FIELD_MESSAGE = "Unknown field."
+
+
+def unknown_field_errors(
+    data: Any, allowed_keys: Container[str]
+) -> dict[str, list[str]]:
+    """Return ``{key: [UNKNOWN_FIELD_MESSAGE]}`` for undeclared keys (#851).
+
+    ``data`` is only inspected when it is a mapping — a non-dict body is DRF's
+    own concern, not an unknown-key one. The always-allowed write keys
+    (:data:`rest_api.mixins.workflow_transitions._ALWAYS_ALLOWED_PATCH_FIELDS`)
+    pass even when the caller's *allowed_keys* omits them, exactly as in the
+    serializer mixin.
+    """
+    if not isinstance(data, dict):
+        return {}
+    allowed = set(allowed_keys) | set(_ALWAYS_ALLOWED_PATCH_FIELDS)
+    return {key: [UNKNOWN_FIELD_MESSAGE] for key in data if key not in allowed}
+
+
+def reject_unknown_fields(
+    data: Any,
+    allowed_keys: Container[str],
+    lang: str = "en",
+) -> Response | None:
+    """Reject keys outside *allowed_keys* with a 400, or return ``None`` (#851).
+
+    The raw-handler counterpart to :class:`UnknownFieldRejectionMixin`: a view
+    that reads ``request.data`` directly cannot inherit the serializer mixin, so
+    it calls this first and returns the response when it is not ``None``. The
+    envelope — 400 ``VALIDATION_ERROR`` with one ``error.details`` entry per
+    offending key, carrying :data:`UNKNOWN_FIELD_MESSAGE` — is identical to what
+    the guarded-serializer routes produce, because both build on
+    :func:`unknown_field_errors`.
+    """
+    errors = unknown_field_errors(data, allowed_keys)
+    if not errors:
+        return None
+    return Response(
+        build_error_response(
+            "VALIDATION_ERROR",
+            lang,
+            details=[{"field": k, "errors": v} for k, v in errors.items()],
+        ),
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1766,8 +1815,14 @@ class TestRunSerializer(
     updated_at = serializers.DateTimeField(read_only=True)
 
 
-class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for TestRunResult entity (REQ-L2-AS-030)."""
+class TestRunResultSerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
+    """Serializer for TestRunResult entity (REQ-L2-AS-030).
+
+    #851: wired into the ``/results/`` write path, so it carries the shared
+    unknown-field guard like every other top-level create/update serializer.
+    """
 
     id = serializers.UUIDField(read_only=True)
     test_run_id = serializers.UUIDField(read_only=True)
@@ -1788,8 +1843,15 @@ class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer
     created_at = serializers.DateTimeField(read_only=True)
 
 
-class TestRunResultBulkSerializer(serializers.Serializer):
-    """Serializer for bulk result ingestion (REQ-L2-AS-031)."""
+class TestRunResultBulkSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Serializer for bulk result ingestion (REQ-L2-AS-031).
+
+    #851: wired into the ``/results/bulk/`` write path. The guard applies at
+    this top level (unknown keys next to ``results``) and, through the nested
+    child, to every entry in the batch.
+    """
 
     results = TestRunResultSerializer(many=True)
 
