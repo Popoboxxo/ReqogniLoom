@@ -24,6 +24,7 @@ from application.attribute_definition_service import (
     AttributeDefinitionService,
     AttributeSchemaError,
 )
+from attribute_definitions.schema import AttributeDefinitionConflictError
 from auth_tenancy.models import ROLE_ADMIN
 from presets.exceptions import CrossTenantWorkspaceError
 from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
@@ -214,6 +215,11 @@ class WorkspaceAttributeDefinitionView(AdminScopeRequiredMixin, APIView):
         ctx = get_auth_context(request)
         try:
             payload = AttributeDefinitionService().resolve(ctx, item_type, workspace_id)
+        except AttributeDefinitionConflictError as exc:
+            return Response(
+                build_error_response("CONFLICT", lang, message=str(exc)),
+                status=status.HTTP_409_CONFLICT,
+            )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))
         except CrossTenantWorkspaceError as exc:
@@ -392,6 +398,11 @@ class WorkspaceAttributeDefinitionExportView(APIView):
         try:
             payload = AttributeDefinitionService().export_definition(
                 ctx, item_type, workspace_id=workspace_id
+            )
+        except AttributeDefinitionConflictError as exc:
+            return Response(
+                build_error_response("CONFLICT", lang, message=str(exc)),
+                status=status.HTTP_409_CONFLICT,
             )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))

@@ -225,6 +225,98 @@ class TestTierPolicyIsRead:
 class TestMandatoryFieldGate:
     """Approval transitions are gated on the tier's mandatory_fields."""
 
+    @pytest.mark.parametrize("target_state", ["approved", "deprecated"])
+    def test_preset_conflict_blocks_only_approval(self, tenant, target_state) -> None:
+        from attribute_definitions.global_definition_store import (
+            GlobalAttributeDefinitionStore,
+        )
+        from attribute_definitions.workspace_definition_store import (
+            WorkspaceAttributeDefinitionStore,
+        )
+
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "standard", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="Complete", acceptance_criteria="ac"
+        )
+        title = {"name": "title", "kind": "core", "type": "text"}
+        attributes = [title, {
+            "name": "description", "kind": "extended", "type": "text",
+            "required": True,
+        }]
+        globals_store = GlobalAttributeDefinitionStore()
+        globals_store.initialize(tenant.id, "Requirement", "extended", attributes)
+        globals_store.initialize(tenant.id, "Requirement", "standard", [title])
+        store = WorkspaceAttributeDefinitionStore()
+        row = store.resolve(tenant.id, ws.id, "Requirement", "extended")
+        row = store.update(tenant.id, ws.id, "Requirement", attributes)
+        version = row.version
+        definition = row.definition_json
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="draft" if target_state == "approved" else "approved",
+            target_state=target_state,
+        )
+
+        if target_state == "approved":
+            assert result.valid is False
+            assert result.error_code == "ATTRIBUTE_DEFINITION_CONFLICT"
+            assert result.error_message == (
+                "Cannot approve this Requirement: the workspace attribute definition "
+                "conflicts with the current 'standard' preset. "
+                "Customized definition 'Requirement' uses preset 'extended', but "
+                "workspace requests 'standard'; target preset lacks: description. "
+                "Reconcile the customization or explicitly reset it."
+            )
+        else:
+            assert result.valid is True, result.error_message
+        row.refresh_from_db()
+        assert row.preset == "extended"
+        assert row.version == version
+        assert row.definition_json == definition
+
+    def test_other_schema_errors_still_fail_open(self, tenant, caplog) -> None:
+        from attribute_definitions.global_definition_store import (
+            GlobalAttributeDefinitionStore,
+        )
+        from attribute_definitions.models import WorkspaceAttributeDefinition
+        from attribute_definitions.workspace_definition_store import (
+            WorkspaceAttributeDefinitionStore,
+        )
+
+        ws = _workspace(tenant, "standard")
+        _make_workflow(tenant, ws, "standard", "Requirement")
+        req = _requirement(
+            tenant, ws, title="R1", description="Complete", acceptance_criteria="ac"
+        )
+        GlobalAttributeDefinitionStore().initialize(
+            tenant.id, "Requirement", "standard",
+            [{"name": "title", "kind": "core", "type": "text"}],
+        )
+        row = WorkspaceAttributeDefinitionStore().resolve(
+            tenant.id, ws.id, "Requirement", "standard"
+        )
+        WorkspaceAttributeDefinition.unscoped.filter(pk=row.pk).update(
+            definition_json={"attributes": "malformed", "sections": []}
+        )
+
+        result = _validate(
+            tenant=tenant,
+            workspace=ws,
+            item_id=req.id,
+            item_type="Requirement",
+            current_state="draft",
+            target_state="approved",
+        )
+
+        assert result.valid is True, result.error_message
+        assert "malformed attribute definition" in caplog.text
+        assert "failing open" in caplog.text
+
     def test_extended_blocks_requirement_missing_fields(self, tenant):
         ws = _workspace(tenant, "extended")
         _make_workflow(tenant, ws, "extended", "Requirement")

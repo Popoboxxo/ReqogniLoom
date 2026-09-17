@@ -57,6 +57,8 @@ entity type, unresolvable row, preset lookup failure, unexpected DB error) the
 rule returns "no violation" and logs. Blocking a legitimate transition because
 of an internal lookup glitch is a worse failure mode than letting one through;
 the SE-Auditor (lever 2, at baseline build) is the backstop.
+An explicit preset conflict is a known policy violation, not a lookup glitch:
+approval is blocked until the workspace definition is reconciled or reset.
 """
 from __future__ import annotations
 
@@ -64,7 +66,10 @@ import logging
 from typing import Iterable, Optional
 from uuid import UUID
 
-from attribute_definitions.schema import AttributeSchemaError
+from attribute_definitions.schema import (
+    AttributeDefinitionConflictError,
+    AttributeSchemaError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +265,8 @@ def check_mandatory_fields(
     Returns:
         ``None`` when the precondition holds (including every non-approval
         transition and every case that cannot be evaluated), otherwise an
-        ``(error_code, error_message)`` tuple naming the missing fields.
+        ``(error_code, error_message)`` tuple naming the missing fields or an
+        explicit preset conflict that requires reconciling/resetting the definition.
     """
     if not is_approval_transition(target_state):
         return None
@@ -289,6 +295,12 @@ def check_mandatory_fields(
             str(workspace_id),
             item_type,
             tier,
+        )
+    except AttributeDefinitionConflictError as exc:
+        return (
+            "ATTRIBUTE_DEFINITION_CONFLICT",
+            f"Cannot approve this {item_type}: the workspace attribute definition "
+            f"conflicts with the current '{tier}' preset. {exc}",
         )
     except AttributeSchemaError:
         # A malformed stored definition is a configuration error, not an

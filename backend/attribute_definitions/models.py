@@ -59,8 +59,9 @@ class GlobalAttributeDefinition(TenantScopedModel):
 class WorkspaceAttributeDefinition(TenantScopedModel):
     """Per-workspace materialized copy of a global attribute definition.
 
-    ``preset`` is frozen at creation time (spec section 3): a later workspace
-    preset switch does not silently re-point this row at another global.
+    On a workspace preset change, resolution re-materializes non-customized
+    definitions from the new preset. Compatible customizations are preserved;
+    incompatible customizations raise an explicit conflict without changing the row.
 
     ``is_customized`` is the cheap on-default/customized signal: ``False``
     mirrors ``source_global``, ``True`` means the workspace has diverged and is
