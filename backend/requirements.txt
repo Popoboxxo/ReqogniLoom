@@ -118,7 +118,7 @@ cryptography>=50.0.0,<51.0
 # Static files serving — production deployment (SA-40)
 # WhiteNoise serves /static/ directly without requiring nginx/separate server.
 # Compresses assets (CSS/JS) on the fly and adds versioning via manifest.
-whitenoise[brotli]>=6.6.0,<7.0
+whitenoise[brotli]>=6.12.0,<7.0
 
 # Observability (REQ-063)
 python-json-logger>=4.2.0,<5.0
