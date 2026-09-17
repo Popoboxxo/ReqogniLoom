@@ -39,6 +39,7 @@ from application.attribute_definition_service import (
     AttributeSchemaError,
 )
 from application.base import PermissionDeniedError
+from attribute_definitions.schema import AttributeDefinitionConflictError
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
 from presets.exceptions import CrossTenantWorkspaceError
@@ -358,6 +359,8 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         try:
             definition = self._get_service().resolve(auth_context, item_type, workspace_id)
+        except AttributeDefinitionConflictError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
         except AttributeDefinitionNotFound as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except CrossTenantWorkspaceError as exc:
