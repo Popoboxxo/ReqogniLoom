@@ -445,6 +445,134 @@ def test_decompose_next_level_write_mode_persists_child_requirements(ai_ctx):
 
 
 # ---------------------------------------------------------------------------
+# issue #583 — the write path forwarded only title+description to
+# RequirementService, so the draft's generated `rationale` (INCOSE text the
+# LLM did produce) was silently dropped. `rationale` is an extended
+# Requirement attribute: its carrier is Artifact.custom_fields["rationale"],
+# never a top-level field (#915/#916 reject that by design).
+# ---------------------------------------------------------------------------
+
+
+class _DraftProvider:
+    """Deterministic provider returning a fixed draft payload."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def complete(self, prompt, *, purpose="", context=None, timeout=None):
+        import json
+
+        return json.dumps(self._payload)
+
+
+def test_derive_requirements_write_mode_persists_rationale_in_custom_fields(
+    ai_ctx, monkeypatch
+):
+    from mcp_server.tools.requirements import RequirementsToolGroup
+    from persistence.models import Requirement
+
+    tenant, ctx, workspace = ai_ctx
+    need = _make_need(tenant, workspace, "Rationale need", "desc")
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _DraftProvider(
+            [
+                {"title": "R1", "description": "D1", "rationale": "Because safety."},
+                {"title": "R2", "description": "D2", "rationale": "Because performance."},
+            ]
+        ),
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_requirements_from_need",
+        {"need_id": str(need.id), "n": 2, "mode": "write"},
+        ctx,
+    )
+
+    assert result.success
+    written = result.data["written"]
+    assert len(written) == 2
+
+    expected = ["Because safety.", "Because performance."]
+    for entry, rationale in zip(written, expected):
+        req = Requirement.objects.get(id=entry["id"])
+        assert req.artifact.custom_fields == {"rationale": rationale}
+
+        read = _exec(
+            RequirementsToolGroup(), "requirement.get", {"id": entry["id"]}, ctx
+        )
+        assert read.success
+        assert read.data["requirement"]["custom_fields"] == {"rationale": rationale}
+
+
+def test_derive_requirements_write_mode_without_rationale_has_no_bogus_field(
+    ai_ctx, monkeypatch
+):
+    from persistence.models import Requirement
+
+    tenant, ctx, workspace = ai_ctx
+    need = _make_need(tenant, workspace, "No-rationale need", "desc")
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _DraftProvider([{"title": "R1", "description": "D1"}]),
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_requirements_from_need",
+        {"need_id": str(need.id), "n": 1, "mode": "write"},
+        ctx,
+    )
+
+    assert result.success
+    req = Requirement.objects.get(id=result.data["written"][0]["id"])
+    # Same convention as requirement.create without custom_fields: {}.
+    assert req.artifact.custom_fields == {}
+
+
+def test_decompose_next_level_write_mode_persists_rationale(ai_ctx, monkeypatch):
+    from persistence.models import Requirement
+
+    _tenant, ctx, workspace = ai_ctx
+    parent = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="parent", ctx=ctx
+    )
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Comp", ctx=ctx
+    )
+    TraceLinkService().allocate(
+        requirement_id=parent.id, architecture_element_id=arch.id, ctx=ctx
+    )
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _DraftProvider(
+            [
+                {
+                    "title": "Child",
+                    "description": "Refined.",
+                    "rationale": "Because the parent demands it.",
+                    "suggested_arch_element_id": str(arch.id),
+                }
+            ]
+        ),
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.decompose_requirement_next_level",
+        {"requirement_id": str(parent.id), "mode": "write"},
+        ctx,
+    )
+
+    assert result.success
+    child = Requirement.objects.get(id=result.data["written"][0]["id"])
+    assert child.artifact.custom_fields == {
+        "rationale": "Because the parent demands it."
+    }
+
+
+# ---------------------------------------------------------------------------
 # issue #341 — mode="write" persisted nothing in se_mode workspaces because
 # the 'derives-from' link was built backwards (Need -> Requirement).
 # SE_LINK_SEMANTICS only allows Requirement -> StakeholderNeed, so
