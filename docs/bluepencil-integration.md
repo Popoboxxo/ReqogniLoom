@@ -68,6 +68,14 @@ Der Tag selbst (Element-Build + Loader liegen unter einem versionierten Pfad, `l
 <script src="/bluepencil/latest/attach.js"></script>
 ```
 
+> **Stand nach dem Bugfix-PR [bluepencil#15](https://github.com/Popoboxxo/bluepencil/pull/15):** Dieses
+> Snippet ist **wortgleich** das, was vorher stumm blieb. Der Loader-Tag ohne ein einziges `data-*`
+> Attribut hing nicht an (Issue #11: die Erkennung verlangte mindestens einen bekannten Schlüssel),
+> und `identity` als *globaler Pfad* war nicht vorgesehen (Issue #12). Beides ist behoben; die
+> Gegenprobe lief in genau eurem Frontend: Tag zur Laufzeit nach `DOMContentLoaded` eingefügt →
+> Element definiert, 1 Attach-Instanz, 3 API-Aufrufe alle 200, 2 Notizen im Round-Trip, 0 Long Tasks.
+> Ein **später** ergänzter Tag wird außerdem von `bluepencilAttach.check()` aufgenommen — ohne Reload.
+
 `endpoint` **root-relativ** lassen: dann ist es derselbe Origin wie die SPA, `fetch` schickt eure
 Cookies automatisch mit (`credentials: "same-origin"` ist der Default) — und CORS entfällt komplett.
 
@@ -204,9 +212,17 @@ Store, oder der `/bundle`-Endpunkt des Sidecars.
 - **Cross-Origin wäre Aufwand:** bluepencil setzt im HTTP-Adapter kein `credentials` (Default
   `same-origin`, geprüft). Root-relative `endpoint` ist deshalb die Empfehlung; ein anderer Origin
   bräuchte `credentials: "include"` im Adapter plus CORS-mit-Credentials.
-- **`anchor-hooks` fehlt als Attribut** (siehe §2) — **erledigt**, und ehrlich: der Befund war
-  ursprünglich falsch zugespitzt. `data-testid` ist bereits der Standard-Anker; das Attribut ist nur
-  für andere Haken oder eine andere Reihenfolge nötig.
+- **`anchor-hooks`** ist seit `0.1.0-alpha.1` als Attribut vorhanden (bluepencil#10) — **erledigt**, und
+  ehrlich: der Befund war ursprünglich falsch zugespitzt. `data-testid` ist bereits der Standard-Anker;
+  das Attribut ist nur für andere Haken oder eine andere Reihenfolge nötig.
+- **Freigabe-Pfade für den Host (neu, `bluepencil#15`):** `identity="rfBluepencil.identity"` und
+  `can-annotate="rfBluepencil.canAnnotate"` erlauben jetzt echte Host-Entscheidungen aus dem Markup —
+  `can-annotate` ist der Haken für eure eigene Komponentensprache: `fn(element) → false` lehnt ein
+  Element ab (FR-1.10), die Ebene fragt es bei jedem Klick. Damit muss *kein* Element „annotierbar
+  aussehen", ihr entscheidet es.
+- **Die zwei QS-Befunde sind fix (Issues #11, #12).** Was bleibt, ist Arbeit bei euch, nicht in
+  bluepencil: eure sechs Endpunkte, `host.ts`, und der Durchstich durch die Anmeldemaske (dort gibt es
+  keine `data-testid`-Haken — der Authentifizierungs-Smoke muss also über Titel/Aria laufen).
 - **Versionierung:** bluepencil läuft unter versioniertem Pfad mit `latest.json`; ein Upgrade ist ein
   Attributwechsel, ein Teardown (`destroy()`) gehört dazu — sonst bleibt beim Versionswechsel ein Rest.
 
@@ -218,6 +234,9 @@ Store, oder der `/bundle`-Endpunkt des Sidecars.
    anlegen, Round-Trip messen. → siehst es heute, ändert noch nichts am Produkt.
 2. `frontend/src/bluepencil/host.ts` schreiben (Header-Funktion **mit** `X-CSRFToken`, gate,
    routeFor, identity) und in `App.tsx` verankern.
-3. `anchor-hooks` in bluepencil nachreichen (kleiner PR) und auf `data-testid,id` stellen.
+3. ~~`anchor-hooks` in bluepencil nachreichen~~ — **erledigt** in `0.1.0-alpha.1` (plus die Fixes aus
+   PR #15: Default-Tag, `check()`, `identity`-Pfad, `can-annotate`). Dieser Schritt ist abgehakt; an
+   seiner Stelle steht jetzt: `build-ref`/`identity` an euren Build binden und den Sidecar-Upgrade-Pfad
+   über `latest.json` einmal durchspielen.
 4. Django-App `review_notes` mit dem Vertrag aus §3 (RLS!), Exception-Handler in den DRF-Settings.
 5. Playwright-Spec + CI-Pflicht aus §4, dann MCP-Tool-Gruppe aus §5.
