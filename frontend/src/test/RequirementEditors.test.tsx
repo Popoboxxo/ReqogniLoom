@@ -223,7 +223,16 @@ const REQ_DEFINITION = {
   preset: "standard",
   is_customized: false,
   version: 1,
-  attributes: [reqAttr({ name: "title", type: "text", required: true, order: 1 })],
+  attributes: [
+    reqAttr({ name: "title", type: "text", required: true, order: 1 }),
+    // BUG-11 regression guard: the create dialog must offer description and
+    // category exactly like the edit form does (definition-driven). category
+    // stays `text` here on purpose — the introspected column has no choices,
+    // so the enum promotion is the adapter's REQUIREMENT_ATTRIBUTE_OVERRIDES
+    // job; this fixture exercises exactly that override path.
+    reqAttr({ name: "description", type: "textarea", order: 2 }),
+    reqAttr({ name: "category", type: "text", order: 3 }),
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -617,6 +626,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 
   it("renders the server's rejection reason when a create is refused", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(new Error("Unavailable"));
     vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
     const user = userEvent.setup();
     renderEditor();
@@ -625,10 +635,9 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
-    await user.type(
-      screen.getByTestId("req-new-title-input"),
-      "<script>alert(1)</script>"
-    );
+    // Definition failed to load → the minimal fallback dialog renders.
+    await screen.findByTestId("create-req-form");
+    await user.type(screen.getByTestId("req-new-title-input"), "<script>alert(1)</script>");
     await user.click(screen.getByTestId("req-new-save-btn"));
 
     const alert = await screen.findByTestId("req-create-error");
@@ -639,6 +648,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 
   it("keeps the create form (and the typed title) open after a refused create", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(new Error("Unavailable"));
     vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
     const user = userEvent.setup();
     renderEditor();
@@ -647,6 +657,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("create-req-form");
     await user.type(screen.getByTestId("req-new-title-input"), "<b>x</b>");
     await user.click(screen.getByTestId("req-new-save-btn"));
 
@@ -656,6 +667,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 
   it("clears the create error once the user starts correcting the title", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(new Error("Unavailable"));
     vi.mocked(requirementsApi.create).mockRejectedValueOnce(XSS_REJECTION);
     const user = userEvent.setup();
     renderEditor();
@@ -664,6 +676,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("create-req-form");
     await user.type(screen.getByTestId("req-new-title-input"), "<b>x</b>");
     await user.click(screen.getByTestId("req-new-save-btn"));
     await screen.findByTestId("req-create-error");
@@ -676,6 +689,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   });
 
   it("falls back to localised copy when the rejection carries no message", async () => {
+    vi.mocked(attributeDefinitionsApi.getWorkspace).mockRejectedValue(new Error("Unavailable"));
     vi.mocked(requirementsApi.create).mockRejectedValueOnce({ weird: true });
     const user = userEvent.setup();
     renderEditor();
@@ -684,6 +698,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("create-req-form");
     await user.type(screen.getByTestId("req-new-title-input"), "Fine title");
     await user.click(screen.getByTestId("req-new-save-btn"));
 
@@ -711,7 +726,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     );
     await user.click(screen.getByTestId("create-req-btn"));
 
-    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+    expect(screen.getByTestId("artifact-form-save")).toBeDisabled();
     expect(requirementsApi.create).not.toHaveBeenCalled();
   });
 
@@ -723,14 +738,15 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
-    await user.type(screen.getByTestId("req-new-title-input"), "   ");
+    await screen.findByTestId("artifact-form");
+    await user.type(screen.getByTestId("artifact-field-title"), "   ");
 
-    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+    expect(screen.getByTestId("artifact-form-save")).toBeDisabled();
 
     // Guard against a future regression that removes `disabled` but still
     // wires the click handler permissively: submitting the form directly
     // must still be a no-op.
-    const form = screen.getByTestId("create-req-form");
+    const form = screen.getByTestId("artifact-form");
     fireEvent.submit(form);
     expect(requirementsApi.create).not.toHaveBeenCalled();
   });
@@ -748,12 +764,13 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
-    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+    await screen.findByTestId("artifact-form");
+    expect(screen.getByTestId("artifact-form-save")).toBeDisabled();
 
-    await user.type(screen.getByTestId("req-new-title-input"), "Real title");
-    expect(screen.getByTestId("req-new-save-btn")).toBeEnabled();
+    await user.type(screen.getByTestId("artifact-field-title"), "Real title");
+    expect(screen.getByTestId("artifact-form-save")).toBeEnabled();
 
-    await user.click(screen.getByTestId("req-new-save-btn"));
+    await user.click(screen.getByTestId("artifact-form-save"));
 
     await waitFor(() => {
       expect(requirementsApi.create).toHaveBeenCalledWith(
@@ -939,17 +956,18 @@ describe("RequirementEditors — create form has description/category fields (BU
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
 
-    await user.type(screen.getByTestId("req-new-title-input"), "New Req");
+    await user.type(screen.getByTestId("artifact-field-title"), "New Req");
     await user.type(
-      screen.getByTestId("req-new-description-input"),
+      screen.getByTestId("artifact-field-description"),
       "Some description"
     );
     await user.selectOptions(
-      screen.getByTestId("req-new-category-select"),
+      screen.getByTestId("artifact-field-category"),
       "functional"
     );
-    await user.click(screen.getByTestId("req-new-save-btn"));
+    await user.click(screen.getByTestId("artifact-form-save"));
 
     await waitFor(() =>
       expect(requirementsApi.create).toHaveBeenCalledWith(
@@ -1010,8 +1028,9 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
 
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-title"));
   });
 
   it("tabs through the form fields before ever reaching the close button", async () => {
@@ -1022,29 +1041,30 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
       expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
     );
     await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
 
     // Title has a value from the moment the dialog opens onward, so Save
     // becomes reachable as a real (non-disabled) Tab stop too — type it
     // first to exercise the *full* field order, not a truncated one.
-    await user.type(screen.getByTestId("req-new-title-input"), "New Req");
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+    await user.type(screen.getByTestId("artifact-field-title"), "New Req");
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-title"));
 
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-description-input"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-description"));
 
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-category-select"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-category"));
 
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-cancel-btn"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-form-cancel"));
 
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-save-btn"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-form-save"));
 
     // Issue #800: the ×-close button must never be a Tab stop — Tab from
     // the last field wraps straight back to the first one, not through ×.
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByTestId("req-new-title-input"));
+    expect(document.activeElement).toBe(screen.getByTestId("artifact-field-title"));
     expect(document.activeElement).not.toBe(screen.getByTestId("req-new-dialog-close"));
   });
 });

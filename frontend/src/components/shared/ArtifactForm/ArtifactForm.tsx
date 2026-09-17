@@ -227,6 +227,7 @@ export function ArtifactForm({
 
   const { isDirty, markClean } = useFormDirty(values, initialValues);
   const isReadOnly = mode === "read";
+  const isCreateMode = artifactId === null;
   const changeReasonNeeded = requiresChangeReason && artifactId !== null && !isReadOnly;
   const changeReasonMissing = changeReasonNeeded && !changeReason.trim();
 
@@ -268,6 +269,30 @@ export function ArtifactForm({
   // (Task 23).
   const hasPendingChangeReason = changeReasonNeeded && changeReason.trim().length > 0;
   const combinedDirty = isDirty || hasPendingChangeReason;
+
+  // Issue #800 in create dialogs: the host Dialog's focus trap settles on the
+  // panel while this form is still waiting for the definition (its loading
+  // branch renders one empty div, so there is nothing operable to focus).
+  // When the fields arrive, the FIRST editable control — not the panel and
+  // not a section-toggle disclosure button — must take focus, or the first
+  // Tab press lands on a section header instead of the form's content.
+  // Runs once per mount (`focusedOnCreate`): the create dialog remounts this
+  // form per open, and a later definition refresh must not yank focus.
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const focusedOnCreate = useRef(false);
+  useEffect(() => {
+    if (artifactId !== null || mode === "read" || loading || !definition) return;
+    if (focusedOnCreate.current) return;
+    focusedOnCreate.current = true;
+    const first = formRef.current?.querySelector<HTMLElement>(
+      [
+        '[data-testid^="artifact-field-"] input:not(:disabled)',
+        '[data-testid^="artifact-field-"] select:not(:disabled)',
+        '[data-testid^="artifact-field-"] textarea:not(:disabled)',
+      ].join(", ")
+    );
+    first?.focus();
+  }, [artifactId, definition, loading, mode]);
 
   useEffect(() => {
     onDirtyChange?.(combinedDirty);
@@ -392,6 +417,11 @@ export function ArtifactForm({
 
   const isSectionOpen = useCallback(
     (section: FormSection): boolean => {
+      // In create mode sections never collapse: a required field hidden behind
+      // a collapsed header would block the save invisibly, and the toggle
+      // button would otherwise be the focus trap's first Tab stop ahead of
+      // the form's actual content (create-dialog focus contract, #800 class).
+      if (artifactId === null) return true;
       if (section.name in expanded) return expanded[section.name];
       // Rule 5: an error anywhere in the section forces it open so the message
       // is reachable without hunting. A widget's errors belong to its bound
@@ -521,6 +551,7 @@ export function ArtifactForm({
 
   return (
     <form
+      ref={formRef}
       className={styles.form}
       data-testid="artifact-form"
       onSubmit={(event) => {
@@ -571,6 +602,20 @@ export function ArtifactForm({
             data-columns={sectionLayoutColumns(layout)}
             className={`${styles.section} ${spanClass(sectionLayoutColumns(layout))}`}
           >
+            {isCreateMode ? (
+              // Create mode: sections cannot collapse (a required field hidden
+              // behind a collapsed header would block the save invisibly), so
+              // the header is a plain heading — a dead disclosure button would
+              // otherwise be the focus trap's first Tab stop ahead of the
+              // form's content (create-dialog focus contract, #800 class).
+              <span
+                className={styles.sectionHeader}
+                data-testid={`artifact-section-toggle-${section.name}`}
+                aria-current="false"
+              >
+                {t(`sections.${section.name}`, { defaultValue: section.name })}
+              </span>
+            ) : (
             <button
               type="button"
               className={styles.sectionHeader}
@@ -591,6 +636,7 @@ export function ArtifactForm({
                 <ChevronRight aria-hidden="true" size={16} />
               )}
             </button>
+            )}
 
             {open ? (
               <div
