@@ -120,6 +120,78 @@ def test_resolve_materializes_for_the_workspace_preset(
 
 
 @pytest.mark.django_db
+def test_issue_960_extended_workspace_repairs_minimal_definition_and_cache(
+    service, admin_ctx, workspace, tenant
+) -> None:
+    """Exercise the real tier-switch facade and the bootstrapped stage flags."""
+    from django.core.cache import cache
+
+    from application.cache_invalidation import attribute_def_cache_key
+    from application.workspace_service import WorkspaceService
+    from attribute_definitions.management.commands.bootstrap_attribute_definitions import (
+        introspect_core_attributes,
+    )
+    from attribute_definitions.models import WorkspaceAttributeDefinition
+    from persistence.tenancy import TenantContext
+
+    global_store = GlobalAttributeDefinitionStore()
+    for preset in ("minimal", "extended"):
+        global_store.initialize(
+            tenant.id, "Requirement", preset,
+            introspect_core_attributes("Requirement", preset),
+        )
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace_service = WorkspaceService()
+        workspace_service.switch_preset_tier(admin_ctx, workspace.id, "minimal")
+        stale = service.resolve(admin_ctx, "Requirement", workspace.id)
+        assert stale["preset"] == "minimal"
+        assert next(a for a in stale["attributes"] if a["name"] == "rationale")["visible"] is False
+        workspace_service.switch_preset_tier(admin_ctx, workspace.id, "extended")
+        workspace.refresh_from_db()
+        assert workspace.preset["tier"] == "extended"
+        # Simulate an old worker repopulating the cache after invalidation.
+        cache.set(attribute_def_cache_key(str(workspace.id)), {"Requirement": stale})
+        resolved = service.resolve(admin_ctx, "Requirement", workspace.id)
+        assert resolved["preset"] == "extended"
+        rationale = next(a for a in resolved["attributes"] if a["name"] == "rationale")
+        assert rationale["visible"] is True
+        assert rationale["stage_mandatory"] is True
+        row = WorkspaceAttributeDefinition.unscoped.get(
+            tenant_id=tenant.id, workspace_id=workspace.id, item_type="Requirement"
+        )
+        assert row.preset == row.source_global.preset == "extended"
+        assert service.resolve(admin_ctx, "Requirement", workspace.id) == resolved
+        assert service.elicit_attributes(admin_ctx, "Requirement", workspace.id) == [
+            a for a in resolved["attributes"] if a["ai_elicit"] and a["visible"]
+        ]
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db
+def test_cached_customization_cannot_silently_hide_a_preset_conflict(
+    service, admin_ctx, workspace, tenant
+) -> None:
+    from django.core.cache import cache
+
+    from application.attribute_definition_service import AttributeDefinitionConflictError
+    from application.cache_invalidation import attribute_def_cache_key
+
+    store = GlobalAttributeDefinitionStore()
+    store.initialize(tenant.id, "Risk", "extended", [TITLE, NOTE])
+    store.initialize(tenant.id, "Risk", "minimal", [TITLE])
+    with patch("presets.services.get_preset") as get_preset:
+        get_preset.return_value.preset = "extended"
+        service.resolve(admin_ctx, "Risk", workspace.id)
+        customized = service.update_workspace(admin_ctx, "Risk", workspace.id, [TITLE, NOTE])
+        cache.set(attribute_def_cache_key(str(workspace.id)), {"Risk": customized})
+        get_preset.return_value.preset = "minimal"
+        with pytest.raises(AttributeDefinitionConflictError, match="target preset lacks: note"):
+            service.resolve(admin_ctx, "Risk", workspace.id)
+
+
+@pytest.mark.django_db
 def test_resolve_is_allowed_for_a_non_admin(service, editor_ctx, workspace, seeded) -> None:
     """Reading the definition is what applying it requires — never admin-only."""
     with patch("presets.services.get_preset") as get_preset:

@@ -252,7 +252,7 @@ class AttributeDefinitionService(ServiceBase):
         preset = self._workspace_preset(workspace_id)
         cache_key = attribute_def_cache_key(str(workspace_id))
         cached = cache.get(cache_key) or {}
-        if item_type in cached:
+        if item_type in cached and cached[item_type].get("preset") == preset:
             return cached[item_type]
 
         row = self._workspace.resolve(ctx.tenant_id, workspace_id, item_type, preset)

@@ -6,11 +6,11 @@ deep copy of its preset's global default, linked back via ``source_global`` with
 ``GlobalAttributeDefinitionStore._propagate`` — no merge-on-read on the form
 load path.
 
-``preset`` on an existing row is FROZEN (spec section 3): resolving with a
-different preset returns the existing row unchanged rather than re-pointing it,
-so a workspace preset switch cannot silently discard a definition. The
-downgrade probe (``missing_attributes_for_preset``) is what surfaces the
-consequence to the user instead.
+Preset changes re-materialize inherited definitions. Customized definitions keep
+their complete payload if all referenced attributes exist in the target preset
+(spec section 9); otherwise resolution raises an explicit conflict without
+changing the row. This supersedes section 3's creation-time preset freeze: a
+resolved definition must never silently claim a different tier (#960).
 """
 from __future__ import annotations
 
@@ -18,7 +18,9 @@ import copy
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 
 from .global_definition_store import (
     AttributeDefinitionNotFound,
@@ -26,6 +28,7 @@ from .global_definition_store import (
 )
 from .models import WorkspaceAttributeDefinition
 from .schema import (
+    AttributeDefinitionConflictError,
     materialize_sections,
     stored_attributes,
     validate_definition_json,
@@ -79,14 +82,20 @@ class WorkspaceAttributeDefinitionStore:
         item_type: str,
         preset: str,
     ) -> WorkspaceAttributeDefinition:
-        """Return the workspace row, materializing it from the global if absent.
+        """Resolve the requested preset, preserving compatible customizations.
+
+        Uncustomized rows are re-copied on a preset change. Customized rows
+        retain their payload and adopt the target source only if its attribute
+        names cover the override (the same rule as the downgrade probe).
 
         Raises:
             AttributeDefinitionNotFound: no global default exists for
                 ``(item_type, preset)`` — run the bootstrap command first.
+            AttributeDefinitionConflictError: the target preset lacks attributes
+                used by a customization; the existing row is left untouched.
         """
         existing = self.get(tenant_id, workspace_id, item_type)
-        if existing is not None:
+        if existing is not None and existing.preset == preset:
             self.ensure_sections(existing)
             return existing
 
@@ -97,18 +106,50 @@ class WorkspaceAttributeDefinitionStore:
                 f"run 'manage.py bootstrap_attribute_definitions' first"
             )
         self._global_store.ensure_sections(source)
-        obj, _created = WorkspaceAttributeDefinition.unscoped.get_or_create(
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            item_type=item_type,
-            defaults={
-                "preset": preset,
-                "definition_json": copy.deepcopy(source.definition_json),
-                "source_global": source,
-                "is_customized": False,
-            },
-        )
-        return obj
+        with transaction.atomic():
+            # Also lock a get_or_create race winner: another reader may have
+            # materialized a different preset, or an admin may have customized
+            # the row after our first lookup. Never overwrite that work.
+            obj, _created = (
+                WorkspaceAttributeDefinition.unscoped.select_for_update().get_or_create(
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    item_type=item_type,
+                    defaults={
+                        "preset": preset,
+                        "definition_json": copy.deepcopy(source.definition_json),
+                        "source_global": source,
+                        "is_customized": False,
+                    },
+                )
+            )
+            if obj.preset != preset:
+                if obj.is_customized:
+                    missing = self._missing_attribute_names(
+                        obj.definition_json, source.definition_json
+                    )
+                    if missing:
+                        raise AttributeDefinitionConflictError([
+                            f"Customized definition '{item_type}' uses preset "
+                            f"'{obj.preset}', but workspace requests '{preset}'; "
+                            f"target preset lacks: {', '.join(missing)}. "
+                            "Reconcile the customization or explicitly reset it."
+                        ])
+                    # Section 9 preserves the whole override, not a guessed
+                    # per-field diff (there is no historical base snapshot).
+                    definition = obj.definition_json
+                else:
+                    definition = copy.deepcopy(source.definition_json)
+                WorkspaceAttributeDefinition.unscoped.filter(pk=obj.pk).update(
+                    preset=preset,
+                    source_global=source,
+                    definition_json=definition,
+                    version=F("version") + 1,
+                    modified_at=timezone.now(),
+                )
+                obj.refresh_from_db()
+            self.ensure_sections(obj)
+            return obj
 
     # ---------- Write ----------
 
@@ -251,8 +292,13 @@ class WorkspaceAttributeDefinitionStore:
         # Ledger item (e), third site in this file: both rows are stored rows
         # being indexed by a required key, so both go through the same
         # normalization as update() above.
-        target_names = {a["name"] for a in stored_attributes(target.definition_json)}
-        current_names = {a["name"] for a in stored_attributes(obj.definition_json)}
+        return self._missing_attribute_names(obj.definition_json, target.definition_json)
+
+    @staticmethod
+    def _missing_attribute_names(current: Any, target: Any) -> list[str]:
+        """Use the same compatibility rule for the warning and resolution."""
+        target_names = {a["name"] for a in stored_attributes(target)}
+        current_names = {a["name"] for a in stored_attributes(current)}
         return sorted(current_names - target_names)
 
     def resolved_item_types(
