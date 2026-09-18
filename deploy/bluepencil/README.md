@@ -3,8 +3,9 @@
 This directory vendors the **self-hosted bluepencil sidecar** — the Option B store from the
 integration plan (`docs/bluepencil-integration.md`, PR #972). It is a small Node HTTP server that
 holds the bluepencil review layer's notes in **one JSON file**. ReqogniLoom's frontend talks to it
-over the Compose network; the sidecar is gated behind the `bluepencil` Compose profile and is off by
-default.
+over the Compose network. The sidecar is gated behind the `bluepencil` Compose profile and the
+frontend probe behind the `BLUEPENCIL_ENABLED` flag — enabling it takes both, and both are off by
+default (see Enable).
 
 ## Read this before enabling it
 
@@ -21,16 +22,36 @@ Use it to *see and measure* the layer in the real app (plan stage 2), not as a "
 
 ## Enable
 
+Two switches are required in dev — the sidecar **and** the frontend loader. Set
+both in `.env` (see `.env.example`) and run `make up`:
+
+```bash
+COMPOSE_PROFILES=bluepencil   # starts the sidecar service
+BLUEPENCIL_ENABLED=1          # arms the frontend probe
+```
+
+```bash
+make up
+```
+
+`make bluepencil` is a one-off equivalent that starts the sidecar alone:
+
 ```bash
 make bluepencil
 ```
 
 That is `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml
 --project-directory . --profile bluepencil up -d`, i.e. the running dev stack plus the sidecar.
+It starts the sidecar but leaves the review layer **off** until `BLUEPENCIL_ENABLED=1` is set in
+`.env` and the frontend service is restarted. The sidecar is reachable inside the Compose network as
+**`bluepencil:8787`**; it does **not** publish a host port.
 
-Alternatively, add `bluepencil` to `COMPOSE_PROFILES` in `.env` (see `.env.example`) and run
-`make up`. The sidecar is reachable inside the Compose network as **`bluepencil:8787`**; it does
-**not** publish a host port.
+## Why opt-in
+
+Where no sidecar runs, the layer's `GET /bluepencil/api/health` probe is answered with 404 (or 502
+through the dev proxy) and the browser logs it as a console error — and this repo's E2E suite
+requires a clean console. The app must therefore not probe unless it is explicitly asked to, which
+is why the layer is opt-in.
 
 ## Disable
 
@@ -39,11 +60,12 @@ make bluepencil-down
 ```
 
 That stops just the `bluepencil` service (`... --profile bluepencil stop bluepencil`) and leaves the
-rest of the stack running. Alternatively, remove `bluepencil` from `COMPOSE_PROFILES` and run
-`make up`.
+rest of the stack running. Alternatively, remove `bluepencil` from `COMPOSE_PROFILES` and/or set
+`BLUEPENCIL_ENABLED=0`, then run `make up`.
 
-No frontend rebuild is needed in either direction: the frontend detects the sidecar at runtime, so
-the UI degrades gracefully when it is absent.
+The sidecar itself toggles at runtime and the UI degrades gracefully when it is absent — but the
+frontend loader flag (`BLUEPENCIL_ENABLED`) is read by Vite at startup, so enabling it requires the
+frontend service to be (re)started after changing the value.
 
 ## Where the notes live
 

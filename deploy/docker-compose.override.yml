@@ -186,6 +186,15 @@ services:
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
       VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      # bluepencil review layer is opt-in (#972). With it armed the loader
+      # probes the sidecar at `GET /bluepencil/api/health`; without a sidecar
+      # that path answers 502 through the dev proxy and Chromium logs it as a
+      # console error — and this repo's E2E suite asserts a clean console. So
+      # set BLUEPENCIL_ENABLED=1 in .env TOGETHER WITH activating the
+      # `bluepencil` Compose profile; leaving it 0 (the default) means the app
+      # never probes, never fetches and the console stays clean.
+      VITE_BLUEPENCIL_ENABLED: ${BLUEPENCIL_ENABLED:-0}
+      VITE_BLUEPENCIL_ENVIRONMENT: ${BLUEPENCIL_ENVIRONMENT:-dev}
     volumes:
       # Hot-reload: mount source code
       - ./frontend:/app

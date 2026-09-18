@@ -5,11 +5,11 @@
  * self-hosted sidecar and is mounted as a layer over the SPA. It is globally
  * activatable/deactivatable on two independent levels:
  *
- *   1. build guard   — `VITE_BLUEPENCIL_ENABLED` decides whether the loader is
- *                      even allowed to run (production defaults OFF, dev ON);
- *   2. runtime probe — the layer is only injected when the sidecar answers its
- *                      `/health` endpoint, so an environment without a sidecar
- *                      (or with a down one) simply shows no review layer.
+ *   1. build guard   — only an explicit `VITE_BLUEPENCIL_ENABLED="1"` arms the
+ *                      layer; unset means it never probes and never loads;
+ *   2. runtime probe — with the guard armed, the layer is injected only when the
+ *                      sidecar answers its `/health` endpoint, so a down sidecar
+ *                      degrades to "no review layer" instead of broken UI.
  *
  * Everything here is best-effort: a review layer must never break or delay the
  * host app, so every failure degrades to `false` plus a single debug line.
@@ -42,16 +42,16 @@ declare global {
 }
 
 /**
- * Build-time guard. Precedence:
- *   - `"0"` switches the layer off everywhere (hard off);
- *   - in a production build it is on only when explicitly `"1"` (default OFF);
- *   - in dev/test it defaults ON.
+ * Build-time guard. The layer is strictly **opt-in**: only an explicit
+ * `VITE_BLUEPENCIL_ENABLED="1"` arms the runtime probe, in every environment.
+ *
+ * Opt-in rather than auto-detect on purpose: the probe is a real `fetch` to
+ * `/bluepencil/api/health`. Where no sidecar runs, that path answers 404/502 and
+ * the browser logs it as a console error — and this repo's E2E suite asserts a
+ * clean console, so an unconfigured deployment must never probe at all.
  */
 export function isBluepencilEnabledByBuild(): boolean {
-  const flag: unknown = import.meta.env.VITE_BLUEPENCIL_ENABLED;
-  if (flag === "0") return false;
-  if (import.meta.env.PROD) return flag === "1";
-  return true;
+  return import.meta.env.VITE_BLUEPENCIL_ENABLED === "1";
 }
 
 /**

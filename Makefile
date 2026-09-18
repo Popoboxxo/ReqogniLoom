@@ -50,7 +50,7 @@ minimal-down:
 honcho:
 	$(DEV_COMPOSE) --profile honcho up -d
 
-## bluepencil: Add the optional bluepencil review-notes sidecar (QS/demo only — no auth, no tenant isolation)
+## bluepencil: Add the optional bluepencil review-notes sidecar (QS/demo only — no auth, no tenant isolation). Two-part enable: starts the sidecar only; to arm the frontend review layer also set BLUEPENCIL_ENABLED=1 in .env and restart the frontend service
 bluepencil:
 	$(DEV_COMPOSE) --profile bluepencil up -d
 

@@ -56,8 +56,15 @@ function resetLayer(): void {
 describe("bluepencil loader — build guard", () => {
   afterEach(resetLayer);
 
-  it("defaults to enabled in a non-production build", () => {
-    expect(isBluepencilEnabledByBuild()).toBe(true);
+  it("is off unless explicitly enabled — an unconfigured deployment never probes", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(isBluepencilEnabledByBuild()).toBe(false);
+    await expect(installBluepencilReviewLayer()).resolves.toBe(false);
+    // The decisive assertion: no request, so no console error in E2E.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(loaderScripts()).toHaveLength(0);
   });
 
   it("is hard-off and never probes when VITE_BLUEPENCIL_ENABLED=0", async () => {
