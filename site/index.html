@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="meta.title">ReqogniLoom — AI-native requirements and test management</title>
+  <meta name="description" content="ReqogniLoom is an AI-native requirements and test management system for systems engineering: MBSE-compatible artifact decomposition, V-Model traceability L0–L4, a REST API and a native MCP server with 188 tools." data-i18n-content="meta.description">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" href="./assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./assets/css/tokens.css">
+  <link rel="stylesheet" href="./assets/css/style.css">
+  <script>
+    /* Theme bootstrap: runs before first paint to avoid a flash of the wrong theme.
+       Defaults to dark (the product default); prefers-color-scheme only decides the
+       very first visit, a stored choice always wins. */
+    (function () {
+      try {
+        var stored = window.localStorage.getItem('reqlo-theme');
+        var theme = stored === 'light' || stored === 'dark'
+          ? stored
+          : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) { /* storage unavailable: keep the dark default */ }
+    }());
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-testid="skip-link" data-i18n="a11y.skip">Skip to content</a>
+
+  <header class="site-header" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" data-testid="brand-link" aria-label="ReqogniLoom — back to top" data-i18n-aria-label="brand.home">
+        <svg class="brand-mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="28" height="28" rx="8" fill="var(--color-primary)"></rect>
+          <path d="M9 21V11h6.2a3.4 3.4 0 0 1 0 6.8H12.4L17 21h-3.6l-4.4-4.6V21z" fill="var(--color-on-primary)"></path>
+        </svg>
+        <span class="brand-name">ReqogniLoom</span>
+      </a>
+
+      <!-- DOM order (brand -> controls -> nav) matches the visual order in both
+           the desktop and the mobile layout, so the Tab order follows the
+           on-screen reading order (F-09). -->
+      <div class="header-controls">
+        <div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="lang.groupLabel" data-testid="lang-switch">
+          <button type="button" class="lang-btn is-active" data-lang="en" aria-pressed="true" data-testid="lang-en">EN</button>
+          <button type="button" class="lang-btn" data-lang="de" aria-pressed="false" data-testid="lang-de">DE</button>
+        </div>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-pressed="true"
+                data-testid="theme-toggle" aria-label="Dark mode" data-i18n-aria-label="theme.name">
+          <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"></circle>
+            <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M12 2.4v2.6M12 19v2.6M2.4 12h2.6M19 12h2.6M5.2 5.2l1.8 1.8M17 17l1.8 1.8M18.8 5.2L17 7M7 17l-1.8 1.8"></path>
+            </g>
+          </svg>
+          <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+            <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.5 8.5 0 1 0 10.2 10.2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+          </svg>
+        </button>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false" aria-controls="primary-nav"
+                data-testid="menu-toggle" aria-label="Open menu" data-i18n-aria-label="nav.menuOpen">
+          <span class="menu-bars" aria-hidden="true"><span></span><span></span><span></span></span>
+        </button>
+      </div>
+
+      <nav class="site-nav" id="primary-nav" aria-label="Primary" data-i18n-aria-label="nav.primaryLabel" data-testid="primary-nav">
+        <ul>
+          <li><a href="#hero" data-testid="nav-overview" data-i18n="nav.overview">Overview</a></li>
+          <li><a href="#about" data-testid="nav-about" data-i18n="nav.about">Why</a></li>
+          <li><a href="#capabilities" data-testid="nav-capabilities" data-i18n="nav.capabilities">Capabilities</a></li>
+          <li><a href="#architecture" data-testid="nav-architecture" data-i18n="nav.architecture">Architecture</a></li>
+          <li><a href="#traceability" data-testid="nav-traceability" data-i18n="nav.traceability">Traceability</a></li>
+          <li><a href="#ai-mcp" data-testid="nav-ai" data-i18n="nav.ai">AI &amp; MCP</a></li>
+          <li><a href="#link-types" data-testid="nav-links" data-i18n="nav.links">Link types</a></li>
+          <li><a href="#rigor" data-testid="nav-rigor" data-i18n="nav.rigor">Rigor</a></li>
+          <li><a href="#enterprise" data-testid="nav-enterprise" data-i18n="nav.enterprise">Enterprise</a></li>
+          <li><a href="#deploy" data-testid="nav-deploy" data-i18n="nav.deploy">Deploy</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ============================ 1. HERO ============================ -->
+    <section class="section hero" id="hero" aria-labelledby="hero-title">
+      <div class="wrap hero-inner">
+        <p class="eyebrow" data-i18n="hero.eyebrow">AI-native · Systems engineering</p>
+        <h1 class="hero-title" id="hero-title">ReqogniLoom</h1>
+        <p class="hero-positioning" data-i18n="hero.positioning">AI-native requirements and test management for systems engineering.</p>
+        <p class="hero-lead" data-i18n="hero.lead">Model requirements, architecture elements, test cases and decisions as artifacts, tie them together with first-class trace links, and let both people and AI assistants work on the same data — through a REST API and a native MCP server.</p>
+
+        <div class="badge-row" data-testid="hero-badges">
+          <span class="badge badge--info">v1.8.0-beta.12</span>
+          <span class="badge badge--success" data-i18n="hero.badge.license">MIT licensed</span>
+          <span class="badge badge--neutral" data-i18n="hero.badge.selfhosted">Self-hosted via Docker Compose</span>
+          <span class="badge badge--neutral" data-i18n="hero.badge.dualsurface">REST API + native MCP server</span>
+        </div>
+
+        <p class="hero-stack" data-i18n="hero.stack">Django 5.2+ · React 18 + TypeScript · PostgreSQL 16 + pgvector · Redis 7 · Celery</p>
+
+        <div class="cta-row">
+          <a class="btn btn--primary" href="https://github.com/Popoboxxo/ReqogniLoom" data-testid="cta-github" data-i18n="hero.cta.github">View on GitHub</a>
+          <a class="btn btn--ghost" href="#deploy" data-testid="cta-deploy" data-i18n="hero.cta.deploy">Quick start</a>
+        </div>
+      </div>
+      <div class="hero-glow" aria-hidden="true"></div>
+    </section>
+
+    <!-- ============================ 2. WHAT / WHY ============================ -->
+    <section class="section reveal" id="about" aria-labelledby="about-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="about.eyebrow">What it is</p>
+        <h2 class="section-title" id="about-title" data-i18n="about.title">One model for requirements, architecture, tests and decisions</h2>
+        <p class="section-lead" data-i18n="about.lead">Requirements engineering, architecture modelling and test management usually live in separate tools, so traceability is reconstructed by hand and AI assistants cannot reach the data. ReqogniLoom keeps all of it in one artifact-based model with trace links as a first-class citizen.</p>
+
+        <div class="grid grid-3">
+          <article class="card">
+            <h3 data-i18n="about.problem.title">The problem</h3>
+            <p data-i18n="about.problem.body">Siloed tools, manual traceability matrices and decisions that are not linked back to the requirements they affect. Documentation drifts away from the system it describes.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="about.approach.title">The approach</h3>
+            <p data-i18n="about.approach.body">One codebase with a single domain façade. REST and MCP are thin transport adapters over the same application services, so a UI action and an AI tool call follow the identical rules.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="about.rigor.title">Three rigor levels</h3>
+            <p data-i18n="about.rigor.body">The same data model adapts from a lightweight backlog (minimal) to a formal systems-engineering workflow (extended) — no fork, no separate product.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 3. CAPABILITIES ============================ -->
+    <section class="section reveal" id="capabilities" aria-labelledby="capabilities-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="cap.eyebrow">Capabilities</p>
+        <h2 class="section-title" id="capabilities-title" data-i18n="cap.title">Core capabilities</h2>
+        <p class="section-lead" data-i18n="cap.lead">Open a capability to see what it actually does. Each entry expands in place and stays keyboard-operable.</p>
+
+        <div class="accordion grid grid-3" data-accordion data-testid="capabilities-accordion">
+          <div class="card acc-item">
+            <h3 class="acc-heading">
+              <button type="button" class="acc-trigger" id="acc-req-t" aria-controls="acc-req-p" aria-expanded="true" data-testid="acc-trigger-req" data-i18n="cap.req.title">Requirements &amp; architecture</button>
+            </h3>
+            <div class="acc-panel" id="acc-req-p" role="region" aria-labelledby="acc-req-t">
+              <p data-i18n="cap.req.body">Create and organize requirements with workflow states and categories, and model MBSE-compatible architecture elements across decomposition levels. Ideas flow through Stakeholder Needs and requirements into architecture, test cases, ADRs, risks, issues and glossary terms.</p>
+            </div>
+          </div>
+
+          <div class="card acc-item">
+            <h3 class="acc-heading">
+              <button type="button" class="acc-trigger" id="acc-trace-t" aria-controls="acc-trace-p" aria-expanded="true" data-testid="acc-trigger-trace" data-i18n="cap.trace.title">Traceability</button>
+            </h3>
+            <div class="acc-panel" id="acc-trace-p" role="region" aria-labelledby="acc-trace-t">
+              <p data-i18n="cap.trace.body">Automatic and manual linking between requirements, architecture elements and test cases with 8 core link types (tenant-extensible catalog), coverage aggregation and an interactive impact analysis across both directions.</p>
+            </div>
+          </div>
+
+          <div class="card acc-item">
+            <h3 class="acc-heading">
+              <button type="button" class="acc-trigger" id="acc-tests-t" aria-controls="acc-tests-p" aria-expanded="true" data-testid="acc-trigger-tests" data-i18n="cap.tests.title">Test management &amp; runs</button>
+            </h3>
+            <div class="acc-panel" id="acc-tests-p" role="region" aria-labelledby="acc-tests-t">
+              <p data-i18n="cap.tests.body">Attach test cases to requirements, track coverage, and record test runs with bulk result ingestion over both REST and MCP. A four-phase lifecycle keeps results auditable instead of overwriting history.</p>
+            </div>
+          </div>
+
+          <div class="card acc-item">
+            <h3 class="acc-heading">
+              <button type="button" class="acc-trigger" id="acc-base-t" aria-controls="acc-base-p" aria-expanded="true" data-testid="acc-trigger-baselines" data-i18n="cap.baselines.title">Baselines &amp; diff</button>
+            </h3>
+            <div class="acc-panel" id="acc-base-p" role="region" aria-labelledby="acc-base-t">
+              <p data-i18n="cap.baselines.body">Capture snapshots at document, project or global scope and compare system states over time, including field-level artifact diffs with side-by-side and unified highlighting for requirements, architecture elements and test cases.</p>
+            </div>
+          </div>
+
+          <div class="card acc-item">
+            <h3 class="acc-heading">
+              <button type="button" class="acc-trigger" id="acc-wf-t" aria-controls="acc-wf-p" aria-expanded="true" data-testid="acc-trigger-workflow" data-i18n="cap.workflow.title">Workflow &amp; approvals</button>
+            </h3>
+            <div class="acc-panel" id="acc-wf-p" role="region" aria-labelledby="acc-wf-t">
+              <p data-i18n="cap.workflow.body">Configurable state machines per workspace with validated transitions, approval gates and review policies that can gate AI-derived artifacts before they are accepted.</p>
+            </div>
+          </div>
+
+          <div class="card acc-item">
+            <h3 class="acc-heading">
+              <button type="button" class="acc-trigger" id="acc-imp-t" aria-controls="acc-imp-p" aria-expanded="true" data-testid="acc-trigger-import" data-i18n="cap.import.title">Import, export &amp; API keys</button>
+            </h3>
+            <div class="acc-panel" id="acc-imp-p" role="region" aria-labelledby="acc-imp-t">
+              <p data-i18n="cap.import.body">Atomic CSV bulk import for requirements, architecture elements and test cases, PDF export for requirement documents and traceability matrices, a per-artifact history endpoint, and API-key management for CI/CD integrations.</p>
+            </div>
+          </div>
+
+          <div class="card acc-item">
+            <h3 class="acc-heading">
+              <button type="button" class="acc-trigger" id="acc-mem-t" aria-controls="acc-mem-p" aria-expanded="true" data-testid="acc-trigger-search" data-i18n="cap.search.title">Search &amp; memory</button>
+            </h3>
+            <div class="acc-panel" id="acc-mem-p" role="region" aria-labelledby="acc-mem-t">
+              <p data-i18n="cap.search.body">Full-text search plus a semantic (RRF-fused) pass, an optional cross-workspace scope, and a two-tier AI long-term memory (per-workspace and per-user) stored in PostgreSQL with pgvector.</p>
+            </div>
+          </div>
+
+          <div class="card acc-item">
+            <h3 class="acc-heading">
+              <button type="button" class="acc-trigger" id="acc-ent-t" aria-controls="acc-ent-p" aria-expanded="true" data-testid="acc-trigger-enterprise" data-i18n="cap.i18n.title">Enterprise &amp; i18n</button>
+            </h3>
+            <div class="acc-panel" id="acc-ent-p" role="region" aria-labelledby="acc-ent-t">
+              <p data-i18n="cap.i18n.body">Row-level tenant isolation, an RBAC matrix with item-level permissions, operation-level audit logging, terminology profiles for dev and systems-engineering audiences, and German / English interfaces.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 4. ARCHITECTURE ============================ -->
+    <section class="section reveal" id="architecture" aria-labelledby="architecture-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="arch.eyebrow">Architecture</p>
+        <h2 class="section-title" id="architecture-title" data-i18n="arch.title">A strictly layered backend</h2>
+        <p class="section-lead" data-i18n="arch.lead">Select a layer to inspect its role, key modules and the architecture decision it implements. Use the arrow keys to move between layers.</p>
+
+        <div class="explorer" data-explorer data-testid="layer-explorer">
+          <div class="explorer-tabs" role="tablist" aria-label="Architecture layers" data-i18n-aria-label="arch.tablistLabel">
+            <button type="button" role="tab" id="tab-l0" aria-controls="panel-l0" aria-selected="true" tabindex="0" data-layer="l0" data-testid="layer-tab-l0">Layer 0 · Foundation</button>
+            <button type="button" role="tab" id="tab-l1" aria-controls="panel-l1" aria-selected="false" tabindex="-1" data-layer="l1" data-testid="layer-tab-l1">Layer 1 · Engines</button>
+            <button type="button" role="tab" id="tab-l2" aria-controls="panel-l2" aria-selected="false" tabindex="-1" data-layer="l2" data-testid="layer-tab-l2">Layer 2 · Application</button>
+            <button type="button" role="tab" id="tab-l3" aria-controls="panel-l3" aria-selected="false" tabindex="-1" data-layer="l3" data-testid="layer-tab-l3">Layer 3 · Integration</button>
+            <button type="button" role="tab" id="tab-ext" aria-controls="panel-ext" aria-selected="false" tabindex="-1" data-layer="ext" data-testid="layer-tab-ext">Extension apps</button>
+          </div>
+
+          <div class="explorer-panels">
+            <div class="layer-panel" role="tabpanel" id="panel-l0" aria-labelledby="tab-l0" tabindex="0">
+              <h3 class="panel-role" data-i18n="arch.l0.role">Tenant-isolated storage, identity and configuration</h3>
+              <p data-i18n="arch.l0.body">The foundation every other layer builds on: tenant-scoped persistence, authentication and authorization, rigor presets and an operation-level audit log.</p>
+              <h4 data-i18n="arch.modules">Key modules</h4>
+              <ul class="module-list">
+                <li><code>persistence</code><span data-i18n="arch.l0.m1">Django ORM models, TenantScopedModel / AuditableModel, transactions</span></li>
+                <li><code>auth_tenancy</code><span data-i18n="arch.l0.m2">Bearer JWT + API keys, RBAC, TenantContext, row-level security</span></li>
+                <li><code>presets</code><span data-i18n="arch.l0.m3">PresetRegistry and terminology profiles (minimal / standard / extended)</span></li>
+                <li><code>audit</code><span data-i18n="arch.l0.m4">Operation-level audit log, written atomically with the mutation</span></li>
+              </ul>
+              <p class="panel-adr"><span data-i18n="arch.adrLabel">ADRs</span>: ADR-03 (tenant isolation) · ADR-04 (configurable rigor)</p>
+            </div>
+
+            <div class="layer-panel" role="tabpanel" id="panel-l1" aria-labelledby="tab-l1" tabindex="0">
+              <h3 class="panel-role" data-i18n="arch.l1.role">Core engines and domain logic</h3>
+              <p data-i18n="arch.l1.body">The engines that give the product its semantics: LLM abstraction, link management, state machines and snapshot baselines.</p>
+              <h4 data-i18n="arch.modules">Key modules</h4>
+              <ul class="module-list">
+                <li><code>llm_adapter</code><span data-i18n="arch.l1.m1">Pluggable provider interface with graceful degradation (mock default)</span></li>
+                <li><code>traceability</code><span data-i18n="arch.l1.m2">Trace-query, link management, coverage and PDF report</span></li>
+                <li><code>workflow</code><span data-i18n="arch.l1.m3">Configurable state machines, transitions, outdate/reactivate lifecycle</span></li>
+                <li><code>baseline</code><span data-i18n="arch.l1.m4">Snapshot baselines and the field-level diff engine</span></li>
+              </ul>
+              <p class="panel-adr"><span data-i18n="arch.adrLabel">ADRs</span>: ADR-06 (state machines) · ADR-07 (baseline scopes)</p>
+            </div>
+
+            <div class="layer-panel" role="tabpanel" id="panel-l2" aria-labelledby="tab-l2" tabindex="0">
+              <h3 class="panel-role" data-i18n="arch.l2.role">Single domain façade — the only way in</h3>
+              <p data-i18n="arch.l2.body">The application layer is the single entry point (ADR-01). REST views and MCP tools never touch models or business rules directly — they call the same domain services, so behaviour cannot diverge between human and AI access paths.</p>
+              <h4 data-i18n="arch.modules">Key modules</h4>
+              <ul class="module-list">
+                <li><code>application/</code><span data-i18n="arch.l2.m1">~19 domain services behind one façade (requirement, architecture, test, trace, baseline, workflow, import, AI derivation, memory, …)</span></li>
+                <li><code>application/</code><span data-i18n="arch.l2.m2">Transaction boundaries live here and nowhere else</span></li>
+              </ul>
+              <p class="panel-adr"><span data-i18n="arch.adrLabel">ADRs</span>: ADR-01 (single entry point)</p>
+            </div>
+
+            <div class="layer-panel" role="tabpanel" id="panel-l3" aria-labelledby="tab-l3" tabindex="0">
+              <h3 class="panel-role" data-i18n="arch.l3.role">Transport adapters only</h3>
+              <p data-i18n="arch.l3.body">Two thin adapters expose the same application services to different clients. Neither owns business logic.</p>
+              <h4 data-i18n="arch.modules">Key modules</h4>
+              <ul class="module-list">
+                <li><code>rest_api</code><span data-i18n="arch.l3.m1">Django REST Framework under /api/v1/ with JWT auth and an OpenAPI 3.0 schema (drf-spectacular)</span></li>
+                <li><code>mcp_server</code><span data-i18n="arch.l3.m2">Native Model Context Protocol server, JSON-RPC 2.0, 31 tool-group prefixes and 188 tools</span></li>
+              </ul>
+              <p class="panel-adr"><span data-i18n="arch.adrLabel">ADRs</span>: ADR-01 (single entry point)</p>
+            </div>
+
+            <div class="layer-panel" role="tabpanel" id="panel-ext" aria-labelledby="tab-ext" tabindex="0">
+              <h3 class="panel-role" data-i18n="arch.ext.role">Cross-cutting and operational apps</h3>
+              <p data-i18n="arch.ext.body">Focused apps that extend the core without bending the layer boundaries: rendering, interface documentation, metrics, fault tolerance and operations.</p>
+              <h4 data-i18n="arch.modules">Key modules</h4>
+              <ul class="module-list">
+                <li><code>diagram</code><span data-i18n="arch.ext.m1">SVG / PNG / PlantUML renderer and Mermaid canvases</span></li>
+                <li><code>icd</code><span data-i18n="arch.ext.m2">Interface Control Document management with versioned interfaces</span></li>
+                <li><code>se_metrics</code><span data-i18n="arch.ext.m3">KPI aggregation read-model (coverage, volatility, workflow gaps)</span></li>
+                <li><code>resilience</code><span data-i18n="arch.ext.m4">Retry, circuit-breaker and timeout decorators</span></li>
+                <li><code>admin_ops</code><span data-i18n="arch.ext.m5">Disaster recovery and artifact-level backup / restore</span></li>
+                <li><code>test_runs</code><span data-i18n="arch.ext.m6">Test-run recording and result ingestion</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 5. TRACEABILITY L0-L4 ============================ -->
+    <section class="section reveal" id="traceability" aria-labelledby="traceability-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="trace.eyebrow">Traceability</p>
+        <h2 class="section-title" id="traceability-title" data-i18n="trace.title">V-Model traceability from stakeholder needs to presentation</h2>
+        <p class="section-lead" data-i18n="trace.lead">Every artifact carries a REQ identifier and can be linked upward and downward, so a change at one level can be traced to everything it affects.</p>
+
+        <ol class="vmodel" data-testid="vmodel">
+          <li class="vlevel vlevel-l0">
+            <span class="level-badge">L0</span>
+            <div><h3 data-i18n="trace.l0.title">Stakeholder Needs</h3>
+            <p data-i18n="trace.l0.desc">What the stakeholders actually need, captured before a solution is chosen.</p></div>
+          </li>
+          <li class="vlevel vlevel-l1">
+            <span class="level-badge">L1</span>
+            <div><h3 data-i18n="trace.l1.title">System Requirements</h3>
+            <p data-i18n="trace.l1.desc">Verifiable system-level requirements derived from stakeholder needs.</p></div>
+          </li>
+          <li class="vlevel vlevel-l2">
+            <span class="level-badge">L2</span>
+            <div><h3 data-i18n="trace.l2.title">Subsystems</h3>
+            <p data-i18n="trace.l2.desc">Architectural decomposition into subsystems that carry allocated requirements.</p></div>
+          </li>
+          <li class="vlevel vlevel-l3">
+            <span class="level-badge">L3</span>
+            <div><h3 data-i18n="trace.l3.title">Components</h3>
+            <p data-i18n="trace.l3.desc">Concrete components and interfaces with their own requirements and tests.</p></div>
+          </li>
+          <li class="vlevel vlevel-l4">
+            <span class="level-badge">L4</span>
+            <div><h3 data-i18n="trace.l4.title">Presentation</h3>
+            <p data-i18n="trace.l4.desc">The presentation and behaviour layer where the system meets its users.</p></div>
+          </li>
+        </ol>
+
+        <div class="grid grid-2 flow-grid">
+          <article class="card">
+            <h3 data-i18n="trace.flow.title">What flows between the levels</h3>
+            <p data-i18n="trace.flow.body">Derivation runs downward (needs to requirements to architecture), verification runs back up: test cases are linked to the requirements they verify, so coverage gaps are visible instead of assumed. Links are added explicitly or derived with AI support, and the full chain stays queryable.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="trace.note.title">Trace links as data, not documents</h3>
+            <p data-i18n="trace.note.body">Links are stored entities, not rows in a spreadsheet. They can be typed, queried, exported as a traceability matrix PDF, and audited through the same history endpoint as every other artifact.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 6. AI & MCP ============================ -->
+    <section class="section reveal" id="ai-mcp" aria-labelledby="aimcp-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="ai.eyebrow">AI &amp; MCP</p>
+        <h2 class="section-title" id="aimcp-title" data-i18n="ai.title">Built for AI assistants, not bolted on</h2>
+        <p class="section-lead" data-i18n="ai.lead">ReqogniLoom speaks Model Context Protocol natively, so an assistant works with the same requirements and tests a person sees — no export, no snapshot, no separate integration layer.</p>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <h3 data-i18n="ai.mcp.title">Native MCP server</h3>
+            <p data-i18n="ai.mcp.body">JSON-RPC 2.0 over HTTP, SSE and stdio. Authentication uses API keys (prefix reqlo_) or a bearer token. The same server serves Claude Desktop, Cursor, OpenCode and Codex CLI.</p>
+            <ul class="stat-row">
+              <li><strong>31</strong><span data-i18n="ai.stat.groups">tool-group prefixes</span></li>
+              <li><strong>188</strong><span data-i18n="ai.stat.tools">individual tools</span></li>
+              <li><strong>3</strong><span data-i18n="ai.stat.transports">transports</span></li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ai.llm.title">Pluggable LLM adapters</h3>
+            <p data-i18n="ai.llm.body">Anthropic, OpenAI, Azure OpenAI, Ollama (local) and opencode_go are selectable per deployment. The default is mock mode — no external calls at all — so the core product runs without any AI provider configured.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ai.derive.title">AI derivation</h3>
+            <p data-i18n="ai.derive.body">Configurable prompt templates decompose stakeholder needs into system requirements. Every derivation can run in preview or write mode, and review policies decide whether the result is accepted automatically or waits for a human.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ai.memory.title">Semantic search &amp; long-term memory</h3>
+            <p data-i18n="ai.memory.body">Self-hosted by default: in-process sentence-transformers embeddings stored in PostgreSQL with pgvector, plus full-text search with an RRF-fused semantic pass. Ollama or OpenAI embeddings and an external Honcho backend are opt-in alternatives.</p>
+          </article>
+        </div>
+
+        <div class="chip-block">
+          <h3 data-i18n="ai.tools.title">Tool-group prefixes</h3>
+          <ul class="chips" data-testid="tool-groups">
+            <li>requirement</li><li>needs</li><li>architecture</li><li>test</li><li>traceability</li><li>artifact</li>
+            <li>context</li><li>workspace</li><li>permissions</li><li>admin</li><li>audit</li><li>events</li>
+            <li>user</li><li>adr</li><li>risk</li><li>issue</li><li>glossary</li><li>change_request</li>
+            <li>prompt_template</li><li>prompt_variable</li><li>ai_derivation</li><li>diagram</li><li>review</li><li>baseline</li>
+            <li>goal</li><li>main_goal</li><li>requirement_bundle</li><li>interview</li><li>memory</li><li>link_type</li>
+            <li>attribute_definition</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 7. TRACE-LINK TYPES ============================ -->
+    <section class="section reveal" id="link-types" aria-labelledby="linktypes-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="links.eyebrow">Trace-link types</p>
+        <h2 class="section-title" id="linktypes-title" data-i18n="links.title">8 core link types, tenant-extensible</h2>
+        <p class="section-lead" data-i18n="links.lead">Each link type carries a meaning, so a traceability matrix says more than "these two artifacts are related". Every tenant can add its own types on top of the core catalog.</p>
+
+        <div class="grid grid-4 link-grid" data-testid="link-types">
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h14M13 7l5 5-5 5"></path></svg></span>
+            <h3>derives-from</h3>
+            <p data-i18n="links.derives.desc">The source was derived from the target — the downward path from needs to requirements.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v6M12 10H6v6M12 10h6v6"></path></svg></span>
+            <h3>decomposes</h3>
+            <p data-i18n="links.decomposes.desc">The target is a decomposition of the source — one artifact becomes many.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8M12 12V6h7v12h-7v-6"></path></svg></span>
+            <h3>allocated-to</h3>
+            <p data-i18n="links.allocated.desc">A requirement or function is allocated to an architecture element or component.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"></circle><path d="M8.5 12.2l2.4 2.4 4.6-5"></path></svg></span>
+            <h3>verifies</h3>
+            <p data-i18n="links.verifies.desc">A test case verifies a requirement — the path back up from tests to intent.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 6.6-7 8-4-1.4-7-4-7-8V6z"></path></svg></span>
+            <h3>mitigates</h3>
+            <p data-i18n="links.mitigates.desc">A measure mitigates a risk, keeping the risk and its response connected.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 9-8 9-8-9z"></path></svg></span>
+            <h3>decides</h3>
+            <p data-i18n="links.decides.desc">An ADR or decision affects the linked artifacts, documenting why they look the way they do.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.6 0l3-3A4 4 0 0 0 13 5.4l-1.4 1.4"></path><path d="M14 10a4 4 0 0 0-5.6 0l-3 3A4 4 0 0 0 11 18.6l1.4-1.4"></path></svg></span>
+            <h3>references</h3>
+            <p data-i18n="links.references.desc">A lightweight, non-deriving reference between two artifacts.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1.5"></rect><rect x="14" y="14" width="7" height="6" rx="1.5"></rect><path d="M10 7h4a4 4 0 0 1 4 4v3M14 17h-4a4 4 0 0 1-4-4v-3"></path></svg></span>
+            <h3>diagram-ref</h3>
+            <p data-i18n="links.diagramref.desc">An artifact is shown in or referenced by a diagram without a deriving relationship.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 8. RIGOR PRESETS ============================ -->
+    <section class="section reveal" id="rigor" aria-labelledby="rigor-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="rigor.eyebrow">Rigor presets</p>
+        <h2 class="section-title" id="rigor-title" data-i18n="rigor.title">The same product at three levels of formality</h2>
+        <p class="section-lead" data-i18n="rigor.lead">Rigor is a workspace setting, not a different installation. Switching the preset changes approvals and available baseline scopes while the data model stays identical.</p>
+
+        <div class="table-wrap" tabindex="0" role="group" aria-labelledby="rigor-title" data-testid="rigor-table-wrap">
+          <table class="compare" data-testid="rigor-table">
+            <caption class="visually-hidden" data-i18n="rigor.table.caption">Comparison of the minimal, standard and extended rigor presets</caption>
+            <thead>
+              <tr>
+                <th scope="col" data-i18n="rigor.col.dimension">Dimension</th>
+                <th scope="col"><span class="badge badge--neutral">minimal</span></th>
+                <th scope="col"><span class="badge badge--neutral">standard</span></th>
+                <th scope="col"><span class="badge badge--neutral">extended</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row" data-i18n="rigor.row.approvals">Approvals required</th>
+                <td data-i18n="rigor.val.no">No</td>
+                <td data-i18n="rigor.val.no">No</td>
+                <td data-i18n="rigor.val.yes">Yes</td>
+              </tr>
+              <tr>
+                <th scope="row" data-i18n="rigor.row.scopes">Baseline scopes</th>
+                <td><code>document</code></td>
+                <td><code>document</code>, <code>project</code></td>
+                <td><code>document</code>, <code>project</code>, <code>global</code></td>
+              </tr>
+              <tr>
+                <th scope="row" data-i18n="rigor.row.fit">Typical fit</th>
+                <td data-i18n="rigor.fit.minimal">Lightweight backlog</td>
+                <td data-i18n="rigor.fit.standard">Team and project delivery</td>
+                <td data-i18n="rigor.fit.extended">Formal systems engineering</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <h3 data-i18n="rigor.terminology.title">Terminology profiles</h3>
+            <p data-i18n="rigor.terminology.body">The same entity can be labelled for a software team or for a systems-engineering audience. A dev-mode profile and an SE-mode profile change the vocabulary without changing the underlying data.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="rigor.gate.title">Enforced at runtime</h3>
+            <p data-i18n="rigor.gate.body">Preset rules are checked by a runtime gate, not just documented: required approvals, baseline scopes and enabled features follow the workspace preset consistently across REST and MCP.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 9. ENTERPRISE & SECURITY ============================ -->
+    <section class="section reveal" id="enterprise" aria-labelledby="enterprise-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="ent.eyebrow">Enterprise</p>
+        <h2 class="section-title" id="enterprise-title" data-i18n="ent.title">Isolation, auditability and operations</h2>
+        <p class="section-lead" data-i18n="ent.lead">Features that matter once more than one team, more than one workspace and a compliance question enter the picture.</p>
+
+        <div class="grid grid-3">
+          <article class="card">
+            <h3 data-i18n="ent.tenancy.title">Multi-tenancy with row-level isolation</h3>
+            <p data-i18n="ent.tenancy.body">Every query is tenant-scoped through PostgreSQL row-level security and a thread-local TenantContext. Tenant data is isolated by the database, not by application convention.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ent.rbac.title">RBAC and item-level permissions</h3>
+            <p data-i18n="ent.rbac.body">A four-level role matrix (admin, approver, editor, viewer) plus per-item permissions for the cases where a workspace-wide role is not precise enough.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ent.audit.title">Operation-level audit log</h3>
+            <p data-i18n="ent.audit.body">Writes and their audit entries commit in the same transaction, so a rolled-back change never leaves an audit trail behind. Each artifact also exposes its own history endpoint.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ent.crypto.title">Secrets encrypted at rest</h3>
+            <p data-i18n="ent.crypto.body">Stored LLM provider API keys are encrypted with a dedicated encryption key. Production startup refuses to run without SECRET_KEY, JWT secret and encryption key configured.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ent.resilience.title">Resilient by default</h3>
+            <p data-i18n="ent.resilience.body">Retry, circuit-breaker and timeout decorators wrap service calls, and asynchronous work runs through Celery queues so a slow provider cannot stall the request path.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ent.dr.title">Backup and disaster recovery</h3>
+            <p data-i18n="ent.dr.body">A scheduled pg_dump sidecar keeps rotating database dumps, while an artifact-level disaster-recovery mechanism can snapshot and restore JSON backups independently.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ent.i18n.title">German and English</h3>
+            <p data-i18n="ent.i18n.body">The interface ships in both languages, and terminology profiles keep the vocabulary appropriate for each audience.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="ent.apikeys.title">API keys for automation</h3>
+            <p data-i18n="ent.apikeys.body">Create, list and revoke API keys without sharing a user password, so CI/CD pipelines and MCP clients get scoped, revocable credentials.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 10. TECH STACK & DEPLOYMENT ============================ -->
+    <section class="section reveal" id="deploy" aria-labelledby="deploy-title">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="deploy.eyebrow">Deployment</p>
+        <h2 class="section-title" id="deploy-title" data-i18n="deploy.title">Tech stack and self-hosted quick start</h2>
+        <p class="section-lead" data-i18n="deploy.lead">ReqogniLoom is designed to be self-hosted with Docker Compose. The published stack pulls prebuilt images — no local build and no repository clone are required for a plain deployment.</p>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <h3 data-i18n="deploy.stack.title">Stack</h3>
+            <ul class="tick-list">
+              <li data-i18n="deploy.stack.1">Django 5.2+ backend (DRF, OpenAPI 3.0 via drf-spectacular)</li>
+              <li data-i18n="deploy.stack.2">React 18 + TypeScript 5.5 (strict) frontend</li>
+              <li data-i18n="deploy.stack.3">PostgreSQL 16 with pgvector for embeddings</li>
+              <li data-i18n="deploy.stack.4">Redis 7 as Celery broker and cache</li>
+              <li data-i18n="deploy.stack.5">Celery 5.3+ worker and beat scheduler</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3 data-i18n="deploy.services.title">Compose services</h3>
+            <p data-i18n="deploy.services.body">The full stack runs eight services: postgres, postgres-backup, redis, migrate, backend, celery, celery-beat and frontend. A minimal compose file drops Celery, backup and optional profiles; an optional Honcho memory backend is available behind a compose profile.</p>
+          </article>
+        </div>
+
+        <h3 class="sub-title" data-i18n="deploy.quickstart.title">Quick start</h3>
+        <p data-i18n="deploy.quickstart.note">Two files are enough: the compose file and the environment example. Generate the required secrets, set the database passwords, then start the stack. Migrations and first-run self-initialization happen automatically in the migrate service.</p>
+        <pre class="code" tabindex="0" data-testid="quickstart-code"><code>mkdir reqogniloom &amp;&amp; cd reqogniloom
+RAW=https://raw.githubusercontent.com/Popoboxxo/ReqogniLoom/main
+
+mkdir deploy
+curl -fsSL -o deploy/docker-compose.yml "$RAW/deploy/docker-compose.yml"
+curl -fsSL -o .env.example "$RAW/.env.example"
+cp .env.example .env
+
+# Generate the three required secrets and set DB_PASSWORD / DB_APP_PASSWORD in .env
+python3 -c "import secrets; print(secrets.token_urlsafe(64))"   # SECRET_KEY, AUTH_JWT_SECRET
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"  # FIELD_ENCRYPTION_KEY
+
+# .env is read at container creation, so use `up -d` after editing it
+docker compose -f deploy/docker-compose.yml --project-directory . up -d
+docker compose -f deploy/docker-compose.yml --project-directory . ps   # wait for "healthy"
+curl -sf http://localhost:8001/health/                                 # {"status":"ok",...}</code></pre>
+
+        <div class="grid grid-2">
+          <article class="card">
+            <h3 data-i18n="deploy.endpoints.title">Endpoints after startup</h3>
+            <p data-i18n="deploy.endpoints.body">The frontend is served on port 5173 by default and the backend REST/MCP endpoint on port 8001. Both are overridable in the environment file, which is useful when running a second instance on the same host.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="deploy.mcp.title">Talk to the MCP server</h3>
+            <p data-i18n="deploy.mcp.body">Create an API key, then call a tool over JSON-RPC. A health check needs no authentication.</p>
+            <pre class="code code--sm" tabindex="0" data-testid="mcp-code"><code>curl -X POST http://localhost:8001/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: reqlo_..." \
+  -d '{"jsonrpc":"2.0","id":1,"method":"requirement.query",
+       "params":{"workspace_id":"&lt;id&gt;","limit":5}}'</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================ 11. FOOTER ============================ -->
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-col">
+        <p class="footer-brand">ReqogniLoom</p>
+        <p class="footer-note" data-i18n="footer.built">Built from the repository documentation: README, docs/ and the VERSION file.</p>
+      </div>
+      <div class="footer-col">
+        <p class="footer-meta"><span data-i18n="footer.versionLabel">Version</span>: <span class="mono">1.8.0-beta.12</span></p>
+        <p class="footer-meta"><span data-i18n="footer.licenseLabel">License</span>: MIT</p>
+        <p class="footer-meta">
+          <a href="https://github.com/Popoboxxo/ReqogniLoom" data-testid="footer-github" data-i18n="footer.repo">Repository on GitHub</a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <div class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="lang.groupLabel" data-testid="lang-switch-footer">
+          <button type="button" class="lang-btn is-active" data-lang="en" aria-pressed="true" data-testid="footer-lang-en">EN</button>
+          <button type="button" class="lang-btn" data-lang="de" aria-pressed="false" data-testid="footer-lang-de">DE</button>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./assets/js/i18n.js"></script>
+  <script src="./assets/js/main.js"></script>
+</body>
+</html>
