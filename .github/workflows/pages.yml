@@ -1,0 +1,55 @@
+# Deploy the ReqogniLoom presentation site to GitHub Pages.
+#
+# Setup notes (read before the first run):
+#   * In the repository settings, set Pages -> Build and deployment -> Source
+#     to "GitHub Actions". This workflow is the only deploy path for the site.
+#   * The site is a plain static bundle living in `site/`. There is no build
+#     step, no bundler and no npm install — the folder is uploaded as-is.
+#   * This workflow is intentionally separate from `ci.yml` and
+#     `docker-publish.yml`: those gate the application, this one only publishes
+#     the marketing page. It triggers on changes under `site/**` and on manual
+#     dispatch.
+#   * Because the site is served from a sub-path
+#     (https://popoboxxo.github.io/ReqogniLoom/), all asset references inside
+#     `site/` are relative (`./assets/...`).
+
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

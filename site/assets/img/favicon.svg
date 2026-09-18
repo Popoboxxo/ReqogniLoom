@@ -1,0 +1,10 @@
+<!--
+  Favicon for the ReqogniLoom presentation site.
+  Colours are the documented design-system primitives used by the brand mark
+  (--palette-indigo-600 and --palette-white); a favicon cannot read CSS custom
+  properties, so the concrete values are repeated here.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="ReqogniLoom">
+  <rect x="1" y="1" width="30" height="30" rx="8" fill="#4f46e5"/>
+  <path d="M9 22V10h6.4a3.5 3.5 0 0 1 0 7H12.6L17.4 22h-3.7l-4.7-5V22z" fill="#ffffff"/>
+</svg>
