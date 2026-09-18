@@ -24,9 +24,11 @@ import "@fontsource/inter/400.css";
 import "@fontsource/inter/600.css";
 import "./styles/tokens.css";
 import "./styles/global.css";
+import "./styles/bluepencil.css";
 import "./i18n/index";
 import { App } from "./App";
 import { APP_NAME } from "./config/app-name";
+import { installBluepencilReviewLayer } from "./bluepencil/loader";
 
 // Force React to be globally available to prevent esbuild from stripping the import
 // and to satisfy any old JSX transforms or third-party libraries.
@@ -34,6 +36,11 @@ import { APP_NAME } from "./config/app-name";
 
 // Override the static fallback title (index.html) with the configured product name.
 document.title = APP_NAME;
+
+// bluepencil review layer (issue #972): fire-and-forget so the health probe and
+// injection never delay the first render. No-ops when the build guard or the
+// sidecar probe says no.
+void installBluepencilReviewLayer();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

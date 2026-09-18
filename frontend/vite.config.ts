@@ -26,6 +26,14 @@ export default defineConfig({
         target: process.env.VITE_API_BASE_URL || "http://backend:8000",
         changeOrigin: true,
       },
+      // bluepencil review-layer sidecar (issue #972). Same-origin in dev, so no
+      // CORS is needed. The sidecar's base path is /bluepencil/api — the full
+      // path is forwarded unchanged (no rewrite). Override the target via
+      // BLUEPENCIL_URL when "bluepencil" isn't resolvable.
+      "/bluepencil/api": {
+        target: process.env.BLUEPENCIL_URL || "http://bluepencil:8787",
+        changeOrigin: true,
+      },
     },
   },
   test: {
