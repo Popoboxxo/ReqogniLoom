@@ -608,7 +608,22 @@ def _run_semantic_query(
                     distance=CosineDistance("embedding", query_embedding),
                     ws_id=F("artifact__workspace_id"),
                 )
-                .order_by("distance")[:_SEMANTIC_TOP_K]
+                # Issue #977: the `[:50]` cap below is only reproducible with a
+                # *total* order. `distance` alone is not one: any two stored
+                # vectors can sit at exactly the same cosine distance from the
+                # query (the test fixtures use uniform vectors, so ties are the
+                # rule there, not an edge case), and Postgres is then free to
+                # return them in any order — so the row that lands on the
+                # 50/51 boundary is not stable across runs.
+                #
+                # Demonstrated directly: 60 requirements seeded at one identical
+                # distance return exactly 50 rows, and which 50 is only
+                # reproducible once the ordering is total.
+                #
+                # `id` is the tie-breaker: stable, unique per row, already
+                # indexed. Note this hardens the cap boundary; it is NOT claimed
+                # to be the cause of #977's flake on its own — see that issue.
+                .order_by("distance", "id")[:_SEMANTIC_TOP_K]
             )
             return [
                 SearchHit(
@@ -631,7 +646,8 @@ def _run_semantic_query(
                     distance=CosineDistance("embedding", query_embedding),
                     ws_id=F("source__workspace_id"),
                 )
-                .order_by("distance")[:_SEMANTIC_TOP_K]
+                # Issue #977: same tie-break as the Requirement branch above.
+                .order_by("distance", "id")[:_SEMANTIC_TOP_K]
             )
             return [
                 SearchHit(
@@ -659,7 +675,8 @@ def _run_semantic_query(
                 qs = qs.filter(workspace_id=workspace_id)
             qs = (
                 qs.annotate(distance=CosineDistance("embedding", query_embedding))
-                .order_by("distance")[:_SEMANTIC_TOP_K]
+                # Issue #977: same tie-break as the Requirement branch above.
+                .order_by("distance", "id")[:_SEMANTIC_TOP_K]
             )
             return [
                 SearchHit(

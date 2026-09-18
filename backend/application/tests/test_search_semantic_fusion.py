@@ -396,3 +396,56 @@ class TestSemanticQueryDirectTraceLinkAndIcd:
         assert any(h.id == str(icd.id) for h in hits)
         hit = next(h for h in hits if h.id == str(icd.id))
         assert hit.workspace_id == str(ws.id)
+
+
+@pytest.mark.django_db
+class TestSemanticCapIsDeterministic:
+    """Issue #977: the `_SEMANTIC_TOP_K` cap must select the *same* rows every
+    time when more rows tie at an identical cosine distance than the cap admits.
+
+    The pass orders by `distance` and then truncates to ``_SEMANTIC_TOP_K``.
+    `distance` alone is not a total order, so with more ties than the cap the
+    boundary row was previously whatever Postgres happened to return — the same
+    query could include or exclude a given requirement from one run to the next.
+
+    This test seeds ``_SEMANTIC_TOP_K + 10`` requirements at one identical
+    distance and asserts the returned set is byte-for-byte stable across
+    repeated executions. It is the pinned form of the probe used to establish
+    the defect; before the `id` tie-breaker it is the assertion that can flake.
+    """
+
+    def test_cap_selects_a_stable_row_set_under_ties(self):
+        from application.search_service import _SEMANTIC_TOP_K
+
+        tie_count = _SEMANTIC_TOP_K + 10
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            seeded: list[str] = []
+            for index in range(tie_count):
+                requirement = make_requirement(ws, title=f"Tie {index}")
+                requirement.embedding = [0.3] * _DIM
+                requirement.save(update_fields=["embedding"])
+                seeded.append(str(requirement.id))
+
+            query_vector = [0.3] * _DIM
+            runs = [
+                sorted(
+                    hit.id
+                    for hit in _run_semantic_query(
+                        "Requirement", query_vector, tenant.id, ws.id
+                    )
+                )
+                for _ in range(5)
+            ]
+
+        # The cap is real: fewer rows come back than were seeded.
+        assert len(runs[0]) == _SEMANTIC_TOP_K
+        assert tie_count > _SEMANTIC_TOP_K
+        # Every returned id is one we seeded (no cross-workspace bleed).
+        assert set(runs[0]).issubset(set(seeded))
+        # And the selection does not move between executions.
+        for index, run in enumerate(runs[1:], start=1):
+            assert run == runs[0], (
+                f"run {index} selected a different row set than run 0 — the "
+                "semantic cap is not deterministic under ties (#977)"
+            )
