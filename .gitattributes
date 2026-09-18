@@ -7,3 +7,11 @@ Dockerfile* text eol=lf
 .env.example text eol=lf
 .env.local text eol=lf
 *.py text eol=lf
+
+# Vendored bluepencil artifacts (issue #972) — MUST stay byte-identical.
+# The loader verifies bluepencil.element.min.js against the sha256 in
+# latest.json with WebCrypto (data-integrity="true"), so any EOL conversion
+# on checkout would invalidate the pinned hash. `-text` disables all
+# text/EOL handling for them.
+frontend/public/bluepencil/** -text
+deploy/bluepencil/server.js -text

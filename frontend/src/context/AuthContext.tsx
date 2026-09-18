@@ -29,6 +29,7 @@ import {
   resetUnauthorizedGuard,
   setUnauthorizedHandler,
 } from "../api/client";
+import { teardownBluepencilReviewLayer } from "../bluepencil/loader";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -240,6 +241,9 @@ export function AuthProvider({
   );
 
   const logout = useCallback(() => {
+    // Tear the bluepencil review layer down with the session (issue #972):
+    // otherwise a logged-out user's markers would stay on screen.
+    teardownBluepencilReviewLayer();
     // Best-effort server-side cookie clear (REQ-052); local state is cleared
     // regardless so the UI logs out even if the request fails.
     void apiClient.post("/auth/logout/", {}).catch(() => undefined);

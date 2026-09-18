@@ -741,9 +741,55 @@ services:
       retries: 10
       start_period: 20s
 
+  # ═════════════════════════════════════════════════════════
+  # OPTIONAL: bluepencil review-notes sidecar (docs/bluepencil-integration.md, PR #972)
+  # profiles: [bluepencil] — costs nothing (no pull, no start) unless you run
+  # `make bluepencil` or `COMPOSE_PROFILES=bluepencil docker compose ... up -d`.
+  #
+  # QS/DEMO ONLY — NOT A PRODUCTION STORE. The sidecar has NO user auth and NO
+  # tenant isolation: one JSON file holds the review notes of EVERY workspace,
+  # with no RLS/TenantContext scoping. The production path is Option A, the DRF
+  # implementation in docs/bluepencil-integration.md §0/§3 (per-tenant ReviewNote
+  # behind JWT + RLS). Do not treat this profile as a pilot; it is a way to see
+  # and measure the layer in the real app. See deploy/bluepencil/README.md.
+  #
+  # Image: node:22-slim (the vendored server.js imports ONLY Node builtins, no
+  # npm deps, so no build step and no package install are needed). The frontend
+  # reaches it over the compose network as `bluepencil:8787` — no host port is
+  # published, mirroring this file's convention that internal-only services stay
+  # internal.
+  # ═════════════════════════════════════════════════════════
+  bluepencil:
+    image: node:22-slim
+    profiles: ["bluepencil"]
+    restart: unless-stopped
+    command: node /opt/bluepencil/server.js --store /data/notes.json --port 8787 --host 0.0.0.0 --base /bluepencil/api --environment ${BLUEPENCIL_ENVIRONMENT:-dev}
+    volumes:
+      # Read-only: the vendored sidecar binary is immutable from the container's
+      # point of view. Relative path is repo-root-relative because every
+      # invocation pins `--project-directory .` (see repo-root Makefile and
+      # deploy/README.md), exactly like the override's `./backend:/app`.
+      - ./deploy/bluepencil/server.js:/opt/bluepencil/server.js:ro
+      # The single shared JSON store; survives container restarts/rebuilds.
+      - bluepencil_data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # node:22-slim has no curl/wget, so probe with the runtime itself — fetch is
+    # built into Node 22. The URL carries the configured --base prefix.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/bluepencil/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   postgres_data:
   postgres_backup_data:  # REQ-102: retained pg_dump backups
   backend_dr_backups:    # REQ-L1-046: admin_ops DR backup JSON files (/app/backups)
   honcho_postgres_data:  # profile: honcho
   honcho_redis_data:     # profile: honcho
+  bluepencil_data:       # profile: bluepencil (shared review-notes JSON store)

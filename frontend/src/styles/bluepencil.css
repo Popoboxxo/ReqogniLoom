@@ -1,0 +1,35 @@
+/*
+ * bluepencil review-layer theming (issue #972).
+ *
+ * bluepencil styles itself exclusively through `--bp-*` custom properties
+ * (each with a built-in fallback, so a host can adopt the layer without a
+ * build step). This file maps this app's semantic tokens from styles/tokens.css
+ * onto the `--bp-*` names the element actually reads — see bluepencil's
+ * `src/ui/styles.ts` for the authoritative list.
+ *
+ * Declared on `:root` so the mapping is inherited by the light-DOM subtree of
+ * `<bluepencil-notes>`, and theme-reactive because every value is a
+ * `var(--color-*)` reference that the theme blocks re-resolve.
+ *
+ * Left at bluepencil's own defaults on purpose: `--bp-decision`/`--bp-feedback`
+ * (fixed semantic marker colours) and `--bp-backdrop` (no matching token).
+ */
+:root {
+  --bp-accent: var(--color-primary);
+  --bp-accent-ink: var(--color-on-primary);
+  --bp-surface: var(--color-surface-raised);
+  --bp-surface-alt: var(--color-surface);
+  --bp-ink: var(--color-text);
+  --bp-muted: var(--color-text-muted);
+  --bp-line: var(--color-border);
+  --bp-danger: var(--color-danger);
+  /* Translucent primary tint for the jump/scroll highlight — reuses the
+     active-card background, a theme-safe translucent accent. */
+  --bp-highlight: var(--color-card-active-bg);
+
+  /* Geometry and typography follow the shared token scale. */
+  --bp-radius: var(--radius-md);
+  --bp-shadow: var(--shadow-card);
+  --bp-font: var(--font-sans);
+  --bp-font-size: var(--font-size-sm);
+}

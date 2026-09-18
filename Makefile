@@ -28,7 +28,7 @@ DEV_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f deploy/docker-compose.
 MINIMAL_COMPOSE := $(COMPOSE) -f deploy/docker-compose.minimal.yml --project-directory .
 TEST_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f testing/docker-compose.test.yml --project-directory .
 
-.PHONY: up down minimal minimal-down honcho build test test-backend test-frontend test-e2e help
+.PHONY: up down minimal minimal-down honcho bluepencil bluepencil-down build test test-backend test-frontend test-e2e help
 
 ## up: Start the full dev stack (hot-reload override applied)
 up:
@@ -49,6 +49,14 @@ minimal-down:
 ## honcho: Add the optional Honcho memory backend to the running dev stack
 honcho:
 	$(DEV_COMPOSE) --profile honcho up -d
+
+## bluepencil: Add the optional bluepencil review-notes sidecar (QS/demo only — no auth, no tenant isolation)
+bluepencil:
+	$(DEV_COMPOSE) --profile bluepencil up -d
+
+## bluepencil-down: Stop just the bluepencil sidecar (leaves the rest of the stack running)
+bluepencil-down:
+	$(DEV_COMPOSE) --profile bluepencil stop bluepencil
 
 ## build: Build images with real version/commit/build-time stamped in (scripts/build.sh)
 build:
