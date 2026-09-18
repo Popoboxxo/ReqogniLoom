@@ -9,7 +9,7 @@
  * navigation chrome it lives in.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -20,6 +20,8 @@ export function NotificationBell(): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -39,6 +41,44 @@ export function NotificationBell(): JSX.Element {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Issue #985: the popover used to be undismissable from the keyboard and
+  // ignored a click outside — a real user review on the QS instance ended in
+  // "why doesn't this go away any more?". Both halves of the standard popover
+  // contract live here now.
+  //
+  // Escape follows the same precedence as `useFocusTrap` (the shared Dialog
+  // primitive): the *innermost* overlay handles the key and stops it, so an
+  // outer overlay listening on the document does not also close. This is what
+  // makes a future nesting inside a dialog behave.
+  useEffect(() => {
+    if (!open) return;
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      // Focus returns to the trigger, which is where the user came from.
+      toggleRef.current?.focus();
+    };
+
+    // `pointerdown`, not `click`: the click that *opens* the popover would
+    // otherwise be caught by the same listener on the way up the document.
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (wrapperRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [open]);
 
   const handleItemClick = useCallback(
     async (notification: Notification): Promise<void> => {
@@ -66,7 +106,7 @@ export function NotificationBell(): JSX.Element {
   }, [load]);
 
   return (
-    <div className={styles.wrapper}>
+    <div className={styles.wrapper} ref={wrapperRef}>
       <button
         type="button"
         className={styles.toggle}
@@ -75,6 +115,7 @@ export function NotificationBell(): JSX.Element {
         aria-label={t("notifications.ariaLabel", "Notifications")}
         onClick={() => setOpen((previous) => !previous)}
         data-testid="notification-bell-toggle"
+        ref={toggleRef}
       >
         <span aria-hidden="true">{"\u{1F514}"}</span>
         <span>{t("notifications.label", "Notifications")}</span>

@@ -138,15 +138,37 @@ export function useFocusTrap({
 
     focusInitial();
 
+    /**
+     * Issue #985 (CI half): `Escape` used to be handled by a *bubble-phase*
+     * `keydown` listener on the container, so it only ever fired when the
+     * keydown target was inside the panel. That holds on a settled desktop
+     * page and silently does not hold while the panel is still mounting —
+     * a freshly opened dialog had `document.activeElement === body`, the
+     * container never saw the key, and Escape did nothing. It passed locally
+     * for months and failed every time on the CI runner for the system-health
+     * dialog, which is the same latent dependency that makes the focus
+     * restore unreliable (#991).
+     *
+     * Listened for on the *document* in the capture phase instead, so the
+     * dialog closes regardless of where focus currently sits. The capture
+     * phase plus `stopPropagation()` preserves the original precedence rule:
+     * the innermost overlay consumes Escape and an outer one does not also
+     * close. `[role="dialog"]` containment is the nesting guard — only the
+     * topmost dialog answers.
+     */
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        // Stop here: an outer overlay listening on the document must not
-        // also close when the innermost one handles the key.
-        event.preventDefault();
-        event.stopPropagation();
-        onEscapeRef.current?.();
-        return;
-      }
+      if (event.key !== "Escape") return;
+      // A *nested* dialog owns the key; leave it alone.
+      const activeDialog = document.activeElement?.closest?.('[role="dialog"]');
+      if (activeDialog && activeDialog !== container) return;
+      // Stop here: an outer overlay listening on the document must not
+      // also close when the innermost one handles the key.
+      event.preventDefault();
+      event.stopPropagation();
+      onEscapeRef.current?.();
+    };
+
+    const handleTabKey = (event: KeyboardEvent): void => {
       if (event.key !== "Tab") return;
 
       const focusable = getFocusableElements(container);
@@ -188,11 +210,16 @@ export function useFocusTrap({
       focusInitial();
     };
 
-    container.addEventListener("keydown", handleKeyDown);
+    // Escape: document + capture phase so it fires wherever focus currently
+    // sits (see the doc comment above `handleKeyDown`).
+    document.addEventListener("keydown", handleKeyDown, true);
+    // Tab: on the container, so the cycle only affects this dialog.
+    container.addEventListener("keydown", handleTabKey);
     document.addEventListener("focusin", handleFocusIn);
 
     return () => {
-      container.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
+      container.removeEventListener("keydown", handleTabKey);
       // Removed before the focus is restored — otherwise the safety net
       // would immediately pull focus back into the closing container.
       document.removeEventListener("focusin", handleFocusIn);
