@@ -1,7 +1,7 @@
 ---
 type: STRATEGY
 scope: Release v1.8.0-beta.12
-status: in-progress
+status: done
 date: 2026-09-18
 author_agent: release
 ---
@@ -123,12 +123,22 @@ einem einzigen Eintrag zusammengefasst.
 
 ## 5. Test- und Gate-Status
 
-### 5.1 Maßgebliches Test-Gate (CI)
+### 5.1 Maßgebliches Test-Gate: CI auf dem Tag-Commit `53ba83d2`
 
-**Noch offen.** Gemäß dem beta.11-Muster gilt CI-Grün auf dem späteren
-Tag-Commit als maßgebliches Gate. Der Tag existiert in dieser
-Vorbereitungsphase noch nicht; der Orchestrator trägt das Ergebnis nach dem Tag
-hier nach.
+Gemäß dem beta.11-Muster gilt **CI-Grün auf dem Tag-Commit** als maßgebliches
+Test-Gate. Das ist eingelöst: auf `53ba83d2` sind **alle drei** einschlägigen
+Runs grün.
+
+| Workflow | Run | Ergebnis |
+|----------|-----|----------|
+| CI Pipeline (`main`) | `35344510459` | **success** (Versuch 2; Versuch 1 rot am bekannten Embedding-Flake, siehe KI-3) |
+| Playwright E2E Tests (`main`) | `35344510544` | **success** |
+| Docker Publish (GHCR) (`v1.8.0-beta.12`) | `35344531658` | **success** |
+
+Der CI-Volllauf umfasst `backend-test set-1…set-4`, `frontend-test`, `e2e (1..4)`,
+`lint`, `agent-templates-test`, `requirements-drift-check` und
+`hermes-plugin-test`. Der einzige Red des ersten Versuchs war der bekannte,
+nicht-deterministische Embedding-Flake (KI-3); im Re-Run war er grün.
 
 ### 5.2 Auf dem Basis-Commit `e211a53a` verifizierte Läufe
 
@@ -154,9 +164,9 @@ auf den Tag-Commit übertragbar.
 |---------|--------|
 | `pre-release-check.sh` (Pre-Release-Gates) | **Exit 1 — Abweichung**; kein Gate real geprüft (CRLF-Hook-Defekt **#948**, identisch zu beta.11 — siehe Abschnitt 6.2) |
 | Ersatzprüfung `action-pin-validation` (Host-Kontext, authentifiziertes `gh`) | **PASS — 11/11 Pins aufgelöst**, inkl. `github/codeql-action/upload-sarif@v4` (per `gh api` verifiziert; Regex-Blindstelle **#949**) |
-| Gestempelter Build (`APP_VERSION=1.8.0-beta.12`) | **offen** — nach dem Tag |
-| Docker-Image-/Trivy-Gate (`docker-publish`) | **offen** — nach dem Tag |
-| Tag-Push + GitHub-Pre-Release | **offen** — nach dem Tag |
+| Gestempelter Build (`APP_VERSION=1.8.0-beta.12`) | **PASS** — `docker image inspect ghcr.io/popoboxxo/reqogniloom-backend:1.8.0-beta.12` → `APP_VERSION=1.8.0-beta.12`, `GIT_COMMIT_SHA=53ba83d2…`, `BUILD_TIME=2026-09-18T12:25:12Z` |
+| Docker-Image-/Trivy-Gate (`docker-publish`) | **PASS** — Run `35344531658` |
+| Tag-Push + GitHub-Pre-Release | **erfolgt** — annotierter Tag `v1.8.0-beta.12`, Pre-Release siehe Abschnitt 10 |
 
 Der Gate-Dispatcher läuft also **fail-closed** (Exit 1), skippt aber faktisch
 alle drei Teil-Gates selbst, weil er vor der Gate-Schleife an der
@@ -262,7 +272,7 @@ Generator-Abdeckung manuell synchronisiert (nur Versionsfelder).
 
 ## 9. Known Issues (lokales Test-Gate)
 
-Beide Befunde sind **nicht-produktbezogen**. Der Stand wurde gegen die aktuellen
+Die Befunde sind **nicht-produktbezogen**. Der Stand wurde gegen die aktuellen
 Dateien geprüft; KI-1 wurde gegenüber beta.11 korrigiert.
 
 ### KI-1 — `seeded_workspace_id`-Fixture in `backend/mcp_server/tests/test_mcp_api_key_roles.py`
@@ -298,14 +308,67 @@ Dateien geprüft; KI-1 wurde gegenüber beta.11 korrigiert.
 - **Vorgeschlagener Folge-Fix:** per-File `testTimeout` erhöhen oder die beiden
   Scan-Tests in ein serialisiertes/non-parallel Projekt verschieben.
 
+### KI-3 — Backend: nicht-deterministische Embedding-/Semantik-Tests (`set-1-core`)
+
+- **Beobachtung (über diesen Release hinweg dreimal aufgetreten):** Im Job
+  `backend-test (set-1-core)` schlagen **wechselweise** zwei Tests fehl, und in
+  jedem beobachteten Fall war der Re-Run grün:
+
+  | Lauf | Kontext | Fehlgeschlagene Tests |
+  |------|---------|------------------------|
+  | `35329466368` | PR #975, Versuch 1 | beide (siehe unten) |
+  | `35332180239` | `main` @ `e211a53a` (vor diesem Release) | beide |
+  | `35344510459` | Tag-Commit `53ba83d2`, Versuch 1 | beide |
+
+  - `application/tests/test_requirement_similar_lazy_embedding.py::TestFindSimilarRequirementsLazyEmbedding::test_missing_embedding_is_generated_persisted_and_used_as_query_vector`
+    → `AssertionError: assert UUID('…') in [UUID('…')]`
+  - `application/tests/test_search_semantic_fusion.py::TestSemanticFusion::test_semantic_scores_are_cosine_similarity_in_unit_interval`
+    → `KeyError: '…'`
+
+- **Nicht branch-attribuierbar (belegt):** Der Release-Commit enthält **keine
+  Code-Änderung** (nur Versionsstrings, `CHANGELOG.md`, dieser Bericht), und
+  derselbe Fehler trat bereits auf `main` @ `e211a53a` **vor** dem Release auf.
+  Kein Zusammenhang mit beta.12.
+
+- **Symptom-Muster:** Beide Tests prüfen **exakt die Menge** der zurückgegebenen
+  Zeilen einer pgvector-Cosine-Query (`_run_semantic_query`, gefiltert über
+  `artifact__workspace_id`, gekappt bei `_SEMANTIC_TOP_K = 50`). Beim roten Lauf
+  fehlt jeweils die erwartete Zeile bzw. eine unerwartete ist enthalten — die
+  Assertions beschreiben also **Testdaten-Sichtbarkeit/Ordnung**, nicht einen
+  Produkt-Contract.
+
+- **Hypothese (unbestätigt, nicht in diesem Release verfolgt):**
+  Daten-Sichtbarkeits-/Reihenfolge-Effekt in der Test-DB (geteiltes
+  `--reuse-db`-Schema über die volle `set-1-core`-Suite) statt eines Defekts in
+  Such- oder Embedding-Logik.
+
+- **Einordnung:** **Test-Nichtdeterminismus, kein Produktdefekt.** Das
+  maßgebliche Gate (CI auf dem Tag-Commit) ist nach Re-Run grün.
+
+- **Vorgeschlagener Folge-Fix:** Dedizierte Untersuchung; naheliegend ist,
+  die beiden Tests von geteiltem Bestand zu entkoppeln (eigene, leere
+  Workspace-/Tenant-Konstellation bzw. explizite Eingrenzung der Assertion auf
+  die angelegten IDs statt auf die Gesamtmenge).
+
 ## 10. Release-Ergebnis
 
-**Platzhalter — durch den Orchestrator nach dem Tag zu füllen.**
+Release **abgeschlossen und verifiziert**.
 
-- **Merge und Tag:** _offen_ (Branch-HEAD und Tag-Objekt nachtragen)
-- **Gestempelter Build:** _offen_ (`APP_VERSION`, `GIT_COMMIT_SHA`, `BUILD_TIME`)
-- **GitHub-Pre-Release:** _offen_ (URL nachtragen)
-- **CI-Gates auf dem Tag-Commit:** _offen_ (`docker-publish`, „CI Pipeline",
-  „Playwright E2E Tests")
-
-Nach Abschluss ist `status: in-progress` auf `status: done` zu setzen.
+- **Merge und Tag:** `chore/release-v1.8.0-beta.12` → `main` per
+  **Fast-Forward** (`e211a53a..53ba83d2`, kein Merge-Commit); annotierter Tag
+  `v1.8.0-beta.12` auf `53ba83d214e6d9c1227f11f50dff862810ac99e1`
+  (Tagger-Zeit `2026-09-18T14:24:41+02:00`), Tag auf das Remote gepusht.
+- **Gestempelter Build:** `ghcr.io/popoboxxo/reqogniloom-backend:1.8.0-beta.12`
+  trägt `APP_VERSION=1.8.0-beta.12`, `GIT_COMMIT_SHA=53ba83d2…`,
+  `BUILD_TIME=2026-09-18T12:25:12Z` (verifiziert via `docker image inspect`).
+- **GitHub-Pre-Release:**
+  https://github.com/Popoboxxo/ReqogniLoom/releases/tag/v1.8.0-beta.12
+  (`isPrerelease: true`, angelegt `2026-09-18T12:24:41Z`).
+- **CI-Gates auf dem Tag-Commit:** `CI Pipeline` `35344510459` **success**
+  (Versuch 2, KI-3), `Playwright E2E Tests` `35344510544` **success**,
+  `Docker Publish (GHCR)` `35344531658` **success**.
+- **Gate-Abweichung:** `pre-release-check.sh` Exit 1 — bekannten
+  CRLF-Hook-Defekts **#948**, kein substanzieller Befund; Ersatzprüfung
+  `action-pin-validation` **11/11 PASS** (Abschnitt 5.3, 6.2).
+- **Offener Known Issue:** KI-3 (nicht-deterministische Embedding-Tests,
+  nicht branch-attribuierbar).
