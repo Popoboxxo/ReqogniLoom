@@ -145,12 +145,14 @@ nicht-deterministische Embedding-Flake (KI-3); im Re-Run war er grün.
 | Prüfung | Ergebnis |
 |---------|----------|
 | Frontend-Volllauf (vitest, durch den Orchestrator auf genau diesem Tree) | **227 Dateien / 2065 Tests — alle grün** |
-| Backend `set-1-core` (pytest) | **flaky Embedding-Failure**, im Re-Run **grün** (nicht branch-attribuierbar) |
+| Backend `set-1-core` (pytest) | **flaky Embedding-Failure**, im Re-Run **grün** (nicht branch-attribuierbar) — als **KI-3** in Abschnitt 9 geführt |
 | PR #975 Checks (26/26) | **grün**: `Agent Templates & Distribution`, `Backend Requirements Drift Check`, `Hermes IDE Plugin`, `lint`, `backend-test set-1…set-4`, `frontend-test`, `e2e (1..4)` |
 
-Der Backend-Flake betrifft die Embedding-Schicht und ist kein Produktdefekt; er
-wird in Abschnitt 9 nicht als offener Known Issue geführt, weil er im Re-Run
-deterministisch grün war.
+Der Backend-Flake betrifft die Embedding-Schicht, ist **kein Produktdefekt** und
+**nicht branch-attribuierbar** — er trat bereits auf `main` @ `e211a53a` vor
+diesem Release auf. Er wiederholte sich über drei Läufe hinweg und ist deshalb
+als **KI-3** (Abschnitt 9) dokumentiert und als Issue **#977** verfolgt, auch
+wenn er im Re-Run jeweils grün war.
 
 **Delta Tag-Commit ↔ Basis `e211a53a`:** ausschließlich Versionsstrings
 (`VERSION`, `frontend/package.json`, `frontend/package-lock.json`, Hermes- und
@@ -311,8 +313,9 @@ Dateien geprüft; KI-1 wurde gegenüber beta.11 korrigiert.
 ### KI-3 — Backend: nicht-deterministische Embedding-/Semantik-Tests (`set-1-core`)
 
 - **Beobachtung (über diesen Release hinweg dreimal aufgetreten):** Im Job
-  `backend-test (set-1-core)` schlagen **wechselweise** zwei Tests fehl, und in
-  jedem beobachteten Fall war der Re-Run grün:
+  `backend-test (set-1-core)` schlagen in den beobachteten roten Läufen **beide
+  der zwei unten genannten Tests** fehl, und in jedem beobachteten Fall war der
+  Re-Run der fehlgeschlagenen Jobs grün:
 
   | Lauf | Kontext | Fehlgeschlagene Tests |
   |------|---------|------------------------|
