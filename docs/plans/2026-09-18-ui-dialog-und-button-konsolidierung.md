@@ -77,7 +77,69 @@ T-30 Feld-Label-Resolver ────────► T-31 T-32             (Bloc
 T-40 Sektions-Reihenfolge ───────► T-41 T-42 T-43        (Block A)
 T-50 Feedback/Leerzustand ───────► T-51                  (Block S)
 T-70 Einzelabnahme Rest-Dialoge ─────────────────────────► (Abschluss)
+
+Block I (Issues) läuft PARALLEL und schließt GitHub-Issues:
+  I-00 Issue-Triage (Label-/Zustands-Hygiene)     — zuerst
+  I-10 P0/P1 Dismiss-Regressionen (#985)          — eigenständig, sofort
+  I-20 Button-/Control-Standard (#986, #926-B)    — verbindet sich mit Block B
+  I-30 Overlay-/Dialog-Konsolidierung (#926-A, #318)
+  I-40 Konsistenz-/Terminologie (#808, #987, #927)
+  I-50 Große Sammel-Issues (#186, #876, #85, #801, #810)
+  I-60 Trio aus dem Attribut-Audit (#929, #871, #583) — abhängig von T-31
 ```
+
+**Warum Block I parallel läuft:** Die Issues sind die *Auftragsseite*, die Audit-Findings
+die *Befundseite*. Mehrere Findings sind dieselbe Sache aus zwei Richtungen — z. B. ist das
+Audit-Finding **B-01** (207 klassenlose Buttons) und Issue **#986** (22 Buttons, 10
+Signaturen auf `/settings`) **ein** Problem. Wo das so ist, wird die Aufgabe **einmal**
+umgesetzt und schließt **beide**.
+
+---
+
+## Issue-Bestand (recherchiert 2026-09-18)
+
+Aus `gh issue list --state open`: **67 offene Issues**, davon **13 mit UI/UX-Bezug** in der
+UI-Label-Familie plus **8 weitere**, die inhaltlich UI sind, aber anders gelabelt sind.
+
+### Direkt zuordenbar (UI-Label-Familie)
+
+| # | Titel | Labels | Bezug | Prio |
+|---|---|---|---|---|
+| **985** | Overlays ignorieren Escape: Notification-Popover + System-Health-Dialog bleiben offen (auch Außenklick) | bug, ui/ux, frontend, **a11y** | → **I-10**, Audit §4 (Dialog-ARIA) | **P0** |
+| **986** | Button/Control-Varianz auf `/settings`: 22 Buttons, **10 verschiedene Signaturen** | ui/ux, frontend, design-system | → **I-20**, Audit **B-01/B-02** | **P1** |
+| **926** | Requirements nutzt Legacy-Inline-Form statt `CreateTraceLinkDialog` **+ uneinheitliche Button-Dimensionen** | bug, ui/ux, qa, ui, frontend | → **I-30** (Teil A) + **I-20** (Teil B) | P2 |
+| **318** | Create-Trace-Link-Dialog: native `<select>` schwer bedienbar, Create-Button-Zustand unklar | enhancement *(falsch gelabelt)* | → **I-30** | P2 |
+| **927** | Ableiten-Buttons vereinheitlichen: „Ableiten" vs. „KI-Ableitung" + „KI-Testfall" | enhancement, ui/ux, ui | → **I-40** | P3 |
+| **928** | Anforderung → Systemelement (Allocation) nicht auffindbar — Funktion da, kein UI-Einstieg | enhancement, ui/ux, se | → **I-40** | P3 |
+| **808** | Traceability heißt in der Sidebar „Verknüpfungen" — Fachbegriff-Divergenz | qa, ui, i18n | → **I-40** | P3 |
+| **987** | System-Benachrichtigungen aus der Sidebar in die AI-Bubble verschieben (Entscheidungsanfrage) | ui/ux, feature | → **I-40** | P3 |
+| **876** | **1.015 Inline-Styles und 74 Hardcoded Hex-Farben** auf tokens.css migrieren | enhancement, low, ui/ux | → **I-50**, Audit **M-00/F-02/T-21** | P3 |
+| **85** | UI-Bewertung & Verbesserungsvorschläge v1.0.0 (Sammel-Issue) | enhancement, qa, ui, ux | → **I-50** | — |
+| **186** | **EPIC:** UI-Gesamtkonzept — Umsetzung in 6 Schritten | enhancement, high, ui/ux, frontend | → **I-50** | — |
+| **801** | Inspector (Version/History/Diff) nur bei Requirements — 6 andere Typen ohne Verlaufszugriff | enhancement, qa, ui, consistency | → **I-50** | P2 |
+| **810** | RFC: Minimal/Expert-UI — rollenbasierte Ansichts-Modi | enhancement, ui, ux, rfc | → **I-50** | — |
+
+### Inhaltlich UI, aber anders gelabelt (Label-Hygiene)
+
+| # | Titel | Bezug |
+|---|---|---|
+| 929 | 3-Stufen-Attributmodell für alle 11 Artefakt-Masken | → **I-60**, Audit **A-02/A-03** |
+| 871 | Fehlende INCOSE-Kernattribute auf Requirement (Rationale, Source, Owner, Priority) | → **I-60** *(vgl. Audit A-02: `Attribution` ist bereits die erste Sektion!)* |
+| 583 | IEEE-29148-Pflichtfelder fehlen/leer (`rationale`, `uid=null`, `acceptance_criteria` 0 %) | → **I-60**, verbindet mit Audit **A-01** |
+| 932 | `uid` nie erzeugt — **UI fällt auf UUID-Kurz-Hash zurück** | → **I-60** (UI-Anteil) |
+| 802 | *(geschlossen)* Zwei Create-Paradigmen: Modals vs. Inline-Forms | Vorgänger von **#926** |
+| 946 | In-UI-Annotation-Layer für Admin-Debug-Mode | → **I-50**, verwandt mit bluepencil (#980/#981) |
+| 980/981 | Bluepencil-Layer nicht aktivierbar / still fehlschlagend | eigene Spur, **nicht** UI-Konsolidierung |
+
+### Wichtige Zustands-Korrektur gegenüber #186
+
+Die Epic-Tabelle in **#186** listet 19 Sub-Issues (#157, #158, #160, #164–#167, #172–#180,
+#182, #183, #185). **Alle 19 sind inzwischen CLOSED.** Der Epic selbst steht weiter offen.
+Das heißt: die im Konzept beschriebenen sechs Schritte sind **abgearbeitet**, aber es gibt
+**keinen Abschluss-Nachweis** und die neuen Findings (#985, #986, #926, Audit B-01/B-02)
+liegen **außerhalb** des damaligen Scopes. Konsequenz für **I-50**: den Epic nicht blind
+weiterführen, sondern gegen den Ist-Stand prüfen und entweder schließen oder mit dem neuen
+Scope neu schneiden.
 
 ---
 
@@ -145,8 +207,13 @@ nicht messbar und der Rückfall nicht verhindert.
 
 ### T-10 · Mapping-Tabelle als Entscheidungsgrundlage
 
-**Bezug:** Audit B-01, B-02.
+**Bezug:** Audit B-01, B-02. **Verbunden mit Issue #986** (siehe **I-20**) — die dort
+gemessenen 10 Signaturen auf `/settings` sind die konkrete Ausprägung dieser 18 Klassen.
 
+- [ ] **Vor der Tabelle den Zielstandard festlegen** (kommt aus **I-20**): Die Skala ist
+      **`--btn-h-sm/md/lg` = 32/36/44 px** aus `tokens.css:814-816`, **nicht** der in #986
+      vorgeschlagene 28/32/40-Satz. Der Radius ist `--radius-btn` (6 px). Die Tabelle unten
+      ordnet jede Modul-Klasse **diesem** Standard zu.
 - [ ] **Alle 18 Modul-Button-Klassen auf die vier kanonischen abbilden.** Ergebnis ist eine
       Tabelle (im Plan oder im Audit-Report) mit drei Spalten: *Modul-Klasse* → *Ziel*
       (`.btn-primary` / `-secondary` / `-danger` / `-ghost` oder **„bleibt"**) → *Grund*.
@@ -216,8 +283,21 @@ einer Reihe.
 
 ### T-13 · `GlossaryView`, `BaselinesView`, `WorkspaceSettings`, `CsvImport`
 
-**Bezug:** B-01.
+**Bezug:** B-01. **Diese Aufgabe trägt Issue #986** (`/settings` = `WorkspaceSettings` +
+`PermissionsSection` + `MemorySettingsSection` + `BannerSection`) — sie ist der sichtbare
+Beweis, auf den sich das Issue stützt. Vorher/nachher mit der Issue-Methode nachmessen.
 
+- [ ] **`WorkspaceSettings`-Familie zuerst** (das ist das in #986 gemessene Ziel): alle
+      Buttons der `/settings`-Seite auf die kanonischen Klassen, Höhe/Radius/Padding/Font
+      aus Tokens. Danach **erneut messen** (Höhe, Radius, Padding, `font-size` je Button)
+      und die Tabelle „22 Buttons, 10 Signaturen" → „22 Buttons, 1 Signatur" in Audit und
+      Issue-Kommentar dokumentieren.
+- [ ] **Der 13,33-px-Fund aus #986** (`CSV-Import` rendert in UA-Default-Größe) wird hier
+      mitbehoben — er ist das Symptom eines klassenlosen Buttons.
+- [ ] **Karten-Oberflächen aus #986 mitprüfen:** das Issue meldet zusätzlich
+      `border-radius` 16 px gemischt mit **0,666667 px** Border (fraktional → unscharf) und
+      `padding` 20 vs. 24 px. Das sind **keine** Buttons, sondern Sektions-Flächen — als
+      eigenen Unterpunkt behandeln und die Werte auf Token-Stufen ziehen.
 - [ ] `GlossaryView.tsx` (9 klassenlose) — `.btn`, `.btnOutline`, `.btnOutlinePrimary`,
       `.btnOutlineDanger` aus `GlossaryView.module.css:30-60` auf die kanonischen Klassen
       umstellen und die vier Modul-Klassen **löschen**.
@@ -262,8 +342,15 @@ Codekommentar mit Grund.
 
 ### T-20 · Dialog-Fuß als eine Regel durchsetzen
 
-**Bezug:** F-01, F-02.
+**Bezug:** F-01, F-02. **Verbunden mit Issue #985** (siehe **I-10**): wenn
+Notification-Popover und System-Health-Dialog **eigene** Overlays sind statt
+`shared/Dialog`-Konsumenten, ist das derselbe Baufehler wie hier — die Migration läuft dann
+gemeinsam, sonst entstehen zwei Lösungen für eine Sache.
 
+- [ ] **Vorher prüfen, ob #985 hierher gehört:** beide Overlays aus I-10 gegen die
+      `shared/Dialog`-Nutzung abgleichen. Ist eines ein Eigenbau, wird es **in dieser
+      Aufgabe** mitmigriert (und Escape/Außenklick kommen dabei automatisch, weil die
+      Primitive sie laut Audit besitzt).
 - [ ] **Entscheidung dokumentieren:** Ist `ArtifactForm` ein Sonderfall (Formular mit
       eigenem Submit-Handling), der den Footer-Slot nicht nutzen kann? Falls **ja**:
       `ArtifactForm.module.css:185-189` muss **dieselben** Werte wie
@@ -320,7 +407,9 @@ Codekommentar mit Grund.
 
 ### T-23 · Admin-Dialoge aufräumen
 
-**Bezug:** F-04.
+**Bezug:** F-04. **Überschneidet sich mit Issue #985** — der `SystemHealthDialog` ist genau
+das Overlay aus dem P0-Issue. **Reihenfolge:** erst **I-10** (Escape/Außenklick), dann diese
+Aufräumarbeit; sonst wird derselbe Dialog zweimal angefasst.
 
 - [ ] `AdminDialog/SystemHealthDialog.tsx` (13 Inline-Styles),
       `SystemSettings/WorkspaceAdminSection.tsx` (12) → CSS-Modul-Klassen, Baseline senken.
@@ -362,7 +451,13 @@ Codekommentar mit Grund.
 ### T-31 · Übersetzungen für alle Kern-Attributnamen ergänzen
 
 **Bezug:** A-01. Der Schlüsselbaum `artifactForm.field.*` kennt heute nur **drei** Einträge.
+**Trägt die UI-Seite von #583** (`acceptance_criteria`) und wird von **I-60** fachlich
+abgestimmt — vor dem Ergänzen dort prüfen, ob #871 („INCOSE-Kernattribute fehlen") gegen den
+Ist-Stand überhaupt noch stimmt.
 
+- [ ] **Vor dem Ergänzen mit I-60 abgleichen:** `Rationale`, `Source`, `Owner`, `Priority`
+      sind laut Audit **bereits im Dialog vorhanden** — wenn #871 sie als fehlend meldet, ist
+      das Issue veraltet und die Übersetzungsliste ist trotzdem gültig.
 - [ ] **Alle Attributnamen auflisten**, die real in den Create-/Edit-Dialogen der acht
       Artefakttypen erscheinen (aus der Definition, nicht geraten): mindestens
       `acceptance_criteria`, `title`, `description`, `status`, `priority`, `category`,
@@ -403,7 +498,9 @@ Codekommentar mit Grund.
 
 ### T-40 · Sektions-Reihenfolge kuratieren
 
-**Bezug:** A-02.
+**Bezug:** A-02. **Abhängig von Issue #929** (3-Stufen-Attributmodell für alle 11
+Artefakt-Masken, siehe **I-60**): das ist der fachliche Rahmen für die Masken. **Erst dort
+abstimmen**, dann hier die Konstante setzen — sonst wird die Reihenfolge zweimal geändert.
 
 **Datei:** `frontend/src/components/shared/ArtifactForm/ArtifactForm.tsx:142-166`
 (`groupIntoSections`) — ordnet heute nach First-Appearance.
@@ -520,6 +617,245 @@ Codekommentar mit Grund.
 
 ---
 
+## Block I — GitHub-Issues (UI/UX)
+
+> Jede Aufgabe nennt die zu schließenden Issues im Commit (`Fixes #NNN`) und im PR.
+> Wo eine Aufgabe **zwei** Quellen hat (Audit-Finding + Issue), wird **einmal** umgesetzt.
+
+### I-00 · Issue-Triage und Label-Hygiene
+
+**Bezug:** Issue-Bestand oben. **Zuerst**, damit die Zuordnung stimmt.
+
+- [ ] **Fehllabels korrigieren:** #318 („Create-Button-Zustand unklar", native Selects) trägt
+      nur `enhancement`, ist aber ein **UI/UX-Bug** → Labels `ui/ux`, `frontend`, `a11y`
+      ergänzen. Ebenso prüfen: #927, #987 (haben `ui/ux`, aber kein `frontend`).
+- [ ] **Zustands-Korrektur dokumentieren:** In **#186** kommentieren, dass alle 19 gelisteten
+      Sub-Issues geschlossen sind und der Epic-Abschluss gegen den Ist-Stand zu prüfen ist
+      (→ I-50).
+- [ ] **Deduplizierung prüfen:** #583, #871 und #929 überlappen inhaltlich (Attribute auf
+      Requirement). Vor deren Abarbeitung klären, ob #871 in #583 aufgeht.
+- [ ] **Querverweis setzen:** In #986 und #985 einen Kommentar mit Verweis auf diesen Plan
+      und das Audit (mit den gemessenen Zahlen), damit die Auftrags- und Befundseite
+      verbunden sind.
+
+**Akzeptanz:** Jedes UI-Issue hat passende Labels; Doppelungen sind benannt.
+
+---
+
+### I-10 · P0: Escape/Outside-Click-Regressionen schließen (#985)
+
+**Bezug:** Issue **#985** (`bug, ui/ux, frontend, a11y`). Vom Autor **heute neu** gemeldet, auf
+`v1.8.0-beta.12` reproduziert. Eigenständig, hohe Wirkung, kleiner Umfang — **sofort**.
+
+Gemeldet und reproduziert:
+| Overlay | Testid | Ergebnis |
+|---|---|---|
+| Notification-Popover | `notification-bell-dropdown` | bleibt nach Außenklick offen, bleibt nach Escape offen |
+| System-Health-Dialog | `system-health-dialog-overlay` | bleibt nach Escape offen; Tastaturnutzer haben **keinen** Ausgang |
+
+- [ ] **Beide reproduzieren** (headless, wie im Issue beschrieben) und die Ursache
+      feststellen: Nutzen beide die `shared/Dialog`-Primitive (dann ist die Primitive
+      defekt) oder sind es **eigene** Overlays (dann ist es derselbe Fehler wie Audit F-02)?
+- [ ] **Falls eigene Overlays:** auf `shared/Dialog` migrieren — das ist gleichzeitig die
+      Umsetzung von Audit **F-03/F-04** und senkt die Overlay-Zahl.
+- [ ] **Falls die Primitive defekt ist:** in `Dialog.tsx` beheben und die Wirkung auf **alle
+      26 Konsumenten** prüfen (das Audit hat Escape + Fokus-Rückgabe als **vorhanden**
+      belegt — also ist der wahrscheinlichste Fall ein Eigenbau-Overlay).
+- [ ] **Pullover:** Die im Issue erwähnte zweite Sache — der Health-Dialog meldet
+      `AUSGEFALLEN` für LLM/Memory, während `GET /health/` gleichzeitig `ok` sagt — ist
+      **nicht** Teil dieser Aufgabe. Als eigenes Issue bestätigen oder in #985 abtrennen.
+- [ ] **E2E-Regression ergänzen:** je ein Test „Escape schließt Overlay X" und „Außenklick
+      schließt Popover" in `e2e/tests/` — sonst kehrt die Regression zurück. Die Suite
+      verlangt einen sauberen Console, also auch `expect(consoleMessages).toEqual([])`.
+- [ ] `Fixes #985`.
+
+**Akzeptanz:** Beide Overlays schließen per Escape, das Popover zusätzlich per Außenklick;
+zwei neue E2E-Tests sind grün.
+
+---
+
+### I-20 · P1: Control-Standard definieren und durchsetzen (#986 + Audit B-01/B-02)
+
+**Bezug:** Issue **#986** (22 Buttons, **10 Signaturen**) = Audit **B-01** (207 klassenlose
+Buttons) + **B-02** (18 Modul-Klassen). Das ist **ein** Problem, zwei Beobachtungspunkte.
+
+Das Issue liefert die harte Messung, die das Audit nur strukturell zeigt:
+
+| Dimension | beobachtet (Issue #986) | Soll |
+|---|---|---|
+| Höhe | **26 / 34 / 36 / 38 / 44 / 54 px** (6 Werte) | `--btn-h-sm/md/lg` (32/36/44) |
+| Radius | **0 / 12 / 16 px** | `--radius-btn` (6px) |
+| Padding-x | 8 / 12 / 16 px | Token-Stufen |
+| Font-Size | **13,33 px** (UA-Default leakt) neben 14 px | eine Größe, `--font-size-sm` |
+
+- [ ] **Der 13,33-px-Befund ist ein eigener Bug:** dass die UA-Default-Größe durchschlägt,
+      heißt, dem Element fehlt **jede** Regel — genau das Symptom der 207 klassenlosen
+      Buttons. Als Beweis in Audit B-01 aufnehmen.
+- [ ] **Den in Issue #986 vorgeschlagenen Standard gegen `tokens.css` prüfen, nicht blind
+      übernehmen.** Das Issue schlägt `sm=28 / md=32 / lg=40` vor; die **vorhandene** Skala
+      ist `--btn-h-sm: 32px / --btn-h-md: 36px / --btn-h-lg: 44px`. **Die vorhandene Skala
+      gewinnt** — sie ist bereits an 115 Stellen im Einsatz und in `tokens.css:800-817`
+      begründet („single height/radius vocabulary"). Eine zweite Skala einzuführen wäre
+      exakt der Fehler, den #986 beklagt.
+- [ ] **Standard dokumentieren:** in `docs/UI_KONZEPT.md` §12.3/§16 um die verbindliche
+      Aussage ergänzen, dass **jedes** bedienbare Element einer der drei Höhen und des
+      einen Radius folgt, und dass die Abweichung ein **Lint-Finding** ist, keine
+      Design-Debatte (wörtlich die Forderung aus #986).
+- [ ] **Durchsetzung:** Der Zähler aus **T-60** ist die maschinelle Seite. Zusätzlich prüfen,
+      ob der ESLint-Regelsatz um eine Regel „`<button>`/`role="button"` ohne Klassen-Token"
+      erweitert werden kann, analog zu `no-literal-color-in-inline-style`.
+- [ ] **Konkrete Fixes** laufen über **T-10 bis T-14** (Block B) — die `/settings`-Seite
+      explizit mit in T-13 aufnehmen (`WorkspaceSettings`, `PermissionsSection`,
+      `MemorySettingsSection`, `BannerSection`).
+- [ ] **`/settings` real nachmessen** (dieselbe Methode wie im Issue: `getComputedStyle`,
+      Höhe/Radius/Padding/Font je Button) und vorher/nachher gegenüberstellen.
+- [ ] `Fixes #986`.
+
+**Akzeptanz:** Auf `/settings` gibt es **eine** Button-Höhe, **einen** Radius, **eine**
+Font-Größe; der Standard ist im Konzept dokumentiert und maschinell geprüft.
+
+---
+
+### I-30 · Zwei Create-Trace-Link-Paradigmen beenden (#926 Teil A + #318)
+
+**Bezug:** Issue **#926** (Requirements nutzt als **einziges** Artefakt die Legacy-Inline-Form)
+und Issue **#318** (native `<select>` im Dialog, Create-Button-Zustand unklar).
+
+#926 ist live belegt:
+| Route | Button | Verhalten |
+|---|---|---|
+| `/requirements` | „Neuer Trace Link" (`req-tracelink-create-btn`) | **kein Modal**, Inline-Formular |
+| `/needs`, `/issues`, `/architecture`, `/adrs` | „Neuen Link erstellen" (`trace-link-panel-open-dialog`) | Modal `create-trace-link-dialog` |
+
+- [ ] **`ReqTraceLinkPanel`** (`RequirementEditors/ReqTraceLinkPanel.tsx`) auf den
+      `CreateTraceLinkDialog` umstellen; die Inline-Form entfernen.
+- [ ] **Label-Divergenz beheben:** `traceability.create` = „Neuer Trace Link" vs.
+      `t('actions.newLink', …)` — und `actions.newLink` **existiert nicht** in den Locales
+      (hartkodierter Default, vgl. Audit **I-02**). Entweder den Schlüssel in **beiden**
+      Sprachen anlegen oder auf `traceability.create` vereinheitlichen. Ein Name für einen
+      Ablauf (Konzept 14.1).
+- [ ] **#318 mitprüfen:** im Dialog selbst die Source/Target-Auswahl auf ein
+      nicht-natives Dropdown umstellen (das Issue nennt 0×0-Hitboxen der `<option>` und keinen
+      React-`onChange` bei programmatischem Setzen) und den **Create-Button-Zustand**
+      deterministisch an das Vorhandensein beider Pflichtfelder binden. Mit **echter Maus
+      und Tastatur** nachprüfen, wie das Issue selbst verlangt.
+- [ ] **E2E:** `e2e/tests/tracelink-creation.spec.ts` und `requirement-editor.spec.ts`
+      erweitern: auf `/requirements` muss ein `role="dialog"` erscheinen.
+- [ ] **Pullover:** `#802` (Need/Glossary Inline-Forms) ist **geschlossen** — prüfen, ob die
+      dortige Migration `ReqTraceLinkPanel` übersehen hat (dann ist #926 die Lücke).
+- [ ] `Fixes #926`, `Fixes #318`.
+
+**Akzeptanz:** Alle Artefakttypen öffnen **denselben** Trace-Link-Dialog; das Label ist
+identisch; der Create-Button ist genau dann aktiv, wenn beide Felder gesetzt sind.
+
+---
+
+### I-40 · Konsistenz, Terminologie und Auffindbarkeit (#808, #987, #927, #928)
+
+**Bezug:** Vier kleinere Issues mit gemeinsamer Wurzel — **eine Sache hat zwei Namen oder
+keinen Einstieg**.
+
+- [ ] **#808 — Fachbegriff-Divergenz:** Sidebar sagt „Verknüpfungen", der Rest der App
+      „Trace Links"/„Traceability". Konzept 14.1 verlangt Fachbegriffe dort, wo sie tragen —
+      „Trace Link" ist einer. Sidebar auf „Trace Links" umstellen (beide Sprachen) **oder**
+      begründet anders entscheiden und die Entscheidung dokumentieren.
+- [ ] **#927 — Ableiten-Buttons:** „Ableiten" (manuell) vs. „KI-Ableitung" (KI) vs.
+      „KI-Testfall" vereinheitlichen. Prüfen, ob das Konzept 14.1 („das Ergebnis benennen")
+      hier eine Regel liefert, und **eine** Benennungslogik festlegen: manuell = Tätigkeit,
+      KI = Quelle als Präfix.
+- [ ] **#928 — Allocation nicht auffindbar:** „Anforderung → Systemelement" ist als Funktion
+      vorhanden, hat aber keinen UI-Einstieg. Prüfen, ob es ein fehlender
+      Trace-Link-Typ-Einstieg im `CreateTraceLinkDialog` ist (dann **gehört es in I-30**) oder
+      eine eigene Aktion (dann eigener Dialog nach dem neuen Standard).
+- [ ] **#987 — Benachrichtigungen in die AI-Bubble:** **Entscheidungsanfrage**, kein Bug.
+      Trotzdem relevant, weil sie die Sidebar-Taxonomie berührt (vgl. #808). Entscheidung
+      einholen, dann entweder umsetzen oder das Issue begründet schließen.
+- [ ] `Fixes #808`, `Fixes #927`, `Fixes #928` (bzw. Entscheidungs-Kommentar in #987).
+
+**Akzeptanz:** Ein Begriff pro Sache, ein Einstieg pro Funktion, eine Benennungslogik für
+Ableitungen.
+
+---
+
+### I-50 · Sammel-Issues schneiden oder schließen (#186, #876, #85, #801, #810, #946)
+
+**Bezug:** Große, langlebige Issues, die sonst unbegrenzt offen bleiben.
+
+- [ ] **#186 (EPIC UI-Gesamtkonzept)** — **Zustandsprüfung wie oben belegt:** alle 19
+      Sub-Issues sind **CLOSED**. Aufgabe: gegen den Ist-Stand prüfen, die sechs Schritte aus
+      `docs/UI_KONZEPT.md` §17 abhaken und **entweder schließen** (mit Abschlusskommentar und
+      Verweis auf dieses Audit als Nachfolge-Scope) **oder** mit den neuen Findings
+      (#985, #986, #926, Audit B-01/B-02) **neu schneiden**. Ein Epic ohne Kinder ist ein
+      Zombie.
+- [ ] **#876 (1.015 Inline-Styles, 74 Hex-Farben)** — **Ist-Wert nachmessen.** Der Ratchet
+      sagt heute **811** `style={{}}` und **17** Hex-Literale in **3** Dateien
+      (`HEX_LITERAL_OCCURRENCE_BASELINE`), nicht 1.015/74. Die Zahl im Issue ist
+      offensichtlich **veraltet**. Aufgabe: Ist-Wert eintragen, Zahl korrigieren, und die
+      Restmenge den Aufgaben **T-21/T-23** sowie dem neuen **T-60**-Zähler zuordnen.
+      Dieses Issue ist die natürliche Heimat für den Rest der Inline-Style-Migration.
+- [ ] **#85 (UI-Bewertung v1.0.0)** — die Software steht bei **v1.8.0-beta.12**. Prüfen,
+      welche der dortigen Vorschläge noch offen sind, Restliste extrahieren, Rest entweder
+      in neue Issues überführen oder das Sammel-Issue schließen.
+- [ ] **#801 (Inspector nur bei Requirements)** — **eigenständige, substanzielle Aufgabe**
+      (6 Entity-Typen ohne Verlaufszugriff), nicht Teil dieser Konsolidierung. Als eigenen
+      Auftrag schneiden und terminieren; hier nur abgrenzen.
+- [ ] **#810 (Minimal/Expert-UI-RFC)** — **eigenständiger RFC**, u. a. mandanten-/rollen-
+      relevant. Abgrenzen, nicht in die Konsolidierung ziehen.
+- [ ] **#946 (Admin-Annotation-Layer)** — verwandt mit bluepencil (#980/#981), eigener
+      Feature-Strang. Abgrenzen.
+
+**Akzeptanz:** Jedes Sammel-Issue ist entweder geschlossen mit Nachweis oder in
+terminierbare Einzelaufträge geschnitten.
+
+---
+
+### I-60 · Attribut-Trio: Modell, Kernattribute, Pflichtfelder (#929, #871, #583, #932)
+
+**Bezug:** Diese drei Issues sind **fachlich** (SE/Data-Model), greifen aber direkt in die
+Attribut-Masken ein, die dieser Plan umbaut. **Abhängigkeit: nach T-31** (Label-Resolver),
+sonst wird zweimal an denselben Masken gearbeitet.
+
+- [ ] **#583 + #871 (Pflichtfelder / INCOSE-Kernattribute)** — vor dem Umbau klären.
+      **Wichtiger Hinweis aus dem Audit (A-02):** `Attribution` ist im Create-Dialog bereits
+      die **erste** Sektion und enthält `Owner`, `Reporter`, `Rationale`, `Source` — die in
+      #871 als „fehlend" gemeldeten Felder existieren also **im UI**. Vor einem Fix prüfen,
+      ob #871 („fehlen") und der Ist-Stand sich widersprechen; möglicherweise ist das
+      Issue **veraltet**. Das ist genau dieselbe Klasse wie #876.
+- [ ] **#583 (`acceptance_criteria` 0 %, `uid=null`)** — der `acceptance_criteria`-Teil
+      **überschneidet sich direkt mit Audit A-01** (roher Systemname als Label). Falls
+      T-31 umgesetzt ist, hier vermerken; der Rest (Befüllungsgrad) ist Datenmigration, nicht
+      UI, und gehört in `docs/plans/` als eigene Aufgabe.
+- [ ] **#929 (3-Stufen-Attributmodell)** — das ist der **Rahmen** für die Masken. Vor
+      T-40 (Sektions-Reihenfolge) prüfen, ob die dort vorgeschlagene Soll-Reihenfolge mit dem
+      3-Stufen-Modell kollidiert. Falls ja: **#929 gewinnt**, die Konstante aus T-40 wird
+      danach ausgerichtet.
+- [ ] **#932 (`uid` 0 % gefüllt, UI fällt auf Kurz-Hash zurück)** — der UI-Anteil ist
+      „was zeigt die Oberfläche, wenn `uid` leer ist". Nach T-31 prüfen, ob der Fallback
+      verständlich ist; der Datenanteil gehört ins Backend.
+
+**Akzeptanz:** Die drei Issues sind gegen den Ist-Stand geprüft, veraltete Angaben korrigiert,
+und die Soll-Reihenfolge aus T-40 ist mit #929 abgestimmt.
+
+---
+
+### I-70 · Issue-Hygiene nach Abschluss
+
+- [ ] **Jedes geschlossene Issue** erhält einen Kommentar mit dem Commit-Hash und einem
+      Vorher/Nachher-Screenshot, wo es sichtbar ist.
+- [ ] **Fehlende E2E-Abdeckung** für die geschlossenen Findings als Test ergänzen — sonst
+      kehrt die Klasse zurück. Konkret: Escape/Außenklick (#985), ein Trace-Link-Dialog für
+      alle Typen (#926), Button-Geometrie auf `/settings` (#986).
+- [ ] **Neue Issues** für das, was dieses Audit gefunden hat, aber **nicht** abdeckt:
+      Audit **A-03** (`description` vs. `Description`, Datenbefund), Audit **S-02**
+      (Leerzustand vs. Kein-Treffer je Route), Audit **A-04/A-05**
+      (Sektions-Toggle-Divergenz), Audit **T-30-Folge** (Lade-/Fehler-Primitive).
+      Jeweils mit den gemessenen Zahlen aus dem Audit-Report.
+
+**Akzeptanz:** Der Issue-Bestand ist nach Abschluss **kleiner** als die 67 von heute, und
+jeder Fix hat einen Regressionstest.
+
+---
+
 ## Block E — Abschluss
 
 ### T-70 · Einzelabnahme der restlichen Dialoge
@@ -565,6 +901,18 @@ Codekommentar mit Grund.
   Finding notiert, nicht als Ausnahme verbucht.
 - **Nie** die ARIA-Mechanik der Tabs oder des `Dialog` anfassen, ohne T-70 zu wiederholen —
   sie ist laut Audit korrekt und damit das wertvollste, was dieser Umbau beschädigen kann.
+- **Issue-Kopplung:** Jede Aufgabe mit Issue-Bezug schließt ihr Issue im Commit
+  (`Fixes #NNN`) **oder** hinterlässt einen Kommentar mit dem Grund, warum nicht. Kein Issue
+  bleibt kommentarlos offen, wenn seine Sache erledigt ist.
+- **Regressionstest je Issue:** Wer #985, #986 oder #926 schließt, ergänzt einen Test, der
+  die Rückkehr der Klasse verhindert. Ein Fix ohne Test zählt als nicht erledigt.
+- **Veraltete Issue-Angaben korrigieren:** Die Recherche hat mindestens zwei Fälle gefunden,
+  in denen die Zahlen im Issue nicht mehr stimmen (**#876**: 1.015/74 vs. gemessen 811/17;
+  **#871**: „Attribute fehlen" vs. im Dialog vorhanden). Solche Abweichungen werden **im
+  Issue** korrigiert, nicht stillschweigend ignoriert — sonst plant der nächste Bearbeiter
+  gegen falsche Zahlen.
+- **Issue-Hygiene am Ende:** Der offene Bestand (heute 67) muss nach diesem Plan **kleiner**
+  sein. Neue Findings werden als neue Issues angelegt (I-70), nicht als Kommentare versteckt.
 
 ---
 
@@ -574,9 +922,23 @@ Codekommentar mit Grund.
    Umbau auf den `footer`-Slot (Variante B)?
 2. **Attribut-Anordnung (T-40):** Ist die vorgeschlagene Soll-Reihenfolge richtig, oder gibt
    es eine fachlich andere Priorität? Insbesondere: gehört `Attribution` (Owner/Reporter)
-   wirklich **nach** `Verification`?
+   wirklich **nach** `Verification`? — **und** stimmt sie mit dem 3-Stufen-Modell aus
+   **#929** überein (I-60)?
 3. **`description` vs. `Description` (T-41):** erst klären, ob Datenmüll — dann entscheiden.
 4. **Button-Ziel `≤ 60`** (T-14): Ist das die akzeptierte Obergrenze für bewusste
    Ausnahmen, oder soll auf 0 gegangen werden?
 5. **Befund A-03 / T-41** darf **nicht** durch eigenmächtiges Löschen von Attributen gelöst
    werden — Datenmutation braucht explizite Freigabe.
+6. **`/settings`-Kartenflächen (#986, T-13):** Sollen die im Issue gemeldeten
+   Flächen-Inkonsistenzen (16 px Radius, **0,666667 px** Border, 20 vs. 24 px Padding) **in
+   diesem** Plan mitbehoben werden, oder als eigenes Issue abgetrennt? Sie sind keine
+   Buttons und vergrößern den Scope.
+7. **Sammel-Issues (#186, #85, #876):** Schließen mit Nachweis **oder** neu schneiden?
+   Bei **#186** spricht der Befund (alle 19 Kinder geschlossen) für Schließen; bei **#876**
+   für Neuschneiden mit korrigierter Zahl.
+8. **#987 (Benachrichtigungen in die AI-Bubble):** Entscheidung einholen — die Anfrage
+   berührt die Sidebar-Taxonomie und damit **#808**. Beide zusammen entscheiden, nicht
+   einzeln.
+9. **Scope-Grenze:** **#801** (Inspector für 6 weitere Typen), **#810** (Minimal/Expert-RFC)
+   und **#946** (Admin-Annotation) sind **nicht** Teil dieses Plans. Bestätigen, dass sie
+   abgegrenzt bleiben und nur referenziert, nicht terminiert werden.

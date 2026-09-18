@@ -361,18 +361,50 @@ in 17 Dateien, u. a. `GlossaryView.module.css` (`.btn`, `.btnOutline`, `.btnOutl
 
 ## 6. Ableitung: Welche Findings der Plan adressiert
 
-| Finding | Aufgabe im Plan |
+| Finding | Aufgabe im Plan | GitHub-Issue |
+|---|---|---|
+| M-00 | T-00 (Baselines verifizieren und senken) | #876 (Zahlen korrigieren) |
+| B-01, B-02 | T-10 bis T-14 | **#986** |
+| B-03, B-04 | T-11, T-14 | #986 |
+| F-01, F-02 | T-20, T-21 | **#985** (falls Eigenbau-Overlay) |
+| F-03 | T-22 | — |
+| F-04 | T-23 | **#985** (`SystemHealthDialog`) |
+| A-01, I-01 | T-30, T-31 | **#583** (`acceptance_criteria`) |
+| I-02 | T-32 | — |
+| A-02 | T-40 | **#929**, **#871** |
+| A-03 | T-41 | #929, #583 |
+| A-04, A-05 | T-42, T-43 | — |
+| S-01 | T-50 | — |
+| S-02 | T-51 | — |
+| D-01 | T-60 | — |
+| Einzelabnahme Rest-Dialoge | T-70 | — |
+| — *(neu ergänzt)* | I-30 | **#926**, **#318** |
+| — *(neu ergänzt)* | I-40 | **#808**, **#927**, **#928**, **#987** |
+| — *(neu ergänzt)* | I-50 | **#186**, **#85**, **#876**, **#801**, **#810**, **#946** |
+
+### 6.1 Issues, die dieser Audit bestätigt oder korrigiert
+
+| # | Verhältnis zum Audit |
 |---|---|
-| M-00 | T-00 (Baselines verifizieren und senken) |
-| B-01, B-02, B-03, B-04 | T-10 bis T-14 |
-| F-01, F-02 | T-20, T-21 |
-| F-03 | T-22 |
-| F-04 | T-23 |
-| A-01, I-01, I-02 | T-30 bis T-32 |
-| A-02, A-03, A-04, A-05 | T-40 bis T-43 |
-| S-01, S-02 | T-50, T-51 |
-| D-01 | T-60 |
-| Einzelabnahme Rest-Dialoge | T-70 |
+| **986** | **Bestätigt und verschärft.** Das Issue misst 10 Signaturen auf `/settings`; der Audit zeigt die strukturelle Ursache: **207 von 424** Buttons haben **keine** Klasse. Der 13,33-px-Fund im Issue ist das Symptom. |
+| **985** | **Bestätigt.** Der Audit hat Escape/Fokus-Rückgabe der `shared/Dialog`-Primitive als **vorhanden** belegt — der wahrscheinlichste Fall ist daher ein **Eigenbau-Overlay**, nicht ein Defekt der Primitive. Das grenzt I-10 ein. |
+| **926** | **Bestätigt.** Deckt sich mit Audit **F-02** (Dialog-Konventionen werden umgangen) und **I-02** (Label ohne Locale-Eintrag). |
+| **318** | **Falsch gelabelt** (nur `enhancement`), ist aber barrierefreiheits-relevant → Label-Korrektur in I-00. |
+| **876** | **Zahlen veraltet.** Issue nennt 1.015 Inline-Styles / 74 Hex-Farben; gemessen sind es **811** `style={{}}` und **17** Hex-Literale in **3** Dateien (`ui-ratchet.test.ts:503,711-712`). Vor der Abarbeitung korrigieren. |
+| **871** | **Vermutlich veraltet.** Issue meldet fehlende Attribute `Rationale`, `Source`, `Owner`, `Priority` — alle vier **sind** im Create-Dialog vorhanden (real geprüft, Sektionen `Attribution`/`Classification`). Vor dem Fix gegen den Ist-Stand prüfen. |
+| **186** | **Zombie-Verdacht.** Alle 19 in der Epic-Tabelle gelisteten Sub-Issues sind **CLOSED**, der Epic steht offen. Abschluss prüfen statt weiterführen. |
+| **583** | **Teilweise bestätigt.** Der `acceptance_criteria`-Teil überschneidet sich direkt mit Audit **A-01** (roher Systemname als Label). |
+
+### 6.2 Was der Audit **nicht** als Issue gefunden hat
+
+Zu drei Befunden existiert **kein** offenes Issue — sie sind neu und gehören als Issues
+angelegt (Aufgabe **I-70** im Plan):
+
+1. **A-03** — `description` vs. `Description` als zwei Attribute in derselben Sektion.
+2. **A-04/A-05** — Sektions-Toggle-Verhalten divergiert zwischen Create und Edit;
+   `aria-current="false"` auf einem `<span>`.
+3. **S-02** — Leerzustand vs. Kein-Treffer ist nicht flächig geprüft und möglicherweise
+   nicht durchgängig umgesetzt.
 
 Der Plan liegt unter
 [`docs/plans/2026-09-18-ui-dialog-und-button-konsolidierung.md`](../plans/2026-09-18-ui-dialog-und-button-konsolidierung.md).
