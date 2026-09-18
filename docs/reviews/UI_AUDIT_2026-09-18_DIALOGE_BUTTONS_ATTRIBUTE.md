@@ -387,7 +387,7 @@ in 17 Dateien, u. a. `GlossaryView.module.css` (`.btn`, `.btnOutline`, `.btnOutl
 | # | Verhältnis zum Audit |
 |---|---|
 | **986** | **Bestätigt und verschärft.** Das Issue misst 10 Signaturen auf `/settings`; der Audit zeigt die strukturelle Ursache: **207 von 424** Buttons haben **keine** Klasse. Der 13,33-px-Fund im Issue ist das Symptom. |
-| **985** | **Bestätigt.** Der Audit hat Escape/Fokus-Rückgabe der `shared/Dialog`-Primitive als **vorhanden** belegt — der wahrscheinlichste Fall ist daher ein **Eigenbau-Overlay**, nicht ein Defekt der Primitive. Das grenzt I-10 ein. |
+| **985** | **Bestätigt — aber die Audit-Schlussfolgerung war falsch, siehe Nachtrag §7.** Der Audit hatte Escape/Fokus-Rückgabe der `shared/Dialog`-Primitive als vorhanden belegt und daraus geschlossen, der Fall sei ein Eigenbau-Overlay. Der Popover war einer; der `SystemHealthDialog` **nicht** — bei ihm war die Primitive selbst defekt (Escape hing an einem Container-gebundenen Bubble-Listener). |
 | **926** | **Bestätigt.** Deckt sich mit Audit **F-02** (Dialog-Konventionen werden umgangen) und **I-02** (Label ohne Locale-Eintrag). |
 | **318** | **Falsch gelabelt** (nur `enhancement`), ist aber barrierefreiheits-relevant → Label-Korrektur in I-00. |
 | **876** | **Zahlen veraltet.** Issue nennt 1.015 Inline-Styles / 74 Hex-Farben; gemessen sind es **811** `style={{}}` und **17** Hex-Literale in **3** Dateien (`ui-ratchet.test.ts:503,711-712`). Vor der Abarbeitung korrigieren. |
@@ -408,3 +408,54 @@ angelegt (Aufgabe **I-70** im Plan):
 
 Der Plan liegt unter
 [`docs/plans/2026-09-18-ui-dialog-und-button-konsolidierung.md`](../plans/2026-09-18-ui-dialog-und-button-konsolidierung.md).
+
+---
+
+## 7. Nachtrag 2026-09-19: Korrektur eines Audit-Fehlschlusses (Issue #985)
+
+**Dieser Nachtrag widerlegt eine Aussage aus Abschnitt 4 und 6.** Er steht hier, weil die
+Korrektur wichtiger ist als das ursprüngliche Urteil.
+
+### Was der Audit behauptet hatte
+
+> „Dialog-ARIA — … die im Konzept kritisierte Lage ist **behoben**."
+
+und daraus abgeleitet, #985 müsse ein **Eigenbau-Overlay** sein, weil die Primitive korrekt
+sei.
+
+### Was die Umsetzung ergab
+
+Zwei Dinge waren falsch:
+
+1. **Der `SystemHealthDialog` ist *kein* Eigenbau-Overlay.** Er delegiert an `shared/Dialog`
+   — er war bereits vor #985 konform. Audit **F-04** („Admin-Dialog mit 13 Inline-Styles")
+   trifft die Inline-Styles, **nicht** die Dialog-Mechanik. Die Migrationsempfehlung in
+   **T-23** war gegenstandslos.
+
+2. **Die Primitive war doch defekt** — und zwar genau dort, wo die statische Analyse sie für
+   „vorhanden" hielt. `useFocusTrap` behandelte `Escape` mit einem **Bubble-Phase-`keydown`
+   am Container**, feuerte also nur, wenn der Fokus bereits im Panel lag. Bei einem frisch
+   gemounteten Dialog ist `document.activeElement` = `body` → der Container sieht die Taste
+   nie → Escape tut nichts.
+
+### Warum die statische Analyse das nicht finden konnte
+
+Der Audit hat **gelesen**, dass ein Escape-Handler existiert, und korrekt festgestellt, dass
+`Dialog.test.tsx` ihn abdeckt. Der Unit-Test läuft in jsdom mit gemountetem Host, wo der
+Fokus zum Setup-Zeitpunkt bereits im Panel ist. Die Fehlerbedingung — Fokus **außerhalb**
+beim Öffnen — tritt nur im echten Browser unter Last auf. **Erst der CI-Lauf hat sie
+aufgedeckt**; lokal war alles grün.
+
+### Konsequenz für die Audit-Methodik
+
+Befunde, die von *Fokuslage* oder *Timing* abhängen, sind durch Code-Lesen **nicht**
+abschließend zu beurteilen. Für T-70 (Einzelabnahme der Dialoge) heißt das: pro Dialog
+zusätzlich prüfen, ob Escape auch greift, **wenn der Fokus außerhalb des Panels steht** —
+das Muster liegt jetzt als `e2e/tests/dialog-escape-robustness.spec.ts` vor.
+
+### Neu entstandene Referenz
+
+- **#991** — Fokus wird beim Schließen nicht auf den Auslöser zurückgegeben. **Gleiche
+  Wurzel** wie der Escape-Fehler (beide hängen daran, ob Fokus im Panel gelandet ist). Der
+  Escape-Teil ist mit #985 behoben, der Restore-Teil bleibt offen. Zwei Fix-Versuche wurden
+  verworfen und im Issue dokumentiert, damit sie nicht wiederholt werden.
