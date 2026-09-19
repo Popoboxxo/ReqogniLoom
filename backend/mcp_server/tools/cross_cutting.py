@@ -196,6 +196,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "workspace.list": "_handle_workspace_list",
         "workspace.llm_system_prompt": "_handle_llm_system_prompt",
         "context.test_coverage": "_handle_test_coverage",
+        # issue #410: workspace-wide V&V status in one call.
+        "traceability.coverage": "_handle_workspace_coverage",
+        # issue #410: the VCRM (COMP-TE-004) export.
+        "traceability.vcrm": "_handle_vcrm",
         "context.change_impact": "_handle_change_impact",
         "context.query": "_handle_context_query",
         "context.related": "_handle_context_related",
@@ -463,6 +467,66 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["requirement_id"],
+            },
+        },
+        {
+            "name": "traceability.coverage",
+            "description": (
+                "Workspace-wide requirement-to-TestCase coverage (issue #410): "
+                "total / covered / uncovered counts and the covered percentage "
+                "for every Requirement in the workspace. Optional "
+                "``artifact_type`` / ``link_type`` filters and "
+                "``include_outdated``. Answers 'what is the V&V status of this "
+                "workspace?' in one call, unlike ``context.test_coverage`` "
+                "which covers a single Requirement. Response: "
+                "result.total/result.covered/result.uncovered/"
+                "result.percentage."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the workspace to compute coverage for.",
+                    },
+                    "artifact_type": {
+                        "type": "string",
+                        "description": "Optional artifact type filter (e.g. 'Requirement').",
+                    },
+                    "link_type": {
+                        "type": "string",
+                        "description": "Optional link type filter (default 'verifies').",
+                    },
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "Include outdated Requirements/TestCases (default false).",
+                    },
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "traceability.vcrm",
+            "description": (
+                "Export the Verification Cross Reference Matrix (VCRM, "
+                "COMP-TE-004, issue #410) for a workspace: requirement x "
+                "component x test_case x result. ``format=\"json\"`` (default) "
+                "returns result.rows/result.row_count; ``format=\"csv\"`` "
+                "returns result.csv (the mandatory CSV export) plus row_count."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the workspace to export.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format: 'json' (default) or 'csv'.",
+                    },
+                },
+                "required": ["workspace_id"],
             },
         },
         {
@@ -1238,6 +1302,76 @@ class CrossCuttingToolGroup(BaseToolGroup):
             "test_cases": entry.test_cases,
             "gaps": [] if entry.test_cases else [str(requirement.id)],
         })
+
+    # ------------------------------------------------------------------
+    # traceability.coverage
+    # ------------------------------------------------------------------
+
+    def _handle_workspace_coverage(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """traceability.coverage — workspace-wide coverage summary (issue #410).
+
+        Read-only (no audit entry). Wraps COMP-TE-003 ``CoverageCalculator``;
+        ``workspace_id`` is required so the dispatch read-scoping gate narrows
+        the caller's roles to that workspace before the query runs.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+        artifact_type = params.get("artifact_type")
+        link_type = params.get("link_type")
+        include_outdated = bool(params.get("include_outdated", False))
+
+        from traceability.coverage_calculator import CoverageCalculator
+        from traceability.exceptions import InvalidFilterError
+
+        try:
+            report = CoverageCalculator().coverage(
+                workspace_id,
+                artifact_type=artifact_type,
+                link_type=link_type,
+                include_outdated=include_outdated,
+            )
+        except InvalidFilterError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        return ToolResult.ok(report.to_dict())
+
+    # ------------------------------------------------------------------
+    # traceability.vcrm
+    # ------------------------------------------------------------------
+
+    def _handle_vcrm(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """traceability.vcrm — VCRM export for a workspace (issue #410).
+
+        Read-only. ``format="json"`` (default) returns the matrix rows;
+        ``format="csv"`` returns the mandatory CSV export as a string.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+        fmt = str(params.get("format", "json")).lower()
+        if fmt not in ("json", "csv"):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'format' must be 'json' or 'csv'."
+            )
+
+        from traceability.vcrm_report_generator import VCRMReportGenerator
+
+        generator = VCRMReportGenerator()
+        try:
+            if fmt == "csv":
+                csv_text = generator.export_vcrm_csv(workspace_id)
+                # Data rows = every line after the header row.
+                row_count = max(len(csv_text.splitlines()) - 1, 0)
+                return ToolResult.ok(
+                    {"format": "csv", "row_count": row_count, "csv": csv_text}
+                )
+            matrix = generator.generate_vcrm(workspace_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+
+        payload = matrix.to_dict()
+        payload["row_count"] = len(matrix.rows)
+        return ToolResult.ok(payload)
 
     # ------------------------------------------------------------------
     # context.change_impact

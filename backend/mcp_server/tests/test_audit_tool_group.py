@@ -682,16 +682,96 @@ class TestAuditToolGroup:
 # ---------------------------------------------------------------------------
 
 
+class TestSeAuditTool:
+    """issue #410: audit.se_audit wraps AuditService.run_audit (raw findings)."""
+
+    def _stub_report(self) -> MagicMock:
+        report = MagicMock()
+        report.to_dict.return_value = {
+            "tier": "standard",
+            "counts": {"total": 0, "blockers": 0, "warnings": 0},
+            "findings": [],
+        }
+        return report
+
+    def test_returns_the_audit_report(self):
+        report = self._stub_report()
+        with patch(
+            "application.audit_service.AuditService.run_audit", return_value=report
+        ) as run:
+            result = AuditToolGroup().execute_tool(
+                "audit.se_audit",
+                params={"workspace_id": str(uuid4())},
+                auth_context=ADMIN_CTX,
+                api_key="k",
+            )
+        assert result.success is True
+        assert result.data["tier"] == "standard"
+        # tier default is None -> resolved inside AuditService from the preset.
+        assert run.call_args.kwargs["tier"] is None
+
+    def test_passes_tier_limit_and_offset(self):
+        report = self._stub_report()
+        with patch(
+            "application.audit_service.AuditService.run_audit", return_value=report
+        ) as run:
+            AuditToolGroup().execute_tool(
+                "audit.se_audit",
+                params={
+                    "workspace_id": str(uuid4()),
+                    "tier": "extended",
+                    "limit": "10",
+                    "offset": "5",
+                },
+                auth_context=ADMIN_CTX,
+                api_key="k",
+            )
+        assert run.call_args.kwargs == {"tier": "extended", "limit": 10, "offset": 5}
+
+    def test_rejects_an_unknown_tier(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.se_audit",
+            params={"workspace_id": str(uuid4()), "tier": "nope"},
+            auth_context=ADMIN_CTX,
+            api_key="k",
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_requires_workspace_id(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.se_audit", params={}, auth_context=ADMIN_CTX, api_key="k"
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_maps_a_missing_workspace_to_not_found(self):
+        with patch(
+            "application.audit_service.AuditService.run_audit",
+            side_effect=NotFoundError("workspace not found"),
+        ):
+            result = AuditToolGroup().execute_tool(
+                "audit.se_audit",
+                params={"workspace_id": str(uuid4())},
+                auth_context=ADMIN_CTX,
+                api_key="k",
+            )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+
 class TestAuditToolGroupWiring:
     def test_default_constructor_uses_real_dlq_service(self):
         group = AuditToolGroup()
         assert group._dlq_service is not None
 
-    def test_tool_map_has_exactly_four_entries(self):
-        # SysEng 2.0 N8 (audit.ai_review, Phase 4b) added the 4th entry.
+    def test_tool_map_has_exactly_five_entries(self):
+        # SysEng 2.0 N8 (audit.ai_review, Phase 4b) added the 4th entry;
+        # issue #410 (audit.se_audit) added the 5th.
         assert set(AuditToolGroup._TOOL_MAP.keys()) == {
             "audit.query",
             "audit.ai_review",
+            "audit.se_audit",
             "events.dlq_list",
             "events.dlq_replay",
         }
