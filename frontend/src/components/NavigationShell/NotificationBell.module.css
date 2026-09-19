@@ -26,8 +26,14 @@
   align-items: center;
   gap: var(--space-1);
   width: 100%;
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-sm);
+  /* Issue #986: the bell used to be the smallest, most unlike-the-rest
+     control in the shell (26px, radius 0). It now uses the shared control
+     scale (--btn-h-sm / --radius-btn) like its siblings, while keeping the
+     nav-chrome colours. */
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-btn);
+  font-size: var(--control-font-size);
   color: var(--color-nav-text);
   background: transparent;
   border: none;

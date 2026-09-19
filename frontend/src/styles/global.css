@@ -182,6 +182,45 @@ input, select, textarea {
   transform: none;
 }
 
+/* Button size scale (issue #986) — modifiers over the base `.btn-*` rule,
+ * which already carries `--btn-h-md`. Use `.btn-sm` in dense toolbars and
+ * `.btn-lg` for a primary page action; never a raw height/padding. */
+.btn-sm {
+  min-height: var(--btn-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-sm);
+}
+.btn-lg {
+  min-height: var(--btn-h-lg);
+  padding: 0 var(--space-5);
+  font-size: var(--font-size-base);
+}
+
+/* Field standard (issue #986): one geometry for input/select/textarea so the
+ * settings surface stops mixing border widths (0.6667px vs 1px) and font
+ * sizes (13.33px via the UA default vs 14px). Opt-in classes only — no element
+ * selectors, so this cannot leak into components that style their own fields. */
+.field-input,
+.field-select,
+.field-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: var(--control-border-width) solid var(--color-border);
+  border-radius: var(--radius-btn);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--control-font-size);
+}
+.field-input:focus-visible,
+.field-select:focus-visible,
+.field-textarea:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: 1px;
+  border-color: var(--color-primary);
+}
+
 /* Segmented tab toggle (e.g. Markdown write/preview) */
 .btn-tab {
   background: transparent;

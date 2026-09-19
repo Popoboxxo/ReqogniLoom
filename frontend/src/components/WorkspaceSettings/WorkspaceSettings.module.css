@@ -1,0 +1,178 @@
+/*
+ * WorkspaceSettings — control standard (issue #986).
+ *
+ * Every value comes from styles/tokens.css; there are deliberately no raw
+ * pixel geometry values, no literal colours and no inline `style={{...}}`
+ * blocks left on this page. Buttons use the shared `.btn-*` classes from
+ * global.css; only page-local layout and the option/active treatment live
+ * here.
+ */
+
+.page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--space-6);
+}
+
+.notice {
+  padding: var(--space-6);
+  max-width: 640px;
+}
+.noticeText {
+  color: var(--color-warning);
+}
+
+.card {
+  background: var(--color-surface);
+  border: var(--control-border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border-bottom: var(--control-border-width) solid var(--color-border);
+  margin-bottom: var(--space-5);
+}
+
+.tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+  font-size: var(--control-font-size);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: -1px;
+  min-height: var(--btn-h-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab[aria-selected="true"] {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.fieldStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.fieldStackSpaced {
+  margin-top: var(--space-4);
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.controlRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+}
+
+.optionCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--control-border-width) solid var(--color-border);
+  border-radius: var(--radius-btn);
+  margin-bottom: var(--space-2);
+  cursor: pointer;
+  background: transparent;
+}
+.optionCardActive {
+  border-color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.08);
+}
+.optionTitle {
+  font-weight: var(--weight-semibold);
+}
+.optionMeta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+.palettePicker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.paletteOption {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--btn-h-md);
+  padding: 0 var(--space-3);
+  border: var(--control-border-width) solid var(--color-border);
+  border-radius: var(--radius-btn);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--control-font-size);
+  text-align: left;
+}
+.paletteOption[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.modePicker {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.modeButton[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.errorBanner {
+  color: var(--color-danger);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: var(--control-border-width) solid var(--color-danger);
+}
+.savedBanner {
+  color: var(--color-success);
+  padding: var(--space-3);
+}

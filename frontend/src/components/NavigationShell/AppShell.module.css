@@ -12,3 +12,12 @@
   flex: 1;
   min-height: 0;
 }
+
+/* Issue #876: the route host was the last inline `style={{...}}` in the shell
+   (flex/padding/overflow). Moved here so the shell owns no inline layout. */
+.main {
+  flex: 1;
+  height: 100%;
+  padding: var(--space-6);
+  overflow: auto;
+}

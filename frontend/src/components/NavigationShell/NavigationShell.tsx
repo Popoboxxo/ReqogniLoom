@@ -121,10 +121,7 @@ function AppShell(): JSX.Element {
       <BannerStack />
       <div className={styles.contentRow}>
       <SidebarNavigation />
-      <main
-        style={{ flex: 1, height: "100%", padding: "1.5rem", overflow: "auto" }}
-        role="main"
-      >
+      <main className={styles.main} role="main">
         <ErrorBoundary
           errorTitle={t("errors.generic")}
           reloadLabel={t("actions.reload")}
