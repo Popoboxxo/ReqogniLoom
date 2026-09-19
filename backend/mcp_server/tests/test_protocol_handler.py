@@ -335,16 +335,17 @@ class TestProtocolHandler:
         assert sensitive_detail in caplog.text
 
     def test_tools_list_exception_masks_detail_but_logs_it(self, caplog):
-        """CWE-209 regression: an unexpected exception from ``list_tools``
-        must reach the client as the generic INTERNAL_ERROR message, never
-        as ``str(exc)`` — the real exception must still be logged for
-        operators (same pattern as Task 5's REST/MCP fixes elsewhere)."""
+        """CWE-209 regression: an unexpected exception from the catalogue read
+        (``list_tools_page``, which ``tools/list`` now calls) must reach the
+        client as the generic INTERNAL_ERROR message, never as ``str(exc)`` -
+        the real exception must still be logged for operators (same pattern as
+        Task 5's REST/MCP fixes elsewhere)."""
         sensitive_detail = (
             "psycopg2.OperationalError: FATAL: password authentication "
             "failed for user \"reqogniloom\" (host=10.0.0.5)"
         )
         registry = MagicMock()
-        registry.list_tools.side_effect = RuntimeError(sensitive_detail)
+        registry.list_tools_page.side_effect = RuntimeError(sensitive_detail)
         handler = ProtocolHandler(tool_registry=registry)
         body = json.dumps(
             {"jsonrpc": "2.0", "method": "tools/list", "id": 5, "params": {}}

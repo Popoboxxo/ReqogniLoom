@@ -55,6 +55,161 @@ from mcp_server.protocol_handler import ToolResult
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Tool catalogue filtering + compaction (issue #866).
+#
+# `tools/list` returns the full 180+-tool catalogue (~100 KB of JSON schemas,
+# ~35k tokens), which a client pays for on every session start and which
+# pushes coding agents towards their context ceiling. Two levers, both opt-in
+# so the default surface is unchanged:
+#
+#   1. `toolset`/`filter` — request only the subset relevant to the current
+#      phase (authoring / verification / auditing / …), or explicit
+#      group prefixes / tool names / a free-text search.
+#   2. `compact` — trim each tool's prose (description to its first sentence,
+#      every JSON-schema `description`/`title`) while keeping the callable
+#      contract (types, `required`, `enum`) intact.
+#
+# `tools/filter` exposes the same mechanism as its own JSON-RPC method and
+# also returns the available toolset names, so a client can discover them
+# without a second round trip.
+# ---------------------------------------------------------------------------
+
+#: Named phase presets -> the tool-group prefixes they include. A prefix is the
+#: part before the first "." in a tool name (ADR-L3-MC002-03).
+_TOOLSETS: Dict[str, Tuple[str, ...]] = {
+    "core": (
+        "requirement", "needs", "architecture", "test",
+        "traceability", "artifact", "context", "comment",
+    ),
+    "authoring": (
+        "requirement", "needs", "architecture", "adr", "risk", "issue",
+        "glossary", "change_request", "icd", "diagram", "comment", "goal",
+        "main_goal",
+    ),
+    "verification": (
+        "requirement", "test", "traceability", "artifact", "context",
+        "baseline", "review",
+    ),
+    "auditing": (
+        "audit", "events", "baseline", "traceability", "context", "workspace",
+        "admin", "permissions", "user", "attribute_definition",
+        "attribute_catalog", "attribute_migration", "link_type",
+    ),
+    "admin": (
+        "workspace", "admin", "permissions", "user", "audit", "events",
+        "attribute_definition", "attribute_catalog", "attribute_migration",
+        "link_type",
+    ),
+    "ai": (
+        "ai_derivation", "memory", "prompt_template", "prompt_variable",
+        "interview", "requirement", "needs", "architecture",
+        "requirement_bundle", "goal", "main_goal",
+    ),
+}
+
+TOOLSET_NAMES: Tuple[str, ...] = tuple(_TOOLSETS)
+
+#: JSON-schema keys that are pure prose; stripped in `compact` mode.
+_SCHEMA_PROSE_KEYS = ("description", "title")
+
+
+def tool_prefix(name: str) -> str:
+    """Return the group prefix of *name* (the part before the first ".")."""
+    return str(name).split(".", 1)[0]
+
+
+def _strip_schema_prose(node: Any) -> Any:
+    """Recursively drop `description`/`title` from a JSON-schema fragment."""
+    if isinstance(node, dict):
+        return {
+            key: _strip_schema_prose(value)
+            for key, value in node.items()
+            if key not in _SCHEMA_PROSE_KEYS
+        }
+    if isinstance(node, list):
+        return [_strip_schema_prose(item) for item in node]
+    return node
+
+
+def _first_sentence(text: str, limit: int = 160) -> str:
+    """Return the first sentence of *text*, capped at *limit* characters."""
+    collapsed = " ".join(str(text).split())
+    for sep in (". ", ".\n", "! ", "? "):
+        idx = collapsed.find(sep)
+        if idx != -1:
+            collapsed = collapsed[: idx + 1]
+            break
+    return collapsed if len(collapsed) <= limit else collapsed[: limit - 1].rstrip() + "…"
+
+
+def compact_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
+    """Return *tool* with its prose trimmed but its callable schema intact.
+
+    Keeps ``name``, a first-sentence ``description`` and the full ``inputSchema``
+    minus every ``description``/``title`` (types, ``required`` and ``enum``
+    survive, so the tool stays callable).
+    """
+    compacted: Dict[str, Any] = {
+        "name": tool.get("name"),
+        "description": _first_sentence(tool.get("description") or ""),
+    }
+    schema = tool.get("inputSchema")
+    if isinstance(schema, dict):
+        compacted["inputSchema"] = _strip_schema_prose(schema)
+    return compacted
+
+
+def filter_tool_catalogue(
+    tools: list[Dict[str, Any]],
+    *,
+    toolset: Optional[str] = None,
+    groups: Optional[Any] = None,
+    names: Optional[Any] = None,
+    search: Optional[str] = None,
+) -> list[Dict[str, Any]]:
+    """Return the subset of *tools* matching the given selectors.
+
+    Selectors combine with AND: a toolset narrows by prefix, an explicit
+    ``names`` list then narrows by exact name, and ``search`` matches a
+    case-insensitive substring of the name or description.
+
+    Raises:
+        ValueError: ``toolset`` is not one of :data:`TOOLSET_NAMES`.
+    """
+    selected = list(tools)
+
+    prefix_source: Optional[Tuple[str, ...]] = None
+    if toolset is not None:
+        if toolset not in _TOOLSETS:
+            raise ValueError(
+                f"Unknown toolset '{toolset}'. Known toolsets: "
+                f"{', '.join(TOOLSET_NAMES)}."
+            )
+        prefix_source = _TOOLSETS[toolset]
+    elif groups:
+        prefix_source = tuple(str(g) for g in groups)
+    if prefix_source is not None:
+        prefix_set = set(prefix_source)
+        selected = [t for t in selected if tool_prefix(t.get("name", "")) in prefix_set]
+
+    if names:
+        name_set = {str(n) for n in names}
+        selected = [t for t in selected if t.get("name") in name_set]
+
+    if search:
+        query = str(search).strip().lower()
+        if query:
+            selected = [
+                t
+                for t in selected
+                if query
+                in f"{t.get('name', '')} {t.get('description') or ''}".lower()
+            ]
+
+    return selected
+
+
+# ---------------------------------------------------------------------------
 # Historical write-operation catalogue (REQ-L2-MC-007).
 #
 # No longer the runtime source of truth for _is_write_tool() (see
@@ -855,6 +1010,70 @@ class ToolRegistry:
         finally:
             if auth_ctx.tenant_id is not None:
                 clear_request_tenant()
+
+    def list_tools_page(
+        self,
+        api_key: str,
+        workspace_id: Optional[str] = None,
+        *,
+        toolset: Optional[str] = None,
+        tool_filter: Optional[Dict[str, Any]] = None,
+        compact: bool = False,
+    ) -> Dict[str, Any]:
+        """Filtered/compacted catalogue for ``tools/list`` and ``tools/filter``.
+
+        Applies exactly the RBAC/scope gating of :meth:`list_tools` first, so a
+        filter can only ever narrow the advertised surface, never widen it
+        (issue #866).
+
+        Args:
+            api_key: Raw API key.
+            workspace_id: Optional workspace to resolve roles against.
+            toolset: A named phase preset (see :data:`TOOLSET_NAMES`).
+            tool_filter: Optional mapping with ``groups`` (list of prefixes),
+                ``names`` (list of exact tool names) and/or ``search`` (string).
+            compact: Trim prose (first-sentence description, no schema
+                descriptions) while keeping the callable schema.
+
+        Returns:
+            ``{"tools", "count", "total", "toolsets"}`` — ``total`` is the
+            caller's full (RBAC-gated) catalogue size, so a client can see how
+            much a filter saved.
+
+        Raises:
+            McpAuthenticationError: propagated from :meth:`list_tools`.
+            ValueError: an unknown ``toolset``/selector shape.
+        """
+        tools = self.list_tools(api_key, workspace_id)
+        total = len(tools)
+
+        f = tool_filter or {}
+        if not isinstance(f, dict):
+            raise ValueError("'filter' must be an object.")
+        groups = f.get("groups")
+        names = f.get("names")
+        search = f.get("search")
+        if groups is not None and not isinstance(groups, list):
+            raise ValueError("'filter.groups' must be an array of prefixes.")
+        if names is not None and not isinstance(names, list):
+            raise ValueError("'filter.names' must be an array of tool names.")
+
+        selected = filter_tool_catalogue(
+            tools,
+            toolset=toolset,
+            groups=groups,
+            names=names,
+            search=search,
+        )
+        if compact:
+            selected = [compact_tool(t) for t in selected]
+
+        return {
+            "tools": selected,
+            "count": len(selected),
+            "total": total,
+            "toolsets": {name: list(prefixes) for name, prefixes in _TOOLSETS.items()},
+        }
 
     def dispatch_request(
         self,
