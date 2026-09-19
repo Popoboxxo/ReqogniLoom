@@ -60,6 +60,29 @@ def test_create_returns_a_json_serialisable_payload(ctx):
 
 
 @pytest.mark.django_db
+def test_create_without_text_names_the_missing_field(ctx):
+    """#982: a missing body field must name it, not answer "internal error".
+
+    ``comment.create`` declares ``text`` as required, so omitting it (or the
+    natural-guess ``body``) is a caller error. Sibling tools already answer
+    ``Required parameter 'x' is missing``; this pins the same shape here.
+    """
+    group = CommentToolGroup()
+    with patch("mcp_server.tools.comment.CommentService"):
+        result = group.execute_tool(
+            "comment.create",
+            {"artifact_id": str(uuid.uuid4()), "body": "hello"},
+            ctx,
+            None,
+        )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "text" in result.message
+    assert "internal error" not in result.message.lower()
+
+
+@pytest.mark.django_db
 def test_payload_never_uses_the_reserved_content_key(ctx):
     group = CommentToolGroup()
     with patch("mcp_server.tools.comment.CommentService") as svc:

@@ -46,6 +46,37 @@ It starts the sidecar but leaves the review layer **off** until `BLUEPENCIL_ENAB
 `.env` and the frontend service is restarted. The sidecar is reachable inside the Compose network as
 **`bluepencil:8787`**; it does **not** publish a host port.
 
+## Production / prebuilt image (issue #980)
+
+The dev override above arms the layer through Vite's dev server. A **prebuilt
+production image** (`frontend/Dockerfile`, `target: production`) reads the flag at
+*image build* time, so it must be passed as a build arg — `BLUEPENCIL_ENABLED` in
+`.env` only affects the dev override:
+
+```bash
+docker build -f frontend/Dockerfile --target production frontend \
+  --build-arg VITE_BLUEPENCIL_ENABLED=1 \
+  --build-arg VITE_BLUEPENCIL_ENVIRONMENT=dev \
+  -t reqogniloom-frontend:bluepencil
+```
+
+`frontend/nginx.conf` proxies `/bluepencil/api/` to the sidecar
+(`http://bluepencil:8787`) with per-request DNS resolution, so it works both with
+and without the `bluepencil` profile running. The upstream must still be reachable
+on the Compose network — run the stack with `--profile bluepencil`.
+
+## Secure context required for the integrity check (issue #981)
+
+The vendored loader (`frontend/public/bluepencil/latest/attach.js`) verifies the
+element bundle against the SHA256 in `latest.json` via WebCrypto
+(`crypto.subtle`). Browsers only expose WebCrypto in a **secure context**: HTTPS,
+`localhost`, `127.0.0.1` or `file:`. On a plain-HTTP origin with an IP or
+hostname (e.g. `http://172.20.5.120:5173` — the usual LAN/QS deployment) the check
+cannot run. ReqogniLoom then loads the layer **without** the integrity check and
+logs one visible `console.warn`, instead of requesting a check that would abort
+the whole attach and leave the layer silently unmounted. Serve the app over HTTPS
+(or access it via `localhost`/`127.0.0.1`) to keep verification enabled.
+
 ## Why opt-in
 
 Where no sidecar runs, the layer's `GET /bluepencil/api/health` probe is answered with 404 (or 502

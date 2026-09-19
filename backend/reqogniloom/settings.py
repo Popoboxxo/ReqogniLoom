@@ -713,6 +713,16 @@ LLM_LONG_RUNNING_TIMEOUT_SECONDS: int = config(
     "LLM_LONG_RUNNING_TIMEOUT", default=180, cast=int
 )
 
+# Issue #990: timeout for the admin system-health probes that make a *real*
+# external round-trip (memory/embedding backend). The old hard 1.0s socket
+# timeout was below any realistic embedding latency, so a perfectly healthy
+# Ollama/Honcho answered too late and the dialog reported the backend as
+# "AUSGEFALLEN" while `GET /health/` said `ok`. Local Redis/Celery probes keep
+# their own short 1s budget (they are in-cluster and must stay snappy).
+HEALTH_PROBE_TIMEOUT_SECONDS: float = config(
+    "HEALTH_PROBE_TIMEOUT", default=10.0, cast=float
+)
+
 # REQ-106: per-tenant daily token budget. When set (a positive integer), the
 # CapabilityRouter rejects further LLM calls for a tenant that has already
 # consumed this many tokens in the last 24 hours, returning a structured

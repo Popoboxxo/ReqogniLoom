@@ -408,6 +408,16 @@ class TestSystemHealthMemoryComponents:
         )
         assert component["status"] == STATUS_OK
 
+    def test_memory_probe_timeout_is_configurable(self, settings) -> None:
+        """#990: the external memory/embedding probes use HEALTH_PROBE_TIMEOUT.
+
+        The hard 1s budget made normal embedding latency read as "AUSGEFALLEN".
+        """
+        from admin_ops import health_rest
+
+        settings.HEALTH_PROBE_TIMEOUT_SECONDS = 12.5
+        assert health_rest._memory_probe_timeout_s() == 12.5
+
     def test_memory_embedding_honours_the_db_override(self, tenant_a, monkeypatch) -> None:
         """The embedding check must health-check the EFFECTIVE provider.
 

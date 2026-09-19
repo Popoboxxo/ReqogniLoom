@@ -58,8 +58,16 @@ class CommentService(ServiceBase):
         *,
         include_resolved: bool = True,
     ) -> list[Comment]:
-        """Return an artifact's comments, oldest first."""
+        """Return an artifact's comments, oldest first.
+
+        Raises :class:`NotFoundError` for an unknown artifact id (issue #983):
+        the write path already 404s, so the read path must not answer ``200 []``
+        and let a caller with the wrong id-space (requirement entity id vs.
+        ``artifact_id``) read "no comments" instead of "artifact not found".
+        """
         self._set_tenant_context(ctx)
+        if not Artifact.objects.filter(pk=artifact_id).exists():
+            raise NotFoundError(f"Artifact {artifact_id} not found")
         qs = Comment.objects.filter(artifact_id=artifact_id).select_related(
             "author", "resolved_by"
         )

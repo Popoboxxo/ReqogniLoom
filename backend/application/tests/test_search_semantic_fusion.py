@@ -98,6 +98,33 @@ class TestSemanticFusion:
         assert scores[str(opposite.id)] == pytest.approx(0.0, abs=1e-4)
         assert all(0.0 <= score <= 1.0 for score in scores.values())
 
+    def test_filtered_semantic_search_is_not_starved_by_other_workspaces(self):
+        """Issue #977: a workspace filter must not drop the matching row.
+
+        With HNSW's defaults the index yields ~``ef_search`` (40) *global*
+        candidates and the ``workspace_id`` filter is applied afterwards, so a
+        small workspace could get an empty result even though its nearest row
+        existed. Seed more than 40 competitors in another workspace and assert
+        the single matching row still comes back. This is the deterministic
+        core of the pgvector flake in ``set-1-core``.
+        """
+        with active_tenant() as tenant:
+            target_ws = make_workspace(tenant)
+            other_ws = make_workspace(tenant)
+            target = make_requirement(target_ws, title="Target in filtered workspace")
+            target.embedding = [0.3] * _DIM
+            target.save(update_fields=["embedding"])
+            for index in range(60):  # > hnsw.ef_search default (40)
+                decoy = make_requirement(other_ws, title=f"Decoy {index}")
+                decoy.embedding = [0.3] * _DIM
+                decoy.save(update_fields=["embedding"])
+
+            hits = _run_semantic_query(
+                "Requirement", [0.3] * _DIM, tenant.id, target_ws.id
+            )
+
+        assert [h.id for h in hits] == [str(target.id)]
+
     def test_rrf_fused_search_scores_stay_in_unit_interval(self, monkeypatch):
         """Issue #827: the third, RRF-fused code path must also emit scores
         within [0, 1] — never a raw ``sum(1/(_RRF_K+rank+1))``."""

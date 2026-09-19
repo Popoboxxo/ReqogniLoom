@@ -30,7 +30,7 @@ from auth_tenancy.context import AuthContext
 
 from application.comment_service import CommentService
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, require_uuid
+from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +109,11 @@ class CommentToolGroup(BaseToolGroup):
     ) -> ToolResult:
         """Handle ``comment.create``."""
         artifact_id: UUID = require_uuid(params, "artifact_id")
+        # Issue #982: name the missing field instead of letting an empty body
+        # fall through to the service and surface as a generic internal error.
+        text: str = require_param(params, "text")
         comment = self._get_service().create_comment(
-            artifact_id=artifact_id, text=params.get("text", ""), ctx=auth_context
+            artifact_id=artifact_id, text=text, ctx=auth_context
         )
         return ToolResult.ok(_comment_to_dict(comment))
 

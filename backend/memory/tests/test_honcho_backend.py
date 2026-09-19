@@ -352,6 +352,23 @@ class TestHonchoMemoryBackendHealthCheck:
         monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
         monkeypatch.setenv("HONCHO_EMBEDDING_BASE_URL", "http://embed.invalid/v1")
         monkeypatch.setenv("HONCHO_EMBEDDING_MODEL", "nomic-embed-text")
+        # Pin the probe budget to the default so the timeout assertions below
+        # are independent of the ambient environment (#990).
+        monkeypatch.delenv("HEALTH_PROBE_TIMEOUT", raising=False)
+
+    def test_health_check_honours_the_configured_probe_timeout(self, monkeypatch):
+        """#990: ``HEALTH_PROBE_TIMEOUT`` overrides the 10s default."""
+        self._configure_all(monkeypatch)
+        monkeypatch.setenv("HEALTH_PROBE_TIMEOUT", "3.5")
+        backend = HonchoMemoryBackend()
+        head = mock.Mock(status_code=200)
+        post = mock.Mock(status_code=200)
+        post.json.return_value = {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
+        with mock.patch("requests.head", return_value=head) as head_mock, mock.patch(
+            "requests.post", return_value=post
+        ):
+            backend.health_check()
+        assert head_mock.call_args.kwargs["timeout"] == 3.5
 
     def test_health_check_down_when_base_url_not_configured(self, monkeypatch):
         monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
@@ -413,13 +430,15 @@ class TestHonchoMemoryBackendHealthCheck:
             ok, detail = backend.health_check()
         assert ok is True
         assert "nomic-embed-text" in detail
+        # Issue #990: the probe budget is a realistic, configurable 10s now,
+        # not the old hard 1s that turned normal latency into "down".
         head_mock.assert_called_once_with(
-            "http://honcho.invalid", timeout=1.0, allow_redirects=False
+            "http://honcho.invalid", timeout=10.0, allow_redirects=False
         )
         post_mock.assert_called_once_with(
             "http://embed.invalid/v1/embeddings",
             json={"model": "nomic-embed-text", "input": "ping"},
-            timeout=1.0,
+            timeout=10.0,
         )
 
     def test_health_check_down_when_embedding_probe_returns_http_error(self, monkeypatch):

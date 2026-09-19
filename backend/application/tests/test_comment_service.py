@@ -14,7 +14,7 @@ import pytest
 from application.comment_service import CommentService, notify_user_ids_for_artifact
 from application.models import Comment, Notification
 from auth_tenancy.context import AuthContext, AuthMethod
-from persistence.errors import PermissionDeniedError, ValidationError
+from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from persistence.models import Actor, Artifact, Tenant, User, Workspace
 
 
@@ -140,6 +140,18 @@ def test_list_for_artifact_is_chronological(ctx, artifact):
         svc.create_comment(artifact_id=artifact.pk, text="second", ctx=ctx)
 
     assert [c.text for c in svc.list_for_artifact(artifact.pk, ctx)] == ["first", "second"]
+
+
+@pytest.mark.django_db
+def test_list_for_unknown_artifact_raises_not_found(ctx):
+    """#983: the read path must not answer ``[]`` for an artifact that does not exist.
+
+    The write path already raises ``NotFoundError`` (→ 404); the read path did
+    not, so a caller with the wrong id-space read "no comments" instead of
+    "artifact not found".
+    """
+    with pytest.raises(NotFoundError):
+        CommentService().list_for_artifact(uuid.uuid4(), ctx)
 
 
 @pytest.mark.django_db

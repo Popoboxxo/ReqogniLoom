@@ -23,6 +23,12 @@ FROM base AS builder
 
 ARG VITE_API_BASE_URL
 ARG VITE_ALLOWED_HOSTS
+# Issue #980: the bluepencil review layer guard is read at *build* time
+# (`import.meta.env.VITE_BLUEPENCIL_ENABLED`, loader.ts). Without these ARGs a
+# `--build-arg VITE_BLUEPENCIL_ENABLED=1` was silently ignored and every
+# prebuilt/production image evaluated the guard as false.
+ARG VITE_BLUEPENCIL_ENABLED
+ARG VITE_BLUEPENCIL_ENVIRONMENT
 
 RUN npm ci
 
@@ -30,6 +36,8 @@ COPY . .
 
 RUN VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_ALLOWED_HOSTS=$VITE_ALLOWED_HOSTS \
+    VITE_BLUEPENCIL_ENABLED=$VITE_BLUEPENCIL_ENABLED \
+    VITE_BLUEPENCIL_ENVIRONMENT=$VITE_BLUEPENCIL_ENVIRONMENT \
     npm run build
 
 # Production serve stage (nginx)

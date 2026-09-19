@@ -32,6 +32,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import (
@@ -861,7 +862,15 @@ class RequirementService(ServiceBase):
         )
 
         try:
-            rows = list(queryset)
+            # Issue #977: the workspace filter is applied *after* the HNSW
+            # candidate scan, so with pgvector's default ef_search=40 a small
+            # workspace can get fewer hits than exist (or none). Enable the
+            # iterative scan for this transaction; no-op on pgvector < 0.8.
+            from application.pgvector_ann import enable_iterative_ann_scan
+
+            with transaction.atomic():
+                enable_iterative_ann_scan()
+                rows = list(queryset)
         except (ProgrammingError, OperationalError) as exc:
             raise PgVectorUnavailableError(
                 "pgvector extension not available — similarity search unavailable"

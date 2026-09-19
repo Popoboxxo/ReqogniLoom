@@ -87,20 +87,23 @@ test.describe('[REQ-L1-081] Overlay dismissal (issue #985)', () => {
     await page.keyboard.press('Escape');
     await expect(overlay).toBeHidden();
 
-    // DOCUMENTED DEFECT, deliberately not asserted yet — see issue #991.
-    //
-    // Focus does NOT return to the trigger. This was believed to be specific
-    // to the pointer path, but it reproduces on the Escape path too, so it is
-    // a pre-existing defect of `useFocusTrap`'s restore logic on a *freshly
-    // mounted* dialog: the trap's setup effect captures
-    // `document.activeElement` while the panel is still being portalled, so
-    // the recorded "previously focused" element is not the trigger.
-    //
-    // Out of scope for #985 (which is about the overlays *closing* at all);
-    // tracked as #991. The assertion is left commented rather than deleted so
-    // the intent survives:
-    //
-    //   await expect(openButton).toBeFocused();
+    // Issue #991: focus must return to the trigger, not be dropped to <body>.
+    await expect(openButton).toBeFocused();
+  });
+
+  test('system health dialog keeps focus restoration on the pointer path', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/system-settings`);
+
+    const openButton = page.locator('[data-testid="system-health-open-btn"]');
+    await openButton.click();
+
+    const overlay = page.locator('[data-testid="system-health-dialog-overlay"]');
+    await expect(overlay).toBeVisible();
+
+    // Dismiss via the scrim; the same restore must hold (#991).
+    await overlay.click({ position: { x: 5, y: 5 } });
     await expect(overlay).toBeHidden();
+
+    await expect(openButton).toBeFocused();
   });
 });

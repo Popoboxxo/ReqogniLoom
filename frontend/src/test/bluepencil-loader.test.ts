@@ -148,6 +148,22 @@ describe("bluepencil loader — injection", () => {
     expect(script.hasAttribute("data-anchor-hooks")).toBe(false);
   });
 
+  it("skips the integrity attribute and warns once when WebCrypto is unavailable (#981)", async () => {
+    // No `crypto.subtle` — a plain-HTTP non-localhost origin.
+    vi.stubGlobal("crypto", {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(installBluepencilReviewLayer()).resolves.toBe(true);
+
+    const script = loaderScripts()[0];
+    // Requesting the integrity check here would abort the whole attach, so
+    // the layer must load without it instead of silently never mounting.
+    expect(script.hasAttribute("data-integrity")).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("crypto.subtle"));
+
+    warn.mockRestore();
+  });
+
   it("defaults the sidecar environment to dev", async () => {
     vi.unstubAllEnvs();
     enableLayer();
