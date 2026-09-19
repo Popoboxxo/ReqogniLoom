@@ -251,12 +251,18 @@ _ADMIN_ONLY_NAMESPACES = ("admin.", "audit.", "events.", "permissions.", "user."
 #   audit.ai_review    — mirrors the Phase-3 REST endpoint, any authenticated
 #                        caller with workspace access may run it (see the
 #                        "No admin gate" note in AuditToolGroup._handle_ai_review).
+#   audit.se_audit     — issue #410: the same workspace-scoped, read-only
+#                        SE-Auditor run as audit.ai_review, minus the LLM
+#                        wrapping. The required ``workspace_id`` narrows the
+#                        read-scoping gate to that workspace, so it needs no
+#                        admin role (see AuditToolGroup._handle_se_audit).
 #   permissions.check  — self-introspection only: the handler hard-codes
 #                        ``user_id=auth_context.user_id``, so a caller can only
 #                        ask about their own effective permission.
 _ADMIN_NAMESPACE_NON_ADMIN_BY_DESIGN = frozenset(
     {
         "audit.ai_review",
+        "audit.se_audit",
         "permissions.check",
     }
 )
