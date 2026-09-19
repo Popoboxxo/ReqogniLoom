@@ -79,8 +79,14 @@ export function DeriveRequirementForm({
         data-testid={`${testIdPrefix}-derive-btn`}
         className="btn-secondary"
         onClick={onOpen}
+        // Issue #927: the manual derive and the AI derivation are three
+        // distinct actions now; the manual one stays "Ableiten" and carries its
+        // own hint so it is distinguishable from "KI-Ableitung" for screen
+        // readers and on hover.
+        aria-label={t('actions.deriveManual', 'Ableiten')}
+        title={t('actions.deriveManualHint', 'Neue Anforderung manuell anlegen und einem Systemelement zuordnen')}
       >
-        {t('traceability.derive')}
+        {t('actions.deriveManual', 'Ableiten')}
       </button>
     );
   }
@@ -167,7 +173,7 @@ export function DeriveRequirementForm({
           className="btn-primary"
           disabled={isSubmitting}
         >
-          {isSubmitting ? t('actions.deriving', 'Ableiten...') : t('traceability.derive')}
+          {isSubmitting ? t('actions.derivingManual', 'Leitet ab…') : t('actions.deriveManual', 'Ableiten')}
         </button>
       </div>
     </form>

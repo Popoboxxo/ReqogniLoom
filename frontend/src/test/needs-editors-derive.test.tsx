@@ -22,8 +22,8 @@ vi.mock("react-i18next", () => ({
         "needs.deriveStarting": "KI-Ableitung wird gestartet...",
         "needs.deriveFailed": "Ableitung fehlgeschlagen.",
         "needs.deriveEmpty": "Keine Vorschläge erhalten.",
-        "actions.derive": "Ableiten",
-        "actions.deriving": "Leitet ab...",
+        "actions.deriveAi": "KI-Ableitung",
+        "actions.derivingAi": "KI-Ableitung läuft…",
         "deriveRequirements.title": "Systemanforderungen (Entwurf)",
         "deriveRequirements.accept": "Ausgewählte anlegen",
         "deriveRequirements.accepting": "Wird angelegt...",
@@ -196,7 +196,9 @@ const DRAFTS = [
 ];
 
 const clickDerive = async () => {
-  const btn = await screen.findByRole("button", { name: /Ableiten/i });
+  // Issue #927: the AI trigger is "KI-Ableitung" (the manual derive is
+  // "Ableiten"), so match the AI label explicitly.
+  const btn = await screen.findByRole("button", { name: /KI-Ableitung/i });
   await userEvent.click(btn);
 };
 

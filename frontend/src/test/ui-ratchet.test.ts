@@ -499,8 +499,18 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // landing changes (see the P1/P2 and Task 23/24 entries above) the measured
 // value is adopted here; if that wave is reverted rather than landed, this
 // constant has to be re-measured — the badge wave's own isolated value is 812.
+//
+// Issue #926 (Requirements trace-link dialog migration): `ReqTraceLinkPanel`
+// lost its legacy inline create `<form>` (the `<form>` wrapper, its submit
+// error block and its button row all used inline `style={{...}}` literals) and
+// gained the shared `CreateTraceLinkDialog` instead. The new #928 allocation
+// block added by the same change uses hoisted `React.CSSProperties` constants
+// only, so it contributes 0 and the net is a real reduction. Part 2 of the
+// same change also moved `SimilarRequirementsPanel.tsx`'s hand-rolled inline
+// primary button onto the canonical `btn-primary` class (-1). Re-measured on
+// the tree: 805. Baseline lowered to the measured value per the ratchet rule.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 811;
+const STYLE_BRACE_BASELINE = 805;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

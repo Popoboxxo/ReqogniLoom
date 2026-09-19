@@ -100,10 +100,14 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     // direction (ArchitectureElement->Requirement) and could never have been
     // created from here either. "allocated-to" expresses the same intent
     // (this requirement is allocated to this architecture element).
+    // Issue #926: unified CreateTraceLinkDialog instead of the inline form.
     await page.locator('[data-testid="req-tracelink-create-btn"]').click();
-    await page.locator('[data-testid="req-tracelink-target-select"]').selectOption(l1ArchId!);
-    await page.locator('[data-testid="req-tracelink-type-select"]').selectOption('allocated-to');
-    await page.locator('[data-testid="req-tracelink-submit-btn"]').click();
+    await page.locator('[data-testid="create-trace-link-dialog"]').waitFor({ timeout: 8000 });
+    const archTarget = page.locator(`[data-testid="create-trace-link-target-element-${l1ArchId}"]`);
+    await archTarget.waitFor({ timeout: 10000 });
+    await archTarget.click();
+    await page.locator('[data-testid="create-trace-link-type-select"]').selectOption('allocated-to');
+    await page.locator('[data-testid="create-trace-link-submit"]').click();
 
     // Verify link appears in the UI.
     // NOTE: ReqTraceLinkPanel groups links by target artifact type into

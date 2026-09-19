@@ -750,12 +750,22 @@ export default function RequirementEditors(): JSX.Element {
           not find this trigger in the DOM at all. */}
       {hasRole('editor') && (
         <div style={{ marginTop: 'var(--space-2)' }}>
+          {/* Issue #927: distinct "KI-Testfall" label, a real `btn-primary`
+              (was an unstyled browser-default button), decorative icon out of
+              the accessible name and its own hint. */}
           <button
             type="button"
+            className="btn-primary"
             onClick={() => setShowDeriveTestcasePanel(true)}
             data-testid="req-derive-testcase-btn"
+            aria-label={t('actions.deriveAiTestcase', 'KI-Testfall')}
+            title={t(
+              'actions.deriveAiTestcaseHint',
+              'Die KI erzeugt einen Testfall-Entwurf zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
+            )}
           >
-            {t('deriveTestcase.trigger')}
+            <span aria-hidden="true">✨</span>{' '}
+            {t('actions.deriveAiTestcase', 'KI-Testfall')}
           </button>
         </div>
       )}

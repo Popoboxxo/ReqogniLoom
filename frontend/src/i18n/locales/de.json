@@ -48,7 +48,7 @@
     "tests": "Tests",
     "baselines": "Baselines",
     "reviews": "Freigaben",
-    "traceability": "Verknüpfungen",
+    "traceability": "Traceability",
     "impact": "Auswirkungsanalyse",
     "metrics": "SE-Metriken",
     "audit": "SE-Auditor",
@@ -227,13 +227,27 @@
     "dismiss": "Verwerfen",
     "clear": "Zurücksetzen",
     "reset": "Zurücksetzen",
-    "derive": "Ableiten",
-    "deriving": "Leitet ab...",
+    "deriveManual": "Ableiten",
+    "derivingManual": "Leitet ab…",
+    "deriveAi": "KI-Ableitung",
+    "derivingAi": "KI-Ableitung läuft…",
+    "deriveAiTestcase": "KI-Testfall",
+    "derivingAiTestcase": "KI-Testfall wird erzeugt…",
+    "deriveManualHint": "Neue Anforderung manuell anlegen und einem Systemelement zuordnen",
+    "deriveAiHint": "Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung",
+    "deriveAiTestcaseHint": "Die KI erzeugt einen Testfall-Entwurf zur Prüfung – gespeichert wird erst nach deiner Bestätigung",
     "deleting": "Löscht...",
     "confirmDelete": "Ja, löschen",
     "deleteConfirmPrompt": "Löschen?",
     "deleteConfirmPromptNamed": "„{{name}}“ wirklich löschen?",
     "removeTag": "Tag „{{tag}}“ entfernen"
+  },
+  "allocation": {
+    "heading": "Systemelement-Zuordnung",
+    "assign": "Systemelement zuordnen",
+    "assignHint": "Dieses Requirement einem Systemelement (Architekturelement) zuordnen",
+    "none": "Kein Systemelement zugeordnet.",
+    "remove": "Zuordnung entfernen"
   },
   "workflowEditor": {
     "changeStatus": "Status ändern",
@@ -335,7 +349,6 @@
     "retryLoadChildren": "Erneut laden"
   },
   "arch": {
-    "deriveRequirement": "Anforderung ableiten",
     "createFailed": "Architekturelement konnte nicht angelegt werden.",
     "deleteFailed": "Architekturelement konnte nicht gelöscht werden.",
     "reparentFailed": "Architekturelement konnte nicht umgehängt werden.",
@@ -405,7 +418,6 @@
     "target": "Ziel",
     "linkType": "Link-Typ",
     "create": "Neuer Trace Link",
-    "derive": "Ableiten",
     "deriveTitle": "Titel der abgeleiteten Anforderung",
     "deriveTitleRequired": "Bitte einen Titel für die abgeleitete Anforderung eingeben.",
     "deriveArchitectureElement": "Architekturelement (Systemebene)",
@@ -1620,7 +1632,6 @@
     "compressionFailed": "Kompression fehlgeschlagen."
   },
   "deriveTestcase": {
-    "trigger": "Testfall generieren",
     "title": "Testfall-Entwurf",
     "close": "Schließen",
     "generate": "Entwurf generieren",
