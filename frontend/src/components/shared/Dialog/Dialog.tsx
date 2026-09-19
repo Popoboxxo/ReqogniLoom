@@ -123,11 +123,19 @@ export function Dialog({
 
   const handleBackdropMouseDown = useCallback(
     (event: MouseEvent<HTMLDivElement>): void => {
-      if (!closeOnBackdropClick) return;
       // `mousedown` on the overlay itself only: a drag that starts on a
       // text selection inside the panel and ends on the backdrop must not
       // close the dialog.
-      if (event.target === event.currentTarget) onClose();
+      if (event.target !== event.currentTarget) return;
+      // Issue #991: the scrim is an un-focusable div, so the browser's default
+      // mousedown action moves focus to <body> — and it does so *after* React
+      // has already closed the dialog and restored focus to the trigger. That
+      // default action then clobbers the restore, dropping keyboard users at
+      // the top of the page. Suppressing it keeps focus where the trap's
+      // cleanup put it; the close itself is unaffected (the handler still
+      // runs, only the focus/selection side effect is cancelled).
+      event.preventDefault();
+      if (closeOnBackdropClick) onClose();
     },
     [closeOnBackdropClick, onClose],
   );

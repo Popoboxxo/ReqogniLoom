@@ -677,6 +677,13 @@ def _run_semantic_query(
 
     try:
         with transaction.atomic():
+            # Issue #977: a filtered HNSW scan can post-filter away the very
+            # rows it should return (and is capped at ef_search=40). Enable
+            # pgvector's iterative scan for this transaction so the workspace
+            # filter cannot starve the result set. No-op on pgvector < 0.8.
+            from application.pgvector_ann import enable_iterative_ann_scan
+
+            enable_iterative_ann_scan()
             return _dispatch()
     except Exception:
         logger.exception(

@@ -117,12 +117,31 @@ from memory.backends import MemoryBackend, MemoryEntryId, MemoryEntryRef, regist
 #: truncated to what the caller asked for.
 _MAX_PAGE_SIZE = 100
 
-#: Timeout, in seconds, for each network call :meth:`HonchoMemoryBackend.health_check`
-#: makes (the reachability HEAD and the embedding probe POST). Deliberately
-#: local to this module rather than reusing ``admin_ops.health_rest._CHECK_TIMEOUT_S``:
-#: the backend must stay importable without the admin_ops package, and this is a
-#: single bounded probe, never a retry loop.
-_HEALTH_PROBE_TIMEOUT_S = 1.0
+#: Fallback timeout, in seconds, for each network call
+#: :meth:`HonchoMemoryBackend.health_check` makes (the reachability HEAD and the
+#: embedding probe POST). Overridable through ``HEALTH_PROBE_TIMEOUT`` (issue
+#: #990): a hard 1s is below any realistic embedding latency, so a healthy
+#: Ollama/Honcho answered too late and the system-health dialog reported it as
+#: "AUSGEFALLEN". Deliberately resolved from the environment here rather than
+#: importing ``admin_ops.health_rest``: the backend must stay importable without
+#: the admin_ops package, and this is a single bounded probe, never a retry loop.
+_DEFAULT_HEALTH_PROBE_TIMEOUT_S = 10.0
+
+
+def _health_probe_timeout_s() -> float:
+    """Timeout for :meth:`HonchoMemoryBackend.health_check` network calls.
+
+    Reads ``HEALTH_PROBE_TIMEOUT`` (seconds, same env var as
+    ``settings.HEALTH_PROBE_TIMEOUT_SECONDS``) and falls back to
+    :data:`_DEFAULT_HEALTH_PROBE_TIMEOUT_S`. A non-positive or unparsable value
+    falls back too, so a typo can never produce an instant, always-red probe.
+    """
+    raw = os.environ.get("HEALTH_PROBE_TIMEOUT", "")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_HEALTH_PROBE_TIMEOUT_S
+    return value if value > 0 else _DEFAULT_HEALTH_PROBE_TIMEOUT_S
 
 #: Placeholder observer/observed pair used only to reach ``ConclusionScope.delete()``.
 #:
@@ -348,7 +367,7 @@ class HonchoMemoryBackend(MemoryBackend):
         request on every admin health poll, so OpenAI-backed configs incur a
         small token cost and self-hosted ones consume CPU/GPU.
 
-        Both network calls share :data:`_HEALTH_PROBE_TIMEOUT_S`. Like the
+        Both network calls share :func:`_health_probe_timeout_s`. Like the
         sibling ``admin_ops.health_rest`` probes, this uses plain ``requests``
         -- never ``resilient_call`` -- so health traffic cannot trip a shared
         circuit breaker and cause the outage it is meant to report. The
@@ -377,7 +396,7 @@ class HonchoMemoryBackend(MemoryBackend):
             # past the intended bound.
             response = requests.head(
                 self._base_url,
-                timeout=_HEALTH_PROBE_TIMEOUT_S,
+                timeout=_health_probe_timeout_s(),
                 allow_redirects=False,
             )
             if response.status_code >= 500:
@@ -389,7 +408,7 @@ class HonchoMemoryBackend(MemoryBackend):
             probe = requests.post(
                 f"{embedding_base_url.rstrip('/')}/embeddings",
                 json={"model": embedding_model, "input": "ping"},
-                timeout=_HEALTH_PROBE_TIMEOUT_S,
+                timeout=_health_probe_timeout_s(),
             )
             if probe.status_code < 200 or probe.status_code >= 300:
                 return False, (

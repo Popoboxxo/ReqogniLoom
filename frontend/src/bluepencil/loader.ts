@@ -54,6 +54,28 @@ export function isBluepencilEnabledByBuild(): boolean {
   return import.meta.env.VITE_BLUEPENCIL_ENABLED === "1";
 }
 
+/** Warned once per session; see {@link hasWebCrypto} / issue #981. */
+let warnedMissingWebCrypto = false;
+
+/**
+ * Whether the browser exposes `crypto.subtle` (WebCrypto).
+ *
+ * The vendored loader verifies the element bundle against `latest.json`'s
+ * SHA256 through `crypto.subtle`, which browsers only expose in a **secure
+ * context** — HTTPS, `localhost`, `127.0.0.1`, `file:`. On a plain-HTTP origin
+ * with an IP/hostname (every normal LAN/QS deployment, e.g.
+ * `http://172.20.5.120:5173`) the integrity step throws and, with
+ * `data-integrity="true"`, aborts the *whole* attach: the layer silently never
+ * mounts and the only trace is a `console.debug` (issue #981).
+ *
+ * We therefore arm the integrity check only where it can run and otherwise load
+ * the layer without it — the documented, visible-once trade-off — instead of
+ * leaving a correctly-configured deployment looking unconfigured.
+ */
+function hasWebCrypto(): boolean {
+  return typeof crypto !== "undefined" && crypto.subtle !== undefined;
+}
+
 /**
  * Map the app's current i18next language onto bluepencil's `de`/`en`.
  *
@@ -117,6 +139,20 @@ export async function installBluepencilReviewLayer(): Promise<boolean> {
     // The probe is async: a concurrent caller may have injected while we waited.
     if (document.querySelector(`script[${LOADER_MARKER}]`) !== null) return false;
 
+    // Issue #981: on an insecure origin the vendored loader's SHA256 check
+    // cannot run, and requesting it anyway aborts the whole attach. Load
+    // without integrity there and say so once, visibly.
+    const integrity = hasWebCrypto();
+    if (!integrity && !warnedMissingWebCrypto) {
+      warnedMissingWebCrypto = true;
+      console.warn(
+        "[bluepencil] crypto.subtle is unavailable (insecure context, e.g. " +
+          "plain-HTTP LAN origin). Loading the review layer WITHOUT the " +
+          "bundle integrity check. Serve the app over HTTPS or localhost to " +
+          "re-enable verification.",
+      );
+    }
+
     const script = document.createElement("script");
     script.src = LOADER_SRC;
     script.async = true;
@@ -125,7 +161,7 @@ export async function installBluepencilReviewLayer(): Promise<boolean> {
     // `route="url"` is the SPA-correct store key: pathname + search.
     script.setAttribute("data-route", "url");
     script.setAttribute("data-manifest", MANIFEST_URL);
-    script.setAttribute("data-integrity", "true");
+    if (integrity) script.setAttribute("data-integrity", "true");
     script.setAttribute("data-language", await currentLanguage());
     script.setAttribute("data-environment", sidecarEnvironment());
     // Deliberately NOT set (bluepencil defaults are already correct for this

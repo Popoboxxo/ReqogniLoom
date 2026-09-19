@@ -55,6 +55,14 @@ _CHECK_TIMEOUT_S = 1.0
 # "down" on nearly every poll. It therefore gets its own, larger budget.
 _LLM_PROBE_TIMEOUT_S = 8.0
 
+# Issue #990: the network-backed memory/embedding probes get the configurable
+# budget from settings (default 10s). The old hard 1s turned normal embedding
+# latency into a red "AUSGEFALLEN" (e.g. `read timeout=1.0` against Ollama).
+# `_CHECK_TIMEOUT_S` above stays 1s for the in-cluster Redis/Celery checks.
+def _memory_probe_timeout_s() -> float:
+    """The configurable timeout for external memory/embedding probes."""
+    return float(getattr(settings, "HEALTH_PROBE_TIMEOUT_SECONDS", 10.0))
+
 STATUS_OK = "ok"
 STATUS_DEGRADED = "degraded"
 STATUS_DOWN = "down"
@@ -299,8 +307,10 @@ def _check_memory_embedding() -> dict[str, str]:
     ``SystemMemorySettings`` DB override overlaid on the env vars, matching
     what ``get_embedding_provider()`` resolves at real call sites and what
     the sibling ``_check_memory_backend`` already does — but overrides
-    ``timeout`` to ``_CHECK_TIMEOUT_S``. This bounds *network-backed* providers (``ollama``,
-    ``openai``) to ~1s. The default in-process ``sentence-transformers``
+    ``timeout`` to the configurable ``HEALTH_PROBE_TIMEOUT`` (default 10s,
+    issue #990). This bounds *network-backed* providers (``ollama``,
+    ``openai``) to a realistic budget instead of the old hard 1s. The default
+    in-process ``sentence-transformers``
     provider ignores ``config.timeout`` entirely -- its ``encode()`` call is
     local/CPU-bound, not network I/O, so there is nothing to time out; a cold
     model load or a slow CPU can still take longer than ~1s for that provider.
@@ -333,7 +343,7 @@ def _check_memory_embedding() -> dict[str, str]:
             get_embedding_provider,
         )
 
-        cfg = dataclasses.replace(_read_config(), timeout=_CHECK_TIMEOUT_S)
+        cfg = dataclasses.replace(_read_config(), timeout=_memory_probe_timeout_s())
         provider = get_embedding_provider(cfg)
 
         if isinstance(provider, SentenceTransformersEmbeddingProvider):

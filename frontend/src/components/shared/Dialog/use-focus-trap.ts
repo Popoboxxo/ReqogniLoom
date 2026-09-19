@@ -225,6 +225,22 @@ export function useFocusTrap({
       document.removeEventListener("focusin", handleFocusIn);
       if (restoreFocus && previouslyFocused?.isConnected) {
         previouslyFocused.focus();
+        // Issue #991: dismissing via a pointer (scrim click, outside click)
+        // makes the browser move focus to `<body>` as the default action of
+        // the very mousedown/click that closed the overlay — and it can do so
+        // *after* this cleanup has already restored the trigger, clobbering
+        // the restore and dropping a keyboard user at the top of the document.
+        // Re-assert the restore on the next frame, but only when focus
+        // actually fell to the document body: if the user or another handler
+        // moved focus somewhere meaningful in the meantime, that wins.
+        const target = previouslyFocused;
+        window.requestAnimationFrame(() => {
+          if (!target.isConnected) return;
+          const active = document.activeElement;
+          if (active === null || active === document.body) {
+            target.focus();
+          }
+        });
       }
     };
   }, [containerRef, enabled, initialFocusRef, restoreFocus]);
