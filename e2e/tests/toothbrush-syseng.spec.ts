@@ -1,4 +1,4 @@
-import { test, expect, request } from '@playwright/test';
+import { test, expect, request, type APIRequestContext } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId } from '../helpers/auth';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
@@ -6,6 +6,46 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 /** Must match WORKSPACE_NAME in the seed_toothbrush management command. */
 const WORKSPACE_NAME = 'Zahnbürste SysEng Demo';
+
+/**
+ * Create a throwaway requirement in the big seeded workspace (issue #947).
+ *
+ * The mass-edit test used to edit a *seeded* MISRA requirement and assert the
+ * transition target. That made it depend on the artifact's accumulated state:
+ * after one run it sits in `in_review`, whose first offered transition is the
+ * preset-gated `approved` (needs acceptance_criteria + description), so a
+ * re-run failed deterministically. A dedicated artifact always starts in
+ * `draft` (ungated draft -> in_review), so the test is state-independent.
+ */
+async function createMassEditRequirement(
+  api: APIRequestContext,
+  token: string,
+  workspaceId: string,
+  title: string
+): Promise<{ id: string }> {
+  const response = await api.post(`${BACKEND_URL}/api/v1/requirements/`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      workspace_id: workspaceId,
+      title,
+      description: 'Created by toothbrush-syseng.spec.ts (mass-edit fixture)',
+      acceptance_criteria: 'Given an editor, when a transition is applied, then the status updates.',
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as { id: string };
+}
+
+/** Soft-delete the fixture (204); keeps re-runs from growing the workspace. */
+async function deleteRequirement(
+  api: APIRequestContext,
+  token: string,
+  id: string
+): Promise<void> {
+  await api.delete(`${BACKEND_URL}/api/v1/requirements/${id}/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
 
 let workspaceId: string = '';
 
@@ -122,43 +162,46 @@ test.describe('Zahnbürste SysEng Demo', () => {
     await expect(page.locator('text=Nightly Build Test Run').first()).toBeVisible({ timeout: 30000 });
   });
 
-  test('should support mass-edit without crashing', async ({ page }) => {
+  test('should support mass-edit without crashing', async ({ page, request: api }) => {
     test.setTimeout(90000); // large seeded workspace — see note above
-    await page.goto(`${FRONTEND_URL}/requirements`);
-    await page.getByTestId('req-list-search-input').fill('MISRA');
-    await expect(page.locator('text=Der C-Code für das OTA-Modul muss MISRA-C kompatibel sein.').first()).toBeVisible({ timeout: 30000 });
-    
-    // In the new Card UI, mass-edit checkboxes might not exist.
-    // Instead, we will simulate opening an element and editing its status, then saving.
-    await page.locator('text=Der C-Code für das OTA-Modul muss MISRA-C kompatibel sein.').first().click();
-    
-    // Wait for form to open, then drive the transition via the
-    // WorkflowStatusEditor's trigger + menu (REQ-161).
-    //
-    // Take whichever transition the state machine actually offers rather than
-    // naming one: the seeded requirements start in `draft`, where the extended
-    // preset allows only draft -> in_review ("approved" is reachable from
-    // in_review only), and a rerun against an already-transitioned artifact
-    // would otherwise look for an option that is gone.
-    await page.getByTestId('workflow-transition-trigger').click();
-    const firstOption = page
-      .getByTestId('workflow-transition-menu')
-      .locator('[data-testid^="workflow-transition-option-"]')
-      .first();
-    await expect(firstOption).toBeVisible({ timeout: 10000 });
-    const targetState = (await firstOption.getAttribute('data-testid'))!
-      .replace('workflow-transition-option-', '');
-    await firstOption.click();
+    // Issue #947: drive a dedicated fixture instead of a seeded artifact, so
+    // the assertion does not depend on state left by a previous run.
+    const token = await getAuthToken();
+    const title = `E2E mass-edit ${Date.now()}`;
+    const created = await createMassEditRequirement(api, token, workspaceId, title);
 
-    // requires_change_reason is true on every extended-preset transition, so
-    // the editor prompts before it sends the POST.
-    const reasonPrompt = page.getByTestId('workflow-reason-prompt');
-    if (await reasonPrompt.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await page.getByTestId('workflow-reason-input').fill(`E2E: move to ${targetState}`);
-      await page.getByTestId('workflow-reason-confirm').click();
+    try {
+      await page.goto(`${FRONTEND_URL}/requirements`);
+      await page.getByTestId('req-list-search-input').fill(title);
+      const card = page.locator(`text=${title}`).first();
+      await expect(card).toBeVisible({ timeout: 30000 });
+
+      // Open the artifact and drive the transition via the
+      // WorkflowStatusEditor's trigger + menu (REQ-161).
+      await card.click();
+
+      await page.getByTestId('workflow-transition-trigger').click();
+      const firstOption = page
+        .getByTestId('workflow-transition-menu')
+        .locator('[data-testid^="workflow-transition-option-"]')
+        .first();
+      await expect(firstOption).toBeVisible({ timeout: 10000 });
+      const targetState = (await firstOption.getAttribute('data-testid'))!
+        .replace('workflow-transition-option-', '');
+      await firstOption.click();
+
+      // requires_change_reason is true on every extended-preset transition, so
+      // the editor prompts before it sends the POST.
+      const reasonPrompt = page.getByTestId('workflow-reason-prompt');
+      if (await reasonPrompt.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await page.getByTestId('workflow-reason-input').fill(`E2E: move to ${targetState}`);
+        await page.getByTestId('workflow-reason-confirm').click();
+      }
+
+      // Check if updated in the status badge
+      await expect(page.getByTestId('workflow-current-status')).toContainText(targetState, { timeout: 30000 });
+    } finally {
+      await deleteRequirement(api, token, created.id);
     }
-
-    // Check if updated in the status badge
-    await expect(page.getByTestId('workflow-current-status')).toContainText(targetState, { timeout: 30000 });
   });
 });

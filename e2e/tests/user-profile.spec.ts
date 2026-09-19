@@ -34,9 +34,12 @@ test.describe('User Profile Settings', () => {
     // Toggle the checkbox
     await diagramsCheckbox.click();
     
-    // Wait for the reset button to appear (indicating an override is active)
+    // Wait for the reset button to become *enabled* (indicating the override
+    // is active). Visibility alone is not enough: the button is always in the
+    // DOM but stays disabled until the toggle has been persisted, so under
+    // load the click below raced the persist and timed out (issue #947).
     const resetBtn = page.locator('[data-testid="visibility-reset-diagrams"]');
-    await expect(resetBtn).toBeVisible({ timeout: 10000 });
+    await expect(resetBtn).toBeEnabled({ timeout: 15000 });
     
     // Reset the override
     await resetBtn.click();
