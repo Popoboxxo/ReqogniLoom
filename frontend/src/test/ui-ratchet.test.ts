@@ -507,10 +507,13 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // block added by the same change uses hoisted `React.CSSProperties` constants
 // only, so it contributes 0 and the net is a real reduction. Part 2 of the
 // same change also moved `SimilarRequirementsPanel.tsx`'s hand-rolled inline
-// primary button onto the canonical `btn-primary` class (-1). Re-measured on
-// the tree: 805. Baseline lowered to the measured value per the ratchet rule.
+// primary button onto the canonical `btn-primary` class (-1). The
+// design-system control-standard change (issue #986) then moved
+// WorkspaceSettings' page-local layout onto `WorkspaceSettings.module.css` and
+// the AppShell's route host onto `AppShell.module.css` (-21). Re-measured on
+// the tree: 784. Baseline lowered to the measured value per the ratchet rule.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 805;
+const STYLE_BRACE_BASELINE = 784;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

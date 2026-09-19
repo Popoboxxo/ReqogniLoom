@@ -15,6 +15,13 @@
  * (Llm/PromptTemplate/Workflows/Permissions/BackupRestore) already render their
  * own consistently-styled <section> cards, so they are embedded unchanged.
  *
+ * Issue #986: the page itself now uses the shared control standard — the
+ * canonical `.btn-*` classes for every button and `.field-input`/`.field-select`
+ * for inputs/selects — with all page-local layout in
+ * `WorkspaceSettings.module.css`. No inline `style={{...}}` block remains here;
+ * the previous ad-hoc `primaryButtonStyle`/`selectStyle`/tab geometry (the
+ * "10 style signatures for 22 buttons" the issue measured) is gone.
+ *
  * Issue #119 resolved the former overlap between the (unused, `ai_prompts`-blob
  * based) `AiPromptsSection` and `PromptTemplateSection`: there is now a single
  * `AiPromptsSection` backed by the `/prompt-templates/slots/` API, covering
@@ -44,6 +51,7 @@ import { MemorySettingsSection } from "./MemorySettingsSection";
 import { useLinkTypes } from "../../context/LinkTypeContext";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
+import styles from "./WorkspaceSettings.module.css";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -226,90 +234,16 @@ export default function WorkspaceSettings(): JSX.Element {
     }
   }, [activeWorkspace, name, reloadWorkspaces]);
 
-  // ---- Shared styles (REQ-015: single card/heading system) ----
-
-  const cardStyle: React.CSSProperties = {
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-lg)",
-    padding: "var(--space-5)",
-    marginBottom: "var(--space-5)",
-    boxShadow: "var(--shadow-card)",
-  };
-
-  const headingStyle: React.CSSProperties = {
-    fontSize: "var(--font-size-lg)",
-    fontWeight: 600,
-    color: "var(--color-text)",
-    margin: "0 0 var(--space-4) 0",
-  };
-
-  const hintStyle: React.CSSProperties = {
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-text-muted)",
-    margin: "0 0 var(--space-4) 0",
-  };
-
-  const labelStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--space-3)",
-    padding: "var(--space-2) 0",
-    cursor: "pointer",
-    fontSize: "var(--font-size-base)",
-  };
-
-  const palettePickerStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    gap: "var(--space-1)",
-  };
-
-  const modePickerStyle: React.CSSProperties = {
-    display: "flex",
-    gap: "var(--space-2)",
-    marginTop: "var(--space-2)",
-  };
-
-  const fieldLabelStyle: React.CSSProperties = {
-    display: "block",
-    marginBottom: "var(--space-2)",
-    fontWeight: 600,
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-text)",
-  };
-
-  const selectStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "var(--space-2) var(--space-3)",
-    borderRadius: "var(--radius-md)",
-    border: "1px solid var(--color-border)",
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text)",
-    fontSize: "var(--font-size-sm)",
-  };
-
-  const primaryButtonStyle: React.CSSProperties = {
-    background: "var(--color-primary)",
-    color: "var(--color-on-primary)",
-    border: "none",
-    borderRadius: "var(--radius-md)",
-    padding: "var(--space-2) var(--space-4)",
-    fontSize: "var(--font-size-sm)",
-    fontWeight: 600,
-    cursor: "pointer",
-  };
-
   // Early returns AFTER hooks to keep hook order stable across renders.
   if (!activeWorkspace) {
-    return <p style={{ padding: "var(--space-6)" }}>{t("errors.generic")}</p>;
+    return <p className={styles.notice}>{t("errors.generic")}</p>;
   }
 
   if (!isAdmin) {
     return (
-      <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
+      <div className={styles.notice}>
         <PageHeader title={t("nav.settings")} />
-        <p style={{ color: "var(--color-warning)" }}>
+        <p className={styles.noticeText}>
           {t("settings.adminOnly", "You must be an admin to view or edit Workspace Settings. Please visit the Profile dialog for personal preferences.")}
         </p>
       </div>
@@ -328,7 +262,7 @@ export default function WorkspaceSettings(): JSX.Element {
   ];
 
   return (
-    <div data-testid="workspace-settings" style={{ maxWidth: "860px", margin: "0 auto", padding: "var(--space-6)" }}>
+    <div data-testid="workspace-settings" className={styles.page}>
       <PageHeader
         title={t("nav.settings")}
         summary={t(
@@ -342,14 +276,8 @@ export default function WorkspaceSettings(): JSX.Element {
         role="tablist"
         aria-label={t("nav.settings")}
         data-testid="settings-tablist"
+        className={styles.tablist}
         onKeyDown={(e) => handleTablistKeyDown(e, SETTINGS_TAB_IDS, activeTab, setActiveTab)}
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "var(--space-1)",
-          borderBottom: "1px solid var(--color-border)",
-          marginBottom: "var(--space-5)",
-        }}
       >
         {TABS.map((tab) => {
           const isTabActive = activeTab === tab.id;
@@ -364,21 +292,7 @@ export default function WorkspaceSettings(): JSX.Element {
               aria-controls={`settings-panel-${tab.id}`}
               tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setActiveTab(tab.id)}
-              style={{
-                appearance: "none",
-                background: "transparent",
-                border: "none",
-                borderBottom: isTabActive
-                  ? "2px solid var(--color-primary)"
-                  : "2px solid transparent",
-                color: isTabActive ? "var(--color-text)" : "var(--color-text-muted)",
-                fontWeight: isTabActive ? 600 : 500,
-                fontSize: "var(--font-size-sm)",
-                padding: "var(--space-3) var(--space-4)",
-                marginBottom: "-1px",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
+              className={styles.tab}
             >
               {tab.label}
             </button>
@@ -396,32 +310,22 @@ export default function WorkspaceSettings(): JSX.Element {
         {activeTab === "general" && (
           <>
             {/* Workspace Name */}
-            <section style={cardStyle}>
-              <h3 id="workspace-name-heading" style={headingStyle}>{t("settings.workspaceName", "Workspace Name")}</h3>
-              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <section className={styles.card}>
+              <h3 id="workspace-name-heading" className={styles.heading}>{t("settings.workspaceName", "Workspace Name")}</h3>
+              <div className={styles.row}>
                 <input
                   data-testid="workspace-name-input"
                   aria-labelledby="workspace-name-heading"
                   value={name}
                   onChange={(e) => { setName(e.target.value); setSavedOk(false); }}
-                  style={{
-                    flex: 1,
-                    background: "var(--color-surface-raised)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-2) var(--space-3)",
-                    color: "var(--color-text)",
-                    fontSize: "var(--font-size-base)",
-                  }}
+                  className="field-input"
                 />
                 <button
+                  type="button"
+                  className="btn-primary"
                   data-testid="workspace-name-save"
                   onClick={() => void handleSaveName()}
                   disabled={isSaving || !name.trim() || name === activeWorkspace.name}
-                  style={{
-                    ...primaryButtonStyle,
-                    opacity: (isSaving || !name.trim() || name === activeWorkspace.name) ? 0.5 : 1,
-                  }}
                 >
                   {isSaving ? "…" : t("actions.save")}
                 </button>
@@ -429,8 +333,8 @@ export default function WorkspaceSettings(): JSX.Element {
             </section>
 
             {/* Preset */}
-            <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.preset")}</h3>
+            <section className={styles.card}>
+              <h3 className={styles.heading}>{t("settings.preset")}</h3>
               <div data-testid="preset-selector">
                 {(["minimal", "standard", "extended"] as WorkspacePreset[]).map((preset) => {
                   const features = PRESET_FEATURES[preset];
@@ -438,14 +342,7 @@ export default function WorkspaceSettings(): JSX.Element {
                   return (
                     <label
                       key={preset}
-                      style={{
-                        ...labelStyle,
-                        background: isActive ? "rgba(var(--color-primary-rgb), 0.08)" : "transparent",
-                        borderRadius: "var(--radius-md)",
-                        padding: "var(--space-3)",
-                        border: isActive ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
-                        marginBottom: "var(--space-2)",
-                      }}
+                      className={`${styles.optionCard} ${isActive ? styles.optionCardActive : ""}`}
                     >
                       <input
                         type="radio"
@@ -456,10 +353,10 @@ export default function WorkspaceSettings(): JSX.Element {
                         data-testid={`preset-option-${preset}`}
                       />
                       <div>
-                        <div style={{ fontWeight: 600, textTransform: "capitalize" }}>{preset}</div>
+                        <div className={styles.optionTitle}>{preset}</div>
                         <div
                           data-testid={`preset-features-${preset}`}
-                          style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginTop: "2px" }}
+                          className={styles.optionMeta}
                         >
                           <div>{features.baselines ? "✓" : "✗"} {t("settings.presets.baselines", "Baselines")}</div>
                           <div>
@@ -477,20 +374,12 @@ export default function WorkspaceSettings(): JSX.Element {
             </section>
 
             {/* Terminology Profile */}
-            <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.terminologyProfile")}</h3>
+            <section className={styles.card}>
+              <h3 className={styles.heading}>{t("settings.terminologyProfile")}</h3>
               {(["dev_mode", "se_mode"] as TerminologyProfile[]).map((profile) => (
                 <label
                   key={profile}
-                  style={{
-                    ...labelStyle,
-                    padding: "var(--space-3)",
-                    borderRadius: "var(--radius-md)",
-                    border: activeWorkspace.terminology_profile === profile
-                      ? "1px solid var(--color-primary)"
-                      : "1px solid var(--color-border)",
-                    marginBottom: "var(--space-2)",
-                  }}
+                  className={`${styles.optionCard} ${activeWorkspace.terminology_profile === profile ? styles.optionCardActive : ""}`}
                 >
                   <input
                     type="radio"
@@ -501,10 +390,10 @@ export default function WorkspaceSettings(): JSX.Element {
                     data-testid={`profile-option-${profile}`}
                   />
                   <div>
-                    <div style={{ fontWeight: 600 }}>
+                    <div className={styles.optionTitle}>
                       {profile === "dev_mode" ? t("settings.devMode") : t("settings.seMode")}
                     </div>
-                    <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                    <div className={styles.optionMeta}>
                       {profile === "dev_mode" ? t("settings.devModeHint", "Feature / Story / Task") : t("settings.seModeHint", "System / Subsystem / Component")}
                     </div>
                   </div>
@@ -513,9 +402,9 @@ export default function WorkspaceSettings(): JSX.Element {
             </section>
 
             {/* Ziele (Goal/MainGoal, REQ-L2-TE-020) — feature + AI-generation toggle */}
-            <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.goals", "Ziele")}</h3>
-              <label style={labelStyle}>
+            <section className={styles.card}>
+              <h3 className={styles.heading}>{t("settings.goals", "Ziele")}</h3>
+              <label className={styles.controlRow}>
                 <input
                   type="checkbox"
                   data-testid="goals-enabled-checkbox"
@@ -532,7 +421,7 @@ export default function WorkspaceSettings(): JSX.Element {
                 />
                 {t("settings.goalsEnabled", "Ziele-Feature aktivieren")}
               </label>
-              <label style={labelStyle}>
+              <label className={styles.controlRow}>
                 <input
                   type="checkbox"
                   data-testid="goals-ai-enabled-checkbox"
@@ -553,20 +442,13 @@ export default function WorkspaceSettings(): JSX.Element {
             </section>
 
             {/* Data Management — link to the CSV import page (REQ-L0-013) */}
-            <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.dataManagement", "Datenmanagement")}</h3>
+            <section className={styles.card}>
+              <h3 className={styles.heading}>{t("settings.dataManagement", "Datenmanagement")}</h3>
               <button
                 type="button"
+                className="btn-secondary"
                 data-testid="settings-csv-import-btn"
                 onClick={() => navigate("/import")}
-                style={{
-                  appearance: "none",
-                  border: "1px solid var(--color-border)",
-                  background: "var(--color-surface)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  cursor: "pointer",
-                }}
               >
                 {t("settings.csvImport", "CSV-Import")}
               </button>
@@ -591,10 +473,10 @@ export default function WorkspaceSettings(): JSX.Element {
         {activeTab === "appearance" && (
           <>
             {/* Language */}
-            <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.language")}</h3>
+            <section className={styles.card}>
+              <h3 className={styles.heading}>{t("settings.language")}</h3>
               {["de", "en"].map((lang) => (
-                <label key={lang} style={{ ...labelStyle, marginBottom: "var(--space-1)" }}>
+                <label key={lang} className={styles.controlRow}>
                   <input
                     type="radio"
                     name="language"
@@ -609,25 +491,26 @@ export default function WorkspaceSettings(): JSX.Element {
             </section>
 
             {/* Theme (Theme Presets): independent palette + mode pickers */}
-            <section style={cardStyle}>
-              <h3 style={headingStyle}>{t("settings.theme")}</h3>
-              <div data-testid="theme-palette-picker" style={palettePickerStyle}>
+            <section className={styles.card}>
+              <h3 className={styles.heading}>{t("settings.theme")}</h3>
+              <div data-testid="theme-palette-picker" className={styles.palettePicker}>
                 {palettes.map((p) => (
                   <button
                     key={p.key}
                     type="button"
+                    className={styles.paletteOption}
                     data-testid={`theme-palette-option-${p.key}`}
                     aria-pressed={p.key === paletteKey}
                     onClick={() => setPreference(p.key, mode)}
-                    style={labelStyle}
                   >
                     {p.label}
                   </button>
                 ))}
               </div>
-              <div data-testid="theme-mode-picker" style={modePickerStyle}>
+              <div data-testid="theme-mode-picker" className={styles.modePicker}>
                 <button
                   type="button"
+                  className={`btn-secondary ${styles.modeButton}`}
                   data-testid="theme-mode-dark"
                   aria-pressed={mode === "dark"}
                   onClick={() => setPreference(paletteKey, "dark")}
@@ -636,6 +519,7 @@ export default function WorkspaceSettings(): JSX.Element {
                 </button>
                 <button
                   type="button"
+                  className={`btn-secondary ${styles.modeButton}`}
                   data-testid="theme-mode-light"
                   aria-pressed={mode === "light"}
                   onClick={() => setPreference(paletteKey, "light")}
@@ -649,13 +533,13 @@ export default function WorkspaceSettings(): JSX.Element {
 
         {/* ---------------- Traceability ---------------- */}
         {activeTab === "traceability" && (
-          <section style={cardStyle}>
-            <h3 style={headingStyle}>{t("settings.traceability", "Traceability")}</h3>
-            <p style={hintStyle}>
+          <section className={styles.card}>
+            <h3 className={styles.heading}>{t("settings.traceability", "Traceability")}</h3>
+            <p className={styles.hint}>
               {t("settings.traceabilityHint", "Konfiguriere, welcher Trace Link Typ standardmäßig beim Herunterbruch (Ableiten) von Requirements verwendet werden soll.")}
             </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-              <label style={fieldLabelStyle}>
+            <div className={styles.fieldStack}>
+              <label className={styles.fieldLabel}>
                 {t("settings.decompositionLinkType", "Decomposition Link Typ")}
               </label>
               <select
@@ -669,7 +553,7 @@ export default function WorkspaceSettings(): JSX.Element {
                     .then(() => setSavedOk(true))
                     .catch(err => setSaveError(err?.error?.message ?? String(err)));
                 }}
-                style={selectStyle}
+                className="field-select"
                 data-testid="decomposition-link-type-select"
               >
                 {creatableLinkTypes.map((row) => (
@@ -684,8 +568,8 @@ export default function WorkspaceSettings(): JSX.Element {
             </div>
 
             {/* Standard Trace Link Type — REQ-006 */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginTop: "var(--space-4)" }}>
-              <label style={fieldLabelStyle}>
+            <div className={`${styles.fieldStack} ${styles.fieldStackSpaced}`}>
+              <label className={styles.fieldLabel}>
                 {t("settings.defaultLinkType", "Standard-Linktyp")}
               </label>
               <select
@@ -699,7 +583,7 @@ export default function WorkspaceSettings(): JSX.Element {
                     .then(() => setSavedOk(true))
                     .catch(err => setSaveError(err?.error?.message ?? String(err)));
                 }}
-                style={selectStyle}
+                className="field-select"
                 data-testid="default-link-type-select"
               >
                 {creatableLinkTypes.map((row) => (
@@ -753,12 +637,12 @@ export default function WorkspaceSettings(): JSX.Element {
 
       {/* Status (shared across tabs) */}
       {saveError && (
-        <div role="alert" style={{ color: "var(--color-danger)", padding: "var(--space-3)", background: "var(--color-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-danger)" }}>
+        <div role="alert" className={styles.errorBanner}>
           {saveError}
         </div>
       )}
       {savedOk && (
-        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success)", padding: "var(--space-3)" }}>
+        <div data-testid="settings-saved-ok" className={styles.savedBanner}>
           {t("settings.saved")}
         </div>
       )}

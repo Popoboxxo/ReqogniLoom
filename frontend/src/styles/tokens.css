@@ -816,6 +816,17 @@
   --btn-h-lg: 44px;
   --radius-btn: var(--radius-sm);
 
+  /*
+   * Control standard (issue #986). One border width for every control
+   * (button/input/select/textarea) and one control font size, so the
+   * settings surface stops mixing 0.6667px/1px borders and 13.33px/14px
+   * labels. `1px` deliberately: a fractional border renders as a blurry
+   * hairline or a rounded 1px depending on zoom/DPR.
+   */
+  --control-border-width: 1px;
+  --control-font-size: var(--font-size-sm);
+  --control-focus-ring: 2px solid var(--color-focus);
+
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);

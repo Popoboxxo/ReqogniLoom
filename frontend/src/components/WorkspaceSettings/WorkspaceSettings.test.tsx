@@ -199,6 +199,25 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByLabelText("Workspace Name")).toBe(screen.getByTestId("workspace-name-input"));
   });
 
+  // Issue #986: the settings surface must not leave a button to the browser
+  // default. Every button on the page carries a control class (a global
+  // `.btn-*` for actions, the page module's `.tab`/`.paletteOption` for the
+  // tab and palette controls). This is the enforceable half of the control
+  // standard the issue asks for.
+  it("leaves no button on the settings page without a control class (#986)", async () => {
+    render(<WorkspaceSettings />);
+    const assertEveryButtonIsClassed = (): void => {
+      const buttons = screen.getAllByRole("button");
+      expect(buttons.length).toBeGreaterThan(0);
+      for (const button of buttons) {
+        expect(button.className, `"${button.textContent ?? ""}" has no class`).not.toBe("");
+      }
+    };
+    assertEveryButtonIsClassed();
+    await userEvent.click(screen.getByTestId("settings-tab-appearance"));
+    assertEveryButtonIsClassed();
+  });
+
   it("#609: opens directly on the LLM tab when deep-linked via ?tab=llm", () => {
     mockSearchParams.current = new URLSearchParams("tab=llm");
     render(<WorkspaceSettings />);
