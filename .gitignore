@@ -90,3 +90,8 @@ docs/test-reports/e2e/
 .claude/rules/threat-model-4-questions.md
 .claude/rules/security-paved-roads.md
 .claude/rules/se-cascade-artifact-taxonomy.md
+
+# Proof artefacts from e2e/tests/system-proof-journey.spec.ts (screenshots +
+# captured JSON-RPC/REST bodies). Regenerated on every run, so they are not
+# tracked - the spec is the durable artefact, these are its evidence.
+e2e/proof/

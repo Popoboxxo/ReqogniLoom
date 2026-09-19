@@ -235,6 +235,14 @@ export function ArtifactForm({
   const isCreateMode = artifactId === null;
   const changeReasonNeeded = requiresChangeReason && artifactId !== null && !isReadOnly;
   const changeReasonMissing = changeReasonNeeded && !changeReason.trim();
+  // Issue #977 (proof-journey finding): track "the save was refused for a
+  // missing change reason" separately from the shared form banner, so the
+  // message can also render at the field the user has to fill.
+  const [changeReasonInvalid, setChangeReasonInvalid] = useState(false);
+  const changeReasonRef = useRef<HTMLInputElement | null>(null);
+  // Only one ArtifactForm is mounted per detail pane, so a static id is safe
+  // here and keeps the input's `aria-describedby` resolvable.
+  const changeReasonErrorId = "artifact-form-change-reason-error";
 
   // `initialValues` is an object prop and every realistic call site builds it
   // inline from the fetched artifact, so both its IDENTITY and its key ORDER
@@ -493,10 +501,18 @@ export function ArtifactForm({
     if (saving || missingCreateValue) return;
     if (changeReasonMissing) {
       setFormError(t("artifactForm.changeReasonRequired"));
+      setChangeReasonInvalid(true);
+      // Issue #977 (proof-journey finding): the change-reason field sits below
+      // every section, so refusing the save without moving the user there left
+      // them staring at a form that silently did nothing. Land them on the
+      // field that has to be filled — the same "error next to its cause"
+      // contract the field-level `role="alert"` already follows.
+      changeReasonRef.current?.focus();
       return;
     }
     setSaving(true);
     setFormError(null);
+    setChangeReasonInvalid(false);
     setFieldErrors({});
     // Issue #886: the backend's payload contract forbids sending a value for a
     // non-editable attribute on an update (see `payload.ts`). Discriminating
@@ -769,13 +785,32 @@ export function ArtifactForm({
             {t("artifactForm.changeReason")}
           </span>
           <input
-            className={styles.control}
+            className={`${styles.control} ${changeReasonInvalid ? styles.controlInvalid : ""}`}
             data-testid="artifact-form-change-reason"
             type="text"
             value={changeReason}
+            ref={changeReasonRef}
             aria-required="true"
-            onChange={(event) => setChangeReason(event.target.value)}
+            aria-invalid={changeReasonInvalid || undefined}
+            aria-describedby={changeReasonInvalid ? changeReasonErrorId : undefined}
+            onChange={(event) => {
+              setChangeReason(event.target.value);
+              if (changeReasonInvalid) {
+                setChangeReasonInvalid(false);
+                setFormError(null);
+              }
+            }}
           />
+          {changeReasonInvalid ? (
+            // Issue #977 (proof-journey finding): the save was refused, but the
+            // reason appeared only in the banner at the very top of the form
+            // while this field sits below every section. A user who clicked
+            // Save saw nothing happen where they were looking. The message now
+            // also sits at the field, and focus moves there on refusal.
+            <span className={styles.errors} id={changeReasonErrorId} role="alert">
+              {t("artifactForm.changeReasonRequired")}
+            </span>
+          ) : null}
         </label>
       ) : null}
 
