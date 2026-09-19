@@ -642,35 +642,54 @@ abstimmen**, dann hier die Konstante setzen — sonst wird die Reihenfolge zweim
 
 ---
 
-### I-10 · P0: Escape/Outside-Click-Regressionen schließen (#985)
+### I-10 · P0: Escape/Outside-Click-Regressionen schließen (#985) — **ERLEDIGT**
 
-**Bezug:** Issue **#985** (`bug, ui/ux, frontend, a11y`). Vom Autor **heute neu** gemeldet, auf
-`v1.8.0-beta.12` reproduziert. Eigenständig, hohe Wirkung, kleiner Umfang — **sofort**.
+**Bezug:** Issue **#985** (`bug, ui/ux, frontend, a11y`). Vom Autor am 2026-09-18 gemeldet, auf
+`v1.8.0-beta.12` reproduziert. Umgesetzt und gemergt über PR **#992** (Squash `4c515640`),
+Issue **geschlossen**.
 
 Gemeldet und reproduziert:
-| Overlay | Testid | Ergebnis |
+| Overlay | Testid | Ergebnis vorher |
 |---|---|---|
-| Notification-Popover | `notification-bell-dropdown` | bleibt nach Außenklick offen, bleibt nach Escape offen |
-| System-Health-Dialog | `system-health-dialog-overlay` | bleibt nach Escape offen; Tastaturnutzer haben **keinen** Ausgang |
+| Notification-Popover | `notification-bell-dropdown` | blieb nach Außenklick offen, blieb nach Escape offen |
+| System-Health-Dialog | `system-health-dialog-overlay` | blieb nach Escape offen; Tastaturnutzer hatten **keinen** Ausgang |
 
-- [ ] **Beide reproduzieren** (headless, wie im Issue beschrieben) und die Ursache
-      feststellen: Nutzen beide die `shared/Dialog`-Primitive (dann ist die Primitive
-      defekt) oder sind es **eigene** Overlays (dann ist es derselbe Fehler wie Audit F-02)?
-- [ ] **Falls eigene Overlays:** auf `shared/Dialog` migrieren — das ist gleichzeitig die
-      Umsetzung von Audit **F-03/F-04** und senkt die Overlay-Zahl.
-- [ ] **Falls die Primitive defekt ist:** in `Dialog.tsx` beheben und die Wirkung auf **alle
-      26 Konsumenten** prüfen (das Audit hat Escape + Fokus-Rückgabe als **vorhanden**
-      belegt — also ist der wahrscheinlichste Fall ein Eigenbau-Overlay).
-- [ ] **Pullover:** Die im Issue erwähnte zweite Sache — der Health-Dialog meldet
-      `AUSGEFALLEN` für LLM/Memory, während `GET /health/` gleichzeitig `ok` sagt — ist
-      **nicht** Teil dieser Aufgabe. Als eigenes Issue bestätigen oder in #985 abtrennen.
-- [ ] **E2E-Regression ergänzen:** je ein Test „Escape schließt Overlay X" und „Außenklick
-      schließt Popover" in `e2e/tests/` — sonst kehrt die Regression zurück. Die Suite
-      verlangt einen sauberen Console, also auch `expect(consoleMessages).toEqual([])`.
-- [ ] `Fixes #985`.
+- [x] **Beide reproduziert.** Ergebnis der Prüfung, das die Plan-Annahme **widerlegt** hat:
+      Der System-Health-Dialog nutzt die `shared/Dialog`-Primitive **korrekt** — er war *nicht*
+      ein Eigenbau-Overlay (entgegen Audit **F-04**). Der Popover war die einzige
+      Eigenbau-Stelle.
+- [x] **Popover** (`NotificationBell.tsx`): Escape + Außenklick ergänzt, `pointerdown` statt
+      `click` (sonst fängt derselbe Listener den öffnenden Klick), Escape in der
+      Capture-Phase mit `stopPropagation` — gleiche Precedence wie der Trap.
+- [x] **Echte Wurzel im `useFocusTrap` gefunden und behoben:** Escape hing an einem
+      **Bubble-Phase-`keydown` am Container**, feuerte also nur, wenn der Fokus bereits im
+      Panel lag. Auf dem Desktop hält das, auf dem CI-Runner nicht — dort war
+      `document.activeElement` = `body`, der Container sah die Taste nie, Escape tat nichts.
+      **Erst der CI-Lauf hat das aufgedeckt**; lokal war alles grün. Jetzt
+      Dokument-Capture-Phase + `[role="dialog"]`-Nesting-Guard; Tab bleibt am Container.
+- [x] **Beweis statt Behauptung:** Zurückstellen des Listener-Ziels auf den Container macht
+      die beiden neuen Tests rot, Wiederherstellen macht sie grün — genau das Fehlerbild
+      aus CI.
+- [x] **Regressionstests:** `e2e/tests/overlay-dismissal.spec.ts` (5) und
+      `e2e/tests/dialog-escape-robustness.spec.ts` (2). Die neuen Tests setzen den Fokus
+      **absichtlich außerhalb** des Panels — genau die implizite Annahme, die den ersten
+      Spec lokal grün und in CI rot werden ließ, ist damit entfernt.
+- [x] **Abgetrennt statt vermischt:** Der beim Testschreiben entdeckte Fokus-Rückgabe-Defekt
+      ist **nicht** Teil von #985 und liegt als **#991** vor (inkl. der zwei verworfenen
+      Fix-Versuche, damit sie nicht wiederholt werden). Die Assertion steht kommentiert im
+      Spec. **Gleiche Wurzel** wie der Escape-Fehler — deshalb in `use-focus-trap.ts`
+      dokumentiert.
+- [x] **Pullover bestätigt:** Der im Issue erwähnte zweite Punkt (Health-Dialog meldet
+      `AUSGEFALLEN`, während `GET /health/` `ok` sagt) ist ein Backend-/Health-Reporting-Thema
+      und **nicht** bearbeitet.
+- [x] `Fixes #985` — Issue automatisch geschlossen beim Merge.
 
-**Akzeptanz:** Beide Overlays schließen per Escape, das Popover zusätzlich per Außenklick;
-zwei neue E2E-Tests sind grün.
+**Verifikation:** 7/7 neue E2E-Tests grün; Frontend-Vollsuite **227 Dateien / 2065 Tests
+grün**; Dialog-Unit-Suite 33/33 grün; CI `4c515640` alle Checks grün ohne Rerun.
+
+**Was diese Aufgabe für den Rest des Plans lehrt (wichtig für T-20/T-23):**
+Die Plan-Annahme „F-04 ist ein Eigenbau-Overlay" war **falsch**. Der `SystemHealthDialog`
+ist konform. T-23 reduziert sich damit auf die Inline-Styles, **nicht** auf eine Migration.
 
 ---
 
