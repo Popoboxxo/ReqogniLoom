@@ -490,17 +490,33 @@ class ProtocolHandler:
         clean_params = {k: v for k, v in params.items() if k != "api_key"}
 
         # 2. Handle standard MCP methods (tools/list, tools/call)
-        if method == "tools/list":
+        # issue #866: `tools/list` (standard) and `tools/filter` (custom) share
+        # one implementation. Both accept optional `toolset`, `filter`
+        # ({groups,names,search}) and `compact`; `tools/filter` additionally
+        # returns `count`/`total`/`toolsets` so a client can discover the phase
+        # presets and see what a filter saved. The catalogue is always
+        # RBAC-gated first, so a filter only ever narrows.
+        if method in ("tools/list", "tools/filter"):
             from mcp_server.tool_registry import McpAuthenticationError
 
             try:
-                tools_list = self._registry.list_tools(
+                page = self._registry.list_tools_page(
                     api_key=api_key,
                     workspace_id=clean_params.get("workspace_id"),
+                    toolset=clean_params.get("toolset"),
+                    tool_filter=clean_params.get("filter"),
+                    compact=bool(clean_params.get("compact", False)),
                 )
-                response = ErrorFormatter.format_jsonrpc_result(request_id, {"tools": tools_list})
+                payload = page if method == "tools/filter" else {"tools": page["tools"]}
+                response = ErrorFormatter.format_jsonrpc_result(request_id, payload)
             except McpAuthenticationError as exc:
                 response = ErrorFormatter.format_jsonrpc_error(request_id, "AUTH_FAILED", str(exc))
+            except ValueError as exc:
+                # An unknown toolset / malformed filter is a caller error, not a
+                # server defect — name it instead of the generic internal error.
+                response = ErrorFormatter.format_jsonrpc_error(
+                    request_id, "VALIDATION_ERROR", str(exc)
+                )
             except Exception:
                 logger.exception("Error listing tools")
                 response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR")
