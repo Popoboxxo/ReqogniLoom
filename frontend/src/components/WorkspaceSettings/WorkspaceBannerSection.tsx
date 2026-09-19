@@ -11,7 +11,7 @@
  * (spec: that flag only exists on the global banner).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { bannersApi, type Banner, type BannerLevel } from "../../api/banners";
 import { extractErrorMessage } from "../../api/client";
@@ -35,24 +35,38 @@ export function WorkspaceBannerSection({ workspaceId }: Props): JSX.Element {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+  // See BannerSection: the initial load must never overwrite input the admin
+  // already typed (StrictMode runs the effect twice; issue #947).
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
+    // A different workspace is a fresh load, so prior edits no longer apply.
+    dirtyRef.current = false;
     setIsLoading(true);
     bannersApi
       .getWorkspace(workspaceId)
       .then((existing) => {
-        if (!existing) return;
+        if (cancelled || !existing || dirtyRef.current) return;
         setBanner(existing);
         setLevel(existing.level);
         setMessage(existing.message);
         setEnabled(existing.enabled);
         setDismissible(existing.dismissible);
       })
-      .catch((err) => setError(extractErrorMessage(err)))
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        if (!cancelled) setError(extractErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId]);
 
   const handleLevelChange = (next: BannerLevel): void => {
+    dirtyRef.current = true;
     setLevel(next);
     setSavedOk(false);
     if (next === "critical" && !banner) setDismissible(false);
@@ -103,7 +117,7 @@ export function WorkspaceBannerSection({ workspaceId }: Props): JSX.Element {
           type="checkbox"
           data-testid="workspace-banner-enabled-toggle"
           checked={enabled}
-          onChange={(e) => { setEnabled(e.target.checked); setSavedOk(false); }}
+          onChange={(e) => { dirtyRef.current = true; setEnabled(e.target.checked); setSavedOk(false); }}
         />
         {t("banners.enabled", "Enabled")}
       </label>
@@ -135,7 +149,7 @@ export function WorkspaceBannerSection({ workspaceId }: Props): JSX.Element {
           data-testid="workspace-banner-message-input"
           className={styles.textarea}
           value={message}
-          onChange={(e) => { setMessage(e.target.value); setSavedOk(false); }}
+          onChange={(e) => { dirtyRef.current = true; setMessage(e.target.value); setSavedOk(false); }}
           placeholder={t("banners.messagePlaceholder", "Markdown text...")}
         />
       </div>
@@ -145,7 +159,7 @@ export function WorkspaceBannerSection({ workspaceId }: Props): JSX.Element {
           type="checkbox"
           data-testid="workspace-banner-dismissible-toggle"
           checked={dismissible}
-          onChange={(e) => { setDismissible(e.target.checked); setSavedOk(false); }}
+          onChange={(e) => { dirtyRef.current = true; setDismissible(e.target.checked); setSavedOk(false); }}
         />
         {t("banners.dismissibleField", "Dismissible by end users")}
       </label>

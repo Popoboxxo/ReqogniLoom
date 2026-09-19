@@ -40,6 +40,13 @@ test.describe('System & Workspace Banners', () => {
     // matching review-workflow.spec.ts / hermes-bugfix-campaign.spec.ts /
     // visual-regression.spec.ts's own state-mutation convention.
     try {
+      // 0. Reset to a known start state. A previous run that failed mid-flight
+      //    (or a manual enable) can leave the global banner enabled with an
+      //    empty message, which then renders as an empty banner row and makes
+      //    this test fail on unrelated state (issue #947 state-pollution
+      //    class). Disabling it first is idempotent and cheap.
+      await disableGlobalBanner(request, token);
+
       // 1. Log in as the demo admin.
       await loginAsAdmin(page);
 
@@ -48,13 +55,38 @@ test.describe('System & Workspace Banners', () => {
       await expect(page.getByTestId('banner-section')).toBeVisible();
 
       // 3. Configure and enable a global banner.
-      await page.getByTestId('banner-message-input').fill('Scheduled maintenance tonight');
       await page.getByTestId('banner-level-warning').check();
       await page.getByTestId('banner-enabled-toggle').check();
+      // Fill the message LAST, immediately before saving: with the message typed
+      // first, a re-render from a later `.check()` occasionally landed before
+      // React committed the input and reset the controlled textarea, so the PUT
+      // shipped an empty message (load-induced flake, issue #947). Nothing
+      // re-renders between this fill and the save now.
+      await page.getByTestId('banner-message-input').fill('Scheduled maintenance tonight');
+      await expect(page.getByTestId('banner-message-input')).toHaveValue(
+        'Scheduled maintenance tonight'
+      );
       await page.getByTestId('banner-save-button').click();
       // Locale-independent: the app defaults to the browser's locale (de or en)
       // — see canvas-diagram.spec.ts / mermaid-diagram.spec.ts for the same pattern.
       await expect(page.getByText(/Saved\.|Gespeichert\./)).toBeVisible();
+      // Prove the save reached the backend before asserting the UI — this turns
+      // an occasional "empty banner on the dashboard" failure into a precise
+      // "the PUT did not persist" signal (issue #947).
+      await expect
+        .poll(
+          async () => {
+            const r = await page.request.get(
+              `${BACKEND_URL}/api/v1/admin/banners/global/`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (!r.ok()) return null;
+            const b = (await r.json()) as { enabled?: boolean; message?: string };
+            return b.enabled === true && b.message === 'Scheduled maintenance tonight';
+          },
+          { timeout: 10000, message: 'global banner did not persist after save' }
+        )
+        .toBe(true);
 
       // 4. Navigate to the dashboard (or any authenticated route) and see the banner.
       await page.goto('/');

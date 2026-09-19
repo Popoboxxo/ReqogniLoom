@@ -12,7 +12,7 @@
 //
 // Run (dev stack up + sidecar healthy):
 //   cd e2e && npx playwright test tests/bluepencil.spec.ts
-import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { test, expect, request as playwrightRequest, type Page } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -64,6 +64,28 @@ function requireSidecar(): void {
   test.skip(!sidecarAvailable, SKIP_REASON);
 }
 
+const ARMING_SKIP_REASON =
+  'frontend review layer not armed — set BLUEPENCIL_ENABLED=1 and restart the frontend ' +
+  '(the sidecar alone is not enough; the loader is gated by VITE_BLUEPENCIL_ENABLED at ' +
+  'build/dev-server start).';
+
+/**
+ * Skip unless the frontend actually injected the layer loader (issue #947).
+ *
+ * A running sidecar is necessary but NOT sufficient: the loader is gated by
+ * `VITE_BLUEPENCIL_ENABLED`, read when Vite starts. With the sidecar up but the
+ * flag `0` (the dev default) both tests below used to fail instead of skipping.
+ * The injected `script[data-bluepencil-loader]` is only present when the layer
+ * is armed AND the probe succeeded, so it is the honest arming signal.
+ */
+async function requireReviewLayerArmed(page: Page): Promise<void> {
+  const armed = await page
+    .waitForSelector('script[data-bluepencil-loader]', { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  test.skip(!armed, ARMING_SKIP_REASON);
+}
+
 /**
  * Remove the note this run created. Contract verified against the sidecar
  * (`server/handler.ts::bulkDelete`): `POST {base}/notes/bulk-delete` requires
@@ -91,6 +113,7 @@ test.describe('[issue #972] bluepencil review layer', () => {
     await loginAsAdmin(page);
     // Deterministic authenticated route that renders the sidebar with the anchor below.
     await page.goto(`${FRONTEND_URL}/requirements`);
+    await requireReviewLayerArmed(page);
 
     // (b) The layer mounted. `bluepencil-notes` is the vendored custom element and the
     // toolbar is its stable, locale-independent hook (`role="toolbar"`): matching a
@@ -151,18 +174,21 @@ test.describe('[issue #972] bluepencil review layer', () => {
   test('mounts the layer exactly when the health probe succeeds', async ({ page }) => {
     requireSidecar();
 
+    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
+    await loginAsAdmin(page);
+    // First load un-routed so the arming precondition can be judged honestly.
+    await page.goto(`${FRONTEND_URL}/requirements`);
+    // Authenticated shell is up — so an absent layer is a real absence, not a blank page.
+    await expect(page.locator('[data-testid="build-version-indicator"]')).toBeVisible();
+    await requireReviewLayerArmed(page);
+
     // Force the "health probe fails" state without touching the shared container: route
     // the probe to an error. This is the honest invariant we can test here — removing the
     // already-enabled loader from the DOM is not something the test can do.
     await page.route('**/bluepencil/api/health', (route) =>
       route.fulfill({ status: 503, json: { ok: false, status: 'unavailable' } }),
     );
-
-    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
-    await loginAsAdmin(page);
-    await page.goto(`${FRONTEND_URL}/requirements`);
-    // Authenticated shell is up — so an absent layer is a real absence, not a blank page.
-    await expect(page.locator('[data-testid="build-version-indicator"]')).toBeVisible();
+    await page.reload();
 
     // (1) Probe fails → no loader injected, no custom element, no toolbar.
     await expect(page.locator('bluepencil-notes')).toHaveCount(0);
