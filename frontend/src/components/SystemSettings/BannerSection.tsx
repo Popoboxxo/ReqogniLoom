@@ -11,7 +11,7 @@
  * see this form but get a 403 on save, surfaced as the `error` state below.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { bannersApi, type Banner, type BannerLevel } from "../../api/banners";
 import { extractErrorMessage } from "../../api/client";
@@ -31,13 +31,19 @@ export function BannerSection(): JSX.Element {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+  // Set on the first user edit; the initial load must never overwrite input the
+  // admin already typed. StrictMode runs the load effect twice, so the second
+  // response can otherwise land *after* a fast typist started editing and
+  // silently reset the message (issue #947).
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
     setIsLoading(true);
     bannersApi
       .getGlobal()
       .then((existing) => {
-        if (!existing) return;
+        if (cancelled || !existing || dirtyRef.current) return;
         setBanner(existing);
         setLevel(existing.level);
         setMessage(existing.message);
@@ -45,11 +51,22 @@ export function BannerSection(): JSX.Element {
         setDismissible(existing.dismissible);
         setShowOnLoginPage(existing.show_on_login_page);
       })
-      .catch((err) => setError(extractErrorMessage(err)))
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        if (!cancelled) setError(extractErrorMessage(err));
+      })
+      .finally(() => {
+        // Only the *current* run may clear the loading state: the cancelled
+        // first StrictMode pass must not reveal the form before its twin
+        // response has been applied.
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLevelChange = (next: BannerLevel): void => {
+    dirtyRef.current = true;
     setLevel(next);
     setSavedOk(false);
     // UI-level pre-fill only (spec: "modularer" — always overridable):
@@ -104,7 +121,7 @@ export function BannerSection(): JSX.Element {
           type="checkbox"
           data-testid="banner-enabled-toggle"
           checked={enabled}
-          onChange={(e) => { setEnabled(e.target.checked); setSavedOk(false); }}
+          onChange={(e) => { dirtyRef.current = true; setEnabled(e.target.checked); setSavedOk(false); }}
         />
         {t("banners.enabled", "Enabled")}
       </label>
@@ -136,7 +153,7 @@ export function BannerSection(): JSX.Element {
           data-testid="banner-message-input"
           className={styles.textarea}
           value={message}
-          onChange={(e) => { setMessage(e.target.value); setSavedOk(false); }}
+          onChange={(e) => { dirtyRef.current = true; setMessage(e.target.value); setSavedOk(false); }}
           placeholder={t("banners.messagePlaceholder", "Markdown text...")}
         />
       </div>
@@ -146,7 +163,7 @@ export function BannerSection(): JSX.Element {
           type="checkbox"
           data-testid="banner-dismissible-toggle"
           checked={dismissible}
-          onChange={(e) => { setDismissible(e.target.checked); setSavedOk(false); }}
+          onChange={(e) => { dirtyRef.current = true; setDismissible(e.target.checked); setSavedOk(false); }}
         />
         {t("banners.dismissibleField", "Dismissible by end users")}
       </label>
@@ -156,7 +173,7 @@ export function BannerSection(): JSX.Element {
           type="checkbox"
           data-testid="banner-show-on-login-toggle"
           checked={showOnLoginPage}
-          onChange={(e) => { setShowOnLoginPage(e.target.checked); setSavedOk(false); }}
+          onChange={(e) => { dirtyRef.current = true; setShowOnLoginPage(e.target.checked); setSavedOk(false); }}
         />
         {t("banners.showOnLoginPage", "Also show on the login page")}
       </label>
