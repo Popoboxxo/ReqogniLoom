@@ -687,6 +687,113 @@ def test_context_test_coverage_excludes_outdated_test_case_by_default(
     assert result_incl.data["gaps"] == []
 
 
+# ---------------------------------------------------------------------------
+# traceability.coverage (issue #410) — workspace-wide V&V status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_traceability_coverage_reports_workspace_summary(requirement_with_tests, auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    _req_id, workspace_id, gap_req_id = requirement_with_tests
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "traceability.coverage",
+        params={"workspace_id": str(workspace_id)},
+        auth_context=auth_ctx,
+        api_key="",
+    )
+
+    assert result.success is True
+    assert result.data["total"] == 2
+    assert result.data["covered"] == 1
+    assert result.data["percentage"] == 50.0
+    assert str(gap_req_id) in result.data["uncovered"]
+
+
+@pytest.mark.django_db
+def test_traceability_coverage_requires_workspace_id(auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "traceability.coverage", params={}, auth_context=auth_ctx, api_key=""
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+def test_traceability_coverage_rejects_an_unknown_artifact_type(
+    requirement_with_tests, auth_ctx
+):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    _req_id, workspace_id, _gap = requirement_with_tests
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "traceability.coverage",
+        params={"workspace_id": str(workspace_id), "artifact_type": "Nonsense"},
+        auth_context=auth_ctx,
+        api_key="",
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+# ---------------------------------------------------------------------------
+# traceability.vcrm (issue #410) — VCRM export
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_traceability_vcrm_json_and_csv(requirement_with_tests, auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    _req_id, workspace_id, _gap = requirement_with_tests
+    group = CrossCuttingToolGroup()
+
+    json_res = group.execute_tool(
+        "traceability.vcrm",
+        params={"workspace_id": str(workspace_id)},
+        auth_context=auth_ctx,
+        api_key="",
+    )
+    assert json_res.success is True
+    assert "rows" in json_res.data
+    assert "row_count" in json_res.data
+
+    csv_res = group.execute_tool(
+        "traceability.vcrm",
+        params={"workspace_id": str(workspace_id), "format": "csv"},
+        auth_context=auth_ctx,
+        api_key="",
+    )
+    assert csv_res.success is True
+    assert csv_res.data["format"] == "csv"
+    assert csv_res.data["csv"].startswith(
+        "requirement_id,component_id,test_case_id,test_result"
+    )
+
+
+@pytest.mark.django_db
+def test_traceability_vcrm_rejects_an_unknown_format(auth_ctx):
+    import uuid
+
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "traceability.vcrm",
+        params={"workspace_id": str(uuid.uuid4()), "format": "pdf"},
+        auth_context=auth_ctx,
+        api_key="",
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
 @pytest.fixture
 def workspace_with_many_requirements(tenant_workspace_ctx):
     """A workspace with enough Requirements that a naive summary payload

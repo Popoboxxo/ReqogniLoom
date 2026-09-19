@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 209,
+  "tool_count": 212,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1705,6 +1705,36 @@
             "description": "Page size (1..200, default 100)."
           }
         }
+      }
+    },
+    {
+      "name": "audit.se_audit",
+      "prefix": "audit",
+      "is_write": true,
+      "description": "Run the SE-Auditor for a workspace and return the findings directly (issue #410) — no LLM wrapping, unlike audit.ai_review. Rigor tier is resolved from the workspace preset unless ``tier`` is given. Response: result.tier, result.counts {total, blockers, warnings}, result.truncated, result.total_findings_available, result.findings [{index, rule_id, severity, message, artifact_ids, remediation}]. Findings are capped at 500; use ``limit``+``offset`` to page.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to audit."
+          },
+          "tier": {
+            "type": "string",
+            "description": "Optional rigor tier override (minimal|standard|extended). Defaults to the workspace's active preset."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Optional page size (max 500) for walking past the cap."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Optional start offset; only used together with limit."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
       }
     },
     {
@@ -5800,6 +5830,36 @@
       }
     },
     {
+      "name": "traceability.coverage",
+      "prefix": "traceability",
+      "is_write": true,
+      "description": "Workspace-wide requirement-to-TestCase coverage (issue #410): total / covered / uncovered counts and the covered percentage for every Requirement in the workspace. Optional ``artifact_type`` / ``link_type`` filters and ``include_outdated``. Answers 'what is the V&V status of this workspace?' in one call, unlike ``context.test_coverage`` which covers a single Requirement. Response: result.total/result.covered/result.uncovered/result.percentage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to compute coverage for."
+          },
+          "artifact_type": {
+            "type": "string",
+            "description": "Optional artifact type filter (e.g. 'Requirement')."
+          },
+          "link_type": {
+            "type": "string",
+            "description": "Optional link type filter (default 'verifies')."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "Include outdated Requirements/TestCases (default false)."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
       "name": "traceability.create_link",
       "prefix": "traceability",
       "is_write": true,
@@ -5879,6 +5939,28 @@
           "scope_artifact_id": {
             "type": "string",
             "description": "Required when scope=document (subtree root)."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "traceability.vcrm",
+      "prefix": "traceability",
+      "is_write": true,
+      "description": "Export the Verification Cross Reference Matrix (VCRM, COMP-TE-004, issue #410) for a workspace: requirement x component x test_case x result. ``format=\"json\"`` (default) returns result.rows/result.row_count; ``format=\"csv\"`` returns result.csv (the mandatory CSV export) plus row_count.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to export."
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format: 'json' (default) or 'csv'."
           }
         },
         "required": [

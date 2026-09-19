@@ -142,6 +142,10 @@ _VALID_OPERATIONS = frozenset(
 # REST -> MCP import).
 _VALID_AI_REVIEW_SCOPES = frozenset({"document", "project", "global"})
 
+# issue #410 (audit.se_audit): the three rigor presets the SE-Auditor engine
+# resolves a rule set for (``traceability.audit.registry.RULE_PRESET_MAP``).
+_VALID_SE_TIERS = frozenset({"minimal", "standard", "extended"})
+
 
 # ---------------------------------------------------------------------------
 # Serialisation helpers
@@ -229,6 +233,9 @@ class AuditToolGroup(BaseToolGroup):
     _TOOL_MAP = {
         "audit.query": "_handle_audit_query",
         "audit.ai_review": "_handle_ai_review",
+        # issue #410: the raw SE-Auditor run (no LLM), for agents that need
+        # the findings themselves rather than a refactoring bundle.
+        "audit.se_audit": "_handle_se_audit",
         "events.dlq_list": "_handle_dlq_list",
         "events.dlq_replay": "_handle_dlq_replay",
     }
@@ -284,6 +291,45 @@ class AuditToolGroup(BaseToolGroup):
                     "scope_artifact_id": {
                         "type": "string",
                         "description": "Required when scope=document (subtree root).",
+                    },
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "audit.se_audit",
+            "description": (
+                "Run the SE-Auditor for a workspace and return the findings "
+                "directly (issue #410) — no LLM wrapping, unlike audit.ai_review. "
+                "Rigor tier is resolved from the workspace preset unless "
+                "``tier`` is given. Response: result.tier, result.counts "
+                "{total, blockers, warnings}, result.truncated, "
+                "result.total_findings_available, result.findings "
+                "[{index, rule_id, severity, message, artifact_ids, remediation}]. "
+                "Findings are capped at 500; use ``limit``+``offset`` to page."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the workspace to audit.",
+                    },
+                    "tier": {
+                        "type": "string",
+                        "description": (
+                            "Optional rigor tier override "
+                            "(minimal|standard|extended). Defaults to the "
+                            "workspace's active preset."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optional page size (max 500) for walking past the cap.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Optional start offset; only used together with limit.",
                     },
                 },
                 "required": ["workspace_id"],
@@ -555,6 +601,66 @@ class AuditToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
         return ToolResult.ok(result.to_dict())
+
+    # ------------------------------------------------------------------
+    # audit.se_audit (read, issue #410)
+    # ------------------------------------------------------------------
+
+    def _handle_se_audit(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """audit.se_audit — run the SE-Auditor for a workspace (read-only).
+
+        Required params:
+            workspace_id : UUID of the target workspace.
+        Optional params:
+            tier   : rigor tier override (minimal|standard|extended).
+            limit  : page size (max 500).
+            offset : start offset (only with limit).
+
+        No admin gate (mirrors audit.ai_review): it is a workspace-scoped,
+        read-only audit run any workspace member may call; the required
+        ``workspace_id`` narrows the read-scoping RBAC gate to that workspace.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+
+        tier = params.get("tier")
+        if tier is not None and tier not in _VALID_SE_TIERS:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Parameter 'tier' must be one of {sorted(_VALID_SE_TIERS)}.",
+            )
+
+        limit = params.get("limit")
+        if limit is not None:
+            try:
+                limit = int(limit)
+            except (TypeError, ValueError):
+                return ToolResult.error(
+                    "VALIDATION_ERROR", "Parameter 'limit' must be an integer."
+                )
+        offset = params.get("offset", 0)
+        try:
+            offset = int(offset)
+        except (TypeError, ValueError):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'offset' must be an integer."
+            )
+
+        from application.audit_service import AuditService
+
+        try:
+            report = AuditService().run_audit(
+                workspace_id, auth_context, tier=tier, limit=limit, offset=offset
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except (ValidationError, ValueError) as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        return ToolResult.ok(report.to_dict())
 
     # ------------------------------------------------------------------
     # events.dlq_list (read)
