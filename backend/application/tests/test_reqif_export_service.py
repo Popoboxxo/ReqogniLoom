@@ -350,6 +350,31 @@ class TestReqifExportMapping:
         ):
             assert _so_id(artifact.artifact_id) in ids1
 
+    def test_foreign_reqif_identity_is_preferred_over_the_internal_id(self, reqif_workspace):
+        """Issue #1003: a stored external identity wins over the `_<id>` fallback.
+
+        Round-trip requirement: an artifact imported from a foreign tool must
+        re-export under *that* tool's identifier, and its external UID must win
+        over the local, auto-generated `uid` in the ReqIF ATTR-UID attribute.
+        """
+        artifact = reqif_workspace["req1"].artifact
+        artifact.reqif_identifier = "OBJ-123"
+        artifact.reqif_uid = "DOORS-PUID-9"
+        artifact.save(update_fields=["reqif_identifier", "reqif_uid"])
+
+        result = _export(reqif_workspace["workspace"].id, reqif_workspace["tenant"].id)
+        bundle = ReqIFParser.parse_from_string(result.content)
+        content = bundle.core_content.req_if_content
+        by_id = {so.identifier: so for so in content.spec_objects}
+
+        assert "OBJ-123" in by_id
+        assert _so_id(artifact.id) not in by_id
+        assert by_id["OBJ-123"].attribute_map["ATTR-UID"].value == "DOORS-PUID-9"
+        # Hierarchy and trace-link references must use the same identifier: the
+        # internal `_<id>` form appears nowhere in the document any more.
+        assert "OBJ-123" in result.content
+        assert _so_id(artifact.id) not in result.content
+
     def test_tracelink_touching_non_exported_type_is_skipped(self, reqif_workspace):
         """A TraceLink to a non-Need/Requirement artifact is out of REQ-146 scope."""
         from persistence.models import ArchitectureElement

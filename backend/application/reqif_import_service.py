@@ -130,6 +130,7 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.reqif_export_service import (
@@ -564,14 +565,19 @@ class ReqifImportService(ServiceBase):
         description = _attr_value(_ATTR_DESCRIPTION)
         status_raw = _attr_value(_ATTR_STATUS)
         category = _attr_value(_ATTR_CATEGORY)
-        uid = _attr_value(_ATTR_UID) or None
+        # Issue #1003: the ReqIF ATTR-UID is the *external* source-tool UID.
+        # It is stored on the Artifact as `reqif_uid`, never in the local,
+        # auto-generated `uid`.
+        external_uid = _attr_value(_ATTR_UID) or None
 
         if len(title) > 500:
             raise _SoftError(f"Title exceeds 500 characters ({len(title)}).")
         if len(category) > 64:
             raise _SoftError(f"Category exceeds 64 characters ({len(category)}).")
-        if uid and len(uid) > 64:
-            raise _SoftError(f"UID exceeds 64 characters ({len(uid)}).")
+        if external_uid and len(external_uid) > 255:
+            raise _SoftError(
+                f"External ReqIF UID exceeds 255 characters ({len(external_uid)})."
+            )
 
         # ---- custom_fields: ATTR-CUSTOM-FIELDS payload, then unknown attrs ----
         custom_fields: Dict[str, Any] = {}
@@ -620,6 +626,9 @@ class ReqifImportService(ServiceBase):
 
         # ---- Resolve target artifact id / existing row ----
         target_uuid = _parse_artifact_uuid(so.identifier)
+        # Issue #1003: an identifier NOT in the internal `_<uuid>` form is a
+        # foreign tool's identity; retain it so a re-export emits the same id.
+        foreign_identifier = None if target_uuid is not None else so.identifier
         existing_artifact = None
         if target_uuid is not None:
             existing_artifact = Artifact.objects.filter(
@@ -637,17 +646,21 @@ class ReqifImportService(ServiceBase):
         # REQ-147: the SPEC-OBJECT identifier encodes the *source* artifact's
         # id, so importing the same ReqIF file into a different workspace
         # never matches there — the id-based lookup above always misses and
-        # every reimport minted a fresh artifact (doubling on each run). Fall
-        # back to matching an existing row by its stable business ``uid``
-        # within this workspace, which is what makes cross-workspace reimport
-        # idempotent instead of a duplicate-generating loop.
-        if existing_artifact is None and uid:
-            entity_model = Requirement if kind == "Requirement" else StakeholderNeed
-            existing_entity = entity_model.objects.filter(
-                artifact__workspace_id=workspace.id, uid=uid
-            ).first()
-            if existing_entity is not None:
-                existing_artifact = existing_entity.artifact
+        # every reimport minted a fresh artifact (doubling on each run).
+        # Issue #1003: fall back to the Artifact's stored *external* ReqIF
+        # identity (reqif_uid, then reqif_identifier) within this workspace —
+        # never the local readable ``uid``, which is auto-generated per
+        # artifact since #932 and carries no external meaning.
+        if existing_artifact is None:
+            by_workspace = Artifact.objects.filter(workspace_id=workspace.id)
+            if external_uid:
+                existing_artifact = by_workspace.filter(
+                    reqif_uid=external_uid
+                ).first()
+            if existing_artifact is None and foreign_identifier:
+                existing_artifact = by_workspace.filter(
+                    reqif_identifier=foreign_identifier
+                ).first()
 
         if existing_artifact is not None:
             entity = (
@@ -700,7 +713,9 @@ class ReqifImportService(ServiceBase):
         entity.title = title
         entity.description = description
         entity.category = category
-        entity.uid = uid
+        # Issue #1003: the local, readable `uid` is NOT set from ReqIF. It is
+        # auto-generated per artifact (#932); the external identity lives on the
+        # Artifact's reqif_* fields below.
         if kind == "Requirement":
             entity.verification_method = verification_method
         else:
@@ -711,7 +726,23 @@ class ReqifImportService(ServiceBase):
         cls._apply_status(entity, kind, status_raw, workspace.id, tenant)
 
         artifact.custom_fields = custom_fields
-        artifact.save(update_fields=["custom_fields"])
+        # Issue #1003: persist the external ReqIF identity on the Artifact.
+        # `reqif_identifier` is only set for a *foreign* identifier (the
+        # internal `_<uuid>` form is reproducible from the id and stays NULL);
+        # `reqif_uid`/`reqif_imported_at` are refreshed on every import.
+        if foreign_identifier:
+            artifact.reqif_identifier = foreign_identifier
+        if external_uid:
+            artifact.reqif_uid = external_uid
+        artifact.reqif_imported_at = timezone.now()
+        artifact.save(
+            update_fields=[
+                "custom_fields",
+                "reqif_identifier",
+                "reqif_uid",
+                "reqif_imported_at",
+            ]
+        )
         entity.save()
 
         return artifact, created

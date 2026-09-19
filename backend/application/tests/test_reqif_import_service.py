@@ -220,6 +220,42 @@ class TestReqifImportRoundTrip:
         )
         assert TraceLink.objects.filter(source__workspace=target_workspace).count() == 2
 
+    def test_foreign_identifier_is_retained_and_reexported(
+        self, source_workspace, target_workspace
+    ):
+        """Issue #1003: an incoming non-`_<uuid>` identifier is stored and re-exported.
+
+        A foreign tool's SPEC-OBJECT identifier must survive import (stored on
+        ``Artifact.reqif_identifier``) and be emitted verbatim on the next
+        export, instead of being replaced by the internal ``_<Artifact.id>``.
+        """
+        from persistence.models import Artifact
+
+        tenant = source_workspace["tenant"]
+        internal = f"_{source_workspace['req1'].artifact.id}"
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+
+        foreign_text = reqif_text.replace(
+            f'IDENTIFIER="{internal}"', 'IDENTIFIER="OBJ-9"'
+        )
+        foreign_text = foreign_text.replace(
+            f'SPEC-OBJECT="{internal}"', 'SPEC-OBJECT="OBJ-9"'
+        )
+        foreign_text = foreign_text.replace(f'source="{internal}"', 'source="OBJ-9"')
+        foreign_text = foreign_text.replace(f'target="{internal}"', 'target="OBJ-9"')
+
+        result = _import(foreign_text, target_workspace.id, tenant.id)
+        assert result.success is True
+
+        imported = Artifact.objects.get(
+            workspace=target_workspace, reqif_identifier="OBJ-9"
+        )
+        assert imported.reqif_uid is not None
+
+        # Re-export the target workspace: the foreign identifier must survive.
+        target_text = _export(target_workspace.id, tenant.id)
+        assert 'IDENTIFIER="OBJ-9"' in target_text
+
     def test_import_preserves_attribute_values(self, source_workspace, target_workspace):
         tenant = source_workspace["tenant"]
         reqif_text = _export(source_workspace["workspace"].id, tenant.id)
@@ -227,7 +263,7 @@ class TestReqifImportRoundTrip:
         _import(reqif_text, target_workspace.id, tenant.id)
 
         req1_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
         )
         assert req1_copy.title == "Req One"
         assert req1_copy.description == "Req one description"
@@ -235,7 +271,7 @@ class TestReqifImportRoundTrip:
         assert req1_copy.verification_method == "Test"
 
         need1_copy = StakeholderNeed.objects.get(
-            artifact__workspace=target_workspace, uid="NEED-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="NEED-001"
         )
         assert need1_copy.title == "Need One"
         assert need1_copy.moscow_priority == "Must"
@@ -247,16 +283,16 @@ class TestReqifImportRoundTrip:
         _import(reqif_text, target_workspace.id, tenant.id)
 
         need1_copy = StakeholderNeed.objects.get(
-            artifact__workspace=target_workspace, uid="NEED-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="NEED-001"
         )
         req1_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
         )
         req2_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-002"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-002"
         )
         req3_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-003"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-003"
         )
 
         assert req1_copy.artifact.parent_id == need1_copy.artifact_id
@@ -270,13 +306,13 @@ class TestReqifImportRoundTrip:
         _import(reqif_text, target_workspace.id, tenant.id)
 
         need1_copy = StakeholderNeed.objects.get(
-            artifact__workspace=target_workspace, uid="NEED-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="NEED-001"
         )
         req1_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
         )
         req2_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-002"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-002"
         )
 
         assert TraceLink.objects.filter(
@@ -483,7 +519,7 @@ class TestReqifImportStatusMapping:
         _import(reqif_text, target_workspace.id, tenant.id)
 
         req2_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-002"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-002"
         )
         # req2 was exported with status "in_review", a known state of the
         # target definition -> kept as-is, and a WorkflowItemState mirrors it.
@@ -533,7 +569,7 @@ class TestReqifImportStatusMapping:
         _import(mutated, target_workspace.id, tenant.id)
 
         need1_copy = StakeholderNeed.objects.get(
-            artifact__workspace=target_workspace, uid="NEED-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="NEED-001"
         )
         assert not WorkflowItemState.objects.filter(
             item_id=need1_copy.id, item_type="StakeholderNeed"
@@ -564,7 +600,7 @@ class TestReqifImportStatusMapping:
         _import(reqif_text, target_workspace.id, tenant.id)
 
         req2_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-002"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-002"
         )
         state = WorkflowItemState.objects.get(
             item_id=req2_copy.id, item_type="Requirement"
@@ -603,7 +639,7 @@ class TestReqifImportUpsertCollisions:
         )
         # A new copy was created in target_workspace with a different id.
         req1_copy = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
         )
         assert req1_copy.artifact_id != req1.artifact_id
 
@@ -642,7 +678,7 @@ class TestReqifImportCustomFieldsGuard:
         # The rest of the file still imports — a soft error, not a hard abort.
         assert result.needs.created == 2
         assert Requirement.objects.filter(
-            artifact__workspace=target_workspace, uid="REQ-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
         ).count() == 0
 
     def test_ordinary_custom_fields_still_import(
@@ -658,6 +694,6 @@ class TestReqifImportCustomFieldsGuard:
 
         assert result.requirements.skipped == 0
         imported = Requirement.objects.get(
-            artifact__workspace=target_workspace, uid="REQ-001"
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
         )
         assert imported.artifact.custom_fields == {"owner": "alice", "sprint": 7}

@@ -1136,6 +1136,60 @@ class Artifact(TenantScopedModel):
             "A GIN index (pl_artifact_custom_fields_gin) backs JSONB queries."
         ),
     )
+    # ReqIF identity (issue #1003): the *external* identity of an artifact in a
+    # foreign requirements tool, kept strictly separate from the local,
+    # auto-generated ``uid`` (issue #932). Before this split, ``uid`` served
+    # both roles ("External import key (ReqIF); never auto-generated" on 8 type
+    # models — see their help_texts), which an auto-generated local uid would
+    # have silently broken. One migration on the shared Artifact row covers
+    # every type, mirroring the owner/reporter/priority rationale above.
+    reqif_identifier = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text=(
+            "Incoming ReqIF SPEC-OBJECT IDENTIFIER. The exporter emits it "
+            "verbatim when set, so a re-export back to a foreign tool keeps "
+            "that tool's identity; when NULL the exporter falls back to "
+            "'_<Artifact.id>'."
+        ),
+    )
+    reqif_uid = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text=(
+            "External UID assigned by the source tool (the ReqIF ATTR-UID "
+            "attribute). Deliberately separate from the local, auto-generated "
+            "``uid``."
+        ),
+    )
+    reqif_alt_ids = models.JSONField(
+        null=True,
+        blank=True,
+        default=list,
+        help_text=(
+            "ReqIF ALT-ID aliases (list of strings) of this external artifact, "
+            "for tools that track more than one identifier."
+        ),
+    )
+    reqif_source_tool = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="ReqIF source tool, e.g. 'DOORS', 'Polarion', 'codebeamer'.",
+    )
+    reqif_source_project = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="ReqIF source project/specification identifier.",
+    )
+    reqif_imported_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this artifact was last created/updated by a ReqIF import.",
+    )
     # Datenmodell-Konsolidierung Phase 4 (spec §5, Decision D-3): the single
     # soft-delete flag for every artifact type, orthogonal to the workflow
     # state. Before this, "outdated" was a workflow *state*, so soft-deleting
@@ -1156,6 +1210,23 @@ class Artifact(TenantScopedModel):
 
     class Meta:
         db_table = "pl_artifact"
+        constraints = [
+            # ReqIF identity (issue #1003): one external identity per
+            # (workspace, external key), same cross-workspace semantics as the
+            # local (workspace, uid) constraint. Partial on non-null/non-blank
+            # so the many artifacts without a ReqIF origin never collide.
+            models.UniqueConstraint(
+                fields=["workspace", "reqif_identifier"],
+                condition=models.Q(reqif_identifier__isnull=False)
+                & ~models.Q(reqif_identifier=""),
+                name="uq_artifact_reqif_identifier",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace", "reqif_uid"],
+                condition=models.Q(reqif_uid__isnull=False) & ~models.Q(reqif_uid=""),
+                name="uq_artifact_reqif_uid",
+            ),
+        ]
         indexes = [
             # REQ-L3-PL005-001: BTree on parent for hierarchy / recursive CTE.
             models.Index(fields=["parent"], name="idx_artifact_parent_btree"),
