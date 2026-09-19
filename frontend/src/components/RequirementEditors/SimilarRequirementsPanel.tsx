@@ -91,21 +91,16 @@ export function SimilarRequirementsPanel({
         >
           {t('requirements.similar.heading', 'Similar Requirements')}
         </h4>
+        {/* Issue #926 (part 2): the hand-rolled inline-styled primary button
+            moved onto the canonical `btn-primary` class, so its height/radius
+            match every other button (the `:disabled` opacity/cursor come from
+            the shared `.btn-primary:disabled` rule). */}
         <button
+          type="button"
+          className="btn-primary"
           data-testid="find-similar-btn"
           onClick={() => void handleFindSimilar()}
           disabled={state.status === 'loading'}
-          style={{
-            background: 'var(--color-primary)',
-            color: 'var(--color-on-primary)',
-            border: 'none',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--space-2) var(--space-4)',
-            fontSize: 'var(--font-size-sm)',
-            cursor: state.status === 'loading' ? 'not-allowed' : 'pointer',
-            opacity: state.status === 'loading' ? 0.6 : 1,
-            fontWeight: 600,
-          }}
         >
           {state.status === 'loading'
             ? t('loading', 'Loading…')

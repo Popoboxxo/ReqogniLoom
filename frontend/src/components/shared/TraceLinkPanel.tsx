@@ -27,6 +27,12 @@ const INLINE_COUNT_BADGE_STYLE: CSSProperties = {
   marginLeft: "var(--space-1)",
 };
 
+/** Issue #927: the AI-derive gradient, hoisted out of the `style=` prop. */
+const aiGradientButtonStyle: CSSProperties = {
+  background:
+    "linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))",
+};
+
 /** Muted, struck-through label for a soft-deleted endpoint. */
 const outdatedLabelStyle: CSSProperties = {
   fontSize: "0.85rem",
@@ -288,17 +294,24 @@ export function TraceLinkPanel({
         <h3 style={{ margin: 0, fontSize: "1.1rem" }}>{t("tracelinks.panelTitle", "Trace Links")}</h3>
         <div style={{ display: "flex", gap: "var(--space-2)" }}>
           {onDerive && (
+            // Issue #927: "KI-Ableitung" (distinct first word) + decorative
+            // icon out of the accessible name + its own hint.
             <button
               className="btn-primary"
               data-testid="trace-link-derive-btn"
               onClick={onDerive}
               disabled={isDeriving}
-              style={{
-                background:
-                  "linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))",
-              }}
+              style={aiGradientButtonStyle}
+              aria-label={t("actions.deriveAi", "KI-Ableitung")}
+              title={t(
+                "actions.deriveAiHint",
+                "Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung"
+              )}
             >
-              ✨ {isDeriving ? t("actions.deriving", "Ableiten...") : t("actions.derive", "Ableiten")}
+              <span aria-hidden="true">✨</span>{" "}
+              {isDeriving
+                ? t("actions.derivingAi", "KI-Ableitung läuft…")
+                : t("actions.deriveAi", "KI-Ableitung")}
             </button>
           )}
           {/* REQ-005: unified CreateTraceLinkDialog opens as modal (no layout shift) */}

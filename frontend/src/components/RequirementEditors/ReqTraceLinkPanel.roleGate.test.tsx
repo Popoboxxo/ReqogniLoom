@@ -20,6 +20,20 @@ vi.mock('../../api/requirements');
 vi.mock('../../api/testcases');
 vi.mock('../../api/architecture');
 vi.mock('../../context/AuthContext');
+// Issue #926: the panel now mounts the shared CreateTraceLinkDialog, which
+// reads the link-type catalog — needs the provider-free mock.
+vi.mock('../../context/LinkTypeContext', () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
 vi.mock('react-i18next', () => {
   const t = (key: string, fallback?: string): string =>
     typeof fallback === 'string' ? fallback : key;

@@ -144,6 +144,23 @@ vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
 }));
 
+// Issue #926: ReqTraceLinkPanel now mounts the shared CreateTraceLinkDialog
+// (REQ-005) instead of the legacy inline form; that dialog reads the link-type
+// catalog via useLinkTypes(), so this tree needs the provider-free mock every
+// other test rendering TraceLinkPanel/CreateTraceLinkDialog already uses.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
 // Stub the shared ArtifactInspector so the RightSidebar shell is countable.
 // Preserves the rest of the barrel (VersionPanel, types, ...) via importActual
 // and only replaces RightSidebar with a marker. This lets the test assert that

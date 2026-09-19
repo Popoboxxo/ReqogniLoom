@@ -163,14 +163,16 @@ export async function createTraceLinkViaUI(
   await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 12000 });
   const panel = page.locator('[data-testid="req-tracelink-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
+  // Issue #926: requirements now use the unified CreateTraceLinkDialog
+  // (REQ-005) instead of the legacy inline form — same modal as every other
+  // artifact type, not a native <select> hidden behind the create button.
   await page.locator('[data-testid="req-tracelink-create-btn"]').click();
-  const targetSelect = page.locator('[data-testid="req-tracelink-target-select"]');
-  await targetSelect.waitFor({ timeout: 10000 });
-  // Wait until the dropdown has been populated with at least one real option.
-  await targetSelect.locator('option[value]:not([value=""])').first().waitFor({ state: 'attached', timeout: 10000 });
-  await targetSelect.selectOption(targetReqId);
-  await page.locator('[data-testid="req-tracelink-type-select"]').selectOption(linkType);
-  await page.locator('[data-testid="req-tracelink-submit-btn"]').click();
+  await page.locator('[data-testid="create-trace-link-dialog"]').waitFor({ timeout: 8000 });
+  const target = page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`);
+  await target.waitFor({ timeout: 10000 });
+  await target.click();
+  await page.locator('[data-testid="create-trace-link-type-select"]').selectOption(linkType);
+  await page.locator('[data-testid="create-trace-link-submit"]').click();
   await page.waitForLoadState('networkidle');
 }
 

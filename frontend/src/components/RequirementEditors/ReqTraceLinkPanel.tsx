@@ -41,31 +41,18 @@ import {
   type HierarchyRelation,
 } from '../../utils/traceEndpoints';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
+import { CreateTraceLinkDialog } from '../shared/CreateTraceLinkDialog';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { RequirementTreeNode, type HierarchyNode } from './RequirementTreeNode';
 import { useHasRole } from '../../hooks/useHasRole';
-import { LINK_TYPE_LABELS, getLinkTypeLabel } from '../../constants/traceLinkLabels';
+import { getLinkTypeLabel } from '../../constants/traceLinkLabels';
 import type {
   Requirement,
   TraceLink,
-  LinkType,
   UUID,
   TestCase,
   ArchitectureElement,
 } from '../../types';
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  fontSize: 'var(--font-size-base)',
-  padding: 'var(--space-2) var(--space-3)',
-  marginBottom: 'var(--space-2)',
-  boxSizing: 'border-box',
-  background: 'var(--color-surface)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-md)',
-  color: 'var(--color-text)',
-  fontFamily: 'var(--font-sans)',
-};
 
 /** #416: sub-heading of a hierarchy direction group (hoisted — see ui-ratchet). */
 const hierarchyGroupHeadingStyle: React.CSSProperties = {
@@ -77,12 +64,85 @@ const hierarchyGroupHeadingStyle: React.CSSProperties = {
   padding: 'var(--space-2) 0 var(--space-1)',
 };
 
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  display: 'block',
-  marginBottom: 'var(--space-1)',
-  color: 'var(--color-text)',
+/** Issue #927: AI-derive gradient, hoisted out of the `style=` prop. */
+const aiGradientButtonStyle: React.CSSProperties = {
+  background: 'linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))',
+};
+
+/** Issue #928: heading + status line of the "Systemelement-Zuordnung" block. */
+const allocationHeadingStyle: React.CSSProperties = {
+  margin: '0 0 var(--space-2) 0',
   fontSize: 'var(--font-size-sm)',
+  fontWeight: 700,
+  color: 'var(--color-text)',
+};
+
+const allocationEmptyStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--font-size-sm)',
+  color: 'var(--color-text-muted)',
+};
+
+/** Issue #928: allocation block chrome (hoisted — inline-style ratchet). */
+const allocationSectionStyle: React.CSSProperties = {
+  marginBottom: 'var(--space-5)',
+};
+
+const allocationHeaderRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: 'var(--space-2)',
+};
+
+const allocationListStyle: React.CSSProperties = {
+  listStyle: 'none',
+  padding: 0,
+  margin: 0,
+};
+
+const allocationItemStyle: React.CSSProperties = {
+  padding: 'var(--space-2) var(--space-3)',
+  marginBottom: 'var(--space-2)',
+  background: 'var(--color-surface-raised)',
+  borderRadius: 'var(--radius-md)',
+  fontSize: 'var(--font-size-sm)',
+  color: 'var(--color-text)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--space-2)',
+};
+
+const allocationBadgeStyle: React.CSSProperties = {
+  background: 'var(--color-badge-draft)',
+  color: 'var(--color-badge-draft-text)',
+  padding: '2px 6px',
+  borderRadius: 'var(--radius-full)',
+  fontSize: 'var(--font-size-sm)',
+};
+
+const allocationTitleButtonStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  color: 'var(--color-primary)',
+  cursor: 'pointer',
+  textDecoration: 'underline',
+  fontSize: 'var(--font-size-sm)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontFamily: 'inherit',
+};
+
+const allocationRemoveButtonStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  background: 'none',
+  border: 'none',
+  color: 'var(--color-danger)',
+  cursor: 'pointer',
+  fontSize: 'var(--font-size-sm)',
+  fontWeight: 600,
 };
 
 /**
@@ -181,11 +241,11 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState<boolean>(false);
-  const [targetId, setTargetId] = useState<string>('');
-  const [linkType, setLinkType] = useState<LinkType>('derives-from');
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  // REQ-005 / issue #926: the unified CreateTraceLinkDialog replaces the
+  // legacy inline form. A second instance (architecture targets only,
+  // allocated-to preselected) backs the #928 allocation block.
+  const [showDialog, setShowDialog] = useState<boolean>(false);
+  const [showAllocationDialog, setShowAllocationDialog] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [architectureElements, setArchitectureElements] = useState<ArchitectureElement[]>([]);
@@ -391,56 +451,18 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
     [selfIds, architectureElementsById, testCasesById, entityIdByArtifactId]
   );
 
-  const otherRequirements = requirements.filter((r) => r.id !== requirementId);
-
-  const openForm = (): void => {
-    setTargetId('');
-    setLinkType('derives-from');
-    setSubmitError(null);
-    setShowForm(true);
-  };
-
-  const cancelForm = (): void => {
-    setShowForm(false);
-    setSubmitError(null);
-  };
-
-  const submitForm = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault();
-    if (!targetId) {
-      setSubmitError(t('traceability.targetRequired'));
-      return;
+  /** #928: current `allocated-to` links to architecture elements. */
+  const allocations = React.useMemo(() => {
+    const rows: Array<{ link: TraceLink; node: ReturnType<typeof resolveLinkRow> }> = [];
+    for (const link of links) {
+      if (link.link_type !== 'allocated-to') continue;
+      const neighbor = neighborOf(link, selfIds);
+      if (!neighbor) continue;
+      if (neighbor.endpoint.artifactType !== 'ArchitectureElement') continue;
+      rows.push({ link, node: resolveLinkRow(link) });
     }
-    setIsSubmitting(true);
-    setSubmitError(null);
-    try {
-      await tracelinksApi.create({
-        source_id: requirementId,
-        target_id: targetId,
-        link_type: linkType,
-      });
-      setShowForm(false);
-      setTargetId('');
-      setReloadKey((k) => k + 1);
-      onLinksChanged();
-    } catch (err: unknown) {
-      const apiErr = err as {
-        error?: {
-          message?: string;
-          details?: { field?: string; errors?: string[] }[];
-        };
-      };
-      const baseMsg = apiErr?.error?.message;
-      const firstDetail = apiErr?.error?.details?.[0];
-      const detailMsg = firstDetail
-        ? `${firstDetail.field ?? ''}: ${(firstDetail.errors ?? []).join(', ')}`
-        : '';
-      const msg = baseMsg ? (detailMsg ? `${baseMsg} — ${detailMsg}` : baseMsg) : String(err);
-      setSubmitError(msg);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    return rows;
+  }, [links, selfIds, resolveLinkRow]);
 
   const handleDelete = async (linkId: UUID): Promise<void> => {
     try {
@@ -530,26 +552,38 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         >
           {t('arch.tracelinkPanelTitle')}
         </h4>
-        {!showForm && !showDeriveForm && (
+        {!showDeriveForm && (
           <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
             {onAiDerive && (
+              // Issue #927: distinct "KI-Ableitung" label, decorative icon
+              // outside the accessible name, own hint.
               <button
                 type="button"
                 data-testid="req-ai-derive-btn"
                 className="btn-primary"
                 onClick={onAiDerive}
                 disabled={isAiDeriving}
-                style={{ background: 'linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))' }}
+                style={aiGradientButtonStyle}
+                aria-label={t('actions.deriveAi', 'KI-Ableitung')}
+                title={t(
+                  'actions.deriveAiHint',
+                  'Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
+                )}
               >
-                ✨ {isAiDeriving ? t('actions.deriving', 'Leitet ab...') : t('actions.derive', 'Ableiten')}
+                <span aria-hidden="true">✨</span>{' '}
+                {isAiDeriving
+                  ? t('actions.derivingAi', 'KI-Ableitung läuft…')
+                  : t('actions.deriveAi', 'KI-Ableitung')}
               </button>
             )}
             {canEdit && (
+              // Issue #926: same shared CreateTraceLinkDialog primitive as
+              // every other artifact type (REQ-005) — no more inline form.
               <button
                 type="button"
                 data-testid="req-tracelink-create-btn"
                 className="btn-primary"
-                onClick={openForm}
+                onClick={() => setShowDialog(true)}
               >
                 {t('traceability.create')}
               </button>
@@ -567,107 +601,106 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         )}
       </div>
 
-      {showForm && (
-        <form onSubmit={(e) => void submitForm(e)} style={{ marginBottom: 'var(--space-4)' }}>
-          <label htmlFor="req-tracelink-target-select" style={labelStyle}>{t('traceability.target')}</label>
-          <select
-            id="req-tracelink-target-select"
-            data-testid="req-tracelink-target-select"
-            value={targetId}
-            onChange={(e) => setTargetId(e.target.value)}
-            disabled={isSubmitting}
-            style={inputStyle}
-          >
-            {otherRequirements.length === 0 &&
-            testCases.length === 0 &&
-            architectureElements.length === 0 ? (
-              <option>{t('traceability.noArtifacts')}</option>
-            ) : null}
-            {otherRequirements.length > 0 && (
-              <optgroup label={t('traceability.requirementsGroup')}>
-                {otherRequirements.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.title || t('editor.untitled')}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {testCases.length > 0 && (
-              <optgroup label={t('traceability.testCasesGroup')}>
-                {testCases.map((tc) => (
-                  <option key={tc.id} value={tc.id}>
-                    {tc.title || t('editor.untitled')}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {architectureElements.length > 0 && (
-              <optgroup label={t('traceability.architectureGroup')}>
-                {architectureElements.map((ae) => (
-                  <option key={ae.id} value={ae.id}>
-                    {ae.title || t('editor.untitled')}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-
-          <label htmlFor="req-tracelink-type-select" style={labelStyle}>{t('traceability.linkType')}</label>
-          <select
-            id="req-tracelink-type-select"
-            data-testid="req-tracelink-type-select"
-            value={linkType}
-            onChange={(e) => setLinkType(e.target.value as LinkType)}
-            disabled={isSubmitting}
-            style={inputStyle}
-          >
-            {Object.keys(LINK_TYPE_LABELS).map((lt) => (
-              <option key={lt} value={lt}>
-                {getLinkTypeLabel(lt)}
-              </option>
-            ))}
-          </select>
-
-          {submitError && (
-            <p
-              role="alert"
-              style={{
-                color: 'var(--color-danger)',
-                fontSize: 'var(--font-size-sm)',
-                margin: 0,
-              }}
-            >
-              {submitError}
-            </p>
-          )}
-
-          <div
-            style={{
-              display: 'flex',
-              gap: 'var(--space-2)',
-              justifyContent: 'flex-end',
-            }}
-          >
+      {/* Issue #928: dedicated "Systemelement-Zuordnung" block, above the
+          link list, so Requirement -> ArchitectureElement (allocated-to) is a
+          one-click, visible action instead of a scroll inside a native select.
+          Reads/writes the existing allocated-to TraceLinks — no second data
+          store (coverage / VCRM / SE-Auditor TRACE-P3 keep working). */}
+      <section
+        data-testid="req-allocation-section"
+        aria-label={t('allocation.heading', 'Systemelement-Zuordnung')}
+        style={allocationSectionStyle}
+      >
+        <div style={allocationHeaderRowStyle}>
+          <h5 style={allocationHeadingStyle}>{t('allocation.heading', 'Systemelement-Zuordnung')}</h5>
+          {canEdit && (
             <button
               type="button"
-              data-testid="req-tracelink-cancel-btn"
               className="btn-secondary"
-              onClick={cancelForm}
-              disabled={isSubmitting}
+              data-testid="req-allocation-assign-btn"
+              onClick={() => setShowAllocationDialog(true)}
+              title={t(
+                'allocation.assignHint',
+                'Dieses Requirement einem Systemelement (Architekturelement) zuordnen'
+              )}
             >
-              {t('actions.cancel')}
+              {t('allocation.assign', 'Systemelement zuordnen')}
             </button>
-            <button
-              type="submit"
-              data-testid="req-tracelink-submit-btn"
-              className="btn-primary"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? t('traceability.submitting') : t('traceability.submit')}
-            </button>
-          </div>
-        </form>
-      )}
+          )}
+        </div>
+        {allocations.length === 0 ? (
+          <p data-testid="req-allocation-empty" style={allocationEmptyStyle}>
+            {t('allocation.none', 'Kein Systemelement zugeordnet.')}
+          </p>
+        ) : (
+          <ul data-testid="req-allocation-list" style={allocationListStyle}>
+            {allocations.map(({ link, node }) =>
+              node ? (
+                <li key={link.id} data-testid="req-allocation-item" style={allocationItemStyle}>
+                  <span style={allocationBadgeStyle}>
+                    {getLinkTypeLabel(link.link_type)}
+                  </span>
+                  {node.isOutdated ? (
+                    <OutdatedEndpointLabel
+                      displayTitle={node.displayTitle}
+                      testId="req-allocation-title-outdated"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="req-allocation-title"
+                      onClick={() => navigate(node.route)}
+                      title={node.displayTitle}
+                      style={allocationTitleButtonStyle}
+                    >
+                      {node.displayTitle}
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button
+                      data-testid="req-allocation-remove-btn"
+                      onClick={() => setPendingDeleteLinkId(link.id)}
+                      style={allocationRemoveButtonStyle}
+                      title={t('allocation.remove', 'Zuordnung entfernen')}
+                      aria-label={t('allocation.remove', 'Zuordnung entfernen')}
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  )}
+                </li>
+              ) : null
+            )}
+          </ul>
+        )}
+      </section>
+
+      {/* REQ-005 / issue #926: unified modal replaces the legacy inline form. */}
+      <CreateTraceLinkDialog
+        workspaceId={workspaceId}
+        sourceId={requirementId}
+        isOpen={showDialog}
+        onClose={() => setShowDialog(false)}
+        onCreated={() => {
+          setShowDialog(false);
+          setReloadKey((k) => k + 1);
+          onLinksChanged();
+        }}
+        defaultLinkType="derives-from"
+      />
+      {/* Issue #928: architecture-only, allocated-to preselected. */}
+      <CreateTraceLinkDialog
+        workspaceId={workspaceId}
+        sourceId={requirementId}
+        isOpen={showAllocationDialog}
+        onClose={() => setShowAllocationDialog(false)}
+        onCreated={() => {
+          setShowAllocationDialog(false);
+          setReloadKey((k) => k + 1);
+          onLinksChanged();
+        }}
+        allowedTypes={['architecture']}
+        defaultLinkType="allocated-to"
+      />
 
       {isLoading && (
         <p

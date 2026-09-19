@@ -48,7 +48,7 @@
     "tests": "Tests",
     "baselines": "Baselines",
     "reviews": "Reviews",
-    "traceability": "Trace Links",
+    "traceability": "Traceability",
     "impact": "Impact Analysis",
     "metrics": "SE Metrics",
     "audit": "SE-Auditor",
@@ -225,8 +225,15 @@
     "dismiss": "Dismiss",
     "clear": "Clear",
     "reset": "Reset",
-    "derive": "Derive",
-    "deriving": "Deriving...",
+    "deriveManual": "Derive",
+    "derivingManual": "Deriving…",
+    "deriveAi": "AI derivation",
+    "derivingAi": "AI derivation running…",
+    "deriveAiTestcase": "AI test case",
+    "derivingAiTestcase": "Creating AI test case…",
+    "deriveManualHint": "Create a new requirement manually and allocate it to a system element",
+    "deriveAiHint": "The AI produces drafts for review – nothing is saved until you confirm",
+    "deriveAiTestcaseHint": "The AI produces a test-case draft for review – nothing is saved until you confirm",
     "deleting": "Deleting...",
     "closing": "Closing...",
     "confirm": "Confirm",
@@ -234,6 +241,13 @@
     "deleteConfirmPrompt": "Delete?",
     "deleteConfirmPromptNamed": "Really delete “{{name}}”?",
     "removeTag": "Remove tag “{{tag}}”"
+  },
+  "allocation": {
+    "heading": "System Element Allocation",
+    "assign": "Allocate system element",
+    "assignHint": "Allocate this requirement to a system element (architecture element)",
+    "none": "No system element allocated.",
+    "remove": "Remove allocation"
   },
   "workflowEditor": {
     "changeStatus": "Change status",
@@ -335,7 +349,6 @@
     "retryLoadChildren": "Retry"
   },
   "arch": {
-    "deriveRequirement": "Derive requirement",
     "createFailed": "Failed to create architecture element.",
     "deleteFailed": "Failed to delete architecture element.",
     "reparentFailed": "Failed to move architecture element.",
@@ -405,7 +418,6 @@
     "target": "Target",
     "linkType": "Link Type",
     "create": "New Trace Link",
-    "derive": "Derive",
     "deriveTitle": "Title of the derived requirement",
     "deriveTitleRequired": "Please enter a title for the derived requirement.",
     "deriveArchitectureElement": "Architecture Element (system level)",
@@ -1620,7 +1632,6 @@
     "compressionFailed": "Compression failed."
   },
   "deriveTestcase": {
-    "trigger": "Generate Test",
     "title": "TestCase Draft",
     "close": "Close",
     "generate": "Generate draft",

@@ -28,6 +28,20 @@ vi.mock('react-i18next', () => {
 vi.mock('../../hooks/useHasRole', () => ({
   useHasRole: () => (): boolean => true,
 }));
+// Issue #926: the panel mounts the shared CreateTraceLinkDialog now, which
+// reads the link-type catalog — provider-free mock, as elsewhere.
+vi.mock('../../context/LinkTypeContext', () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
 
 import * as tracelinksModule from '../../api/tracelinks';
 import * as testcasesModule from '../../api/testcases';
@@ -274,5 +288,32 @@ describe('ReqTraceLinkPanel — hierarchical view (#416)', () => {
       'data-artifact-id',
       L2_ART_ID
     );
+  });
+});
+
+describe('ReqTraceLinkPanel — Systemelement-Zuordnung (#928)', () => {
+  it('shows the current allocated-to element and the assign action', async () => {
+    renderPanel(L1_REQ_ID);
+
+    const assignment = await screen.findByTestId('req-allocation-item');
+    expect(screen.getByTestId('req-allocation-title')).toHaveTextContent('AuthModule');
+    expect(assignment).toBeInTheDocument();
+    // The one-click entry point (no native select to scroll).
+    expect(screen.getByTestId('req-allocation-assign-btn')).toBeInTheDocument();
+    expect(screen.queryByTestId('req-allocation-empty')).not.toBeInTheDocument();
+  });
+
+  it('reports "no system element allocated" when there is none', async () => {
+    vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mockResolvedValue({
+      results: [LINKS[0]], // decomposes only, no allocated-to
+      count: 1,
+      next: null,
+      previous: null,
+    } as never);
+
+    renderPanel(L1_REQ_ID);
+
+    expect(await screen.findByTestId('req-allocation-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('req-allocation-item')).not.toBeInTheDocument();
   });
 });

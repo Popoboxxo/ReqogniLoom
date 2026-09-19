@@ -110,23 +110,57 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
-    // Open the create form
+    // Issue #926: the create button opens the unified CreateTraceLinkDialog
+    // (REQ-005), same modal as every other artifact type — target picker with
+    // search instead of the legacy inline <select> form.
     await page.locator('[data-testid="req-tracelink-create-btn"]').click();
-    await expect(page.locator('[data-testid="req-tracelink-target-select"]')).toBeVisible({ timeout: 6000 });
-    await expect(page.locator('[data-testid="req-tracelink-type-select"]')).toBeVisible({ timeout: 4000 });
-    await expect(page.locator('[data-testid="req-tracelink-submit-btn"]')).toBeVisible({ timeout: 4000 });
+    await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 6000 });
+    await expect(page.locator('[data-testid="create-trace-link-target-list"]')).toBeVisible({ timeout: 4000 });
+    await expect(page.locator('[data-testid="create-trace-link-target-search"]')).toBeVisible({ timeout: 4000 });
+    await expect(page.locator('[data-testid="create-trace-link-type-select"]')).toBeVisible({ timeout: 4000 });
+    await expect(page.locator('[data-testid="create-trace-link-submit"]')).toBeVisible({ timeout: 4000 });
 
-    // All 8 core link types must be available (link-types catalog migration,
-    // 2026-09). Options render getLinkTypeLabel() as display text but keep
-    // the raw catalog key as the underlying `value` — assert against values,
-    // not visible text. The pre-migration types this used to assert
-    // ('parent-child', 'satisfies', 'implements', 'refines') no longer exist.
-    const typeValues = await page.locator('[data-testid="req-tracelink-type-select"]').locator('option').evaluateAll(
+    // The unified dialog offers only link types the backend allows for the
+    // chosen endpoints (spec §4.1) — with no target selected yet, that is the
+    // 7 Requirement-sourced core types. `diagram-ref` is deliberately absent:
+    // it connects diagrams to artifacts, not a Requirement as source, so the
+    // legacy inline form's "all 8 regardless" was the thing that let a user
+    // pick a type the server would then reject.
+    // Options keep the raw catalog key as `value` — assert against values.
+    const typeValues = await page.locator('[data-testid="create-trace-link-type-select"]').locator('option').evaluateAll(
       (opts) => opts.map((o) => (o as HTMLOptionElement).value)
     );
     const realTypes = typeValues.filter((o) => o.trim());
-    expect(realTypes).toEqual(expect.arrayContaining(['derives-from', 'decomposes', 'allocated-to', 'verifies', 'decides', 'mitigates', 'references', 'diagram-ref']));
-    expect(realTypes.length).toBeGreaterThanOrEqual(8);
+    expect(realTypes).toEqual(
+      expect.arrayContaining([
+        'derives-from',
+        'decomposes',
+        'allocated-to',
+        'verifies',
+        'decides',
+        'mitigates',
+        'references',
+      ])
+    );
+    expect(realTypes).not.toContain('diagram-ref');
+  });
+
+  test('[#928] requirement editor exposes the system-element allocation entry', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/requirements`);
+    await createRequirementViaQuickForm(page);
+
+    // Systemelement-Zuordnung (Requirement -> ArchitectureElement via
+    // allocated-to) is a visible, one-click block — not a scroll inside a
+    // native select behind the generic "new trace link" button.
+    const section = page.locator('[data-testid="req-allocation-section"]');
+    await expect(section).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="req-allocation-empty"]')).toBeVisible({ timeout: 4000 });
+
+    await page.locator('[data-testid="req-allocation-assign-btn"]').click();
+    await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 6000 });
+    // Architecture-only and allocated-to preselected.
+    await expect(page.locator('[data-testid="create-trace-link-type-select"]')).toHaveValue('allocated-to');
+    await expect(page.locator('[data-testid="create-trace-link-target-type-architecture"]')).toBeVisible();
   });
 
   // -------------------------------------------------------------------------

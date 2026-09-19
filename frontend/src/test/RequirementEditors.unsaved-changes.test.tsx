@@ -157,6 +157,21 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   return { ...actual, RightSidebar: () => <div data-testid="artifact-inspector" /> };
 });
 
+// Issue #926: RequirementEditors -> ReqTraceLinkPanel now mounts the shared
+// CreateTraceLinkDialog, which reads the link-type catalog.
+vi.mock("../context/LinkTypeContext", () => ({
+  useLinkTypes: () => ({
+    linkTypes: [],
+    isLoading: false,
+    error: null,
+    reload: vi.fn(),
+    creatableLinkTypes: [],
+    definitionFor: () => undefined,
+    isAllowedPair: () => false,
+    labelFor: (key: string) => key,
+  }),
+}));
+
 // Must import AFTER vi.mock
 import RequirementEditors from "../components/RequirementEditors/RequirementEditors";
 import { AuthProvider } from "../context/AuthContext";
