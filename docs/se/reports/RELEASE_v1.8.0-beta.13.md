@@ -1,7 +1,7 @@
 ---
 type: STRATEGY
 scope: Release v1.8.0-beta.13
-status: in-progress
+status: done
 date: 2026-09-20
 author_agent: release
 ---
@@ -11,11 +11,10 @@ author_agent: release
 ## 1. Release-Ziel
 
 Vorbereitung des Beta-Release `v1.8.0-beta.13` auf dem Branch
-`chore/release-v1.8.0-beta.13` (Basis: `main`). Dieser Bericht dokumentiert die
-**Vorbereitungsphase** (Versionierung in allen Carriern, CHANGELOG, dieser
-Bericht, ein Commit). Tag, Merge, GitHub-Pre-Release, gestempelter Build und
-CI-Gates folgen durch den Orchestrator und werden in Abschnitt 9 nachgetragen;
-der Bericht steht daher zunächst auf `status: in-progress`.
+`chore/release-v1.8.0-beta.13` (Basis: `main`). Dieser Bericht dokumentiert
+Vorbereitung **und** Auslieferung: Versionierung in allen Carriern, CHANGELOG,
+dieser Bericht, Merge, Tag, GitHub-Pre-Release und der gestempelte
+Docker-Publish-Lauf (Abschnitte 7–9).
 
 - **Version:** `1.8.0-beta.13`
 - **Tag (geplant):** `v1.8.0-beta.13`
@@ -119,16 +118,24 @@ Alle Träger von `1.8.0-beta.12` → `1.8.0-beta.13`:
 | `docker compose -f deploy/docker-compose.minimal.yml config -q` | **PASS** |
 | Carrier-Konsistenz (`VERSION` == `frontend/package.json` == compose-Default == `.env.example`) | **PASS** |
 
-## 7. CI-Gates (nach Push)
+## 7. CI-Gates
 
-Durch den Orchestrator nachzutragen (CI + Docker Publish auf `v1.8.0-beta.13`).
+| Gate | Ergebnis |
+|---|---|
+| Vorbereitungs-PR **#1016** (`chore/release-v1.8.0-beta.13`) | **13/13 grün** (0 fail), inkl. backend set-1..4, e2e 1–4, frontend-test, lint, Agent-Templates/`dist`, Hermes-Plugin |
 
 ## 8. Tag & GitHub-Pre-Release
 
-Geplant nach Merge dieses Vorbereitungs-PR (annotierter Tag `v1.8.0-beta.13`
-auf `main`, Pre-Release gekennzeichnet, da `-beta.N`).
+| Schritt | Ergebnis |
+|---|---|
+| Merge PR #1016 → `main` | Commit `f73646ed` (`chore(release): prepare v1.8.0-beta.13 (#1016)`), Commit-Zeit `2026-09-20T18:18:50+02:00` |
+| Annotierter Tag `v1.8.0-beta.13` (Tag-Objekt `517bda37`) | gesetzt auf `f73646ed`, **Tag-Zeit `2026-09-20T18:19:59+02:00`** |
+| GitHub **Pre-Release** | https://github.com/Popoboxxo/ReqogniLoom/releases/tag/v1.8.0-beta.13 (`prerelease=true`) |
+| `Docker Publish (GHCR)` Run `35522377259` | **success** (`2026-09-20T16:20:02Z` → `2026-09-20T16:25:44Z`); baut/pusht `ghcr.io/popoboxxo/reqogniloom-backend:1.8.0-beta.13` und `…-frontend:1.8.0-beta.13` |
 
-## 9. Nachtrag (Orchestrator)
+## 9. Nachtrag (Auslieferung)
 
-_Noch offen: Merge-Zeit, Tag-Zeit, Docker-Publish-Run-Id, GitHub-Pre-Release-URL,
-gestempelter `APP_VERSION`-Nachweis._
+Abgeschlossen. `APP_VERSION` wird beim gestempelten Build aus `VERSION`
+(`1.8.0-beta.13`) gesetzt; die GHCR-Tags `1.8.0-beta.13` sind veröffentlicht.
+Ein Rollback auf `v1.8.0-beta.12` ist über den Tag + die Compose-Variable
+`REQOGNILOOM_VERSION` möglich.
