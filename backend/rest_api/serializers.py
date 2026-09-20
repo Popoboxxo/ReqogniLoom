@@ -63,15 +63,19 @@ LOCK_VERSION_HELP_TEXT = (
 # Identity semantics: ``id`` vs ``uid`` (Attribut v3 WS2, #936, spec section 3)
 # ---------------------------------------------------------------------------
 
-# Spec section 3: the Artifact UUID ``id`` is the sole identity; ``uid`` is a
-# free-form *external import key* (ReqIF). Nothing in the product auto-generates
-# a ``uid`` and there is no ``REQ-NNN`` number-circle: an unset ``uid`` is a
-# valid, permanent state. The field stays read-only on every serializer (the one
-# exception is the ReqIF importer, which round-trips the source key through the
-# service layer, never through a client payload).
+# Spec section 3: the Artifact UUID ``id`` is the technical identity; ``uid`` is
+# the *readable local identifier* (issue #932). Each artifact-create service
+# allocates ``{PREFIX}-{NNN}`` per ``(workspace, item_type)`` via
+# ``application.local_uid.generate_local_uid``, so a freshly created artifact
+# carries one without any user action; an explicit ``uid`` (ReqIF import) still
+# wins. The field stays read-only to clients on every serializer —
+# ``ClientUidRejectionMixin`` answers 400 for a supplied value instead of
+# discarding it silently. ReqIF's external identity lives on the Artifact
+# ``reqif_*`` fields (#1003), not here.
 UID_HELP_TEXT = (
-    "External import key (ReqIF); never auto-generated - the Artifact UUID "
-    "'id' is the identity."
+    "Local readable identifier, auto-generated per (workspace, item_type) as "
+    "'<PREFIX>-NNN' (issue #932). Read-only: managed by the server. External "
+    "ReqIF identity lives on Artifact.reqif_uid/reqif_identifier, not here."
 )
 
 # ---------------------------------------------------------------------------
