@@ -2,16 +2,16 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { MemoryManagementSection } from "./MemoryManagementSection";
-import { memoryAdminApi } from "../../api/memoryAdmin";
+import { memoryApi } from "../../api/memory";
 // Real i18n singleton, as in PermissionDefaultsTab.test.tsx — this test asserts
 // against the interpolated `deleteConfirmBody` copy, so `t()` must actually
 // resolve keys against the locale bundles rather than echoing the key back.
 import "../../i18n/index";
 
-vi.mock("../../api/memoryAdmin", () => ({
-  memoryAdminApi: {
-    listWorkspaceOverview: vi.fn(),
-    deleteWorkspaceMemory: vi.fn(),
+vi.mock("../../api/memory", () => ({
+  memoryApi: {
+    listSystemWorkspaceOverview: vi.fn(),
+    deleteSystemWorkspaceMemory: vi.fn(),
   },
 }));
 
@@ -21,15 +21,19 @@ const ROW = {
   enabled: true,
   workspace_entry_count: 5,
   user_entry_count: 2,
+  by_scope: { workspace: 5, user: 2, artifact: 3 },
+  contributor_count: 4,
+  degraded: false,
   last_consolidated_at: "2026-08-20T10:00:00Z",
 };
 
 describe("MemoryManagementSection", () => {
   beforeEach(() => {
-    vi.mocked(memoryAdminApi.listWorkspaceOverview).mockResolvedValue({ results: [ROW] });
-    vi.mocked(memoryAdminApi.deleteWorkspaceMemory).mockResolvedValue({
+    vi.mocked(memoryApi.listSystemWorkspaceOverview).mockResolvedValue({ results: [ROW] });
+    vi.mocked(memoryApi.deleteSystemWorkspaceMemory).mockResolvedValue({
       workspace_id: ROW.workspace_id,
       workspace_memory_deleted: 5,
+      artifact_memory_deleted: 3,
       user_memory_deleted: 2,
     });
   });
@@ -43,8 +47,33 @@ describe("MemoryManagementSection", () => {
     expect(within(row).getByText("2")).toBeInTheDocument();
   });
 
+  it("shows by_scope.artifact and contributor_count per row", async () => {
+    render(<MemoryManagementSection />);
+
+    const row = await screen.findByTestId(`memory-row-${ROW.workspace_id}`);
+    expect(
+      within(row).getByTestId(`memory-artifact-count-${ROW.workspace_id}`)
+    ).toHaveTextContent("3");
+    expect(
+      within(row).getByTestId(`memory-contributor-count-${ROW.workspace_id}`)
+    ).toHaveTextContent("4");
+  });
+
+  it("shows a degraded banner when a row reports degraded", async () => {
+    vi.mocked(memoryApi.listSystemWorkspaceOverview).mockResolvedValue({
+      results: [{ ...ROW, degraded: true }],
+    });
+
+    render(<MemoryManagementSection />);
+
+    expect(await screen.findByTestId("memory-management-degraded")).toBeInTheDocument();
+    expect(
+      screen.getByTestId(`memory-status-${ROW.workspace_id}`)
+    ).toHaveTextContent(/Beeinträchtigt|Degraded/);
+  });
+
   it("shows an empty state when there are no workspaces", async () => {
-    vi.mocked(memoryAdminApi.listWorkspaceOverview).mockResolvedValue({ results: [] });
+    vi.mocked(memoryApi.listSystemWorkspaceOverview).mockResolvedValue({ results: [] });
 
     render(<MemoryManagementSection />);
 
@@ -54,9 +83,9 @@ describe("MemoryManagementSection", () => {
   it("does not flash the empty state before the initial fetch resolves", async () => {
     // Regression guard: `rows` starts as `[]`, so a naive `rows.length === 0`
     // empty-state condition would render "no workspaces" for one tick even
-    // when workspaces actually exist — before `listWorkspaceOverview()` has
-    // had a chance to resolve.
-    vi.mocked(memoryAdminApi.listWorkspaceOverview).mockResolvedValue({ results: [ROW] });
+    // when workspaces actually exist — before `listSystemWorkspaceOverview()`
+    // has had a chance to resolve.
+    vi.mocked(memoryApi.listSystemWorkspaceOverview).mockResolvedValue({ results: [ROW] });
 
     render(<MemoryManagementSection />);
 
@@ -75,11 +104,11 @@ describe("MemoryManagementSection", () => {
     expect(within(dialog).getByText(/5/)).toBeInTheDocument();
     expect(within(dialog).getByText(/2/)).toBeInTheDocument();
 
-    vi.mocked(memoryAdminApi.listWorkspaceOverview).mockResolvedValue({ results: [] });
+    vi.mocked(memoryApi.listSystemWorkspaceOverview).mockResolvedValue({ results: [] });
     await user.click(within(dialog).getByTestId("memory-delete-confirm-btn"));
 
     await waitFor(() => {
-      expect(memoryAdminApi.deleteWorkspaceMemory).toHaveBeenCalledWith(ROW.workspace_id);
+      expect(memoryApi.deleteSystemWorkspaceMemory).toHaveBeenCalledWith(ROW.workspace_id);
     });
     await waitFor(() => {
       expect(screen.queryByTestId("memory-delete-confirm-dialog")).not.toBeInTheDocument();

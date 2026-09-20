@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
-import { memoryVisualizationApi } from "../../api/memory-visualization";
+import { memoryApi } from "../../api/memory";
 import * as workspaceContext from "../../context/WorkspaceContext";
 // Real i18n singleton (as in MemoryManagementSection.test.tsx) — several
 // assertions below rely on interpolated copy (page info, sampled/excluded
@@ -10,10 +10,10 @@ import * as workspaceContext from "../../context/WorkspaceContext";
 // locale bundles rather than echo the raw key back.
 import "../../i18n/index";
 
-vi.mock("../../api/memory-visualization", () => ({
-  memoryVisualizationApi: {
-    listEntries: vi.fn(),
-    getProjection: vi.fn(),
+vi.mock("../../api/memory", () => ({
+  memoryApi: {
+    listSystemEntries: vi.fn(),
+    getSystemProjection: vi.fn(),
   },
 }));
 
@@ -73,20 +73,20 @@ describe("MemoryVisualizationSection", () => {
     // caching is asserted on precise call counts, not just "was called").
     vi.clearAllMocks();
     mockActiveWorkspace(WORKSPACE);
-    vi.mocked(memoryVisualizationApi.listEntries).mockResolvedValue({
+    vi.mocked(memoryApi.listSystemEntries).mockResolvedValue({
       results: [ENTRY_ROW],
       count: 1,
       page: 1,
       page_size: 25,
     });
-    vi.mocked(memoryVisualizationApi.getProjection).mockResolvedValue(PROJECTION_FIXTURE);
+    vi.mocked(memoryApi.getSystemProjection).mockResolvedValue(PROJECTION_FIXTURE);
   });
 
   it("loads the List view on mount, scoped to the active workspace", async () => {
     render(<MemoryVisualizationSection />);
 
     await screen.findByTestId("memory-viz-row-entry-1");
-    expect(memoryVisualizationApi.listEntries).toHaveBeenCalledWith(
+    expect(memoryApi.listSystemEntries).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "workspace", workspaceId: WORKSPACE.id, page: 1 })
     );
   });
@@ -96,11 +96,11 @@ describe("MemoryVisualizationSection", () => {
     render(<MemoryVisualizationSection />);
     await screen.findByTestId("memory-viz-row-entry-1");
 
-    vi.mocked(memoryVisualizationApi.listEntries).mockClear();
+    vi.mocked(memoryApi.listSystemEntries).mockClear();
     await user.click(screen.getByTestId("memory-viz-scope-global"));
 
     await waitFor(() => {
-      expect(memoryVisualizationApi.listEntries).toHaveBeenCalledWith(
+      expect(memoryApi.listSystemEntries).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "global", page: 1 })
       );
     });
@@ -111,7 +111,7 @@ describe("MemoryVisualizationSection", () => {
     render(<MemoryVisualizationSection />);
 
     await screen.findByTestId("memory-viz-row-entry-1");
-    expect(memoryVisualizationApi.listEntries).toHaveBeenCalledWith(
+    expect(memoryApi.listSystemEntries).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "global" })
     );
     expect(screen.getByTestId("memory-viz-scope-workspace")).toBeDisabled();
@@ -121,16 +121,16 @@ describe("MemoryVisualizationSection", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<MemoryVisualizationSection />);
     await vi.waitFor(() => {
-      expect(memoryVisualizationApi.listEntries).toHaveBeenCalled();
+      expect(memoryApi.listSystemEntries).toHaveBeenCalled();
     });
 
-    vi.mocked(memoryVisualizationApi.listEntries).mockClear();
+    vi.mocked(memoryApi.listSystemEntries).mockClear();
     fireEvent.change(screen.getByTestId("memory-viz-filter-input"), {
       target: { value: "dark mode" },
     });
 
     // Not yet fired before the debounce window elapses.
-    expect(memoryVisualizationApi.listEntries).not.toHaveBeenCalled();
+    expect(memoryApi.listSystemEntries).not.toHaveBeenCalled();
 
     // The debounce timer fires `setFilterQuery` from a timer callback, i.e.
     // outside React's event handling. React 19 no longer flushes such an
@@ -142,14 +142,14 @@ describe("MemoryVisualizationSection", () => {
       await vi.advanceTimersByTimeAsync(500);
     });
 
-    expect(memoryVisualizationApi.listEntries).toHaveBeenCalledWith(
+    expect(memoryApi.listSystemEntries).toHaveBeenCalledWith(
       expect.objectContaining({ q: "dark mode", page: 1 })
     );
     vi.useRealTimers();
   });
 
   it("List pagination: Next/Prev call listEntries with the adjacent page", async () => {
-    vi.mocked(memoryVisualizationApi.listEntries).mockResolvedValue({
+    vi.mocked(memoryApi.listSystemEntries).mockResolvedValue({
       results: [ENTRY_ROW],
       count: 60,
       page: 1,
@@ -159,7 +159,7 @@ describe("MemoryVisualizationSection", () => {
     render(<MemoryVisualizationSection />);
     await screen.findByTestId("memory-viz-row-entry-1");
 
-    vi.mocked(memoryVisualizationApi.listEntries).mockResolvedValueOnce({
+    vi.mocked(memoryApi.listSystemEntries).mockResolvedValueOnce({
       results: [ENTRY_ROW],
       count: 60,
       page: 2,
@@ -168,14 +168,14 @@ describe("MemoryVisualizationSection", () => {
     await user.click(screen.getByTestId("memory-viz-list-next"));
 
     await waitFor(() => {
-      expect(memoryVisualizationApi.listEntries).toHaveBeenCalledWith(
+      expect(memoryApi.listSystemEntries).toHaveBeenCalledWith(
         expect.objectContaining({ page: 2 })
       );
     });
 
     await user.click(screen.getByTestId("memory-viz-list-prev"));
     await waitFor(() => {
-      expect(memoryVisualizationApi.listEntries).toHaveBeenCalledWith(
+      expect(memoryApi.listSystemEntries).toHaveBeenCalledWith(
         expect.objectContaining({ page: 1 })
       );
     });
@@ -185,14 +185,14 @@ describe("MemoryVisualizationSection", () => {
     const user = userEvent.setup();
     render(<MemoryVisualizationSection />);
     await screen.findByTestId("memory-viz-row-entry-1");
-    expect(memoryVisualizationApi.getProjection).not.toHaveBeenCalled();
+    expect(memoryApi.getSystemProjection).not.toHaveBeenCalled();
 
     await user.click(screen.getByTestId("memory-viz-view-cluster"));
 
     const clusterList = await screen.findByTestId("memory-viz-cluster-list");
     expect(within(clusterList).getByTestId("memory-viz-cluster-group-0")).toBeInTheDocument();
     expect(within(clusterList).getByTestId("memory-viz-cluster-group-1")).toBeInTheDocument();
-    expect(memoryVisualizationApi.getProjection).toHaveBeenCalledTimes(1);
+    expect(memoryApi.getSystemProjection).toHaveBeenCalledTimes(1);
   });
 
   it("switching Cluster -> Scatter -> Cluster does not re-fetch the cached projection", async () => {
@@ -202,7 +202,7 @@ describe("MemoryVisualizationSection", () => {
 
     await user.click(screen.getByTestId("memory-viz-view-cluster"));
     await screen.findByTestId("memory-viz-cluster-list");
-    expect(memoryVisualizationApi.getProjection).toHaveBeenCalledTimes(1);
+    expect(memoryApi.getSystemProjection).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByTestId("memory-viz-view-scatter"));
     const plot = await screen.findByTestId("memory-viz-scatter-plot");
@@ -213,11 +213,11 @@ describe("MemoryVisualizationSection", () => {
     await screen.findByTestId("memory-viz-cluster-list");
 
     // Still just the one call from the first switch — client-side cache hit.
-    expect(memoryVisualizationApi.getProjection).toHaveBeenCalledTimes(1);
+    expect(memoryApi.getSystemProjection).toHaveBeenCalledTimes(1);
   });
 
   it("shows the sampled and excluded-no-embedding notices when the API reports them", async () => {
-    vi.mocked(memoryVisualizationApi.getProjection).mockResolvedValue({
+    vi.mocked(memoryApi.getSystemProjection).mockResolvedValue({
       ...PROJECTION_FIXTURE,
       sampled: true,
       sample_size: 5000,
@@ -251,14 +251,14 @@ describe("MemoryVisualizationSection", () => {
   });
 
   it("shows a list error state when listEntries rejects", async () => {
-    vi.mocked(memoryVisualizationApi.listEntries).mockRejectedValue(new Error("boom"));
+    vi.mocked(memoryApi.listSystemEntries).mockRejectedValue(new Error("boom"));
     render(<MemoryVisualizationSection />);
 
     expect(await screen.findByTestId("memory-viz-list-error")).toBeInTheDocument();
   });
 
   it("shows a projection error state when getProjection rejects", async () => {
-    vi.mocked(memoryVisualizationApi.getProjection).mockRejectedValue(new Error("boom"));
+    vi.mocked(memoryApi.getSystemProjection).mockRejectedValue(new Error("boom"));
     const user = userEvent.setup();
     render(<MemoryVisualizationSection />);
     await screen.findByTestId("memory-viz-row-entry-1");
@@ -269,7 +269,7 @@ describe("MemoryVisualizationSection", () => {
   });
 
   it("shows the empty state when the list scope has no entries", async () => {
-    vi.mocked(memoryVisualizationApi.listEntries).mockResolvedValue({
+    vi.mocked(memoryApi.listSystemEntries).mockResolvedValue({
       results: [],
       count: 0,
       page: 1,

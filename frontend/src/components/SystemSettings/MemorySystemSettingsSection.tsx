@@ -269,6 +269,41 @@ export function MemorySystemSettingsSection(): JSX.Element {
         />
       </label>
 
+      <label className={styles.field}>
+        {t("systemSettings.memorySettings.writeRateLimit")}
+        <input
+          type="number"
+          min={0}
+          data-testid="memory-settings-write-rate-limit"
+          value={numberFieldValue(
+            form.memory_write_rate_limit_per_hour,
+            settings.memory_write_rate_limit_per_hour
+          )}
+          onChange={(e) =>
+            setForm((f) => ({
+              ...f,
+              memory_write_rate_limit_per_hour:
+                e.target.value === "" ? null : Number(e.target.value),
+            }))
+          }
+        />
+        {settings.memory_write_rate_limit_per_hour_is_override ? (
+          <span
+            data-testid="write-rate-limit-override-badge"
+            className={styles.overrideBadge}
+          >
+            {t("systemSettings.memorySettings.overrideBadge")}
+          </span>
+        ) : (
+          <span
+            data-testid="write-rate-limit-default-hint"
+            className={styles.hint}
+          >
+            {t("systemSettings.memorySettings.usingDefault", "Standardwert aktiv")}
+          </span>
+        )}
+      </label>
+
       {saveError && (
         <p role="alert" data-testid="memory-system-settings-save-error" className={styles.error}>
           {saveError}

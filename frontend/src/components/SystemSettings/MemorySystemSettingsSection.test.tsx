@@ -30,6 +30,8 @@ const SETTINGS = {
   honcho_base_url: null,
   honcho_base_url_is_override: false,
   honcho_api_key_is_set: false,
+  memory_write_rate_limit_per_hour: 60,
+  memory_write_rate_limit_per_hour_is_override: false,
   warning: null,
 };
 
@@ -265,6 +267,45 @@ describe("MemorySystemSettingsSection", () => {
       expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({ honcho_api_key: "new-secret" });
     });
     expect(screen.queryByTestId("memory-settings-confirm-dialog")).not.toBeInTheDocument();
+  });
+
+  it("renders the write-rate-limit field with the effective value and a default hint", async () => {
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    expect(screen.getByTestId("memory-settings-write-rate-limit")).toHaveValue(60);
+    expect(screen.getByTestId("write-rate-limit-default-hint")).toBeInTheDocument();
+    expect(screen.queryByTestId("write-rate-limit-override-badge")).not.toBeInTheDocument();
+  });
+
+  it("shows the override badge when the write rate limit is overridden", async () => {
+    vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
+      ...SETTINGS,
+      memory_write_rate_limit_per_hour: 5,
+      memory_write_rate_limit_per_hour_is_override: true,
+    });
+
+    render(<MemorySystemSettingsSection />);
+
+    expect(await screen.findByTestId("write-rate-limit-override-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-settings-write-rate-limit")).toHaveValue(5);
+  });
+
+  it("stages the write rate limit and saves it", async () => {
+    const user = userEvent.setup();
+    render(<MemorySystemSettingsSection />);
+
+    await screen.findByTestId("memory-system-settings-section");
+    const input = screen.getByTestId("memory-settings-write-rate-limit");
+    await user.clear(input);
+    await user.type(input, "120");
+    await user.click(screen.getByTestId("memory-settings-save-btn"));
+
+    await waitFor(() => {
+      expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({
+        memory_write_rate_limit_per_hour: 120,
+      });
+    });
   });
 
   it("reset button calls reset() after confirming the ConfirmDialog", async () => {

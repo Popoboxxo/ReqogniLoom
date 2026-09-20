@@ -108,6 +108,9 @@ const InterviewEditors = lazy(() => import("../InterviewEditors/InterviewEditors
 const LinkTypeEditorPage = lazy(() =>
   import("../LinkTypeEditor/LinkTypeEditorPage").then((m) => ({ default: m.LinkTypeEditorPage }))
 );
+const MemoryPage = lazy(() =>
+  import("../Memory/MemoryPage").then((m) => ({ default: m.MemoryPage }))
+);
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -160,6 +163,8 @@ function AppShell(): JSX.Element {
               <Route path="/diagrams/:id/graph" element={<DiagramGraphEditorWrapper />} />
               <Route path="/metrics" element={<MetricsDashboard />} />
               <Route path="/audit" element={<AuditDashboard />} />
+              {/* RFC #1002 PR D: workspace memory hub ("Gedächtnis"). */}
+              <Route path="/memory" element={<MemoryPage />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
               <Route path="/settings/link-types" element={<LinkTypeEditorPage scope="workspace" />} />
               <Route path="/system-settings" element={<SystemSettings />} />

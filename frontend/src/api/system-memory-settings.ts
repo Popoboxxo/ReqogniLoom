@@ -35,6 +35,9 @@ export interface SystemMemorySettings {
   honcho_base_url: string | null;
   honcho_base_url_is_override: boolean;
   honcho_api_key_is_set: boolean;
+  /** RFC #1002 PR B: fixed-window write ratelimit for `memory.write`. */
+  memory_write_rate_limit_per_hour: number;
+  memory_write_rate_limit_per_hour_is_override: boolean;
   warning: string | null;
 }
 
@@ -46,6 +49,8 @@ export interface SystemMemorySettingsUpdate {
   memory_backend?: MemoryBackendName | null;
   honcho_base_url?: string | null;
   honcho_api_key?: string;
+  /** `null` clears the override so the env default wins; `0` = unlimited. */
+  memory_write_rate_limit_per_hour?: number | null;
 }
 
 export const systemMemorySettingsApi = {

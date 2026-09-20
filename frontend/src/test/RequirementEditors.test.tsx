@@ -144,6 +144,24 @@ vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
 }));
 
+// RFC #1002 PR D: RequirementEditors now mounts <ArtifactMemoryPanel>, which
+// fetches artifact-scoped memory on mount. Stub the client so the panel
+// renders its empty state instead of hitting the shared apiClient mock.
+vi.mock("../api/memory", () => ({
+  memoryApi: {
+    listArtifactMemory: vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 25,
+      backend: "pgvector",
+      degraded: false,
+    }),
+    createArtifactMemory: vi.fn(),
+    forgetEntry: vi.fn(),
+  },
+}));
+
 // Issue #926: ReqTraceLinkPanel now mounts the shared CreateTraceLinkDialog
 // (REQ-005) instead of the legacy inline form; that dialog reads the link-type
 // catalog via useLinkTypes(), so this tree needs the provider-free mock every

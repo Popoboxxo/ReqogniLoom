@@ -44,6 +44,7 @@ import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './Requ
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
+import { ArtifactMemoryPanel } from '../Memory/ArtifactMemoryPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
 import { Dialog } from '../shared/Dialog';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
@@ -775,6 +776,17 @@ export default function RequirementEditors(): JSX.Element {
         requirementId={requirement.id}
         onSelect={(id) => navigate(`/requirements/${id}`)}
       />
+
+      {/* RFC #1002 PR D: artifact-scoped memory ("Gedächtnis") for this
+          requirement — list + create + forget, driven by the artifact memory
+          endpoints. Bound to the BACKING Artifact id (`artifact_id`), not the
+          Requirement row's own pk: `/artifacts/<id>/memory/` and
+          `MemoryPolicy.resolve_artifact_workspace_id` both resolve an
+          `Artifact` row, and the Requirement pk would 403 with
+          "cannot read 'artifact'-scoped memory". */}
+      {requirement.artifact_id && (
+        <ArtifactMemoryPanel artifactId={requirement.artifact_id} />
+      )}
       </div>
       {currentVersion && (
         <RightSidebar

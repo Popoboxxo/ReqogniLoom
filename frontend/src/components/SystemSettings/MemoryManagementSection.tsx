@@ -6,9 +6,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  memoryAdminApi,
+  memoryApi,
   type WorkspaceMemoryOverviewRow,
-} from "../../api/memoryAdmin";
+} from "../../api/memory";
 import { Dialog } from "../shared/Dialog";
 import styles from "./MemoryManagementSection.module.css";
 
@@ -31,8 +31,8 @@ export function MemoryManagementSection(): JSX.Element {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const reload = useCallback((): void => {
-    memoryAdminApi
-      .listWorkspaceOverview()
+    memoryApi
+      .listSystemWorkspaceOverview()
       .then((r) => {
         setRows(r.results);
         setLoadError(null);
@@ -54,7 +54,7 @@ export function MemoryManagementSection(): JSX.Element {
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      await memoryAdminApi.deleteWorkspaceMemory(pendingDelete.workspace_id);
+      await memoryApi.deleteSystemWorkspaceMemory(pendingDelete.workspace_id);
       setPendingDelete(null);
       reload();
     } catch (err: unknown) {
@@ -65,10 +65,22 @@ export function MemoryManagementSection(): JSX.Element {
     }
   }, [pendingDelete, reload, t]);
 
+  const isAnyDegraded = rows.some((row) => row.degraded);
+
   return (
     <section className={styles.section} data-testid="memory-management-section">
       <h3>{t("systemSettings.memory.heading")}</h3>
       <p className={styles.hint}>{t("systemSettings.memory.hint")}</p>
+
+      {isAnyDegraded && (
+        <p
+          role="status"
+          data-testid="memory-management-degraded"
+          className={styles.degraded}
+        >
+          {t("systemSettings.memory.degraded", "Gedächtnis aktuell nicht erreichbar.")}
+        </p>
+      )}
 
       {loadError && (
         <p role="alert" data-testid="memory-management-error" className={styles.error}>
@@ -90,6 +102,9 @@ export function MemoryManagementSection(): JSX.Element {
               <th>{t("systemSettings.memory.colEnabled")}</th>
               <th>{t("systemSettings.memory.colWorkspaceEntries")}</th>
               <th>{t("systemSettings.memory.colUserEntries")}</th>
+              <th>{t("systemSettings.memory.colArtifactEntries")}</th>
+              <th>{t("systemSettings.memory.colContributors")}</th>
+              <th>{t("systemSettings.memory.colStatus")}</th>
               <th>{t("systemSettings.memory.colLastConsolidated")}</th>
               <th />
             </tr>
@@ -101,6 +116,17 @@ export function MemoryManagementSection(): JSX.Element {
                 <td>{row.enabled ? "✓" : "—"}</td>
                 <td>{row.workspace_entry_count}</td>
                 <td>{row.user_entry_count}</td>
+                <td data-testid={`memory-artifact-count-${row.workspace_id}`}>
+                  {row.by_scope?.artifact ?? 0}
+                </td>
+                <td data-testid={`memory-contributor-count-${row.workspace_id}`}>
+                  {row.contributor_count}
+                </td>
+                <td data-testid={`memory-status-${row.workspace_id}`}>
+                  {row.degraded
+                    ? t("systemSettings.memory.statusDegraded", "Beeinträchtigt")
+                    : t("systemSettings.memory.statusOk", "OK")}
+                </td>
                 <td>{formatDate(row.last_consolidated_at)}</td>
                 <td>
                   <button
