@@ -63,15 +63,19 @@ LOCK_VERSION_HELP_TEXT = (
 # Identity semantics: ``id`` vs ``uid`` (Attribut v3 WS2, #936, spec section 3)
 # ---------------------------------------------------------------------------
 
-# Spec section 3: the Artifact UUID ``id`` is the sole identity; ``uid`` is a
-# free-form *external import key* (ReqIF). Nothing in the product auto-generates
-# a ``uid`` and there is no ``REQ-NNN`` number-circle: an unset ``uid`` is a
-# valid, permanent state. The field stays read-only on every serializer (the one
-# exception is the ReqIF importer, which round-trips the source key through the
-# service layer, never through a client payload).
+# Spec section 3: the Artifact UUID ``id`` is the technical identity; ``uid`` is
+# the *readable local identifier* (issue #932). Each artifact-create service
+# allocates ``{PREFIX}-{NNN}`` per ``(workspace, item_type)`` via
+# ``application.local_uid.generate_local_uid``, so a freshly created artifact
+# carries one without any user action; an explicit ``uid`` (ReqIF import) still
+# wins. The field stays read-only to clients on every serializer —
+# ``ClientUidRejectionMixin`` answers 400 for a supplied value instead of
+# discarding it silently. ReqIF's external identity lives on the Artifact
+# ``reqif_*`` fields (#1003), not here.
 UID_HELP_TEXT = (
-    "External import key (ReqIF); never auto-generated - the Artifact UUID "
-    "'id' is the identity."
+    "Local readable identifier, auto-generated per (workspace, item_type) as "
+    "'<PREFIX>-NNN' (issue #932). Read-only: managed by the server. External "
+    "ReqIF identity lives on Artifact.reqif_uid/reqif_identifier, not here."
 )
 
 # ---------------------------------------------------------------------------
@@ -610,6 +614,43 @@ class ArtifactSystemFieldsSerializerMixin(
 # ---------------------------------------------------------------------------
 
 
+class ClientUidRejectionMixin:
+    """Reject a client-supplied ``uid`` instead of silently dropping it (#932).
+
+    ``uid`` is declared ``read_only`` on all eight artifact serializers, so DRF
+    discarded any value a client sent — the same silent-field-drop class as
+    :class:`UnknownFieldRejectionMixin` (#851). Because the field was *also*
+    never generated, no code path could fill it: every artifact's identifier
+    stayed empty.
+
+    ``uid`` is now system-owned — the create path allocates one
+    (:func:`application.local_uid.generate_local_uid`), so a client must not set
+    it. To stay safe for the UI's full-object save paths, echoing the *existing*
+    value back (``uid == self.instance.uid``) is accepted as a no-op; any other
+    supplied value — including on create — answers 400 with a field-scoped
+    error, never a silent discard.
+    """
+
+    #: Field-scoped 400 message for a client-supplied ``uid`` (issue #932).
+    UID_READONLY_MESSAGE = "uid is system-generated and read-only; omit it."
+
+    def to_internal_value(self, data: Any) -> Any:
+        supplied = data.get("uid") if isinstance(data, dict) else None
+        if isinstance(supplied, str):
+            supplied = supplied.strip()
+        if supplied:
+            current = (
+                getattr(self.instance, "uid", None)
+                if self.instance is not None
+                else None
+            )
+            if supplied != current:
+                raise serializers.ValidationError(
+                    {"uid": [self.UID_READONLY_MESSAGE]}
+                )
+        return super().to_internal_value(data)  # type: ignore[misc]
+
+
 class UnknownFieldRejectionMixin:
     """Reject request keys that no declared field on the serializer accepts (#851).
 
@@ -824,6 +865,7 @@ class ArtifactSerializer(
 
 
 class RequirementSerializer(
+    ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ArtifactSystemFieldsSerializerMixin,
@@ -949,6 +991,7 @@ class RequirementSerializer(
 
 
 class StakeholderNeedSerializer(
+    ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ArtifactSystemFieldsSerializerMixin,
@@ -995,6 +1038,7 @@ class StakeholderNeedSerializer(
 
 
 class ArchitectureElementSerializer(
+    ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ArtifactSystemFieldsSerializerMixin,
@@ -1094,6 +1138,7 @@ class ArchitectureElementSerializer(
 
 
 class TestCaseSerializer(
+    ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ArtifactSystemFieldsSerializerMixin,
@@ -1597,6 +1642,7 @@ class WorkspaceSerializer(
 
 
 class AdrSerializer(
+    ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ArtifactSystemFieldsSerializerMixin,
@@ -1645,6 +1691,7 @@ class AdrSerializer(
 
 
 class RiskSerializer(
+    ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ArtifactSystemFieldsSerializerMixin,
@@ -1771,7 +1818,10 @@ class MainGoalSerializer(
 
 
 class TestRunSerializer(
-    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+    ClientUidRejectionMixin,
+    UnknownFieldRejectionMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
 ):
     """Serializer for TestRun entity (REQ-L2-AS-030).
 
@@ -1871,6 +1921,7 @@ class NormalizedChoiceField(serializers.ChoiceField):
 
 
 class IssueSerializer(
+    ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
     CustomFieldsSerializerMixin,
     ArtifactSystemFieldsSerializerMixin,

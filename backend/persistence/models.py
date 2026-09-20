@@ -1318,8 +1318,9 @@ class StakeholderNeed(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "External import key (ReqIF); never auto-generated - the Artifact "
-            "UUID 'id' is the identity."
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as '<PREFIX>-NNN' (issue #932). External ReqIF identity "
+            "lives on Artifact.reqif_uid/reqif_identifier, not here."
         ),
     )
     suspect = models.BooleanField(
@@ -1407,8 +1408,9 @@ class Requirement(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "External import key (ReqIF); never auto-generated - the Artifact "
-            "UUID 'id' is the identity."
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as '<PREFIX>-NNN' (issue #932). External ReqIF identity "
+            "lives on Artifact.reqif_uid/reqif_identifier, not here."
         ),
     )
     suspect = models.BooleanField(
@@ -1538,8 +1540,9 @@ class ArchitectureElement(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "External import key (ReqIF); never auto-generated - the Artifact "
-            "UUID 'id' is the identity."
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as '<PREFIX>-NNN' (issue #932). External ReqIF identity "
+            "lives on Artifact.reqif_uid/reqif_identifier, not here."
         ),
     )
     suspect = models.BooleanField(
@@ -1912,8 +1915,9 @@ class TestCase(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "External import key (ReqIF); never auto-generated - the Artifact "
-            "UUID 'id' is the identity."
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as '<PREFIX>-NNN' (issue #932). External ReqIF identity "
+            "lives on Artifact.reqif_uid/reqif_identifier, not here."
         ),
     )
     suspect = models.BooleanField(
@@ -2028,8 +2032,9 @@ class TestRun(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "External import key (ReqIF); never auto-generated - the Artifact "
-            "UUID 'id' is the identity."
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as '<PREFIX>-NNN' (issue #932). External ReqIF identity "
+            "lives on Artifact.reqif_uid/reqif_identifier, not here."
         ),
     )
     workspace = models.ForeignKey(
@@ -2884,8 +2889,9 @@ class Adr(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "External import key (ReqIF); never auto-generated - the Artifact "
-            "UUID 'id' is the identity."
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as '<PREFIX>-NNN' (issue #932). External ReqIF identity "
+            "lives on Artifact.reqif_uid/reqif_identifier, not here."
         ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
@@ -3027,8 +3033,9 @@ class Risk(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "External import key (ReqIF); never auto-generated - the Artifact "
-            "UUID 'id' is the identity."
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as '<PREFIX>-NNN' (issue #932). External ReqIF identity "
+            "lives on Artifact.reqif_uid/reqif_identifier, not here."
         ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
@@ -3263,8 +3270,9 @@ class Issue(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "External import key (ReqIF); never auto-generated - the Artifact "
-            "UUID 'id' is the identity."
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as '<PREFIX>-NNN' (issue #932). External ReqIF identity "
+            "lives on Artifact.reqif_uid/reqif_identifier, not here."
         ),
     )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
@@ -3495,6 +3503,41 @@ class ChangeRequestAffectedItem(TenantScopedModel):
         return f"CRAffectedItem(cr={self.change_request_id}, item={self.item_id})"
 
 
+class UidSequence(TenantScopedModel):
+    """Monotonic per-``(workspace, item_type)`` counter for local ``uid``s.
+
+    Issue #932: the readable local identifier on the eight artifact models
+    (``Requirement``, ``StakeholderNeed``, ``ArchitectureElement``, ``TestCase``,
+    ``TestRun``, ``Adr``, ``Risk``, ``Issue``) is allocated here as
+    ``{PREFIX}-{NNN}``. A counter row — not ``MAX(uid)+1`` — is what makes the
+    allocation both **atomic** (``SELECT … FOR UPDATE`` in the creating
+    transaction) and **non-recycling**: a deleted artifact's number is never
+    handed out again, which ``MAX+1`` could not guarantee.
+
+    ``item_type`` uses the workflow/artifact vocabulary ("Requirement",
+    "StakeholderNeed", ...), matching the prefix map in
+    ``application.local_uid``.
+    """
+
+    workspace = models.ForeignKey(
+        Workspace, on_delete=models.CASCADE, related_name="uid_sequences"
+    )
+    item_type = models.CharField(max_length=64)
+    last_value = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "pl_uid_sequence"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "item_type"],
+                name="uq_uid_sequence_workspace_item_type",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"UidSequence({self.workspace_id}/{self.item_type}={self.last_value})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -3546,4 +3589,6 @@ __all__ = [
     "Issue",
     "ChangeRequest",
     "ChangeRequestAffectedItem",
+    # Issue #932: local readable `uid` allocation.
+    "UidSequence",
 ]

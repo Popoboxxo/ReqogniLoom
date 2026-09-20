@@ -34,6 +34,7 @@ from persistence.models import Tenant, TestCase, TestRun, TestRunResult, Workspa
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.local_uid import generate_local_uid
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,8 @@ class TestRunService(ServiceBase):
             workspace=workspace,
             started_at=datetime.now(timezone.utc),
             ci_job_id=ci_job_id,
-            uid=uid,
+            # Issue #932: allocate the local readable uid when not supplied.
+            uid=uid or generate_local_uid("TestRun", workspace_id),
         )
 
         # Create initial 'not_run' results for each test_case_id

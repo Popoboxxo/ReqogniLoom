@@ -21,6 +21,7 @@ from application.artifact_service import (
     snapshot_versioned_fields,
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
+from application.local_uid import generate_local_uid
 from application.base import (
     NotFoundError,
     ServiceBase,
@@ -170,6 +171,8 @@ class StakeholderNeedService(ServiceBase):
             category=category,
             moscow_priority=moscow_priority,
             created_by_id=ctx.user_id,
+            # Issue #932: allocate the local readable uid.
+            uid=generate_local_uid("StakeholderNeed", workspace_id),
         )
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write

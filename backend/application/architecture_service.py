@@ -41,6 +41,7 @@ from persistence.transactions import atomic_transaction
 from application.artifact_service import _clean_custom_fields
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
+from application.local_uid import generate_local_uid
 from application.models import DomainEventOutbox
 from application.optimistic_lock import assert_expected_version
 from application.validators import ArchitectureElementInvariantValidator
@@ -176,7 +177,8 @@ class ArchitectureService(ServiceBase):
             version=1,
             asil_level=asil_level,
             make_or_buy=make_or_buy,
-            uid=uid,
+            # Issue #932: allocate the local readable uid when not supplied.
+            uid=uid or generate_local_uid("ArchitectureElement", workspace_id),
         )
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write

@@ -37,6 +37,7 @@ from application.artifact_service import (
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.local_uid import generate_local_uid
 from application.models import DomainEventOutbox, Issue
 from application.optimistic_lock import (
     assert_expected_version,
@@ -248,7 +249,8 @@ class IssueService(ServiceBase):
             assignee_id=assignee_id,
             due_date=due_date,
             tags=tags or [],
-            uid=uid,
+            # Issue #932: allocate the local readable uid when not supplied.
+            uid=uid or generate_local_uid("Issue", workspace_id),
             created_by_name=str(ctx.user_id),
         )
 

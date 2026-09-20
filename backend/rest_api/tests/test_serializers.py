@@ -809,3 +809,55 @@ class TestNullByteRejection:
         }
         ser = RequirementSerializer(data=data)
         assert ser.is_valid(), ser.errors
+
+
+class TestClientUidRejection:
+    """#932: a client-supplied ``uid`` is never silently discarded.
+
+    ``uid`` is declared ``read_only`` on all eight artifact serializers, so DRF
+    used to drop any value a client sent without a word (the #851 class). It is
+    now system-owned: ``ClientUidRejectionMixin`` answers 400 for any value that
+    is not the instance's own (echoed on a full-object save), and 201 otherwise.
+    """
+
+    def test_supplied_uid_on_create_is_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "uid": "REQ-HACK-1",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "uid" in ser.errors
+
+    def test_blank_uid_is_not_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "uid": "",
+        }
+        ser = RequirementSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+
+    def test_echoing_the_existing_uid_is_accepted(self) -> None:
+        instance = MagicMock()
+        instance.uid = "REQ-001"
+        ser = RequirementSerializer(
+            instance=instance, data={"uid": "REQ-001"}, partial=True
+        )
+        assert ser.is_valid(), ser.errors
+
+    def test_changing_the_existing_uid_is_rejected(self) -> None:
+        instance = MagicMock()
+        instance.uid = "REQ-001"
+        ser = RequirementSerializer(
+            instance=instance, data={"uid": "REQ-999"}, partial=True
+        )
+        assert not ser.is_valid()
+        assert "uid" in ser.errors
+
+    @pytest.mark.parametrize("serializer_cls", [AdrSerializer, RiskSerializer, IssueSerializer])
+    def test_every_artifact_serializer_guards_uid(self, serializer_cls) -> None:
+        ser = serializer_cls(data={"uid": "X-1"}, partial=True)
+        assert not ser.is_valid(), serializer_cls.__name__
+        assert "uid" in ser.errors, serializer_cls.__name__

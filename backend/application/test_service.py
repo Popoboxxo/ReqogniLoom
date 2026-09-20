@@ -47,6 +47,7 @@ from application.artifact_service import (
     snapshot_versioned_fields,
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
+from application.local_uid import generate_local_uid
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
@@ -198,7 +199,8 @@ class TestService(ServiceBase):
             title=title,
             description=description,
             steps=steps or [],
-            uid=uid,
+            # Issue #932: allocate the local readable uid when not supplied.
+            uid=uid or generate_local_uid("TestCase", workspace_id),
             test_type=canonical_test_type,
         )
 
