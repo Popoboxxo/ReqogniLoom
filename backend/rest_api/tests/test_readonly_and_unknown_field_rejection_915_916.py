@@ -209,13 +209,13 @@ def test_requirement_create_with_unknown_field_is_rejected(strict_env):
         {
             "workspace_id": str(strict_env["workspace"].id),
             "title": "unknown field on create",
-            "rationale": "not a requirement field",
+            "not_a_requirement_field": "not a requirement field",
         },
         format="json",
     )
 
     assert resp.status_code == 400, resp.content
-    assert "rationale" in _field_errors(resp.json())
+    assert "not_a_requirement_field" in _field_errors(resp.json())
 
 
 @override_settings(**_JWT_OVERRIDES)
@@ -227,12 +227,12 @@ def test_requirement_patch_with_unknown_field_is_rejected(strict_env):
 
     resp = client.patch(
         f"/api/v1/requirements/{requirement['id']}/",
-        {"rationale": "not a requirement field"},
+        {"not_a_requirement_field": "not a requirement field"},
         format="json",
     )
 
     assert resp.status_code == 400, resp.content
-    assert "rationale" in _field_errors(resp.json())
+    assert "not_a_requirement_field" in _field_errors(resp.json())
 
 
 @override_settings(**_JWT_OVERRIDES)
