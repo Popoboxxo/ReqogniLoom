@@ -1,16 +1,17 @@
 """
 admin_ops — internal path utilities (REQ-L1-046).
 
-The DR foundation writes one JSON file per backup under a directory
-resolved in this order (GitHub #37):
+The DR foundation writes one gzip-compressed JSON dump per backup
+(``<id>.json.gz``, issue #823) under a directory resolved in this order
+(GitHub #37):
 
 * ``BACKUP_DIR`` environment variable, if set — an operator-configurable
   override so a deployment can point backups at a writable mount
   independent of ``MEDIA_ROOT``/``BASE_DIR`` (e.g. when the default
   container path is not writable).
 * If ``settings.MEDIA_ROOT`` is set, the file lives at
-  ``<MEDIA_ROOT>/backups/<id>.json``.
-* Otherwise we fall back to ``<BASE_DIR>/backups/<id>.json`` (and then
+  ``<MEDIA_ROOT>/backups/<id>.json.gz``.
+* Otherwise we fall back to ``<BASE_DIR>/backups/<id>.json.gz`` (and then
   to the bare ``backups/`` directory if neither is configured). This
   keeps the foundation usable in tests that strip Django settings.
 
