@@ -81,6 +81,12 @@ services:
         limits:
           memory: 512M
     restart: unless-stopped
+    # AOF persistence is on (`--appendonly yes` below), which only means
+    # anything if /data outlives the container: without this named volume the
+    # appendonly file sits in the container layer and every
+    # `up --force-recreate` / image upgrade silently drops the queue and cache.
+    volumes:
+      - redis_data:/data
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:-}
     # Shell wrapper because Compose `command:` can't branch on whether
@@ -220,4 +226,5 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:            # Queue + cache persistence (/data) — AOF is on, so it must survive recreate
   backend_dr_backups:

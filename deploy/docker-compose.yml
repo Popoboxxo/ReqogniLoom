@@ -192,6 +192,12 @@ services:
         limits:
           memory: 512M
     restart: unless-stopped
+    # AOF persistence is on (`--appendonly yes` below), which only means
+    # anything if /data outlives the container: without this named volume the
+    # appendonly file sits in the container layer and every
+    # `up --force-recreate` / image upgrade silently drops the queue and cache.
+    volumes:
+      - redis_data:/data
     # SA-51: Export REDIS_PASSWORD as REDISCLI_AUTH for healthcheck.
     # This allows redis-cli to authenticate without exposing the password in
     # the process command line (which would be visible in `ps` output).
@@ -788,6 +794,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:            # Queue + cache persistence (/data) — AOF is on, so it must survive recreate
   postgres_backup_data:  # REQ-102: retained pg_dump backups
   backend_dr_backups:    # REQ-L1-046: admin_ops DR backup JSON files (/app/backups)
   honcho_postgres_data:  # profile: honcho
