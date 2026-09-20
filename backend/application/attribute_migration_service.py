@@ -49,8 +49,11 @@ from attribute_definitions.migration_plan import (
     MigrationPlanError,
     OP_BACKFILL_VALUE,
     OP_DEFINE_ATTRIBUTE,
+    OP_DEPRECATE_ATTRIBUTE,
     OP_DERIVE_VALUE,
     OP_DROP_ATTRIBUTE,
+    OP_EXPORT_SCOPE,
+    OP_IMPORT_SCOPE,
     OP_MAP_VALUE,
     OP_MERGE_ATTRIBUTE,
     OP_MIGRATE_VALUE,
@@ -60,6 +63,8 @@ from attribute_definitions.migration_plan import (
     OP_SPLIT_ATTRIBUTE,
     OP_VERIFY,
     REF_CUSTOM_FIELD,
+    SCOPE_REF_PRESET,
+    SCOPE_REF_WORKSPACE,
     STRATEGY_CONSTANT,
     STRATEGY_DERIVE_FROM_LINK,
     STRATEGY_EXPRESSION,
@@ -756,7 +761,10 @@ class AttributeMigrationService(ServiceBase):
             OP_RETYPE_ATTRIBUTE: self._step_retype_attribute,
             OP_DEFINE_ATTRIBUTE: self._step_define_attribute,
             OP_DROP_ATTRIBUTE: self._step_drop_attribute,
+            OP_DEPRECATE_ATTRIBUTE: self._step_deprecate_attribute,
             OP_REQUEUE_DEFINITION: self._step_requeue_definition,
+            OP_EXPORT_SCOPE: self._step_export_scope,
+            OP_IMPORT_SCOPE: self._step_import_scope,
         }
         return handlers[step["op"]](
             ctx,
@@ -1218,6 +1226,160 @@ class AttributeMigrationService(ServiceBase):
             batch = _ArtifactBatch()
             self._stage(outcome, row, ref, None, current, batch, clear=True)
             self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+        return outcome
+
+    @staticmethod
+    def _scope_kwargs(ref: dict[str, str]) -> dict[str, Any]:
+        """Translate a normalized scope reference into service kwargs."""
+        if ref["kind"] == SCOPE_REF_WORKSPACE:
+            return {"workspace_id": ref["value"]}
+        return {"preset": ref["value"]}
+
+    def _step_deprecate_attribute(
+        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
+    ):
+        """Flag an attribute as deprecated — governance, not deletion (#930).
+
+        The model field and every stored value stay exactly as they are; only
+        the definition entry gains ``deprecated``/``deprecated_reason`` so the
+        UI can stop offering it. ``drop_attribute`` (a separate, ordered step)
+        is what actually removes it later.
+        """
+        outcome = self._empty_outcome()
+        name = step["name"]
+        reason = step["reason"]
+
+        for target in self._definition_targets(plan, item_type):
+            outcome["counts"]["matched"] += 1
+            field = f"definition:{target['kind']}:{target['preset']}:{name}"
+            record = {
+                "artifact_id": None,
+                "workspace_id": str(target.get("id")) if target.get("id") else None,
+                "field": field,
+                "before": None,
+                "after": "deprecated",
+                "status": _STATUS_CHANGED,
+                "reason": "deprecate_attribute",
+            }
+            if not write:
+                outcome["counts"]["changed"] += 1
+                self._append_sample(outcome, record)
+                continue
+            try:
+                current = self._read_definition(ctx, item_type, target)
+                entry = next((a for a in current if a["name"] == name), None)
+                if entry is None:
+                    self._record_skip(
+                        outcome, None, field, "attribute not in definition"
+                    )
+                    continue
+                if entry.get("deprecated"):
+                    self._record_skip(outcome, None, field, "already deprecated")
+                    continue
+                updated = [
+                    (
+                        {**a, "deprecated": True, "deprecated_reason": reason}
+                        if a["name"] == name
+                        else a
+                    )
+                    for a in current
+                ]
+                self._save_definition(ctx, item_type, target, updated)
+                outcome["counts"]["changed"] += 1
+                self._append_sample(outcome, record)
+            except Exception:  # noqa: BLE001
+                # #697 (CWE-209): log the cause, report a static message.
+                logger.exception(
+                    "AttributeMigration: deprecate_attribute failed for %s", field
+                )
+                self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
+        return outcome
+
+    def _step_export_scope(
+        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
+    ):
+        """Serialize a definition scope into the step report (spec §4, L3).
+
+        No file is written: the document lands in ``outcome["document"]``, so
+        the run report (CLI stdout, REST JSON, MCP response) carries it and a
+        later ``import_scope`` step can consume it. Read-only, so ``dry_run``
+        returns the same document ``apply`` does.
+        """
+        outcome = self._empty_outcome()
+        source = step["source"]
+        field = f"definition:{source['kind']}:{source['value']}"
+        outcome["counts"]["matched"] += 1
+        try:
+            document = self._definitions.export_definition(
+                ctx, item_type, **self._scope_kwargs(source)
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("AttributeMigration: export_scope failed for %s", field)
+            self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
+            return outcome
+        outcome["document"] = document
+        outcome["counts"]["changed"] += 1
+        self._append_sample(
+            outcome,
+            {
+                "artifact_id": None,
+                "workspace_id": (
+                    source["value"]
+                    if source["kind"] == SCOPE_REF_WORKSPACE
+                    else None
+                ),
+                "field": field,
+                "before": None,
+                "after": "exported",
+                "status": _STATUS_CHANGED,
+                "reason": "export_scope",
+            },
+        )
+        return outcome
+
+    def _step_import_scope(
+        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
+    ):
+        """Import a definition document into a scope (spec §4, L3).
+
+        Routes through ``AttributeDefinitionService.import_definition`` so the
+        merge, the core-lock and the propagation to non-customized workspaces
+        behave exactly like the attribute-defaults import surface. ``dry_run``
+        reports the intent without writing.
+        """
+        outcome = self._empty_outcome()
+        target = step["target"]
+        field = f"definition:{target['kind']}:{target['value']}"
+        outcome["counts"]["matched"] += 1
+        record = {
+            "artifact_id": None,
+            "workspace_id": (
+                target["value"] if target["kind"] == SCOPE_REF_WORKSPACE else None
+            ),
+            "field": field,
+            "before": None,
+            "after": "imported",
+            "status": _STATUS_CHANGED,
+            "reason": "import_scope",
+        }
+        if not write:
+            outcome["counts"]["changed"] += 1
+            self._append_sample(outcome, record)
+            return outcome
+        try:
+            self._definitions.import_definition(
+                ctx,
+                item_type,
+                step["document"],
+                on_collision=step["on_collision"],
+                **self._scope_kwargs(target),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("AttributeMigration: import_scope failed for %s", field)
+            self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
+            return outcome
+        outcome["counts"]["changed"] += 1
+        self._append_sample(outcome, record)
         return outcome
 
     def _step_requeue_definition(

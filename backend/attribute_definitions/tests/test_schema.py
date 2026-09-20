@@ -57,6 +57,7 @@ def test_normalize_fills_every_documented_default() -> None:
         "audience": "basic", "multiple": False, "allow_external": False,
         "copyable": False, "reveal": "always", "mask": "none",
         "display_format": "text", "stage_mandatory": False,
+        "deprecated": False, "deprecated_reason": "",
     }
 
 
