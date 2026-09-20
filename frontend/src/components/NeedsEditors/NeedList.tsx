@@ -90,6 +90,8 @@ function needToNode(need: StakeholderNeed): WorkspaceTreeNode {
   return {
     id: need.id,
     name: need.title || 'Untitled',
+    // Issue #932: the readable local uid is searchable — show it in the row too.
+    identifier: need.uid,
     parentId: null,
     badge: {
       text: getWorkflowStatusLabel(need.status),
