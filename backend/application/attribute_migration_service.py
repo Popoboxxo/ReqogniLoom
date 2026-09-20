@@ -68,6 +68,7 @@ from attribute_definitions.migration_plan import (
     STRATEGY_CONSTANT,
     STRATEGY_DERIVE_FROM_LINK,
     STRATEGY_EXPRESSION,
+    STRATEGY_SEQUENCE,
     evaluate_condition,
     normalize_plan,
     parse_verify_assertion,
@@ -1863,6 +1864,21 @@ class AttributeMigrationService(ServiceBase):
             if resolved is _EMPTY:
                 return step.get("fallback") if step.get("fallback") is not None else _EMPTY
             return resolved
+        if strategy == STRATEGY_SEQUENCE:
+            # Issue #932: allocate the next local readable uid for the row's
+            # (workspace, item_type) with the same monotonic, non-recycling
+            # allocator the create path uses. Fail closed unless the target
+            # really is the uid column — writing a REQ-NNN value into an
+            # arbitrary field would be a silent data corruption.
+            target = step.get("target") or {}
+            if target.get("name") != "uid":
+                raise _StepAbort(
+                    "value_strategy=sequence is only valid for target name 'uid'"
+                )
+            from application.local_uid import generate_local_uid
+
+            generated = generate_local_uid(type(row).__name__, row.artifact.workspace_id)
+            return generated if generated is not None else _EMPTY
         raise _StepAbort(f"unknown value_strategy {strategy!r}")
 
     def _render_expression(self, row: Any, expression: str) -> Any:

@@ -114,8 +114,18 @@ MIGRATE_MODES: frozenset[str] = frozenset({COPY, MOVE})
 STRATEGY_CONSTANT = "constant"
 STRATEGY_DERIVE_FROM_LINK = "derive_from_link"
 STRATEGY_EXPRESSION = "expression"
+#: Allocate the next local readable uid (``{PREFIX}-{NNN}``) for the row's
+#: ``(workspace, item_type)`` via ``application.local_uid.generate_local_uid``
+#: — the same monotonic, non-recycling allocator the create path uses (issue
+#: #932). Only valid when the target reference names the ``uid`` model field.
+STRATEGY_SEQUENCE = "sequence"
 BACKFILL_STRATEGIES: frozenset[str] = frozenset(
-    {STRATEGY_CONSTANT, STRATEGY_DERIVE_FROM_LINK, STRATEGY_EXPRESSION}
+    {
+        STRATEGY_CONSTANT,
+        STRATEGY_DERIVE_FROM_LINK,
+        STRATEGY_EXPRESSION,
+        STRATEGY_SEQUENCE,
+    }
 )
 
 #: `requeue_definition` actions (spec §8.4).
@@ -909,6 +919,7 @@ __all__ = [
     "STRATEGY_CONSTANT",
     "STRATEGY_DERIVE_FROM_LINK",
     "STRATEGY_EXPRESSION",
+    "STRATEGY_SEQUENCE",
     "TRANSFORM_NAMES",
     "UNSUPPORTED_OPS",
     "VERIFY_METRICS",
