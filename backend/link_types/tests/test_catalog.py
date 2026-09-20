@@ -113,10 +113,14 @@ def test_subtyped_artifact_types_are_normalized(workspace):
 def test_unknown_link_type_is_rejected_and_lists_the_catalog(workspace):
     with pytest.raises(ValidationError) as exc:
         validate_link_pair(
-            workspace, "satisfies", "ArchitectureElement", "Requirement", manual=True
+            workspace,
+            "not-a-link-type",
+            "ArchitectureElement",
+            "Requirement",
+            manual=True,
         )
     message = str(exc.value)
-    assert "satisfies" in message
+    assert "not-a-link-type" in message
     assert "derives-from" in message
 
 

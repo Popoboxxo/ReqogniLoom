@@ -8,12 +8,12 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[2]
 
+#: Keys with no built-in successor. `satisfies`/`refines`/`realizes` were
+#: retired by the consolidation but re-introduced as built-ins in #950, so they
+#: are deliberately absent here.
 RETIRED = [
     "parent-child",
-    "satisfies",
     "implements",
-    "refines",
-    "realizes",
     "documents",
     "traces",
     "uses-term",
@@ -28,8 +28,8 @@ ALLOWED = {
     "link_types/tests/test_migration_ops.py",
     "traceability/tests/test_link_type_consumers.py",
     "context_graph/models.py",            # ContextEdge.edge_kind: unrelated enum, not TraceLink.link_type
-    "application/tests/test_trace_link_catalog_validation.py",  # asserts 'satisfies' is rejected as unknown
-    "link_types/tests/test_catalog.py",   # asserts 'satisfies' is rejected as unknown
+    "application/tests/test_trace_link_catalog_validation.py",  # writes legacy 'implements' to prove it is rejected
+    "link_types/tests/test_catalog.py",   # writes an unknown key to prove the catalog is listed back
     "link_types/tests/test_inventory_command.py",  # writes legacy 'traces' rows on purpose to test legacy-mapping detection
     "persistence/tests/test_migrate_trace_link_types.py",  # writes the legacy rows migration 0081 has to swallow (issue #893)
 }
@@ -56,16 +56,19 @@ def test_no_retired_link_type_literal_remains(retired):
     assert offenders == [], f"'{retired}' still hardcoded in: {offenders}"
 
 
-def test_link_type_enum_has_exactly_the_eight_core_members():
+def test_link_type_enum_has_exactly_the_eleven_core_members():
     from traceability.types import LinkType
 
     assert {member.value for member in LinkType} == {
         "derives-from",
         "decomposes",
+        "refines",
         "allocated-to",
         "verifies",
         "decides",
         "mitigates",
+        "satisfies",
+        "realizes",
         "references",
         "diagram-ref",
     }

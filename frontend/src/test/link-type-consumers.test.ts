@@ -23,13 +23,15 @@ import { describe, expect, it } from "vitest";
 
 const SRC_DIR = join(__dirname, "..");
 
-/** Same list as the backend ratchet's `RETIRED`. */
+/**
+ * Same list as the backend ratchet's `RETIRED` — keys with no built-in
+ * successor. `satisfies`/`refines`/`realizes` were retired by the
+ * consolidation but re-introduced as built-ins in #950, so they are
+ * deliberately absent here.
+ */
 const RETIRED = [
   "parent-child",
-  "satisfies",
   "implements",
-  "refines",
-  "realizes",
   "documents",
   "traces",
   "uses-term",

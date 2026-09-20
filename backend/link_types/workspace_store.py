@@ -118,7 +118,7 @@ class WorkspaceLinkTypeDefinitionStore:
 def provision_workspace_link_types(
     *, workspace_id: UUID | str, tenant_id: UUID | str
 ) -> int:
-    """Seed the eight built-in link types for a workspace. Idempotent.
+    """Seed the eleven built-in link types for a workspace. Idempotent.
 
     Ensures the tenant's global templates exist first (creating any that are
     missing from ``BUILTIN_LINK_TYPES``), then materializes one workspace row

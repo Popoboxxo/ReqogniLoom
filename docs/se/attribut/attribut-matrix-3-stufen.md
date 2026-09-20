@@ -243,5 +243,5 @@
 |---|---|---|
 | Zeitreihen MOP/TPM | `Measure`-Entität | #393 |
 | Personen intern/extern | `Actor`-Entität | diese Spec, Abschnitt 4 |
-| Semantische Ketten | `TraceLink` | 8 built-in Link-Typen |
+| Semantische Ketten | `TraceLink` | 11 built-in Link-Typen |
 | Strukturierte Werte | Widget-Registry | `schema.py` `WIDGET_KEYS` |

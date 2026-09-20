@@ -3,7 +3,7 @@
  *
  * Verifies:
  *   - Renders nothing when isOpen is false
- *   - Renders a row for each of the eight built-in link types when open
+ *   - Renders a row for each of the eleven built-in link types when open
  *   - Renders DE/EN downstream/upstream/neutral cells for a sample type
  *   - Close button (header + footer) calls onClose
  *   - No editable form controls are rendered (read-only contract)
@@ -28,11 +28,11 @@ describe("TriLabelOverviewDialog", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders the dialog with a row for each of the eight built-in link types when open", () => {
+  it("renders the dialog with a row for each of the eleven built-in link types when open", () => {
     render(<TriLabelOverviewDialog isOpen onClose={vi.fn()} />);
 
     expect(screen.getByTestId("tri-label-overview-dialog")).toBeInTheDocument();
-    expect(BUILTIN_LINK_TYPES).toHaveLength(8);
+    expect(BUILTIN_LINK_TYPES).toHaveLength(11);
     for (const lt of BUILTIN_LINK_TYPES) {
       expect(screen.getByTestId(`tri-label-row-${lt}`)).toBeInTheDocument();
     }

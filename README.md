@@ -63,7 +63,7 @@ Facts, not narrative:
 - **Requirements Management** — Create, organize, and manage requirements with workflow states and categorization
 - **Architecture Elements** — Model systems engineering structures (MBSE-compatible)
 - **Testcase Management** — Attach test cases to requirements and track coverage
-- **Traceability** — Automatic and manual linking between requirements, architecture elements, and test cases (8 core link types: derives-from, decomposes, allocated-to, verifies, mitigates, decides, references, diagram-ref; tenant-extensible catalog)
+- **Traceability** — Automatic and manual linking between requirements, architecture elements, and test cases (11 core link types: derives-from, decomposes, refines, allocated-to, verifies, mitigates, satisfies, realizes, decides, references, diagram-ref; tenant-extensible catalog)
 - **Baselines & Snapshots** — Capture and compare system states across time
 - **Visual Artifact Diff** — Side-by-side and unified field-level change highlighting for requirements, architecture elements, and test cases
 - **History Endpoint** — Full audit trail per artifact (GET /api/v1/requirements/{id}/history/)

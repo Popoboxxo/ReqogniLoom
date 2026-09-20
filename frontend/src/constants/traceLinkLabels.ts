@@ -11,7 +11,7 @@
  * `context/LinkTypeContext.tsx`) is now the source of truth — a tenant can
  * customize or add link types, so no static frontend table can cover every
  * key any more. `FALLBACK_TRI_LABELS` below is only the pre-load fallback
- * for the eight built-in keys (mirrors `backend/link_types/builtin.py`),
+ * for the eleven built-in keys (mirrors `backend/link_types/builtin.py`),
  * used before the catalog has loaded or by callers that have no catalog
  * label at hand. A key that is neither in the fallback table nor backed by
  * a catalog label renders as its own raw string — see `getTriLabel`.
@@ -33,7 +33,7 @@ export interface TriLabelEntry {
 }
 
 /**
- * Pre-load fallback for the eight built-in link types — label text mirrors
+ * Pre-load fallback for the eleven built-in link types — label text mirrors
  * `backend/link_types/builtin.py::BUILTIN_LINK_TYPES` exactly, so there is
  * no visible flash of different text once the real catalog label arrives.
  * NOT exhaustive: a tenant-customized or tenant-invented type has no entry
@@ -47,6 +47,18 @@ export const FALLBACK_TRI_LABELS: Record<string, TriLabelEntry> = {
   decomposes: {
     de: { downstream: "zerlegt sich in", upstream: "ist Teil von", neutral: "Zerlegung" },
     en: { downstream: "decomposes into", upstream: "is part of", neutral: "Decomposition" },
+  },
+  refines: {
+    de: { downstream: "verfeinert", upstream: "wird verfeinert durch", neutral: "Verfeinerung" },
+    en: { downstream: "refines", upstream: "is refined by", neutral: "Refinement" },
+  },
+  satisfies: {
+    de: { downstream: "erfüllt", upstream: "wird erfüllt von", neutral: "Erfüllung" },
+    en: { downstream: "satisfies", upstream: "is satisfied by", neutral: "Satisfaction" },
+  },
+  realizes: {
+    de: { downstream: "realisiert", upstream: "wird realisiert durch", neutral: "Realisierung" },
+    en: { downstream: "realizes", upstream: "is realized by", neutral: "Realization" },
   },
   "allocated-to": {
     de: { downstream: "ist zugewiesen an", upstream: "erfüllt", neutral: "Zuweisung" },
@@ -78,7 +90,7 @@ export const FALLBACK_TRI_LABELS: Record<string, TriLabelEntry> = {
  * Resolve a link-type label.
  *
  * The catalog label wins. The static table above is only the pre-load
- * fallback for the eight built-in keys — a tenant-invented type has no
+ * fallback for the eleven built-in keys — a tenant-invented type has no
  * static entry and renders as its raw key until the catalog arrives.
  */
 export function getTriLabel(
@@ -97,7 +109,7 @@ export function getTriLabel(
  * ReqTraceLinkPanel, TracePanel, TraceLinkPanel, trace-link-display,
  * TraceabilityView, plus the create-link dialog and workspace settings
  * before Task 23). Derived from `FALLBACK_TRI_LABELS`, so it only covers the
- * eight built-in keys — a tenant-invented type falls back to its raw key,
+ * eleven built-in keys — a tenant-invented type falls back to its raw key,
  * same as `getTriLabel`.
  */
 export const LINK_TYPE_LABELS: Record<string, string> = Object.fromEntries(
@@ -106,6 +118,6 @@ export const LINK_TYPE_LABELS: Record<string, string> = Object.fromEntries(
 
 /**
  * Returns the human-readable (EN neutral) label for a link type, falling
- * back to the raw key for anything outside the eight built-in types.
+ * back to the raw key for anything outside the eleven built-in types.
  */
 export const getLinkTypeLabel = (lt: string): string => LINK_TYPE_LABELS[lt] ?? lt;

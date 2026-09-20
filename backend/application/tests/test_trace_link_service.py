@@ -58,21 +58,24 @@ TARGET_ID = uuid.uuid4()
 
 
 class TestValidLinkTypes:
-    """REQ-L2-AS-010: 8 standard link types."""
+    """REQ-L2-AS-010: 11 standard link types."""
 
     EXPECTED_TYPES = {
         "derives-from",
         "decomposes",  # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4 — hardcoded decompose() output
-        "allocated-to",  # REQ-L1-042 — absorbed the retired satisfies/implements
+        "refines",  # #950 — Requirement -> Requirement (weaker than derives-from)
+        "allocated-to",  # REQ-L1-042 — absorbed the retired implements
         "verifies",
         "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
         "mitigates",
+        "satisfies",  # #950 — Requirement -> Goal, coverage-relevant validation edge
+        "realizes",  # #950 — Requirement -> Goal (realization claim)
         "references",  # absorbed the retired documents/traces/uses-term
         "diagram-ref",  # Codeberg #353 Task 3 — reconciler-owned only, see traceability/types.py
     }
 
-    def test_all_ten_types_present(self):
-        """VALID_LINK_TYPES contains the eight built-in link types (link-type consolidation)."""
+    def test_all_types_present(self):
+        """VALID_LINK_TYPES contains the eleven built-in link types."""
         assert self.EXPECTED_TYPES == VALID_LINK_TYPES
 
     def test_types_is_frozenset(self):

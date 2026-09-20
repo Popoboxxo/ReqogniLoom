@@ -2,7 +2,7 @@
  * Unit tests for the trace-link Tri-Label constants (Task 23).
  *
  * Verifies:
- *   - `FALLBACK_TRI_LABELS` covers exactly the eight built-in link types
+ *   - `FALLBACK_TRI_LABELS` covers exactly the eleven built-in link types
  *   - Every fallback entry has non-empty DE + EN downstream/upstream/neutral labels
  *   - `getTriLabel`: catalog label wins, static fallback second, raw key last
  *   - `ALL_LINK_TYPES` is no longer exported (catalog-driven now, Task 22)
@@ -25,12 +25,15 @@ const EXPECTED_TYPES = [
   "derives-from",
   "diagram-ref",
   "mitigates",
+  "realizes",
   "references",
+  "refines",
+  "satisfies",
   "verifies",
 ];
 
 describe("FALLBACK_TRI_LABELS", () => {
-  it("covers exactly the eight built-in link types", () => {
+  it("covers exactly the eleven built-in link types", () => {
     expect(Object.keys(FALLBACK_TRI_LABELS).sort()).toEqual([...EXPECTED_TYPES].sort());
   });
 
@@ -72,7 +75,7 @@ describe("getTriLabel", () => {
     expect("ALL_LINK_TYPES" in module).toBe(false);
   });
 
-  it("the fallback table only covers the eight core types", () => {
+  it("the fallback table only covers the eleven core types", () => {
     expect(Object.keys(FALLBACK_TRI_LABELS).sort()).toEqual([
       "allocated-to",
       "decides",
@@ -80,14 +83,17 @@ describe("getTriLabel", () => {
       "derives-from",
       "diagram-ref",
       "mitigates",
+      "realizes",
       "references",
+      "refines",
+      "satisfies",
       "verifies",
     ]);
   });
 });
 
 describe("backward-compatible flat label lookup", () => {
-  it("getLinkTypeLabel resolves every one of the eight built-in types without a raw-key fallback", () => {
+  it("getLinkTypeLabel resolves every one of the eleven built-in types without a raw-key fallback", () => {
     for (const lt of Object.keys(FALLBACK_TRI_LABELS)) {
       const label = getLinkTypeLabel(lt);
       expect(label).toBeTruthy();

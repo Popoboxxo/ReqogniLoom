@@ -1,4 +1,4 @@
-"""The eight built-in link types are the spec's Startbelegung, verbatim."""
+"""The eleven built-in link types are the spec's Startbelegung, verbatim."""
 from __future__ import annotations
 
 from link_types.builtin import (
@@ -12,16 +12,19 @@ from link_types.builtin import (
 EXPECTED_KEYS = {
     "derives-from",
     "decomposes",
+    "refines",
     "allocated-to",
     "verifies",
     "decides",
     "mitigates",
+    "satisfies",
+    "realizes",
     "references",
     "diagram-ref",
 }
 
 
-def test_exactly_the_eight_core_types_are_seeded():
+def test_exactly_the_eleven_core_types_are_seeded():
     assert set(BUILTIN_LINK_TYPES) == EXPECTED_KEYS
 
 
@@ -34,9 +37,11 @@ def test_suspect_rules_are_the_four_code_anchored_values():
     }
 
 
-def test_only_allocated_to_and_verifies_are_coverage_relevant():
+def test_only_allocated_to_verifies_and_satisfies_are_coverage_relevant():
     coverage = {k for k, v in BUILTIN_LINK_TYPES.items() if v["coverage_relevant"]}
-    assert coverage == {"allocated-to", "verifies"}
+    # `satisfies` is the ISO 15288/29148 validation edge (#950) — the only
+    # coverage-relevant link to a Goal.
+    assert coverage == {"allocated-to", "verifies", "satisfies"}
 
 
 def test_impact_weights_match_the_spec_table():
@@ -44,10 +49,13 @@ def test_impact_weights_match_the_spec_table():
     assert weights == {
         "derives-from": 1.0,
         "decomposes": 1.0,
+        "refines": 0.8,
         "allocated-to": 1.0,
         "verifies": 1.0,
         "decides": 0.3,
         "mitigates": 0.5,
+        "satisfies": 1.0,
+        "realizes": 0.8,
         "references": 0.2,
         "diagram-ref": 0.2,
     }
@@ -58,10 +66,13 @@ def test_suspect_rules_match_the_spec_table():
     assert rules == {
         "derives-from": "target_change_flags_source",
         "decomposes": "parent_change_flags_children",
+        "refines": "target_change_flags_source",
         "allocated-to": "source_change_flags_target",
         "verifies": "target_change_flags_source",
         "decides": "none",
         "mitigates": "none",
+        "satisfies": "target_change_flags_source",
+        "realizes": "target_change_flags_source",
         "references": "none",
         "diagram-ref": "none",
     }
@@ -141,7 +152,22 @@ def test_every_definition_is_active_and_flagged_built_in():
     assert all(v["built_in"] for v in BUILTIN_LINK_TYPES.values())
 
 
+def test_satisfaction_types_have_the_expected_pairs():
+    """#950: `satisfies`/`realizes` are Requirement -> Goal, `refines` Req -> Req."""
+    assert BUILTIN_LINK_TYPES["satisfies"]["allowed_pairs"] == [
+        {"source_type": "Requirement", "target_type": "Goal"}
+    ]
+    assert BUILTIN_LINK_TYPES["realizes"]["allowed_pairs"] == [
+        {"source_type": "Requirement", "target_type": "Goal"}
+    ]
+    assert BUILTIN_LINK_TYPES["refines"]["allowed_pairs"] == [
+        {"source_type": "Requirement", "target_type": "Requirement"}
+    ]
+
+
 def test_legacy_mapping_covers_every_retired_key():
+    # Historical, migration-only (#950): three of these keys were re-introduced
+    # as built-ins with new pairs, but the pre-consolidation mapping stands.
     assert LEGACY_LINK_TYPE_MAPPING == {
         "parent-child": None,
         "satisfies": "allocated-to",
