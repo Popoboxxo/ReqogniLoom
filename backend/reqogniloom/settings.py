@@ -489,6 +489,27 @@ MCP_RATE_LIMIT_IP: str = _throttle_rate(
 )
 
 # ---------------------------------------------------------------------------
+# Default trace-link types for a new workspace (issue #989).
+#
+# A workspace carries its own "standard link type" (pre-selected when creating
+# a trace link) and "decomposition link type". Both stay per-workspace
+# overridable in Settings -> Traceability; these environment-level defaults only
+# decide what a NEW workspace starts with (and the fallback for a workspace
+# whose column is empty), so a deployment is reproducible instead of depending
+# on whatever the seed produced.
+#
+# Both values must be keys of link_types.builtin.BUILTIN_LINK_TYPES; an unknown
+# value is ignored at read time (see link_types.defaults) rather than breaking
+# workspace creation.
+# ---------------------------------------------------------------------------
+DEFAULT_TRACE_LINK_TYPE: str = config(
+    "DEFAULT_TRACE_LINK_TYPE", default="references"
+).strip()
+DEFAULT_DECOMPOSITION_LINK_TYPE: str = config(
+    "DEFAULT_DECOMPOSITION_LINK_TYPE", default="decomposes"
+).strip()
+
+# ---------------------------------------------------------------------------
 # Django REST Framework — ARCH-L1-002 RestApiAdapter
 # COMP-RA-003 AuthEnforcer: AuthTenancyAuthentication provides Bearer+API-Key auth.
 # COMP-RA-003 RbacPermission: enforces RBAC matrix (REQ-L2-RA-005, REQ-L2-RA-006).

@@ -76,6 +76,10 @@ from application.services import (
 )
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
+from link_types.defaults import (
+    default_decomposition_link_type,
+    default_trace_link_type,
+)
 from application.artifact_attribute_gateway import (
     ArtifactAttributeGateway,
     AttributeValues,
@@ -4568,8 +4572,14 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         "name": ws.name,
         "preset": ws.preset or {},
         "ai_prompts": getattr(ws, "ai_prompts", {}),
-        "decomposition_link_type": getattr(ws, "decomposition_link_type", "decomposes"),
-        "default_link_type": getattr(ws, "default_link_type", "derives-from"),
+        # #989: an empty column falls back to the deployment default, not a
+        # hardcoded literal.
+        "decomposition_link_type": (
+            getattr(ws, "decomposition_link_type", "") or default_decomposition_link_type()
+        ),
+        "default_link_type": (
+            getattr(ws, "default_link_type", "") or default_trace_link_type()
+        ),
         "goals_enabled": getattr(ws, "goals_enabled", False),
         "goals_ai_enabled": getattr(ws, "goals_ai_enabled", False),
         "terminology_profile": terminology_profile,

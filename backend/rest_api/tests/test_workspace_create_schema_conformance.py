@@ -101,7 +101,12 @@ def test_create_applies_every_advertised_configuration_field() -> None:
 
 
 def test_create_without_configuration_fields_keeps_defaults() -> None:
-    """Omitting them must not write the serializer's defaults as explicit choices."""
+    """Omitting them must not write the serializer's defaults as explicit choices.
+
+    Since #989 the link-type defaults are the deployment defaults
+    (``DEFAULT_TRACE_LINK_TYPE`` / ``DEFAULT_DECOMPOSITION_LINK_TYPE``), i.e.
+    ``references`` / ``decomposes`` when the environment leaves them unset.
+    """
     client = _admin_client()
 
     resp = client.post(
@@ -116,7 +121,7 @@ def test_create_without_configuration_fields_keeps_defaults() -> None:
     assert body["goals_enabled"] is False
     assert body["goals_ai_enabled"] is False
     assert body["decomposition_link_type"] == "decomposes"
-    assert body["default_link_type"] == "derives-from"
+    assert body["default_link_type"] == "references"
 
 
 def test_ai_prompts_is_declared_read_only() -> None:

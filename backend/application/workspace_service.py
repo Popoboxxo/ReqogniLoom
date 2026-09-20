@@ -45,6 +45,11 @@ from presets.models import (
     WorkspacePresetConfig,
 )
 
+from link_types.defaults import (
+    default_decomposition_link_type,
+    default_trace_link_type,
+)
+
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.workspace_provisioning import provision_workspace_defaults
 
@@ -226,18 +231,28 @@ class WorkspaceService(ServiceBase):
             )
 
         extra_columns: dict[str, Any] = {}
-        if decomposition_link_type is not None:
-            extra_columns["decomposition_link_type"] = _validate_and_cap(
-                str(decomposition_link_type),
-                max_length=_LINK_TYPE_MAX_LENGTH,
-                field_name="decomposition_link_type",
-            )
-        if default_link_type is not None:
-            extra_columns["default_link_type"] = _validate_and_cap(
-                str(default_link_type),
-                max_length=_LINK_TYPE_MAX_LENGTH,
-                field_name="default_link_type",
-            )
+        # #989: a new workspace takes the deployment default (env-configurable)
+        # unless the caller supplies an explicit value. Always written so the
+        # env default — not the hardcoded model default — is what a fresh
+        # workspace gets.
+        extra_columns["decomposition_link_type"] = _validate_and_cap(
+            str(
+                decomposition_link_type
+                if decomposition_link_type is not None
+                else default_decomposition_link_type()
+            ),
+            max_length=_LINK_TYPE_MAX_LENGTH,
+            field_name="decomposition_link_type",
+        )
+        extra_columns["default_link_type"] = _validate_and_cap(
+            str(
+                default_link_type
+                if default_link_type is not None
+                else default_trace_link_type()
+            ),
+            max_length=_LINK_TYPE_MAX_LENGTH,
+            field_name="default_link_type",
+        )
         if goals_enabled is not None:
             extra_columns["goals_enabled"] = bool(goals_enabled)
         if goals_ai_enabled is not None:
