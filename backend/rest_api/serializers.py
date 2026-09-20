@@ -903,6 +903,9 @@ class RequirementSerializer(
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    # #871/#583 (IEEE 29148 §5.2.6): justification and origin of the requirement.
+    rationale = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    source = SanitizedCharField(allow_blank=True, default="", max_length=255)
     # #43: acceptance_criteria describes when the requirement is considered fulfilled.
     acceptance_criteria = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")

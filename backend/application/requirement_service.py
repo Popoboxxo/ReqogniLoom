@@ -226,6 +226,8 @@ class RequirementService(ServiceBase):
         ctx: AuthContext,
         description: str = "",
         acceptance_criteria: str = "",
+        rationale: str = "",
+        source: str = "",
         category: str = "",
         parent_id: Optional[UUID] = None,
         type: str = "SyReq",
@@ -267,6 +269,10 @@ class RequirementService(ServiceBase):
         acceptance_criteria = clean_free_text_field(
             acceptance_criteria, "acceptance_criteria"
         )
+        # #871/#583: rationale/source are free text too — same defense in depth
+        # as description/acceptance_criteria (closes the MCP bypass).
+        rationale = clean_free_text_field(rationale, "rationale")
+        source = clean_free_text_field(source, "source")
 
         # Create the backing Artifact first
         artifact = Artifact.objects.create(
@@ -285,6 +291,8 @@ class RequirementService(ServiceBase):
             workspace=workspace,
             title=title,
             description=description,
+            rationale=rationale,
+            source=source,
             acceptance_criteria=acceptance_criteria,
             category=category,
             type=type,
@@ -383,6 +391,8 @@ class RequirementService(ServiceBase):
         title: Optional[str] = None,
         description: Optional[str] = None,
         acceptance_criteria: Optional[str] = None,
+        rationale: Optional[str] = None,
+        source: Optional[str] = None,
         category: Optional[str] = None,
         change_reason: Optional[str] = None,
         type: Optional[str] = None,
@@ -453,6 +463,10 @@ class RequirementService(ServiceBase):
             requirement.acceptance_criteria = clean_free_text_field(
                 acceptance_criteria, "acceptance_criteria"
             )
+        if rationale is not None:
+            requirement.rationale = clean_free_text_field(rationale, "rationale")
+        if source is not None:
+            requirement.source = clean_free_text_field(source, "source")
         if category is not None:
             requirement.category = category
         if type is not None:

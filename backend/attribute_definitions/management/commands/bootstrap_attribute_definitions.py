@@ -656,6 +656,46 @@ def _section_for(name: str) -> str:
     return "general"
 
 
+#: Matrix metadata a core attribute absorbs when the matrix also declares it.
+_STAGE_MERGE_KEYS: tuple[str, ...] = (
+    "section",
+    "order",
+    "label",
+    "help_text",
+    "options",
+    "audience",
+    "visible",
+    "editable",
+    "stage_mandatory",
+    "ai_elicit",
+)
+
+
+def _merge_stage_attributes(
+    attributes: list[dict[str, Any]], stage_entries: list[dict[str, Any]]
+) -> None:
+    """Append the matrix's new attributes, merging any a model field owns.
+
+    Issue #871/#583: a matrix-declared attribute can now also be a real model
+    column (``Requirement.rationale``/``source``). Appending it verbatim produced
+    a duplicate-name definition that failed validation. Instead the model-walk
+    entry keeps its identity (kind/type — so the value lands in the column, not
+    in ``custom_fields``) and absorbs the matrix's staged metadata
+    (section/help/label/visibility/stage flags), so the form keeps the SE
+    section and the stage gating without a second, competing editor.
+    """
+    by_name = {attribute["name"]: attribute for attribute in attributes}
+    for entry in stage_entries:
+        current = by_name.get(entry["name"])
+        if current is None:
+            attributes.append(entry)
+            by_name[entry["name"]] = entry
+            continue
+        for key in _STAGE_MERGE_KEYS:
+            if key in entry:
+                current[key] = entry[key]
+
+
 def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, Any]]:
     """Return the normalized core attribute list for ``(item_type, preset)``.
 
@@ -789,7 +829,7 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     # introspection result — per-stage visibility/audience for existing
     # attributes, plus the matrix's new extended attributes.
     apply_stage_overrides(item_type, preset, attributes)
-    attributes.extend(build_stage_attributes(item_type, preset))
+    _merge_stage_attributes(attributes, build_stage_attributes(item_type, preset))
 
     # NOTE: preset `mandatory_fields` are deliberately not applied here — see
     # this function's docstring. They are an approval-transition contract
