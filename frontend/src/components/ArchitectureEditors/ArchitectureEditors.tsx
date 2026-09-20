@@ -328,6 +328,8 @@ export default function ArchitectureEditors(): JSX.Element {
     filteredElements.map((el) => ({
       id: el.id,
       name: el.title || t('editor.untitled'),
+      // Issue #932: show the readable local uid in the tree, not just in search.
+      identifier: el.uid,
       parentId: el.parent_id ?? null,
       level: el.level != null ? `L${el.level}` : 'L0',
     })),

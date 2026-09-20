@@ -126,6 +126,40 @@ describe('WorkspaceTree — flat nodes', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #932 — readable uid identifier on the row
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — node identifier (#932)', () => {
+  it('renders the readable uid when provided', () => {
+    renderTree({
+      nodes: [
+        { id: 'n1', name: 'Alpha Need', parentId: null, identifier: 'NEED-001' },
+      ],
+    });
+    expect(screen.getByTestId('workspace-tree-identifier-n1')).toHaveTextContent(
+      'NEED-001',
+    );
+  });
+
+  it('omits the identifier element when the uid is absent', () => {
+    renderTree({ nodes: FLAT_NODES });
+    expect(
+      screen.queryByTestId('workspace-tree-identifier-n1'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders the identifier and the name side by side', () => {
+    renderTree({
+      nodes: [
+        { id: 'n1', name: 'Alpha Need', parentId: null, identifier: 'REQ-001' },
+      ],
+    });
+    expect(screen.getByText('REQ-001')).toBeInTheDocument();
+    expect(screen.getByText('Alpha Need')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Issue #676 — translated label defaults (no hardcoded English fallbacks)
 // ---------------------------------------------------------------------------
 
