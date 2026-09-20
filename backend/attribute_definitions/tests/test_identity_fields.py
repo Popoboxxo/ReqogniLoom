@@ -1,18 +1,22 @@
-"""Identity fields: ``id`` transport parity and ``uid`` import-key semantics.
+"""Identity fields: ``id`` transport parity and ``uid`` local-identifier semantics.
 
-Attribut v3 WS2 (#936), spec sections 3 and 5 (Teil C).
+Attribut v3 WS2 (#936), spec sections 3 and 5 (Teil C); ``uid`` re-specified by
+issue #932.
 
 Two invariants the bootstrapped definitions already declare but no focused test
 pinned yet:
 
-* **``id``** is the sole identity (the Artifact UUID the routes address). Its
+* **``id``** is the technical identity (the Artifact UUID the routes address). Its
   synthetic definition attribute is ``visible=false`` / ``editable="system"``
   (spec section 5: hidden by default, revealed on demand), yet the value must be
   present in the read payload of **every** item type on **both** transports. A
   client write must never overwrite it.
-* **``uid``** is an *external import key* (ReqIF) only. Nothing auto-generates
-  it (no ``REQ-NNN`` number-circle), it stays read-only to clients, and its
-  ``help_text`` says so on every model and serializer.
+* **``uid``** is the *readable local identifier* (#932). Every artifact-create
+  service auto-generates ``{PREFIX}-{NNN}`` per ``(workspace, item_type)``, so a
+  freshly created artifact carries one without any user action — except for the
+  item types that have no such column (Goal, Icd, GlossaryTerm, ChangeRequest).
+  The field stays read-only to clients (a supplied value is answered with 400,
+  never silently dropped), and its ``help_text`` says so on every model.
 
 The transport pass drives the same real REST + MCP stacks as
 ``test_transport_contract_matrix`` (in-process ``APIClient`` + JWT and
@@ -22,6 +26,7 @@ ratchet.
 """
 from __future__ import annotations
 
+import re
 import uuid
 
 import pytest
@@ -40,11 +45,26 @@ from attribute_definitions.tests.test_transport_contract_matrix import (
 
 pytestmark = [pytest.mark.e2e, pytest.mark.django_db]
 
-#: The shared truth statement every ``uid`` field/declaration must carry (spec
-#: section 3): external import key, never auto-generated, ``id`` is identity.
-UID_HELP_TEXT_FRAGMENT = "External import key (ReqIF)"
+#: The shared truth statement every ``uid`` field must carry (#932): the local,
+#: auto-generated readable identifier.
+UID_HELP_TEXT_FRAGMENT = "Local readable identifier"
 
-#: The 8 special models that carry a ``uid`` column (spec section 3). Keyed by
+#: The ``ITEM_TYPES`` members whose backing model carries the ``uid`` column and
+#: therefore auto-generates one on create (#932). ``TestRun`` also has the column
+#: but is not an ``ITEM_TYPES`` member, so it is not transported here.
+_UID_ITEM_TYPES = frozenset(
+    {
+        "Requirement",
+        "StakeholderNeed",
+        "ArchitectureElement",
+        "TestCase",
+        "Adr",
+        "Risk",
+        "Issue",
+    }
+)
+
+#: The 8 special models that carry a ``uid`` column (#932). Keyed by
 #: ``(app_label, model_name)`` so the same list resolves through ``apps.get_model``.
 _UID_MODELS = (
     ("persistence", "StakeholderNeed"),
@@ -150,10 +170,11 @@ def test_id_attribute_is_hidden_by_default_but_always_transported() -> None:
 
 
 def test_rest_never_rewrites_id_and_rejects_uid() -> None:
-    """REST ignores a client ``id`` on create and rejects it on PATCH (#269).
+    """REST ignores a client ``id``, auto-generates ``uid``, rejects a ``uid`` write.
 
-    A ``uid`` write is refused the same way (read-only import key): the PATCH
-    guard names it a protected field instead of dropping it silently.
+    ``id`` is the server-owned identity (#269); ``uid`` is server-managed too
+    (#932) — the create path allocates it and a client write is refused, never
+    stored and never silently dropped.
     """
     with override_settings(**_JWT_OVERRIDES):
         env = _build_env()
@@ -173,6 +194,9 @@ def test_rest_never_rewrites_id_and_rejects_uid() -> None:
         assert created.status_code == 201, created.content
         entity_id = created.json()["id"]
         assert entity_id != supplied_id, "a client-supplied id was accepted as identity"
+        # #932: the create path allocates the readable local uid.
+        allocated_uid = created.json().get("uid")
+        assert re.fullmatch(r"REQ-\d{3}", allocated_uid or ""), created.content
 
         other_id = str(uuid.uuid4())
         rejected = client.patch(
@@ -195,7 +219,8 @@ def test_rest_never_rewrites_id_and_rejects_uid() -> None:
         assert read.status_code == 200, read.content
         body = read.json()
         assert body["id"] == entity_id
-        assert body["uid"] is None, "PATCH with uid must not have stored it"
+        # The rejected write neither changed nor cleared the allocated uid.
+        assert body["uid"] == allocated_uid, "PATCH with uid must not have stored it"
 
 
 def test_mcp_create_never_uses_a_client_supplied_id() -> None:
@@ -217,8 +242,12 @@ def test_mcp_create_never_uses_a_client_supplied_id() -> None:
             assert outcome.error, "a rejected write must carry a reason"
 
 
-def test_uid_is_never_auto_generated_on_create() -> None:
-    """Every transported type is created with a null ``uid`` (spec section 3)."""
+def test_uid_is_auto_generated_for_the_uid_bearing_types() -> None:
+    """Every uid-bearing transported type is created with a local uid (#932).
+
+    The item types without a ``uid`` column (Goal, Icd, GlossaryTerm,
+    ChangeRequest) must still carry none.
+    """
     with override_settings(**_JWT_OVERRIDES):
         env = _build_env()
         workspace = env.workspaces["standard"]
@@ -244,17 +273,26 @@ def test_uid_is_never_auto_generated_on_create() -> None:
                     )
                     continue
                 body = read.data if isinstance(read.data, dict) else {}
-                if body.get("uid"):
+                uid = body.get("uid")
+                if item_type in _UID_ITEM_TYPES:
+                    if not (
+                        isinstance(uid, str) and re.fullmatch(r"[A-Z]+-\d{3}", uid)
+                    ):
+                        failures.append(
+                            f"{item_type}/{transport.name}: expected an "
+                            f"auto-generated uid, got {uid!r}"
+                        )
+                elif uid:
                     failures.append(
-                        f"{item_type}/{transport.name}: create auto-generated uid "
-                        f"{body['uid']!r}"
+                        f"{item_type}/{transport.name}: unexpected uid {uid!r} for a "
+                        f"type without a local-identifier column"
                     )
 
         assert not failures, "uid auto-generation failures:\n" + "\n".join(failures)
 
 
-def test_uid_model_fields_document_the_import_key_relationship() -> None:
-    """All 8 ``uid`` columns state reality; none claims auto-generation."""
+def test_uid_model_fields_document_the_local_identifier() -> None:
+    """All 8 ``uid`` columns state the local-identifier semantics (#932)."""
     from django.apps import apps
 
     failures: list[str] = []
@@ -263,8 +301,10 @@ def test_uid_model_fields_document_the_import_key_relationship() -> None:
         help_text = field.help_text or ""
         if UID_HELP_TEXT_FRAGMENT not in help_text:
             failures.append(f"{model_name}.uid help_text is {help_text!r}")
-        if "read-only, auto-generated" in help_text:
-            failures.append(f"{model_name}.uid still claims auto-generation")
+        if "never auto-generated" in help_text:
+            failures.append(
+                f"{model_name}.uid still claims it is never auto-generated"
+            )
 
     assert not failures, "uid model help_text failures:\n" + "\n".join(failures)
 
