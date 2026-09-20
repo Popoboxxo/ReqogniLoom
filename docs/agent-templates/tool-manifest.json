@@ -4655,6 +4655,14 @@
             "type": "string",
             "description": "Criteria describing when the requirement is fulfilled."
           },
+          "rationale": {
+            "type": "string",
+            "description": "#871/#583: justification for the requirement (IEEE 29148 §5.2.6)."
+          },
+          "source": {
+            "type": "string",
+            "description": "#871: origin of the requirement (stakeholder, document, decision)."
+          },
           "type": {
             "type": "string",
             "enum": [
