@@ -1,0 +1,33 @@
+# AWMS plan (issue #932): backfill the local readable uid on Bestandszeilen.
+#
+# Requirement.uid wird seit #932 im Anlege-Pfad automatisch vergeben; Zeilen, die
+# davor entstanden sind, tragen noch NULL. Dieser Plan zieht die naechste freie
+# REQ-NNN-Nummer je Workspace nach — ueber dieselbe monotone, nicht recycelnde
+# Allokation (`value_strategy: sequence` -> application.local_uid).
+#
+# `only_if: target_is_empty` macht den Lauf idempotent: bereits vergebene
+# Nummern bleiben unangetastet. Fuer die uebrigen uid-Typen (StakeholderNeed,
+# ArchitectureElement, TestCase, TestRun, Adr, Risk, Issue) denselben Plan mit
+# angepasstem `scope.item_type` verwenden.
+version: 1
+id: 2026-09-requirement-uid-backfill
+description: >-
+  Leere Requirement.uid-Werte mit der naechsten lokalen Kennung (REQ-NNN) des
+  jeweiligen Workspace fuellen.
+scope:
+  tenant: current
+  item_type: Requirement
+  preset: [minimal, standard, extended]
+  workspace: "*"
+mode: dry_run
+options:
+  idempotent: true
+  abort_on_error: true
+  audit: true
+steps:
+  - op: backfill_value
+    target: {target: model_field, name: uid}
+    value_strategy: sequence
+    only_if: "target_is_empty"
+  - op: verify
+    assertions: ["failed == 0"]

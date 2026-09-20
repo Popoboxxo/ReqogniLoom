@@ -18,10 +18,11 @@ Two groups:
   non-executable draft; the test suite pins that ``normalize_plan`` rejects it
   with the #393 reason instead of silently doing the wrong thing.
 
-``uid`` has no plan *in this set*: it is the local readable identifier every
-create path assigns automatically since #932 (ReqIF's external identity lives on
-the Artifact ``reqif_*`` fields, #1003), so a backfill for older rows is a
-separate, not-yet-authored plan. See ``migration_plans/README.md``.
+``uid`` is the local readable identifier every create path assigns
+automatically since #932 (ReqIF's external identity lives on the Artifact
+``reqif_*`` fields, #1003); ``backfill_requirement_uid.yaml`` brings rows that
+predate that up to date via ``value_strategy: sequence``. See
+``migration_plans/README.md``.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ PLANS_DIR = Path(__file__).with_name("migration_plans")
 EXECUTABLE_PLAN_FILES: tuple[str, ...] = (
     "rationale_from_description.yaml",
     "priority_backfill.yaml",
+    "backfill_requirement_uid.yaml",
     "stakeholder_need_moscow_priority_fold.yaml",
     "risk_owner_to_actor.yaml",
     "issue_assignee_to_actor.yaml",

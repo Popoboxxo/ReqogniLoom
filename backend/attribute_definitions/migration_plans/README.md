@@ -17,6 +17,7 @@ explizite Schreib-Einstieg (`--apply`, `POST …/apply/`, `attribute_migration.a
 |---|---|---|---|---|
 | `rationale_from_description.yaml` | Requirement | `description` → `custom_fields.rationale` (copy) | §8.1 | `extract_rationale` |
 | `priority_backfill.yaml` | Requirement | leeres `Artifact.priority` füllen | §8.2 | `derive_from_link` (`derives-from` → `StakeholderNeed.moscow_priority`), Fallback `"Should"` |
+| `backfill_requirement_uid.yaml` | Requirement | leere `Requirement.uid` mit `REQ-NNN` füllen | #932 | `sequence` (`application.local_uid`) |
 | `stakeholder_need_moscow_priority_fold.yaml` | StakeholderNeed | Legacy-Modellspalte `moscow_priority` → `custom_fields.moscow_priority` (copy) | Matrix §2 | `trim` |
 | `risk_owner_to_actor.yaml` | Risk | `owner_user`/`owner_name` → `Artifact.owner`, `created_by_name` → `Artifact.reporter` | Matrix §6 | `to_actor` |
 | `issue_assignee_to_actor.yaml` | Issue | `assignee_id` → `Artifact.owner`, `created_by_name` → `Artifact.reporter` | Matrix §7 | `to_actor` |
@@ -26,17 +27,22 @@ Idempotenz: jeder Plan nutzt `only_if` (i. d. R. `target_is_empty and
 source_has_text`), sodass ein zweiter Lauf nichts ändert. `copy` ist der Default;
 `move`/`drop` kommen in diesem Set nicht vor (kein Datenverlust).
 
-## `uid` — kein Plan in diesem Set
+## `uid` — Backfill für Bestandszeilen (#932)
 
 `uid` ist die **lokale, lesbare Kennung** (`REQ-001`, `NEED-014`, …), die jeder
 Anlege-Pfad seit #932 automatisch vergibt; die ReqIF-Import-Identität liegt auf
-den `Artifact.reqif_*`-Feldern (#1003). Ein etwaiger Backfill für Altdaten
-gehört als eigener Plan in dieses Verzeichnis, sobald dafür eine
-Allokations-Strategie (`value_strategy`, Nutzung von
-`application.local_uid.generate_local_uid`) im Katalog steht — in diesem Set ist
-er bewusst nicht enthalten. Der Bootstrap introspiziert `uid` als
-`read_only`-Kernattribut (`READ_ONLY_MODEL_FIELDS`), damit eine Formular-
-Rückschreibung nicht 400t.
+den `Artifact.reqif_*`-Feldern (#1003).
+
+`backfill_requirement_uid.yaml` versorgt Zeilen, die **vor** #932 entstanden
+sind: `value_strategy: sequence` vergibt je Workspace die nächste freie
+`REQ-NNN`-Nummer über denselben monotonen, nicht recycelnden Allokator wie der
+Anlege-Pfad (`application.local_uid.generate_local_uid`). `only_if:
+target_is_empty` hält den Lauf idempotent. Die Strategie ist **nur** für das
+Ziel `uid` zugelassen (sonst schlägt der Schritt fehl, statt eine `REQ-NNN`-
+Zeichenkette in ein fremdes Feld zu schreiben); für die übrigen uid-Typen
+denselben Plan mit angepasstem `scope.item_type` verwenden. Der Bootstrap
+introspiziert `uid` als `read_only`-Kernattribut (`READ_ONLY_MODEL_FIELDS`),
+damit eine Formular-Rückschreibung nicht 400t.
 
 ## Vollständiger Operationskatalog (#930)
 
