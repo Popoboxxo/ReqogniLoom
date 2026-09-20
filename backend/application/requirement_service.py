@@ -59,6 +59,7 @@ from application.artifact_service import (
     snapshot_versioned_fields,
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
+from application.local_uid import generate_local_uid
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
     assert_expected_version,
@@ -290,7 +291,9 @@ class RequirementService(ServiceBase):
             complexity_fibonacci=complexity_fibonacci,
             verification_method=verification_method,
             level=level,
-            uid=uid,
+            # Issue #932: allocate the local readable uid when the caller did
+            # not supply one (ReqIF's external identity lives on the Artifact).
+            uid=uid or generate_local_uid("Requirement", workspace_id),
         )
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
