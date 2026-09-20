@@ -164,6 +164,9 @@ export interface Requirement extends SystemFieldValues {
   parent_id?: string;
   title: string;
   description: string;
+  // #871/#583 (IEEE 29148 §5.2.6): justification and origin of the requirement.
+  rationale?: string;
+  source?: string;
   // #43: acceptance criteria describing when the requirement is fulfilled.
   acceptance_criteria?: string;
   category: string;

@@ -92,7 +92,9 @@ def _requirement_to_dict(
         "uid": getattr(req, "uid", None),
         "title": req.title,
         "description": req.description,
-        "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
+                "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
+                "rationale": getattr(req, "rationale", ""),
+                "source": getattr(req, "source", ""),
         "category": req.category,
         "status": resolve_engine_status(
             "Requirement", req.id, status_map=status_map
@@ -184,6 +186,14 @@ class RequirementsToolGroup(BaseToolGroup):
                     "acceptance_criteria": {
                         "type": "string",
                         "description": "Criteria describing when the requirement is fulfilled.",
+                    },
+                    "rationale": {
+                        "type": "string",
+                        "description": "#871/#583: justification for the requirement (IEEE 29148 §5.2.6).",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "#871: origin of the requirement (stakeholder, document, decision).",
                     },
                     "type": {
                         "type": "string",
@@ -446,6 +456,10 @@ class RequirementsToolGroup(BaseToolGroup):
         # silently ignored here — a client sending them via MCP got HTTP 200
         # with the fields simply dropped, no error.
         acceptance_criteria: str = params.get("acceptance_criteria", "")
+        # #871/#583: rationale/source are real model fields now; forwarded like
+        # the other SE mask fields so MCP does not silently drop them.
+        rationale: str = params.get("rationale", "")
+        source: str = params.get("source", "")
         req_type: str = params.get("type", "SyReq")
         complexity_fibonacci = params.get("complexity_fibonacci")
         verification_method = params.get("verification_method")
@@ -473,6 +487,8 @@ class RequirementsToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     description=description,
                     acceptance_criteria=acceptance_criteria,
+                    rationale=rationale,
+                    source=source,
                     category=category,
                     parent_id=parent_id,
                     type=req_type,
@@ -543,7 +559,14 @@ class RequirementsToolGroup(BaseToolGroup):
         }
         changed_fields = {
             name: _field(name)
-            for name in ("title", "description", "category", "custom_fields")
+            for name in (
+                "title",
+                "description",
+                "rationale",
+                "source",
+                "category",
+                "custom_fields",
+            )
             if name in data or name in params
         }
         changed_fields.update(system_values)
@@ -580,6 +603,8 @@ class RequirementsToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     title=_field("title"),
                     description=_field("description"),
+                    rationale=_field("rationale"),
+                    source=_field("source"),
                     category=_field("category"),
                     change_reason=_field("change_reason"),
                     **custom_fields_kwargs,

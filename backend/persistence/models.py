@@ -1367,6 +1367,31 @@ class Requirement(TenantScopedModel):
     )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
+    # Issue #871 / #583 (INCOSE Guide for Writing Requirements, IEEE 29148
+    # §5.2.6): the *rationale* is a first-class requirement attribute ("why this
+    # requirement exists"), not free text inside `description`. The interview
+    # adapter used to alias it into `description`; `rationale_from_description`
+    # (AWMS) can lift existing values over.
+    rationale = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "#871/#583: justification for the requirement (IEEE 29148 §5.2.6). "
+            "Previously squeezed into 'description'."
+        ),
+    )
+    # Issue #871: the requirement's origin — the stakeholder, document or
+    # decision it comes from ("Source / Origin"). Free text; the actor FK for a
+    # named owner is the Artifact-level `owner` system field, not this.
+    source = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "#871: origin of the requirement (stakeholder, document, decision). "
+            "A named owner is the Artifact-level `owner` system field."
+        ),
+    )
     acceptance_criteria = models.TextField(
         blank=True,
         default="",
