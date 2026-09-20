@@ -39,6 +39,10 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from link_types.defaults import (
+    default_decomposition_link_type,
+    default_trace_link_type,
+)
 
 from application.services import (
     NotFoundError,
@@ -340,8 +344,14 @@ class AdminToolGroup(BaseToolGroup):
                 "workspace_id": str(workspace_id),
                 "preset": workspace.preset,
                 "ai_prompts": workspace.ai_prompts,
-                "decomposition_link_type": workspace.decomposition_link_type,
-                "default_link_type": workspace.default_link_type,
+                # #989: empty columns fall back to the deployment default.
+                "decomposition_link_type": (
+                    workspace.decomposition_link_type
+                    or default_decomposition_link_type()
+                ),
+                "default_link_type": (
+                    workspace.default_link_type or default_trace_link_type()
+                ),
                 "language": workspace.language,
             }
         })
