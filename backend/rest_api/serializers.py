@@ -146,6 +146,15 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "A required service is temporarily unavailable.",
         "de": "Ein erforderlicher Dienst ist vorübergehend nicht verfügbar.",
     },
+    # RFC #1002 PR B: the configurable write ratelimit for memory.write. Kept
+    # distinct from the DRF transport throttles (which answer a plain 429 body):
+    # REST maps this to HTTP 429 with a Retry-After header and MCP to the
+    # RATE_LIMITED JSON-RPC code, so a client can tell "back off" apart from
+    # any other 4xx.
+    "RATE_LIMITED": {
+        "en": "Too many memory writes; slow down and retry later.",
+        "de": "Zu viele Memory-Schreibvorgänge; bitte später erneut versuchen.",
+    },
 }
 
 

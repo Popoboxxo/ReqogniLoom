@@ -342,9 +342,12 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # transition (in_progress -> abandoned) -- same write gate as formalize.
     "interview.abandon",
     # Task 7 of the AI-memory spec: memory.forget deletes a MemoryEntry row --
-    # memory.query/memory.list are read-only (see
+    # memory.query/memory.list/memory.get are read-only (see
     # _READ_ONLY_TOOL_NAMES below).
+    # RFC #1002 PR B: memory.write persists a new entry and is likewise
+    # fail-closed write-gated.
     "memory.forget",
+    "memory.write",
     # Attribut v3 WS5 (#942): central attribute catalog. create/update/
     # deprecate/add_to_definition/import are writes; list/search/export are
     # read-only via _READ_ONLY_TOOL_NAMES below. Listed here as the documented
@@ -459,10 +462,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # (post-hoc fix, final-review batch) once it started making real LLM
         # calls -- no longer exempt here.
         # Task 7 of the AI-memory spec: memory.query/memory.list are plain
-        # reads over MemoryBackend -- memory.forget stays fail-closed
-        # WRITE-gated via _WRITE_TOOL_PREFIXES above.
+        # reads over MemoryBackend -- memory.forget/memory.write stay
+        # fail-closed WRITE-gated via _WRITE_TOOL_PREFIXES above.
+        # RFC #1002 PR B adds memory.get as a plain read.
         "memory.query",
         "memory.list",
+        "memory.get",
         # Task 21 of the traceability-semantik plan: link_type.list/get are
         # plain catalog reads -- link_type.create/update/reset stay
         # fail-closed WRITE-gated (admin-only, enforced again inside

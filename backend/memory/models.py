@@ -174,6 +174,12 @@ class SystemMemorySettings(AuditableModel):
     embedding_timeout = models.PositiveIntegerField(null=True, blank=True)
     memory_backend = models.CharField(max_length=32, null=True, blank=True)
     honcho_base_url = models.CharField(max_length=255, null=True, blank=True)
+    # RFC #1002 PR B: admin-configurable, fixed-window write ratelimit for
+    # ``memory.write``. NULL = "no override, env/default wins" (the env var is
+    # ``MEMORY_WRITE_RATE_LIMIT_PER_HOUR``, default 60); ``0`` is an explicit
+    # "unlimited" override. ``PositiveIntegerField`` therefore rules out a
+    # negative value that could only ever be a typo.
+    memory_write_rate_limit_per_hour = models.PositiveIntegerField(null=True, blank=True)
     # Fernet ciphertext, mirrors LlmSettings.api_key_encrypted. Never read/write
     # directly -- use the honcho_api_key property below.
     honcho_api_key_encrypted = models.TextField(blank=True, default="")

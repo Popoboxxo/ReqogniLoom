@@ -502,6 +502,20 @@ class TestDeterministicSample:
         assert len(sample) == 5000
 
 
+def _patch_embeddings(monkeypatch, mapping):
+    """Patch the projection's embedding source with a content -> vector map.
+
+    RFC #1002 PR B computes projection embeddings via
+    ``generate_embedding(content)`` (backend-agnostic) instead of reading the
+    raw pgvector column, so these tests control that seam directly.
+    """
+    monkeypatch.setattr(
+        "application.memory_admin_service.generate_embedding",
+        lambda text: mapping.get(text),
+        raising=True,
+    )
+
+
 @pytest.mark.django_db
 class TestMemoryAdminServiceProjection:
     """``get_projection`` — Memory Admin UI Phase 5 (spec 2026-08-26).
@@ -512,14 +526,20 @@ class TestMemoryAdminServiceProjection:
     flaky (Phase 5 plan Global Constraints).
     """
 
-    def test_similar_vectors_cluster_together_dissimilar_one_apart(self):
+    def test_similar_contents_cluster_together_dissimilar_one_apart(self, monkeypatch):
+        _patch_embeddings(
+            monkeypatch,
+            {
+                "near a": _unit_vector(0),
+                "near b": _unit_vector(0, tilt=0.05),
+                "far": _unit_vector(200),
+            },
+        )
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            near_a = _make_ws_memory(tenant, ws, "near a", embedding=_unit_vector(0))
-            near_b = _make_ws_memory(
-                tenant, ws, "near b", embedding=_unit_vector(0, tilt=0.05)
-            )
-            far = _make_ws_memory(tenant, ws, "far", embedding=_unit_vector(200))
+            near_a = _make_ws_memory(tenant, ws, "near a")
+            near_b = _make_ws_memory(tenant, ws, "near b")
+            far = _make_ws_memory(tenant, ws, "far")
 
             ctx = _system_admin_ctx(tenant)
             result = MemoryAdminService().get_projection(
@@ -533,15 +553,21 @@ class TestMemoryAdminServiceProjection:
             assert result["sampled"] is False
             assert result["excluded_no_embedding"] == 0
 
-    def test_projection_places_similar_points_closer_than_dissimilar_ones(self):
+    def test_projection_places_similar_points_closer_than_dissimilar_ones(self, monkeypatch):
         """Relative-distance check — still no absolute-coordinate assertion."""
+        _patch_embeddings(
+            monkeypatch,
+            {
+                "near a": _unit_vector(0),
+                "near b": _unit_vector(0, tilt=0.05),
+                "far": _unit_vector(200),
+            },
+        )
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            near_a = _make_ws_memory(tenant, ws, "near a", embedding=_unit_vector(0))
-            near_b = _make_ws_memory(
-                tenant, ws, "near b", embedding=_unit_vector(0, tilt=0.05)
-            )
-            far = _make_ws_memory(tenant, ws, "far", embedding=_unit_vector(200))
+            near_a = _make_ws_memory(tenant, ws, "near a")
+            near_b = _make_ws_memory(tenant, ws, "near b")
+            far = _make_ws_memory(tenant, ws, "far")
 
             ctx = _system_admin_ctx(tenant)
             result = MemoryAdminService().get_projection(
@@ -553,11 +579,15 @@ class TestMemoryAdminServiceProjection:
             far_distance = np.linalg.norm(coords[str(near_a.id)] - coords[str(far.id)])
             assert near_distance < far_distance
 
-    def test_entries_without_embedding_are_excluded_and_counted(self):
+    def test_entries_without_an_embedding_are_excluded_and_counted(self, monkeypatch):
+        _patch_embeddings(
+            monkeypatch,
+            {"embedded": _unit_vector(0)},
+        )
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            embedded = _make_ws_memory(tenant, ws, "embedded", embedding=_unit_vector(0))
-            _make_ws_memory(tenant, ws, "not embedded yet", embedding=None)
+            embedded = _make_ws_memory(tenant, ws, "embedded")
+            _make_ws_memory(tenant, ws, "not embeddable")
 
             ctx = _system_admin_ctx(tenant)
             result = MemoryAdminService().get_projection(
@@ -568,11 +598,12 @@ class TestMemoryAdminServiceProjection:
             assert result["excluded_no_embedding"] == 1
             assert result["total_size"] == 1
 
-    def test_superseded_entries_are_excluded(self):
+    def test_superseded_entries_are_excluded(self, monkeypatch):
+        _patch_embeddings(monkeypatch, {"live": _unit_vector(0), "stale": _unit_vector(5)})
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            live = _make_ws_memory(tenant, ws, "live", embedding=_unit_vector(0))
-            stale = _make_ws_memory(tenant, ws, "stale", embedding=_unit_vector(5))
+            live = _make_ws_memory(tenant, ws, "live")
+            stale = _make_ws_memory(tenant, ws, "stale")
             stale.superseded_by = live
             stale.save(update_fields=["superseded_by"])
 
@@ -600,10 +631,11 @@ class TestMemoryAdminServiceProjection:
                 "excluded_no_embedding": 0,
             }
 
-    def test_single_entry_short_circuits_without_svd(self):
+    def test_single_entry_short_circuits_without_svd(self, monkeypatch):
+        _patch_embeddings(monkeypatch, {"only": _unit_vector(3)})
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            only = _make_ws_memory(tenant, ws, "only", embedding=_unit_vector(3))
+            only = _make_ws_memory(tenant, ws, "only")
             ctx = _system_admin_ctx(tenant)
 
             result = MemoryAdminService().get_projection(
@@ -626,13 +658,16 @@ class TestMemoryAdminServiceProjection:
         """Uses a monkeypatched cap instead of seeding 5000 real rows — the
         sampling maths itself is covered by ``TestDeterministicSample``.
         """
+        _patch_embeddings(
+            monkeypatch, {f"fact {i}": _unit_vector(i * 10) for i in range(5)}
+        )
         monkeypatch.setattr(
             "application.memory_admin_service.MAX_PROJECTION_POINTS", 2, raising=True
         )
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             for i in range(5):
-                _make_ws_memory(tenant, ws, f"fact {i}", embedding=_unit_vector(i * 10))
+                _make_ws_memory(tenant, ws, f"fact {i}")
 
             ctx = _system_admin_ctx(tenant)
             result = MemoryAdminService().get_projection(
@@ -644,13 +679,14 @@ class TestMemoryAdminServiceProjection:
             assert result["sample_size"] == 2
             assert len(result["points"]) == 2
 
-    def test_both_tiers_appear_with_owner_labels(self):
+    def test_both_tiers_appear_with_owner_labels(self, monkeypatch):
+        _patch_embeddings(monkeypatch, {"ws fact": _unit_vector(0), "user fact": _unit_vector(100)})
         with active_tenant() as tenant:
             ws = make_workspace(tenant, name="Mixed WS")
             member = make_user(tenant)
             assign_role(member, ws, "editor")
-            _make_ws_memory(tenant, ws, "ws fact", embedding=_unit_vector(0))
-            _make_user_memory(tenant, member, "user fact", embedding=_unit_vector(100))
+            _make_ws_memory(tenant, ws, "ws fact")
+            _make_user_memory(tenant, member, "user fact")
 
             ctx = _system_admin_ctx(tenant)
             result = MemoryAdminService().get_projection(
@@ -660,32 +696,34 @@ class TestMemoryAdminServiceProjection:
             labels = {p["owner_type"]: p["owner_label"] for p in result["points"]}
             assert labels == {"workspace": "Mixed WS", "user": member.email}
 
-    def test_cache_is_invalidated_by_a_new_entry(self):
+    def test_cache_is_invalidated_by_a_new_entry(self, monkeypatch):
         """The watermark in the cache key must react to a changed dataset —
         otherwise the 300s TTL would hide brand-new entries entirely.
         """
+        _patch_embeddings(monkeypatch, {"first": _unit_vector(0), "second": _unit_vector(50)})
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            _make_ws_memory(tenant, ws, "first", embedding=_unit_vector(0))
+            _make_ws_memory(tenant, ws, "first")
             ctx = _system_admin_ctx(tenant)
             service = MemoryAdminService()
 
             first = service.get_projection(ctx, scope="workspace", workspace_id=ws.id)
             assert first["total_size"] == 1
 
-            _make_ws_memory(tenant, ws, "second", embedding=_unit_vector(50))
+            _make_ws_memory(tenant, ws, "second")
             second = service.get_projection(ctx, scope="workspace", workspace_id=ws.id)
 
             assert second["total_size"] == 2
 
-    def test_workspace_scope_excludes_non_member_user_memory(self):
+    def test_workspace_scope_excludes_non_member_user_memory(self, monkeypatch):
+        _patch_embeddings(monkeypatch, {"member fact": _unit_vector(0), "outsider fact": _unit_vector(1)})
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             member = make_user(tenant)
             assign_role(member, ws, "editor")
             outsider = make_user(tenant)
-            _make_user_memory(tenant, member, "member fact", embedding=_unit_vector(0))
-            _make_user_memory(tenant, outsider, "outsider fact", embedding=_unit_vector(1))
+            _make_user_memory(tenant, member, "member fact")
+            _make_user_memory(tenant, outsider, "outsider fact")
 
             ctx = _system_admin_ctx(tenant)
             result = MemoryAdminService().get_projection(

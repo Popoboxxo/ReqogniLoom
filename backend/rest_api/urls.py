@@ -55,13 +55,19 @@ from admin_ops.theme_rest import (
     UserThemePreferenceView,
 )
 from memory.memory_rest import (
+    ArtifactMemoryView,
+    MemoryEntryDetailView,
+    MemoryEntryPromoteView,
     MemorySelfServiceView,
+    SystemMemoryEntriesExportView,
     SystemMemoryEntriesListView,
     SystemMemoryProjectionView,
     SystemMemorySettingsResetView,
     SystemMemorySettingsView,
     SystemMemoryWorkspaceDeleteView,
     SystemMemoryWorkspaceOverviewView,
+    WorkspaceMemoryEntriesView,
+    WorkspaceMemorySearchView,
     WorkspaceMemorySettingsView,
 )
 from rest_api.audit_views import (
@@ -555,6 +561,40 @@ urlpatterns = [
         "memory/me/",
         MemorySelfServiceView.as_view(),
         name="memory-self-service",
+    ),
+    # RFC #1002 PR B: workspace-scoped memory listing/create + semantic search.
+    path(
+        "workspaces/<uuid:workspace_id>/memory/entries/",
+        WorkspaceMemoryEntriesView.as_view(),
+        name="workspace-memory-entries",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/memory/search/",
+        WorkspaceMemorySearchView.as_view(),
+        name="workspace-memory-search",
+    ),
+    # RFC #1002 PR B: global entry detail/forget + promote, artifact memory,
+    # and the DSGVO export. Literal sub-paths precede the ``<str:entry_id>``
+    # detail route (they cannot collide: ``str`` never matches a slash).
+    path(
+        "memory/entries/<str:entry_id>/promote/",
+        MemoryEntryPromoteView.as_view(),
+        name="memory-entry-promote",
+    ),
+    path(
+        "memory/entries/<str:entry_id>/",
+        MemoryEntryDetailView.as_view(),
+        name="memory-entry-detail",
+    ),
+    path(
+        "artifacts/<uuid:artifact_id>/memory/",
+        ArtifactMemoryView.as_view(),
+        name="artifact-memory",
+    ),
+    path(
+        "system/memory/entries/export/",
+        SystemMemoryEntriesExportView.as_view(),
+        name="system-memory-entries-export",
     ),
     # -- Central attribute catalog (WS5 #942, spec section 8) — tenant-wide
     # template library. Literal sub-paths precede the ``<uuid:entry_id>``
