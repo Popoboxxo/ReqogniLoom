@@ -15,6 +15,7 @@ assertions on the file content fragile across schema changes.
 """
 from __future__ import annotations
 
+import gzip
 import hashlib
 import os
 from uuid import uuid4
@@ -48,12 +49,11 @@ def fake_dumpdata(monkeypatch):
 
     Replaces the real Django management command with a closure that
     writes the empty-array JSON ``[]`` to the ``stdout=`` buffer the
-    service supplies. Returns the SHA-256 of the stub payload so tests
-    can compare it against the row's ``checksum_sha256`` field.
+    service supplies. Returns the raw payload bytes so tests can prove the
+    stored ``.json.gz`` decompresses back to exactly this content.
     """
 
     payload = b"[]\n"
-    digest = hashlib.sha256(payload).hexdigest()
 
     def fake_call(*args, **kwargs):
         stdout = kwargs.get("stdout")
@@ -63,7 +63,7 @@ def fake_dumpdata(monkeypatch):
     monkeypatch.setattr(
         "admin_ops.services.backup_service.call_command", fake_call
     )
-    return digest
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ def test_delete_backup_returns_false_for_unknown_id(svc, admin_ctx, admin_user, 
 def test_create_backup_persists_row_and_file(
     svc, admin_ctx, admin_user, tenant_a, tmp_backups_dir, fake_dumpdata
 ):
-    """create_backup writes the row, the file, the checksum, and an audit entry."""
+    """create_backup writes the row, the gzip file, the checksum, and an audit entry."""
     with active_tenant(tenant_a):
         row = svc.create_backup(admin_ctx, backup_type=BackupType.FULL)
         # Row-level expectations.
@@ -160,14 +160,41 @@ def test_create_backup_persists_row_and_file(
         assert row.backup_type == BackupType.FULL
         assert row.file_path is not None
         assert row.file_size_bytes is not None and row.file_size_bytes > 0
-        assert row.checksum_sha256 == fake_dumpdata
         assert row.completed_at is not None
         assert row.created_by_id == admin_user.id
-        # File-level expectations.
+        # File-level expectations (issue #823: stored gzip-compressed).
+        assert row.file_path.endswith(".json.gz"), row.file_path
         abs_path = absolute_backup_path(row.file_path)
         assert os.path.isfile(abs_path)
         with open(abs_path, "rb") as fh:
-            assert hashlib.sha256(fh.read()).hexdigest() == row.checksum_sha256
+            stored = fh.read()
+        # The checksum and size describe the bytes actually on disk, and the
+        # file is a real gzip stream that round-trips to the dump payload.
+        assert hashlib.sha256(stored).hexdigest() == row.checksum_sha256
+        assert len(stored) == row.file_size_bytes
+        with gzip.open(abs_path, "rb") as fh:
+            assert fh.read() == fake_dumpdata
+
+
+@pytest.mark.django_db
+def test_stored_backup_is_loadable_by_django_loaddata(
+    svc, admin_ctx, tenant_a, tmp_backups_dir, fake_dumpdata
+):
+    """The stored ``.json.gz`` is accepted by Django's ``loaddata`` (#823).
+
+    Django detects the ``.gz`` suffix and decompresses transparently, so the
+    restore path needs no change — this pins that assumption against a future
+    suffix/format regression.
+    """
+    from django.core.management import call_command
+
+    with active_tenant(tenant_a):
+        row = svc.create_backup(admin_ctx, backup_type=BackupType.FULL)
+
+    abs_path = absolute_backup_path(row.file_path)
+    # The stubbed dump is an empty array, so loading it inserts nothing and
+    # must not raise. A format Django could not read would fail here.
+    call_command("loaddata", abs_path, verbosity=0)
 
 
 @pytest.mark.django_db

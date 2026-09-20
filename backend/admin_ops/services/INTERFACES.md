@@ -105,9 +105,12 @@ class RestoreResult:
 
 Three options were evaluated:
 
-* **(a) `dumpdata` to `MEDIA_ROOT/backups/<uuid>.json`** — Django's
+* **(a) `dumpdata` to `MEDIA_ROOT/backups/<uuid>.json.gz`** — Django's
   built-in serializer handles FKs, M2M, multi-table inheritance, and
-  produces a human-readable JSON file that can be diffed and audited.
+  produces a JSON dump that can be diffed and audited; it is stored
+  gzip-compressed (issue #823) because a full-instance dump is several
+  hundred KB of highly repetitive JSON. `loaddata` reads `.json.gz`
+  transparently, so restore is unchanged.
 * **(b) Reference-only** — `BackupMetadata` is just a pointer to an
   externally managed file (e.g. S3 URI). Pros: scalable. Cons: leaves
   the actual file format out of our control; restore needs an external

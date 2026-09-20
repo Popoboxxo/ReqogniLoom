@@ -11,6 +11,7 @@ reversible (``loaddata`` from :class:`AdminRestoreService`).
 """
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import logging
@@ -69,8 +70,8 @@ class BackupService:
         1. Gate the caller (admin role).
         2. Validate the ``backup_type`` argument.
         3. Insert a ``pending`` row.
-        4. Run ``dumpdata`` to a buffer; compute SHA-256 and size.
-        5. Write the file to ``MEDIA_ROOT/backups/<id>.json``.
+        4. Run ``dumpdata`` to a buffer, gzip it, compute SHA-256 and size.
+        5. Write the file to ``MEDIA_ROOT/backups/<id>.json.gz``.
         6. Update the row to ``completed`` with checksum + size.
         7. Emit the ``backup.create`` audit entry.
 
@@ -91,8 +92,13 @@ class BackupService:
 
         summary_metadata = dict(metadata or {})
         backup_id = uuid.uuid4()
+        # Issue #823: the dump is written gzip-compressed (a plain dumpdata of
+        # the full instance is several hundred KB of highly repetitive JSON).
+        # Django's ``loaddata`` reads compressed fixtures transparently, so the
+        # restore path is unchanged — only the on-disk suffix and the
+        # checksum/size (which now describe the bytes actually stored) differ.
         target_path = os.path.join(
-            backup_root(), f"{backup_id}.json"
+            backup_root(), f"{backup_id}.json.gz"
         )
 
         try:
@@ -105,11 +111,15 @@ class BackupService:
                     created_by_id=ctx.user_id,
                 )
 
-                # 4. Run dumpdata into an in-memory buffer so we can
-                # compute checksum + size in the same transaction.
+                # 4. Run dumpdata into an in-memory buffer, then gzip it, so we
+                # can compute checksum + size of the stored bytes in the same
+                # transaction. ``mtime=0`` keeps the gzip header deterministic
+                # for a given payload (reproducible checksums in tests/tools).
                 buf = io.StringIO()
                 call_command("dumpdata", stdout=buf, format="json")
-                payload = buf.getvalue().encode("utf-8")
+                payload = gzip.compress(
+                    buf.getvalue().encode("utf-8"), mtime=0
+                )
                 digest = hashlib.sha256(payload).hexdigest()
                 size = len(payload)
 
