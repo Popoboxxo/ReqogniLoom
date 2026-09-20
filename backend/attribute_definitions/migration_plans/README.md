@@ -26,14 +26,37 @@ Idempotenz: jeder Plan nutzt `only_if` (i. d. R. `target_is_empty and
 source_has_text`), sodass ein zweiter Lauf nichts ändert. `copy` ist der Default;
 `move`/`drop` kommen in diesem Set nicht vor (kein Datenverlust).
 
-## `uid` — kein Plan nötig
+## `uid` — kein Plan in diesem Set
 
-`uid` ist der externe Import-Schlüssel (ReqIF). Er wird **nie** automatisch
-generiert (Matrix §0: „die **einzige** Identität ist `id`"); die Spalte bleibt
-ausschließlich für Import-Zuordnungen. Es gibt also keinen Wert zu migrieren:
-bewusst kein `*.yaml`, kein Transform. Der Bootstrap introspiziert `uid` als
+`uid` ist die **lokale, lesbare Kennung** (`REQ-001`, `NEED-014`, …), die jeder
+Anlege-Pfad seit #932 automatisch vergibt; die ReqIF-Import-Identität liegt auf
+den `Artifact.reqif_*`-Feldern (#1003). Ein etwaiger Backfill für Altdaten
+gehört als eigener Plan in dieses Verzeichnis, sobald dafür eine
+Allokations-Strategie (`value_strategy`, Nutzung von
+`application.local_uid.generate_local_uid`) im Katalog steht — in diesem Set ist
+er bewusst nicht enthalten. Der Bootstrap introspiziert `uid` als
 `read_only`-Kernattribut (`READ_ONLY_MODEL_FIELDS`), damit eine Formular-
 Rückschreibung nicht 400t.
+
+## Vollständiger Operationskatalog (#930)
+
+Seit #930 sind alle im Katalog sicher ausführbaren Operationen implementiert
+(`OPS` in `migration_plan.py`): `define_attribute`, `rename_attribute`,
+`retype_attribute`, `split_attribute`, `merge_attribute`, `migrate_value`,
+`map_value`, `backfill_value`, `derive_value`, `drop_attribute`,
+`deprecate_attribute`, `requeue_definition`, `verify`, `export_scope`,
+`import_scope`.
+
+* `deprecate_attribute` markiert eine Definition als abgekündigt
+  (`deprecated`/`deprecated_reason`); Feld und Werte bleiben unangetastet —
+  erst ein späteres `drop_attribute` entfernt sie.
+* `export_scope` schreibt das Definitionsdokument eines Scope in den Run-Report
+  (`steps[i].document`), `import_scope` liest es inline wieder ein
+  (`on_collision: skip|overwrite|rename`). Kein Dateizugriff — MCP-sicher.
+
+Weiterhin **nicht** im Katalog (mit Begründung in `UNSUPPORTED_OPS`):
+`derive_entity` (blockiert auf #393) und `rollback` (Operation auf einem Run,
+nicht auf einem Plan).
 
 ## Blockiert auf #393
 

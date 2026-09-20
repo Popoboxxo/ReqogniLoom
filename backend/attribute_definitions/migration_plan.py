@@ -59,17 +59,16 @@ OP_MAP_VALUE = "map_value"
 OP_BACKFILL_VALUE = "backfill_value"
 OP_DERIVE_VALUE = "derive_value"
 OP_DROP_ATTRIBUTE = "drop_attribute"
+OP_DEPRECATE_ATTRIBUTE = "deprecate_attribute"
 OP_REQUEUE_DEFINITION = "requeue_definition"
 OP_VERIFY = "verify"
 OP_EXPORT_SCOPE = "export_scope"
 OP_IMPORT_SCOPE = "import_scope"
 
 #: Every operation the engine executes. Anything else is a validation error —
-#: in particular `deprecate_attribute`, `derive_entity` and `rollback` are
-#: *not* here: the definition schema has no deprecation flag yet (see
-#: :data:`UNSUPPORTED_OPS`), entity creation is spec §10 step 8, and rollback
-#: is an operation on a *run*, not a plan step (CLI/REST/MCP expose it
-#: directly).
+#: in particular `derive_entity` and `rollback` are *not* here: entity creation
+#: is spec §10 step 8, and rollback is an operation on a *run*, not a plan step
+#: (CLI/REST/MCP expose it directly).
 OPS: frozenset[str] = frozenset(
     {
         OP_DEFINE_ATTRIBUTE,
@@ -82,8 +81,11 @@ OPS: frozenset[str] = frozenset(
         OP_BACKFILL_VALUE,
         OP_DERIVE_VALUE,
         OP_DROP_ATTRIBUTE,
+        OP_DEPRECATE_ATTRIBUTE,
         OP_REQUEUE_DEFINITION,
         OP_VERIFY,
+        OP_EXPORT_SCOPE,
+        OP_IMPORT_SCOPE,
     }
 )
 
@@ -91,10 +93,6 @@ OPS: frozenset[str] = frozenset(
 #: with the concrete reason — so an author gets one actionable message instead
 #: of "unknown op".
 UNSUPPORTED_OPS: dict[str, str] = {
-    "deprecate_attribute": (
-        "the attribute definition schema has no 'deprecated' flag yet; "
-        "retire the attribute by renaming/dropping it after 'verify' instead"
-    ),
     "derive_entity": (
         "entity creation is spec §10 step 8 (bewusst zuletzt, braucht "
         "Rollback) and depends on the target entity existing; the Goal -> "
@@ -104,14 +102,6 @@ UNSUPPORTED_OPS: dict[str, str] = {
     "rollback": (
         "rollback targets a run, not a plan; use the CLI --rollback <run_id> "
         "or POST /attribute-migration/runs/<id>/rollback/"
-    ),
-    "export_scope": (
-        "definition-scope import/export is spec §10 step 7 and already served "
-        "by the attribute-defaults REST/MCP surface; AWMS Teil A migrates values"
-    ),
-    "import_scope": (
-        "definition-scope import/export is spec §10 step 7 and already served "
-        "by the attribute-defaults REST/MCP surface; AWMS Teil A migrates values"
     ),
 }
 
@@ -177,6 +167,12 @@ _REF_KEYS = frozenset({"source", "target", "name"})
 #: `transform:` accepts a bare name or a `{name, options}` object.
 _TRANSFORM_KEYS = frozenset({"name", "options"})
 
+#: A scope reference names a *definition scope*: a global preset or a workspace.
+#: Exactly one of the two keys must be given (spec §4 `export_scope`).
+_SCOPE_REF_KEYS = frozenset({"preset", "workspace"})
+SCOPE_REF_PRESET = "preset"
+SCOPE_REF_WORKSPACE = "workspace"
+
 #: Per-op allowed/required keys. `name`/`kind`/`type` etc. on `define_attribute`
 #: are the attribute block itself and validated by `normalize_attribute`, so the
 #: step-level check only guards the AWMS control keys.
@@ -197,8 +193,11 @@ _STEP_KEYS: dict[str, frozenset[str]] = {
     ),
     OP_DERIVE_VALUE: frozenset({"op", "target", "expression", "only_if"}),
     OP_DROP_ATTRIBUTE: frozenset({"op", "name", "confirm"}),
+    OP_DEPRECATE_ATTRIBUTE: frozenset({"op", "name", "reason"}),
     OP_REQUEUE_DEFINITION: frozenset({"op", "preset", "action"}),
     OP_VERIFY: frozenset({"op", "assertions"}),
+    OP_EXPORT_SCOPE: frozenset({"op", "source"}),
+    OP_IMPORT_SCOPE: frozenset({"op", "document", "target", "on_collision"}),
 }
 
 #: Keys each op cannot run without.
@@ -213,8 +212,11 @@ _REQUIRED_STEP_KEYS: dict[str, frozenset[str]] = {
     OP_BACKFILL_VALUE: frozenset({"target", "value_strategy"}),
     OP_DERIVE_VALUE: frozenset({"target", "expression"}),
     OP_DROP_ATTRIBUTE: frozenset({"name", "confirm"}),
+    OP_DEPRECATE_ATTRIBUTE: frozenset({"name", "reason"}),
     OP_REQUEUE_DEFINITION: frozenset({"preset", "action"}),
     OP_VERIFY: frozenset({"assertions"}),
+    OP_EXPORT_SCOPE: frozenset({"source"}),
+    OP_IMPORT_SCOPE: frozenset({"document", "target"}),
 }
 
 _ON_COLLISION_CHOICES = frozenset({"skip", "overwrite", "rename"})
@@ -274,6 +276,35 @@ def normalize_reference(raw: Any, label: str, errors: list[str]) -> dict[str, st
         kind_raw = REF_CUSTOM_FIELD
     kind = _ref_kind(kind_raw, label, errors)
     return {"kind": kind or REF_CUSTOM_FIELD, "name": name.strip()}
+
+
+def normalize_scope_ref(raw: Any, label: str, errors: list[str]) -> dict[str, str]:
+    """Normalize a `{preset: <name>}` or `{workspace: <uuid>}` scope reference.
+
+    Returns ``{"kind": "preset"|"workspace", "value": <str>}`` or a placeholder
+    when invalid (the caller collects *errors* and raises once).
+    """
+    if not isinstance(raw, dict):
+        errors.append(f"{label}: must be an object with 'preset' or 'workspace'")
+        return {"kind": SCOPE_REF_PRESET, "value": ""}
+    unknown = sorted(set(raw) - _SCOPE_REF_KEYS)
+    if unknown:
+        errors.append(f"{label}: unknown key(s): {', '.join(unknown)}")
+    given = [key for key in (SCOPE_REF_PRESET, SCOPE_REF_WORKSPACE) if key in raw]
+    if len(given) != 1:
+        errors.append(
+            f"{label}: exactly one of 'preset'/'workspace' is required"
+        )
+        return {"kind": SCOPE_REF_PRESET, "value": ""}
+    kind = given[0]
+    value = raw[kind]
+    if not isinstance(value, str) or not value.strip():
+        errors.append(f"{label}.{kind} must be a non-empty string")
+        return {"kind": kind, "value": ""}
+    value = value.strip()
+    if kind == SCOPE_REF_PRESET and value not in PRESETS:
+        errors.append(f"{label}.preset: unknown preset {value!r}; expected {list(PRESETS)}")
+    return {"kind": kind, "value": value}
 
 
 def normalize_transform(
@@ -628,6 +659,29 @@ def _normalize_step(
             errors.append(
                 f"{label}: 'confirm' must repeat the attribute name {step['name']!r}"
             )
+    elif op == OP_DEPRECATE_ATTRIBUTE:
+        step["name"] = str(raw.get("name", ""))
+        reason = raw.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            errors.append(f"{label}: 'reason' must be a non-empty string")
+            reason = ""
+        step["reason"] = reason.strip()
+    elif op == OP_EXPORT_SCOPE:
+        step["source"] = normalize_scope_ref(raw.get("source"), f"{label}.source", errors)
+    elif op == OP_IMPORT_SCOPE:
+        document = raw.get("document")
+        if not isinstance(document, dict):
+            errors.append(f"{label}: 'document' must be an object")
+            document = {}
+        step["document"] = dict(document)
+        step["target"] = normalize_scope_ref(raw.get("target"), f"{label}.target", errors)
+        on_collision = raw.get("on_collision", "skip")
+        if not isinstance(on_collision, str) or on_collision not in _ON_COLLISION_CHOICES:
+            errors.append(
+                f"{label}: 'on_collision' must be one of {sorted(_ON_COLLISION_CHOICES)}"
+            )
+            on_collision = "skip"
+        step["on_collision"] = on_collision
     elif op == OP_REQUEUE_DEFINITION:
         step["preset"] = _scope_presets(raw.get("preset"), errors)
         action = raw.get("action")
@@ -832,6 +886,7 @@ __all__ = [
     "MigrationPlanError",
     "OP_BACKFILL_VALUE",
     "OP_DEFINE_ATTRIBUTE",
+    "OP_DEPRECATE_ATTRIBUTE",
     "OP_DERIVE_VALUE",
     "OP_DROP_ATTRIBUTE",
     "OP_EXPORT_SCOPE",

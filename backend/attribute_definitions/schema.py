@@ -123,6 +123,10 @@ CORE_EDITABLE_META_PROPERTIES: frozenset[str] = frozenset(
         "required", "visible", "editable", "section", "order", "label",
         "help_text", "default", "options", "ai_elicit", "export", "audience",
         "copyable", "reveal", "mask", "display_format", "stage_mandatory",
+        # Retirement is a governance decision, not a schema change: AWMS
+        # `deprecate_attribute` (issue #930) may mark a core attribute
+        # deprecated while its model field and every stored value stay intact.
+        "deprecated", "deprecated_reason",
     }
 )
 
@@ -168,6 +172,12 @@ _DEFAULTS: dict[str, Any] = {
     "reveal": "always",
     "mask": "none",
     "display_format": "text",
+    # Retirement marker (issue #930, spec §4 `deprecate_attribute`): a
+    # deprecated attribute keeps its model field and every stored value — it is
+    # only flagged as superseded so the UI can stop offering it. Additive: a row
+    # stored before this key existed normalizes to the non-deprecated default.
+    "deprecated": False,
+    "deprecated_reason": "",
 }
 
 _REQUIRED_KEYS = ("name", "kind", "type")
@@ -416,12 +426,22 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
         "allow_external",
         "copyable",
         "stage_mandatory",
+        # Retirement marker (issue #930): copied like every other boolean
+        # default, so an AWMS `deprecate_attribute` flag survives the round-trip
+        # through `update_global`/`update_workspace`.
+        "deprecated",
     ):
         if key in raw:
             if not isinstance(raw[key], bool):
                 errors.append(f"'{key}' must be a boolean")
             else:
                 out[key] = raw[key]
+
+    if "deprecated_reason" in raw:
+        if not isinstance(raw["deprecated_reason"], str):
+            errors.append("'deprecated_reason' must be a string")
+        else:
+            out["deprecated_reason"] = raw["deprecated_reason"]
 
     if "editable" in raw:
         # The enum values mix booleans and strings, so a list/dict is not

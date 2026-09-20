@@ -89,7 +89,7 @@ class TestOptions:
 class TestOperations:
     @pytest.mark.parametrize(
         "op",
-        ["deprecate_attribute", "derive_entity", "rollback", "export_scope"],
+        ["derive_entity", "rollback"],
     )
     def test_unsupported_ops_name_the_reason(self, op) -> None:
         with pytest.raises(MigrationPlanError) as exc:
