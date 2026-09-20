@@ -1,4 +1,4 @@
-# bluepencil sidecar (QS/demo only)
+# bluepencil sidecar (debug/QS only — never production)
 
 This directory vendors the **self-hosted bluepencil sidecar** — the Option B store from the
 integration plan (`docs/bluepencil-integration.md`, PR #972). It is a small Node HTTP server that
@@ -9,7 +9,7 @@ default (see Enable).
 
 ## Read this before enabling it
 
-**This is a QS/demo tool, not a production store.** The sidecar:
+**This is a debugging/QS tool, not a production store and not a product feature.** The sidecar:
 
 - has **no user authentication** — anyone who can reach it can read and write notes;
 - has **no tenant isolation** — one JSON file is shared by **every workspace**; there is no RLS /

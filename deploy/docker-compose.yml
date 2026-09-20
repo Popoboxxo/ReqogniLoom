@@ -192,6 +192,12 @@ services:
         limits:
           memory: 512M
     restart: unless-stopped
+    # AOF persistence is on (`--appendonly yes` below), which only means
+    # anything if /data outlives the container: without this named volume the
+    # appendonly file sits in the container layer and every
+    # `up --force-recreate` / image upgrade silently drops the queue and cache.
+    volumes:
+      - redis_data:/data
     # SA-51: Export REDIS_PASSWORD as REDISCLI_AUTH for healthcheck.
     # This allows redis-cli to authenticate without exposing the password in
     # the process command line (which would be visible in `ps` output).
@@ -231,7 +237,7 @@ services:
   # Django Backend — All backend ARCH-L1 systems
   # ─────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.12}
     deploy:
       resources:
         limits:
@@ -322,7 +328,7 @@ services:
   # SYSTEM_ADMIN_PASSWORD is required only when the admin does not exist yet
   # (mirrors createsuperuser --noinput). See backend/application/self_init.py.
   migrate:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.12}
     deploy:
       resources:
         limits:
@@ -369,7 +375,7 @@ services:
   # Handles async tasks: LLM calls, Webhooks, GitHub integration
   # ─────────────────────────────────────────────────────────
   celery:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.12}
     deploy:
       resources:
         limits:
@@ -455,7 +461,7 @@ services:
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
   # ─────────────────────────────────────────────────────────
   celery-beat:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.12}
     deploy:
       resources:
         limits:
@@ -510,7 +516,7 @@ services:
   # React Frontend — ARCH-L1-001 ReactFrontend
   # ─────────────────────────────────────────────────────────
   frontend:
-    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.12}
     deploy:
       resources:
         limits:
@@ -746,7 +752,9 @@ services:
   # profiles: [bluepencil] — costs nothing (no pull, no start) unless you run
   # `make bluepencil` or `COMPOSE_PROFILES=bluepencil docker compose ... up -d`.
   #
-  # QS/DEMO ONLY — NOT A PRODUCTION STORE. The sidecar has NO user auth and NO
+  # DEBUG/QS ONLY — NOT A PRODUCTION STORE. This profile is a *debugging* aid
+  # for the in-app annotation layer (see/measure it in the real app), not a
+  # product feature; production uses the DRF review_notes app. The sidecar has NO user auth and NO
   # tenant isolation: one JSON file holds the review notes of EVERY workspace,
   # with no RLS/TenantContext scoping. The production path is Option A, the DRF
   # implementation in docs/bluepencil-integration.md §0/§3 (per-tenant ReviewNote
@@ -788,6 +796,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:            # Queue + cache persistence (/data) — AOF is on, so it must survive recreate
   postgres_backup_data:  # REQ-102: retained pg_dump backups
   backend_dr_backups:    # REQ-L1-046: admin_ops DR backup JSON files (/app/backups)
   honcho_postgres_data:  # profile: honcho

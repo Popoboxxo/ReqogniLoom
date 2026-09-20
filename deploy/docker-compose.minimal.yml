@@ -81,6 +81,12 @@ services:
         limits:
           memory: 512M
     restart: unless-stopped
+    # AOF persistence is on (`--appendonly yes` below), which only means
+    # anything if /data outlives the container: without this named volume the
+    # appendonly file sits in the container layer and every
+    # `up --force-recreate` / image upgrade silently drops the queue and cache.
+    volumes:
+      - redis_data:/data
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:-}
     # Shell wrapper because Compose `command:` can't branch on whether
@@ -108,7 +114,7 @@ services:
       start_period: 30s
 
   backend:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.12}
     deploy:
       resources:
         limits:
@@ -160,7 +166,7 @@ services:
         condition: service_completed_successfully
 
   migrate:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.12}
     deploy:
       resources:
         limits:
@@ -194,7 +200,7 @@ services:
     command: python manage.py migrate
 
   frontend:
-    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.8}
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.12}
     deploy:
       resources:
         limits:
@@ -220,4 +226,5 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:            # Queue + cache persistence (/data) — AOF is on, so it must survive recreate
   backend_dr_backups:

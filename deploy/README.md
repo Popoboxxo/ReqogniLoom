@@ -10,6 +10,16 @@ combination), run it from the **repository root**, and the stack comes up.
 | `docker-compose.override.yml` | Dev overlay: hot-reload (`uvicorn --reload` / Vite dev server), source bind-mounts, weaker defaults. Auto-applied by `make up` (see repo-root `Makefile`). | Local development against the full stack only — **not** compatible with `docker-compose.minimal.yml` (it re-adds `celery`/`celery-beat`, defeating the point of minimal). |
 | `docker-compose.override.example.yml` | Documentation only — a commented-out template for optional local services (e.g. Ollama). **Never read by Compose itself** (wrong filename on purpose); copy it to `docker-compose.override.yml` and uncomment what you need. | Reference when wiring up an optional local service. |
 
+### Optional profiles (off by default)
+
+Both are Compose **profiles**: they cost nothing — no pull, no start — until you name them
+(`--profile <name>` / `COMPOSE_PROFILES=<name>`, or the `make` wrappers).
+
+| Profile | What | Status |
+|---|---|---|
+| `honcho` | Optional Honcho memory backend (`honcho-postgres`, `honcho-redis`, `honcho-migrate`, `honcho`). | Optional feature — fine to enable in production if you want it. |
+| `bluepencil` | Sidecar for the in-app annotation/review layer. | **DEBUG/QS ONLY — never enable it in production.** It is a *debugging* aid for seeing and measuring the layer in the real app, not a product feature: the sidecar has **no user auth and no tenant isolation** — one JSON file is shared by every workspace. The production path is Option A, the DRF `review_notes` implementation (`docs/bluepencil-integration.md`). See `deploy/bluepencil/README.md`. |
+
 ## First Stumbling Block: CSRF Cookie Requires Matching Security Settings
 
 **Before you deploy**, verify that `AUTH_COOKIE_SECURE` and `CSRF_COOKIE_SECURE` are set to the **same value** in `.env`. This is a common misconfiguration in deployments without a TLS-terminating reverse proxy:
@@ -113,6 +123,21 @@ call `docker compose` directly instead.
    curl http://localhost:8001/health/
    # → {"status": "ok", "checks": {"database": "ok"}, ...}
    ```
+
+### Persisted state (named volumes)
+
+Everything that outlives a container is a **named Docker volume** — `docker compose down`
+(without `-v`) keeps them, `down -v` wipes the stack. Bind mounts are used only by the dev
+override; the minimal stack declares the first two plus `backend_dr_backups`.
+
+| Volume | Mount | Holds |
+|---|---|---|
+| `postgres_data` | `postgres:/var/lib/postgresql/data` | the database |
+| `redis_data` | `redis:/data` | the Celery queue + cache (AOF is on, so it must survive a recreate) |
+| `postgres_backup_data` | `postgres-backup:/backups` | nightly `pg_dump` dumps (full stack only) |
+| `backend_dr_backups` | `backend:/app/backups` | admin DR dumps (`admin.backup_create`) |
+| `honcho_postgres_data`, `honcho_redis_data` | Honcho services | only with `--profile honcho` |
+| `bluepencil_data` | `bluepencil:/data` | review notes, only with the `bluepencil` profile |
 
 ## Minimal stack
 
