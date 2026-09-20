@@ -1432,6 +1432,7 @@
     "title": "Gedächtnis",
     "pageHint": "Fakten, die die KI sich über Team, dich oder einzelne Artefakte gemerkt hat. Du kannst suchen, filtern, Fakten hinzufügen, ins Team befördern oder vergessen.",
     "noWorkspace": "Kein Workspace ausgewählt.",
+    "summary": "{{count}} Fakten",
     "summary_one": "{{count}} Fakt",
     "summary_other": "{{count}} Fakten",
     "degraded": "Gedächtnis aktuell nicht erreichbar.",

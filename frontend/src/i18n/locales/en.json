@@ -1432,6 +1432,7 @@
     "title": "Memory",
     "pageHint": "Facts the AI has remembered about the team, you or individual artifacts. You can search, filter, add facts, promote them to the team or forget them.",
     "noWorkspace": "No workspace selected.",
+    "summary": "{{count}} facts",
     "summary_one": "{{count}} fact",
     "summary_other": "{{count}} facts",
     "degraded": "Memory is currently unreachable.",
