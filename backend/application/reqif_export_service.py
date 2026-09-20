@@ -270,6 +270,20 @@ def _artifact_spec_object_id(artifact_id: UUID) -> str:
     return f"_{artifact_id}"
 
 
+def _spec_object_identifier(
+    artifact_id: UUID, reqif_identifier_by_id: Dict[UUID, str]
+) -> str:
+    """SPEC-OBJECT IDENTIFIER for *artifact_id* (issue #1003).
+
+    A stored external ``reqif_identifier`` wins, so a re-export back to the
+    foreign tool keeps that tool's identity; otherwise the deterministic
+    internal ``_<Artifact.id>`` form is used (the pre-#1003 behaviour, and the
+    reason existing exports/tests are unchanged).
+    """
+    stored = reqif_identifier_by_id.get(artifact_id)
+    return stored if stored else _artifact_spec_object_id(artifact_id)
+
+
 def _artifact_hierarchy_id(artifact_id: UUID) -> str:
     return f"_h-{artifact_id}"
 
@@ -334,8 +348,15 @@ class ReqifExportService(ServiceBase):
         except Workspace.DoesNotExist:
             raise NotFoundError(f"Workspace {workspace_id} not found.")
 
-        spec_objects, hierarchy_children, exported_ids = self._build_spec_objects(ws_uuid)
-        spec_relations, relation_types = self._build_spec_relations(ws_uuid, exported_ids)
+        (
+            spec_objects,
+            hierarchy_children,
+            exported_ids,
+            reqif_identifier_by_id,
+        ) = self._build_spec_objects(ws_uuid)
+        spec_relations, relation_types = self._build_spec_relations(
+            ws_uuid, exported_ids, reqif_identifier_by_id
+        )
 
         spec_types: List[Any] = [
             self._build_need_type(),
@@ -522,7 +543,14 @@ class ReqifExportService(ServiceBase):
         # TestCase, ...).
         all_artifacts = list(
             Artifact.objects.filter(workspace_id=workspace_id).values(
-                "id", "parent_id", "artifact_type", "custom_fields"
+                "id",
+                "parent_id",
+                "artifact_type",
+                "custom_fields",
+                # Issue #1003: the external ReqIF identity, preferred over the
+                # internal `_<Artifact.id>` fallback when present.
+                "reqif_identifier",
+                "reqif_uid",
             )
         )
         parent_by_id: Dict[UUID, Optional[UUID]] = {
@@ -530,6 +558,12 @@ class ReqifExportService(ServiceBase):
         }
         custom_fields_by_id: Dict[UUID, dict] = {
             a["id"]: (a["custom_fields"] or {}) for a in all_artifacts
+        }
+        reqif_identifier_by_id: Dict[UUID, str] = {
+            a["id"]: (a["reqif_identifier"] or "") for a in all_artifacts
+        }
+        reqif_uid_by_id: Dict[UUID, str] = {
+            a["id"]: (a["reqif_uid"] or "") for a in all_artifacts
         }
 
         needs = StakeholderNeed.objects.filter(
@@ -569,6 +603,10 @@ class ReqifExportService(ServiceBase):
                     need,
                     custom_fields_by_id.get(need.artifact_id, {}),
                     need_states.get(str(need.id)) or need_initial_state,
+                    identifier=_spec_object_identifier(
+                        need.artifact_id, reqif_identifier_by_id
+                    ),
+                    external_uid=reqif_uid_by_id.get(need.artifact_id, ""),
                 )
             )
 
@@ -579,6 +617,10 @@ class ReqifExportService(ServiceBase):
                     req,
                     custom_fields_by_id.get(req.artifact_id, {}),
                     req_states.get(str(req.id)) or req_initial_state,
+                    identifier=_spec_object_identifier(
+                        req.artifact_id, reqif_identifier_by_id
+                    ),
+                    external_uid=reqif_uid_by_id.get(req.artifact_id, ""),
                 )
             )
 
@@ -586,9 +628,11 @@ class ReqifExportService(ServiceBase):
         # independent of DB fetch order.
         spec_objects.sort(key=lambda so: so.identifier)
 
-        hierarchy_children = cls._build_hierarchy(exported_ids, parent_by_id)
+        hierarchy_children = cls._build_hierarchy(
+            exported_ids, parent_by_id, reqif_identifier_by_id
+        )
 
-        return spec_objects, hierarchy_children, exported_ids
+        return spec_objects, hierarchy_children, exported_ids, reqif_identifier_by_id
 
     @staticmethod
     def _string_attr(definition_ref: str, value: str) -> SpecObjectAttribute:
@@ -601,13 +645,21 @@ class ReqifExportService(ServiceBase):
 
     @classmethod
     def _spec_object_from_need(
-        cls, need: Any, custom_fields: dict, status: str | None = None
+        cls,
+        need: Any,
+        custom_fields: dict,
+        status: str | None = None,
+        *,
+        identifier: str | None = None,
+        external_uid: str = "",
     ) -> ReqIFSpecObject:
         _load_reqif()
         from workflow import state_reader
 
         attributes = [
-            cls._string_attr(_ATTR_UID, need.uid or ""),
+            # Issue #1003: the external ReqIF UID wins; the local readable
+            # `uid` is only the fallback for artifacts with no ReqIF origin.
+            cls._string_attr(_ATTR_UID, external_uid or need.uid or ""),
             cls._string_attr(_ATTR_TITLE, need.title or ""),
             cls._string_attr(_ATTR_DESCRIPTION, need.description or ""),
             cls._string_attr(
@@ -627,20 +679,27 @@ class ReqifExportService(ServiceBase):
                 )
             )
         return ReqIFSpecObject.create(
-            identifier=_artifact_spec_object_id(need.artifact_id),
+            identifier=identifier or _artifact_spec_object_id(need.artifact_id),
             spec_object_type=_SPEC_OBJECT_TYPE_NEED,
             attributes=attributes,
         )
 
     @classmethod
     def _spec_object_from_requirement(
-        cls, req: Any, custom_fields: dict, status: str | None = None
+        cls,
+        req: Any,
+        custom_fields: dict,
+        status: str | None = None,
+        *,
+        identifier: str | None = None,
+        external_uid: str = "",
     ) -> ReqIFSpecObject:
         _load_reqif()
         from workflow import state_reader
 
         attributes = [
-            cls._string_attr(_ATTR_UID, req.uid or ""),
+            # Issue #1003: external ReqIF UID wins, local `uid` is the fallback.
+            cls._string_attr(_ATTR_UID, external_uid or req.uid or ""),
             cls._string_attr(_ATTR_TITLE, req.title or ""),
             cls._string_attr(_ATTR_DESCRIPTION, req.description or ""),
             cls._string_attr(
@@ -662,7 +721,7 @@ class ReqifExportService(ServiceBase):
                 )
             )
         return ReqIFSpecObject.create(
-            identifier=_artifact_spec_object_id(req.artifact_id),
+            identifier=identifier or _artifact_spec_object_id(req.artifact_id),
             spec_object_type=_SPEC_OBJECT_TYPE_REQUIREMENT,
             attributes=attributes,
         )
@@ -671,6 +730,7 @@ class ReqifExportService(ServiceBase):
     def _build_hierarchy(
         exported_ids: Dict[UUID, str],
         parent_by_id: Dict[UUID, Optional[UUID]],
+        reqif_identifier_by_id: Dict[UUID, str],
     ) -> List[ReqIFSpecHierarchy]:
         """Build nested SPEC-HIERARCHY nodes from the Artifact.parent tree.
 
@@ -700,7 +760,9 @@ class ReqifExportService(ServiceBase):
 
         # Deterministic ordering within each level.
         for kids in children_by_parent.values():
-            kids.sort(key=lambda aid: _artifact_spec_object_id(aid))
+            kids.sort(
+                key=lambda aid: _spec_object_identifier(aid, reqif_identifier_by_id)
+            )
 
         def build_nodes(parent: Optional[UUID], level: int) -> List[ReqIFSpecHierarchy]:
             _load_reqif()
@@ -710,7 +772,9 @@ class ReqifExportService(ServiceBase):
                 nodes.append(
                     ReqIFSpecHierarchy(
                         identifier=_artifact_hierarchy_id(artifact_id),
-                        spec_object=_artifact_spec_object_id(artifact_id),
+                        spec_object=_spec_object_identifier(
+                            artifact_id, reqif_identifier_by_id
+                        ),
                         level=level,
                         children=child_nodes or None,
                     )
@@ -723,7 +787,9 @@ class ReqifExportService(ServiceBase):
 
     @staticmethod
     def _build_spec_relations(
-        workspace_id: UUID, exported_ids: Dict[UUID, str]
+        workspace_id: UUID,
+        exported_ids: Dict[UUID, str],
+        reqif_identifier_by_id: Dict[UUID, str],
     ) -> Tuple[List[ReqIFSpecRelation], List[ReqIFSpecRelationType]]:
         _load_reqif()
         from persistence.models import TraceLink
@@ -746,8 +812,12 @@ class ReqifExportService(ServiceBase):
                 ReqIFSpecRelation(
                     identifier=_relation_id(link["id"]),
                     relation_type_ref=_relation_type_id(link_type),
-                    source=_artifact_spec_object_id(link["source_id"]),
-                    target=_artifact_spec_object_id(link["target_id"]),
+                    source=_spec_object_identifier(
+                        link["source_id"], reqif_identifier_by_id
+                    ),
+                    target=_spec_object_identifier(
+                        link["target_id"], reqif_identifier_by_id
+                    ),
                 )
             )
 

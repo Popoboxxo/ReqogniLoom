@@ -142,13 +142,13 @@ def test_reqif_import_creates_entities_in_target_workspace(reqif_import_admin_us
     try:
         assert (
             StakeholderNeed.objects.filter(
-                artifact__workspace=workspace_b, uid="NEED-IMP-001"
+                artifact__workspace=workspace_b, artifact__reqif_uid="NEED-IMP-001"
             ).count()
             == 1
         )
         assert (
             Requirement.objects.filter(
-                artifact__workspace=workspace_b, uid="REQ-IMP-001"
+                artifact__workspace=workspace_b, artifact__reqif_uid="REQ-IMP-001"
             ).count()
             == 1
         )
