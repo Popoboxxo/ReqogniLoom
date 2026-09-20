@@ -5,7 +5,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import TenantRole, UserRole
-from memory.models import UserTenantMemory, WorkspaceMemory
+from memory.models import MemoryEntry
 from persistence.tests.factories import (
     _FACTORY_PASSWORD,
     _login_for_token,
@@ -679,8 +679,9 @@ class TestMemoryAdminWorkspaceDeleteRest:
 @pytest.mark.django_db
 class TestMemorySelfServiceRest:
     """Tests for ``GET/DELETE /api/v1/memory/me/`` (Memory Admin UI Phase 4,
-    spec 2026-08-26). Any authenticated user, own ``UserTenantMemory`` only —
-    never ``WorkspaceMemory`` (plan Ruling 1), no role check (plan Ruling 3).
+    spec 2026-08-26). Any authenticated user, own user-scoped ``MemoryEntry``
+    only — never workspace-scoped memory (plan Ruling 1), no role check
+    (plan Ruling 3).
     """
 
     def test_get_zero_entries(self):
@@ -696,12 +697,14 @@ class TestMemorySelfServiceRest:
             assert response.data["last_updated_at"] is None
 
     def test_get_with_entries_reports_count_and_newest_timestamp(self):
-        from memory.models import UserTenantMemory
+        from memory.models import MemoryEntry
 
         with active_tenant() as tenant:
             user, token = editor_user_and_token(tenant, workspace=None)
-            UserTenantMemory.objects.create(tenant=tenant, user=user, content="fact 1")
-            newest = UserTenantMemory.objects.create(tenant=tenant, user=user, content="fact 2")
+            MemoryEntry.objects.create(tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="fact 1")
+            newest = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="fact 2"
+            )
 
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -723,13 +726,13 @@ class TestMemorySelfServiceRest:
         assert response.status_code == 401
 
     def test_delete_removes_only_callers_own_rows(self):
-        from memory.models import UserTenantMemory
+        from memory.models import MemoryEntry
 
         with active_tenant() as tenant:
             user, token = editor_user_and_token(tenant, workspace=None)
             other_user = make_user(tenant)
-            UserTenantMemory.objects.create(tenant=tenant, user=user, content="mine")
-            UserTenantMemory.objects.create(tenant=tenant, user=other_user, content="not mine")
+            MemoryEntry.objects.create(tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="mine")
+            MemoryEntry.objects.create(tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=other_user, content="not mine")
 
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -738,21 +741,21 @@ class TestMemorySelfServiceRest:
 
             assert response.status_code == 200
             assert response.data["deleted"] == 1
-            assert UserTenantMemory.objects.filter(user_id=user.id).count() == 0
-            assert UserTenantMemory.objects.filter(user_id=other_user.id).count() == 1
+            assert MemoryEntry.objects.filter(scope=MemoryEntry.SCOPE_USER, user_id=user.id).count() == 0
+            assert MemoryEntry.objects.filter(scope=MemoryEntry.SCOPE_USER, user_id=other_user.id).count() == 1
 
     def test_delete_never_touches_workspace_memory(self):
         from memory.backends import get_memory_backend
-        from memory.models import UserTenantMemory, WorkspaceMemory
+        from memory.models import MemoryEntry
 
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             user, token = editor_user_and_token(tenant, ws)
-            UserTenantMemory.objects.create(tenant=tenant, user=user, content="mine")
+            MemoryEntry.objects.create(tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="mine")
 
             backend = get_memory_backend()
             backend.upsert(tenant.id, "workspace", ws.id, "ws fact")
-            assert WorkspaceMemory.objects.filter(workspace_id=ws.id).count() == 1
+            assert MemoryEntry.objects.filter(scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id).count() == 1
 
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -761,7 +764,7 @@ class TestMemorySelfServiceRest:
 
             assert response.status_code == 200
             assert response.data["deleted"] == 1
-            assert WorkspaceMemory.objects.filter(workspace_id=ws.id).count() == 1
+            assert MemoryEntry.objects.filter(scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id).count() == 1
 
     def test_delete_with_zero_entries_is_not_an_error(self):
         with active_tenant() as tenant:
@@ -864,8 +867,10 @@ class TestSystemMemoryEntriesRest:
             ws = make_workspace(tenant, name="Entries WS")
             member = make_user(tenant)
             assign_role(member, ws, "editor")
-            WorkspaceMemory.objects.create(tenant=tenant, workspace=ws, content="team fact")
-            UserTenantMemory.objects.create(tenant=tenant, user=member, content="user fact")
+            MemoryEntry.objects.create(tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="team fact")
+            MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=member, content="user fact"
+            )
 
             response = _admin_client(tenant).get(
                 f"{_ENTRIES_URL}?scope=workspace&workspace_id={ws.id}"
@@ -891,8 +896,8 @@ class TestSystemMemoryEntriesRest:
     def test_q_and_pagination_params_are_forwarded(self):
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            WorkspaceMemory.objects.create(tenant=tenant, workspace=ws, content="dark mode")
-            WorkspaceMemory.objects.create(tenant=tenant, workspace=ws, content="metric units")
+            MemoryEntry.objects.create(tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="dark mode")
+            MemoryEntry.objects.create(tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="metric units")
 
             response = _admin_client(tenant).get(
                 f"{_ENTRIES_URL}?scope=global&q=dark&page=1&page_size=1"
@@ -967,17 +972,21 @@ class TestSystemMemoryProjectionRest:
     def test_happy_path_shape(self):
         with active_tenant() as tenant:
             ws = make_workspace(tenant, name="Projection WS")
-            WorkspaceMemory.objects.create(
-                tenant=tenant, workspace=ws, content="a", embedding=_one_hot(0)
+            MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
+                content="a", embedding=_one_hot(0),
             )
-            WorkspaceMemory.objects.create(
-                tenant=tenant, workspace=ws, content="b", embedding=_one_hot(0, tilt=0.05)
+            MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
+                content="b", embedding=_one_hot(0, tilt=0.05),
             )
-            WorkspaceMemory.objects.create(
-                tenant=tenant, workspace=ws, content="c", embedding=_one_hot(200)
+            MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
+                content="c", embedding=_one_hot(200),
             )
-            WorkspaceMemory.objects.create(
-                tenant=tenant, workspace=ws, content="pending", embedding=None
+            MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
+                content="pending", embedding=None,
             )
 
             response = _admin_client(tenant).get(
@@ -1010,7 +1019,7 @@ class TestSystemMemoryProjectionRest:
             # deterministic across numpy/BLAS builds).
             by_content = {
                 str(m.id): m.content
-                for m in WorkspaceMemory.objects.filter(workspace_id=ws.id)
+                for m in MemoryEntry.objects.filter(scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id)
             }
             clusters = {by_content[p["id"]]: p["cluster_id"] for p in response.data["points"]}
             assert clusters["a"] == clusters["b"]

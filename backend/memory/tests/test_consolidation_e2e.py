@@ -15,7 +15,7 @@ two genuine external calls (the interview-chat LLM completion and the
     -> the real Celery task BODY (``consolidate_interaction_task``, invoked
        via ``.run(**kwargs)`` -- see the ``_run_celery_tasks_inline``
        fixture below for why ``.delay()`` itself is not usable here)
-    -> a real ``WorkspaceMemory`` row written via the real
+    -> a real ``MemoryEntry`` row (scope="workspace") written via the real
        ``MemoryBackend``
     -> a SUBSEQUENT chat turn's ``build_memory_context()`` call retrieves it
        and it appears in the rendered prompt.
@@ -27,7 +27,7 @@ This is the test Findings 2 and 3 would have caught immediately:
   keys no real producer (``interview_service.py``'s ``INTERVIEW_CHAT_TURN``
   emissions) ever set -- so it ALWAYS took the "missing tenant/user" skip
   branch and no memory was ever consolidated from a real interaction, in any
-  deployment, ever. This test would have asserted an empty ``WorkspaceMemory``
+  deployment, ever. This test would have asserted an empty ``MemoryEntry``
   queryset and failed.
 * Finding 3: separately, even with Finding 2 fixed, no docker-compose celery
   worker consumed the new ``memory`` queue at all -- irrelevant to THIS
@@ -54,7 +54,7 @@ import pytest
 from application.event_bus import poll_and_dispatch
 from application.interview_service import InterviewService
 from memory.backends import _tenant_context
-from memory.models import WorkspaceMemory
+from memory.models import MemoryEntry
 from persistence.tenancy import TenantContext
 from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
@@ -156,9 +156,9 @@ class TestFullMemoryConsolidationLoop:
                 "(check the on_commit wiring, not this test)"
             )
 
-            stored = WorkspaceMemory.objects.filter(workspace_id=ws.id)
+            stored = MemoryEntry.objects.filter(scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id)
             assert stored.exists(), (
-                "no WorkspaceMemory row was written -- the producer -> event "
+                "no MemoryEntry row was written -- the producer -> event "
                 "bus -> MemoryProjector -> Celery task -> MemoryBackend chain "
                 "is broken (this is exactly the failure mode Findings 2/3 of "
                 "the final whole-branch review fixed: a payload-contract "
@@ -189,7 +189,7 @@ class TestFullMemoryConsolidationLoop:
     def test_disabled_workspace_breaks_the_loop_at_the_projector(self, monkeypatch):
         """Finding 4, proven end-to-end: with the workspace memory toggle
         OFF, the same real chat turn must produce NO consolidation at all --
-        no WorkspaceMemory row, and (implicitly) no memory.extract LLM call
+        no MemoryEntry row, and (implicitly) no memory.extract LLM call
         (the mocked _call_llm would raise AttributeError-free either way,
         but proving zero rows is the real DSGVO-relevant contract)."""
         from memory.models import WorkspaceMemorySettings
@@ -216,7 +216,9 @@ class TestFullMemoryConsolidationLoop:
             )
             poll_and_dispatch()
 
-            assert not WorkspaceMemory.objects.filter(workspace_id=ws.id).exists()
+            assert not MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id
+            ).exists()
 
     def test_full_loop_survives_no_ambient_tenant_context_at_dispatch(self, monkeypatch):
         """Final whole-branch review ROUND 2, Finding A -- proven end-to-end.
@@ -274,9 +276,9 @@ class TestFullMemoryConsolidationLoop:
         )
 
         with _tenant_context(tenant_id):
-            stored = WorkspaceMemory.objects.filter(workspace_id=ws_id)
+            stored = MemoryEntry.objects.filter(scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws_id)
             assert stored.exists(), (
-                "no WorkspaceMemory row was written when poll_and_dispatch ran "
+                "no MemoryEntry row was written when poll_and_dispatch ran "
                 "with NO ambient tenant context -- MemoryProjector's tenant "
                 "resolution still depends on context being pre-armed by the "
                 "caller (round-2 Finding A: this is exactly the real Celery "

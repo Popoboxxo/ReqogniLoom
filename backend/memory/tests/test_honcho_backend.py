@@ -12,13 +12,14 @@ shows up as a failure here rather than only in production.
 import re
 from types import SimpleNamespace
 from unittest import mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import requests
 
 from memory.backends import MEMORY_BACKEND_REGISTRY
 from memory.honcho_backend import HonchoMemoryBackend
+from persistence.tests.factories import active_tenant, make_user, make_workspace
 
 #: Honcho v3's own id validation pattern (workspaces/peers). Any id that does
 #: not match this gets rejected with HTTP 422 -- see ``TestHonchoIdCharset``.
@@ -77,6 +78,27 @@ class TestHonchoPeerNamespacing:
         assert str(tenant_id) in honcho_ws_id
         assert str(workspace_id) in honcho_ws_id
 
+    def test_artifact_scope_uses_the_new_a_prefix(self):
+        """RFC #1002: artifact is a NEW scope, so it gets the explicit ``_a_``
+        prefix from day one -- unlike user/workspace, which keep the legacy
+        unprefixed shape so already-written external peers stay addressable.
+        """
+        backend = HonchoMemoryBackend()
+        tenant_id, artifact_id = uuid4(), uuid4()
+        assert backend._scope_peer_id(tenant_id, "artifact", artifact_id) == (
+            f"{tenant_id}_a_{artifact_id}"
+        )
+
+    def test_user_and_workspace_scopes_keep_the_legacy_unprefixed_shape(self):
+        """Backwards compatibility: introducing ``_u_``/``_w_`` would orphan
+        every existing Honcho peer (there is no migration for a foreign
+        service), so the prefix is used ONLY for the new artifact scope.
+        """
+        backend = HonchoMemoryBackend()
+        tenant_id, scope_id = uuid4(), uuid4()
+        assert backend._scope_peer_id(tenant_id, "user", scope_id) == f"{tenant_id}_{scope_id}"
+        assert backend._scope_peer_id(tenant_id, "workspace", scope_id) == f"{tenant_id}_{scope_id}"
+
     def test_honcho_workspace_is_per_tenant(self):
         tenant_a, tenant_b = uuid4(), uuid4()
         backend = HonchoMemoryBackend()
@@ -88,26 +110,28 @@ class TestHonchoPeerNamespacing:
         with pytest.raises(ValueError, match="unknown memory scope"):
             backend._scope_peer_id(uuid4(), "not-a-scope", uuid4())
 
+    @pytest.mark.django_db
     @pytest.mark.parametrize("scope", ["user", "workspace"])
     def test_every_data_method_uses_a_tenant_prefixed_peer(self, scope):
         """No method may address a raw ReqogniLoom id (the leak this guards)."""
-        backend, client = _backend_with_mock_client()
-        tenant_id, scope_id = uuid4(), uuid4()
-        expected_peer = f"{tenant_id}_{scope_id}"
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            scope_id = make_user(tenant).id if scope == "user" else make_workspace(tenant).id
+            expected_peer = f"{tenant.id}_{scope_id}"
 
-        peer = client.peer(expected_peer)
-        peer.conclusions.create.return_value = [_conclusion("abc", "f")]
-        peer.conclusions.query.return_value = []
-        peer.conclusions.list.return_value = SimpleNamespace(items=[])
-        client.peer.reset_mock()
+            peer = client.peer(expected_peer)
+            peer.conclusions.create.return_value = [_conclusion("abc", "f")]
+            peer.conclusions.query.return_value = []
+            peer.conclusions.list.return_value = SimpleNamespace(items=[])
+            client.peer.reset_mock()
 
-        backend.upsert(tenant_id, scope, scope_id, "f")
-        backend.query(tenant_id, scope, scope_id, "q")
-        backend.list_recent(tenant_id, scope, scope_id)
+            backend.upsert(tenant.id, scope, scope_id, "f")
+            backend.query(tenant.id, scope, scope_id, "q")
+            backend.list_recent(tenant.id, scope, scope_id)
 
-        used = [c.args[0] for c in client.peer.call_args_list]
-        assert used == [expected_peer] * 3
-        assert str(scope_id) in expected_peer and str(tenant_id) in expected_peer
+            used = [c.args[0] for c in client.peer.call_args_list]
+            assert used == [expected_peer] * 3
+            assert str(scope_id) in expected_peer and str(tenant.id) in expected_peer
 
 
 class TestHonchoIdCharset:
@@ -134,6 +158,7 @@ class TestHonchoIdCharset:
         backend = HonchoMemoryBackend()
         assert _HONCHO_ID_PATTERN.match(backend._honcho_workspace_id(tenant_id))
 
+    @pytest.mark.django_db
     @pytest.mark.parametrize("scope", ["user", "workspace"])
     def test_query_and_list_do_not_surface_a_422_as_an_unhandled_error(self, scope):
         """End-to-end regression for the MCP-visible symptom: before the fix,
@@ -156,27 +181,39 @@ class TestHonchoIdCharset:
 
 
 class TestHonchoUpsert:
-    def test_upsert_user_scope_uses_namespaced_peer(self):
-        backend, client = _backend_with_mock_client()
-        tenant_id, user_id = uuid4(), uuid4()
-        peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.conclusions.create.return_value = [_conclusion("nano123", "some fact")]
+    @pytest.mark.django_db
+    def test_upsert_user_scope_uses_namespaced_peer_and_mirrors_locally(self):
+        """RFC #1002: the returned ``entry_id`` is OUR UUID; the Honcho nanoid
+        travels in ``backend_ref`` and the local mirror row persists."""
+        from memory.models import MemoryEntry
 
-        ref = backend.upsert(tenant_id, "user", user_id, "some fact")
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            user = make_user(tenant)
+            peer = client.peer(f"{tenant.id}_{user.id}")
+            peer.conclusions.create.return_value = [_conclusion("nano123", "some fact")]
 
-        peer.conclusions.create.assert_called_once_with([{"content": "some fact"}])
-        assert ref.entry_id == "nano123"
-        assert ref.content == "some fact"
+            ref = backend.upsert(tenant.id, "user", user.id, "some fact")
 
+            peer.conclusions.create.assert_called_once_with([{"content": "some fact"}])
+            assert str(ref.entry_id) != "nano123"
+            assert UUID(str(ref.entry_id)) == ref.entry_id
+            assert ref.backend_ref == "nano123"
+            assert ref.content == "some fact"
+            assert MemoryEntry.objects.filter(id=ref.entry_id, backend_ref="nano123").exists()
+
+    @pytest.mark.django_db
     def test_upsert_workspace_scope_uses_namespaced_peer(self):
-        backend, client = _backend_with_mock_client()
-        tenant_id, workspace_id = uuid4(), uuid4()
-        peer = client.peer(f"{tenant_id}_{workspace_id}")
-        peer.conclusions.create.return_value = [_conclusion("nano456", "ws fact")]
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            ws = make_workspace(tenant)
+            peer = client.peer(f"{tenant.id}_{ws.id}")
+            peer.conclusions.create.return_value = [_conclusion("nano456", "ws fact")]
 
-        ref = backend.upsert(tenant_id, "workspace", workspace_id, "ws fact")
+            ref = backend.upsert(tenant.id, "workspace", ws.id, "ws fact")
 
-        assert ref.entry_id == "nano456"
+            assert UUID(str(ref.entry_id)) == ref.entry_id
+            assert ref.backend_ref == "nano456"
 
     def test_upsert_raises_when_honcho_returns_nothing(self):
         backend, client = _backend_with_mock_client()
@@ -187,6 +224,7 @@ class TestHonchoUpsert:
             backend.upsert(tenant_id, "user", user_id, "fact")
 
 
+@pytest.mark.django_db
 class TestHonchoQuery:
     def test_query_returns_refs_and_passes_top_k(self):
         backend, client = _backend_with_mock_client()
@@ -262,9 +300,14 @@ class TestHonchoListRecent:
         assert len(refs) == 100
 
 
+@pytest.mark.django_db
 class TestHonchoForget:
     """These drive the real ``honcho.conclusions.ConclusionScope`` against a
-    mock HTTP client, so the asserted route is the SDK's own, not a guess."""
+    mock HTTP client, so the asserted route is the SDK's own, not a guess.
+
+    ``@pytest.mark.django_db`` is required since RFC #1002: ``forget`` now
+    delegates to ``delete_entry``, which also removes the local mirror row.
+    """
 
     def test_forget_deletes_via_the_tenant_workspace_route(self):
         backend, client = _backend_with_mock_client()

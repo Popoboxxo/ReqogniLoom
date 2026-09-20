@@ -49,7 +49,7 @@ def _apply_memory_settings_override(
 class MemoryConfig(AppConfig):
     """AI Long-Term Memory — Workspace + Tenant-global memory (ADR-01 Layer-2
     app, placed like ``context_graph``). See the plan's Task 2 for the
-    ``WorkspaceMemory``/``UserTenantMemory`` models.
+    unified ``MemoryEntry`` model.
     """
 
     default_auto_field = "django.db.models.BigAutoField"

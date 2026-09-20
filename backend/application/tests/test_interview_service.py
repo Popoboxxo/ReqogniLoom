@@ -1018,7 +1018,7 @@ class TestGenerateChatTurn:
         from persistence.tests.factories import make_user
 
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
-        # UserTenantMemory FKs to a real pl_user row -- the module `ctx`
+        # MemoryEntry (scope="user") FKs to a real pl_user row -- the module `ctx`
         # fixture's user_id is a bare uuid4() with no backing User, so a
         # real user is created here rather than reusing ctx.user_id.
         user = make_user(tenant)

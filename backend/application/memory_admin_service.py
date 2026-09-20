@@ -36,7 +36,7 @@ from django.db.models import Count, Max
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import UserRole
 from auth_tenancy.services import AuthorizationService
-from memory.models import UserTenantMemory, WorkspaceMemory, WorkspaceMemorySettings
+from memory.models import MemoryEntry, WorkspaceMemorySettings
 from persistence.models import User, Workspace
 from persistence.transactions import atomic_transaction
 
@@ -193,17 +193,17 @@ class MemoryAdminService(ServiceBase):
 
         overview: list[dict[str, Any]] = []
         for ws in Workspace.objects.all().order_by("name"):
-            ws_agg = WorkspaceMemory.objects.filter(workspace_id=ws.id).aggregate(
-                count=Count("id"), last=Max("created_at")
-            )
+            ws_agg = MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id
+            ).aggregate(count=Count("id"), last=Max("created_at"))
             ws_count = ws_agg["count"]
             last_ws = ws_agg["last"]
 
             member_ids = self._member_ids(ws.id)
             if member_ids:
-                user_agg = UserTenantMemory.objects.filter(user_id__in=member_ids).aggregate(
-                    count=Count("id"), last=Max("created_at")
-                )
+                user_agg = MemoryEntry.objects.filter(
+                    scope=MemoryEntry.SCOPE_USER, user_id__in=member_ids
+                ).aggregate(count=Count("id"), last=Max("created_at"))
                 user_count = user_agg["count"]
                 last_user = user_agg["last"]
             else:
@@ -227,11 +227,12 @@ class MemoryAdminService(ServiceBase):
 
     @atomic_transaction
     def delete_workspace_memory(self, ctx: AuthContext, workspace_id: UUID) -> dict[str, Any]:
-        """Delete BOTH tiers for *workspace_id*: its own ``WorkspaceMemory``
-        rows, and the ``UserTenantMemory`` rows of its CURRENT members.
+        """Delete BOTH tiers for *workspace_id*: its own ``scope="workspace"``
+        ``MemoryEntry`` rows, and the ``scope="user"`` rows of its CURRENT
+        members.
 
-        Never deletes ``UserTenantMemory`` for a user who is not a current
-        member of this workspace, even if that user has other memberships.
+        Never deletes a user's memory for someone who is not a current member
+        of this workspace, even if that user has other memberships.
         """
         self._assert_system_admin(ctx)
 
@@ -241,15 +242,19 @@ class MemoryAdminService(ServiceBase):
 
         member_ids = self._member_ids(workspace_id)
 
-        ws_deleted, _ = WorkspaceMemory.objects.filter(workspace_id=workspace_id).delete()
+        ws_deleted, _ = MemoryEntry.objects.filter(
+            scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=workspace_id
+        ).delete()
         user_deleted = 0
         if member_ids:
-            user_deleted, _ = UserTenantMemory.objects.filter(user_id__in=member_ids).delete()
+            user_deleted, _ = MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_USER, user_id__in=member_ids
+            ).delete()
 
         self._audit(
             ctx=ctx,
             operation="delete",
-            entity_type="WorkspaceMemory",
+            entity_type="MemoryEntry",
             entity_id=workspace_id,
             change_reason=(
                 f"workspace_memory_deleted={ws_deleted} "
@@ -269,11 +274,11 @@ class MemoryAdminService(ServiceBase):
     # ------------------------------------------------------------------
 
     def _scoped_querysets(self, scope: str, workspace_id: UUID | None) -> tuple[Any, Any]:
-        """Return ``(WorkspaceMemory qs, UserTenantMemory qs)`` for *scope*,
-        live (non-superseded) entries only.
+        """Return ``(workspace-scope qs, user-scope qs)`` for *scope*, live
+        (non-superseded) ``MemoryEntry`` rows only.
 
-        ``scope="workspace"`` = that workspace's own ``WorkspaceMemory`` rows
-        plus its CURRENT members' ``UserTenantMemory`` rows — the exact same
+        ``scope="workspace"`` = that workspace's own ``scope="workspace"`` rows
+        plus its CURRENT members' ``scope="user"`` rows — the exact same
         member scoping :meth:`delete_workspace_memory` applies, via the shared
         :meth:`_member_ids` helper.
 
@@ -287,19 +292,27 @@ class MemoryAdminService(ServiceBase):
             if not Workspace.objects.filter(id=workspace_id).exists():
                 raise NotFoundError(f"Workspace {workspace_id} not found")
             member_ids = self._member_ids(workspace_id)
-            ws_qs = WorkspaceMemory.objects.filter(
-                workspace_id=workspace_id, superseded_by__isnull=True
+            ws_qs = MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_WORKSPACE,
+                workspace_id=workspace_id,
+                superseded_by__isnull=True,
             )
             user_qs = (
-                UserTenantMemory.objects.filter(
-                    user_id__in=member_ids, superseded_by__isnull=True
+                MemoryEntry.objects.filter(
+                    scope=MemoryEntry.SCOPE_USER,
+                    user_id__in=member_ids,
+                    superseded_by__isnull=True,
                 )
                 if member_ids
-                else UserTenantMemory.objects.none()
+                else MemoryEntry.objects.none()
             )
         elif scope == "global":
-            ws_qs = WorkspaceMemory.objects.filter(superseded_by__isnull=True)
-            user_qs = UserTenantMemory.objects.filter(superseded_by__isnull=True)
+            ws_qs = MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_WORKSPACE, superseded_by__isnull=True
+            )
+            user_qs = MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_USER, superseded_by__isnull=True
+            )
         else:
             raise ValidationError(f"Unknown scope: {scope!r}")
         return ws_qs, user_qs
@@ -314,7 +327,7 @@ class MemoryAdminService(ServiceBase):
         no N+1). ``User`` is deliberately NOT filtered by tenant: it does not
         inherit ``TenantScopedModel`` (its ``tenant`` is nullable, see
         ``persistence.models.User``'s docstring), and the ids passed in were
-        already read out of the tenant-scoped ``UserTenantMemory`` rows, so
+        already read out of the tenant-scoped ``MemoryEntry`` rows, so
         the tenant boundary was enforced upstream. Filtering on
         ``User.tenant`` here would instead silently drop the label of a
         tenant-less platform user who does have memory in this tenant.

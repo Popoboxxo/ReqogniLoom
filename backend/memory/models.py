@@ -1,23 +1,27 @@
-"""AI Long-Term Memory models (Spec 2026-08-24, Task 2 + Task 11).
+"""AI Long-Term Memory models (Spec 2026-08-24; unified by RFC #1002 PR A).
 
-Two tenant-scoped tables holding consolidated, embeddable memory facts:
-
-- ``WorkspaceMemory``: facts scoped to a single ``Workspace`` (e.g. team
-  preferences learned from interactions within that workspace).
-- ``UserTenantMemory``: facts scoped to a single user across the whole
-  tenant (no ``workspace`` field) — e.g. a user's own preferences that
-  should follow them between workspaces.
-
-Both models are additive read/write targets for the (future, Task 3+)
-``MemoryBackend`` abstraction; nothing here queries or writes to them yet.
-``superseded_by`` is a self-referential FK used by the (future, Task 5)
+``MemoryEntry`` is the single, canonical tenant-scoped table holding
+consolidated, embeddable memory facts. It replaces the former
+``WorkspaceMemory``/``UserTenantMemory`` split: a ``scope`` column
+(``"user"``/``"workspace"``/``"artifact"``) selects which of the three nullable
+owner FKs is meaningful, and backend provenance travels as columns
+(``language``, ``confidence``, ``contributor_user_id``, ``source_event_id``,
+``source_session_id``, ``entity_type``, ``backend_ref``) rather than in a
+sidecar table. ``superseded_by`` is a self-referential FK used by the
 consolidation pipeline to mark a fact as replaced by a newer one without
 deleting the historical row.
 
-``WorkspaceMemorySettings`` (Task 11) is a third, independent table: the
+The table is the read/write target of the ``MemoryBackend`` abstraction
+(``memory.backends``); the pgvector backend makes it authoritative, the honcho
+backend keeps it as the local canonical mirror of the external service.
+
+``WorkspaceMemorySettings`` (Task 11) is an independent table: the
 per-workspace enable/disable toggle for the memory feature. Missing row =
 feature ON (``enabled`` defaults ``True``), mirroring the "missing row =
 default state" convention already used by ``LlmSettings``.
+
+``SystemMemorySettings`` (Memory Admin UI Phase 3) is the process-wide
+singleton overriding the memory-related env vars.
 """
 from uuid import UUID
 
@@ -29,58 +33,99 @@ from persistence.encryption import decrypt_secret, encrypt_secret
 from persistence.models import AuditableModel, TenantScopedModel, Workspace
 
 
-class WorkspaceMemory(TenantScopedModel):
-    """A consolidated memory fact scoped to a single ``Workspace``."""
+class MemoryEntry(TenantScopedModel):
+    """Canonical, unified consolidated memory fact (RFC #1002, PR A).
 
-    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="memory_entries")
+    Replaces the former ``WorkspaceMemory``/``UserTenantMemory`` split with one
+    table carrying provenance as columns (no sidecar table). ``scope`` selects
+    which of the three nullable owner FKs is meaningful:
+
+    ==================  ==================================================
+    ``scope``           owner column / ``scope_id`` semantics
+    ==================  ==================================================
+    ``"workspace"``     ``workspace`` (workspace_id)
+    ``"user"``          ``user`` (user_id)
+    ``"artifact"``      ``artifact`` (artifact_id)
+    ==================  ==================================================
+
+    ``entry_id`` is always OUR UUID primary key. :attr:`backend_ref` carries the
+    id the *external* memory backend issued for this entry (a Honcho nanoid for
+    the honcho backend; NULL for pgvector), so a locally-canonical row can be
+    reconciled against the external service without ever rewriting the PK.
+
+    ``contributor_user_id`` is a plain UUID, deliberately NOT a ``User`` FK:
+    attribution must survive the contributor's deletion, which ``SET_NULL`` on
+    an FK could not express. ``superseded_by`` is a self-referential FK marking a
+    fact replaced by a newer one without deleting history.
+    """
+
+    SCOPE_USER = "user"
+    SCOPE_WORKSPACE = "workspace"
+    SCOPE_ARTIFACT = "artifact"
+    SCOPE_CHOICES = (
+        (SCOPE_USER, SCOPE_USER),
+        (SCOPE_WORKSPACE, SCOPE_WORKSPACE),
+        (SCOPE_ARTIFACT, SCOPE_ARTIFACT),
+    )
+
+    scope = models.CharField(max_length=16, choices=SCOPE_CHOICES)
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="memory_entries",
+    )
+    user = models.ForeignKey(
+        "persistence.User",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="memory_entries",
+    )
+    artifact = models.ForeignKey(
+        "persistence.Artifact",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="memory_entries",
+    )
     content = models.TextField()
     # #794: sourced from the project-wide SSOT rather than a local literal, so
     # this column can no longer silently drift apart from the Requirement/
     # TraceLink/Icd embedding columns the way it had (384 vs 1536).
     embedding = VectorField(dimensions=EMBEDDING_VECTOR_DIMENSIONS, null=True, blank=True)
-    source_event_id = models.UUIDField(null=True, blank=True)
-    superseded_by = models.ForeignKey(
-        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="supersedes"
-    )
+    language = models.CharField(max_length=8, blank=True, default="")
     confidence = models.FloatField(default=1.0)
-    created_at = models.DateTimeField(auto_now_add=True)
+    superseded_by = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="supersedes"
+    )
+    # Plain UUID, NOT an FK: attribution must outlive the contributor's deletion.
+    contributor_user_id = models.UUIDField(null=True, blank=True)
+    source_event_id = models.UUIDField(null=True, blank=True)
+    source_session_id = models.UUIDField(null=True, blank=True)
+    entity_type = models.CharField(max_length=32, blank=True, default="")
+    # Backend-issued id for this entry (e.g. a Honcho nanoid); NULL for pgvector.
+    backend_ref = models.CharField(max_length=64, null=True, blank=True)
 
     class Meta:
-        db_table = "mem_workspace_memory"
+        db_table = "mem_memory_entry"
         indexes = [
-            models.Index(fields=["tenant", "workspace", "created_at"], name="idx_mem_ws_created"),
-            HnswIndex(
-                name="mem_ws_embedding_hnsw",
-                fields=["embedding"],
-                m=16,
-                ef_construction=64,
-                opclasses=["vector_cosine_ops"],
+            models.Index(
+                fields=["tenant", "scope", "workspace", "created_at"],
+                name="idx_mem_entry_ws_created",
             ),
-        ]
-
-
-class UserTenantMemory(TenantScopedModel):
-    """A consolidated memory fact scoped to a single user, tenant-wide
-    (no ``workspace`` field — follows the user between workspaces).
-    """
-
-    user = models.ForeignKey("persistence.User", on_delete=models.CASCADE, related_name="tenant_memory_entries")
-    content = models.TextField()
-    # #794: see WorkspaceMemory.embedding.
-    embedding = VectorField(dimensions=EMBEDDING_VECTOR_DIMENSIONS, null=True, blank=True)
-    source_event_id = models.UUIDField(null=True, blank=True)
-    superseded_by = models.ForeignKey(
-        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="supersedes"
-    )
-    confidence = models.FloatField(default=1.0)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "mem_user_tenant_memory"
-        indexes = [
-            models.Index(fields=["tenant", "user", "created_at"], name="idx_mem_user_created"),
+            models.Index(
+                fields=["tenant", "scope", "user", "created_at"],
+                name="idx_mem_entry_user_created",
+            ),
+            models.Index(
+                fields=["tenant", "scope", "artifact", "created_at"],
+                name="idx_mem_entry_artifact_created",
+            ),
+            models.Index(fields=["backend_ref"], name="idx_mem_entry_backend_ref"),
             HnswIndex(
-                name="mem_user_embedding_hnsw",
+                name="mem_entry_embedding_hnsw",
                 fields=["embedding"],
                 m=16,
                 ef_construction=64,

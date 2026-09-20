@@ -13,8 +13,8 @@ arm it for those calls. ``_handle_forget`` additionally resolves ownership
 BEFORE calling the backend, via ``memory.backends.resolve_memory_entry_owner``
 (kept there rather than a direct ``.objects`` lookup here, per ADR-01's
 Single-Entry-Point pattern and the issue #124 ratchet on ``mcp_server/tools/``
-modules) -- ``UserTenantMemory``/``WorkspaceMemory`` are RLS-gated tables that
-DO require an explicitly active tenant context around them (same bug class
+modules) -- the unified ``MemoryEntry`` table is RLS-gated and DOES require an
+explicitly active tenant context around it (same bug class
 already fixed in Tasks 3/5/6 of this branch), so this handler wraps that call
 (and the subsequent ``AuthorizationService.active_roles_for`` call, which
 reads the also-RLS-gated ``UserRole`` table) in a single ``_tenant_context``
@@ -155,24 +155,35 @@ class MemoryToolGroup(BaseToolGroup):
     def _handle_forget(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         """Delete a memory entry.
 
-        Ownership check: the entry must be the caller's own ``UserTenantMemory``,
-        OR a ``WorkspaceMemory`` row in a workspace where the caller holds the
-        admin role.
+        Ownership check: a ``scope="user"`` entry must be the caller's own; a
+        ``workspace``/``artifact`` entry requires the caller to hold the admin
+        role in its owning workspace.
         """
         entry_id = require_uuid(params, "entry_id")
         with _tenant_context(auth_context.tenant_id):
-            user_entry, ws_entry = resolve_memory_entry_owner(entry_id)
-            if user_entry is not None:
-                if user_entry.user_id != auth_context.user_id:
+            entry = resolve_memory_entry_owner(entry_id)
+            if entry is None:
+                return ToolResult.error("NOT_FOUND", "memory entry not found")
+
+            if entry.scope == "user":
+                if entry.user_id != auth_context.user_id:
                     return ToolResult.error("PERMISSION_DENIED", "cannot forget another user's memory")
                 get_memory_backend().forget(auth_context.tenant_id, entry_id)
                 return ToolResult.ok({"deleted": True})
 
-            if ws_entry is None:
-                return ToolResult.error("NOT_FOUND", "memory entry not found")
+            # workspace/artifact scope: both are team-owned, so the caller must
+            # be a workspace-admin of the owning workspace (artifact entries
+            # derive it from the artifact).
+            owning_workspace_id = entry.workspace_id
+            if owning_workspace_id is None and entry.artifact_id is not None:
+                owning_workspace_id = entry.artifact.workspace_id
+            if owning_workspace_id is None:
+                return ToolResult.error(
+                    "PERMISSION_DENIED", "memory entry has no owning workspace"
+                )
 
             roles = AuthorizationService().active_roles_for(
-                user_id=auth_context.user_id, workspace_id=ws_entry.workspace_id
+                user_id=auth_context.user_id, workspace_id=owning_workspace_id
             )
             if "admin" not in roles:
                 return ToolResult.error(

@@ -38,8 +38,8 @@ app.current_tenant`` on the connection, so:
   ``TenantContextNotSetError`` before producing any SQL if no ORM-level
   tenant context is active yet (this Celery task runs outside any request
   thread, so none is active by default);
-* the RLS policies on ``mem_workspace_memory``/``mem_user_tenant_memory``
-  separately require the Postgres session variable to be set, or every
+* the RLS policy on ``mem_memory_entry`` separately requires the Postgres
+  session variable to be set, or every
   read/write through ``MemoryBackend`` is rejected/hidden regardless of what
   the ORM-level filter thinks.
 
@@ -60,7 +60,8 @@ from celery import shared_task
 
 from application.prompt_resolver import resolve_and_render
 from auth_tenancy.context import AuthContext
-from memory.backends import _model_for_scope, _tenant_context, get_memory_backend
+from memory.backends import _tenant_context, get_memory_backend
+from memory.models import MemoryEntry
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ def consolidate_interaction(
                 # three-way behaviour).
                 continue
 
-            new_ref = backend.upsert(tenant_id, scope, scope_id, content)
+            new_ref = backend.write(tenant_id, scope, scope_id, content)
 
             if (
                 existing
@@ -163,19 +164,15 @@ def consolidate_interaction(
                 # both rows stay in the table (history preserved), only the
                 # old one's superseded_by points forward.
                 #
-                # NOTE: this branch writes to the pgvector tables directly and
-                # is therefore only valid for PgvectorMemoryBackend. The
-                # ``distance is not None`` guard above is what keeps it that
-                # way: ``superseded_by`` is a pgvector-only column, and only
-                # that backend reports a per-result distance. HonchoMemoryBackend
-                # leaves distance at None (Honcho scores nothing and models
-                # contradictions itself, as a "contradiction" conclusion level),
-                # so it never reaches this ORM write -- which would otherwise
-                # feed a Honcho nanoid into a UUIDField lookup. Any future
-                # backend that starts reporting a distance MUST either issue
-                # UUID entry ids or gate this branch explicitly.
-                model, _scope_field = _model_for_scope(scope)
-                model.objects.filter(id=existing[0].entry_id).update(
+                # NOTE: ``superseded_by`` lives on the canonical
+                # ``MemoryEntry`` row. The ``distance is not None`` guard above
+                # is what keeps this branch honest: only a backend that
+                # computed a real similarity score (pgvector via pgvector,
+                # honcho via its in-process #F5 distance) reaches it, and both
+                # issue OUR UUID as ``entry_id`` (a raw nanoid now travels in
+                # ``backend_ref``), so the ``id=`` lookup below is always a
+                # valid UUID filter.
+                MemoryEntry.objects.filter(id=existing[0].entry_id).update(
                     superseded_by_id=new_ref.entry_id
                 )
             # else: unrelated content (case 3) -- the new entry created above

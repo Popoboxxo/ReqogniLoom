@@ -11,8 +11,7 @@ Column                                       Declared dimension
 ``pl_requirement.embedding``                 ``vector(1536)``
 ``pl_tracelink.embedding``                   ``vector(1536)``
 ``icd_version.embedding``                    ``vector(1536)``
-``mem_workspace_memory.embedding``           ``vector(384)``
-``mem_user_tenant_memory.embedding``         ``vector(384)``
+``mem_memory_entry.embedding``               ``vector(384)``
 ===========================================  =====================
 
 The 1536 columns were shaped for OpenAI ``text-embedding-3-small``, which was

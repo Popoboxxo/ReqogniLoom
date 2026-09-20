@@ -43,8 +43,8 @@ Endpoints:
     GET/DELETE /api/v1/memory/me/
         Any authenticated user, no role required (Memory Admin UI Phase 4,
         spec 2026-08-26). Self-service over the caller's OWN
-        ``UserTenantMemory`` rows only — never ``WorkspaceMemory``. See
-        :class:`MemorySelfServiceView`.
+        own ``scope="user"`` ``MemoryEntry`` rows only — never workspace-scoped
+        memory. See :class:`MemorySelfServiceView`.
 
 Both views rely on the tenant context already activated by
 ``AuthTenancyAuthentication`` during DRF authentication (COMP-AT-003
@@ -76,7 +76,7 @@ from application.memory_admin_service import MemoryAdminService
 from application.memory_settings_service import MemorySettingsService
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
-from memory.models import UserTenantMemory, WorkspaceMemorySettings
+from memory.models import MemoryEntry, WorkspaceMemorySettings
 from persistence.models import User
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
@@ -386,7 +386,7 @@ class SystemMemoryWorkspaceDeleteView(APIView):
     """``DELETE /api/v1/system/memory/workspaces/<uuid:workspace_id>/``.
 
     System-Admin only. Deletes BOTH tiers: the workspace's own
-    ``WorkspaceMemory`` rows and its current members' ``UserTenantMemory``
+    workspace-scoped ``MemoryEntry`` rows and its current members' user-scoped
     rows. See :meth:`MemoryAdminService.delete_workspace_memory`.
     """
 
@@ -560,13 +560,14 @@ class MemorySelfServiceView(APIView):
     """``/api/v1/memory/me/`` — any authenticated user, no role required.
 
     Memory Admin UI Phase 4 (spec 2026-08-26). Self-service over the
-    caller's OWN ``UserTenantMemory`` rows only — never ``WorkspaceMemory``,
-    which is team-owned (see plan Ruling 1). No admin gate: the ``user_id``
+    caller's OWN ``scope="user"`` ``MemoryEntry`` rows only — never
+    workspace-scoped memory, which is team-owned (see plan Ruling 1). No admin
+    gate: the ``user_id``
     filter on every query IS the authorization boundary, mirroring
     ``ApiKeyViewSet``'s own-data-only self-service pattern.
 
     GET: ``{"entry_count": int, "last_updated_at": str | None}``.
-    DELETE: deletes all of the caller's ``UserTenantMemory`` rows, returns
+    DELETE: deletes all of the caller's user-scoped ``MemoryEntry`` rows, returns
     ``{"deleted": int}`` — 200 even when nothing existed to delete.
     """
 
@@ -581,9 +582,9 @@ class MemorySelfServiceView(APIView):
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-        agg = UserTenantMemory.objects.filter(user_id=ctx.user_id).aggregate(
-            count=Count("id"), last=Max("created_at")
-        )
+        agg = MemoryEntry.objects.filter(
+            scope=MemoryEntry.SCOPE_USER, user_id=ctx.user_id
+        ).aggregate(count=Count("id"), last=Max("created_at"))
         return Response(
             {
                 "entry_count": agg["count"] or 0,
@@ -600,7 +601,9 @@ class MemorySelfServiceView(APIView):
                 build_error_response("AUTHENTICATION_REQUIRED", lang),
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-        deleted, _ = UserTenantMemory.objects.filter(user_id=ctx.user_id).delete()
+        deleted, _ = MemoryEntry.objects.filter(
+            scope=MemoryEntry.SCOPE_USER, user_id=ctx.user_id
+        ).delete()
         return Response({"deleted": deleted})
 
 
