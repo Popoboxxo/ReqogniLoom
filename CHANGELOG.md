@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.13] — 2026-09-20
+
+### Added
+- **Local readable `uid` for every artifact (#932):** Eight artifact models documented an *auto-generated* `uid` that no code ever produced. A per-`(workspace, item_type)` monotonic `UidSequence` now allocates `{PREFIX}-{NNN}` on every create path (atomic against the `(workspace, uid)` constraint and non-recycling); a client-supplied `uid` is answered with `400` instead of being silently dropped; the eight "import key" help texts are corrected; the Needs/Architecture trees render the `uid` (the UUID short hash stays a legacy fallback); and an AWMS `value_strategy: sequence` plan backfills rows created before the feature (PRs #1005, #1011, #1013)
+- **ReqIF identity separated from the local `uid` (#1003):** the external ReqIF identity moved onto dedicated `Artifact.reqif_*` fields with partial unique constraints; import matches on them and export prefers the stored identifier, so a round-trip keeps both the local identifier and the source key (PR #1004)
+- **INCOSE/IEEE 29148 requirement attributes (#871, #583):** `Requirement.rationale` and `Requirement.source` are real model columns now, carried end to end (serializer, REST create/patch, service, MCP) and merged into existing attribute definitions; `owner`/`priority` remain Artifact-level system fields and `acceptance_criteria`/`verification_method` stay stage-mandatory from the standard preset (PR #1014)
+- **`satisfies` / `realizes` / `refines` in the trace-link catalog (#950):** the three SE validation/satisfaction semantics are built-ins again — `satisfies` is the coverage-relevant Requirement → Goal edge, `realizes` the Requirement → Goal realization claim, `refines` Requirement → Requirement; migration `0008` seeds them per tenant, and the frontend label fallback follows (PR #1010)
+- **AWMS value-migration catalog completed (#930):** `deprecate_attribute`, `export_scope` and `import_scope` now run through the one engine (PR #1012)
+- **Environment-configurable default link types (#989):** `DEFAULT_TRACE_LINK_TYPE` / `DEFAULT_DECOMPOSITION_LINK_TYPE` decide what a new workspace starts with and act as the empty-column fallback (PR #1009)
+- **MCP surface:** coverage/VCRM/SE-auditor tools (#410) and a filtered, compact tool catalogue (#866) (PRs #1001, #1000)
+- **Marketing site:** interactive GitHub Pages one-pager (#979)
+
+### Fixed
+- **Admin backups are gzip-compressed (#823):** `admin.backup_create` stores `<id>.json.gz` (Django's `loaddata` reads it transparently; existing uncompressed dumps still restore) (PR #1008)
+- **Deployment robustness (#918):** the compose default image tag was four betas stale (`1.8.0-beta.8` → current), `.env.example` gained the operational variables the compose supports — including the README's *first stumbling block* `CSRF_COOKIE_SECURE` — `redis` got a named volume for its already-enabled AOF (queue/cache no longer vanish on recreate), and `bluepencil` is marked DEBUG/QS-only on every surface (PR #1015)
+- **beta.12 QA bundle (#996)** across API, health, UI and bluepencil, plus the change-reason refusal surfaced at the field (`#995`)
+- **Notification popover is dismissible (#985)** (PR #992)
+- **UI consistency:** control standard applied to workspace settings (#986) and requirement trace links unified with derived labels and allocation (#998)
+
+### Changed
+- **E2E hardening (#947):** state-dependent and flaky Playwright specs stabilized (PR #997)
+
 ## [1.8.0-beta.12] — 2026-09-18
 
 ### Added
