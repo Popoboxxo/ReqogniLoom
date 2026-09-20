@@ -45,10 +45,12 @@ def test_declared_data_variables_are_registered_in_the_variable_catalog():
 
 
 def test_need_to_sysreq_declares_its_two_data_variables():
-    """``n`` became the ``max_requirements_per_need`` config variable (spec §4)."""
+    """``n`` became the ``max_requirements_per_need`` config variable (spec §4);
+    RFC #1002 PR C adds the auto-injected ``memory_context``."""
     assert set(get_slot_data_variables("need_to_sysreq")) == {
         "need_title",
         "need_description",
+        "memory_context",
     }
 
 

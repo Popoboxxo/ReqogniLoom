@@ -93,6 +93,12 @@ tenant-wide, not workspace-scoped, but this toggle is intentionally
 interpreted as "was this interaction, which happened in this workspace,
 allowed to be consolidated" -- so a disabled workspace suppresses BOTH
 scopes for events sourced from it, not just the workspace-scoped one.
+
+RFC #1002 PR C: the single-mode chat-turn payload additionally carries
+``artifact_id``/``entity_type`` (the session's backing Artifact id + the
+artifact type the protocol captures). Both are forwarded to the consolidation
+task; only a UUID-shaped artifact id is dispatched -- any other value is
+treated as absent, because an artifact-scoped write needs a real owner FK.
 """
 from __future__ import annotations
 
@@ -178,7 +184,36 @@ class MemoryProjector:
             workspace_id=str(event.workspace_id),
             user_id=str(user_id),
             interaction_text=interaction_text,
+            artifact_id=self._resolve_artifact_id(payload),
+            entity_type=self._resolve_entity_type(payload),
         )
+
+    # ------------------------------------------------------------------
+    # Artifact context (RFC #1002 PR C): the emitting chat turn stamps the
+    # backing Artifact's id + artifact type onto the payload. Only a
+    # UUID-shaped artifact id is dispatched; anything else is treated as
+    # absent (an artifact-scoped write needs a real owner FK).
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_artifact_id(payload: dict) -> "str | None":
+        """Return the payload's ``artifact_id`` as a UUID string, or ``None``."""
+        raw_artifact_id = payload.get("artifact_id")
+        if not raw_artifact_id:
+            return None
+        try:
+            return str(UUID(str(raw_artifact_id)))
+        except (TypeError, ValueError, AttributeError):
+            logger.warning(
+                "MemoryProjector: ignoring non-UUID artifact_id %r in payload",
+                raw_artifact_id,
+            )
+            return None
+
+    @staticmethod
+    def _resolve_entity_type(payload: dict) -> str:
+        """Return the payload's ``entity_type`` (artifact type), or ``""``."""
+        return str(payload.get("entity_type") or "")
 
     # ------------------------------------------------------------------
     # Interaction-text extraction

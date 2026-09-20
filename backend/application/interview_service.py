@@ -671,17 +671,24 @@ class InterviewService(ServiceBase):
         audit_logger = LlmAuditLogger()
         entity_id = str(session.id)
 
-        template = AiDerivationService._get_template_content(
-            ctx, GROUNDING_RANK_PROMPT_TEMPLATE_NAME, workspace_id=session.workspace_id
-        )
         answers_text = "\n".join(
             f"{name}: {value}" for name, value in session.collected_fields.items()
         )
         candidates_json = json.dumps(
             [{"artifact_id": c["artifact_id"], "title": c["title"]} for c in candidates]
         )
-        prompt = AiDerivationService._render(
-            template, answers_text=answers_text, candidates_json=candidates_json
+        # RFC #1002 PR C: routed through _resolve_and_render so the slot's
+        # declared {memory_context} is auto-injected by the central resolver
+        # (this flow used to render the raw template, which would now leave
+        # the placeholder literal).
+        prompt = AiDerivationService._resolve_and_render(
+            ctx,
+            GROUNDING_RANK_PROMPT_TEMPLATE_NAME,
+            session.workspace_id,
+            answers_text=answers_text,
+            candidates_json=candidates_json,
+            artifact_id=session.artifact_id,
+            entity_type=session.artifact_type or "",
         )
 
         # REQ-106: per-tenant daily token budget, checked here for the same
@@ -1599,8 +1606,15 @@ class InterviewService(ServiceBase):
         # Best-effort retrieval-augmentation (memory plan Task 6): degrades to
         # "" on any backend failure, never blocks the chat turn (see
         # build_memory_context's own docstring for the Fehlerfälle contract).
+        # RFC #1002 PR C: the session's backing Artifact (single mode only)
+        # is passed so artifact-scoped memory is searched and rendered first.
         memory_context = build_memory_context(
-            ctx.tenant_id, session.workspace_id, ctx.user_id, user_message
+            ctx.tenant_id,
+            session.workspace_id,
+            ctx.user_id,
+            user_message,
+            artifact_id=session.artifact_id,
+            entity_type=session.artifact_type or "",
         )
         template = AiDerivationService._get_template_content(ctx, "interview.chat_turn", session.workspace_id)
         prompt = AiDerivationService._render(
@@ -1717,6 +1731,17 @@ class InterviewService(ServiceBase):
                         # whole-branch review round-2 Finding A). Same fix
                         # shape as user_id above.
                         "tenant_id": str(ctx.tenant_id),
+                        # RFC #1002 PR C: the session's backing Artifact (the
+                        # FK target of InterviewSession.artifact; None for a
+                        # multi-mode session) plus the artifact_type the
+                        # protocol captures, so the consolidation pipeline can
+                        # scope facts to the artifact. `session.artifact_id`
+                        # is the Artifact PK column access -- the same id
+                        # space memory.models.MemoryEntry.artifact uses.
+                        "artifact_id": (
+                            str(session.artifact_id) if session.artifact_id else None
+                        ),
+                        "entity_type": session.artifact_type,
                     },
                 )
             )

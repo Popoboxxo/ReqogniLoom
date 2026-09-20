@@ -64,7 +64,9 @@ def test_the_decompose_prompt_is_a_registered_slot():
 def test_the_slot_declares_element_title_as_its_data_variable():
     spec = get_prompt_slots()["architecture_decompose_tree"]
 
-    assert spec.data_variables == ("element_title",)
+    # RFC #1002 PR C adds the auto-injected memory_context to every
+    # content-generating AI slot.
+    assert spec.data_variables == ("element_title", "memory_context")
 
 
 def test_the_factory_body_references_the_two_config_caps():

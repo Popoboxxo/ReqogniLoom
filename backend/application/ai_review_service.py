@@ -63,7 +63,12 @@ AI_REVIEW_PROMPT_TEMPLATE = (
     "what to do about them), and a 'finding_indices' array (the 'index' "
     "values — and ONLY the 'index' values — of the findings this package "
     "covers, taken from the list below; never invent an index that is not "
-    "in the list).\n\nFindings:\n{findings_json}"
+    "in the list).\n\n"
+    # RFC #1002 PR C: the memory block is injected by AiReviewService.review
+    # from build_memory_context (this template is a module constant, not a
+    # catalog slot, so it is wired directly rather than via the resolver).
+    "Relevant memory from earlier sessions (may be empty):\n{memory_context}"
+    "\n\nFindings:\n{findings_json}"
 )
 
 
@@ -247,7 +252,10 @@ class AiReviewService(ServiceBase):
 
         findings_payload = [self._finding_payload(fv) for fv in findings]
 
-        raw, provider_name, degraded = self._complete(findings_payload, workspace_id=str(workspace_id))
+        memory_context = self._build_memory_context(ctx, workspace_id, findings_payload)
+        raw, provider_name, degraded = self._complete(
+            findings_payload, workspace_id=str(workspace_id), memory_context=memory_context
+        )
         proposed = self._parse_packages(raw)
 
         by_index: Dict[int, AuditFindingView] = {fv.index: fv for fv in findings}
@@ -334,11 +342,49 @@ class AiReviewService(ServiceBase):
             return None
 
     # ------------------------------------------------------------------
+    # Internal — memory retrieval (RFC #1002 PR C)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_memory_context(
+        ctx: AuthContext,
+        workspace_id: str | UUID,
+        findings_payload: List[Dict[str, Any]],
+    ) -> str:
+        """Return the workspace/user memory block for this review, or ``""``.
+
+        Fail-open: memory is an enhancement, never a gate, so any backend
+        failure degrades to an empty context (mirrors
+        ``memory.context_builder.build_memory_context``'s contract). The
+        retrieval query is built from the findings themselves (capped), which
+        is the only topical text this flow has -- there is no single source
+        artifact.
+        """
+        try:
+            from memory.context_builder import build_memory_context
+
+            query_text = json.dumps(findings_payload)[:2000]
+            return build_memory_context(
+                ctx.tenant_id, UUID(str(workspace_id)), ctx.user_id, query_text
+            )
+        except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
+            logger.warning(
+                "audit.ai_review: memory context unavailable, continuing "
+                "without it: %s",
+                exc,
+            )
+            return ""
+
+    # ------------------------------------------------------------------
     # Internal — LLM plumbing (mirrors ArchitectureDecomposeService._complete_tree)
     # ------------------------------------------------------------------
 
     def _complete(
-        self, findings_payload: List[Dict[str, Any]], *, workspace_id: str
+        self,
+        findings_payload: List[Dict[str, Any]],
+        *,
+        workspace_id: str,
+        memory_context: str = "",
     ) -> Tuple[str, str, bool]:
         """Call the LLM provider for a package grouping (graceful degradation).
 
@@ -389,7 +435,8 @@ class AiReviewService(ServiceBase):
         )
 
         prompt = AI_REVIEW_PROMPT_TEMPLATE.format(
-            findings_json=json.dumps(findings_payload)
+            findings_json=json.dumps(findings_payload),
+            memory_context=memory_context,
         )
         # R5/R7 Sprache (systemaudit 2026-09-02): reuse AiDerivationService's
         # workspace-language directive (issue #795) rather than duplicating

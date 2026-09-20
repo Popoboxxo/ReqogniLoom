@@ -2331,6 +2331,18 @@ class LlmSettings(TenantScopedModel):
 
 # Read-only default prompt content. Kept at module level so the data migration
 # can seed identical values without importing model behaviour.
+#
+# RFC #1002 PR C: every content-generating default ends with the shared memory
+# section below. ``{memory_context}`` is a catalog data variable
+# (application.prompt_variables) that application.prompt_resolver.
+# resolve_and_render auto-computes when the slot declares it, so the factory
+# body can reference it without any caller having to supply it. Typo-safe:
+# ``render_template`` substitutes placeholders individually, so a tenant
+# template that omits it simply loses the memory block (REQ-046 precedent).
+_MEMORY_CONTEXT_SECTION = (
+    "\n\nRelevant memory from earlier sessions (may be empty):\n{memory_context}"
+)
+
 DEFAULT_NEED_TO_SYSREQ = (
     "Given the following stakeholder need, generate at most "
     "{max_requirements_per_need} system-level requirements — produce only as "
@@ -2338,6 +2350,7 @@ DEFAULT_NEED_TO_SYSREQ = (
     "measurable, and testable. Return a JSON array of objects with fields: "
     "title (string), description (string), rationale (string).\n\n"
     "Stakeholder Need:\nTitle: {need_title}\nDescription: {need_description}"
+    + _MEMORY_CONTEXT_SECTION
 )
 
 DEFAULT_SYSREQ_TO_ARCH_ASSIGN = (
@@ -2346,6 +2359,7 @@ DEFAULT_SYSREQ_TO_ARCH_ASSIGN = (
     "implementing it. Return a JSON array of architecture element IDs from the "
     "provided list.\n\nSystem Requirement:\n{req_title}: {req_description}\n\n"
     "Available Architecture Elements:\n{arch_elements_json}"
+    + _MEMORY_CONTEXT_SECTION
 )
 
 DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL = (
@@ -2356,6 +2370,7 @@ DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL = (
     "suggested_arch_element_id (string or null).\n\nParent Requirement:\n"
     "{req_title}: {req_description}\n\nArchitecture Elements at this level:\n"
     "{arch_elements_json}"
+    + _MEMORY_CONTEXT_SECTION
 )
 
 # Canonical slot registry — maps slot name → default content.
@@ -2370,6 +2385,7 @@ PROMPT_TEMPLATE_DEFAULTS: dict[str, str] = {
         "Write one concise MainGoal (2-4 sentences) that captures the "
         "shared intent of all listed Goals. Respond with the MainGoal "
         "text only, no preamble."
+        + _MEMORY_CONTEXT_SECTION
     ),
 }
 

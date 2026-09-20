@@ -44,7 +44,13 @@ def test_slots_report_their_declared_data_variables(ctx_workspace):
 
     slot = _slot(ctx, workspace.id, "testcase_derive")
 
-    assert set(slot["data_variables"]) == {"req_title", "req_description"}
+    # RFC #1002 PR C adds the auto-injected memory_context to every
+    # content-generating AI slot.
+    assert set(slot["data_variables"]) == {
+        "req_title",
+        "req_description",
+        "memory_context",
+    }
 
 
 def test_slots_report_the_config_variables_their_body_references(ctx_workspace):

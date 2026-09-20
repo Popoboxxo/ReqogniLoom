@@ -24,6 +24,15 @@ independent entries rather than risking a wrongly-superseded fact.
 actually schedules (mirrors the ``run_capability``/``_serialise`` split in
 ``llm_adapter/tasks.py``).
 
+RFC #1002 PR C (artifact scope + language enforcement): ``artifact_id``/
+``entity_type`` are optional trailing parameters. When a valid UUID artifact
+id is passed, the extraction prompt receives the artifact context and facts
+the extractor scopes ``"artifact"`` are written to the artifact slice with
+``entity_type`` as provenance. F11: when the workspace declares a language, a
+fact whose returned ``language`` is set and differs from it is dropped and
+counted in ``facts_rejected_language`` (a fact with no declared language is
+always accepted -- graceful degradation, never a hard gate).
+
 Tenant-context correction (see ``memory/backends.py``'s module docstring for
 the full story, and ``llm_adapter.tasks.run_capability``'s ``#444``/``#522``
 comments for the original bug this class mirrors): a bare
@@ -65,7 +74,7 @@ from memory.models import MemoryEntry
 
 logger = logging.getLogger(__name__)
 
-_VALID_SCOPES = ("workspace", "user")
+_VALID_SCOPES = ("workspace", "user", "artifact")
 
 #: Cosine-distance threshold below which an existing entry with DIFFERENT
 #: content than a newly-extracted fact is treated as a genuine contradiction
@@ -101,21 +110,97 @@ def _parse_facts(raw_llm_output: str) -> Optional[List[dict]]:
     return facts
 
 
+def _as_uuid(value: object) -> Optional[UUID]:
+    """Return *value* as a ``UUID``, or ``None`` when it is not UUID-shaped.
+
+    Mirrors ``memory.backends._maybe_uuid``: ``artifact_id`` arrives either
+    from the Celery task wrapper (a string uuid) or from direct callers (a
+    real ``UUID``), and the artifact scope must never be dispatched for a
+    non-UUID value.
+    """
+    if value is None:
+        return None
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _resolve_workspace_language(workspace_id: UUID) -> str:
+    """Return ``Workspace.language`` for *workspace_id*, or ``""``.
+
+    ``""`` (unknown/empty workspace language) means "no language enforcement"
+    -- see ``consolidate_interaction``'s F11 handling. Must be called with a
+    tenant context active (the caller is already inside ``_tenant_context``).
+    """
+    from persistence.models import Workspace
+
+    language = (
+        Workspace.objects.filter(id=workspace_id)
+        .values_list("language", flat=True)
+        .first()
+    )
+    return (language or "").strip().lower()
+
+
+def _artifact_context(artifact_id: UUID, entity_type: str) -> str:
+    """Build the ``{artifact_context}`` text handed to the extraction prompt."""
+    if artifact_id is None:
+        return ""
+    if entity_type:
+        return f"artifact_id={artifact_id}, artifact_type={entity_type}"
+    return f"artifact_id={artifact_id}"
+
+
+def _empty_result() -> Dict[str, Any]:
+    """The all-zero result shape every early/empty return shares."""
+    return {
+        "artifact_facts_stored": 0,
+        "workspace_facts_stored": 0,
+        "user_facts_stored": 0,
+        "facts_rejected_language": 0,
+    }
+
+
 def consolidate_interaction(
-    tenant_id: UUID, workspace_id: UUID, user_id: UUID, interaction_text: str
+    tenant_id: UUID,
+    workspace_id: UUID,
+    user_id: UUID,
+    interaction_text: str,
+    artifact_id: "UUID | str | None" = None,
+    entity_type: str = "",
 ) -> Dict[str, Any]:
     """Extract durable facts from ``interaction_text`` and upsert them into memory.
 
     Pure function wrapped by :func:`consolidate_interaction_task` for Celery
     dispatch -- directly unit-testable without a worker.
 
+    The first four parameters keep their original positional signature
+    (backwards-compatible with existing callers/tests); ``artifact_id``/
+    ``entity_type`` (RFC #1002 PR C) are optional trailing additions. When
+    ``artifact_id`` is a valid UUID the extraction prompt receives the
+    artifact context and facts tagged ``"scope": "artifact"`` are written to
+    the artifact slice with ``entity_type`` set as provenance.
+
+    Language enforcement (F11): when the workspace declares a language, a fact
+    whose returned ``language`` is set and differs from it is dropped (not
+    stored) and counted in ``facts_rejected_language``. A fact with no
+    declared language is accepted -- graceful degradation, never a hard gate.
+
     Returns:
-        ``{"workspace_facts_stored": <int>, "user_facts_stored": <int>}``.
+        ``{"artifact_facts_stored": <int>, "workspace_facts_stored": <int>,
+        "user_facts_stored": <int>, "facts_rejected_language": <int>}``.
     """
     if not interaction_text or not interaction_text.strip():
-        return {"workspace_facts_stored": 0, "user_facts_stored": 0}
+        return _empty_result()
+
+    artifact_uuid = _as_uuid(artifact_id)
+    entity_type = str(entity_type or "")
 
     with _tenant_context(tenant_id):
+        workspace_language = _resolve_workspace_language(workspace_id)
         # System-level extraction call -- not tied to any single user's
         # AuthContext. resolve_and_render only reads ctx.tenant_id (template
         # + config-variable resolution are tenant/workspace-scoped, never
@@ -127,15 +212,21 @@ def consolidate_interaction(
             AuthContext.system(tenant_id=tenant_id),
             workspace_id,
             interaction_text=interaction_text,
+            artifact_context=_artifact_context(artifact_uuid, entity_type),
+            language=workspace_language,
         )
         raw_response = _call_llm(prompt)
         facts = _parse_facts(raw_response)
         if facts is None:
-            return {"workspace_facts_stored": 0, "user_facts_stored": 0}
+            return _empty_result()
 
         backend = get_memory_backend()
-        workspace_count = 0
-        user_count = 0
+        counts: Dict[str, int] = {
+            "artifact_facts_stored": 0,
+            "workspace_facts_stored": 0,
+            "user_facts_stored": 0,
+            "facts_rejected_language": 0,
+        }
         for fact in facts:
             if not isinstance(fact, dict):
                 continue
@@ -143,7 +234,23 @@ def consolidate_interaction(
             scope = fact.get("scope")
             if not content or scope not in _VALID_SCOPES:
                 continue
-            scope_id = workspace_id if scope == "workspace" else user_id
+            # An artifact-scoped fact without a resolvable artifact is
+            # unrepresentable in the unified store (the owner FK would be
+            # NULL) -- drop it rather than mis-file it under another scope.
+            if scope == "artifact" and artifact_uuid is None:
+                continue
+
+            fact_language = str(fact.get("language") or "").strip().lower()
+            if workspace_language and fact_language and fact_language != workspace_language:
+                counts["facts_rejected_language"] += 1
+                continue
+
+            if scope == "artifact":
+                scope_id = artifact_uuid
+            elif scope == "workspace":
+                scope_id = workspace_id
+            else:
+                scope_id = user_id
 
             existing = backend.query(tenant_id, scope, scope_id, content, top_k=1)
             if existing and existing[0].content == content:
@@ -151,7 +258,14 @@ def consolidate_interaction(
                 # three-way behaviour).
                 continue
 
-            new_ref = backend.write(tenant_id, scope, scope_id, content)
+            new_ref = backend.write(
+                tenant_id,
+                scope,
+                scope_id,
+                content,
+                language=fact_language,
+                entity_type=entity_type if scope == "artifact" else "",
+            )
 
             if (
                 existing
@@ -178,21 +292,33 @@ def consolidate_interaction(
             # else: unrelated content (case 3) -- the new entry created above
             # stands alone, no relation to any existing one.
 
-            if scope == "workspace":
-                workspace_count += 1
+            if scope == "artifact":
+                counts["artifact_facts_stored"] += 1
+            elif scope == "workspace":
+                counts["workspace_facts_stored"] += 1
             else:
-                user_count += 1
+                counts["user_facts_stored"] += 1
 
-        return {"workspace_facts_stored": workspace_count, "user_facts_stored": user_count}
+        return counts
 
 
 @shared_task(name="memory.consolidate_interaction")
 def consolidate_interaction_task(
-    tenant_id: str, workspace_id: str, user_id: str, interaction_text: str
+    tenant_id: str,
+    workspace_id: str,
+    user_id: str,
+    interaction_text: str,
+    artifact_id: "str | None" = None,
+    entity_type: str = "",
 ) -> Dict[str, Any]:
     """Celery entry point -- deserialises string ids, delegates to the pure function."""
     return consolidate_interaction(
-        UUID(str(tenant_id)), UUID(str(workspace_id)), UUID(str(user_id)), interaction_text
+        UUID(str(tenant_id)),
+        UUID(str(workspace_id)),
+        UUID(str(user_id)),
+        interaction_text,
+        _as_uuid(artifact_id),
+        entity_type or "",
     )
 
 

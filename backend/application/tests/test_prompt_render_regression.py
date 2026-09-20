@@ -194,12 +194,21 @@ def test_legacy_render_produces_the_expected_literal_substitution():
 def test_config_injection_does_not_alter_a_body_without_config_placeholders(
     ctx_workspace,
 ):
-    """Auto-injection is additive: bodies that reference no config var are unchanged."""
+    """Auto-injection is additive: bodies that reference no config var are unchanged.
+
+    RFC #1002 PR C: the factory body now also carries the ``{memory_context}``
+    placeholder, which the resolver auto-fills with the memory block (empty
+    here -- no memory was stored). The legacy ``_render`` path is therefore
+    called with the same empty value so this still isolates *config*
+    injection as the only difference.
+    """
     ctx, workspace = ctx_workspace
     svc = AiDerivationService()
 
     body = resolve_template_content("testcase_derive", ctx, workspace.id)
-    legacy = svc._render(body, req_title="T", req_description="D")
+    legacy = svc._render(
+        body, req_title="T", req_description="D", memory_context=""
+    )
     injected = svc._resolve_and_render(
         ctx, "testcase_derive", workspace.id, req_title="T", req_description="D"
     )
