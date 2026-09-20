@@ -136,6 +136,14 @@ export interface WorkspaceTreeNode {
   id: string;
   name: string;
   parentId: string | null;
+  /**
+   * Readable local identifier (`uid`, issue #932), e.g. "REQ-001". Rendered
+   * as a muted, mono prefix before the name when present, so Needs and
+   * Architecture trees show the same handle the artifact lists do. Omitted for
+   * artifact types without a uid (Goals, Diagrams, ICDs, Interviews) and for
+   * legacy rows whose uid has not been backfilled yet.
+   */
+  identifier?: string | null;
   /** Architecture level string, e.g. "L0", "L1". Required for showLevelBadge. */
   level?: string;
   /** Optional badge shown right of the name (status, type, …). */
@@ -1227,6 +1235,18 @@ function TreeRow({
         </div>
       ) : (
         <>
+          {/* Readable identifier (issue #932). Muted mono prefix so rows align
+              and the uid — not the opaque UUID — is the scannable handle. */}
+          {node.identifier && (
+            <span
+              data-testid={`${testIdPrefix}-identifier-${node.id}`}
+              className={styles.nodeIdentifier}
+              title={node.identifier}
+            >
+              {node.identifier}
+            </span>
+          )}
+
           {/* Node name */}
           <span
             style={{
