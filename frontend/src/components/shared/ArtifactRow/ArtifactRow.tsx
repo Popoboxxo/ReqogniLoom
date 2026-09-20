@@ -3,11 +3,11 @@
  *
  * The artifact list row. Issue #807 changed the reading order: the **title
  * leads** and the identifier becomes a clearly-labelled *secondary*
- * reference on the line below (`ID <short-id>`), because #932 settled that
- * `uid` is a read-only *import* key, not an auto-generated readable
- * identifier — for artifacts without an imported uid the only stable handle
- * is the opaque UUID prefix, and leading with that hash made the list a hash
- * register instead of a work instrument. The status stays top-right
+ * reference on the line below (`ID <uid>`). Since #932 the uid is an
+ * auto-generated, readable identifier (e.g. "REQ-001"), not an import-only
+ * key; `idFallback` (the opaque UUID prefix) remains only for legacy rows
+ * whose uid has not been allocated yet. Leading with that hash made the list a
+ * hash register instead of a work instrument. The status stays top-right
  * (colour-coded, the *only* colour-coded element per row per ch. 3.3/8.1);
  * version sits outside it, further right, and only from v2 on (ch. 12.4 —
  * "v1" on every row is noise).
