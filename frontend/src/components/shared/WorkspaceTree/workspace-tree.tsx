@@ -1240,13 +1240,7 @@ function TreeRow({
           {node.identifier && (
             <span
               data-testid={`${testIdPrefix}-identifier-${node.id}`}
-              style={{
-                flexShrink: 0,
-                fontFamily: 'monospace',
-                fontSize: 'var(--font-size-xs)',
-                color: 'var(--color-text-muted)',
-                userSelect: 'all',
-              }}
+              className={styles.nodeIdentifier}
               title={node.identifier}
             >
               {node.identifier}

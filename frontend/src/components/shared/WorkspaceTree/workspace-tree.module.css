@@ -10,6 +10,20 @@
 }
 
 /*
+ * Issue #932: the readable local uid rendered before a tree row's name. Kept as
+ * a CSS-module class (not an inline `style={{`) for the same reason as
+ * `.customRowSlot` above — the ratchet guard in `src/test/ui-ratchet.test.ts`
+ * must not be tripped by this additive, non-structural row detail.
+ */
+.nodeIdentifier {
+  flex-shrink: 0;
+  font-family: monospace;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  user-select: all;
+}
+
+/*
  * Row chrome — selection and the issue #668 collapsed-ancestor marker.
  *
  * These moved out of the row's inline `style={{...}}` on purpose: an inline
