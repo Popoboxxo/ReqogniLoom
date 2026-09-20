@@ -90,8 +90,10 @@ def test_validation_applies_without_any_preset_config_row(env):
 def test_a_retired_link_type_is_rejected(env):
     svc = TraceLinkService()
     arch, req = env["artifact"]("ArchitectureElement"), env["artifact"]("Requirement")
-    with pytest.raises(ValidationError, match="Unknown link type 'satisfies'"):
-        svc.create_trace_link(arch.id, req.id, "satisfies", env["ctx"])
+    # `implements` has no built-in successor (#950 re-introduced `satisfies`,
+    # `realizes` and `refines`, so those are valid keys again).
+    with pytest.raises(ValidationError, match="Unknown link type 'implements'"):
+        svc.create_trace_link(arch.id, req.id, "implements", env["ctx"])
 
 
 @pytest.mark.django_db

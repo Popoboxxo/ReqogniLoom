@@ -1,9 +1,10 @@
-"""The eight built-in link types — Startbelegung of the tenant catalog.
+"""The eleven built-in link types — Startbelegung of the tenant catalog.
 
 Single source of truth for three consumers that must never drift apart:
-the seed/backfill migration (``0003_seed_builtin_link_types``), workspace
-provisioning (``link_types.workspace_store.provision_workspace_link_types``),
-and the tests that pin the spec table.
+the seed/backfill migrations (``0003_seed_builtin_link_types`` and
+``0008_seed_satisfaction_link_types``), workspace provisioning
+(``link_types.workspace_store.provision_workspace_link_types``), and the tests
+that pin the spec table.
 
 This module is deliberately import-free (no Django, no models) so a migration
 can import it without triggering app-registry side effects.
@@ -13,10 +14,13 @@ Direction conventions, authoritative for every ``allowed_pairs`` entry below
 
     decomposes     source = parent (the decomposed)   target = child
     derives-from   source = child (the derived)       target = parent
+    refines        source = refining (lower-level)    target = refined
     allocated-to   source = Requirement               target = ArchitectureElement
     verifies       source = TestCase                  target = Requirement/Arch
     mitigates      source = Risk                      target = Requirement/Arch
     decides        source = Adr                       target = anything
+    satisfies      source = Requirement               target = Goal
+    realizes       source = Requirement               target = Goal
     references     source = anything                  target = a reference entity
     diagram-ref    source = Diagram                   target = anything
 
@@ -44,6 +48,13 @@ SUSPECT_RULES: frozenset[str] = frozenset(
 #: Old link-type key -> new key. ``None`` means the type is retired without a
 #: successor (``parent-child`` is deduplicated into ``decomposes`` by the data
 #: migration; ``copy-of`` moves into ``Artifact.copied_from``).
+#:
+#: Historical, migration-only (``link_types.migration_ops``): it describes what
+#: the pre-consolidation rows became, not a live normalisation. Note that three
+#: of these keys — ``satisfies``, ``refines``, ``realizes`` — were **re-introduced
+#: as built-ins with new semantics** by issue #950 (Requirement -> Goal and
+#: Requirement -> Requirement), so the mapping must never be applied to a link
+#: created under the current catalog.
 LEGACY_LINK_TYPE_MAPPING: dict[str, str | None] = {
     "parent-child": None,
     "satisfies": "allocated-to",
@@ -116,6 +127,87 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
         "coverage_relevant": False,
         "suspect_rule": "parent_change_flags_children",
         "impact_weight": 1.0,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    # Issue #950: the three SE validation/satisfaction semantics the catalog was
+    # missing. `refines`, `satisfies` and `realizes` were *retired* by the
+    # link-type consolidation (their old rows migrated to derives-from /
+    # allocated-to / decomposes, see LEGACY_LINK_TYPE_MAPPING); they return here
+    # as new built-ins with narrower, explicit pairs.
+    "refines": {
+        "label": {
+            "de": {
+                "downstream": "verfeinert",
+                "upstream": "wird verfeinert durch",
+                "neutral": "Verfeinerung",
+            },
+            "en": {
+                "downstream": "refines",
+                "upstream": "is refined by",
+                "neutral": "Refinement",
+            },
+        },
+        # Same direction as `derives-from` (source is the refining, lower-level
+        # requirement), but a *weaker* claim: refinement is not a derivation, so
+        # it carries no coverage obligation.
+        "allowed_pairs": _pairs(("Requirement", "Requirement")),
+        "coverage_relevant": False,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 0.8,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "satisfies": {
+        "label": {
+            "de": {
+                "downstream": "erfüllt",
+                "upstream": "wird erfüllt von",
+                "neutral": "Erfüllung",
+            },
+            "en": {
+                "downstream": "satisfies",
+                "upstream": "is satisfied by",
+                "neutral": "Satisfaction",
+            },
+        },
+        # ISO 15288 / 29148 validation chain: which requirement satisfies which
+        # stakeholder Goal. Coverage-relevant, unlike the generic `references`
+        # link that used to be the only way to express it. The legacy
+        # `satisfies` (ArchitectureElement -> Requirement) is unrelated.
+        "allowed_pairs": _pairs(("Requirement", "Goal")),
+        "coverage_relevant": True,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 1.0,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "realizes": {
+        "label": {
+            "de": {
+                "downstream": "realisiert",
+                "upstream": "wird realisiert durch",
+                "neutral": "Realisierung",
+            },
+            "en": {
+                "downstream": "realizes",
+                "upstream": "is realized by",
+                "neutral": "Realization",
+            },
+        },
+        # The *realization* claim (a requirement realizes a Goal), deliberately
+        # distinct from `satisfies`: it is not the coverage-relevant validation
+        # edge, so the goal-satisfaction audit keys on `satisfies` alone.
+        "allowed_pairs": _pairs(("Requirement", "Goal")),
+        "coverage_relevant": False,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 0.8,
         "manual_creatable": True,
         "system_owned": False,
         "active": True,

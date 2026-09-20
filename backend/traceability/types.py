@@ -17,15 +17,17 @@ from typing import Optional
 
 
 # ---------------------------------------------------------------------------
-# Link-Type Enum — the eight built-in keys of ``link_types/builtin.py``.
-# The ten legacy members (parent-child, satisfies, implements, refines,
-# realizes, documents, traces, uses-term, copy-of) were retired by the
-# link-type consolidation; ``link_types.builtin.LEGACY_LINK_TYPE_MAPPING``
-# records what each one became and the data migration moved the rows.
+# Link-Type Enum — the eleven built-in keys of ``link_types/builtin.py``.
+# The legacy members (parent-child, implements, documents, traces, uses-term,
+# copy-of) were retired by the link-type consolidation;
+# ``link_types.builtin.LEGACY_LINK_TYPE_MAPPING`` records what each one became
+# and the data migration moved the rows. ``satisfies``/``realizes``/``refines``
+# were also retired then, but issue #950 re-introduced them as built-ins with
+# new pairs (Requirement -> Goal / Requirement -> Requirement).
 # ---------------------------------------------------------------------------
 
 class LinkType(str, Enum):
-    """Convenience symbols for the eight built-in keys.
+    """Convenience symbols for the eleven built-in keys.
 
     **NOT the validation authority** — that is
     :func:`link_types.catalog.resolve_catalog` /
@@ -56,6 +58,13 @@ class LinkType(str, Enum):
     # Codeberg #353 Task 3: Reconciler-owned only (Codeberg #353) — never
     # hand-authored, never touched by manual trace-link CRUD.
     DIAGRAM_REF = "diagram-ref"
+    # Issue #950: re-introduced after the consolidation retired the legacy keys
+    # of the same names. `refines` is Requirement -> Requirement; `satisfies`
+    # and `realizes` are Requirement -> Goal (only `satisfies` is
+    # coverage-relevant — the ISO 15288/29148 validation edge).
+    REFINES = "refines"
+    SATISFIES = "satisfies"
+    REALIZES = "realizes"
 
     @classmethod
     def values(cls) -> frozenset[str]:

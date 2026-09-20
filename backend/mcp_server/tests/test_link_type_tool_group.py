@@ -86,7 +86,7 @@ def test_list_returns_the_workspace_catalog(group, env):
         api_key="k",
     )
     assert result.success is True
-    assert len(result.data["link_types"]) == 8
+    assert len(result.data["link_types"]) == 11
 
 
 @pytest.mark.django_db

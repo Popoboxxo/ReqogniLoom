@@ -32,10 +32,10 @@ def store():
 
 
 @pytest.mark.django_db
-def test_provisioning_creates_all_eight_types(tenant_id):
+def test_provisioning_creates_all_builtin_types(tenant_id):
     ws = uuid.uuid4()
     created = provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
-    assert created == 8
+    assert created == len(BUILTIN_LINK_TYPES)
     assert set(resolve_catalog(ws)) == set(BUILTIN_LINK_TYPES)
 
 
@@ -44,7 +44,10 @@ def test_provisioning_is_idempotent(tenant_id):
     ws = uuid.uuid4()
     provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id)
     assert provision_workspace_link_types(workspace_id=ws, tenant_id=tenant_id) == 0
-    assert WorkspaceLinkTypeDefinition.objects.filter(workspace_id=ws).count() == 8
+    assert (
+        WorkspaceLinkTypeDefinition.objects.filter(workspace_id=ws).count()
+        == len(BUILTIN_LINK_TYPES)
+    )
 
 
 @pytest.mark.django_db

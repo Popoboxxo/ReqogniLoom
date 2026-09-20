@@ -153,7 +153,7 @@
               <button type="button" class="acc-trigger" id="acc-trace-t" aria-controls="acc-trace-p" aria-expanded="true" data-testid="acc-trigger-trace" data-i18n="cap.trace.title">Traceability</button>
             </h3>
             <div class="acc-panel" id="acc-trace-p" role="region" aria-labelledby="acc-trace-t">
-              <p data-i18n="cap.trace.body">Automatic and manual linking between requirements, architecture elements and test cases with 8 core link types (tenant-extensible catalog), coverage aggregation and an interactive impact analysis across both directions.</p>
+              <p data-i18n="cap.trace.body">Automatic and manual linking between requirements, architecture elements and test cases with 11 core link types (tenant-extensible catalog), coverage aggregation and an interactive impact analysis across both directions.</p>
             </div>
           </div>
 
@@ -394,7 +394,7 @@
     <section class="section reveal" id="link-types" aria-labelledby="linktypes-title">
       <div class="wrap">
         <p class="eyebrow" data-i18n="links.eyebrow">Trace-link types</p>
-        <h2 class="section-title" id="linktypes-title" data-i18n="links.title">8 core link types, tenant-extensible</h2>
+        <h2 class="section-title" id="linktypes-title" data-i18n="links.title">11 core link types, tenant-extensible</h2>
         <p class="section-lead" data-i18n="links.lead">Each link type carries a meaning, so a traceability matrix says more than "these two artifacts are related". Every tenant can add its own types on top of the core catalog.</p>
 
         <div class="grid grid-4 link-grid" data-testid="link-types">
@@ -407,6 +407,21 @@
             <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v6M12 10H6v6M12 10h6v6"></path></svg></span>
             <h3>decomposes</h3>
             <p data-i18n="links.decomposes.desc">The target is a decomposition of the source — one artifact becomes many.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h10M10 8l4 4-4 4M18 6v12"></path></svg></span>
+            <h3>refines</h3>
+            <p data-i18n="links.refines.desc">A requirement refines a higher-level one — a refinement without the derivation obligation.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="12" r="2.5"></circle><path d="M8.5 12h7"></path></svg></span>
+            <h3>satisfies</h3>
+            <p data-i18n="links.satisfies.desc">A requirement satisfies a stakeholder goal — the coverage-relevant validation chain.</p>
+          </article>
+          <article class="card link-card">
+            <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"></circle><path d="M8.5 12H18"></path><path d="M15 9l3 3-3 3"></path></svg></span>
+            <h3>realizes</h3>
+            <p data-i18n="links.realizes.desc">A requirement realizes a goal — the implementation claim, distinct from satisfaction.</p>
           </article>
           <article class="card link-card">
             <span class="link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8M12 12V6h7v12h-7v-6"></path></svg></span>

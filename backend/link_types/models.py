@@ -27,7 +27,7 @@ from persistence.models import TenantScopedModel
 class GlobalLinkTypeDefinition(TenantScopedModel):
     """Tenant-wide link-type template. Exactly one row per ``(tenant, key)``.
 
-    ``key`` is either one of the eight built-in keys or a tenant-invented one
+    ``key`` is either one of the eleven built-in keys or a tenant-invented one
     (e.g. ``"conflicts-with"``). ``version`` (inherited) is the optimistic-lock
     counter.
     """

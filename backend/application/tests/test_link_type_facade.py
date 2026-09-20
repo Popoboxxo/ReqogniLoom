@@ -42,15 +42,18 @@ def env(db):
 
 
 @pytest.mark.django_db
-def test_list_global_returns_the_eight_seeded_types(env):
+def test_list_global_returns_the_eleven_seeded_types(env):
     rows = LinkTypeFacade().list_global(env["admin"])
     assert {row["key"] for row in rows} == {
         "derives-from",
         "decomposes",
+        "refines",
         "allocated-to",
         "verifies",
         "decides",
         "mitigates",
+        "satisfies",
+        "realizes",
         "references",
         "diagram-ref",
     }
