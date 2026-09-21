@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.14] — 2026-09-21
+
+### Added
+- **Unified workspace memory store (RFC #1002):** the platform's long-term memory now lives in a single `mem_memory_entry` table under row-level-security instead of split stores; every create path writes a provenance record (scope, owner, workspace, artifact link, source) so the `user`, `workspace` and `artifact` scopes share one persistence and retrieval contract (PR #1020)
+- **Memory service, policy and transport surface (RFC #1002):** the `MemoryEntryService` façade (ADR-01) is now reachable over REST and MCP — six `memory.*` tools (`memory.write`, `memory.get`, `memory.digest`, `memory.query`, `memory.list`, `memory.forget`) and sixteen `/api/v1/` routes covering workspace entries/search/digest, artifact memory/digest, global entry detail/promote, the self-service `memory/me/`, workspace and system memory settings, the system workspace overview and projection, and entry export. Writes are rate-limited through `MEMORY_WRITE_RATE_LIMIT_PER_HOUR` (default 60); the active backend is selected by `MEMORY_BACKEND` (`pgvector` default, `honcho` optional) (PR #1022)
+- **Artifact-scope memory and prompt injection (RFC #1002):** artifacts now own memory, and `prompt_resolver` feeds the resolved entries into the prompt through `memory/context_builder.py`, which emits the sections `Artifact context:`, `Workspace context:` and `User context:` in artifact-first order and fails open when memory is unavailable (PR #1023)
+- **Memory UI (RFC #1002):** a workspace memory view and an artifact memory panel expose the entries, the consolidated digests and a degraded-backend banner in the SPA (PR #1024)
+- **Honcho backend — sessions, deriver and `digest` (RFC #1002 F6):** the optional `honcho` profile gains its session/deriver wiring and the consolidated `digest` capability behind `MEMORY_BACKEND=honcho` (PR #1025)
+
+### Fixed
+- **Degraded memory signalling (RFC #1002):** `backend/memory/health.py` returns one envelope `{backend, ok, detail, degraded, digest_available}` on every memory response, the same state surfaces as the `memory_backend` component of `GET /api/v1/admin/health/`, and the UI banner reports an unavailable backend instead of a false `ok` (PRs #1022, #1024)
+
+### Changed
+- **MCP tool catalogue corrected to 215:** the documented tool count across the distribution and the docs now reflects the real 215-tool catalogue, and `.playwright-mcp/` is ignored so local browser-tool state cannot leak into the repository (PR #1026)
+- **`x-opencode-session` header and container-DNS runbook:** the `opencode_go` provider attaches the `x-opencode-session` header only when `LLM_OPENCODE_SESSION` is set (unset ⇒ no header, the default), and `deploy/README.md` documents how to fix LLM calls that fail with `ConnectError` from the backend container's DNS (PR #1027)
+- **Release reporting (v1.8.0-beta.13):** the beta.13 release report is finalised with the shipped tag, pre-release and GHCR publish evidence (PR #1017)
+
 ## [1.8.0-beta.13] — 2026-09-20
 
 ### Added
