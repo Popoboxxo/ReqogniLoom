@@ -97,7 +97,7 @@ context_file:
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
-    Artefakt-Zerlegung, REST API + nativem MCP Server (31 Tool-Gruppen-Präfixe, 188
+    Artefakt-Zerlegung, REST API + nativem MCP Server (31 Tool-Gruppen-Präfixe, 215
     Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation,
     11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes),
     3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
@@ -206,7 +206,7 @@ variables:
     Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection)
     e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) '
   KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets
-    + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 31 Tool-Gruppen-Präfixen und 188
+    + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 31 Tool-Gruppen-Präfixen und 215
     Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung
     (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/
     ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security
