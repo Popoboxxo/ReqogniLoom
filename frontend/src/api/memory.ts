@@ -6,9 +6,11 @@
  *
  *   GET|POST /workspaces/{ws}/memory/entries/     list / create (workspace scope)
  *   GET      /workspaces/{ws}/memory/search/      semantic search
+ *   GET      /workspaces/{ws}/memory/digest/      consolidated digest (F6)
  *   GET|DELETE /memory/entries/{entry_id}/        detail / forget
  *   POST     /memory/entries/{entry_id}/promote/  user -> workspace promote
  *   GET|POST /artifacts/{artifact_id}/memory/     artifact-scoped list / create
+ *   GET      /artifacts/{artifact_id}/memory/digest/  artifact digest (F6)
  *   GET|DELETE /memory/me/                        own user-scoped overview / purge
  *   GET      /system/memory/workspaces/           System-Admin workspace overview
  *   DELETE   /system/memory/workspaces/{ws}/      System-Admin workspace purge
@@ -82,6 +84,22 @@ export interface MemorySearchResult extends MemoryEnvelope {
   items: MemoryEntry[];
   query: string;
   scopes: MemoryScope[];
+}
+
+/**
+ * Consolidated digest of one memory scope (RFC #1002 F6 / Phase 3).
+ *
+ * Unlike the entry/search envelopes this is not paginated: the LLM-written
+ * `digest` is a single Markdown-ish text block, `generated_at` is its
+ * ISO-8601 creation timestamp and `backend` names the provider that produced
+ * it (`"honcho"` | `"pgvector"`). An empty `digest` means "nothing summarized
+ * yet", which is a normal state, not an error.
+ */
+export interface MemoryDigest {
+  digest: string;
+  generated_at: string;
+  backend: string;
+  degraded: boolean;
 }
 
 /** `GET /memory/me/` overview; `entries` only present with `include_entries`. */
@@ -315,6 +333,13 @@ export const memoryApi = {
     );
   },
 
+  /** GET /workspaces/{ws}/memory/digest/ — consolidated workspace digest. */
+  getWorkspaceDigest(workspaceId: UUID): Promise<MemoryDigest> {
+    return apiClient.get<MemoryDigest>(
+      `/workspaces/${workspaceId}/memory/digest/`
+    );
+  },
+
   // -- entry detail ------------------------------------------------------
 
   /** GET /memory/entries/{entry_id}/ — one entry's full provenance view. */
@@ -357,6 +382,11 @@ export const memoryApi = {
       page_size: query.page_size,
     });
     return apiClient.get<MemoryEntryPage>(`/artifacts/${artifactId}/memory/${qs}`);
+  },
+
+  /** GET /artifacts/{artifact_id}/memory/digest/ — consolidated artifact digest. */
+  getArtifactDigest(artifactId: UUID): Promise<MemoryDigest> {
+    return apiClient.get<MemoryDigest>(`/artifacts/${artifactId}/memory/digest/`);
   },
 
   /** POST /artifacts/{artifact_id}/memory/ — create an artifact-scoped fact. */
