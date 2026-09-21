@@ -31,6 +31,7 @@ _OVERRIDABLE_FIELDS = (
     "embedding_timeout",
     "memory_backend",
     "honcho_base_url",
+    "memory_write_rate_limit_per_hour",
 )
 
 # Free-text override fields: an empty string here means "no override", not

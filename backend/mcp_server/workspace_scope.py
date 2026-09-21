@@ -241,10 +241,17 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
 #:   ``_check_workspace_membership()``, whose own docstring cites this exact
 #:   bug class ("any API key valid for tenant T could ..."). Workspace-scoped
 #:   entries are additionally re-checked per row before they are returned.
+#: * ``memory.get`` (RFC #1002 PR B) — names only an entry id; the handler
+#:   delegates to ``MemoryEntryService.get``, which applies ``MemoryPolicy``
+#:   (own user memory, any active role in the owning workspace, or a role in
+#:   the artifact's workspace). The workspace is resolved inside the service,
+#:   so the dispatcher cannot pre-resolve it — same "enforced by the handler"
+#:   class as the two above.
 TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
     {
         "memory.query",
         "memory.list",
+        "memory.get",
     }
 )
 

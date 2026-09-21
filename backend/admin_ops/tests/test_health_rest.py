@@ -130,10 +130,24 @@ class TestSystemHealthResponseShape:
             "llm_provider",
             "memory_embedding",
             "memory_backend",
+            "memory",
         ]
         for component in body["components"]:
-            assert set(component.keys()) == {"name", "status", "detail"}
+            assert {"name", "status", "detail"} <= set(component.keys())
             assert component["status"] in {"ok", "degraded", "down", "unknown"}
+
+        # RFC #1002 PR B: the dedicated ``memory`` component carries the
+        # structured backend envelope alongside the dashboard's status.
+        memory_component = next(c for c in body["components"] if c["name"] == "memory")
+        assert set(memory_component.keys()) == {
+            "name",
+            "status",
+            "detail",
+            "backend",
+            "ok",
+            "degraded",
+        }
+        assert isinstance(memory_component["degraded"], bool)
 
         # database check runs for real against the test DB and must be ok.
         db_component = next(c for c in body["components"] if c["name"] == "database")

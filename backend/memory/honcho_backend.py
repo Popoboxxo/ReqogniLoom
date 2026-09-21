@@ -431,6 +431,10 @@ class HonchoMemoryBackend(MemoryBackend):
             if q:
                 qs = qs.filter(content__icontains=q)
             total = qs.count()
+            if limit <= 0:
+                # See PgvectorMemoryBackend.list_entries: bounds an admin caller
+                # that only wants the total without projecting ``content``.
+                return [], total
             rows = qs.order_by("-created_at")[max(0, offset) : max(0, offset) + max(0, limit)]
             return [_ref_from_entry(e) for e in rows], total
 

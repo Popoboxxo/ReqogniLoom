@@ -18,6 +18,16 @@ from persistence.tests.factories import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clear_health_cache():
+    """Keep the cached backend health from leaking between tests."""
+    from memory.health import invalidate_health_cache
+
+    invalidate_health_cache()
+    yield
+    invalidate_health_cache()
+
+
 def _superuser_and_token(tenant):
     """Create a Django superuser (also a tenant admin, as in a real
     deployment), log in for real, return ``(user, token)``.
@@ -969,24 +979,32 @@ class TestSystemMemoryProjectionRest:
             )
             assert response.status_code == 404
 
-    def test_happy_path_shape(self):
+    def test_happy_path_shape(self, monkeypatch):
+        # RFC #1002 PR B: the projection embeds CONTENT via
+        # ``application.memory_admin_service.generate_embedding``, not the raw
+        # pgvector column — patch that seam so clustering stays deterministic.
+        monkeypatch.setattr(
+            "application.memory_admin_service.generate_embedding",
+            lambda text: {
+                "a": _one_hot(0),
+                "b": _one_hot(0, tilt=0.05),
+                "c": _one_hot(200),
+            }.get(text),
+            raising=True,
+        )
         with active_tenant() as tenant:
             ws = make_workspace(tenant, name="Projection WS")
             MemoryEntry.objects.create(
-                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
-                content="a", embedding=_one_hot(0),
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="a",
             )
             MemoryEntry.objects.create(
-                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
-                content="b", embedding=_one_hot(0, tilt=0.05),
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="b",
             )
             MemoryEntry.objects.create(
-                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
-                content="c", embedding=_one_hot(200),
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="c",
             )
             MemoryEntry.objects.create(
-                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
-                content="pending", embedding=None,
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="pending",
             )
 
             response = _admin_client(tenant).get(
@@ -994,13 +1012,10 @@ class TestSystemMemoryProjectionRest:
             )
 
             assert response.status_code == 200
-            assert set(response.data) == {
-                "points",
-                "sampled",
-                "sample_size",
-                "total_size",
-                "excluded_no_embedding",
-            }
+            assert {"points", "sampled", "sample_size", "total_size", "excluded_no_embedding"} <= set(
+                response.data
+            )
+            assert {"backend", "degraded"} <= set(response.data)
             assert response.data["total_size"] == 3
             assert response.data["sample_size"] == 3
             assert response.data["sampled"] is False
@@ -1032,3 +1047,279 @@ class TestSystemMemoryProjectionRest:
             assert response.status_code == 200
             assert response.data["points"] == []
             assert response.data["total_size"] == 0
+
+
+# ---------------------------------------------------------------------------
+# RFC #1002 PR B � workspace/artifact/global entry surfaces
+# ---------------------------------------------------------------------------
+
+_WS_ENTRIES = "/api/v1/workspaces/{ws}/memory/entries/"
+_WS_SEARCH = "/api/v1/workspaces/{ws}/memory/search/"
+_ARTIFACT_MEMORY = "/api/v1/artifacts/{artifact}/memory/"
+_EXPORT_URL = "/api/v1/system/memory/entries/export/"
+
+
+def _client_for(token):
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    return client
+
+
+def _make_artifact(tenant, workspace):
+    from persistence.models import Artifact
+
+    return Artifact.objects.create(
+        tenant=tenant, workspace=workspace, artifact_type="Requirement"
+    )
+
+
+@pytest.mark.django_db
+class TestWorkspaceMemoryEntryRest:
+    def test_member_lists_and_editor_creates(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = _client_for(token)
+
+            created = client.post(
+                _WS_ENTRIES.format(ws=ws.id),
+                {"content": "team fact", "change_reason": "seed"},
+                format="json",
+            )
+            assert created.status_code == 201
+            assert created.data["scope"] == "workspace"
+            assert created.data["backend"] == "pgvector"
+            assert created.data["degraded"] is False
+
+            listed = client.get(_WS_ENTRIES.format(ws=ws.id))
+            assert listed.status_code == 200
+            assert listed.data["total"] == 1
+            assert listed.data["items"][0]["content"] == "team fact"
+            assert {"backend", "degraded"} <= set(listed.data)
+
+    def test_viewer_cannot_create(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            UserRole.unscoped.create(tenant=tenant, user=user, workspace=ws, role="viewer")
+            user.set_password(_FACTORY_PASSWORD)
+            user.save(update_fields=["password"])
+            viewer_token = _login_for_token(user.username, _FACTORY_PASSWORD)
+            client = _client_for(viewer_token)
+
+            response = client.post(
+                _WS_ENTRIES.format(ws=ws.id), {"content": "nope"}, format="json"
+            )
+            assert response.status_code == 403
+
+    def test_non_member_is_denied(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, workspace=None)
+            client = _client_for(token)
+            response = client.get(_WS_ENTRIES.format(ws=ws.id))
+            assert response.status_code in (403, 404)
+
+    def test_search_reports_the_envelope(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = _client_for(token)
+            client.post(_WS_ENTRIES.format(ws=ws.id), {"content": "dark mode"}, format="json")
+
+            response = client.get(f"{_WS_SEARCH.format(ws=ws.id)}?q=dark&scope=workspace")
+
+            assert response.status_code == 200
+            assert {"items", "query", "scopes", "backend", "degraded"} <= set(response.data)
+
+    def test_degraded_is_reported_when_backend_unhealthy(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        from memory.backends import MemoryHealth
+        from memory.health import invalidate_health_cache
+
+        monkeypatch.setattr(
+            "memory.health._probe",
+            lambda: MemoryHealth(ok=False, backend="pgvector", detail="boom", degraded=True),
+        )
+        invalidate_health_cache()
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).get(_WS_ENTRIES.format(ws=ws.id))
+            assert response.status_code == 200
+            assert response.data["degraded"] is True
+            assert response.data["items"] == []
+
+
+@pytest.mark.django_db
+class TestMemoryEntryDetailRest:
+    def test_owner_can_get_and_delete_own_entry(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            entry = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="mine"
+            )
+            client = _client_for(token)
+
+            fetched = client.get(f"/api/v1/memory/entries/{entry.id}/")
+            assert fetched.status_code == 200
+            assert fetched.data["content"] == "mine"
+            assert fetched.data["user_id"] == str(user.id)
+
+            deleted = client.delete(
+                f"/api/v1/memory/entries/{entry.id}/?change_reason=gdpr"
+            )
+            assert deleted.status_code == 200
+            assert deleted.data["deleted"] is True
+            assert "degraded" in deleted.data
+
+    def test_non_owner_cannot_delete(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            owner, _owner_token = editor_user_and_token(tenant, ws)
+            _other, other_token = editor_user_and_token(tenant, ws)
+            entry = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=owner, content="private"
+            )
+
+            response = _client_for(other_token).delete(f"/api/v1/memory/entries/{entry.id}/")
+            assert response.status_code == 403
+
+    def test_unknown_entry_returns_404(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).get(f"/api/v1/memory/entries/{uuid.uuid4()}/")
+            assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestMemoryEntryPromoteRest:
+    def test_editor_promotes_own_entry(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            entry = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="shareable"
+            )
+
+            response = _client_for(token).post(
+                f"/api/v1/memory/entries/{entry.id}/promote/",
+                {"workspace_id": str(ws.id)},
+                format="json",
+            )
+
+            assert response.status_code == 200
+            assert response.data["scope"] == "workspace"
+            entry.refresh_from_db()
+            assert str(entry.superseded_by_id) == response.data["entry_id"]
+
+    def test_promote_without_workspace_is_400(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            entry = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="x"
+            )
+            response = _client_for(token).post(
+                f"/api/v1/memory/entries/{entry.id}/promote/", {}, format="json"
+            )
+            assert response.status_code == 400
+
+
+@pytest.mark.django_db
+class TestArtifactMemoryRest:
+    def test_editor_can_create_and_list(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            artifact = _make_artifact(tenant, ws)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = _client_for(token)
+
+            created = client.post(
+                _ARTIFACT_MEMORY.format(artifact=artifact.id),
+                {"content": "artifact fact"},
+                format="json",
+            )
+            assert created.status_code == 201
+            assert created.data["artifact_id"] == str(artifact.id)
+
+            listed = client.get(_ARTIFACT_MEMORY.format(artifact=artifact.id))
+            assert listed.status_code == 200
+            assert listed.data["total"] == 1
+
+    def test_foreign_workspace_member_is_denied(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            foreign = make_workspace(tenant)
+            artifact = _make_artifact(tenant, ws)
+            _user, token = editor_user_and_token(tenant, foreign)
+
+            response = _client_for(token).post(
+                _ARTIFACT_MEMORY.format(artifact=artifact.id),
+                {"content": "nope"},
+                format="json",
+            )
+            assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestMemoryExportRest:
+    def test_admin_exports_json(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="export me"
+            )
+            response = _admin_client(tenant).get(_EXPORT_URL)
+            assert response.status_code == 200
+            assert response.data["count"] == 1
+            assert response.data["entries"][0]["content"] == "export me"
+            assert {"backend", "degraded"} <= set(response.data)
+
+    def test_admin_exports_csv(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws, content="export me"
+            )
+            response = _admin_client(tenant).get(f"{_EXPORT_URL}?format=csv")
+            assert response.status_code == 200
+            assert response["Content-Type"].startswith("text/csv")
+            assert b"export me" in response.content
+
+    def test_non_admin_is_denied(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).get(_EXPORT_URL)
+            assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestMemorySelfServiceEntries:
+    def test_include_entries_returns_own_entries(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            user, token = editor_user_and_token(tenant, workspace=None)
+            MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_USER, user=user, content="mine"
+            )
+            response = _client_for(token).get("/api/v1/memory/me/?include_entries=true")
+            assert response.status_code == 200
+            assert response.data["entry_count"] == 1
+            assert response.data["entries"][0]["content"] == "mine"
+            assert {"backend", "degraded"} <= set(response.data)

@@ -403,6 +403,44 @@ def _check_memory_backend() -> dict[str, str]:
         return {"name": "memory_backend", "status": STATUS_DOWN, "detail": str(exc)}
 
 
+def _check_memory() -> dict[str, Any]:
+    """RFC #1002 PR B ``memory`` component: ``{backend, ok, detail, degraded}``.
+
+    Uses the same cached helper (``memory.health.health_view``) that every REST
+    and MCP memory response uses, so this row and the per-response ``degraded``
+    flag can never disagree. ``status`` is derived from ``ok``/``degraded`` so
+    the component still fits the dashboard's ``ok/degraded/down`` vocabulary.
+    """
+    try:
+        from memory.health import health_view  # noqa: PLC0415
+
+        data = health_view()
+        if data["ok"] and not data["degraded"]:
+            status_value = STATUS_OK
+        elif data["ok"]:
+            status_value = STATUS_DEGRADED
+        else:
+            status_value = STATUS_DOWN
+        return {
+            "name": "memory",
+            "status": status_value,
+            "detail": data["detail"],
+            "backend": data["backend"],
+            "ok": data["ok"],
+            "degraded": data["degraded"],
+        }
+    except Exception as exc:  # noqa: BLE001 - never let the row break the snapshot
+        logger.warning("System health: memory check failed - %s", exc)
+        return {
+            "name": "memory",
+            "status": STATUS_DOWN,
+            "detail": str(exc),
+            "backend": "unknown",
+            "ok": False,
+            "degraded": True,
+        }
+
+
 def _recent_audit_events(limit: int = _RECENT_EVENTS_LIMIT) -> list[dict[str, Any]]:
     """Return the most recent audit-log entries, newest first.
 
@@ -452,7 +490,9 @@ class SystemHealthView(APIView):
             {"name": "mcp_server", "status": "ok", "detail": "..."},
             {"name": "llm_provider", "status": "ok", "detail": "..."},
             {"name": "memory_embedding", "status": "ok", "detail": "..."},
-            {"name": "memory_backend", "status": "ok", "detail": "..."}
+            {"name": "memory_backend", "status": "ok", "detail": "..."},
+            {"name": "memory", "status": "ok", "detail": "...",
+             "backend": "pgvector", "ok": true, "degraded": false}
           ],
           "recent_events": [ {...AuditEntry...}, ... ]
         }
@@ -493,6 +533,7 @@ class SystemHealthView(APIView):
             _check_llm_provider(),
             _check_memory_embedding(),
             _check_memory_backend(),
+            _check_memory(),
         ]
         return Response(
             {

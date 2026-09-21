@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 212,
+  "tool_count": 214,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -3957,13 +3957,32 @@
       "name": "memory.forget",
       "prefix": "memory",
       "is_write": true,
-      "description": "Delete a memory entry. Requires ownership (own user memory) or workspace-admin (workspace memory).",
+      "description": "Delete a memory entry. Requires ownership (own user memory) or workspace-admin (workspace/artifact memory).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "entry_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": "string"
+          },
+          "change_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "name": "memory.get",
+      "prefix": "memory",
+      "is_write": false,
+      "description": "Fetch one memory entry with its full provenance.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -3983,28 +4002,43 @@
             "type": "string",
             "enum": [
               "workspace",
-              "user"
+              "user",
+              "artifact"
             ]
           },
           "workspace_id": {
             "type": "string",
             "format": "uuid"
           },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "limit": {
             "type": "integer",
             "default": 20
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 25
+          },
+          "contributor_user_id": {
+            "type": "string",
+            "format": "uuid"
           }
         },
-        "required": [
-          "scope"
-        ]
+        "required": []
       }
     },
     {
       "name": "memory.query",
       "prefix": "memory",
       "is_write": false,
-      "description": "Semantic search over workspace or user-tenant-wide memory.",
+      "description": "Semantic search over one or more memory scopes (workspace, user, artifact).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4012,10 +4046,26 @@
             "type": "string",
             "enum": [
               "workspace",
-              "user"
+              "user",
+              "artifact"
             ]
           },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "workspace",
+                "user",
+                "artifact"
+              ]
+            }
+          },
           "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "artifact_id": {
             "type": "string",
             "format": "uuid"
           },
@@ -4028,8 +4078,48 @@
           }
         },
         "required": [
-          "scope",
           "query"
+        ]
+      }
+    },
+    {
+      "name": "memory.write",
+      "prefix": "memory",
+      "is_write": true,
+      "description": "Persist a memory fact. scope=user writes for the caller, workspace/artifact require Editor+ in the owning workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "user",
+              "artifact"
+            ]
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "confidence": {
+            "type": "number",
+            "default": 1.0
+          },
+          "change_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "scope"
         ]
       }
     },

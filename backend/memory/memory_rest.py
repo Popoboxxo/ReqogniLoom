@@ -62,10 +62,12 @@ method runs.
 """
 from __future__ import annotations
 
+import csv
 from typing import Any
 from uuid import UUID
 
 from django.db.models import Count, Max
+from django.http import HttpResponse
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -73,13 +75,80 @@ from rest_framework.views import APIView
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.memory_admin_service import MemoryAdminService
+from application.memory_entry_service import MemoryEntryService
 from application.memory_settings_service import MemorySettingsService
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
+from memory.health import envelope
 from memory.models import MemoryEntry, WorkspaceMemorySettings
+from memory.ratelimit import MemoryWriteRateLimitExceeded
 from persistence.models import User
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
+
+
+#: Upper bound on rows returned by the DSGVO export (Auskunftsanspruch). Large
+#: enough for a realistic tenant, bounded so the endpoint cannot stream an
+#: unbounded table into memory.
+EXPORT_MAX_ROWS = 5000
+
+
+def _parse_uuid_param(raw: Any, name: str) -> Any:
+    """Return *raw* as a ``UUID``, or ``None`` when absent; raise on malformed."""
+    if raw in (None, ""):
+        return None
+    try:
+        return UUID(str(raw))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValidationError(f"Invalid {name}: {raw!r}") from exc
+
+
+def _memory_error_response(exc: Exception, lang: str) -> Response:
+    """Map a memory-service exception onto the standard REST error body.
+
+    ``MemoryWriteRateLimitExceeded`` -> 429 with a ``Retry-After`` header;
+    permission -> 403; not found -> 404; validation -> 400. Anything else
+    re-raises (a genuine bug must not be masked as a 4xx).
+    """
+    if isinstance(exc, MemoryWriteRateLimitExceeded):
+        response = Response(
+            build_error_response(
+                "RATE_LIMITED",
+                lang,
+                details=[{"field": "limit", "errors": [exc.limit]}],
+                message=str(exc),
+            ),
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+        response["Retry-After"] = str(exc.retry_after)
+        return response
+    if isinstance(exc, PermissionDeniedError):
+        return Response(
+            build_error_response("PERMISSION_DENIED", lang, message=str(exc)),
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if isinstance(exc, NotFoundError):
+        return Response(
+            build_error_response("NOT_FOUND", lang, message=str(exc)),
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if isinstance(exc, ValidationError):
+        return Response(
+            build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    raise exc
+
+
+def _auth_or_401(request: Request, lang: str):
+    """Return the request's AuthContext, or a 401 Response."""
+    try:
+        return get_auth_context(request)
+    except Exception:  # noqa: BLE001 - any auth failure maps to 401 here
+        return Response(
+            build_error_response("AUTHENTICATION_REQUIRED", lang),
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
 
 
 def _is_system_admin(ctx) -> bool:
@@ -156,6 +225,12 @@ class SystemMemorySettingsWriteSerializer(serializers.Serializer):
     )
     honcho_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     honcho_api_key = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=512)
+    # RFC #1002 PR B: fixed-window write ratelimit for ``memory.write``.
+    # ``0`` is an explicit "unlimited" override; ``null`` clears the override so
+    # ``MEMORY_WRITE_RATE_LIMIT_PER_HOUR`` (default 60) wins again.
+    memory_write_rate_limit_per_hour = serializers.IntegerField(
+        required=False, allow_null=True, min_value=0
+    )
 
 
 def _with_env_fallback(effective: dict) -> dict:
@@ -172,6 +247,9 @@ def _with_env_fallback(effective: dict) -> dict:
         "embedding_timeout": int(os.environ.get("EMBEDDING_TIMEOUT", "10")),
         "memory_backend": os.environ.get("MEMORY_BACKEND", "pgvector"),
         "honcho_base_url": os.environ.get("HONCHO_BASE_URL"),
+        "memory_write_rate_limit_per_hour": int(
+            os.environ.get("MEMORY_WRITE_RATE_LIMIT_PER_HOUR", "60")
+        ),
     }
     out = dict(effective)
     for field, env_value in env_defaults.items():
@@ -379,7 +457,7 @@ class SystemMemoryWorkspaceOverviewView(APIView):
         # for API consumers/tests inspecting it directly).
         for row in overview:
             row["workspace_id"] = str(row["workspace_id"])
-        return Response({"results": overview})
+        return Response({"results": overview, **envelope()})
 
 
 class SystemMemoryWorkspaceDeleteView(APIView):
@@ -413,7 +491,7 @@ class SystemMemoryWorkspaceDeleteView(APIView):
                 build_error_response("NOT_FOUND", lang, message=str(exc)),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(result)
+        return Response({**result, **envelope()})
 
 
 class _SystemMemoryVisualizationView(APIView):
@@ -496,8 +574,7 @@ class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
             result = MemoryAdminService().list_entries(
                 ctx, scope=scope, workspace_id=workspace_id, page=page, page_size=page_size, q=q
             )
-        except PermissionDeniedError:
-            return Response(
+        except PermissionDeniedError:            return Response(
                 build_error_response("PERMISSION_DENIED", lang),
                 status=status.HTTP_403_FORBIDDEN,
             )
@@ -511,7 +588,7 @@ class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return Response(result)
+        return Response({**result, **envelope()})
 
 
 class SystemMemoryProjectionView(_SystemMemoryVisualizationView):
@@ -553,7 +630,298 @@ class SystemMemoryProjectionView(_SystemMemoryVisualizationView):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        return Response({**result, **envelope()})
+
+
+class WorkspaceMemoryEntriesView(APIView):
+    """``/api/v1/workspaces/<uuid:workspace_id>/memory/entries/``.
+
+    GET: any workspace member lists the workspace's live entries (default
+    ``scope=workspace``; ``scope=artifact`` needs ``artifact_id``). POST: Editor+
+    creates a workspace-scoped fact. Both delegate to
+    :class:`application.memory_entry_service.MemoryEntryService`, so the
+    response always carries ``backend`` + ``degraded`` (F9).
+    """
+
+    def get(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            artifact_id = _parse_uuid_param(request.query_params.get("artifact_id"), "artifact_id")
+            contributor_user_id = _parse_uuid_param(
+                request.query_params.get("contributor_user_id"), "contributor_user_id"
+            )
+            page = int(request.query_params.get("page", 1))
+            page_size = int(request.query_params.get("page_size", 25))
+        except (ValidationError, TypeError, ValueError) as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        scope = request.query_params.get("scope") or None
+        q = (request.query_params.get("q") or "").strip() or None
+        try:
+            result = MemoryEntryService().list(
+                ctx,
+                workspace_id=workspace_id,
+                scope=scope,
+                artifact_id=artifact_id,
+                contributor_user_id=contributor_user_id,
+                q=q,
+                page=page,
+                page_size=page_size,
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
         return Response(result)
+
+    def post(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        content = request.data.get("content")
+        try:
+            view = MemoryEntryService().write(
+                ctx,
+                content=content,
+                scope=MemoryEntry.SCOPE_WORKSPACE,
+                workspace_id=workspace_id,
+                confidence=request.data.get("confidence", 1.0),
+                change_reason=request.data.get("change_reason"),
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError, MemoryWriteRateLimitExceeded) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(view, status=status.HTTP_201_CREATED)
+
+
+class WorkspaceMemorySearchView(APIView):
+    """``/api/v1/workspaces/<uuid:workspace_id>/memory/search/``.
+
+    GET: semantic search. Query params: ``q`` (required), ``scope`` (single) or
+    ``scopes`` (comma-separated), ``artifact_id``, ``top_k``. Any workspace
+    member may read; the service applies the full ``MemoryPolicy`` matrix.
+    """
+
+    def get(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        query = (request.query_params.get("q") or "").strip()
+        raw_scopes = request.query_params.get("scopes")
+        scopes: Any
+        if raw_scopes:
+            scopes = [part.strip() for part in raw_scopes.split(",") if part.strip()]
+        else:
+            scopes = request.query_params.get("scope") or None
+        try:
+            artifact_id = _parse_uuid_param(request.query_params.get("artifact_id"), "artifact_id")
+            top_k = int(request.query_params.get("top_k", 5))
+        except (ValidationError, TypeError, ValueError) as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            result = MemoryEntryService().search(
+                ctx,
+                query=query,
+                scopes=scopes,
+                workspace_id=workspace_id,
+                artifact_id=artifact_id,
+                top_k=top_k,
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(result)
+
+
+class MemoryEntryDetailView(APIView):
+    """``/api/v1/memory/entries/<str:entry_id>/`` — GET / DELETE.
+
+    No workspace in the URL, so the coarse RbacPermission is deliberately
+    replaced by :class:`HasOperationPermission` (any authenticated caller) and
+    the real gate is ``MemoryPolicy`` on the resolved entry — a self-service
+    user with no workspace role can still read/delete their OWN memory.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    def get(self, request: Request, entry_id: str, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            view = MemoryEntryService().get(ctx, entry_id=entry_id)
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(view)
+
+    def delete(self, request: Request, entry_id: str, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        change_reason = request.query_params.get("change_reason") or request.data.get(
+            "change_reason"
+        )
+        try:
+            MemoryEntryService().forget(ctx, entry_id=entry_id, change_reason=change_reason)
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response({"deleted": True, **envelope()})
+
+
+class MemoryEntryPromoteView(APIView):
+    """``/api/v1/memory/entries/<str:entry_id>/promote/`` — user -> workspace.
+
+    Editor+ in the target workspace is required (enforced by ``MemoryPolicy``
+    inside the service). The target workspace is the body's ``workspace_id`` or
+    the active request workspace.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    def post(self, request: Request, entry_id: str, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            workspace_id = _parse_uuid_param(request.data.get("workspace_id"), "workspace_id")
+            view = MemoryEntryService().promote(
+                ctx,
+                entry_id=entry_id,
+                target_scope=request.data.get("target_scope", "workspace"),
+                workspace_id=workspace_id,
+                change_reason=request.data.get("change_reason"),
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError, MemoryWriteRateLimitExceeded) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(view)
+
+
+class ArtifactMemoryView(APIView):
+    """``/api/v1/artifacts/<uuid:artifact_id>/memory/`` — GET / POST.
+
+    Artifact-scoped memory. GET: any active role in the artifact's workspace.
+    POST: Editor+ in the artifact's workspace. The service resolves the
+    artifact's workspace and applies the matrix.
+    """
+
+    def get(self, request: Request, artifact_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            page = int(request.query_params.get("page", 1))
+            page_size = int(request.query_params.get("page_size", 25))
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="page and page_size must be integers."
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        q = (request.query_params.get("q") or "").strip() or None
+        try:
+            result = MemoryEntryService().list(
+                ctx,
+                scope=MemoryEntry.SCOPE_ARTIFACT,
+                artifact_id=artifact_id,
+                q=q,
+                page=page,
+                page_size=page_size,
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(result)
+
+    def post(self, request: Request, artifact_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            view = MemoryEntryService().write(
+                ctx,
+                content=request.data.get("content"),
+                scope=MemoryEntry.SCOPE_ARTIFACT,
+                artifact_id=artifact_id,
+                confidence=request.data.get("confidence", 1.0),
+                change_reason=request.data.get("change_reason"),
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError, MemoryWriteRateLimitExceeded) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(view, status=status.HTTP_201_CREATED)
+
+
+class SystemMemoryEntriesExportView(_SystemMemoryVisualizationView):
+    """``GET /api/v1/system/memory/entries/export/`` — System-Admin only.
+
+    DSGVO Auskunftsanspruch: exports the tenant's live memory entries as JSON
+    (default) or CSV (``?format=csv``). Delegates to
+    :class:`MemoryAdminService.list_entries` (backend-agnostic), capped at
+    :data:`EXPORT_MAX_ROWS`.
+
+    ``?format=`` is consumed by this view itself (as the export format) rather
+    than by DRF's content negotiation — which is why
+    :meth:`perform_content_negotiation` is overridden to ignore it. Without the
+    override DRF's ``URL_FORMAT_OVERRIDE`` would look for a ``csv`` renderer,
+    find none, and answer 404 before the handler ever runs.
+    """
+
+    def perform_content_negotiation(self, request: Request, force: bool = False):
+        """Always negotiate the default renderer; ``?format=`` is ours."""
+        renderers = self.get_renderers()
+        return renderers[0], renderers[0].media_type
+
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            result = MemoryAdminService().list_entries(
+                ctx, scope="global", page=1, page_size=EXPORT_MAX_ROWS
+            )
+        except PermissionDeniedError as exc:
+            return _memory_error_response(exc, lang)
+        rows = result["results"]
+        export_format = (request.query_params.get("format") or "json").lower()
+        if export_format == "csv":
+            response = HttpResponse(content_type="text/csv")
+            response["Content-Disposition"] = 'attachment; filename="memory-entries.csv"'
+            writer = csv.writer(response)
+            writer.writerow(
+                ["id", "content", "owner_type", "owner_id", "owner_label", "created_at", "confidence"]
+            )
+            for row in rows:
+                writer.writerow(
+                    [
+                        row["id"],
+                        row["content"],
+                        row["owner_type"],
+                        row["owner_id"],
+                        row["owner_label"],
+                        row["created_at"].isoformat() if row["created_at"] else "",
+                        row["confidence"],
+                    ]
+                )
+            return response
+        return Response(
+            {
+                "entries": rows,
+                "count": result["count"],
+                "truncated": result["count"] > len(rows),
+                **envelope(),
+            }
+        )
 
 
 class MemorySelfServiceView(APIView):
@@ -585,12 +953,36 @@ class MemorySelfServiceView(APIView):
         agg = MemoryEntry.objects.filter(
             scope=MemoryEntry.SCOPE_USER, user_id=ctx.user_id
         ).aggregate(count=Count("id"), last=Max("created_at"))
-        return Response(
-            {
-                "entry_count": agg["count"] or 0,
-                "last_updated_at": agg["last"],
-            }
-        )
+        payload: dict[str, Any] = {
+            "entry_count": agg["count"] or 0,
+            "last_updated_at": agg["last"],
+            **envelope(),
+        }
+        # RFC #1002 PR B: ``include_entries=true`` additionally returns the
+        # caller's own user-scoped entries (the id filter IS the authorization
+        # boundary — see the class docstring).
+        if str(request.query_params.get("include_entries", "")).lower() in ("1", "true", "yes"):
+            try:
+                page = int(request.query_params.get("page", 1))
+                page_size = int(request.query_params.get("page_size", 25))
+            except (TypeError, ValueError):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="page and page_size must be integers."
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                page_result = MemoryEntryService().list(
+                    ctx, scope=MemoryEntry.SCOPE_USER, page=page, page_size=page_size
+                )
+            except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+                return _memory_error_response(exc, lang)
+            payload["entries"] = page_result["items"]
+            payload["total"] = page_result["total"]
+            payload["page"] = page_result["page"]
+            payload["page_size"] = page_result["page_size"]
+        return Response(payload)
 
     def delete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -604,7 +996,7 @@ class MemorySelfServiceView(APIView):
         deleted, _ = MemoryEntry.objects.filter(
             scope=MemoryEntry.SCOPE_USER, user_id=ctx.user_id
         ).delete()
-        return Response({"deleted": deleted})
+        return Response({"deleted": deleted, **envelope()})
 
 
 __all__ = [
@@ -616,4 +1008,11 @@ __all__ = [
     "SystemMemoryEntriesListView",
     "SystemMemoryProjectionView",
     "MemorySelfServiceView",
+    "WorkspaceMemoryEntriesView",
+    "WorkspaceMemorySearchView",
+    "MemoryEntryDetailView",
+    "MemoryEntryPromoteView",
+    "ArtifactMemoryView",
+    "SystemMemoryEntriesExportView",
+    "EXPORT_MAX_ROWS",
 ]
