@@ -262,6 +262,10 @@ export function TestRunDetailEditor({
       {/* Summary */}
       {testRun.result_summary && (
         <div
+          // issue #947: stable handle for E2E — the aggregate check used to
+          // locate this block via the bare text "Total", which the surrounding
+          // page can contain for unrelated reasons.
+          data-testid="testrun-result-summary"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)",

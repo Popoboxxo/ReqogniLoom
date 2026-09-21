@@ -323,7 +323,13 @@ export function DiagramDetailView({
           {detail.version_number !== null && (
             <>
               <span>·</span>
-              <span>v{diagramVersionLabel(detail.version_number)}</span>
+              {/* issue #947: the rendered version label needs its own testid so
+                  E2E can assert the *persisted* version number instead of
+                  substring-matching the whole page HTML (which also contains the
+                  diagram source — a false-negative trap). */}
+              <span data-testid="diagram-version-label">
+                v{diagramVersionLabel(detail.version_number)}
+              </span>
             </>
           )}
         </div>
@@ -609,3 +615,4 @@ export function DiagramDetailView({
     </div>
   );
 }
+

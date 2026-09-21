@@ -26,6 +26,21 @@ async function extractIdFromTestid(locator: Locator, prefix: string): Promise<st
 }
 
 /**
+ * Der Beschreibungs-Editor im gemeinsamen `ArtifactForm` ist ein
+ * `markdown_tab_group`-Widget (`MarkdownTabGroup` → `MarkdownPreview`); dessen
+ * `<textarea>` trägt selbst keinen `data-testid`, wohl aber das Widget.
+ *
+ * Issue #947: `page.locator('textarea').first()` war hier ein Blindflug — sobald
+ * die Form ein weiteres Textfeld bekommt (rationale, custom fields, weitere
+ * Widgets), füllt "das erste Textarea der Seite" stillschweigend das falsche
+ * Feld und der Test prüft danach etwas anderes als er behauptet. Der gescopte
+ * Locator bleibt stabil, egal wie viele Textareas dazukommen.
+ */
+function descriptionEditor(page: Page): Locator {
+  return page.locator('[data-testid="artifact-widget-description_editor"] textarea');
+}
+
+/**
  * Erstellt eine Anforderung über die UI. Liefert die ID der neuen Anforderung
  * (aus der URL abgeleitet, in die der Editor nach Create navigiert).
  */
@@ -48,7 +63,7 @@ export async function createRequirementViaUI(
   // Optional: Description/Category im Detail-Editor ergänzen
   if (data.description) {
     await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
-    const descArea = page.locator('textarea').first();
+    const descArea = descriptionEditor(page);
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
       await saveRequirementDetail(page, 'E2E: set description');
@@ -140,7 +155,7 @@ export async function createArchitectureElementViaUI(
   // no longer has autocomplete suggestions after the ArtifactForm migration).
   await page.locator('[data-testid="artifact-field-element_type"]').fill(data.elementType);
   if (data.description) {
-    const descArea = page.locator('textarea').first();
+    const descArea = descriptionEditor(page);
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
     }
@@ -202,7 +217,14 @@ export async function createArchTraceLinkViaUI(
 }
 
 /**
- * Erstellt ein Diagramm über die UI.
+ * Erstellt ein Diagramm über die UI und liefert dessen ID zurück.
+ *
+ * Issue #947: der Helper gab vorher `void` zurück, `ids.diagramIds` blieb damit
+ * dauerhaft leer und die Diagramm-Loops in `cleanupViaAPI` waren toter Code —
+ * jeder Lauf hinterließ seine Diagramme im Workspace. Die ID kommt aus der
+ * Route, auf die das Create-Formular nach dem Save navigiert
+ * (`DiagramView.tsx`: `navigate(\`/diagrams/${newId}\`)`), also aus derselben
+ * verlässlichen Quelle wie bei `createRequirementViaUI`.
  */
 export async function createDiagramViaUI(
   page: Page,
@@ -213,7 +235,7 @@ export async function createDiagramViaUI(
     content: string;
     description?: string;
   }
-): Promise<void> {
+): Promise<string> {
   await page.goto(`${FRONTEND_URL}/diagrams`);
   await page.locator('[data-testid="create-diagram-btn"]').click();
   await page.locator('[data-testid="diagram-name-input"]').waitFor({ timeout: 8000 });
@@ -225,11 +247,21 @@ export async function createDiagramViaUI(
     await page.locator('[data-testid="diagram-description-input"]').fill(data.description);
   }
   await page.locator('[data-testid="diagram-save-btn"]').click();
+  await page.waitForURL(/\/diagrams\/[0-9a-f-]+/, { timeout: 12000 });
+
+  const match = page.url().match(/\/diagrams\/([0-9a-f-]+)/);
+  if (!match) throw new Error(`expected /diagrams/:id URL, got: ${page.url()}`);
   await page.waitForLoadState('networkidle');
+  return match[1];
 }
 
 /**
- * Erstellt ein ICD über die UI.
+ * Erstellt ein ICD über die UI und liefert dessen ID zurück.
+ *
+ * Issue #947: wie {@link createDiagramViaUI} — der Helper gab `void` zurück,
+ * wodurch `ids.icdIds` leer blieb und `cleanupViaAPI` kein ICD aufräumte.
+ * IcdView navigiert nach dem Create auf `/icds/{id}` (IcdView.tsx:189), die ID
+ * steht also in der Route.
  */
 export async function createIcdViaUI(
   page: Page,
@@ -241,7 +273,7 @@ export async function createIcdViaUI(
     contract: string;
     direction?: 'unidirectional' | 'bidirectional';
   }
-): Promise<void> {
+): Promise<string> {
   await page.goto(`${FRONTEND_URL}/icds`);
   await page.locator('[data-testid="create-icd-btn"]').click();
   await page.locator('[data-testid="icd-name-input"]').waitFor({ timeout: 8000 });
@@ -256,7 +288,12 @@ export async function createIcdViaUI(
   await page.locator('[data-testid="icd-interface-type-select"]').selectOption(data.interfaceType);
   await page.locator('[data-testid="icd-contract-textarea"]').fill(data.contract);
   await page.locator('[data-testid="create-icd-submit"]').click();
+  await page.waitForURL(/\/icds\/[0-9a-f-]+/, { timeout: 12000 });
+
+  const match = page.url().match(/\/icds\/([0-9a-f-]+)/);
+  if (!match) throw new Error(`expected /icds/:id URL, got: ${page.url()}`);
   await page.waitForLoadState('networkidle');
+  return match[1];
 }
 
 /**
