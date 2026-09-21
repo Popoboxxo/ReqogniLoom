@@ -28,7 +28,7 @@ DEV_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f deploy/docker-compose.
 MINIMAL_COMPOSE := $(COMPOSE) -f deploy/docker-compose.minimal.yml --project-directory .
 TEST_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f testing/docker-compose.test.yml --project-directory .
 
-.PHONY: up down minimal minimal-down honcho bluepencil bluepencil-down build test test-backend test-frontend test-e2e help
+.PHONY: up down minimal minimal-down honcho bluepencil bluepencil-down build test test-backend test-frontend test-e2e reseed-e2e help
 
 ## up: Start the full dev stack (hot-reload override applied)
 up:
@@ -73,9 +73,36 @@ test-backend:
 test-frontend:
 	$(TEST_COMPOSE) run --rm frontend-test
 
-## test-e2e: Run Playwright E2E tests (manual only — slow, high resource use)
+# ---------------------------------------------------------------------------
+# E2E (Playwright) — see README.md "End-to-End Tests (Playwright)"
+#
+# MODEL: seed ONCE, then run as often as you like. The suite is built to be
+# idempotent against a persistently seeded stack (#947) — specs create their own
+# fixtures and clean them up, so repeated runs do not need a re-seed and must not
+# get one implicitly: a `reseed` folded into `test-e2e` would paper over exactly
+# the state-dependency this suite was hardened against, and make a red run
+# unreproducible.
+#
+# So seeding stays an explicit target. Run it once after `make up`, or whenever
+# the checks below say the stack drifted.
+# ---------------------------------------------------------------------------
+
+# Commands inside the backend container (not host shell), so they work the same
+# on Windows and Linux.
+E2E_SEED_CMD := $(DEV_COMPOSE) exec -T backend python manage.py
+
+## test-e2e: Run Playwright E2E tests (manual only — slow, high resource use). Assumes a seeded stack; see test-e2e:reseed
 test-e2e:
 	cd e2e && npm install && npx playwright test
+
+## test-e2e:reseed: Re-seed the E2E prerequisites (seed_demo + seed_toothbrush + global attribute definitions) and smoke-test the stack. Idempotent.
+reseed-e2e:
+	@echo "==> seeding E2E prerequisites (all three commands are idempotent)"
+	$(E2E_SEED_CMD) seed_demo
+	$(E2E_SEED_CMD) seed_toothbrush
+	$(E2E_SEED_CMD) bootstrap_attribute_definitions
+	@echo "==> smoke-testing the stack with the same precondition guard Playwright uses"
+	cd e2e && npm install && npx playwright test tests/needs-cross-boundary.spec.ts
 
 ## help: List available targets
 help:

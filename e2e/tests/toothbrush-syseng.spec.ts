@@ -36,15 +36,30 @@ async function createMassEditRequirement(
   return (await response.json()) as { id: string };
 }
 
-/** Soft-delete the fixture (204); keeps re-runs from growing the workspace. */
+/**
+ * Soft-delete the fixture (204); keeps re-runs from growing the workspace.
+ *
+ * `change_reason` is required: the seeded "Zahnbürste SysEng Demo" workspace
+ * runs the `extended` preset, and `RequirementService.delete_requirement`
+ * enforces the workspace's change_reason policy (#604) — a body-less DELETE is
+ * answered with 400 VALIDATION_ERROR. The call used to ignore the response, so
+ * every run silently left its fixture behind (found while verifying #947).
+ * Non-2xx responses are now surfaced instead of swallowed.
+ */
 async function deleteRequirement(
   api: APIRequestContext,
   token: string,
   id: string
 ): Promise<void> {
-  await api.delete(`${BACKEND_URL}/api/v1/requirements/${id}/`, {
+  const response = await api.delete(`${BACKEND_URL}/api/v1/requirements/${id}/`, {
     headers: { Authorization: `Bearer ${token}` },
+    data: { change_reason: 'E2E mass-edit fixture cleanup (toothbrush-syseng.spec.ts)' },
   });
+  if (!response.ok() && response.status() !== 404) {
+    throw new Error(
+      `deleteRequirement(${id}) failed: ${response.status()} ${await response.text()}`
+    );
+  }
 }
 
 let workspaceId: string = '';

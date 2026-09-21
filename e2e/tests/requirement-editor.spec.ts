@@ -43,8 +43,15 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     // After clicking preview, no description textarea should be visible
     // (the editor swaps textarea with the rendered markdown div)
     await editBtn.click();
-    // Switching back to edit mode should reveal a textarea again
-    await expect(page.locator('textarea').first()).toBeVisible({ timeout: 4000 });
+    // Switching back to edit mode should reveal a textarea again.
+    //
+    // Issue #947: scoped to the description widget's own editor instead of
+    // `page.locator('textarea').first()`. The form renders several textareas
+    // (rationale, custom fields), so "the first one on the page" is not the
+    // description field this test is about.
+    await expect(
+      page.locator('[data-testid="artifact-widget-description_editor"] textarea')
+    ).toBeVisible({ timeout: 4000 });
   });
 
   test('[REQ-L3-RF003-002] workflow-state dropdown is visible and selectable', async ({ page }) => {

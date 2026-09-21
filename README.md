@@ -599,16 +599,61 @@ job; it is only missing when seeding a local dev stack by hand.
 **Third prerequisite — global attribute definitions.** Every artifact editor renders its fields
 from the tenant's `GlobalAttributeDefinition` rows; without them a run fails with "No global
 attribute definition for `<ItemType>/<preset>`" on every editor spec (issue #947). `manage.py
-bootstrap_attribute_definitions` seeds them and `manage.py migrate` already invokes it via the
-REQ-188 `post_migrate` self-init, so a correctly migrated stack has them automatically — the
-command only has to be run by hand on a database that predates the attribute-definition
-migrations (or after restoring a stale dump).
+bootstrap_attribute_definitions` seeds them and `manage.py migrate` also invokes it via the
+REQ-188 `post_migrate` self-init — **but only for a tenant that exists while migrations run**.
+On a fresh database (CI, or a new dev stack) the tenant is created later, by `seed_demo`, so the
+hook finds zero tenants, seeds nothing and returns early. On that path the command has to run
+explicitly, after `seed_demo`:
 
-Playwright itself verifies all three prerequisites before the first test
+```bash
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py bootstrap_attribute_definitions   # idempotent
+```
+
+On a database that predates the attribute-definition migrations (or after restoring a stale dump)
+the same command is the recovery path. `make test-e2e:reseed` below runs all three prerequisites in
+one go.
+
+> **How to tell which path you are on:** if the editors render their fields, the definitions are
+> there — nothing to do. The Playwright preconditions guard reports the miss explicitly either way
+> (see below), so guessing is not necessary.
+
+Playwright itself verifies the prerequisites before the first test
 (`e2e/helpers/global-setup.ts` → `e2e/helpers/preconditions.ts`): frontend/backend reachability,
-the `seed_demo` workspace, and the attribute definitions. If one is missing, the run aborts
-immediately with the exact command to fix it instead of cascading into unrelated red specs.
-Nothing is seeded implicitly — the check only reports.
+the `seed_demo` workspace, and the attribute definitions (the `seed_toothbrush` fixture only
+produces a warning — `toothbrush-syseng.spec.ts` skips itself when it is absent). If one of the
+three hard prerequisites is missing, the run aborts immediately with the exact command to fix it
+instead of cascading into unrelated red specs. Nothing is seeded implicitly — the check only
+reports.
+
+#### Seed once, then run as often as you like
+
+The suite is **idempotent against a persistently seeded stack** (issue #947): specs create their own
+fixtures and clean them up, so repeated runs need no re-seed and nothing re-seeds behind your back.
+Seeding is therefore an explicit step, never a hidden one — a `reseed` folded into every run would
+mask exactly the state-dependency this suite was hardened against, and make a red run hard to
+reproduce.
+
+```bash
+# ONCE, after `make up` (or whenever you want the three prerequisites re-applied):
+make test-e2e:reseed
+
+# AS OFTEN AS YOU LIKE — no re-seed between runs:
+make test-e2e
+```
+
+`make test-e2e:reseed` runs `seed_demo`, `seed_toothbrush` and
+`bootstrap_attribute_definitions` (all idempotent) and then smoke-tests the stack with one small
+spec, so a broken seed surfaces there instead of mid-suite. The individual commands behind it:
+
+```bash
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py seed_demo                    # idempotent
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py seed_toothbrush              # idempotent
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py bootstrap_attribute_definitions   # idempotent
+```
+
+CI (`.github/workflows/playwright.yml`) runs the same three commands before every E2E job — note
+that it must call `bootstrap_attribute_definitions` explicitly after `seed_demo`, because the
+`post_migrate` hook is a no-op on a fresh database (see the third prerequisite above).
 
 > **Two more local-only pitfalls that read like app bugs but aren't** (found while triaging
 > docs/SYSTEMAUDIT_2026-08-18.md BUG-17/B-SRCH-001 — both traced back to these, not to the app):
@@ -629,12 +674,14 @@ Nothing is seeded implicitly — the check only reports.
 >    clashes with other running stacks).
 
 ```bash
+make test-e2e:reseed         # ONCE after `make up` (or if the stack drifted) — idempotent
 make test-e2e                # full suite via Makefile (installs deps + runs Playwright)
 
 # Or manually (BACKEND_URL only needed if your stack doesn't use the default 8001 — see pitfall 2 above):
 cd e2e
 npm install                  # first time only
 npx playwright test          # full suite (~3 min)
+npx playwright test tests/<spec>.ts   # one spec only (what a fix loop actually needs)
 npm run test:e2e:ui          # interactive UI mode
 npm run mcp:playwright       # starte Playwright MCP Server für LLM-Agenten
 ```
