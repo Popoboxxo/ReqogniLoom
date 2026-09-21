@@ -1,44 +1,86 @@
 import pytest
-from django.db import IntegrityError
 
-from memory.models import SYSTEM_MEMORY_SETTINGS_ID, SystemMemorySettings, UserTenantMemory, WorkspaceMemory
+from memory.models import SYSTEM_MEMORY_SETTINGS_ID, MemoryEntry, SystemMemorySettings
+from persistence.models import Artifact
 from persistence.tests.factories import active_tenant, make_user, make_workspace
 
 
 @pytest.mark.django_db
-class TestWorkspaceMemory:
-    def test_create_and_retrieve(self):
+class TestMemoryEntry:
+    def test_create_and_retrieve_workspace_scope(self):
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            entry = WorkspaceMemory.objects.create(
-                tenant=tenant, workspace=ws, content="Team prefers REST over MCP.",
-                embedding=[0.1] * 384, confidence=0.9,
+            entry = MemoryEntry.objects.create(
+                tenant=tenant,
+                scope=MemoryEntry.SCOPE_WORKSPACE,
+                workspace=ws,
+                content="Team prefers REST over MCP.",
+                embedding=[0.1] * 384,
+                confidence=0.9,
             )
             assert entry.superseded_by is None
-            assert WorkspaceMemory.objects.get(id=entry.id).content == "Team prefers REST over MCP."
+            assert entry.backend_ref is None
+            assert entry.language == ""
+            assert entry.entity_type == ""
+            assert MemoryEntry.objects.get(id=entry.id).content == "Team prefers REST over MCP."
 
     def test_superseded_by_self_reference(self):
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
-            old = WorkspaceMemory.objects.create(tenant=tenant, workspace=ws, content="Old fact", embedding=[0.1] * 384)
-            new = WorkspaceMemory.objects.create(tenant=tenant, workspace=ws, content="New fact", embedding=[0.2] * 384)
+            old = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
+                content="Old fact", embedding=[0.1] * 384,
+            )
+            new = MemoryEntry.objects.create(
+                tenant=tenant, scope=MemoryEntry.SCOPE_WORKSPACE, workspace=ws,
+                content="New fact", embedding=[0.2] * 384,
+            )
             old.superseded_by = new
             old.save(update_fields=["superseded_by"])
-            assert WorkspaceMemory.objects.get(id=old.id).superseded_by_id == new.id
+            assert MemoryEntry.objects.get(id=old.id).superseded_by_id == new.id
 
-
-@pytest.mark.django_db
-class TestUserTenantMemory:
-    def test_no_workspace_field(self):
-        assert not hasattr(UserTenantMemory, "workspace")
-
-    def test_create_and_retrieve(self):
+    def test_user_scope(self):
         with active_tenant() as tenant:
             user = make_user(tenant)
-            entry = UserTenantMemory.objects.create(
-                tenant=tenant, user=user, content="Prefers concise code review comments.", embedding=[0.3] * 384,
+            entry = MemoryEntry.objects.create(
+                tenant=tenant,
+                scope=MemoryEntry.SCOPE_USER,
+                user=user,
+                content="Prefers concise code review comments.",
+                embedding=[0.3] * 384,
             )
-            assert UserTenantMemory.objects.get(id=entry.id).user_id == user.id
+            assert MemoryEntry.objects.get(id=entry.id).user_id == user.id
+            assert entry.workspace_id is None
+            assert entry.artifact_id is None
+
+    def test_artifact_scope(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            artifact = Artifact.objects.create(tenant=tenant, workspace=ws, artifact_type="Requirement")
+            entry = MemoryEntry.objects.create(
+                tenant=tenant,
+                scope=MemoryEntry.SCOPE_ARTIFACT,
+                artifact=artifact,
+                workspace=ws,
+                content="This requirement concerns login.",
+            )
+            assert MemoryEntry.objects.get(id=entry.id).artifact_id == artifact.id
+
+    def test_contributor_user_id_is_a_plain_uuid_not_an_fk(self):
+        """Attribution must outlive the contributor's deletion."""
+        from uuid import uuid4
+
+        contributor = uuid4()
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            entry = MemoryEntry.objects.create(
+                tenant=tenant,
+                scope=MemoryEntry.SCOPE_WORKSPACE,
+                workspace=ws,
+                content="fact",
+                contributor_user_id=contributor,
+            )
+            assert MemoryEntry.objects.get(id=entry.id).contributor_user_id == contributor
 
 
 @pytest.mark.django_db

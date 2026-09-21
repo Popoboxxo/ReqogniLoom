@@ -9,7 +9,7 @@ from application.memory_admin_service import (
 )
 from auth_tenancy.models import TenantRole
 from memory.backends import get_memory_backend
-from memory.models import UserTenantMemory, WorkspaceMemory, WorkspaceMemorySettings
+from memory.models import MemoryEntry, WorkspaceMemorySettings
 from persistence.tests.factories import (
     active_tenant,
     assign_role,
@@ -43,14 +43,22 @@ def _system_admin_ctx(tenant):
 
 
 def _make_ws_memory(tenant, workspace, content, *, embedding=None):
-    return WorkspaceMemory.objects.create(
-        tenant=tenant, workspace=workspace, content=content, embedding=embedding
+    return MemoryEntry.objects.create(
+        tenant=tenant,
+        scope=MemoryEntry.SCOPE_WORKSPACE,
+        workspace=workspace,
+        content=content,
+        embedding=embedding,
     )
 
 
 def _make_user_memory(tenant, user, content, *, embedding=None):
-    return UserTenantMemory.objects.create(
-        tenant=tenant, user=user, content=content, embedding=embedding
+    return MemoryEntry.objects.create(
+        tenant=tenant,
+        scope=MemoryEntry.SCOPE_USER,
+        user=user,
+        content=content,
+        embedding=embedding,
     )
 
 
@@ -165,10 +173,16 @@ class TestMemoryAdminServiceDelete:
 
             assert result["workspace_memory_deleted"] == 1
             assert result["user_memory_deleted"] == 1
-            assert WorkspaceMemory.objects.filter(workspace_id=ws.id).count() == 0
-            assert UserTenantMemory.objects.filter(user_id=member.id).count() == 0
+            assert MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_WORKSPACE, workspace_id=ws.id
+            ).count() == 0
+            assert MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_USER, user_id=member.id
+            ).count() == 0
             # Outsider's memory is untouched.
-            assert UserTenantMemory.objects.filter(user_id=outsider.id).count() == 1
+            assert MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_USER, user_id=outsider.id
+            ).count() == 1
 
     def test_raises_not_found_for_unknown_workspace(self):
         with active_tenant() as tenant:
@@ -219,7 +233,9 @@ class TestMemoryAdminServiceDelete:
             result = MemoryAdminService().delete_workspace_memory(ctx, ws.id)
 
             assert result["user_memory_deleted"] == 0
-            assert UserTenantMemory.objects.filter(user_id=suspended_member.id).count() == 1
+            assert MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_USER, user_id=suspended_member.id
+            ).count() == 1
 
     def test_delete_does_not_touch_other_tenant_workspace(self):
         other_ws_id = None
@@ -416,7 +432,7 @@ class TestMemoryAdminServiceListEntries:
             row_fetches = [
                 sql
                 for sql in (q["sql"] for q in captured.captured_queries)
-                if "mem_workspace_memory" in sql or "mem_user_tenant_memory" in sql
+                if "mem_memory_entry" in sql
                 if "content" in sql
             ]
             assert row_fetches == []

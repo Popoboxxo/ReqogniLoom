@@ -88,7 +88,7 @@ real deployment and silently misread as "no settings row -> enabled=True"
 -- the right-looking default for the wrong (RLS-blocked), DSGVO-relevant
 reason. The toggle is enforced BEFORE Celery dispatch, so a disabled
 workspace's interactions never reach the LLM extraction call or write any
-``WorkspaceMemory``/``UserTenantMemory`` row. ``UserTenantMemory`` is
+``MemoryEntry`` row. A user-scoped entry is
 tenant-wide, not workspace-scoped, but this toggle is intentionally
 interpreted as "was this interaction, which happened in this workspace,
 allowed to be consolidated" -- so a disabled workspace suppresses BOTH

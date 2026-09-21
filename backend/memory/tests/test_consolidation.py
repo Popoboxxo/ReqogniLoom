@@ -62,12 +62,12 @@ class TestConsolidateInteraction:
             fake_llm_response = '{"facts": [{"content": "Team prefers REST over MCP.", "scope": "workspace"}]}'
             with patch("memory.tasks._call_llm", return_value=fake_llm_response):
                 result = consolidate_interaction(tenant.id, ws.id, user.id, "text")
-            from memory.models import WorkspaceMemory
+            from memory.models import MemoryEntry
 
             # Identical content -> no new row written at all (dedup, not
             # even a duplicate copy).
             assert result["workspace_facts_stored"] == 0
-            refreshed = WorkspaceMemory.objects.get(id=existing_ref.entry_id)
+            refreshed = MemoryEntry.objects.get(id=existing_ref.entry_id)
             assert refreshed.superseded_by_id is None
 
     def test_contradiction_marks_old_entry_superseded(self, monkeypatch):
@@ -92,7 +92,7 @@ class TestConsolidateInteraction:
         monkeypatch.setattr("memory.backends.generate_embedding", fake_embedding)
 
         from memory.backends import get_memory_backend
-        from memory.models import WorkspaceMemory
+        from memory.models import MemoryEntry
 
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
@@ -107,10 +107,10 @@ class TestConsolidateInteraction:
 
             assert result["workspace_facts_stored"] == 1
 
-            refreshed = WorkspaceMemory.objects.get(id=existing_ref.entry_id)
+            refreshed = MemoryEntry.objects.get(id=existing_ref.entry_id)
             assert refreshed.superseded_by_id is not None
 
-            new_entry = WorkspaceMemory.objects.get(id=refreshed.superseded_by_id)
+            new_entry = MemoryEntry.objects.get(id=refreshed.superseded_by_id)
             assert new_entry.content == "Team now prefers gRPC."
 
     def test_unrelated_content_creates_independent_entry(self, monkeypatch):
@@ -119,7 +119,7 @@ class TestConsolidateInteraction:
         written with no relation to the existing one."""
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         from memory.backends import get_memory_backend
-        from memory.models import WorkspaceMemory
+        from memory.models import MemoryEntry
 
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
@@ -133,5 +133,5 @@ class TestConsolidateInteraction:
                 result = consolidate_interaction(tenant.id, ws.id, user.id, "text")
 
             assert result["workspace_facts_stored"] == 1
-            refreshed = WorkspaceMemory.objects.get(id=existing_ref.entry_id)
+            refreshed = MemoryEntry.objects.get(id=existing_ref.entry_id)
             assert refreshed.superseded_by_id is None

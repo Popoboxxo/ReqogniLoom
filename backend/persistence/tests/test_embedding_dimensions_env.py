@@ -130,10 +130,10 @@ import django
 django.setup()
 
 from icd.models import Icd
-from memory.models import UserTenantMemory, WorkspaceMemory
+from memory.models import MemoryEntry
 from persistence.models import Requirement, TraceLink
 
-for model in (Requirement, TraceLink, Icd, WorkspaceMemory, UserTenantMemory):
+for model in (Requirement, TraceLink, Icd, MemoryEntry):
     print(f"DIM {model.__name__}={model._meta.get_field('embedding').dimensions}")
 """
 
@@ -141,8 +141,7 @@ _EXPECTED_MODELS = (
     "Requirement",
     "TraceLink",
     "Icd",
-    "WorkspaceMemory",
-    "UserTenantMemory",
+    "MemoryEntry",
 )
 
 
@@ -226,7 +225,7 @@ class TestMakemigrationsReflectsTheConfiguredWidth:
 
         assert result.returncode == 1, combined
         assert "Alter field embedding on" in combined
-        for model_name in ("requirement", "tracelink", "icd", "workspacememory", "usertenantmemory"):
+        for model_name in ("requirement", "tracelink", "icd", "memoryentry"):
             assert f"embedding on {model_name}" in combined, (
                 f"no AlterField was detected for {model_name}.embedding at 768; "
                 f"output was:\n{combined}"

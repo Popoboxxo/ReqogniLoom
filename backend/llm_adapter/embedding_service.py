@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 # sentence-transformers' all-MiniLM-L6-v2 (the new default model) has 384 dims;
 # this is now provider-dependent, not a single module-wide constant -- callers
 # needing the dimension read it off the resolved provider instance, not a
-# module constant (WorkspaceMemory/UserTenantMemory in Task 2 hardcode 384
+# module constant (memory.MemoryEntry in Task 2 hardcoded 384
 # because they are built specifically against the default provider for v1 --
 # see Global Constraints on fixed-per-tenant provider selection).
 

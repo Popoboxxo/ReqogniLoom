@@ -69,7 +69,7 @@ class TestDefaultConfigurationIsCoherent:
         """All five columns must agree. They disagreed (1536 vs 384) precisely
         because each declared its own literal."""
         from icd.models import Icd
-        from memory.models import UserTenantMemory, WorkspaceMemory
+        from memory.models import MemoryEntry
         from persistence.models import Requirement, TraceLink
 
         widths = {
@@ -78,8 +78,7 @@ class TestDefaultConfigurationIsCoherent:
                 Requirement,
                 TraceLink,
                 Icd,
-                WorkspaceMemory,
-                UserTenantMemory,
+                MemoryEntry,
             )
         }
 
@@ -115,7 +114,7 @@ class TestSchemaMatchesTheDeclaredWidth:
 
     @pytest.mark.parametrize(
         "table",
-        ["pl_requirement", "pl_tracelink", "icd_icd", "mem_workspace_memory"],
+        ["pl_requirement", "pl_tracelink", "icd_icd", "mem_memory_entry"],
     )
     def test_column_is_typed_to_the_ssot_width(self, table):
         from django.db import connection

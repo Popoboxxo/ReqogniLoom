@@ -341,8 +341,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # 2026-08-20 UI-visibility fix: interview.abandon writes a workflow
     # transition (in_progress -> abandoned) -- same write gate as formalize.
     "interview.abandon",
-    # Task 7 of the AI-memory spec: memory.forget deletes a WorkspaceMemory/
-    # UserTenantMemory row -- memory.query/memory.list are read-only (see
+    # Task 7 of the AI-memory spec: memory.forget deletes a MemoryEntry row --
+    # memory.query/memory.list are read-only (see
     # _READ_ONLY_TOOL_NAMES below).
     "memory.forget",
     # Attribut v3 WS5 (#942): central attribute catalog. create/update/

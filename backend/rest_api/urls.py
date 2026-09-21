@@ -550,7 +550,7 @@ urlpatterns = [
         name="system-memory-projection",
     ),
     # AI Long-Term Memory — user self-service (Memory Admin UI Phase 4,
-    # spec 2026-08-26). Any authenticated user, own UserTenantMemory only.
+    # spec 2026-08-26). Any authenticated user, own user-scoped memory only.
     path(
         "memory/me/",
         MemorySelfServiceView.as_view(),
