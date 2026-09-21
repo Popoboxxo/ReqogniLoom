@@ -142,7 +142,7 @@ variables:
     REST API unter /api/v1/ (DRF, 27 ViewSets + 67 APIViews, JWT-Auth mit vierstufiger
     RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
     MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; 31 Tool-Gruppen-Präfixe
-    mit 188 Tools; API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture
+    mit 215 Tools; API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture
     Elements (MBSE-kompatibel), Test-Management, 11 core/built-in Trace-Link-Typen
     (tenant-extensible catalog), Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff
     (feld-level), History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import,
@@ -164,7 +164,7 @@ variables:
       baseline/                              # Layer 1 (Snapshot-Baselines, Diff-Engine)
       application/                           # Layer 2 (19 Domain-Services, Single Entry Point)
       rest_api/                              # Layer 3 (DRF ViewSets + drf-spectacular OpenAPI)
-      mcp_server/                            # Layer 3 (MCP-Tool-Registry: 188 Tools, 31 Gruppen)
+      mcp_server/                            # Layer 3 (MCP-Tool-Registry: 215 Tools, 31 Gruppen)
       diagram/                               # Ext (SVG/PNG/PlantUML Renderer)
       icd/                                   # Ext (Interface Control Document Management)
       se_metrics/                            # Ext (KPI-Aggregation, Read-Model)
