@@ -49,6 +49,12 @@ logger = logging.getLogger(__name__)
 #: a quote directly after the brace and therefore never matches.
 PLACEHOLDER_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_.]*)\}")
 
+#: Upper bound on the auto-built memory query text (RFC #1002 PR C). The
+#: rendered data values of a slot can be arbitrarily large (e.g. a full
+#: requirement bundle), and embedding them all would be slow and pointless;
+#: the retrieved memory only needs a topical hint, not the whole payload.
+MEMORY_QUERY_MAX_CHARS = 2000
+
 
 class PromptSlotNotFoundError(ValidationError):
     """Raised when a slot has neither an active row nor a factory default."""
@@ -201,12 +207,64 @@ def resolve_config_values(
     return values
 
 
+def _memory_query_text(data_kwargs: Dict[str, Any]) -> str:
+    """Build the retrieval query for the auto-injected memory context.
+
+    Joins every non-empty string data value the caller supplied, truncated to
+    :data:`MEMORY_QUERY_MAX_CHARS` so a huge payload (e.g. a full requirement
+    bundle) cannot turn a prompt render into an unbounded embedding call.
+    """
+    parts = [
+        value.strip()
+        for value in data_kwargs.values()
+        if isinstance(value, str) and value.strip()
+    ]
+    return "\n".join(parts)[:MEMORY_QUERY_MAX_CHARS]
+
+
+def _auto_memory_context(
+    ctx: AuthContext,
+    workspace_id: UUID | str | None,
+    artifact_id: UUID | str | None,
+    entity_type: str,
+    data_kwargs: Dict[str, Any],
+) -> str:
+    """Compute the memory block for a slot that declares ``memory_context``.
+
+    Fail-open by contract (RFC #1002 PR C): memory is an enhancement, never a
+    hard requirement for a prompt to render, so any failure -- memory
+    disabled for the workspace, unreachable backend, missing tenant context --
+    degrades to ``""`` instead of breaking the AI call.
+    """
+    scope = _as_uuid(workspace_id)
+    if scope is None:
+        return ""
+    try:
+        from memory.context_builder import build_memory_context
+
+        return build_memory_context(
+            ctx.tenant_id,
+            scope,
+            ctx.user_id,
+            _memory_query_text(data_kwargs),
+            artifact_id=artifact_id,
+            entity_type=entity_type,
+        )
+    except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
+        logger.warning(
+            "memory context auto-injection failed, rendering without it: %s", exc
+        )
+        return ""
+
+
 def resolve_and_render(
     slot_name: str,
     ctx: AuthContext,
     workspace_id: UUID | str | None = None,
     *,
     config_overrides: Optional[Dict[str, Any]] = None,
+    artifact_id: UUID | str | None = None,
+    entity_type: str = "",
     **data_kwargs: Any,
 ) -> str:
     """Resolve *slot_name*'s body and render it with config + data values.
@@ -218,12 +276,28 @@ def resolve_and_render(
     :func:`resolve_config_values`, never defaulted from ``ctx.workspace_id`` —
     it must be supplied by the caller for the entity actually being rendered.
 
+    Memory auto-injection (RFC #1002 PR C): when the resolved slot declares
+    ``memory_context`` as one of its data variables and the caller passed no
+    ``memory_context``, the block is computed here from ``ctx`` +
+    *workspace_id* using a query built from the other data values. Pass
+    ``artifact_id``/``entity_type`` when the call targets a specific artifact
+    so the artifact-scoped memory is included first. This is fail-open: a
+    disabled or unreachable memory backend renders an empty block, never an
+    error (see :func:`_auto_memory_context`). This function is the single
+    central injection point — call sites that bypass it (the legacy
+    ``_get_template_content`` + ``_render`` pair) deliberately do not get it.
+
     Raises:
         PromptSlotNotFoundError: See :func:`resolve_template_content`.
     """
     content = resolve_template_content(slot_name, ctx, workspace_id)
     config_values = resolve_config_values(ctx, workspace_id, overrides=config_overrides)
-    return render_template(content, **{**config_values, **data_kwargs})
+    values: Dict[str, Any] = {**config_values, **data_kwargs}
+    if "memory_context" in get_slot_data_variables(slot_name) and "memory_context" not in values:
+        values["memory_context"] = _auto_memory_context(
+            ctx, workspace_id, artifact_id, entity_type, data_kwargs
+        )
+    return render_template(content, **values)
 
 
 def unknown_placeholders(

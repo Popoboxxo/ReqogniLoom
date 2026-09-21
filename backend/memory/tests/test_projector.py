@@ -70,6 +70,69 @@ class TestMemoryProjectorRealPayloadShapes:
         assert "B2B SaaS company" in kwargs["interaction_text"]
         assert "noted your company is B2B SaaS" in kwargs["interaction_text"]
 
+    def test_forwards_artifact_id_and_entity_type_from_payload(self):
+        """RFC #1002 PR C: a chat-turn payload that carries the session's
+        backing artifact id + artifact type must forward both to the
+        consolidation task so the extractor can scope facts to the artifact."""
+        from persistence.models import Artifact
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="Requirement"
+            )
+
+            event = DomainEvent(
+                event_type="InterviewChatTurn",
+                entity_id=ws.id,
+                workspace_id=ws.id,
+                payload={
+                    "session_kind": "single",
+                    "user_message": "The login form uses OAuth.",
+                    "reply": "Noted.",
+                    "extracted_fields": [],
+                    "user_id": str(user.id),
+                    "tenant_id": str(tenant.id),
+                    "artifact_id": str(artifact.id),
+                    "entity_type": "Requirement",
+                },
+            )
+            with patch("memory.projector.consolidate_interaction_task") as mock_task:
+                MemoryProjector().handle_event(event)
+
+        kwargs = mock_task.delay.call_args.kwargs
+        assert kwargs["artifact_id"] == str(artifact.id)
+        assert kwargs["entity_type"] == "Requirement"
+
+    def test_non_uuid_artifact_id_is_treated_as_absent(self):
+        """Only a UUID-shaped artifact id is dispatched -- anything else is
+        forwarded as None instead of reaching the artifact-scope owner FK."""
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+
+            event = DomainEvent(
+                event_type="InterviewChatTurn",
+                entity_id=ws.id,
+                workspace_id=ws.id,
+                payload={
+                    "session_kind": "single",
+                    "user_message": "hello",
+                    "reply": "hi",
+                    "extracted_fields": [],
+                    "user_id": str(user.id),
+                    "tenant_id": str(tenant.id),
+                    "artifact_id": "not-a-uuid",
+                    "entity_type": "Requirement",
+                },
+            )
+            with patch("memory.projector.consolidate_interaction_task") as mock_task:
+                MemoryProjector().handle_event(event)
+
+        kwargs = mock_task.delay.call_args.kwargs
+        assert kwargs["artifact_id"] is None
+
     def test_enqueues_task_for_multi_chat_turn(self):
         """Verbatim shape of _generate_multi_chat_turn()'s payload (no
         "extracted_fields" key -- carries "has_proposal" instead)."""

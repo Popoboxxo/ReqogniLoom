@@ -37,32 +37,57 @@ class PromptSlotSpec:
 
 
 #: Every ``interview.protocol.<Type>`` slot is rendered with the same set.
+#:
+#: ``memory_context`` (RFC #1002 PR C) is part of this shared set because the
+#: multi-artifact protocol (``interview.protocol.multi``) is rendered through
+#: ``prompt_resolver.resolve_and_render`` and must receive memory like every
+#: other AI slot. The per-type YAML protocol slots are only *parsed* as YAML
+#: (``interview_protocol.get_protocol`` via ``try_resolve_template_content``),
+#: never rendered, so declaring the variable there is inert for them.
 INTERVIEW_PROTOCOL_DATA_VARIABLES: Tuple[str, ...] = (
     "artifact_type",
     "phase_name",
     "collected_fields_json",
     "missing_fields_json",
     "grounding_snapshot_json",
+    "memory_context",
 )
 
 #: Data variables per named slot. Code-bound by definition: the values come
 #: from the service that builds the render call, so this map only changes
 #: together with that code (spec §3.2 — no junction table).
+#:
+#: RFC #1002 PR C: every content-generating AI slot declares
+#: ``memory_context`` so ``prompt_resolver.resolve_and_render`` auto-computes
+#: (and injects) the retrieved workspace/artifact/user memory block for it.
+#: The one deliberate exception is ``interview.transcript_summary`` -- it
+#: compacts an already-supplied transcript and must not introduce outside
+#: facts into that digest, so it stays memory-free.
 _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
-    "need_to_sysreq": ("need_title", "need_description"),
-    "sysreq_to_arch_assign": ("req_title", "req_description", "arch_elements_json"),
+    "need_to_sysreq": ("need_title", "need_description", "memory_context"),
+    "sysreq_to_arch_assign": (
+        "req_title",
+        "req_description",
+        "arch_elements_json",
+        "memory_context",
+    ),
     "sysreq_decompose_next_level": (
         "req_title",
         "req_description",
         "arch_elements_json",
+        "memory_context",
     ),
-    "goal_aggregate": ("goals",),
-    "testcase_derive": ("req_title", "req_description"),
-    "architecture_to_risk": ("ae_title", "ae_description"),
-    "workspace_to_glossary": ("workspace_text",),
-    "decision_to_adr": ("decision_description",),
-    "bundle_compression": ("bundle_markdown",),
-    "interview.grounding_rank": ("answers_text", "candidates_json"),
+    "goal_aggregate": ("goals", "memory_context"),
+    "testcase_derive": ("req_title", "req_description", "memory_context"),
+    "architecture_to_risk": ("ae_title", "ae_description", "memory_context"),
+    "workspace_to_glossary": ("workspace_text", "memory_context"),
+    "decision_to_adr": ("decision_description", "memory_context"),
+    "bundle_compression": ("bundle_markdown", "memory_context"),
+    "interview.grounding_rank": (
+        "answers_text",
+        "candidates_json",
+        "memory_context",
+    ),
     "interview.chat_turn": (
         "artifact_type",
         "transcript_json",
@@ -81,8 +106,13 @@ _DATA_VARIABLES_BY_SLOT: Dict[str, Tuple[str, ...]] = {
         "memory_context",
     ),
     "interview.transcript_summary": ("previous_summary", "overflow_json"),
-    "architecture_decompose_tree": ("element_title",),
-    "memory.extract": ("interaction_text",),
+    "architecture_decompose_tree": ("element_title", "memory_context"),
+    # RFC #1002 PR C: the extractor itself gets the artifact context (so it can
+    # scope facts to an artifact) and the workspace language (so facts are
+    # emitted in one language and tagged with it). Deliberately NOT
+    # memory_context -- feeding retrieved memory back into the extractor that
+    # writes memory is a feedback loop, not context.
+    "memory.extract": ("interaction_text", "artifact_context", "language"),
 }
 
 

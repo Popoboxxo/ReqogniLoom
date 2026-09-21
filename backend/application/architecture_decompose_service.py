@@ -119,6 +119,9 @@ ARCH_DECOMPOSE_PROMPT_TEMPLATE = (
     "title, a description, and a single derived requirement (title, "
     "description, rationale) that the child element must satisfy. Return a "
     "JSON array of nodes, each optionally carrying a nested 'children' array."
+    # RFC #1002 PR C: the slot declares memory_context, so
+    # prompt_resolver.resolve_and_render fills this before rendering.
+    "\n\nRelevant memory from earlier sessions (may be empty):\n{memory_context}"
 )
 
 

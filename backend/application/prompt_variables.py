@@ -176,6 +176,19 @@ PROMPT_VARIABLE_DEFAULTS: Dict[str, PromptVariableSpec] = {
         "interaction_text",
         "Raw interview interaction text to extract durable memory facts from.",
     ),
+    # RFC #1002 PR C: the two extra placeholders the memory.extract factory
+    # default uses. artifact_context describes the artifact an interaction
+    # happened in (id + type) so the extractor can scope facts to it;
+    # language is the workspace's content language.
+    "artifact_context": _data(
+        "artifact_context",
+        "Id and artifact type the consolidated interaction happened in; empty "
+        "when the interaction is not bound to a single artifact.",
+    ),
+    "language": _data(
+        "language",
+        "ISO 639-1 content language of the workspace (Workspace.language).",
+    ),
     # --- config (data-driven, admin-editable) ------------------------------
     "max_breadth": _config(
         "max_breadth",

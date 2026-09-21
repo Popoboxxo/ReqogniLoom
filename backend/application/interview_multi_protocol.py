@@ -54,6 +54,9 @@ not in that list.
 
 available_link_types: {available_link_types}
 
+Relevant memory from earlier sessions (may be empty):
+{memory_context}
+
 Conversation so far:
 {transcript}
 

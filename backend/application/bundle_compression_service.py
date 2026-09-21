@@ -273,10 +273,14 @@ class BundleCompressionService(ServiceBase):
         )
 
         raw_markdown = format_bundle_markdown(bundle_result)
-        template = AiDerivationService._get_template_content(
-            ctx, PROMPT_TEMPLATE_NAME, workspace_id
+        # RFC #1002 PR C: routed through _resolve_and_render (not the legacy
+        # _get_template_content + _render pair) so the slot's declared
+        # {memory_context} is auto-injected by the central resolver. The
+        # bundle_compression factory body wraps it in an explicit "background
+        # only, do not include in the output" instruction.
+        prompt = AiDerivationService._resolve_and_render(
+            ctx, PROMPT_TEMPLATE_NAME, workspace_id, bundle_markdown=raw_markdown
         )
-        prompt = AiDerivationService._render(template, bundle_markdown=raw_markdown)
         provider, provider_name, resolve_error = self._resolve_provider()
 
         cache_key = _bundle_cache_key(
@@ -388,10 +392,14 @@ class BundleCompressionService(ServiceBase):
             )
 
         raw_markdown = format_bundle_markdown(bundle_result)
-        template = AiDerivationService._get_template_content(
-            ctx, PROMPT_TEMPLATE_NAME, workspace_id
+        # RFC #1002 PR C: routed through _resolve_and_render (not the legacy
+        # _get_template_content + _render pair) so the slot's declared
+        # {memory_context} is auto-injected by the central resolver. The
+        # bundle_compression factory body wraps it in an explicit "background
+        # only, do not include in the output" instruction.
+        prompt = AiDerivationService._resolve_and_render(
+            ctx, PROMPT_TEMPLATE_NAME, workspace_id, bundle_markdown=raw_markdown
         )
-        prompt = AiDerivationService._render(template, bundle_markdown=raw_markdown)
         cache_key = _bundle_cache_key(
             root_id, depth, filter_mode, fields, format, bundle_result,
             provider_name, prompt,

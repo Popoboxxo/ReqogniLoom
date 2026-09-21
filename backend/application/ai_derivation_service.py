@@ -95,6 +95,25 @@ LANGUAGE_INSTRUCTION_NAMES: Dict[str, str] = {
     "en": "English",
 }
 
+# RFC #1002 PR C: shared memory section appended to every content-generating
+# factory prompt in this module. ``{memory_context}`` is a catalog data
+# variable (application.prompt_variables) that
+# application.prompt_resolver.resolve_and_render auto-computes for every slot
+# declaring it, so the body can reference it without any caller supplying it.
+_MEMORY_CONTEXT_SECTION = (
+    "\n\nRelevant memory from earlier sessions (may be empty):\n{memory_context}"
+)
+
+# Same section for the lossless bundle compressor: the memory block is
+# background for the model, never content for the compressed bundle. The
+# explicit "do not include" wording keeps the compressor's lossless contract
+# intact (it must not merge foreign facts into the export).
+_BUNDLE_MEMORY_CONTEXT_SECTION = (
+    "\n\nBackground memory from earlier sessions -- for your situational "
+    "awareness ONLY. Do NOT include, quote or paraphrase any of it in the "
+    "compressed bundle:\n{memory_context}"
+)
+
 # SysEng 2.0 N5 (test.derive_from_requirement) prompt. Hardcoded rather than a
 # PromptTemplate slot: the flow is a standard feature (no rigor-preset gate),
 # and — mirroring the N1 precedent in architecture_decompose_service.py — a
@@ -110,6 +129,7 @@ TESTCASE_DERIVE_PROMPT_TEMPLATE = (
     '"<short description>", "steps": [{"step": "<action>", '
     '"expected_result": "<expected outcome>"}, ...]}. '
     "Provide at least 2 and at most 6 steps."
+    + _MEMORY_CONTEXT_SECTION
 )
 
 # Phase 3 (Architecture -> Risk derive pair) prompt. Hardcoded rather than a
@@ -130,6 +150,7 @@ ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE = (
     '"<technical|operational|organizational|business>"}. '
     "'probability' and 'impact' MUST be exactly one of 'low', 'medium' or "
     "'high' — no other values are valid."
+    + _MEMORY_CONTEXT_SECTION
 )
 
 # Phase 3 (Workspace -> Glossary derive pair, Task 4) prompt. Hardcoded for
@@ -144,6 +165,7 @@ WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE = (
     '"<short definition>", "synonyms": ["<synonym>", ...], "abbreviation": '
     '"<abbreviation or empty string>"}. Only extract terms that are actually '
     "domain-specific (not generic English words)."
+    + _MEMORY_CONTEXT_SECTION
 )
 
 # Requirement Bundle Export, Plan 2 Task 1 (application.bundle_compression_service
@@ -170,7 +192,7 @@ Source bundle (Markdown):
 {bundle_markdown}
 
 Return only the compressed bundle content, nothing else.
-"""
+""" + _BUNDLE_MEMORY_CONTEXT_SECTION
 
 # Phase 3 (Decision -> ADR derive pair, Task 5) prompt. Hardcoded for the same
 # reason as ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE above.
@@ -184,6 +206,7 @@ DECISION_TO_ADR_PROMPT_TEMPLATE = (
     '"<what was decided>", "context": "<the problem/forces that led to this '
     'decision>", "consequences": "<what becomes easier or harder as a '
     'result>"}.'
+    + _MEMORY_CONTEXT_SECTION
 )
 
 # Interview Management Engine (Task 6, spec §6 step 2) prompt. Hardcoded for
@@ -212,7 +235,7 @@ this exact shape: {"artifact_id": "<artifact_id from the candidate list, \
 verbatim>", "score": <float between 0.0 and 1.0>}. Include exactly one \
 entry per candidate, in any order. Do not invent artifact_ids that are not \
 in the candidate list.
-"""
+""" + _MEMORY_CONTEXT_SECTION
 
 # Interview-Management Web Widget (Task 2, spec §5) prompt -- server-side
 # conversational turn generation for the web widget, which (unlike Claude
@@ -618,14 +641,13 @@ class AiDerivationService(ServiceBase):
             for ae in arch_elements
         ]
 
-        template = self._get_template_content(
-            ctx, "sysreq_to_arch_assign", workspace_id=workspace_id
-        )
-        prompt = self._render(
-            template,
+        prompt = self._resolve_and_render(
+            ctx, "sysreq_to_arch_assign", workspace_id,
             req_title=req.title,
             req_description=truncate_prompt_content(req.description or ""),
             arch_elements_json=json.dumps(arch_payload),
+            artifact_id=req.artifact_id,
+            entity_type="Requirement",
         )
 
         # require_objects=False: this flow's array carries bare id strings, not
@@ -733,16 +755,15 @@ class AiDerivationService(ServiceBase):
             for ae in arch_elements
         ]
 
-        template = self._get_template_content(
+        prompt = self._resolve_and_render(
             ctx,
             "sysreq_decompose_next_level",
-            workspace_id=req.artifact.workspace_id,
-        )
-        prompt = self._render(
-            template,
+            req.artifact.workspace_id,
             req_title=req.title,
             req_description=truncate_prompt_content(req.description or ""),
             arch_elements_json=json.dumps(arch_payload),
+            artifact_id=req.artifact_id,
+            entity_type="Requirement",
         )
         prompt += self._language_instruction(req.artifact.workspace_id)
 
@@ -848,13 +869,14 @@ class AiDerivationService(ServiceBase):
 
         req = self._get_requirement(requirement_id)
 
-        template = self._get_template_content(
-            ctx, "testcase_derive", workspace_id=req.artifact.workspace_id
-        )
-        prompt = self._render(
-            template,
+        prompt = self._resolve_and_render(
+            ctx,
+            "testcase_derive",
+            req.artifact.workspace_id,
             req_title=req.title,
             req_description=truncate_prompt_content(req.description or ""),
+            artifact_id=req.artifact_id,
+            entity_type="Requirement",
         )
         prompt += self._language_instruction(req.artifact.workspace_id)
 
@@ -927,13 +949,14 @@ class AiDerivationService(ServiceBase):
 
         ae = self._get_architecture_element(architecture_element_id)
 
-        template = self._get_template_content(
-            ctx, "architecture_to_risk", workspace_id=ae.artifact.workspace_id
-        )
-        prompt = self._render(
-            template,
+        prompt = self._resolve_and_render(
+            ctx,
+            "architecture_to_risk",
+            ae.artifact.workspace_id,
             ae_title=ae.title,
             ae_description=truncate_prompt_content(ae.description or ""),
+            artifact_id=ae.artifact_id,
+            entity_type="ArchitectureElement",
         )
         prompt += self._language_instruction(ae.artifact.workspace_id)
 
@@ -1026,10 +1049,12 @@ class AiDerivationService(ServiceBase):
             "(workspace has no requirements or architecture elements yet)"
         )
 
-        template = self._get_template_content(
-            ctx, "workspace_to_glossary", workspace_id=workspace.id
+        prompt = self._resolve_and_render(
+            ctx,
+            "workspace_to_glossary",
+            workspace.id,
+            workspace_text=workspace_text,
         )
-        prompt = self._render(template, workspace_text=workspace_text)
         prompt += self._language_instruction(workspace.id)
 
         items, is_mock_fallback = self._complete_json_list(
@@ -1101,11 +1126,10 @@ class AiDerivationService(ServiceBase):
 
         workspace = self._get_workspace(workspace_id)
 
-        template = self._get_template_content(
-            ctx, "decision_to_adr", workspace_id=workspace.id
-        )
-        prompt = self._render(
-            template,
+        prompt = self._resolve_and_render(
+            ctx,
+            "decision_to_adr",
+            workspace.id,
             decision_description=truncate_prompt_content(decision_description or ""),
         )
         prompt += self._language_instruction(workspace.id)
@@ -1755,6 +1779,8 @@ class AiDerivationService(ServiceBase):
         workspace_id: "UUID | None" = None,
         *,
         config_overrides: "Dict[str, Any] | None" = None,
+        artifact_id: "UUID | str | None" = None,
+        entity_type: str = "",
         **data_kwargs: Any,
     ) -> str:
         """Resolve *name* and render it with catalog config + data values.
@@ -1763,6 +1789,11 @@ class AiDerivationService(ServiceBase):
         new flows: every ``config`` variable of the active tenant/workspace is
         injected automatically, so an admin-created variable becomes usable in
         this prompt without a code change (spec §3.2).
+
+        RFC #1002 PR C: ``artifact_id``/``entity_type`` (keyword-only, never
+        rendered as data values) tell the central resolver which artifact the
+        call targets, so the auto-injected ``memory_context`` includes the
+        artifact-scoped slice first.
         """
         from application.prompt_resolver import resolve_and_render
 
@@ -1771,6 +1802,8 @@ class AiDerivationService(ServiceBase):
             ctx,
             workspace_id,
             config_overrides=config_overrides,
+            artifact_id=artifact_id,
+            entity_type=entity_type,
             **data_kwargs,
         )
 

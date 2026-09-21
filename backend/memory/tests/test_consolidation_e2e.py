@@ -186,6 +186,42 @@ class TestFullMemoryConsolidationLoop:
             "what consolidate_interaction just wrote"
         )
 
+    def test_artifact_scoped_fact_from_a_single_mode_session(self, monkeypatch):
+        """RFC #1002 PR C, proven end-to-end: the single-mode chat turn stamps
+        the session's backing Artifact id + artifact type onto the event, the
+        projector forwards both, and an artifact-scoped extracted fact lands in
+        the artifact slice with ``entity_type`` set."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+
+            session = InterviewService().start(ctx, "Requirement", ws.id)
+            chat_provider = _ChatFakeProvider('{"extracted_fields": {}, "reply": "Noted."}')
+            monkeypatch.setattr(
+                InterviewService, "_resolve_provider", lambda self: (chat_provider, "anthropic", None)
+            )
+            fake_extraction_response = (
+                '{"facts": [{"content": "The login form uses OAuth.", '
+                '"scope": "artifact"}]}'
+            )
+            monkeypatch.setattr("memory.tasks._call_llm", lambda prompt: fake_extraction_response)
+            artifact_id = session.artifact_id
+
+            InterviewService().generate_chat_turn(ctx, session.id, "The login form uses OAuth.")
+            poll_and_dispatch()
+
+            stored = MemoryEntry.objects.filter(
+                scope=MemoryEntry.SCOPE_ARTIFACT, artifact_id=artifact_id
+            )
+            assert stored.exists(), (
+                "no artifact-scoped MemoryEntry row was written -- the chat "
+                "turn's artifact_id/entity_type never reached the consolidation "
+                "task (payload -> projector -> task chain)"
+            )
+            assert stored.first().entity_type == "Requirement"
+
     def test_disabled_workspace_breaks_the_loop_at_the_projector(self, monkeypatch):
         """Finding 4, proven end-to-end: with the workspace memory toggle
         OFF, the same real chat turn must produce NO consolidation at all --
