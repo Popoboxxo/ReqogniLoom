@@ -31,10 +31,18 @@ async function extractIdFromTestid(locator: Locator, prefix: string): Promise<st
  * #318: Das Link-Typ-Feld ist kein natives `<select>` mehr, sondern eine
  * nicht-native Listbox. `selectOption()` greift daher nicht mehr — stattdessen
  * wird der Trigger geöffnet und die passende Option geklickt.
+ *
+ * Der Options-Katalog lädt asynchron und der Trigger ist bei leerer Liste
+ * nicht öffenbar (`canOpen = optionCount > 0`). Deshalb erst auf die Option
+ * warten, dann öffnen, dann klicken.
  */
 export async function selectTraceLinkTypeViaUI(page: Page, linkType: string): Promise<void> {
-  await page.locator('[data-testid="create-trace-link-type-select"]').click();
-  await page.locator(`[data-testid="create-trace-link-type-option-${linkType}"]`).click();
+  const trigger = page.locator('[data-testid="create-trace-link-type-select"]');
+  const option = page.locator(`[data-testid="create-trace-link-type-option-${linkType}"]`);
+  await expect(option).toBeAttached();
+  await trigger.click();
+  await expect(page.locator('[data-testid="create-trace-link-type-listbox"]')).toBeVisible();
+  await option.click();
 }
 
 /**

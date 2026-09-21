@@ -106,10 +106,16 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     const archTarget = page.locator(`[data-testid="create-trace-link-target-element-${l1ArchId}"]`);
     await archTarget.waitFor({ timeout: 10000 });
     await archTarget.click();
-    // #318: the link-type control is a non-native listbox now — open the
-    // trigger and click the option instead of calling selectOption().
-    await page.locator('[data-testid="create-trace-link-type-select"]').click();
-    await page.locator('[data-testid="create-trace-link-type-option-allocated-to"]').click();
+    // #318: the link-type control is a non-native listbox now — the option
+    // catalog loads asynchronously and the trigger is not openable while it is
+    // empty (`canOpen = optionCount > 0`). Wait for the option to be attached,
+    // then open the trigger and click it instead of calling selectOption().
+    const linkTypeTrigger = page.locator('[data-testid="create-trace-link-type-select"]');
+    const allocatedToOption = page.locator('[data-testid="create-trace-link-type-option-allocated-to"]');
+    await expect(allocatedToOption).toBeAttached();
+    await linkTypeTrigger.click();
+    await expect(page.locator('[data-testid="create-trace-link-type-listbox"]')).toBeVisible();
+    await allocatedToOption.click();
     await page.locator('[data-testid="create-trace-link-submit"]').click();
 
     // Verify link appears in the UI.

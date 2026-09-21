@@ -121,15 +121,44 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await expect(page.locator('[data-testid="create-trace-link-submit"]')).toBeVisible({ timeout: 4000 });
 
     // The unified dialog offers only link types the backend allows for the
-    // chosen endpoints (spec §4.1) — with no target selected yet, that is the
-    // 7 Requirement-sourced core types. `diagram-ref` is deliberately absent:
-    // it connects diagrams to artifacts, not a Requirement as source, so the
-    // legacy inline form's "all 8 regardless" was the thing that let a user
-    // pick a type the server would then reject.
+    // chosen endpoints (spec §4.1). The panel fixes the source to this
+    // Requirement (`sourceId`) and no target is chosen yet, so the valid set
+    // is the Requirement-sourced catalog pair table
+    // (backend/link_types/builtin.py):
+    //   derives-from  (Requirement -> Requirement/StakeholderNeed)
+    //   decomposes    (Requirement -> Requirement)
+    //   allocated-to  (Requirement -> ArchitectureElement)
+    //   refines       (Requirement -> Requirement)
+    //   satisfies     (Requirement -> Goal)
+    //   realizes      (Requirement -> Goal)
+    //   references    (any -> any)
+    // `verifies` (TestCase -> ...), `decides` (Adr -> ...) and `mitigates`
+    // (Risk -> ...) are sourced from *other* artifact types, so they must not
+    // be offered from a Requirement. `diagram-ref` (Diagram -> ...) is absent
+    // for the same reason — the legacy inline form's "all types regardless"
+    // was what let a user pick a type the server would then reject.
     // Options keep the raw catalog key as `data-value` — assert against those.
-    // #318: the control is a non-native listbox, so its options only exist
-    // while the popup is open.
-    await page.locator('[data-testid="create-trace-link-type-select"]').click();
+    //
+    // #318: the control is a non-native listbox. Its <ul role="listbox"> and
+    // <li role="option"> rows stay attached in the DOM while collapsed (only
+    // `hidden`), but BOTH the workspace link-type catalog AND the source
+    // element's artifact type load asynchronously. Until the source type
+    // resolves, the dialog queries the pair filter with a "*" wildcard and
+    // transiently offers a superset (including `verifies`/`decides`/
+    // `mitigates`). `evaluateAll` does NOT auto-retry, so wait for the resolved
+    // set before reading it: `refines` is present in both the transient and the
+    // resolved set, so it proves the catalog arrived; `verifies` is only valid
+    // with a TestCase source, so its disappearance proves the Requirement
+    // source type has resolved. Only then open the popup and read the values.
+    const typeTrigger = page.locator('[data-testid="create-trace-link-type-select"]');
+    await expect(
+      page.locator('[data-testid="create-trace-link-type-option-refines"]')
+    ).toBeAttached();
+    await expect(
+      page.locator('[data-testid="create-trace-link-type-option-verifies"]')
+    ).toHaveCount(0);
+    await typeTrigger.click();
+    await expect(page.locator('[data-testid="create-trace-link-type-listbox"]')).toBeVisible();
     const typeValues = await page.locator('[data-testid^="create-trace-link-type-option-"]').evaluateAll(
       (opts) => opts.map((o) => o.getAttribute('data-value'))
     );
@@ -139,13 +168,18 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
         'derives-from',
         'decomposes',
         'allocated-to',
-        'verifies',
-        'decides',
-        'mitigates',
+        'refines',
+        'satisfies',
+        'realizes',
         'references',
       ])
     );
     expect(realTypes).not.toContain('diagram-ref');
+    // Types sourced from other artifact types must not leak in from a
+    // Requirement source (guards against the transient wildcard superset).
+    expect(realTypes).not.toContain('verifies');
+    expect(realTypes).not.toContain('decides');
+    expect(realTypes).not.toContain('mitigates');
   });
 
   test('[#928] requirement editor exposes the system-element allocation entry', async ({ page }) => {

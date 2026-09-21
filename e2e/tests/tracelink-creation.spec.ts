@@ -124,10 +124,15 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
 
     // Select link type if options are available.
     // #318: the link-type control is a non-native listbox — open the trigger,
-    // then click an option instead of using selectOption().
+    // then click an option instead of using selectOption(). The option catalog
+    // loads asynchronously and the trigger is not openable while it is empty
+    // (`canOpen = optionCount > 0`), so wait for the first option BEFORE
+    // opening — otherwise the click is a no-op and `count()` would read 0.
     const typeTrigger = page.locator('[data-testid="create-trace-link-type-select"]');
-    await typeTrigger.click();
     const typeOptions = page.locator('[data-testid^="create-trace-link-type-option-"]');
+    await expect(typeOptions.first()).toBeAttached();
+    await typeTrigger.click();
+    await expect(page.locator('[data-testid="create-trace-link-type-listbox"]')).toBeVisible();
     const typeCount = await typeOptions.count();
     if (typeCount > 1) {
       await typeOptions.nth(1).click();
