@@ -37,6 +37,7 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 
 from application.base import ServiceBase, ValidationError
+from baseline.waivers import finding_key
 from traceability.audit import (
     AuditScope,
     Finding,
@@ -62,15 +63,31 @@ class AuditFindingView:
     ``index`` is a stable position within a single audit run so the frontend
     can key rows and correlate an Adopt click back to a finding without the
     findings being persisted.
+
+    ``finding_key`` (issue #1021) is the finding's *run-independent* identity:
+    ``baseline.waivers.finding_key`` rendered over the rule id, the sorted
+    artifact ids and the finding's scope — the same function that decides which
+    ``BaselineGateWaiver`` row (GH-821) a finding matches, so a waiver, a
+    remediation request and a re-audit all agree on what "the same finding"
+    means. ``index`` cannot serve that purpose: it is a position in one run's
+    finding list and shifts as soon as any other finding appears or disappears.
     """
 
     index: int
     finding: Finding
     remediation: RemediationProposal
 
+    @property
+    def finding_key(self) -> str:
+        """Canonical, run-independent identity of the wrapped finding."""
+        return finding_key(
+            self.finding.rule_id, self.finding.artifact_ids, self.finding.scope
+        )
+
     def to_dict(self) -> dict:
         data = self.finding.to_dict()
         data["index"] = self.index
+        data["finding_key"] = self.finding_key
         data["remediation"] = self.remediation.to_dict()
         return data
 
@@ -566,8 +583,11 @@ class AuditService(ServiceBase):
     ) -> bool:
         """Re-run the audit and report whether *finding* is still raised.
 
-        A finding is considered "the same" when its rule id and artifact-id set
-        match — the natural identity for a non-persisted finding.
+        A finding is considered "the same" when its canonical identity — rule
+        id plus the sorted artifact-id set (:func:`baseline.waivers.finding_key`,
+        without the scope: the re-audit below may resolve a different scope for
+        a scope-aware rule than the caller passed in, and the scope-less form is
+        the one the gate's waivers are matched with, #1021) — matches.
 
         Uses :meth:`_run_engine_uncapped`, NOT :meth:`run_audit` (BUG-15
         follow-up H1): the Phase 3 "negative -> positive acceptance
@@ -582,11 +602,9 @@ class AuditService(ServiceBase):
             else None
         )
         result = self._run_engine_uncapped(workspace_id, ctx, scopes=scopes)
-        target_ids = frozenset(finding.artifact_ids)
+        target_key = finding_key(finding.rule_id, finding.artifact_ids)
         for current in result.findings:
-            if current.rule_id != finding.rule_id:
-                continue
-            if frozenset(current.artifact_ids) == target_ids:
+            if finding_key(current.rule_id, current.artifact_ids) == target_key:
                 return True
         return False
 

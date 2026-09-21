@@ -62,21 +62,37 @@ Cyclic and contradictory data
 Classification is a pure set difference, so it degrades quietly rather than
 looping: a self-loop (``a --derives-from--> a``) or a contradictory pair
 (``a --decomposes--> b`` together with ``a --derives-from--> b``, which
-asserts both that b is below a and that a is below b) makes the artifacts
-involved neither root nor leaf. They then escape TRACE-P1 and VERIF-P8. That
-is accepted for now: such rows are a data-integrity defect that the
-validated write path already rejects (``TraceLinkManager.create`` runs
-per-link-type cycle detection), so they only arise from direct ORM writes or
-imports. Detecting them is a rule in its own right, not the job of a
-classifier.
+asserts both that b is below a and that a is below b — the two normalise to
+``(a, b)`` *and* ``(b, a)``) makes the artifacts involved neither root nor
+leaf, i.e. it makes ``root_requirement_ids`` return ∅ for the whole
+subgraph. They then escape TRACE-P1 and VERIF-P8 entirely.
+
+Since issue #1021 that state is no longer accepted silently, on either side
+of the write path:
+
+* :func:`hierarchy_cycle_nodes` names the artifacts that lie on a cycle in
+  the normalised graph, and ``SystemRequirementDerivesFromNeedRule`` reports
+  them (and still runs TRACE-P1 against them) instead of returning no result;
+* ``TraceLinkManager.create`` rejects the write that would create the
+  contradictory pair in the first place — deliberately against the *union*
+  of both link types, because the per-link-type cycle check there cannot see
+  a cycle whose two halves carry different link types.
+
+Rows that predate that guard (direct ORM writes, imports, data migrations)
+are exactly what :func:`hierarchy_cycle_nodes` is for.
 """
 from __future__ import annotations
 
-from typing import Dict, FrozenSet, Set, Tuple
+from typing import Dict, FrozenSet, List, Optional, Set, Tuple, TypeVar
 from uuid import UUID
 
 from traceability.audit.types import AuditContext
 from traceability.types import LinkType
+
+#: An artifact id as it appears in the audit graph — ``str`` for
+#: :class:`AuditContext` consumers, ``uuid.UUID`` for the ORM-facing callers
+#: (``TraceLinkManager``). The helpers below never inspect the value.
+_NodeId = TypeVar("_NodeId")
 
 #: Hierarchy links stored as parent -> child (source is the parent).
 #: ``parent-child`` is gone — the migration folded it into ``decomposes``,
@@ -98,6 +114,34 @@ HIERARCHY_LINK_TYPES: FrozenSet[str] = (
 )
 
 
+def normalise_hierarchy_edge(
+    link_type: str, source_id: _NodeId, target_id: _NodeId
+) -> Optional[Tuple[_NodeId, _NodeId]]:
+    """Return the ``(parent_id, child_id)`` normalisation of one hierarchy link.
+
+    The single direction table of this module, so every caller (the audit
+    classifier *and* ``TraceLinkManager``'s write-path guard, #1021) resolves
+    ``decomposes`` (parent -> child) and ``derives-from`` (child -> parent)
+    the same way instead of re-implementing the inversion.
+
+    Args:
+        link_type: A link type key (``TraceLink.link_type``).
+        source_id: The link's source artifact id (``str`` or ``UUID`` — the
+            helper is type-agnostic and returns whatever it was given).
+        target_id: The link's target artifact id.
+
+    Returns:
+        ``(parent_id, child_id)`` for a hierarchy link; ``None`` for every
+        other link type (this is not a "no parent" answer, it is "this edge
+        carries no hierarchy information").
+    """
+    if link_type in PARENT_TO_CHILD_LINK_TYPES:
+        return source_id, target_id
+    if link_type in CHILD_TO_PARENT_LINK_TYPES:
+        return target_id, source_id
+    return None
+
+
 def requirement_hierarchy_edges(
     context: AuditContext, requirement_ids: FrozenSet[str]
 ) -> Set[Tuple[str, str]]:
@@ -117,13 +161,12 @@ def requirement_hierarchy_edges(
     """
     edges: Set[Tuple[str, str]] = set()
     for link in context.iter_trace_links():
-        link_type = link["link_type"]
-        if link_type in PARENT_TO_CHILD_LINK_TYPES:
-            parent_id, child_id = link["source_id"], link["target_id"]
-        elif link_type in CHILD_TO_PARENT_LINK_TYPES:
-            parent_id, child_id = link["target_id"], link["source_id"]
-        else:
+        normalised = normalise_hierarchy_edge(
+            link["link_type"], link["source_id"], link["target_id"]
+        )
+        if normalised is None:
             continue
+        parent_id, child_id = normalised
         if parent_id in requirement_ids and child_id in requirement_ids:
             edges.add((parent_id, child_id))
     return edges
@@ -159,8 +202,110 @@ def leaf_requirement_ids(
     return requirement_ids - frozenset(parent_ids)
 
 
+def cyclic_hierarchy_nodes(
+    edges: Set[Tuple[_NodeId, _NodeId]],
+) -> FrozenSet[_NodeId]:
+    """Return the node ids that lie on a cycle in *edges* (issue #1021).
+
+    Pure graph function over already-normalised ``(parent_id, child_id)``
+    pairs — the counterpart of the quiet set difference in
+    :func:`root_requirement_ids`, which cannot tell "no Requirement is a
+    root" apart from "this subgraph is cyclic".
+
+    A node is cyclic when it is a member of a strongly connected component of
+    size > 1, or when it carries a self-loop. Both are the same
+    data-integrity defect: the node is its own ancestor, so no artifact in its
+    component is ever a root or a leaf and TRACE-P1/VERIF-P8 skip the whole
+    component.
+
+    Tarjan's SCC algorithm, iterative (an explicit work stack, not recursion:
+    a workspace with a few thousand Requirements must not be able to exhaust
+    the interpreter's recursion limit — the same reason
+    ``TraceLinkManager._tarjan_find_cycle`` is written the way it is, though
+    that one stops at the first cycle and returns only its nodes).
+
+    Args:
+        edges: Normalised ``(parent_id, child_id)`` pairs, e.g. from
+            :func:`requirement_hierarchy_edges`.
+
+    Returns:
+        The ids of every node on a cycle; empty for a DAG (the normal case).
+    """
+    adjacency: Dict[_NodeId, List[_NodeId]] = {}
+    cyclic: Set[_NodeId] = set()
+    for parent_id, child_id in edges:
+        adjacency.setdefault(parent_id, []).append(child_id)
+        adjacency.setdefault(child_id, [])
+        if parent_id == child_id:
+            # A self-loop is an SCC of size 1 and would otherwise be missed.
+            cyclic.add(parent_id)
+
+    index: Dict[_NodeId, int] = {}
+    lowlink: Dict[_NodeId, int] = {}
+    on_stack: Set[_NodeId] = set()
+    stack: List[_NodeId] = []
+    counter = 0
+
+    for root in adjacency:
+        if root in index:
+            continue
+        index[root] = lowlink[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack.add(root)
+        work: List[Tuple[_NodeId, int]] = [(root, 0)]
+
+        while work:
+            node, neighbour_index = work[-1]
+            neighbours = adjacency.get(node, [])
+            if neighbour_index < len(neighbours):
+                neighbour = neighbours[neighbour_index]
+                work[-1] = (node, neighbour_index + 1)
+                if neighbour not in index:
+                    index[neighbour] = lowlink[neighbour] = counter
+                    counter += 1
+                    stack.append(neighbour)
+                    on_stack.add(neighbour)
+                    work.append((neighbour, 0))
+                elif neighbour in on_stack:
+                    lowlink[node] = min(lowlink[node], index[neighbour])
+                continue
+
+            work.pop()
+            if lowlink[node] == index[node]:
+                component: List[_NodeId] = []
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component.append(member)
+                    if member == node:
+                        break
+                if len(component) > 1:
+                    cyclic.update(component)
+            if work:
+                parent_node = work[-1][0]
+                lowlink[parent_node] = min(lowlink[parent_node], lowlink[node])
+
+    return frozenset(cyclic)
+
+
+def hierarchy_cycle_nodes(
+    context: AuditContext, requirement_ids: FrozenSet[str]
+) -> FrozenSet[str]:
+    """Return the Requirement ids of *requirement_ids* that lie on a cycle.
+
+    The "why is ``root_requirement_ids`` empty?" answer for the audit rules:
+    a non-empty result means the normalised hierarchy graph contains a
+    contradictory pair, a self-loop or a longer mixed-type cycle, and every
+    returned Requirement escaped TRACE-P1/VERIF-P8 before #1021.
+    """
+    return cyclic_hierarchy_nodes(
+        requirement_hierarchy_edges(context, requirement_ids)
+    )
+
+
 def classify_requirements(workspace_id: str | UUID) -> Dict[str, Set[str]]:
-    """Return ``{"roots": {...}, "leaves": {...}}`` for a workspace's Requirements.
+    """Return ``{"roots", "leaves", "cycle_nodes"}`` for a workspace's Requirements.
 
     Convenience wrapper for callers that only have a bare ``workspace_id``
     (e.g. ``diff_auditor_findings`` and its tests) and would otherwise have to
@@ -172,6 +317,11 @@ def classify_requirements(workspace_id: str | UUID) -> Dict[str, Set[str]]:
     active or not, L4 or not — so it stays a thin, general-purpose entry point
     over :func:`root_requirement_ids` / :func:`leaf_requirement_ids` rather
     than a third copy of rule-specific business logic.
+
+    ``cycle_nodes`` (issue #1021) is the diagnostic companion: when it is
+    non-empty, ``roots``/``leaves`` are not "the hierarchy is flat", they are
+    the degraded answer of a cyclic subgraph. Additive key — callers that only
+    read ``roots``/``leaves`` are unaffected.
     """
     from persistence.models import Requirement, Workspace
 
@@ -190,6 +340,7 @@ def classify_requirements(workspace_id: str | UUID) -> Dict[str, Set[str]]:
     return {
         "roots": set(root_requirement_ids(context, requirement_ids)),
         "leaves": set(leaf_requirement_ids(context, requirement_ids)),
+        "cycle_nodes": set(hierarchy_cycle_nodes(context, requirement_ids)),
     }
 
 
@@ -198,7 +349,10 @@ __all__ = [
     "HIERARCHY_LINK_TYPES",
     "PARENT_TO_CHILD_LINK_TYPES",
     "classify_requirements",
+    "cyclic_hierarchy_nodes",
+    "hierarchy_cycle_nodes",
     "leaf_requirement_ids",
+    "normalise_hierarchy_edge",
     "requirement_hierarchy_edges",
     "root_requirement_ids",
 ]

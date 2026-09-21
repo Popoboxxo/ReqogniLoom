@@ -76,6 +76,57 @@ class CycleDetectedError(TraceLinkError):
         self.cycle_path = cycle_path
 
 
+class ContradictoryHierarchyLinkError(TraceLinkError):
+    """Raised when a hierarchy link contradicts the existing hierarchy (issue #1021).
+
+    ``decomposes`` (parent -> child) and ``derives-from`` (child -> parent) are
+    the two spellings of one fact. Written on the *same* object pair in the
+    *same* direction they assert both "b is below a" (``a --decomposes--> b``)
+    and "a is below b" (``a --derives-from--> b``). In the normalised
+    ``(parent, child)`` hierarchy graph that is a 2-cycle: every involved
+    Requirement becomes its own ancestor, ``root_requirement_ids`` returns the
+    empty set, and root/leaf classification (TRACE-P1 "a root must derive from
+    a StakeholderNeed" / VERIF-P8 "a leaf must be verified") silently stops
+    reporting on the whole component.
+
+    The per-link-type cycle detection in :class:`TraceLinkManager` cannot see
+    this: the two halves of the cycle carry different link types, so each is a
+    DAG on its own. The write is rejected here instead of letting the audit
+    degrade quietly, and the message names both links so the user can decide
+    which half to keep.
+    """
+
+    def __init__(
+        self,
+        *,
+        link_type: str,
+        source_id: object,
+        target_id: object,
+        conflicting_link_type: str,
+        conflicting_source_id: object,
+        conflicting_target_id: object,
+    ) -> None:
+        msg = (
+            f"Contradictory hierarchy link: '{link_type}' "
+            f"({source_id} -> {target_id}) asserts the opposite parent/child "
+            f"order to the existing '{conflicting_link_type}' link "
+            f"({conflicting_source_id} -> {conflicting_target_id}) on the same "
+            f"object pair. 'decomposes' (parent -> child) and 'derives-from' "
+            f"(child -> parent) describe the same fact in opposite directions; "
+            f"creating both makes the Requirement hierarchy cyclic, so root and "
+            f"leaf classification can no longer report on the affected "
+            f"requirements. Keep one of the two links, or reverse the "
+            f"source/target order of this one."
+        )
+        super().__init__(msg)
+        self.link_type = link_type
+        self.source_id = source_id
+        self.target_id = target_id
+        self.conflicting_link_type = conflicting_link_type
+        self.conflicting_source_id = conflicting_source_id
+        self.conflicting_target_id = conflicting_target_id
+
+
 class QueryTimeoutError(TraceLinkError):
     """Raised when a graph query exceeds the allowed timeout.
 
@@ -147,6 +198,7 @@ __all__ = [
     "SourceNotFoundError",
     "TargetNotFoundError",
     "CycleDetectedError",
+    "ContradictoryHierarchyLinkError",
     "QueryTimeoutError",
     "PayloadTooLargeError",
     "InvalidFilterError",

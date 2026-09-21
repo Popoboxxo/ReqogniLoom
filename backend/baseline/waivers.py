@@ -53,20 +53,49 @@ def canonical_artifact_ids(artifact_ids: Iterable[Any] | None) -> tuple[str, ...
     return tuple(sorted({str(artifact_id) for artifact_id in (artifact_ids or ())}))
 
 
-def finding_key(rule_id: str, artifact_ids: Iterable[Any] | None) -> str:
+def finding_key(
+    rule_id: str, artifact_ids: Iterable[Any] | None, scope: Any | None = None
+) -> str:
     """Return the canonical identity of an audit finding.
 
     A ``Finding`` (``traceability.audit.types``) has no stable id — it is
-    re-derived on every run. Its identity for waiver purposes is therefore the
-    rule that reported it plus the artifacts it concerns, rendered canonically
-    (see :func:`canonical_artifact_ids`). The scope is deliberately *not* part
-    of the key: the gate only ever audits one scope per call, so the same
-    rule/artifact pair cannot be blocking twice for different reasons.
+    re-derived on every run. Its identity is therefore the rule that reported
+    it plus the artifacts it concerns, rendered canonically (see
+    :func:`canonical_artifact_ids`), optionally plus the baseline scope it was
+    reported in. This one function is the single source of truth: the gate's
+    waiver matching, the audit API's ``finding_key`` field and (from #569) the
+    suppression lookup all render a finding's identity through it.
+
+    ``scope`` is optional and, when omitted/empty, the rendering is
+    **byte-identical to the pre-#1021 format** (``rule_id<US>a,b``). That is a
+    compatibility guarantee, not an accident: ``BaselineGateWaiver`` rows
+    (GH-821) are append-only governance records that were persisted with that
+    exact rendering, so changing it would silently orphan every waiver on file
+    and re-block workspaces whose deviations were already accepted. The gate
+    (``authoring:application.baseline_facade``) therefore keeps calling this
+    function without ``scope`` — it audits exactly one scope per call, so the
+    same rule/artifact pair cannot be blocking twice for different reasons.
+    Callers that *do* audit several scopes at once, or that need the
+    identity a future per-scope suppression entity keys on, pass the finding's
+    ``scope`` and get the extended ``rule_id<US>a,b<US>scope`` form.
+
+    Args:
+        rule_id: The reporting rule (e.g. ``"TRACE-P1"``).
+        artifact_ids: Artifacts the finding concerns. Order-insensitive,
+            de-duplicated; empty for graph-level findings.
+        scope: The baseline scope the finding was reported in
+            (``"document"`` | ``"project"`` | ``"global"``), or ``None`` for a
+            scope-agnostic finding. Embedded as-is; a unit separator inside it
+            is stripped so the rendering stays injective.
     """
-    return (
+    base = (
         f"{str(rule_id).strip()}{_KEY_SEPARATOR}"
         f"{_ARTIFACT_SEPARATOR.join(canonical_artifact_ids(artifact_ids))}"
     )
+    scope_part = str(scope or "").strip().replace(_KEY_SEPARATOR, "")
+    if not scope_part:
+        return base
+    return f"{base}{_KEY_SEPARATOR}{scope_part}"
 
 
 @dataclass(frozen=True)
