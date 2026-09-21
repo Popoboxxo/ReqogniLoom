@@ -309,6 +309,32 @@ class TestCaseType(models.TextChoices):
     DEMONSTRATION = "demonstration", "Demonstration"
 
 
+class TestCaseOrigin(models.TextChoices):
+    """Provenance of a test case's content (#424).
+
+    ``manual`` (default) and ``ai_generated`` are the client-writable values;
+    ``unknown`` is system/migration-only and grandfathers pre-#424 rows. See
+    ``TestCase.origin``, ``rest_api.serializers.TestCaseSerializer`` and
+    ``traceability.coverage_calculator.counts_as_verification_evidence``.
+    """
+
+    MANUAL = "manual", "Manual"
+    AI_GENERATED = "ai_generated", "AI-generated"
+    UNKNOWN = "unknown", "Unknown"
+
+
+class ScenarioKind(models.TextChoices):
+    """Off-nominal categorisation of a test case (#402, spec section 5.5).
+
+    ``nominal`` (default) is the standard/happy path; ``off_nominal`` covers
+    negative and boundary cases. Additive metadata only - deliberately no
+    enforcement rule in cluster 5 (spec F2).
+    """
+
+    NOMINAL = "nominal", "Nominal"
+    OFF_NOMINAL = "off_nominal", "Off-nominal"
+
+
 class ASILLevel(models.TextChoices):
     """ASIL (Automotive Safety Integrity Level) (REQ-L3-RF004-004).
 
@@ -728,7 +754,7 @@ class Workspace(TenantScopedModel):
         default=True,
         help_text="Soft-delete flag. False = workspace is closed (REQ-L1-042).",
     )
-    goals_enabled = models.BooleanField(default=False)
+    goals_enabled = models.BooleanField(default=True)
     goals_ai_enabled = models.BooleanField(default=False)
     parent_workspace = models.ForeignKey(
         "self",
@@ -1949,6 +1975,34 @@ class TestCase(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this test case needs review due to upstream changes.",
     )
+    origin = models.CharField(
+        max_length=20,
+        choices=TestCaseOrigin.choices,
+        default=TestCaseOrigin.MANUAL,
+        help_text=(
+            "#424: provenance of the test-case content. 'manual' (default) and "
+            "'ai_generated' are client-writable; 'unknown' is "
+            "system/migration-only and grandfathers pre-#424 rows."
+        ),
+    )
+    reviewed = models.BooleanField(
+        default=False,
+        help_text=(
+            "#424: in-content human approval. Only meaningful together with "
+            "'origin' - an 'ai_generated', unreviewed test case does not count "
+            "as verification evidence. Changed via TestService.mark_reviewed."
+        ),
+    )
+    scenario_kind = models.CharField(
+        max_length=20,
+        choices=ScenarioKind.choices,
+        default=ScenarioKind.NOMINAL,
+        help_text=(
+            "#402: 'nominal' (happy path, default) or 'off_nominal' "
+            "(negative/boundary case) categorisation."
+        ),
+    )
+
     class Meta:
         db_table = "pl_testcase"
         indexes = [
