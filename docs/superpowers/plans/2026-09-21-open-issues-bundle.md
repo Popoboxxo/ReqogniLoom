@@ -255,7 +255,7 @@ same test run verifies both, and #433 is explicitly future regression protection
 - Modify: `e2e/tests/toothbrush-syseng.spec.ts:125`,
   `e2e/tests/waterkettle-fullblown.spec.ts:548,567`,
   `e2e/tests/needs-cross-boundary.spec.ts` (+ sweep generic selectors)
-- Add: `make test-e2e:reseed` path (Makefile + docs)
+- Add: `make test-e2e-reseed` path (Makefile + docs)
 - Add: `backend/application/tests/test_requirement_bundle_tenant_predicate.py` (new)
 
 **Tasks:**
@@ -269,7 +269,7 @@ same test run verifies both, and #433 is explicitly future regression protection
 4. **#947.3** — replace remaining generic selectors (`locator('select')`,
    `locator('textarea')`, text matches) with `data-testid`/scoped locators.
 5. **#947.4** — document that the suite is designed for "seed once → run once" and add a
-   `make test-e2e:reseed` convenience path.
+   `make test-e2e-reseed` convenience path.
 6. **#433** — regression test for the `tenant_id` defense-in-depth predicate in
    `backend/application/requirement_bundle_service.py` (`_ARCH_TREE_CTE` and its two call
    sites): two tenants, each with their own `ArchitectureElement`/`Requirement`/
