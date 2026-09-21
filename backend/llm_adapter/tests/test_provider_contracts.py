@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_adapter.interface import LlmCapabilityInterface
+from llm_adapter import providers
 from llm_adapter.providers import (
     AnthropicProvider,
     AzureOpenAiProvider,
@@ -528,6 +529,58 @@ def test_opencode_go_provider_sends_configured_model_in_request() -> None:
     with patch.dict(sys.modules, {"openai": fake_openai}):
         provider._chat("hello")
     assert captured["model"] == "claude-custom-model"
+
+
+def test_opencode_go_provider_sends_session_header_when_configured() -> None:
+    """[RFC #1002 F12] A configured opencode_session must reach the SDK as the
+    ``x-opencode-session`` default header, which the Zen-Go endpoint requires."""
+    captured: dict = {}
+    fake_openai = _fake_openai_module(captured)
+    config = ProviderConfig(
+        provider_name="opencode_go",
+        api_key="sk-dummy",
+        opencode_session="sess-abc123",
+    )
+    provider = OpencodeGoProvider(config)
+    with patch.dict(sys.modules, {"openai": fake_openai}):
+        provider._chat("hello")
+    assert captured["kwargs"]["default_headers"]["x-opencode-session"] == "sess-abc123"
+
+
+def test_opencode_go_provider_omits_session_header_when_unset() -> None:
+    """[RFC #1002 F12] Without a configured session id the header must be
+    omitted entirely (previous behaviour); a whitespace-only value counts as
+    unset too."""
+    captured: dict = {}
+    fake_openai = _fake_openai_module(captured)
+    config = ProviderConfig(provider_name="opencode_go", api_key="sk-dummy")
+    provider = OpencodeGoProvider(config)
+    with patch.dict(sys.modules, {"openai": fake_openai}):
+        provider._chat("hello")
+    assert not (captured["kwargs"].get("default_headers") or {})
+
+    captured_blank: dict = {}
+    fake_openai_blank = _fake_openai_module(captured_blank)
+    blank_config = ProviderConfig(
+        provider_name="opencode_go", api_key="sk-dummy", opencode_session="   "
+    )
+    blank_provider = OpencodeGoProvider(blank_config)
+    with patch.dict(sys.modules, {"openai": fake_openai_blank}):
+        blank_provider._chat("hello")
+    assert not (captured_blank["kwargs"].get("default_headers") or {})
+
+
+def test_read_env_config_reads_opencode_session_from_env(monkeypatch) -> None:
+    """[RFC #1002 F12] ``LLM_OPENCODE_SESSION`` is read into ProviderConfig;
+    unset or present-but-empty resolves to ``None`` (no header sent)."""
+    monkeypatch.setenv("LLM_OPENCODE_SESSION", "env-sess")
+    assert providers._read_env_config().opencode_session == "env-sess"
+
+    monkeypatch.delenv("LLM_OPENCODE_SESSION", raising=False)
+    assert providers._read_env_config().opencode_session is None
+
+    monkeypatch.setenv("LLM_OPENCODE_SESSION", "")
+    assert providers._read_env_config().opencode_session is None
 
 
 def test_azure_provider_sends_configured_model_when_no_deployment_set() -> None:

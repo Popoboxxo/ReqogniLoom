@@ -205,6 +205,96 @@ ReqogniLoom's UI — the summary/dream job simply never lands. Pin `SUMMARY_MODE
 `DREAM_DEDUCTION_MODEL_CONFIG__*` and `DREAM_INDUCTION_MODEL_CONFIG__*` alongside the
 deriver/dialectic block (see the `honcho` service comments; RFC #1002 finding F6).
 
+## Troubleshooting: LLM calls fail with ConnectError (backend container DNS)
+
+**Symptom.** Every AI feature fails while the API itself stays up. For example
+`POST /api/v1/interviews/{id}/chat/` returns 400 `VALIDATION_ERROR` with:
+
+```
+LLM provider 'opencode_go' call failed (transient_exhausted): TransientError: Connection error.
+```
+
+The very same request works when you call the LLM endpoint from the host — only the backend
+container cannot reach it.
+
+**Cause.** The backend container resolves no external names at all. A container created with a
+stale or empty resolver shows this in its own `/etc/resolv.conf`:
+
+```
+# NO EXTERNAL NAMESERVERS DEFINED
+```
+
+This is a hosting / container-lifecycle defect, not application code. Other containers on the same
+host (for example `honcho`) resolve fine, which is what makes the fault container-specific.
+
+**Detect.** Run these from the repository root:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend cat /etc/resolv.conf
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend getent hosts opencode.ai
+```
+
+A healthy container lists at least one real `nameserver` (for example the Docker embedded resolver
+at `127.0.0.11`) and `getent` prints one or more resolved addresses. The failure markers are the
+`NO EXTERNAL NAMESERVERS DEFINED` comment above and/or an empty `getent` result.
+
+Without Compose, the equivalent commands are:
+
+```bash
+docker exec <backend-container> cat /etc/resolv.conf
+docker exec <backend-container> getent hosts opencode.ai
+```
+
+**Fix.** Recreate the backend container so it picks up the host's DNS configuration:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . up -d --force-recreate backend
+```
+
+`docker compose restart backend` is **not** sufficient: a restart reuses the existing container's
+resolver, and only recreation re-reads the Docker daemon's DNS configuration. Afterwards re-run the
+detection commands above and confirm a real round trip (a working AI feature, or a successful
+`getent hosts opencode.ai`).
+
+**Second, independent failure on the same endpoint.** Once DNS is fixed, the Zen-Go endpoint can
+still answer:
+
+```
+400 {"type":"error","error":{"type":"MissingSessionID","message":"Request is missing x-opencode-session …"}}
+```
+
+Set `LLM_OPENCODE_SESSION` (documented in `.env.example`) — it is required for
+`LLM_PROVIDER=opencode_go`. Put it in `.env` and follow with `up -d`, not `restart`, because `.env`
+is read at container creation.
+
+**Start the Honcho profile alongside the standard start.** The optional memory backend is a Compose
+profile and is otherwise `Exited (0)` / never started, which makes "backend down" indistinguishable
+from "nothing remembered". Start the full stack *with* the profile:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . --profile honcho up -d
+```
+
+`MEMORY_BACKEND=honcho` and `HONCHO_BASE_URL=http://honcho:8000` must be set, as the Honcho section
+above describes.
+
+**Verify memory health after the start.** Check the `memory_backend` row is healthy (as the Honcho
+section notes, `/health` reports `memory_backend` down when the embedding endpoint is unreachable):
+
+```bash
+curl http://localhost:8001/health/
+```
+
+Optionally confirm the memory containers are actually up:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . ps
+```
+
+`honcho` and `honcho-postgres` must be `running`/`healthy`.
+
+See RFC #1002 §F12 (and issue #918).
+
 ## Optional: switch the embedding provider (and resize the schema)
 
 The bundled default (`EMBEDDING_PROVIDER=sentence-transformers`) embeds in-process at 384
