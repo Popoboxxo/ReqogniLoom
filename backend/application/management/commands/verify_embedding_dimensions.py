@@ -22,37 +22,20 @@ It is intentionally a management command rather than an entry in
 ``manage.py check``: Django system checks run on every ``runserver``/``migrate``
 and are expected not to require a live database, while this one must query the
 catalog to be meaningful.
+
+Column discovery and the catalog type lookup are shared with the rest of the
+codebase through ``persistence.embedding_schema`` (Layer 0; ``application`` is
+Layer 2, so this is an allowed downward dependency), so this command's verdict
+cannot drift from ``reqogniloom.health`` or the
+``align_embedding_dimensions`` command.
 """
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List
 
-from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
-from pgvector.django import VectorField
 
-#: ``format_type`` renders a pgvector column as e.g. ``vector(384)``.
-_COLUMN_TYPE_QUERY = """
-SELECT format_type(a.atttypid, a.atttypmod)
-FROM pg_attribute a
-JOIN pg_class c ON c.oid = a.attrelid
-WHERE c.relname = %s AND a.attname = %s AND NOT a.attisdropped
-"""
-
-
-def _embedding_columns() -> List[Tuple[str, str, str]]:
-    """Return ``(label, table, column)`` for every ``VectorField`` in the project.
-
-    Discovered through the app registry (not a hardcoded list) so a model added
-    later with an embedding column is checked automatically — the same coverage
-    argument as ``llm_adapter.checks._embedding_columns``.
-    """
-    return [
-        (f"{model.__name__}.{field.name}", model._meta.db_table, field.column)
-        for model in apps.get_models()
-        for field in model._meta.get_fields()
-        if isinstance(field, VectorField)
-    ]
+from persistence.embedding_schema import column_type, embedding_columns
 
 
 class Command(BaseCommand):
@@ -85,19 +68,19 @@ class Command(BaseCommand):
         mismatches: List[str] = []
         checked = 0
         with connection.cursor() as cursor:
-            for label, table, column in _embedding_columns():
-                cursor.execute(_COLUMN_TYPE_QUERY, [table, column])
-                row = cursor.fetchone()
-                if row is None:
+            for column in embedding_columns():
+                actual = column_type(cursor, column.table, column.column)
+                if actual is None:
                     mismatches.append(
-                        f"{label}: no column {table}.{column} found — run `manage.py migrate`"
+                        f"{column.label}: no column "
+                        f"{column.table}.{column.column} found — run "
+                        f"`manage.py migrate`"
                     )
                     continue
                 checked += 1
-                actual = row[0]
                 if actual != expected:
                     mismatches.append(
-                        f"{label}: DB column is {actual}, provider expects {expected}"
+                        f"{column.label}: DB column is {actual}, provider expects {expected}"
                     )
 
         if mismatches:
@@ -107,8 +90,11 @@ class Command(BaseCommand):
                 f"(produces {provider_dimensions}-dim vectors):\n  - "
                 + "\n  - ".join(mismatches)
                 + "\nNothing was changed. Align EMBEDDING_VECTOR_DIMENSIONS with "
-                "the provider, then run `manage.py makemigrations` and `manage.py "
-                "migrate` (#826)."
+                "the provider, then resize the columns — image deployment: "
+                "`python manage.py align_embedding_dimensions`; source checkout: "
+                "`python manage.py makemigrations` and `python manage.py "
+                "migrate`. Finally regenerate the discarded vectors with "
+                "`python manage.py backfill_embeddings` (#826)."
             )
 
         self.stdout.write(

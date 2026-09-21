@@ -66,8 +66,8 @@ class TestDefaultConfigurationIsCoherent:
         )
 
     def test_every_embedding_column_uses_the_single_source_of_truth(self):
-        """All five columns must agree. They disagreed (1536 vs 384) precisely
-        because each declared its own literal."""
+        """Every embedding column must agree. They disagreed (1536 vs 384)
+        precisely because each declared its own literal."""
         from icd.models import Icd
         from memory.models import MemoryEntry
         from persistence.models import Requirement, TraceLink
