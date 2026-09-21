@@ -11,25 +11,30 @@ scopes (``user`` / ``workspace`` / ``artifact``):
 * ``delete_entry(True)`` removes it; ``delete_scope`` removes exactly one
   scope's rows and returns the count;
 * ``health()`` returns a :class:`~memory.backends.MemoryHealth`;
+* ``digest()`` returns a :class:`~memory.backends.MemoryDigest` for the scope,
+  never raises, and reports an EMPTY scope as ``degraded=False`` (F9: "the
+  engine failed" and "there is nothing to say" are different answers);
 * string ids never trigger a UUID coercion error on the delete path;
 * empty results are ``([], 0)`` / ``[]``.
 
 The suite is parametrized over the real registry implementations rather than
 over hand-written doubles: ``pgvector`` runs against the real table, ``honcho``
 against the FakeHoncho client below (same ``peer(id).conclusions.{create,
-query,list,delete}`` surface ``test_honcho_backend.py`` drives) plus its local
-mirror rows -- so the contract is pinned against the actual code paths on both
-providers, not a mock of them.
+query,list,delete}`` surface ``test_honcho_backend.py`` drives, plus the
+``session``/``message``/``representation`` surface the F6 write and digest paths
+use) plus its local mirror rows -- so the contract is pinned against the actual
+code paths on both providers, not a mock of them.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 from unittest import mock
 from uuid import UUID, uuid4
 
 import pytest
 
-from memory.backends import MemoryHealth, get_memory_backend
+from memory.backends import MemoryDigest, MemoryHealth, get_memory_backend
 from memory.honcho_backend import HonchoMemoryBackend
 from persistence.models import Artifact
 from persistence.tests.factories import active_tenant, make_user, make_workspace
@@ -64,14 +69,58 @@ class _FakeConclusionScope:
         self._store[:] = [c for c in self._store if c.id != conclusion_id]
 
 
+class _FakeSession:
+    """Session double for the F6 message/deriver surface.
+
+    ``get_configuration`` returns ``None`` on purpose: this fake has no server,
+    and the backend's get-modify-set helper treats "no configuration" as "start
+    from the SDK defaults" -- so a run against this fake exercises the
+    fail-open path of the configuration activation instead of silently
+    pretending the engine was configured.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        self.id = session_id
+        self.messages: list = []
+        self.configuration = None
+
+    def add_messages(self, messages: list) -> list:
+        self.messages.extend(messages)
+        return list(messages)
+
+    def get_configuration(self):
+        return None
+
+    def set_configuration(self, configuration) -> None:
+        self.configuration = configuration
+
+
 class _FakePeer:
     def __init__(self, store: list) -> None:
         self.conclusions = _FakeConclusionScope(store)
+        #: Messages appended by ``write()`` via the session (F6).
+        self.messages: list = []
+        #: Engine artefacts ``digest()`` prefers, configurable per test.
+        self.representation_text = ""
+        self.card: list | None = None
+
+    def message(self, content: str, **kwargs):
+        return SimpleNamespace(
+            content=content, metadata=kwargs.get("metadata"), peer_id=kwargs.get("peer_id")
+        )
+
+    def representation(self, session=None, **kwargs) -> str:
+        return self.representation_text
+
+    def get_card(self):
+        return self.card
 
 
 class _FakeHonchoClient:
     def __init__(self) -> None:
         self._peers: dict[str, _FakePeer] = {}
+        self._sessions: dict[str, _FakeSession] = {}
+        self.configuration = None
         # Permissive, like the MagicMock client test_honcho_backend.py uses:
         # the real ``ConclusionScope.delete`` delegates to ``client._http.delete``
         # and expects any object back.
@@ -79,6 +128,15 @@ class _FakeHonchoClient:
 
     def peer(self, peer_id: str) -> _FakePeer:
         return self._peers.setdefault(peer_id, _FakePeer([]))
+
+    def session(self, session_id: str, **kwargs) -> _FakeSession:
+        return self._sessions.setdefault(session_id, _FakeSession(session_id))
+
+    def get_configuration(self):
+        return None
+
+    def set_configuration(self, configuration) -> None:
+        self.configuration = configuration
 
     def _ensure_workspace(self) -> None:
         """No-op: the real ``Honcho`` client ensures its workspace before a
@@ -281,6 +339,69 @@ class TestMemoryBackendContractCommon:
         assert isinstance(result, MemoryHealth)
         assert result.backend in ("pgvector", "honcho")
 
+    def test_digest_of_an_empty_scope_is_not_degraded(self, backend):
+        """F6 + F9: ``digest()`` answers for every backend, never raises, and an
+        empty-but-healthy scope must NOT be reported as degraded -- otherwise a
+        caller could not tell "the engine is down" from "nothing is
+        remembered", which is the exact confusion F9 exists to prevent. The
+        sentinel body (rather than an empty string) is what makes the answered
+        emptiness visible to the agent consuming the digest.
+        """
+        with active_tenant() as tenant:
+            scope_id = _scope_id(tenant, "user")
+
+            digest = backend.digest(tenant.id, "user", scope_id)
+
+            assert isinstance(digest, MemoryDigest)
+            assert digest.backend in ("pgvector", "honcho")
+            assert digest.degraded is False
+            assert digest.text
+            assert "facts=0" in digest.text
+            assert isinstance(digest.generated_at, datetime)
+
+    def test_digest_renders_written_facts_deterministically(self, backend):
+        """Identical state ⇒ byte-identical text. This is what lets a caller
+        cache a digest (or a test pin it) instead of pattern-matching a
+        prompt-shaped blob; a timestamp or an unordered read would break it.
+        """
+        with active_tenant() as tenant:
+            scope_id = _scope_id(tenant, "user")
+            backend.write(tenant.id, "user", scope_id, "the answer is 42")
+            backend.write(tenant.id, "user", scope_id, "prefers dark mode")
+
+            first = backend.digest(tenant.id, "user", scope_id)
+            second = backend.digest(tenant.id, "user", scope_id)
+
+            assert first.degraded is False
+            assert first.text == second.text
+            assert "facts=2" in first.text
+            assert "- the answer is 42" in first.text
+            assert "- prefers dark mode" in first.text
+
+    def test_digest_caps_the_rendered_facts(self, backend):
+        """A digest is prompt-sized context, not an export (module docstring:
+        ``_DIGEST_MAX_FACTS``)."""
+        from memory.backends import _DIGEST_MAX_FACTS
+
+        with active_tenant() as tenant:
+            scope_id = _scope_id(tenant, "user")
+            for i in range(_DIGEST_MAX_FACTS + 5):
+                backend.write(tenant.id, "user", scope_id, f"fact {i}")
+
+            digest = backend.digest(tenant.id, "user", scope_id)
+
+            assert f"facts={_DIGEST_MAX_FACTS}" in digest.text
+
+    def test_digest_of_an_unknown_scope_degrades_instead_of_raising(self, backend):
+        """The contract's "never raises" clause has to hold for a bad argument
+        too: a digest is driven by an agent through MCP/REST, and an exception
+        there is an unhandled 500 for a *read*."""
+        with active_tenant() as tenant:
+            digest = backend.digest(tenant.id, "not-a-scope", uuid4())
+
+            assert digest.degraded is True
+            assert digest.text == ""
+
     def test_backend_ref_matches_backend_semantics(self, backend):
         """pgvector IS the backend (no external ref); honcho mirrors a nanoid."""
         with active_tenant() as tenant:
@@ -310,6 +431,50 @@ class TestHonchoSpecificContract:
 
             assert backend.delete_entry(tenant.id, ref.backend_ref) is True
             assert backend.count(tenant.id, "user", user.id) == 0
+
+    def test_write_publishes_a_message_into_the_scope_session(self):
+        """F6: a conclusion alone gives Honcho's Deriver nothing to derive from
+        (conclusions are terminal artefacts, messages are observations). The
+        same content must therefore also arrive as a message, authored by the
+        scope's own peer, without touching the conclusion contract.
+        """
+        backend = self._honcho()
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+
+            ref = backend.write(tenant.id, "user", user.id, "some fact")
+
+            session_id = backend._scope_session_id(tenant.id, "user", user.id)
+            session = backend._client._sessions[session_id]
+            assert [message.content for message in session.messages] == ["some fact"]
+            assert session.messages[0].metadata["scope"] == "user"
+            assert session.messages[0].metadata["scope_id"] == str(user.id)
+            assert ref.backend_ref, "the conclusion id must still reach backend_ref"
+
+    def test_consecutive_writes_share_one_session_per_scope(self):
+        """The Deriver aggregates many messages into ONE representation over
+        time, so a session per write (or per call) would restart that
+        aggregation on every entry -- the id has to be stable per scope.
+        """
+        backend = self._honcho()
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            backend.write(tenant.id, "user", user.id, "first")
+            backend.write(tenant.id, "user", user.id, "second")
+
+            assert len(backend._client._sessions) == 1
+            session = next(iter(backend._client._sessions.values()))
+            assert [message.content for message in session.messages] == ["first", "second"]
+
+    def test_other_scopes_do_not_share_a_session(self):
+        backend = self._honcho()
+        with active_tenant() as tenant:
+            user = make_user(tenant)
+            workspace = make_workspace(tenant)
+            backend.write(tenant.id, "user", user.id, "user fact")
+            backend.write(tenant.id, "workspace", workspace.id, "workspace fact")
+
+            assert len(backend._client._sessions) == 2
 
     def test_delete_entry_deletes_the_external_conclusion(self):
         backend = self._honcho()
