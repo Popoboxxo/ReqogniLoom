@@ -1,0 +1,116 @@
+/*
+ * AiPromptsSection — prompt template admin section (REQ-L2-PT-001).
+ *
+ * Issue #876: section/table chrome moved out of inline `style={{...}}`
+ * objects and hoisted style constants into this module. Token-based only;
+ * the primary/secondary actions use the shared `.btn-*` classes so this
+ * module never re-declares the primary fill (UI-ratchet gate UI-50).
+ */
+
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+/* Label variant for the scope row, where the flex parent supplies spacing. */
+.fieldLabelInline {
+  display: block;
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono, monospace);
+  resize: vertical;
+}
+
+.select {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-muted);
+  margin-left: var(--space-2);
+  font-weight: 500;
+}
+
+.warning {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-badge-warning-bg);
+  color: var(--color-badge-warning-text);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.scopeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.slot {
+  margin-bottom: var(--space-4);
+}
+
+.buttonRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.errorText {
+  color: var(--color-danger);
+  margin-bottom: var(--space-3);
+}
+
+.savedText {
+  color: var(--color-success);
+  font-size: var(--font-size-sm);
+}

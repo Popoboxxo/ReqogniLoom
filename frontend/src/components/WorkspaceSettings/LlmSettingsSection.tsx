@@ -33,49 +33,7 @@ import {
   type LlmSettingsUpdate,
 } from "../../api/llm-settings";
 import { extractErrorMessage } from "../../api/client";
-
-const sectionStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const fieldLabelStyle: React.CSSProperties = {
-  display: "block",
-  marginBottom: "var(--space-2)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "var(--space-2) var(--space-3)",
-  background: "var(--color-surface-raised)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-  marginBottom: "var(--space-4)",
-};
-
-/** Warning shown when the server reports a provider this build cannot edit. */
-const unsupportedProviderHintStyle: React.CSSProperties = {
-  color: "var(--color-warning)",
-  fontSize: "var(--font-size-sm)",
-  marginTop: "calc(-1 * var(--space-3))",
-  marginBottom: "var(--space-4)",
-};
+import styles from "./LlmSettingsSection.module.css";
 
 /**
  * Type guard: does this build know `value` as a selectable provider?
@@ -152,30 +110,24 @@ export function LlmSettingsSection(): JSX.Element {
 
   if (isLoading) {
     return (
-      <section style={sectionStyle} data-testid="llm-settings-section">
-        <h3 style={headingStyle}>{t("settings.llm.title", "LLM Provider")}</h3>
+      <section className={styles.section} data-testid="llm-settings-section">
+        <h3 className={styles.heading}>{t("settings.llm.title", "LLM Provider")}</h3>
         <p>{t("loading", "Loading...")}</p>
       </section>
     );
   }
 
   return (
-    <section style={sectionStyle} data-testid="llm-settings-section">
-      <h3 style={headingStyle}>{t("settings.llm.title", "LLM Provider")}</h3>
-      <p
-        style={{
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-text-muted)",
-          marginBottom: "var(--space-4)",
-        }}
-      >
+    <section className={styles.section} data-testid="llm-settings-section">
+      <h3 className={styles.heading}>{t("settings.llm.title", "LLM Provider")}</h3>
+      <p className={styles.description}>
         {t(
           "settings.llm.description",
           "Configure the LLM provider used for AI-assisted derivation. Credentials are stored per tenant and never returned by the API."
         )}
       </p>
 
-      <label style={fieldLabelStyle} htmlFor="llm-provider">
+      <label className={styles.fieldLabel} htmlFor="llm-provider">
         {t("settings.llm.provider", "Provider")}
       </label>
       <select
@@ -183,7 +135,7 @@ export function LlmSettingsSection(): JSX.Element {
         data-testid="llm-provider-select"
         value={provider}
         onChange={(e) => setProvider(e.target.value)}
-        style={inputStyle}
+        className={styles.input}
       >
         {/*
           Render the server value itself when it is unknown to this build, so
@@ -208,7 +160,7 @@ export function LlmSettingsSection(): JSX.Element {
       {!isKnownProvider(provider) && (
         <p
           data-testid="llm-provider-unsupported-hint"
-          style={unsupportedProviderHintStyle}
+          className={styles.unsupportedHint}
         >
           {t(
             "settings.llm.providerUnsupportedHint",
@@ -223,7 +175,7 @@ export function LlmSettingsSection(): JSX.Element {
         provider === "anthropic" ||
         provider === "openai") && (
         <>
-          <label style={fieldLabelStyle} htmlFor="llm-base-url">
+          <label className={styles.fieldLabel} htmlFor="llm-base-url">
             {t("settings.llm.baseUrl", "Base URL")}
           </label>
           <input
@@ -233,12 +185,12 @@ export function LlmSettingsSection(): JSX.Element {
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="http://localhost:11434"
-            style={inputStyle}
+            className={styles.input}
           />
         </>
       )}
 
-      <label style={fieldLabelStyle} htmlFor="llm-api-key">
+      <label className={styles.fieldLabel} htmlFor="llm-api-key">
         {t("settings.llm.apiKey", "API Key")}
       </label>
       <input
@@ -252,10 +204,10 @@ export function LlmSettingsSection(): JSX.Element {
             ? "••••••••"
             : t("settings.llm.apiKeyNotSet", "Not set")
         }
-        style={inputStyle}
+        className={styles.input}
       />
 
-      <label style={fieldLabelStyle} htmlFor="llm-model-name">
+      <label className={styles.fieldLabel} htmlFor="llm-model-name">
         {t("settings.llm.modelName", "Model Name")}
       </label>
       <input
@@ -265,14 +217,14 @@ export function LlmSettingsSection(): JSX.Element {
         value={modelName}
         onChange={(e) => setModelName(e.target.value)}
         placeholder="claude-3-opus-20240229"
-        style={inputStyle}
+        className={styles.input}
       />
 
       {error && (
         <p
           role="alert"
           data-testid="llm-settings-error"
-          style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)" }}
+          className={styles.errorText}
         >
           {error}
         </p>
@@ -280,7 +232,7 @@ export function LlmSettingsSection(): JSX.Element {
       {savedOk && (
         <p
           data-testid="llm-settings-saved"
-          style={{ color: "var(--color-success)", marginBottom: "var(--space-3)" }}
+          className={styles.savedText}
         >
           {t("settings.saved", "Saved")}
         </p>
@@ -291,17 +243,7 @@ export function LlmSettingsSection(): JSX.Element {
         data-testid="llm-settings-save"
         onClick={handleSave}
         disabled={isSaving}
-        style={{
-          background: "var(--color-primary)",
-          color: "var(--color-on-primary)",
-          border: "none",
-          borderRadius: "var(--radius-md)",
-          padding: "var(--space-2) var(--space-4)",
-          fontSize: "var(--font-size-sm)",
-          fontWeight: 600,
-          cursor: isSaving ? "not-allowed" : "pointer",
-          opacity: isSaving ? 0.7 : 1,
-        }}
+        className="btn-primary"
       >
         {isSaving ? t("saving", "Saving...") : t("save", "Save")}
       </button>

@@ -34,43 +34,12 @@ import { PermissionMatrixEditor } from "../PermissionMatrix/PermissionMatrixEdit
 import { DefaultStatusBadge, ResetToDefaultButton } from "./DefaultStatusBadge";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { UUID } from "../../types";
+import styles from "./WorkflowPermissionsSection.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
   return e?.error?.message ?? e?.message ?? String(err);
 }
-
-const cardStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const hintStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const linkButtonStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "var(--color-primary)",
-  border: "none",
-  padding: "var(--space-1) var(--space-2)",
-  fontSize: "var(--font-size-sm)",
-  cursor: "pointer",
-  textDecoration: "underline",
-};
 
 interface WorkflowRowState {
   isCustomized: boolean;
@@ -260,52 +229,33 @@ export function WorkflowPermissionsSection({
   return (
     <>
       {/* ---------------- Card 1: Workflow Configuration ---------------- */}
-      <section style={cardStyle} data-testid="workflow-config-section">
-        <h3 style={headingStyle}>
+      <section className={styles.card} data-testid="workflow-config-section">
+        <h3 className={styles.heading}>
           {t("settings.workflowConfig", "Workflow Configuration")}
         </h3>
-        <p style={hintStyle}>
+        <p className={styles.hint}>
           {t(
             "settings.workflowConfigHint",
             "Whether each entity type's workflow matches the tenant-wide global default of this workspace's preset. Edit the structure in the Workflow Editor, or reset a customized workflow back to the global default."
           )}
         </p>
-        <table
-          data-testid="workflow-config-table"
-          style={{ width: "100%", borderCollapse: "collapse" }}
-        >
+        <table data-testid="workflow-config-table" className={styles.table}>
           <tbody>
             {WORKFLOW_ENTITY_TYPES.map((e) => {
               const row = rows[e.type];
               return (
                 <tr key={e.type} data-testid={`workflow-config-row-${e.type}`}>
-                  <td
-                    style={{
-                      padding: "var(--space-2) var(--space-3)",
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text)",
-                      borderBottom: "1px solid var(--color-border)",
-                      fontWeight: 600,
-                    }}
-                  >
+                  <td className={styles.tdStrong}>
                     {entityTypeLabel(e.type)}
                   </td>
-                  <td
-                    style={{
-                      padding: "var(--space-2) var(--space-3)",
-                      borderBottom: "1px solid var(--color-border)",
-                    }}
-                  >
+                  <td className={styles.tdPlain}>
                     {row.loading ? (
-                      <span style={{ color: "var(--color-text-muted)" }}>…</span>
+                      <span className={styles.mutedText}>…</span>
                     ) : row.error ? (
                       <span
                         role="alert"
                         data-testid={`workflow-config-error-${e.type}`}
-                        style={{
-                          color: "var(--color-danger)",
-                          fontSize: "var(--font-size-xs)",
-                        }}
+                        className={styles.errorSmall}
                       >
                         {row.error}
                       </span>
@@ -316,17 +266,10 @@ export function WorkflowPermissionsSection({
                       />
                     )}
                   </td>
-                  <td
-                    style={{
-                      padding: "var(--space-2) var(--space-3)",
-                      borderBottom: "1px solid var(--color-border)",
-                      textAlign: "right",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
+                  <td className={styles.tdRight}>
                     <button
                       type="button"
-                      style={linkButtonStyle}
+                      className={styles.linkButton}
                       onClick={() => navigate(`/workflows/${e.type}`)}
                       data-testid={`workflow-config-open-${e.type}`}
                     >
@@ -356,11 +299,11 @@ export function WorkflowPermissionsSection({
       </section>
 
       {/* ---------------- Card 2: Permission Configuration ---------------- */}
-      <section style={cardStyle} data-testid="permission-config-section">
-        <h3 style={headingStyle}>
+      <section className={styles.card} data-testid="permission-config-section">
+        <h3 className={styles.heading}>
           {t("settings.permissionConfig", "Permission Configuration")}
         </h3>
-        <p style={hintStyle}>
+        <p className={styles.hint}>
           {t(
             "settings.permissionConfigHint",
             "The workspace's role→capability permission matrix and whether it mirrors the global default or has been overridden."
@@ -368,22 +311,19 @@ export function WorkflowPermissionsSection({
         </p>
 
         {permLoading ? (
-          <p style={{ color: "var(--color-text-muted)" }}>…</p>
+          <p className={styles.mutedText}>…</p>
         ) : permError && !permDef ? (
-          <p role="alert" data-testid="permission-config-error" style={{ color: "var(--color-danger)" }}>
+          <p
+            role="alert"
+            data-testid="permission-config-error"
+            className={styles.errorText}
+          >
             {permError}
           </p>
         ) : (
           matrix && (
             <>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--space-3)",
-                  marginBottom: "var(--space-3)",
-                }}
-              >
+              <div className={styles.configRow}>
                 <DefaultStatusBadge
                   isCustomized={Boolean(permDef?.is_customized)}
                   hasSource={permDef?.source_global_id != null}
@@ -404,7 +344,7 @@ export function WorkflowPermissionsSection({
                     setMatrixSavedOk(false);
                     setEditingMatrix((v) => !v);
                   }}
-                  style={{ ...linkButtonStyle, marginLeft: "auto" }}
+                  className={`${styles.linkButton} ${styles.linkButtonAuto}`}
                 >
                   {editingMatrix
                     ? t("actions.cancel", "Cancel")
@@ -413,7 +353,7 @@ export function WorkflowPermissionsSection({
               </div>
 
               {permError && permDef && (
-                <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}>
+                <p role="alert" className={styles.errorTextSm}>
                   {permError}
                 </p>
               )}
@@ -471,36 +411,19 @@ export function WorkflowPermissionsSection({
 
 /** Compact read-only ✓/— view of the effective matrix (SCR-202 Card 2). */
 function ReadOnlyMatrix({ matrix }: { matrix: PermissionMatrix }): JSX.Element {
-  const th: React.CSSProperties = {
-    textAlign: "center",
-    padding: "var(--space-1) var(--space-2)",
-    fontSize: "var(--font-size-xs)",
-    fontWeight: 600,
-    color: "var(--color-text-muted)",
-    textTransform: "uppercase",
-    letterSpacing: "0.03em",
-    borderBottom: "1px solid var(--color-border)",
-  };
-  const td: React.CSSProperties = {
-    textAlign: "center",
-    padding: "var(--space-1) var(--space-2)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-text)",
-    borderBottom: "1px solid var(--color-border)",
-  };
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div className={styles.scrollX}>
       <table
         data-testid="permission-config-readonly-table"
-        style={{ width: "100%", borderCollapse: "collapse", minWidth: "520px" }}
+        className={`${styles.table} ${styles.tableWide}`}
       >
         <thead>
           <tr>
-            <th style={{ ...th, textAlign: "left" }} scope="col">
+            <th className={`${styles.th} ${styles.thLeft}`} scope="col">
               Role
             </th>
             {CAPABILITY_KEYS.map((cap) => (
-              <th key={cap} style={th} scope="col">
+              <th key={cap} className={styles.th} scope="col">
                 {cap}
               </th>
             ))}
@@ -511,12 +434,16 @@ function ReadOnlyMatrix({ matrix }: { matrix: PermissionMatrix }): JSX.Element {
             <tr key={role}>
               <th
                 scope="row"
-                style={{ ...td, textAlign: "left", fontWeight: 600, textTransform: "capitalize" }}
+                className={`${styles.td} ${styles.tdRoleHeader}`}
               >
                 {role}
               </th>
               {CAPABILITY_KEYS.map((cap) => (
-                <td key={cap} style={td} aria-label={`${role} ${cap} ${matrix[role][cap] ? "allowed" : "denied"}`}>
+                <td
+                  key={cap}
+                  className={styles.td}
+                  aria-label={`${role} ${cap} ${matrix[role][cap] ? "allowed" : "denied"}`}
+                >
                   {matrix[role][cap] ? "✓" : "—"}
                 </td>
               ))}
