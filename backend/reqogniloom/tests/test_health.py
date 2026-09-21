@@ -23,7 +23,20 @@ def _make_tenant() -> Tenant:
 
 @pytest.mark.django_db
 class TestHealthWorkflowWarning:
-    def test_no_warning_when_all_definitions_have_states(self) -> None:
+    def test_no_warning_when_all_definitions_have_states(self, monkeypatch) -> None:
+        # Do not depend on the ambient EMBEDDING_PROVIDER: pin a known 384-dim
+        # provider (matching the migrated vector(384) columns) so the only
+        # source of a warning could be the workflow check under test.
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        class _Provider:
+            dimensions = 384
+
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.get_embedding_provider",
+            lambda config=None: _Provider(),
+        )
+
         client = Client()
         response = client.get("/health/")
         body = response.json()
@@ -239,3 +252,104 @@ def test_health_flags_csrf_cookie_mismatch():
     # failure) so container/k8s probes are unaffected.
     assert body["status"] == "warning"
     assert any("CSRF_COOKIE_SECURE" in w for w in body["warnings"])
+
+
+@pytest.mark.django_db
+class TestHealthEmbeddingDimensions:
+    """``/health/`` surfaces a pgvector/provider dimension mismatch (#1018/#1019).
+
+    The physical ``vector(N)`` columns are fixed by the last migration that
+    ran; the configured embedding provider's width is fixed at container start.
+    When they disagree, embedding writes and semantic search are skipped
+    *silently* (the write guard is best-effort by design) — the one symptom is
+    an ``artifact.search`` that never returns semantic hits. The endpoint must
+    surface that where a deployment is watched, without turning it into a
+    ``503`` that would restart-loop an otherwise healthy stack.
+    """
+
+    @staticmethod
+    def _healthy_memory_backend(monkeypatch) -> None:
+        """Isolate this class from the independent ``memory_backend`` probe."""
+
+        class _Backend:
+            @staticmethod
+            def health_check():
+                return True, "reachable"
+
+        monkeypatch.setattr("memory.backends.get_memory_backend", lambda: _Backend())
+
+    def test_aligned_columns_report_ok_without_a_warning(self, monkeypatch) -> None:
+        self._healthy_memory_backend(monkeypatch)
+        # 384-dim mock, matching the migrated vector(384) columns.
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert body["checks"]["embedding_dimensions"] == "ok"
+        assert body["status"] != "degraded"
+        assert not any("embedding" in w.lower() for w in body["warnings"])
+
+    def test_provider_width_mismatch_is_a_warning_not_503(self, monkeypatch) -> None:
+        self._healthy_memory_backend(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        class _WideProvider:
+            dimensions = 768
+
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service.get_embedding_provider",
+            lambda config=None: _WideProvider(),
+        )
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        # Visible, but NOT degraded: a width mismatch disables semantic search
+        # without making the service unhealthy, so probes must stay green.
+        assert response.status_code == 200
+        assert body["status"] == "warning"
+        assert body["checks"]["embedding_dimensions"] == "mismatch"
+        assert any("embedding columns" in w for w in body["warnings"])
+        # CWE-209: reachable without authentication — no DB detail leaks.
+        assert "host=" not in str(body)
+
+    def test_unknown_provider_skips_the_check_without_a_second_alarm(
+        self, monkeypatch
+    ) -> None:
+        """An unknown provider has no width to compare against.
+
+        ``llm_adapter.W002`` already reports the bad provider from
+        ``manage.py check``; this endpoint must not raise a second, misleading
+        embedding-dimension warning.
+        """
+        from llm_adapter.embedding_service import EmbeddingProviderConfig
+
+        self._healthy_memory_backend(monkeypatch)
+        monkeypatch.setattr(
+            "llm_adapter.embedding_service._read_config",
+            lambda: EmbeddingProviderConfig(provider_name="not-a-real-provider"),
+        )
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert body["checks"]["embedding_dimensions"] == "ok"
+        assert not any("embedding columns" in w for w in body["warnings"])
+        assert body["status"] != "degraded"
+
+    def test_check_is_skipped_when_the_database_is_down(self, monkeypatch) -> None:
+        import reqogniloom.health as health_module
+
+        def _boom():
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(health_module.connection, "ensure_connection", _boom)
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 503
+        assert "embedding_dimensions" not in body["checks"]
