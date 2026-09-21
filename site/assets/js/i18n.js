@@ -15,7 +15,7 @@
   window.REQLO_I18N = {
     en: {
       'meta.title': 'ReqogniLoom — AI-native requirements and test management',
-      'meta.description': 'ReqogniLoom is an AI-native requirements and test management system for systems engineering: MBSE-compatible artifact decomposition, V-Model traceability L0–L4, a REST API and a native MCP server with 188 tools.',
+      'meta.description': 'ReqogniLoom is an AI-native requirements and test management system for systems engineering: MBSE-compatible artifact decomposition, V-Model traceability L0–L4, a REST API and a native MCP server with 215 tools.',
 
       'a11y.skip': 'Skip to content',
       'brand.home': 'ReqogniLoom — back to top',
@@ -102,7 +102,7 @@
       'arch.l3.role': 'Transport adapters only',
       'arch.l3.body': 'Two thin adapters expose the same application services to different clients. Neither owns business logic.',
       'arch.l3.m1': 'Django REST Framework under /api/v1/ with JWT auth and an OpenAPI 3.0 schema (drf-spectacular)',
-      'arch.l3.m2': 'Native Model Context Protocol server, JSON-RPC 2.0, 31 tool-group prefixes and 188 tools',
+      'arch.l3.m2': 'Native Model Context Protocol server, JSON-RPC 2.0, 31 tool-group prefixes and 215 tools',
       'arch.ext.role': 'Cross-cutting and operational apps',
       'arch.ext.body': 'Focused apps that extend the core without bending the layer boundaries: rendering, interface documentation, metrics, fault tolerance and operations.',
       'arch.ext.m1': 'SVG / PNG / PlantUML renderer and Mermaid canvases',
@@ -225,7 +225,7 @@
 
     de: {
       'meta.title': 'ReqogniLoom — KI-natives Anforderungs- und Testmanagement',
-      'meta.description': 'ReqogniLoom ist ein KI-natives System für Anforderungs- und Testmanagement im Systems Engineering: MBSE-kompatible Artefakt-Zerlegung, V-Modell-Traceability L0–L4, eine REST API und ein nativer MCP-Server mit 188 Tools.',
+      'meta.description': 'ReqogniLoom ist ein KI-natives System für Anforderungs- und Testmanagement im Systems Engineering: MBSE-kompatible Artefakt-Zerlegung, V-Modell-Traceability L0–L4, eine REST API und ein nativer MCP-Server mit 215 Tools.',
 
       'a11y.skip': 'Zum Inhalt springen',
       'brand.home': 'ReqogniLoom — nach oben',
@@ -312,7 +312,7 @@
       'arch.l3.role': 'Nur Transport-Adapter',
       'arch.l3.body': 'Zwei dünne Adapter stellen dieselben Anwendungs-Services verschiedenen Clients bereit. Keiner von beiden enthält Geschäftslogik.',
       'arch.l3.m1': 'Django REST Framework unter /api/v1/ mit JWT-Auth und OpenAPI-3.0-Schema (drf-spectacular)',
-      'arch.l3.m2': 'Nativer Model-Context-Protocol-Server, JSON-RPC 2.0, 31 Tool-Gruppen-Präfixe und 188 Tools',
+      'arch.l3.m2': 'Nativer Model-Context-Protocol-Server, JSON-RPC 2.0, 31 Tool-Gruppen-Präfixe und 215 Tools',
       'arch.ext.role': 'Querschnitts- und Betriebs-Apps',
       'arch.ext.body': 'Fokussierte Apps, die den Kern erweitern, ohne die Schichtgrenzen zu verbiegen: Rendering, Schnittstellen-Dokumentation, Metriken, Fehlertoleranz und Betrieb.',
       'arch.ext.m1': 'SVG-/PNG-/PlantUML-Renderer und Mermaid-Canvases',
