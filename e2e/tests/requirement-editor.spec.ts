@@ -126,11 +126,14 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     // it connects diagrams to artifacts, not a Requirement as source, so the
     // legacy inline form's "all 8 regardless" was the thing that let a user
     // pick a type the server would then reject.
-    // Options keep the raw catalog key as `value` — assert against values.
-    const typeValues = await page.locator('[data-testid="create-trace-link-type-select"]').locator('option').evaluateAll(
-      (opts) => opts.map((o) => (o as HTMLOptionElement).value)
+    // Options keep the raw catalog key as `data-value` — assert against those.
+    // #318: the control is a non-native listbox, so its options only exist
+    // while the popup is open.
+    await page.locator('[data-testid="create-trace-link-type-select"]').click();
+    const typeValues = await page.locator('[data-testid^="create-trace-link-type-option-"]').evaluateAll(
+      (opts) => opts.map((o) => o.getAttribute('data-value'))
     );
-    const realTypes = typeValues.filter((o) => o.trim());
+    const realTypes = typeValues.filter((o) => o && o.trim());
     expect(realTypes).toEqual(
       expect.arrayContaining([
         'derives-from',
@@ -159,7 +162,9 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await page.locator('[data-testid="req-allocation-assign-btn"]').click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 6000 });
     // Architecture-only and allocated-to preselected.
-    await expect(page.locator('[data-testid="create-trace-link-type-select"]')).toHaveValue('allocated-to');
+    // #318: the link type lives on the trigger's `data-value`, not on a
+    // native <select> value.
+    await expect(page.locator('[data-testid="create-trace-link-type-select"]')).toHaveAttribute('data-value', 'allocated-to');
     await expect(page.locator('[data-testid="create-trace-link-target-type-architecture"]')).toBeVisible();
   });
 

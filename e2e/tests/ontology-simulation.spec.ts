@@ -106,7 +106,10 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     const archTarget = page.locator(`[data-testid="create-trace-link-target-element-${l1ArchId}"]`);
     await archTarget.waitFor({ timeout: 10000 });
     await archTarget.click();
-    await page.locator('[data-testid="create-trace-link-type-select"]').selectOption('allocated-to');
+    // #318: the link-type control is a non-native listbox now — open the
+    // trigger and click the option instead of calling selectOption().
+    await page.locator('[data-testid="create-trace-link-type-select"]').click();
+    await page.locator('[data-testid="create-trace-link-type-option-allocated-to"]').click();
     await page.locator('[data-testid="create-trace-link-submit"]').click();
 
     // Verify link appears in the UI.

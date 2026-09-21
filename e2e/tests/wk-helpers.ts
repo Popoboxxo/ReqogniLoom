@@ -26,6 +26,18 @@ async function extractIdFromTestid(locator: Locator, prefix: string): Promise<st
 }
 
 /**
+ * Wählt den Link-Typ im einheitlichen CreateTraceLinkDialog (REQ-005).
+ *
+ * #318: Das Link-Typ-Feld ist kein natives `<select>` mehr, sondern eine
+ * nicht-native Listbox. `selectOption()` greift daher nicht mehr — stattdessen
+ * wird der Trigger geöffnet und die passende Option geklickt.
+ */
+export async function selectTraceLinkTypeViaUI(page: Page, linkType: string): Promise<void> {
+  await page.locator('[data-testid="create-trace-link-type-select"]').click();
+  await page.locator(`[data-testid="create-trace-link-type-option-${linkType}"]`).click();
+}
+
+/**
  * Erstellt eine Anforderung über die UI. Liefert die ID der neuen Anforderung
  * (aus der URL abgeleitet, in die der Editor nach Create navigiert).
  */
@@ -171,7 +183,7 @@ export async function createTraceLinkViaUI(
   const target = page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`);
   await target.waitFor({ timeout: 10000 });
   await target.click();
-  await page.locator('[data-testid="create-trace-link-type-select"]').selectOption(linkType);
+  await selectTraceLinkTypeViaUI(page, linkType);
   await page.locator('[data-testid="create-trace-link-submit"]').click();
   await page.waitForLoadState('networkidle');
 }
@@ -196,7 +208,7 @@ export async function createArchTraceLinkViaUI(
   await page.locator('[data-testid="create-trace-link-dialog"]').waitFor({ timeout: 8000 });
   await page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`).waitFor({ timeout: 8000 });
   await page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`).click();
-  await page.locator('[data-testid="create-trace-link-type-select"]').selectOption(linkType);
+  await selectTraceLinkTypeViaUI(page, linkType);
   await page.locator('[data-testid="create-trace-link-submit"]').click();
   await page.waitForLoadState('networkidle');
 }
