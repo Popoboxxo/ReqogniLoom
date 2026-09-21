@@ -71,6 +71,9 @@ class ProviderConfig:
         azure_api_version: Azure-specific API version string.
         mock_delay: Simulated latency for MockLlmProvider (seconds).
         mock_error_rate: Fraction [0.0–1.0] of calls that should raise an error.
+        opencode_session: Session identifier sent as the ``x-opencode-session``
+            header by the OpenCode Go provider (RFC #1002 F12); ``None``/empty
+            means the header is omitted.
     """
 
     provider_name: str
@@ -82,6 +85,7 @@ class ProviderConfig:
     azure_api_version: Optional[str] = None
     mock_delay: float = 0.0
     mock_error_rate: float = 0.0
+    opencode_session: Optional[str] = None
 
 
 def _read_env_config() -> ProviderConfig:
@@ -120,6 +124,7 @@ def _read_env_config() -> ProviderConfig:
         azure_api_version=os.environ.get("AZURE_OPENAI_API_VERSION") or None,
         mock_delay=float(os.environ.get("MOCK_LLM_DELAY", "0.0")),
         mock_error_rate=float(os.environ.get("MOCK_LLM_ERROR_RATE", "0.0")),
+        opencode_session=os.environ.get("LLM_OPENCODE_SESSION") or None,
     )
 
 
@@ -1825,6 +1830,10 @@ class OpencodeGoProvider(_BaseHttpProvider):
         LLM_MODEL_NAME / LLM_MODEL=<model-id>  (overrides MODEL_NAME,
             optional — see https://opencode.ai/docs/providers for available
             model ids)
+        LLM_OPENCODE_SESSION=<session-id>  (optional; sent as the
+            `x-opencode-session` header the Zen-Go endpoint requires — without
+            it the endpoint answers 400 MissingSessionID, see RFC #1002 F12.
+            Unset/empty = header omitted.)
 
     A DB-persisted ``LlmSettings.model_name`` row takes precedence over both
     of the above (see Issue #196) — env vars are only the fallback for
@@ -1856,10 +1865,17 @@ class OpencodeGoProvider(_BaseHttpProvider):
             ) from exc
 
         effective_timeout = self._effective_timeout(timeout)
+        # Security: the session id is treated like a credential - never log,
+        # print or embed it in an error message.
+        headers: Dict[str, str] = {}
+        session_id = (self._config.opencode_session or "").strip()
+        if session_id:
+            headers["x-opencode-session"] = session_id
         client = OpenAI(
             api_key=self._config.api_key,
             base_url=self._base_url,
             timeout=effective_timeout,
+            default_headers=headers or None,
         )
         response = self._resilient(
             lambda: client.chat.completions.create(
