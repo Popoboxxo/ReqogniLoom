@@ -178,11 +178,15 @@ both use them for the embedding config, and `backend`/`celery` read the first tw
 
 Without a reachable endpoint, Honcho cannot embed and `/health`'s `memory_backend` row reports down.
 
-**Embedding-dimension pitfall:** `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` is baked into Honcho's
-pgvector schema at the first migration. Set it correctly *before* the first `--profile honcho`
-start against a fresh `honcho_postgres_data` volume; changing it afterwards was not sufficient in
-testing (drop the volume and re-migrate, or use Honcho's `scripts/configure_embeddings.py`). See the
-`honcho`/`honcho-migrate` service comments in `docker-compose.yml`.
+**Embedding-dimension pitfall:** `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` decides the width of
+Honcho's own pgvector columns. `alembic upgrade head` alone would leave them at Honcho's baked-in
+default (`vector(1536)`), so the `honcho-migrate` service runs Honcho's own
+`scripts/configure_embeddings.py --yes` immediately afterwards — that step ALTERs the columns to
+this value, and is a no-op when they already match. Set the variable correctly *before* the first
+`--profile honcho` start against a fresh `honcho_postgres_data` volume: that is the supported,
+data-preserving path. A later change is re-applied by the next `honcho-migrate` run as well, but
+pgvector cannot cast between widths, so already-stored memory vectors at the old width cannot
+survive a resize. See the `honcho`/`honcho-migrate` service comments in `docker-compose.yml`.
 
 ### Honcho engine modules (deriver, peer card, summary, dream, dialectic)
 
@@ -308,18 +312,42 @@ EMBEDDING_VECTOR_DIMENSIONS=768      # sentence-transformers=384, ollama=768, op
 ```
 
 `EMBEDDING_VECTOR_DIMENSIONS` is the width of every embedding column. Because it changes the
-database schema, switching it needs a migration + backfill, not just a restart:
+database schema, switching it needs a schema resize + backfill, not just a restart. How you resize
+the columns depends on how you deployed:
+
+**Source checkout (dev overlay, `./backend` bind-mounted):**
 
 ```bash
-# 1. Generate the migration from a source checkout (dev overlay bind-mounts ./backend,
-#    so the generated file survives the container):
+# 1. Generate the migration (the dev overlay bind-mounts ./backend, so the
+#    generated file survives the container):
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml \
   --project-directory . run --rm backend python manage.py makemigrations
 
 # 2. Commit the migration, deploy, and let the `migrate` service apply it (or run
 #    `... run --rm migrate` / `... exec backend python manage.py migrate`).
+```
 
-# 3. Regenerate the vectors inside the running backend container:
+**Image deployment (prebuilt images, no writable source mount):** the `makemigrations` path does
+**not** work here. The generated migration file is written into the container's ephemeral
+filesystem and is discarded on the next `up -d`, so the physical columns silently keep their old
+width while the models follow the environment. Use `align_embedding_dimensions` instead — it
+resizes the live columns directly (DDL only, nothing to persist on disk) and is idempotent, so a
+second run is a no-op. It must run as the Postgres superuser, so go through the one-shot `migrate`
+service rather than `exec backend` (the backend runs as the least-privilege `DB_APP_USER`, which
+does not own the tables):
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  run --rm migrate python manage.py align_embedding_dimensions
+```
+
+It resizes every embedding column and recreates the HNSW index behind each one, and prints a loud
+warning with the non-NULL row count before it discards any existing vectors.
+
+**Both paths — regenerate the vectors afterwards** (the resize discards them, because pgvector
+cannot cast between widths):
+
+```bash
 docker compose -f deploy/docker-compose.yml --project-directory . \
   exec backend python manage.py backfill_embeddings
 ```
@@ -327,7 +355,10 @@ docker compose -f deploy/docker-compose.yml --project-directory . \
 A mismatched provider/column pair is otherwise silent: embedding writes and semantic search are
 skipped, not errored. `manage.py check` flags it as `llm_adapter.W001`, and
 `python manage.py verify_embedding_dimensions` compares the live DB columns against the configured
-provider and exits non-zero on a mismatch — run it before deploying. pgvector cannot cast between
+provider and exits non-zero on a mismatch — run it before deploying. `GET /health/` also reports it
+while the stack runs: `checks.embedding_dimensions` becomes `"mismatch"` and a warning is added
+(HTTP stays 200 — a width mismatch disables semantic search but does not make the service
+unhealthy, so container probes must not restart-loop over it). pgvector cannot cast between
 widths, so resizing discards existing vectors and the backfill regenerates them.
 
 ## For AI agents

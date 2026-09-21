@@ -629,7 +629,27 @@ services:
       EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: alembic upgrade head
+    # `alembic upgrade head` alone is NOT enough: Honcho's migrations create the
+    # pgvector columns at the image's baked-in default width (1536), while the
+    # embedding model configured above may emit a different one (the default
+    # here is ollama/nomic-embed-text -> 768). Honcho's own bootstrap sequence
+    # (script docstring) is:
+    #   1. alembic upgrade head
+    #   2. python scripts/configure_embeddings.py   <- ALTERs the columns
+    #   3. start the API/deriver                    <- refuses to start on mismatch
+    # Without step 2 the columns stay vector(1536) and every memory write with a
+    # 768-dim vector is rejected server-side (issue #1018).
+    #
+    # `--yes` is mandatory here, NOT cosmetic: with no mode flag the script
+    # prompts via `input()` for confirmation, and this is a one-shot container
+    # with no stdin (`--dry-run` / `--yes` / `--report` are a mutually exclusive
+    # group). Verified against ghcr.io/plastic-labs/honcho:latest:
+    #   - WORKDIR /app, `python` on PATH (/app/.venv/bin/python)
+    #   - scripts/configure_embeddings.py present
+    #   - `python scripts/configure_embeddings.py --help` -> [--dry-run | --yes | --report]
+    # A match is a no-op here: the script only ALTERs when the schema dim
+    # differs from EMBEDDING_VECTOR_DIMENSIONS.
+    command: sh -c "alembic upgrade head && python scripts/configure_embeddings.py --yes"
 
   honcho:
     image: ghcr.io/plastic-labs/honcho:latest
@@ -768,13 +788,18 @@ services:
       # EMBEDDING_VECTOR_DIMENSIONS (768)`. Any non-1536-dim model (which
       # nomic-embed-text is) needs `EMBEDDING_VECTOR_DIMENSIONS` set on BOTH
       # `honcho-migrate` above AND here BEFORE the very first migration runs
-      # against a fresh `honcho_postgres_data` volume -- dropping the schema
-      # and re-migrating after the fact was NOT sufficient in testing; Honcho
-      # points at its own `scripts/configure_embeddings.py` (inside the
-      # image, not yet verified by this project) as the supported path to
-      # change dimensions on an already-migrated database. text-embedding-
-      # 3-small in option (a) sidesteps this entirely (1536-dim, matches the
-      # untouched default).
+      # against a fresh `honcho_postgres_data` volume.
+      #
+      # This is no longer a "drop the volume and start over" situation:
+      # `honcho-migrate` now runs Honcho's own supported
+      # `scripts/configure_embeddings.py --yes` right after `alembic upgrade
+      # head` (verified against ghcr.io/plastic-labs/honcho:latest), which
+      # ALTERs an already-migrated schema to `EMBEDDING_VECTOR_DIMENSIONS`.
+      # A later width change is therefore re-applied on the next
+      # `honcho-migrate` run -- but pgvector cannot cast between widths, so
+      # vectors already stored at the old width are DISCARDED by that ALTER
+      # and must be regenerated. text-embedding-3-small in option (a)
+      # sidesteps the whole topic (1536-dim, matches the untouched default).
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

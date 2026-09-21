@@ -37,25 +37,23 @@ EMBEDDING_PROVIDER_UNKNOWN = "llm_adapter.W002"
 
 def _embedding_columns() -> List[tuple[str, int]]:
     """Return ``(label, declared_dimensions)`` for every ``VectorField`` in the
-    project, discovered through Django's app registry.
+    project, discovered through the shared ``persistence.embedding_schema``
+    helper.
 
     Discovery rather than a hardcoded model list for two reasons. Layering
     (ADR-01): ``llm_adapter`` is Layer 1 and must not import ``icd``/``memory``
     (Ext/Layer 2) — the same backwards dependency
-    ``register_settings_override_provider`` exists to avoid. And coverage: a
-    model added later with an embedding column is checked automatically, which
-    is the whole failure mode of #794 (five independently declared widths that
-    nothing compared against each other).
+    ``register_settings_override_provider`` exists to avoid; importing
+    ``persistence`` (Layer 0) is allowed. And coverage: a model added later with
+    an embedding column is checked automatically, which is the whole failure
+    mode of #794 (independently declared widths that nothing compared against
+    each other). Reusing the single implementation keeps this check, the
+    ``verify_embedding_dimensions`` command and the ``/health/`` endpoint from
+    drifting apart.
     """
-    from django.apps import apps
-    from pgvector.django import VectorField
+    from persistence.embedding_schema import embedding_columns
 
-    return [
-        (f"{model.__name__}.{field.name}", field.dimensions)
-        for model in apps.get_models()
-        for field in model._meta.get_fields()
-        if isinstance(field, VectorField)
-    ]
+    return [(column.label, column.field.dimensions) for column in embedding_columns()]
 
 
 def check_embedding_dimensions(app_configs: Any = None, **kwargs: Any) -> List[DjangoWarning]:
@@ -111,9 +109,11 @@ def check_embedding_dimensions(app_configs: Any = None, **kwargs: Any) -> List[D
                     "those columns is silently skipped, so search results will "
                     "be missing them entirely (issue #794). To fix, set the "
                     f"EMBEDDING_VECTOR_DIMENSIONS environment variable to "
-                    f"{provider_dimensions} (#826), then run "
-                    "`python manage.py makemigrations`, `python manage.py "
-                    "migrate` and `python manage.py backfill_embeddings`. "
+                    f"{provider_dimensions} (#826), then resize the columns — "
+                    "image deployment: `python manage.py "
+                    "align_embedding_dimensions`; source checkout: "
+                    "`python manage.py makemigrations` + `python manage.py "
+                    "migrate`. Then run `python manage.py backfill_embeddings`. "
                     "pgvector cannot cast between widths, so the resize "
                     "discards existing vectors and the backfill regenerates "
                     "them. Alternatively switch back to a provider whose "

@@ -3,14 +3,14 @@
 Issue #794 made every ``VectorField`` in this codebase read its ``dimensions``
 from :data:`EMBEDDING_VECTOR_DIMENSIONS` rather than from a local integer
 literal. Before that module existed the dimension was hardcoded independently
-in five places and they disagreed:
+in four places and they disagreed:
 
 ===========================================  =====================
 Column                                       Declared dimension
 ===========================================  =====================
 ``pl_requirement.embedding``                 ``vector(1536)``
 ``pl_tracelink.embedding``                   ``vector(1536)``
-``icd_version.embedding``                    ``vector(1536)``
+``icd_icd.embedding``                        ``vector(1536)``
 ``mem_memory_entry.embedding``               ``vector(384)``
 ===========================================  =====================
 
@@ -50,7 +50,7 @@ workflow for a non-default provider (e.g. ``ollama``/``nomic-embed-text`` ->
     # 1. match the columns to the provider's output width
     EMBEDDING_VECTOR_DIMENSIONS=768
 
-    # 2. generate + apply the AlterField migrations for all five columns
+    # 2. generate + apply the AlterField migrations for every embedding column
     python manage.py makemigrations
     python manage.py migrate
 

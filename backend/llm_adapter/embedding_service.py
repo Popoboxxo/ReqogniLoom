@@ -46,8 +46,11 @@ is no longer silent: ``llm_adapter.checks.check_embedding_dimensions`` reports
 it via ``manage.py check`` at startup, and the first skipped write logs at
 WARNING (:func:`warn_dimension_mismatch`). To actually run such a provider,
 change ``EMBEDDING_VECTOR_DIMENSIONS``, generate the resulting ``AlterField``
-migrations for all five columns and re-run ``manage.py backfill_embeddings``
-(existing vectors cannot be cast between widths and are discarded).
+migrations for every embedding column and re-run ``manage.py
+backfill_embeddings`` (existing vectors cannot be cast between widths and are
+discarded). On an image deployment, use
+``python manage.py align_embedding_dimensions`` instead of
+``makemigrations``/``migrate``.
 """
 from __future__ import annotations
 
