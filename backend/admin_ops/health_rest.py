@@ -404,12 +404,17 @@ def _check_memory_backend() -> dict[str, str]:
 
 
 def _check_memory() -> dict[str, Any]:
-    """RFC #1002 PR B ``memory`` component: ``{backend, ok, detail, degraded}``.
+    """RFC #1002 PR B/F6 ``memory`` component.
+
+    Shape: ``{backend, ok, detail, degraded, digest_available}``.
 
     Uses the same cached helper (``memory.health.health_view``) that every REST
     and MCP memory response uses, so this row and the per-response ``degraded``
     flag can never disagree. ``status`` is derived from ``ok``/``degraded`` so
     the component still fits the dashboard's ``ok/degraded/down`` vocabulary.
+    ``digest_available`` is an optional capability flag and degrades to
+    ``False`` when the probe payload omits it, so a partial/older payload can
+    never 500 the health snapshot.
     """
     try:
         from memory.health import health_view  # noqa: PLC0415
@@ -428,6 +433,7 @@ def _check_memory() -> dict[str, Any]:
             "backend": data["backend"],
             "ok": data["ok"],
             "degraded": data["degraded"],
+            "digest_available": bool(data.get("digest_available", False)),
         }
     except Exception as exc:  # noqa: BLE001 - never let the row break the snapshot
         logger.warning("System health: memory check failed - %s", exc)
@@ -438,6 +444,7 @@ def _check_memory() -> dict[str, Any]:
             "backend": "unknown",
             "ok": False,
             "degraded": True,
+            "digest_available": False,
         }
 
 

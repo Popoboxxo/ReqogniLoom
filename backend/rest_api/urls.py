@@ -55,6 +55,7 @@ from admin_ops.theme_rest import (
     UserThemePreferenceView,
 )
 from memory.memory_rest import (
+    ArtifactMemoryDigestView,
     ArtifactMemoryView,
     MemoryEntryDetailView,
     MemoryEntryPromoteView,
@@ -66,6 +67,7 @@ from memory.memory_rest import (
     SystemMemorySettingsView,
     SystemMemoryWorkspaceDeleteView,
     SystemMemoryWorkspaceOverviewView,
+    WorkspaceMemoryDigestView,
     WorkspaceMemoryEntriesView,
     WorkspaceMemorySearchView,
     WorkspaceMemorySettingsView,
@@ -573,6 +575,12 @@ urlpatterns = [
         WorkspaceMemorySearchView.as_view(),
         name="workspace-memory-search",
     ),
+    # RFC #1002 F6: consolidated digest of one memory scope (read-only).
+    path(
+        "workspaces/<uuid:workspace_id>/memory/digest/",
+        WorkspaceMemoryDigestView.as_view(),
+        name="workspace-memory-digest",
+    ),
     # RFC #1002 PR B: global entry detail/forget + promote, artifact memory,
     # and the DSGVO export. Literal sub-paths precede the ``<str:entry_id>``
     # detail route (they cannot collide: ``str`` never matches a slash).
@@ -590,6 +598,11 @@ urlpatterns = [
         "artifacts/<uuid:artifact_id>/memory/",
         ArtifactMemoryView.as_view(),
         name="artifact-memory",
+    ),
+    path(
+        "artifacts/<uuid:artifact_id>/memory/digest/",
+        ArtifactMemoryDigestView.as_view(),
+        name="artifact-memory-digest",
     ),
     path(
         "system/memory/entries/export/",

@@ -93,6 +93,60 @@ locally would leave the user's content on the external service -- the exact
 DSGVO gap this PR closes. :meth:`delete_entry` additionally accepts a raw
 Honcho nanoid (resolved via ``backend_ref``) as well as our UUID.
 
+Sessions + messages: giving the Deriver something to derive from (F6)
+---------------------------------------------------------------------
+Before F6 this backend wrote exactly one thing per entry: a *conclusion*.
+Honcho's Deriver, peer card, summary and dream are all fed by **messages**
+inside a **session** -- a conclusion written directly is a terminal artefact,
+not an observation the engine can learn from. The engine therefore stayed
+idle: no representation, no card, nothing a ``digest()`` could return.
+
+Since F6 every :meth:`HonchoMemoryBackend.write` ALSO appends the same content
+as a real message to the scope's session, authored by the scope's own peer
+(observer == observed == the memory peer, matching the conclusion's scope).
+The conclusion write stays the mandatory step and its id stays
+``backend_ref``; the message is *additional* input for the Deriver.
+
+*Stable session id per scope.* One session per ``(tenant, scope, scope_id)``,
+never one per write: the Deriver's whole job is to aggregate many messages into
+one representation over time, so a fresh session per write would restart that
+aggregation on every entry. The id is derived from the peer id
+(``s_<peer id>``, see :meth:`HonchoMemoryBackend._scope_session_id`) so it is
+tenant-namespaced by construction and matches Honcho's
+``^[a-zA-Z0-9_-]+$`` id charset (colons would be rejected with HTTP 422 -- the
+same constraint that applies to peers, guarded by ``TestHonchoIdCharset``).
+
+FAIL-OPEN is the rule for the whole session path
+------------------------------------------------
+Sending the message, creating the session and enabling the engine
+configuration are all *derived* concerns: they make the external engine
+smarter, they are not what the caller asked to persist. Every one of them runs
+best-effort inside its own ``try``/``except``, logs a warning on failure and
+then continues. A Honcho release that renames a session method, a workspace
+whose configuration cannot be written, a transient 5xx -- none of that may turn
+a successful memory write into an error, because the conclusion (the mandatory
+part) is already stored and mirrored locally. The only hard failure left in
+:meth:`write` is the pre-existing "Honcho accepted the conclusion but returned
+no object" guard.
+
+``digest()`` (F6)
+-----------------
+:meth:`HonchoMemoryBackend.digest` reads the engine's derived artefact first
+(peer representation scoped to the scope's session, falling back to the peer
+card), then degrades in steps:
+
+1. representation / card -- the engine's own summary. ``degraded=False`` when
+   either answered, even if it was empty;
+2. the scope's conclusion list (``list_recent``) -- used when the engine
+   answered cleanly with nothing to summarise yet;
+3. the LOCAL MIRROR rows (``list_entries``, no network) -- last resort when a
+   network call raised, i.e. the engine is unreachable. This path sets
+   ``degraded=True``, so a caller can still show *something* while the
+   envelope says the answer is unreliable.
+
+Only a failure of step 3 as well yields an empty text. Like pgvector, an empty
+but healthy scope is ``degraded=False`` (F9), and the method never raises.
+
 EMBEDDING CONFIGURATION (GH #911)
 ---------------------------------
 Honcho embeds memory entries through an OpenAI-compatible endpoint configured
@@ -129,24 +183,36 @@ variables.
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, List, Optional, Tuple
 from uuid import UUID
 
+from django.utils import timezone
+
 from llm_adapter.embedding_service import generate_embedding
 from memory.backends import (
     MemoryBackend,
+    MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
     MemoryHealth,
+    _DIGEST_MAX_FACTS,
     _cosine_distance,
+    _digest_text,
     _maybe_uuid,
     _ref_from_entry,
+    _render_digest_facts,
     _scope_filter,
     _tenant_context,
     register_memory_backend,
 )
 from memory.models import MemoryEntry
+
+#: Module logger. Every message it emits is IDs/lengths only -- memory content
+#: is user data and must never reach a log sink (see :meth:`HonchoMemoryBackend.
+#: _publish_engine_message`).
+logger = logging.getLogger(__name__)
 
 #: Upper bound for Honcho's paginated/top-k request parameters. The server
 #: rejects oversized page sizes rather than clamping them, so an unbounded
@@ -164,6 +230,59 @@ _ARTIFACT_SCOPE_PREFIX = "a"
 
 #: Scopes whose peer id keeps the legacy unprefixed ``<tenant>_<id>`` shape.
 _LEGACY_UNPREFIXED_SCOPES = ("user", "workspace")
+
+#: Prefix for a scope's session id (F6). Sessions and peers are separate Honcho
+#: namespaces, so this prefix is not a collision guard -- it makes the two
+#: families distinguishable when reading Honcho's own logs/UI, and keeps the id
+#: obviously derived from the peer it belongs to. See
+#: :meth:`HonchoMemoryBackend._scope_session_id`.
+_SESSION_ID_PREFIX = "s"
+
+
+def _with_engine_enabled(current: Any) -> Any:
+    """Return *current* configuration with the Deriver features switched on.
+
+    Conservative get-modify-set: it starts from what the server already has and
+    only forces the four feature flags, so any ``custom_instructions``,
+    summary counters or (future) server-side setting this client does not model
+    survives the round trip. A flag that is already on stays exactly as it is,
+    which lets the caller skip the write entirely when nothing would change
+    (see :meth:`HonchoMemoryBackend._ensure_engine_configuration`).
+
+    Works for both ``SessionConfiguration`` and ``WorkspaceConfiguration`` --
+    the former subclasses the latter unchanged in ``honcho-ai==2.3.0``, so both
+    expose the same four fields and ``model_copy`` keeps the concrete class.
+
+    The SDK is imported lazily (see the module docstring's Global Constraint):
+    this function is only ever reached from the session path, which must stay
+    importable without ``honcho-ai`` installed.
+    """
+    from honcho.api_types import (  # honcho-ai; lazy, see docstring
+        DreamConfiguration,
+        PeerCardConfiguration,
+        ReasoningConfiguration,
+        SummaryConfiguration,
+    )
+
+    return current.model_copy(
+        update={
+            # Reasoning unlocks the Deriver's actual analysis; without it a
+            # message is stored but never turned into conclusions we could
+            # digest later.
+            "reasoning": (current.reasoning or ReasoningConfiguration()).model_copy(
+                update={"enabled": True}
+            ),
+            "peer_card": (current.peer_card or PeerCardConfiguration()).model_copy(
+                update={"use": True, "create": True}
+            ),
+            "summary": (current.summary or SummaryConfiguration()).model_copy(
+                update={"enabled": True}
+            ),
+            "dream": (current.dream or DreamConfiguration()).model_copy(
+                update={"enabled": True}
+            ),
+        }
+    )
 
 #: Fallback timeout, in seconds, for each network call
 #: :meth:`HonchoMemoryBackend.health_check` makes (the reachability HEAD and the
@@ -246,6 +365,18 @@ class HonchoMemoryBackend(MemoryBackend):
         # construction time (see module docstring), so a single client cannot
         # serve two tenants. Keyed by tenant id.
         self._clients: dict[str, Any] = {}
+        # Memo of session ids whose Deriver configuration this process already
+        # ensured (``_ensure_engine_configuration``), and of tenant workspace
+        # configurations already ensured. Both exist purely to avoid repeating a
+        # get+PUT round trip for every write THIS instance handles; a set is
+        # enough because the work is idempotent -- a race would at worst
+        # re-issue the same write. Deliberately per-instance and not
+        # process-global: ``get_memory_backend()`` constructs a backend per
+        # call, so nothing here can go stale against the server long enough to
+        # matter, and a long-lived instance (a consolidation task writing
+        # several facts) still skips the repeats.
+        self._configured_sessions: set = set()
+        self._configured_workspaces: set = set()
 
     @staticmethod
     def _resolve_config() -> tuple[str, Optional[str]]:
@@ -336,10 +467,38 @@ class HonchoMemoryBackend(MemoryBackend):
             return self._artifact_peer_id(tenant_id, scope_id)
         raise ValueError(f"unknown memory scope: {scope!r}")
 
+    def _scope_session_id(self, tenant_id: UUID, scope: str, scope_id: UUID) -> str:
+        """Resolve ``(scope, scope_id)`` to the stable Honcho session id (F6).
+
+        Derived from :meth:`_scope_peer_id` rather than rebuilt from the scope
+        map, so the session is namespaced by tenant (and shares the ``_a_``
+        artifact prefix) exactly like the peer it belongs to -- one source of
+        truth for the scope -> id mapping, and the id can never drift from the
+        peer it describes.
+
+        Stable per scope, never per write: the Deriver aggregates many messages
+        into one peer representation over time, so a new session per entry would
+        restart that aggregation every single time (see the module docstring).
+
+        Raises:
+            ValueError: for an unknown scope, via :meth:`_scope_peer_id`.
+        """
+        return f"{_SESSION_ID_PREFIX}_{self._scope_peer_id(tenant_id, scope, scope_id)}"
+
+    def _peer(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Any:
+        """Return this scope's peer object (get-or-create, one POST).
+
+        Extracted so a single write can create the conclusion *and* publish the
+        message on the SAME peer: every ``client.peer()`` call is an HTTP POST
+        (the docs call it lazy; it is not -- see the module docstring), so a
+        second resolution would double the request count of every write.
+        """
+        client = self._ensure_client(tenant_id)
+        return client.peer(self._scope_peer_id(tenant_id, scope, scope_id))
+
     def _conclusions(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Any:
         """Return the ``ConclusionScope`` holding this scope's memory entries."""
-        client = self._ensure_client(tenant_id)
-        return client.peer(self._scope_peer_id(tenant_id, scope, scope_id)).conclusions
+        return self._peer(tenant_id, scope, scope_id).conclusions
 
     def _delete_conclusion(self, tenant_id: UUID, conclusion_id: str) -> None:
         """Delete one conclusion from *tenant_id*'s Honcho workspace.
@@ -361,6 +520,149 @@ class HonchoMemoryBackend(MemoryBackend):
             _FORGET_SCOPE_PEER,
         )
         scope.delete(str(conclusion_id))
+
+    # -- session / message plumbing (F6) --------------------------------
+
+    def _ensure_session(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Any:
+        """Return this scope's Honcho session, get-or-creating it if needed.
+
+        The session metadata is constant per scope (tenant, scope and scope_id),
+        so passing it on every call is an idempotent overwrite rather than a
+        mutation -- and it makes a session created by an older ReqogniLoom
+        build, or by hand, attributable. The Deriver configuration is ensured
+        separately, best-effort, in :meth:`_ensure_engine_configuration`.
+        """
+        client = self._ensure_client(tenant_id)
+        return client.session(
+            self._scope_session_id(tenant_id, scope, scope_id),
+            metadata={
+                "reqogniloom_tenant_id": str(tenant_id),
+                "reqogniloom_scope": scope,
+                "reqogniloom_scope_id": str(scope_id),
+            },
+        )
+
+    def _ensure_engine_configuration(
+        self, tenant_id: UUID, client: Any, session: Any, session_id: str
+    ) -> None:
+        """Best-effort: turn on reasoning, peer card, summary and dream (F6).
+
+        Toggles the SessionConfiguration (per scope session) and the
+        WorkspaceConfiguration (per tenant, so a session this client never
+        touches still inherits the flags). Both are a conservative
+        get-modify-set through :func:`_with_engine_enabled`, memoized per
+        backend instance -- which is exactly the batch case (a consolidation
+        task or a request writing several facts) where the extra round trips
+        would otherwise repeat on every write.
+
+        Every failure is swallowed with a warning: these flags only make the
+        engine produce richer derived artefacts, so an SDK that renamed a method
+        or a server that rejects the configuration must not break memory writes
+        (see the module docstring's fail-open rule).
+        """
+        try:
+            from honcho.api_types import (  # honcho-ai; lazy, see module docstring
+                SessionConfiguration,
+                WorkspaceConfiguration,
+            )
+
+            if session_id not in self._configured_sessions:
+                current = session.get_configuration() or SessionConfiguration()
+                desired = _with_engine_enabled(current)
+                if desired != current:
+                    session.set_configuration(desired)
+                self._configured_sessions.add(session_id)
+
+            workspace_key = str(tenant_id)
+            if workspace_key not in self._configured_workspaces:
+                current_ws = client.get_configuration() or WorkspaceConfiguration()
+                desired_ws = _with_engine_enabled(current_ws)
+                if desired_ws != current_ws:
+                    client.set_configuration(desired_ws)
+                self._configured_workspaces.add(workspace_key)
+        except Exception as exc:  # noqa: BLE001 - fail-open, see docstring
+            logger.warning(
+                "honcho memory: could not enable the Deriver configuration for "
+                "tenant=%s (error type %s); writes continue unaffected",
+                tenant_id,
+                type(exc).__name__,
+            )
+
+    def _publish_engine_message(
+        self,
+        peer: Any,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        content: str,
+        *,
+        contributor_user_id: Optional[UUID] = None,
+        source_event_id: Optional[UUID] = None,
+        source_session_id: Optional[UUID] = None,
+        language: str = "",
+        confidence: float = 1.0,
+    ) -> None:
+        """Append *content* as a message to the scope's session (F6).
+
+        This is what actually feeds Honcho's Deriver: the conclusion written by
+        :meth:`write` is a stored fact, but only *messages* inside a *session*
+        are observations the engine derives representations, cards and summaries
+        from (see the module docstring).
+
+        FAIL-OPEN by construction: the whole body sits in one ``try``/``except``
+        and the caller treats it as fire-and-forget, so a session endpoint that
+        is down, an SDK rename or a metadata rejection can never fail a write
+        whose mandatory part (the conclusion + local mirror row) already
+        succeeded. Success logs at debug, failure at warning -- and both log
+        IDs/lengths only, never the content, because memory content is user data
+        (identical discipline to the audit log's size-only metadata).
+
+        Provenance travels as JSON-serialisable metadata (UUIDs stringified), so
+        the engine can attribute the observation without a second lookup. Keys
+        whose value is unknown are omitted rather than sent as ``null``: an
+        absent ``source_event_id`` means "not derived from an event", and
+        claiming otherwise in the engine's own data would be a bug.
+        """
+        try:
+            session_id = self._scope_session_id(tenant_id, scope, scope_id)
+            metadata: dict = {
+                "reqogniloom_kind": "memory_entry",
+                "tenant_id": str(tenant_id),
+                "scope": scope,
+                "scope_id": str(scope_id),
+                "language": language,
+                "confidence": float(confidence),
+            }
+            for key, value in (
+                ("contributor_user_id", contributor_user_id),
+                ("source_event_id", source_event_id),
+                ("source_session_id", source_session_id),
+            ):
+                if value is not None:
+                    metadata[key] = str(value)
+
+            session = self._ensure_session(tenant_id, scope, scope_id)
+            self._ensure_engine_configuration(
+                tenant_id, self._ensure_client(tenant_id), session, session_id
+            )
+            session.add_messages([peer.message(content, metadata=metadata)])
+        except Exception as exc:  # noqa: BLE001 - fail-open, see docstring
+            logger.warning(
+                "honcho memory: message publish failed for tenant=%s scope=%s "
+                "scope_id=%s (content length %d, error type %s); the conclusion "
+                "was stored anyway",
+                tenant_id,
+                scope,
+                scope_id,
+                len(content),
+                type(exc).__name__,
+            )
+        else:
+            logger.debug(
+                "honcho memory: published a %d char message to session %s",
+                len(content),
+                session_id,
+            )
 
     # -- canonical-store API (RFC #1002) --------------------------------
 
@@ -391,11 +693,32 @@ class HonchoMemoryBackend(MemoryBackend):
         pre-#1002 implementation dropped: Honcho's create payload still only
         accepts ``content``/``session_id``, but provenance now has a home in
         ReqogniLoom's own table.
+
+        F6 adds one step: the same content is also published as a *message* in
+        the scope's session (see :meth:`_publish_engine_message`), which is what
+        gives Honcho's Deriver, peer card, summary and dream something to work
+        with. That step is fail-open and runs only AFTER the conclusion -- and,
+        deliberately, only after the no-object guard, so a rejected conclusion
+        never leaves an orphan observation in the engine. Both the guard and the
+        nanoid-in-``backend_ref`` contract are unchanged by F6.
         """
-        created = self._conclusions(tenant_id, scope, scope_id).create([{"content": content}])
+        peer = self._peer(tenant_id, scope, scope_id)
+        created = peer.conclusions.create([{"content": content}])
         if not created:
             raise RuntimeError("Honcho accepted the conclusion but returned no object")
         conclusion = created[0]
+        self._publish_engine_message(
+            peer,
+            tenant_id,
+            scope,
+            scope_id,
+            content,
+            contributor_user_id=contributor_user_id,
+            source_event_id=source_event_id,
+            source_session_id=source_session_id,
+            language=language,
+            confidence=confidence,
+        )
         embedding = _safe_generate_embedding(content)
         with _tenant_context(tenant_id):
             entry = MemoryEntry.objects.create(
@@ -483,6 +806,139 @@ class HonchoMemoryBackend(MemoryBackend):
     def health(self) -> MemoryHealth:
         ok, detail = self.health_check()
         return MemoryHealth(ok=ok, backend="honcho", detail=detail, degraded=not ok)
+
+    def digest(self, tenant_id: UUID, scope: str, scope_id: UUID) -> MemoryDigest:
+        """Digest this scope's memory, preferring the engine's own artefact.
+
+        Read ladder (see the module docstring):
+
+        1. the peer representation scoped to this scope's session, falling back
+           to the peer card when the representation is empty -- Honcho's Deriver
+           output, which is the richest and cheapest thing to hand a caller;
+        2. the scope's conclusion list (``list_recent``) when the engine
+           answered cleanly but has nothing to represent yet;
+        3. the LOCAL MIRROR rows (``list_entries``, no network) when a network
+           call raised -- the engine is unreachable, so a best-effort local
+           rendering is better than nothing, but ``degraded=True`` says so.
+
+        ``degraded`` is ``True`` iff a backend/network call raised. A peer that
+        answers cleanly and simply remembers nothing yields the sentinel body
+        with ``degraded=False`` -- F9: "empty" is not "down". Never raises, and
+        only a failure of the last step as well produces an empty text.
+        """
+        generated_at = timezone.now()
+        try:
+            body, engine_failed = self._engine_digest_body(tenant_id, scope, scope_id)
+        except Exception as exc:  # noqa: BLE001 - degrade, never raise (contract)
+            logger.warning(
+                "honcho memory: digest could not reach the engine for tenant=%s "
+                "scope=%s (error type %s); falling back to the local mirror",
+                tenant_id,
+                scope,
+                type(exc).__name__,
+            )
+            body, engine_failed = "", True
+
+        if body:
+            return MemoryDigest(
+                text=_digest_text("honcho", scope, facts=None, body=body),
+                generated_at=generated_at,
+                backend="honcho",
+                degraded=engine_failed,
+            )
+
+        degraded = engine_failed
+        try:
+            conclusions = self.list_recent(
+                tenant_id, scope, scope_id, limit=_DIGEST_MAX_FACTS
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade to the mirror below
+            logger.warning(
+                "honcho memory: digest could not list conclusions for tenant=%s "
+                "scope=%s (error type %s); falling back to the local mirror",
+                tenant_id,
+                scope,
+                type(exc).__name__,
+            )
+            degraded = True
+        else:
+            contents = [ref.content for ref in conclusions]
+            return MemoryDigest(
+                text=_digest_text(
+                    "honcho", scope, facts=len(contents), body=_render_digest_facts(contents)
+                ),
+                generated_at=generated_at,
+                backend="honcho",
+                degraded=degraded,
+            )
+
+        try:
+            refs, _total = self.list_entries(
+                tenant_id, scope, scope_id, limit=_DIGEST_MAX_FACTS
+            )
+            contents = [ref.content for ref in refs]
+        except Exception:  # noqa: BLE001 - nothing left to fall back to
+            return MemoryDigest(
+                text="", generated_at=generated_at, backend="honcho", degraded=True
+            )
+        return MemoryDigest(
+            text=_digest_text(
+                "honcho", scope, facts=len(contents), body=_render_digest_facts(contents)
+            ),
+            generated_at=generated_at,
+            backend="honcho",
+            degraded=True,
+        )
+
+    def _engine_digest_body(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Tuple[str, bool]:
+        """Return ``(body, failed)`` from the engine's representation/peer card.
+
+        ``failed`` is ``True`` whenever a transport/backend call raised, which is
+        what makes the enclosing digest report ``degraded=True``. An empty body
+        with ``failed=False`` means the peer answered cleanly and simply has
+        nothing yet -- NOT degraded (F9).
+
+        A failing representation short-circuits before the card: both are calls
+        on the same unreachable peer, so the second one would only add latency to
+        an answer already known to be degraded.
+
+        ``get_card()`` rather than the ``card`` attribute: the installed
+        ``honcho-ai==2.3.0`` exposes *both* as methods, and ``card()`` is a
+        deprecation shim that warns on every call (verified by introspecting the
+        SDK in the deployed container).
+        """
+        client = self._ensure_client(tenant_id)
+        peer = client.peer(self._scope_peer_id(tenant_id, scope, scope_id))
+        session_id = self._scope_session_id(tenant_id, scope, scope_id)
+        try:
+            representation = peer.representation(session=session_id)
+        except Exception as exc:  # noqa: BLE001 - degrade, never raise (see digest)
+            logger.warning(
+                "honcho memory: digest representation read failed for tenant=%s "
+                "scope=%s (error type %s)",
+                tenant_id,
+                scope,
+                type(exc).__name__,
+            )
+            return "", True
+        body = (representation or "").strip()
+        if body:
+            return body, False
+
+        try:
+            card = peer.get_card()
+        except Exception as exc:  # noqa: BLE001 - degrade, never raise (see digest)
+            logger.warning(
+                "honcho memory: digest peer-card read failed for tenant=%s "
+                "scope=%s (error type %s)",
+                tenant_id,
+                scope,
+                type(exc).__name__,
+            )
+            return "", True
+        if card:
+            return "\n".join(str(line) for line in card).strip(), False
+        return "", False
 
     # -- legacy facade ---------------------------------------------------
 

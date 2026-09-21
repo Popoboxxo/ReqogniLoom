@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { extractApiErrorMessage } from "../../api/client";
-import { memoryApi, type MemoryEntry } from "../../api/memory";
+import { memoryApi, type MemoryDigest, type MemoryEntry } from "../../api/memory";
 import { useHasRole } from "../../hooks/useHasRole";
 import type { UUID } from "../../types";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
@@ -40,6 +40,11 @@ export function ArtifactMemoryPanel({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // --- digest (RFC #1002 F6 / Phase 3) ----------------------------------
+  const [digest, setDigest] = useState<MemoryDigest | null>(null);
+  const [isDigestLoading, setIsDigestLoading] = useState(false);
+  const [digestError, setDigestError] = useState<string | null>(null);
+
   const load = useCallback(async (): Promise<void> => {
     setIsLoading(true);
     setLoadError(null);
@@ -65,6 +70,24 @@ export function ArtifactMemoryPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // RFC #1002 F6: the digest is loaded on demand ("load/refresh"), never on
+  // mount, so mounting the panel stays a single list request.
+  const loadDigest = useCallback((): void => {
+    setIsDigestLoading(true);
+    setDigestError(null);
+    memoryApi
+      .getArtifactDigest(artifactId)
+      .then((result) => setDigest(result))
+      .catch((err: unknown) => {
+        setDigest(null);
+        setDigestError(
+          extractApiErrorMessage(err) ??
+            t("memory.digest.error", "Digest konnte nicht geladen werden.")
+        );
+      })
+      .finally(() => setIsDigestLoading(false));
+  }, [artifactId, t]);
 
   const handleForget = useCallback(async (): Promise<void> => {
     if (!pendingForget) return;
@@ -116,6 +139,81 @@ export function ArtifactMemoryPanel({
           "Fakten, die die KI sich zu diesem Artefakt gemerkt hat. Sie fließen in künftige Vorschläge ein."
         )}
       </p>
+
+      <div
+        className={styles.digest}
+        data-testid="artifact-memory-digest"
+        aria-label={t("memory.digest.heading", "Digest")}
+      >
+        <div className={styles.digestHeader}>
+          <h4 className={styles.digestHeading}>
+            {t("memory.digest.heading", "Digest")}
+          </h4>
+          <button
+            type="button"
+            className="btn-secondary"
+            data-testid="artifact-memory-digest-btn"
+            disabled={isDigestLoading}
+            onClick={loadDigest}
+          >
+            {isDigestLoading
+              ? "…"
+              : t("memory.digest.refresh", "Digest aktualisieren")}
+          </button>
+        </div>
+
+        {digestError && (
+          <p role="alert" data-testid="artifact-memory-digest-error" className={styles.error}>
+            {digestError}
+          </p>
+        )}
+
+        {isDigestLoading && (
+          <p role="status" data-testid="artifact-memory-digest-loading" className={styles.loading}>
+            {t("loading", "Loading...")}
+          </p>
+        )}
+
+        {!isDigestLoading && digest && (
+          <>
+            {digest.degraded && (
+              <p
+                role="status"
+                data-testid="artifact-memory-digest-degraded"
+                className={styles.degraded}
+              >
+                {t(
+                  "memory.digest.degraded",
+                  "Der Digest stammt aus einem eingeschränkten Gedächtnis-Backend und ist möglicherweise unvollständig."
+                )}
+              </p>
+            )}
+            {digest.digest === "" ? (
+              <p data-testid="artifact-memory-digest-empty" className={styles.empty}>
+                {t("memory.digest.empty", "Noch kein Digest vorhanden.")}
+              </p>
+            ) : (
+              <p className={styles.digestText} data-testid="artifact-memory-digest-text">
+                {digest.digest}
+              </p>
+            )}
+            <p className={styles.digestMeta}>
+              <span data-testid="artifact-memory-digest-backend">
+                {t("memory.digest.backend", {
+                  backend: digest.backend,
+                  defaultValue: "Backend: {{backend}}",
+                })}
+              </span>
+              <span data-testid="artifact-memory-digest-generated-at">
+                {t("memory.digest.generatedAt", {
+                  date: formatMemoryDate(digest.generated_at),
+                  defaultValue: "Erzeugt: {{date}}",
+                })}
+              </span>
+            </p>
+          </>
+        )}
+      </div>
 
       {degraded && (
         <p role="status" data-testid="artifact-memory-degraded" className={styles.degraded}>

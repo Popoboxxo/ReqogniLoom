@@ -184,6 +184,27 @@ start against a fresh `honcho_postgres_data` volume; changing it afterwards was 
 testing (drop the volume and re-migrate, or use Honcho's `scripts/configure_embeddings.py`). See the
 `honcho`/`honcho-migrate` service comments in `docker-compose.yml`.
 
+### Honcho engine modules (deriver, peer card, summary, dream, dialectic)
+
+Honcho does its reasoning **server-side**: the Python SDK exposes no provider/model/API-key/base-URL
+parameter at all, so which model these modules use is entirely the `honcho` container's business.
+`docker-compose.yml` pins all five active modules to this project's `opencode_go` provider
+(`mimo-v2.5` on `https://opencode.ai/zen/go/v1`, reusing `LLM_API_KEY`) and turns each on explicitly —
+`DERIVER_ENABLED`, `PEER_CARD_ENABLED`, `SUMMARY_ENABLED`, `DREAM_ENABLED` (all default to `true`
+upstream; pinned so they are visible and flippable). None of this runs unless the profile is started:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . --profile honcho up -d
+```
+
+**Failure mode when a module's model is left unpinned:** Honcho's built-in default for these modules
+is `transport=openai, model=gpt-5.4-mini`, but the only key in the container is the `opencode_go` one
+— not a real OpenAI key. An unpinned module therefore tries to authenticate against a model/endpoint
+it cannot reach and fails in the background; memory **reads** keep working, so nothing surfaces in
+ReqogniLoom's UI — the summary/dream job simply never lands. Pin `SUMMARY_MODEL_CONFIG__*`,
+`DREAM_DEDUCTION_MODEL_CONFIG__*` and `DREAM_INDUCTION_MODEL_CONFIG__*` alongside the
+deriver/dialectic block (see the `honcho` service comments; RFC #1002 finding F6).
+
 ## Optional: switch the embedding provider (and resize the schema)
 
 The bundled default (`EMBEDDING_PROVIDER=sentence-transformers`) embeds in-process at 384

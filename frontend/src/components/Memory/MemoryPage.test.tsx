@@ -10,6 +10,7 @@ vi.mock("../../api/memory", () => ({
     listWorkspaceEntries: vi.fn(),
     createWorkspaceEntry: vi.fn(),
     searchWorkspaceMemory: vi.fn(),
+    getWorkspaceDigest: vi.fn(),
     getEntry: vi.fn(),
     forgetEntry: vi.fn(),
     promoteEntry: vi.fn(),
@@ -36,8 +37,21 @@ vi.mock("../../context/AuthContext", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: unknown) =>
-      typeof fallback === "string" ? fallback : key,
+    // Mirrors the real `t(key, "default")` / `t(key, { defaultValue })`
+    // shapes the component uses; interpolation keeps metadata assertions
+    // meaningful (e.g. "Backend: honcho").
+    t: (key: string, options?: unknown) => {
+      if (typeof options === "string") return options;
+      if (options && typeof options === "object") {
+        const opts = options as Record<string, unknown>;
+        const template =
+          typeof opts.defaultValue === "string" ? opts.defaultValue : key;
+        return template.replace(/\{\{(\w+)\}\}/g, (match, name: string) =>
+          name in opts ? String(opts[name]) : match
+        );
+      }
+      return key;
+    },
   }),
 }));
 
@@ -112,6 +126,12 @@ describe("MemoryPage", () => {
     vi.mocked(memoryApi.promoteEntry).mockResolvedValue(
       entry({ entry_id: "u1-promoted", scope: "workspace" })
     );
+    vi.mocked(memoryApi.getWorkspaceDigest).mockResolvedValue({
+      digest: "Team uses TypeScript.",
+      generated_at: "2026-09-01T12:00:00Z",
+      backend: "honcho",
+      degraded: false,
+    });
   });
 
   it("lists workspace-scoped entries on mount", async () => {
@@ -247,6 +267,85 @@ describe("MemoryPage", () => {
         "ws-1",
         expect.objectContaining({ page: 2 })
       );
+    });
+  });
+
+  // --- digest (RFC #1002 F6) -------------------------------------------
+
+  it("loads and renders the workspace digest with backend metadata", async () => {
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.click(screen.getByTestId("memory-digest-btn"));
+
+    expect(await screen.findByTestId("memory-digest-text")).toHaveTextContent(
+      "Team uses TypeScript."
+    );
+    expect(memoryApi.getWorkspaceDigest).toHaveBeenCalledWith("ws-1");
+    expect(screen.getByTestId("memory-digest-backend")).toHaveTextContent("honcho");
+    expect(screen.getByTestId("memory-digest-generated-at")).toBeInTheDocument();
+  });
+
+  it("flags a degraded digest", async () => {
+    vi.mocked(memoryApi.getWorkspaceDigest).mockResolvedValue({
+      digest: "Partial summary",
+      generated_at: "2026-09-01T12:00:00Z",
+      backend: "pgvector",
+      degraded: true,
+    });
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.click(screen.getByTestId("memory-digest-btn"));
+
+    expect(await screen.findByTestId("memory-digest-degraded")).toBeInTheDocument();
+  });
+
+  it("shows a friendly empty state for a blank digest (not an error)", async () => {
+    vi.mocked(memoryApi.getWorkspaceDigest).mockResolvedValue({
+      digest: "",
+      generated_at: "2026-09-01T12:00:00Z",
+      backend: "honcho",
+      degraded: false,
+    });
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.click(screen.getByTestId("memory-digest-btn"));
+
+    expect(await screen.findByTestId("memory-digest-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("memory-digest-error")).not.toBeInTheDocument();
+  });
+
+  it("shows a digest error state when the request rejects", async () => {
+    vi.mocked(memoryApi.getWorkspaceDigest).mockRejectedValue({
+      error: { message: "digest boom" },
+    });
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.click(screen.getByTestId("memory-digest-btn"));
+
+    expect(await screen.findByTestId("memory-digest-error")).toHaveTextContent(
+      "digest boom"
+    );
+  });
+
+  it("re-invokes the digest endpoint on refresh", async () => {
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.click(screen.getByTestId("memory-digest-btn"));
+    await screen.findByTestId("memory-digest-text");
+    await user.click(screen.getByTestId("memory-digest-btn"));
+
+    await waitFor(() => {
+      expect(memoryApi.getWorkspaceDigest).toHaveBeenCalledTimes(2);
     });
   });
 });

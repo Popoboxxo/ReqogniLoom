@@ -654,17 +654,36 @@ services:
       # single-developer local stack (see HONCHO_API_KEY in .env.example).
       AUTH_USE_AUTH: "false"
       SENTRY_ENABLED: "false"
-      # Pin Honcho's own reasoning LLM (deriver/dialectic/summary/dream —
-      # all server-side, see memory/honcho_backend.py's module docstring and
-      # .env.example's "Pinning Honcho's own reasoning LLM" section for why
-      # this can't be done from the client SDK) to this project's own
-      # opencode_go provider, reusing the SAME key already configured for
-      # ReqogniLoom's own LLM_PROVIDER=opencode_go -- one opencode_go
-      # account covers both. `mimo-v2.5` is the verified model id on the
-      # `/zen/go/v1` endpoint (NOT `mimo-v2.5-free`, which only exists on the
-      # non-Go `/zen/v1` endpoint). Comment this whole block out to let
-      # Honcho fall back to its own default model config instead.
+      # Pin Honcho's own reasoning LLM for EVERY engine module that calls one
+      # (deriver, peer card, summary, dream, dialectic — all server-side; see
+      # memory/honcho_backend.py's module docstring and .env.example's
+      # "Pinning Honcho's own reasoning LLM" section for why this can't be
+      # done from the client SDK) to this project's own opencode_go provider,
+      # reusing the SAME key already configured for ReqogniLoom's own
+      # LLM_PROVIDER=opencode_go -- one opencode_go account covers both.
+      # `mimo-v2.5` is the verified model id on the `/zen/go/v1` endpoint
+      # (NOT `mimo-v2.5-free`, which only exists on the non-Go `/zen/v1`
+      # endpoint). Comment this whole block out to let Honcho fall back to
+      # its own default model config instead.
+      #
+      # WHY EVERY ACTIVE MODULE MUST BE PINNED: Honcho's built-in defaults for
+      # these modules are `transport=openai, model=gpt-5.4-mini`
+      # (ConfiguredModelSettings), but the ONLY key in this container is
+      # LLM_OPENAI_API_KEY, and it holds an opencode_go key — not a real
+      # OpenAI key. A module whose model config is left untouched therefore
+      # falls back to a model+endpoint it cannot authenticate against and
+      # fails server-side; the memory READ path keeps working, so the failure
+      # is invisible from ReqogniLoom's UI (RFC #1002 finding F6). DERIVER,
+      # DIALECTIC, SUMMARY and DREAM model configs are all pinned below for
+      # exactly that reason.
       LLM_OPENAI_API_KEY: ${LLM_API_KEY}
+      # Upstream, DERIVER_ENABLED / PEER_CARD_ENABLED / SUMMARY_ENABLED /
+      # DREAM_ENABLED all default to `true`. They are set explicitly anyway so
+      # an operator can SEE which engine modules are active without reading
+      # Honcho's source, and can flip any one off. Quoted like AUTH_USE_AUTH /
+      # SENTRY_ENABLED above.
+      DERIVER_ENABLED: "true"
+      PEER_CARD_ENABLED: "true"
       DERIVER_MODEL_CONFIG__TRANSPORT: openai
       DERIVER_MODEL_CONFIG__MODEL: mimo-v2.5
       DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
@@ -683,6 +702,24 @@ services:
       DIALECTIC_LEVELS__max__MODEL_CONFIG__TRANSPORT: openai
       DIALECTIC_LEVELS__max__MODEL_CONFIG__MODEL: mimo-v2.5
       DIALECTIC_LEVELS__max__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      # SUMMARY (periodic short/long conversation summaries) and DREAM (the
+      # offline deduction/induction peer-representation job) are the
+      # #1002/F6 gap: the deriver/dialectic block above does NOT cover them,
+      # so before this they silently fell back to the built-in
+      # `transport=openai, model=gpt-5.4-mini` default — see the
+      # "WHY EVERY ACTIVE MODULE MUST BE PINNED" note above. Both are pinned
+      # to opencode_go exactly like DERIVER/DIALECTIC.
+      SUMMARY_ENABLED: "true"
+      SUMMARY_MODEL_CONFIG__TRANSPORT: openai
+      SUMMARY_MODEL_CONFIG__MODEL: mimo-v2.5
+      SUMMARY_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      DREAM_ENABLED: "true"
+      DREAM_DEDUCTION_MODEL_CONFIG__TRANSPORT: openai
+      DREAM_DEDUCTION_MODEL_CONFIG__MODEL: mimo-v2.5
+      DREAM_DEDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+      DREAM_INDUCTION_MODEL_CONFIG__TRANSPORT: openai
+      DREAM_INDUCTION_MODEL_CONFIG__MODEL: mimo-v2.5
+      DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
       # REQUIRED for any write (peer.conclusions.create/...) to succeed --
       # verified live: without this, Honcho's embedding client defaults to
       # real OpenAI and fails with `AuthenticationError: Incorrect API key`

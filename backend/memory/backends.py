@@ -24,12 +24,31 @@ Two generations of methods coexist on :class:`MemoryBackend`:
 * the canonical-store API introduced by RFC #1002 -- :meth:`MemoryBackend.
   write`, :meth:`MemoryBackend.list_entries`, :meth:`MemoryBackend.count`,
   :meth:`MemoryBackend.delete_entry`, :meth:`MemoryBackend.delete_scope`,
-  :meth:`MemoryBackend.health`.
+  :meth:`MemoryBackend.health`, :meth:`MemoryBackend.digest`.
 
 Both are abstract so every backend implements the full surface (the old ones
 typically delegate to the new ones); that keeps every existing caller
 (``memory.tasks``, ``memory.context_builder``, ``mcp_server.tools.memory``)
 source-compatible.
+
+Recalling the digest (F6 / Phase 3)
+-----------------------------------
+``digest()`` is the read-side counterpart of the write path: it answers "what
+does this scope remember right now?" in one bounded, prompt-ready string
+(:class:`MemoryDigest`) instead of making every consumer page through
+``list_entries``/``list_recent`` and summarise the result itself. On Honcho the
+same call is also the only way to surface the engine's *derived* artefact (the
+peer representation / peer card built by Honcho's Deriver) rather than a raw
+fact dump -- which is the entire point of F6.
+
+The digest renderer is deliberately deterministic and shared by every backend
+(:func:`_digest_text` / :func:`_render_digest_facts`) rather than re-invented
+per provider: identical state must produce byte-identical text so callers can
+cache/compare a digest, and so a test can pin it instead of pattern-matching a
+prompt-shaped blob. Two constants carry the stable framing: :data:`_DIGEST_HEADER`
+and :data:`_DIGEST_EMPTY_SENTINEL` -- the sentinel exists so a healthy-but-empty
+scope is visibly *answered* rather than silently empty, which is what keeps F9's
+"down is not the same as empty" guarantee readable by the agent consuming it.
 
 Correction vs. the implementation-plan draft (same class of bug as Task 2's
 ``auth_tenancy.User`` FK mistake -- see ``memory/migrations/0001_initial.py``
@@ -56,9 +75,10 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Dict, Iterator, List, Optional, Tuple, Type, Union
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Type, Union
 from uuid import UUID
 
+from django.utils import timezone
 from pgvector.django import CosineDistance
 
 from llm_adapter.embedding_service import generate_embedding
@@ -85,6 +105,49 @@ MemoryEntryId = Union[UUID, str]
 #: ``_scope_filter`` validate against one vocabulary instead of three
 #: hand-maintained copies.
 VALID_MEMORY_SCOPES = ("user", "workspace", "artifact")
+
+#: Upper bound on how many live facts a digest renders (RFC #1002 F6).
+#: A digest is prompt-sized context, not an export: an unbounded rendering would
+#: turn one cheap read into a token bomb for whoever injects it. 20 is the same
+#: order of magnitude as ``MemoryBackend.list_recent``'s default window, so a
+#: digest roughly corresponds to "the newest page of memory".
+_DIGEST_MAX_FACTS = 20
+
+#: First line of every digest text. Stable on purpose (see the module docstring):
+#: it carries no timestamp, no host name and no cache id, so the text of a
+#: digest changes if and only if the underlying memory changed.
+_DIGEST_HEADER = "# memory digest"
+
+#: Body line used when a scope is healthy but remembers nothing. Without it the
+#: empty digest would be an empty string -- exactly what a *failed* digest
+#: returns -- and a caller could not tell "answered, nothing there" from "the
+#: engine never answered" without inspecting ``MemoryDigest.degraded`` (F9).
+_DIGEST_EMPTY_SENTINEL = "(no facts remembered)"
+
+
+def _render_digest_facts(contents: Sequence[str]) -> str:
+    """Render memory contents as the digest's deterministic bullet list.
+
+    One ``- <content>`` line per fact, in the order the caller read them. The
+    content is used verbatim (never truncated): a digest that silently cut a
+    fact in half would report a memory that was never written.
+    """
+    return "\n".join(f"- {content}" for content in contents)
+
+
+def _digest_text(backend: str, scope: str, *, facts: Optional[int], body: str) -> str:
+    """Assemble the canonical digest text from a header and a body.
+
+    ``facts`` is the number of rendered facts, or ``None`` when the body is not
+    a fact list (Honcho's peer representation is free-form prose, so counting it
+    would be a lie). Shared by both backends so the framing cannot drift between
+    providers, and used with :data:`_DIGEST_MAX_FACTS` by every digest
+    implementation.
+    """
+    header = f"{_DIGEST_HEADER} | backend={backend} | scope={scope}"
+    if facts is not None:
+        header = f"{header} | facts={facts}"
+    return f"{header}\n{body.strip() or _DIGEST_EMPTY_SENTINEL}"
 
 
 @dataclass
@@ -129,6 +192,44 @@ class MemoryHealth:
     ok: bool
     backend: str
     detail: str
+    degraded: bool = False
+
+
+@dataclass
+class MemoryDigest:
+    """Prompt-ready digest of one scope's memory (RFC #1002 F6, Phase 3).
+
+    A digest answers "what does this scope remember right now?" in one bounded
+    string, so a consumer can load context without paging ``list_entries``
+    (which needs N round trips, a token budget per page and a merge step on the
+    caller's side -- and which on Honcho bypasses the engine's own peer
+    representation, the artefact this class exists to expose).
+
+    ``text`` is the digest body. Both shipped backends render it
+    deterministically: identical state produces byte-identical ``text``, so a
+    digest can be cached, diffed or asserted on. It deliberately carries no
+    timestamp -- ``generated_at`` holds that separately, and a clock inside the
+    text would make every digest differ from every other one.
+
+    ``generated_at`` is when the digest was produced; ``backend`` names the
+    engine that produced it (``pgvector``/``honcho``/...), so a caller can tell
+    which one answered even though the response envelope's ``backend`` key comes
+    from the (cached) health probe.
+
+    ``degraded`` is the one field a caller MUST inspect before trusting
+    ``text`` -- it follows :class:`MemoryHealth`'s rule. ``False`` means the
+    backend answered and ``text`` is a faithful picture of that scope,
+    *including* the empty case: "this scope remembers nothing" is a valid answer
+    and F9 requires it to stay distinguishable from an outage. ``True`` means
+    the backend could not do its job (unreachable engine, unreadable table,
+    unknown scope); ``text`` is then empty or a best-effort rendering from a
+    local fallback. :meth:`MemoryBackend.digest` never raises -- a failing
+    backend always degrades into this flag instead.
+    """
+
+    text: str
+    generated_at: datetime
+    backend: str
     degraded: bool = False
 
 
@@ -201,6 +302,29 @@ class MemoryBackend(ABC):
     @abstractmethod
     def health(self) -> MemoryHealth:
         """Return a structured health result; never raises."""
+        ...
+
+    @abstractmethod
+    def digest(self, tenant_id: UUID, scope: str, scope_id: UUID) -> MemoryDigest:
+        """Return a bounded, prompt-ready digest of ``scope``'s live memory.
+
+        Consumers call this instead of assembling a summary from
+        ``list_entries``: it is one call, bounded by the backend's own fact cap
+        (:data:`_DIGEST_MAX_FACTS`), and -- on Honcho -- it surfaces the engine's
+        *derived* artefact (peer representation / peer card) rather than a raw
+        fact dump.
+
+        Contract, identical for every backend:
+
+        * never raises. Any failure (unreachable engine, unreadable table,
+          unknown scope) returns a :class:`MemoryDigest` with ``degraded=True``
+          and an empty or best-effort ``text``;
+        * an EMPTY but healthy scope is NOT degraded (F9): it returns
+          ``degraded=False``, because "nothing is remembered" must stay
+          distinguishable from "the backend is down";
+        * ``text`` is deterministic for identical state (see
+          :class:`MemoryDigest`).
+        """
         ...
 
     # -- legacy facade (delegates to the canonical-store API) ------------
@@ -491,6 +615,47 @@ class PgvectorMemoryBackend(MemoryBackend):
         except Exception as exc:  # noqa: BLE001 - any failure is a "down" detail
             return MemoryHealth(ok=False, backend="pgvector", detail=str(exc), degraded=True)
 
+    def digest(self, tenant_id: UUID, scope: str, scope_id: UUID) -> MemoryDigest:
+        """Digest the newest live entries of ``scope`` in one deterministic text.
+
+        The rendering is the module-wide one (header + ``- <content>`` per fact,
+        see :func:`_digest_text`); the read is the same "live rows only" filter
+        ``list_entries``/``count`` use, capped at :data:`_DIGEST_MAX_FACTS` and
+        ordered ``-created_at`` with ``-id`` as tiebreaker. The tiebreaker is not
+        cosmetic: ``auto_now_add`` timestamps within one transaction share a
+        clock value, so ordering by time alone would leave the digest's fact
+        *order* -- and therefore its bytes -- up to the database's arbitrary
+        choice between equal keys. There is no embedding involved, so rows with a
+        NULL embedding column digest fine.
+
+        Never raises (see :meth:`MemoryBackend.digest`): an unknown scope, a
+        broken connection or an RLS/tenant failure all degrade to
+        ``degraded=True`` with an empty text. An empty but healthy scope is the
+        sentinel body with ``degraded=False`` -- F9's "down is not empty".
+        """
+        generated_at = timezone.now()
+        try:
+            with _tenant_context(tenant_id):
+                rows = (
+                    MemoryEntry.objects.filter(
+                        **_scope_filter(scope, scope_id), superseded_by__isnull=True
+                    )
+                    .order_by("-created_at", "-id")[:_DIGEST_MAX_FACTS]
+                )
+                contents = [row.content for row in rows]
+        except Exception:  # noqa: BLE001 - a digest must never raise, see docstring
+            return MemoryDigest(
+                text="", generated_at=generated_at, backend="pgvector", degraded=True
+            )
+        return MemoryDigest(
+            text=_digest_text(
+                "pgvector", scope, facts=len(contents), body=_render_digest_facts(contents)
+            ),
+            generated_at=generated_at,
+            backend="pgvector",
+            degraded=False,
+        )
+
     # -- legacy facade ---------------------------------------------------
 
     def upsert(
@@ -544,6 +709,7 @@ __all__ = [
     "MemoryEntryId",
     "MemoryEntryRef",
     "MemoryHealth",
+    "MemoryDigest",
     "MemoryBackend",
     "MEMORY_BACKEND_REGISTRY",
     "VALID_MEMORY_SCOPES",

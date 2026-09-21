@@ -344,6 +344,55 @@ class TestPromote:
             original_row = MemoryEntry.objects.get(id=original["entry_id"])
             assert str(original_row.superseded_by_id) == promoted["entry_id"]
 
+            # RFC #1002 F6 item 5: a promotion must be visible in the target
+            # scope's digest, otherwise the promoted fact is only reachable
+            # through a paged listing -- which is the read the digest exists to
+            # replace. The user-scoped original is superseded, so it must not be
+            # what makes this assertion pass.
+            digest = service.digest(ctx, workspace_id=ws.id)
+            assert "worth sharing" in digest.text
+            assert digest.backend == "pgvector"
+            assert digest.degraded is False
+
+    def test_workspace_digest_degrades_cleanly_on_an_unreachable_honcho(self, monkeypatch):
+        """Same post-promote read as above, but with the honcho backend: text
+        equality is not assertable (the engine is the source of truth there), so
+        the contract under test is the degradation one -- ``digest()`` never
+        raises, ``degraded`` is a real bool, and the promoted fact is still
+        visible thanks to the local mirror (F9: degraded, not blank).
+        """
+        from unittest import mock
+
+        from memory.honcho_backend import HonchoMemoryBackend
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=ws, roles=("editor",))
+            service = _service()
+            original = service.write(ctx, content="worth sharing", scope="user")
+            service.promote(ctx, entry_id=original["entry_id"], workspace_id=ws.id)
+
+            honcho = HonchoMemoryBackend()
+            client = mock.MagicMock()
+            client.peer.return_value.representation.side_effect = RuntimeError(
+                "engine unreachable"
+            )
+            client.peer.return_value.conclusions.list.side_effect = RuntimeError(
+                "engine unreachable"
+            )
+            honcho._client = client
+            monkeypatch.setattr(
+                "application.memory_entry_service.get_memory_backend", lambda: honcho
+            )
+
+            digest = service.digest(ctx, workspace_id=ws.id)
+
+            assert digest.backend == "honcho"
+            assert isinstance(digest.degraded, bool)
+            assert digest.degraded is True
+            assert "worth sharing" in digest.text
+
     def test_non_owner_cannot_promote(self):
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
@@ -369,7 +418,85 @@ class TestPromote:
 
 
 @pytest.mark.django_db
+class TestDigest:
+    """RFC #1002 F6: ``digest()`` is a READ and must be gated like one.
+
+    A digest renders the same facts ``list``/``search`` would return, so a
+    caller with no role in the owning workspace must not be able to read it --
+    and, because authorization runs before the backend call, a denied caller
+    must not even trigger an external request.
+    """
+
+    def test_workspace_digest_contains_written_facts(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+            service = _service()
+            service.write(ctx, content="prefers dark mode", scope="workspace", workspace_id=ws.id)
+
+            digest = service.digest(ctx, workspace_id=ws.id)
+
+            assert "prefers dark mode" in digest.text
+            assert digest.backend == "pgvector"
+            assert digest.degraded is False
+
+    def test_workspace_digest_requires_a_role_in_the_workspace(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant))
+
+            with pytest.raises(MemoryPermissionDenied):
+                _service().digest(ctx, workspace_id=ws.id)
+
+    def test_artifact_digest_resolves_the_artifact_scope(self):
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), workspace=ws, roles=("editor",))
+            artifact = _artifact(tenant, ws)
+            service = _service()
+            service.write(ctx, content="artifact fact", scope="artifact", artifact_id=artifact.id)
+
+            digest = service.digest(ctx, workspace_id=None, artifact_id=artifact.id)
+
+            assert "artifact fact" in digest.text
+            assert digest.degraded is False
+
+    def test_artifact_digest_denied_without_a_role_in_the_owning_workspace(self):
+        with active_tenant() as tenant:
+            owning_ws = make_workspace(tenant)
+            artifact = _artifact(tenant, owning_ws)
+            outsider_ctx = ctx_for_user(
+                tenant, make_user(tenant), workspace=make_workspace(tenant), roles=("editor",)
+            )
+
+            with pytest.raises(MemoryPermissionDenied):
+                _service().digest(outsider_ctx, workspace_id=None, artifact_id=artifact.id)
+
+    def test_missing_target_is_a_validation_error(self):
+        with active_tenant() as tenant:
+            ctx = ctx_for_user(tenant, make_user(tenant))
+
+            with pytest.raises(ValidationError):
+                _service().digest(ctx, workspace_id=None)
+
+
+@pytest.mark.django_db
 class TestDegradedEnvelope:
+    def test_health_envelope_reports_digest_availability(self):
+        """RFC #1002 F6: the envelope tells a client whether the active backend
+        implements ``digest`` so it can hide/disable that surface instead of
+        discovering the capability by calling it. The pre-existing keys must
+        stay untouched -- REST, MCP and the admin health row all read this very
+        dict.
+        """
+        with active_tenant() as tenant:
+            ctx = ctx_for_user(tenant, make_user(tenant))
+
+            envelope = _service().health()
+
+            assert envelope["digest_available"] is True
+            assert {"backend", "ok", "detail", "degraded"} <= set(envelope)
+
     def test_unhealthy_backend_marks_reads_and_writes_degraded(self, monkeypatch):
         monkeypatch.setattr(
             "memory.health._probe",

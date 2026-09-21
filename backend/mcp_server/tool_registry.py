@@ -465,9 +465,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # reads over MemoryBackend -- memory.forget/memory.write stay
         # fail-closed WRITE-gated via _WRITE_TOOL_PREFIXES above.
         # RFC #1002 PR B adds memory.get as a plain read.
+        # RFC #1002 F6 adds memory.digest: the consolidated read of one scope
+        # over MemoryBackend.digest -- same read-only class as memory.list.
         "memory.query",
         "memory.list",
         "memory.get",
+        "memory.digest",
         # Task 21 of the traceability-semantik plan: link_type.list/get are
         # plain catalog reads -- link_type.create/update/reset stay
         # fail-closed WRITE-gated (admin-only, enforced again inside

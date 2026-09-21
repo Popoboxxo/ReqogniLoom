@@ -1486,6 +1486,15 @@
       "hint": "Facts the AI has remembered about this artifact. They feed into future suggestions.",
       "empty": "No facts about this artifact yet.",
       "loadError": "Memory could not be loaded."
+    },
+    "digest": {
+      "heading": "Digest",
+      "refresh": "Refresh digest",
+      "empty": "No digest yet.",
+      "error": "Digest could not be loaded.",
+      "degraded": "This digest came from a degraded memory backend and may be incomplete.",
+      "backend": "Backend: {{backend}}",
+      "generatedAt": "Generated: {{date}}"
     }
   },
   "comments": {

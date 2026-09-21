@@ -697,6 +697,36 @@ class WorkspaceMemoryEntriesView(APIView):
         return Response(view, status=status.HTTP_201_CREATED)
 
 
+class WorkspaceMemoryDigestView(APIView):
+    """``/api/v1/workspaces/<uuid:workspace_id>/memory/digest/``.
+
+    GET: any workspace member reads the consolidated digest of the workspace's
+    memory (``scope="workspace"``). Delegates to
+    :class:`application.memory_entry_service.MemoryEntryService`; the body is
+    the digest's own fields (``digest``/``generated_at``/``backend``/
+    ``degraded``), so F9's degradation signal is carried by the digest itself
+    rather than by a second health probe.
+    """
+
+    def get(self, request: Request, workspace_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            digest = MemoryEntryService().digest(ctx, workspace_id=workspace_id)
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(
+            {
+                "digest": digest.text,
+                "generated_at": digest.generated_at.isoformat(),
+                "backend": digest.backend,
+                "degraded": digest.degraded,
+            }
+        )
+
+
 class WorkspaceMemorySearchView(APIView):
     """``/api/v1/workspaces/<uuid:workspace_id>/memory/search/``.
 
@@ -861,6 +891,36 @@ class ArtifactMemoryView(APIView):
         return Response(view, status=status.HTTP_201_CREATED)
 
 
+class ArtifactMemoryDigestView(APIView):
+    """``/api/v1/artifacts/<uuid:artifact_id>/memory/digest/``.
+
+    GET: any active role in the artifact's workspace reads the consolidated
+    artifact-scoped digest. The service resolves the artifact's owning
+    workspace and applies ``MemoryPolicy``, so a caller cannot aim a digest at
+    an artifact of a workspace they have no role in.
+    """
+
+    def get(self, request: Request, artifact_id: UUID, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            digest = MemoryEntryService().digest(
+                ctx, workspace_id=None, artifact_id=artifact_id
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(
+            {
+                "digest": digest.text,
+                "generated_at": digest.generated_at.isoformat(),
+                "backend": digest.backend,
+                "degraded": digest.degraded,
+            }
+        )
+
+
 class SystemMemoryEntriesExportView(_SystemMemoryVisualizationView):
     """``GET /api/v1/system/memory/entries/export/`` — System-Admin only.
 
@@ -1010,9 +1070,11 @@ __all__ = [
     "MemorySelfServiceView",
     "WorkspaceMemoryEntriesView",
     "WorkspaceMemorySearchView",
+    "WorkspaceMemoryDigestView",
     "MemoryEntryDetailView",
     "MemoryEntryPromoteView",
     "ArtifactMemoryView",
+    "ArtifactMemoryDigestView",
     "SystemMemoryEntriesExportView",
     "EXPORT_MAX_ROWS",
 ]

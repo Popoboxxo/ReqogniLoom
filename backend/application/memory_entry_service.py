@@ -14,8 +14,12 @@ from the cached backend health in :mod:`memory.health`, so "the backend is
 down" is distinguishable from "nothing is remembered" — a read that returns no
 rows still answers ``degraded=True`` while the backend is unhealthy.
 
-Out of scope by decision: ``digest()`` is Phase 3 and deliberately not
-implemented here.
+``digest()`` (RFC #1002 F6 / Phase 3) is implemented here as the single read
+that answers "what does this scope remember right now?" — it delegates to the
+active backend's own digest, so the rich engine-side artefact (e.g. Honcho's
+peer representation) is what the caller receives instead of a fact dump the
+service would have to summarise itself. It is a read and therefore subject to
+exactly the same authorisation check as :meth:`list`/:meth:`search`.
 """
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from uuid import UUID
 
 from memory.backends import (
+    MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
     _maybe_uuid,
@@ -381,6 +386,54 @@ class MemoryEntryService(ServiceBase):
     def health(self) -> Dict[str, Any]:
         """Return the structured backend health envelope."""
         return envelope()
+
+    def digest(
+        self,
+        ctx: Any,
+        *,
+        workspace_id: Any,
+        artifact_id: Any = None,
+    ) -> MemoryDigest:
+        """Return the active backend's digest for one scope (RFC #1002 F6).
+
+        Scope resolution mirrors :meth:`list`: ``artifact_id`` given ⇒
+        ``scope="artifact"`` with that artifact as the scope id, otherwise
+        ``scope="workspace"`` with ``workspace_id``. The artifact's owning
+        workspace is resolved by the policy, so a caller cannot aim a digest at
+        an artifact of a workspace they have no role in.
+
+        Authorisation is the read matrix from :class:`MemoryPolicy` (any active
+        role in the workspace / in the artifact's workspace) — a digest exposes
+        the same facts ``list`` would, so it must not be reachable with fewer
+        rights. The scope check runs *before* the backend call, so a denied
+        caller never triggers an external request.
+
+        The returned :class:`~memory.backends.MemoryDigest` carries its own
+        ``degraded`` flag: a reachable-but-failing backend degrades inside the
+        backend rather than raising, and ``service.health()``/:func:`envelope`
+        keep describing the *backend* status, which is a different question.
+        """
+        if artifact_id is not None:
+            scope = MemoryEntry.SCOPE_ARTIFACT
+            scope_id = _as_uuid(artifact_id)
+            resolved_workspace_id = None
+            resolved_artifact_id = scope_id
+        else:
+            scope = MemoryEntry.SCOPE_WORKSPACE
+            scope_id = _as_uuid(workspace_id)
+            resolved_workspace_id = scope_id
+            resolved_artifact_id = None
+        if scope_id is None:
+            raise ValidationError(f"Invalid id for scope={scope!r}")
+
+        with _tenant_context(ctx.tenant_id):
+            self._assert_can_read_scope(
+                ctx,
+                scope,
+                workspace_id=resolved_workspace_id,
+                artifact_id=resolved_artifact_id,
+            )
+            return get_memory_backend().digest(ctx.tenant_id, scope, scope_id)
 
     # ------------------------------------------------------------------
     # Internals — scope + permission plumbing

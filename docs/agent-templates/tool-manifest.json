@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 214,
+  "tool_count": 215,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -3946,6 +3946,28 @@
         "properties": {
           "workspace_id": {
             "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "memory.digest",
+      "prefix": "memory",
+      "is_write": false,
+      "description": "Consolidated digest of one memory scope: the active backend's prompt-ready summary of what a workspace (or one artifact in it) remembers right now.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [

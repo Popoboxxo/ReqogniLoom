@@ -1486,6 +1486,15 @@
       "hint": "Fakten, die die KI sich zu diesem Artefakt gemerkt hat. Sie fließen in künftige Vorschläge ein.",
       "empty": "Noch keine Fakten zu diesem Artefakt.",
       "loadError": "Gedächtnis konnte nicht geladen werden."
+    },
+    "digest": {
+      "heading": "Digest",
+      "refresh": "Digest aktualisieren",
+      "empty": "Noch kein Digest vorhanden.",
+      "error": "Digest konnte nicht geladen werden.",
+      "degraded": "Der Digest stammt aus einem eingeschränkten Gedächtnis-Backend und ist möglicherweise unvollständig.",
+      "backend": "Backend: {{backend}}",
+      "generatedAt": "Erzeugt: {{date}}"
     }
   },
   "comments": {

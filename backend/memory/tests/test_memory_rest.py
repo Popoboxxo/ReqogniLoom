@@ -1,5 +1,6 @@
 """Tests for the Memory Settings REST endpoints (Spec 2026-08-24, Task 11)."""
 import uuid
+from datetime import datetime
 
 import pytest
 from rest_framework.test import APIClient
@@ -1055,7 +1056,9 @@ class TestSystemMemoryProjectionRest:
 
 _WS_ENTRIES = "/api/v1/workspaces/{ws}/memory/entries/"
 _WS_SEARCH = "/api/v1/workspaces/{ws}/memory/search/"
+_WS_DIGEST = "/api/v1/workspaces/{ws}/memory/digest/"
 _ARTIFACT_MEMORY = "/api/v1/artifacts/{artifact}/memory/"
+_ARTIFACT_DIGEST = "/api/v1/artifacts/{artifact}/memory/digest/"
 _EXPORT_URL = "/api/v1/system/memory/entries/export/"
 
 
@@ -1272,6 +1275,79 @@ class TestArtifactMemoryRest:
                 format="json",
             )
             assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestMemoryDigestRest:
+    """RFC #1002 F6 — ``GET .../memory/digest/`` (workspace + artifact)."""
+
+    def test_member_reads_workspace_digest(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = _client_for(token)
+            client.post(_WS_ENTRIES.format(ws=ws.id), {"content": "digest me"}, format="json")
+
+            response = client.get(_WS_DIGEST.format(ws=ws.id))
+
+            assert response.status_code == 200
+            assert set(response.data) == {
+                "digest",
+                "generated_at",
+                "backend",
+                "degraded",
+            }
+            assert "digest me" in response.data["digest"]
+            assert response.data["backend"] == "pgvector"
+            assert response.data["degraded"] is False
+            assert isinstance(response.data["generated_at"], str)
+            datetime.fromisoformat(response.data["generated_at"])
+
+    def test_non_member_is_denied_workspace_digest(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, workspace=None)
+            response = _client_for(token).get(_WS_DIGEST.format(ws=ws.id))
+            assert response.status_code in (403, 404)
+
+    def test_member_reads_artifact_digest(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            artifact = _make_artifact(tenant, ws)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = _client_for(token)
+            client.post(
+                _ARTIFACT_MEMORY.format(artifact=artifact.id),
+                {"content": "artifact digest me"},
+                format="json",
+            )
+
+            response = client.get(_ARTIFACT_DIGEST.format(artifact=artifact.id))
+
+            assert response.status_code == 200
+            assert set(response.data) == {
+                "digest",
+                "generated_at",
+                "backend",
+                "degraded",
+            }
+            assert "artifact digest me" in response.data["digest"]
+            datetime.fromisoformat(response.data["generated_at"])
+
+    def test_foreign_workspace_member_is_denied_artifact_digest(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            foreign = make_workspace(tenant)
+            artifact = _make_artifact(tenant, ws)
+            _user, token = editor_user_and_token(tenant, foreign)
+
+            response = _client_for(token).get(_ARTIFACT_DIGEST.format(artifact=artifact.id))
+
+            assert response.status_code in (403, 404)
 
 
 @pytest.mark.django_db

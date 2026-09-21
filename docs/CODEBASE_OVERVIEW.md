@@ -1,8 +1,8 @@
 # ReqFlow — Codebase-Übersicht (IST-Zustand)
 
-> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057) + v1.2 Memory Admin UI (Phasen 1–5)  
-> **Letzte Aktualisierung:** 2026-08-27  
-> **Branch:** `feat/se-implementation`  
+> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057) + v1.2 Memory Admin UI (Phasen 1–5) + Memory-Engine/Digest (RFC #1002 F6)  
+> **Letzte Aktualisierung:** 2026-09-21  
+> **Branch:** `feat/memory-rfc-1002-f6`  
 > **Validierung:** 1130/1130 pytest Tests grün; 111/112 E2E Tests (Playwright) grün; `manage.py check` 0 Issues
 
 ---
@@ -17,7 +17,7 @@ ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Sup
 - **Layer 0 (Foundation):** Persistierung, Auth/Tenancy, Konfiguration, Audit
 - **Layer 1 (Domain Services):** LLM-Adapter, Traceability, Workflow, Baseline, Diagram, ICD
 - **Layer 2 (Orchestration):** ApplicationService (16 Services, Single Entry Point)
-- **Layer 3 (Interfaces):** REST API + MCP Server (20 Tools)
+- **Layer 3 (Interfaces):** REST API + MCP Server (215 Tools, 31 Tool-Gruppen-Präfixe)
 - **Layer 4 (Frontend):** React-SPA
 - **Cross-Cutting:** SeMetrics (Read Model), ResilienceOrchestrator
 
@@ -319,31 +319,47 @@ from diagram.services import (
 ---
 
 #### `memory/` (ARCH-L1-017)
-**Modell:** AI Long-Term Memory Storage mit pluggable Backends (pgvector/HNSW, Honcho) und 2D-PCA-Visualisierung für Clustering.
+**Modell:** AI Long-Term Memory Storage mit pluggable Backends (pgvector/HNSW, Honcho), konsolidiertem Digest (RFC #1002 F6) und 2D-PCA-Visualisierung für Clustering.
 
-**Exportierte API (Memory Models + Backends + Projector):**
+**Exportierte API (Memory Models + Backends + Digest + Projector):**
 ```python
 from memory.models import (
-    WorkspaceMemory,              # Consolidated facts scoped to workspace
-    UserTenantMemory,             # Consolidated facts scoped to user (follows across workspaces)
+    MemoryEntry,                  # Unified fact store (Scopes user/workspace/artifact), Tabelle mem_memory_entry
     WorkspaceMemorySettings,      # Per-workspace enable/disable toggle
     SystemMemorySettings,         # System-wide override (Django superuser only)
 )
-from memory.backends import MemoryBackend          # ABC für pluggable Backends
+from memory.backends import (
+    MemoryBackend,                # ABC für pluggable Backends
+    PgvectorMemoryBackend,        # Default: PostgreSQL pgvector + HNSW
+    MemoryHealth,                 # {ok, backend, detail, degraded}
+    MemoryDigest,                 # {text, generated_at, backend, degraded} (RFC #1002 F6)
+)
 from memory.honcho_backend import HonchoMemoryBackend
-from memory.pgvector_backend import PgVectorMemoryBackend
+from memory.health import envelope, health_view   # {backend, ok, detail, degraded, digest_available}
 from memory.projector import MemoryProjector      # PCA 2D projection + clustering
 ```
 
 **Komponenten:**
-- `models.py` — `WorkspaceMemory`, `UserTenantMemory` (with pgvector HNSW indexes), `WorkspaceMemorySettings`, `SystemMemorySettings`
-- `backends.py` — `MemoryBackend` (ABC) für pluggable Implementierungen
-- `pgvector_backend.py` — PostgreSQL pgvector + HNSW Index Backend
-- `honcho_backend.py` — Honcho Remote Memory Service Backend
-- `context_builder.py` — Ereilt Speicherkontext aus Live-Daten
-- `projector.py` — PCA 2D-Projektion + Ähnlichkeits-Clustering (HNSW-ähnlich)
+- `models.py` — `MemoryEntry` (Tabelle `mem_memory_entry`; Scopes `user`/`workspace`/`artifact`, Embeddings + HNSW-Index, `superseded_by`-FK), `WorkspaceMemorySettings`, `SystemMemorySettings`
+- `backends.py` — `MemoryBackend` (ABC) + `PgvectorMemoryBackend` (Default) + `MemoryDigest`/`MemoryHealth`; Registry via `register_memory_backend()`/`get_memory_backend()`
+- `honcho_backend.py` — `HonchoMemoryBackend`: optionales externes Backend; führt einen lokalen Mirror in `mem_memory_entry` (`backend_ref` = Honcho-Conclusion-id)
+- `health.py` — Response-Envelope (`envelope()`/`health_view()`) mit `{backend, ok, detail, degraded, digest_available}` (F9/F6)
+- `policy.py` — `MemoryPolicy` (Scope-/Rollen-Matrix); `ratelimit.py` — Write-Rate-Limit
+- `context_builder.py` — Baut Speicherkontext aus Live-Daten
+- `projector.py` — PCA-2D-Projektion + Ähnlichkeits-Clustering (HNSW-nah)
 - `tasks.py` — Async Consolidation/Embedding Tasks (Celery)
-- `memory_rest.py` — REST-Adapter (Siehe Layer 3)
+- `memory_rest.py` — REST-Adapter (siehe Layer 3)
+
+**Backend-Vertrag (RFC #1002):** Zwei Methodengenerationen auf `MemoryBackend` — die ursprüngliche Fassade (`upsert`/`query`/`list_recent`/`forget`/`health_check`) und die kanonische Store-API (`write`/`list_entries`/`count`/`delete_entry`/`delete_scope`/`health`/`digest`). Beide sind abstrakt; die alten Methoden delegieren an die neuen.
+
+**Digest (`digest`, RFC #1002 F6 / Phase 3):**
+- `MemoryDigest(text, generated_at, backend, degraded)`; `MemoryBackend.digest(tenant_id, scope, scope_id)` ist der einzige Read, der „was erinnert dieser Scope gerade?“ in einem begrenzten, prompt-tauglichen String beantwortet.
+- `PgvectorMemoryBackend.digest()` rendert deterministisch die neuesten `_DIGEST_MAX_FACTS` = 20 lebenden Fakten (`-created_at, -id`); kein Embedding nötig, Rows mit NULL-Embedding werden mitgerendert.
+- `HonchoMemoryBackend.digest()` liest zuerst das abgeleitete Artefakt der Engine (peer representation der Scope-Session, sonst peer card), dann die Conclusion-Liste (`list_recent`), zuletzt den lokalen Mirror (`list_entries`, ohne Netzwerk).
+- **`degraded`-Semantik:** ein Fehler des Backends/Netzwerks setzt `degraded=True`; ein leerer, aber gesunder Scope ist `degraded=False` (F9: „down“ ist nicht „leer“). `digest()` wirft nie — ein Fehler degradiert in das Flag. Nur ein Fehler der letzten Fallback-Stufe liefert einen leeren Text.
+- Der Digest-Text ist deterministisch (identischer Zustand → identische Bytes) und trägt bewusst keinen Zeitstempel; `generated_at` steht separat.
+
+**Honcho als Engine (F6):** `HonchoMemoryBackend.write()` legt neben der Conclusion zusätzlich eine stabile Session pro Scope (`s_<peer id>`) an und hängt eine Message mit Provenienz-/Rollen-Metadaten an, damit Honchos Deriver Representations/Cards/Summaries bildet. Der Session-/Message-Pfad ist **fail-open** (Warnung + weiter); der Conclusion-Write und seine `RuntimeError`-Guard bleiben unverändert. Reasoning, Peer-Card, Summary und Dream werden per Scope über `SessionConfiguration` und pro Tenant über `WorkspaceConfiguration` aktiviert (konservatives Get-Modify-Set, pro Backend-Instanz memoized, fail-open). Die LLM-Modell-Pinnung der Honcho-Module kann nicht vom Client aus erfolgen — sie gehört in die Honcho-Server-Deployment-Konfiguration (siehe `deploy/docker-compose.yml`, `.env.example`, `deploy/README.md`).
 
 **Endpoints (siehe REST-API-Sektion):**
 - `GET/PUT /api/v1/workspaces/{id}/memory-settings/` — Per-Workspace Toggle
@@ -354,13 +370,15 @@ from memory.projector import MemoryProjector      # PCA 2D projection + clusteri
 - `GET /api/v1/system/memory/entries/` — Live Entries List + Full-Text Filter
 - `GET /api/v1/system/memory/projection/` — 2D PCA Projection + Clustering
 - `GET/DELETE /api/v1/memory/me/` — User Self-Service
+- `GET /api/v1/workspaces/{id}/memory/digest/` — Konsolidierter Workspace-Digest (F6)
+- `GET /api/v1/artifacts/{id}/memory/digest/` — Konsolidierter Artifact-Digest (F6)
 
 **Modell-Besonderheiten:**
-- `WorkspaceMemory` + `UserTenantMemory` speichern Embeddings (384D, pgvector) + `superseded_by`-FK für Consolidation-Historie ohne zu löschen
+- `MemoryEntry` speichert Embeddings (Default 384D, pgvector) + `superseded_by`-FK für Consolidation-Historie ohne zu löschen; die früheren getrennten Tabellen `mem_workspace_memory`/`mem_user_tenant_memory` wurden durch die unified Table ersetzt (Migration `0006_drop_legacy_memory_tables`)
 - `WorkspaceMemorySettings` folgt der "missing row = default state" Konvention (wie `LlmSettings`, `WorkspaceContextSettings`)
 - `SystemMemorySettings` ist eine Deployment-globale Row (Cross-Tenant), nur für Django Superuser editierbar
 
-**Test-Coverage:** 50+ Tests (Models, Backends, Projector, Consolidation, RLS)
+**Test-Coverage:** 50+ Tests (Models, Backends, Digest, Projector, Consolidation, RLS)
 
 ---
 
@@ -594,8 +612,14 @@ class SystemMemoryProjectionView(APIView):
     # GET /api/v1/system/memory/projection/ — 2D PCA + Clustering (System-Admin, Phase 5)
 
 class MemorySelfServiceView(APIView):
-    # GET    /api/v1/memory/me/ — User's own UserTenantMemory (any authenticated user, Phase 4)
+    # GET    /api/v1/memory/me/ — User's own user-scoped MemoryEntry (any authenticated user, Phase 4)
     # DELETE /api/v1/memory/me/ — Delete (any authenticated user, Phase 4)
+
+class WorkspaceMemoryDigestView(APIView):
+    # GET /api/v1/workspaces/{id}/memory/digest/ — konsolidierter Workspace-Digest (RFC #1002 F6, read-only)
+
+class ArtifactMemoryDigestView(APIView):
+    # GET /api/v1/artifacts/{id}/memory/digest/ — konsolidierter Artifact-Digest (RFC #1002 F6, read-only)
 ```
 
 **Auth-Endpoints:**
@@ -630,9 +654,9 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server mit 23 Tools in 5 Gruppen, direkt gegen ApplicationService (ADR-01).
+**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). Die folgenden 5 Gruppen sind die dokumentierte Kern-Menge; die vollständige, generierte Tool-Liste (215 Tools, 31 Gruppen-Präfixe) steht in `docs/agent-templates/tool-manifest.json`.
 
-**Exportierte API (23 MCP Tools):**
+**Exportierte API (Kern-Gruppen, Auszug):**
 
 **Group 1: Requirements (6 Tools)**
 ```
@@ -670,11 +694,12 @@ query_tracelinks        # artifact_id, direction="both" → List[TraceLink]
 report_coverage         # requirement_id/workspace_id → coverage%
 ```
 
-**Group 5: Memory (3 Tools, v1.2)**
+**Group 5: Memory (4 Tools, v1.2)**
 ```
 memory.query            # Semantic search over workspace or user-tenant memory
 memory.list             # List recent memory entries (workspace or user-tenant scoped)
 memory.forget           # Delete a memory entry (ownership/admin-gated)
+memory.digest           # Consolidated digest of one scope (RFC #1002 F6, read-only)
 ```
 
 **Komponenten:**
@@ -1035,6 +1060,8 @@ Alle Deployment-Beispiele leben unter `deploy/` (nicht im Repo-Root — jeder di
 | **Kubernetes (geplant v2)** | — | Nicht dokumentiert; siehe Feature-Backlog. |
 
 Ehemals separate `deployment/`-Verzeichnisse (GHCR-Pull-Varianten, Unraid Community-Applications-Template) wurden am 2026-09-01 entfernt und in `deploy/` konsolidiert — siehe `docs/UMSETZUNGSPLAN_DOCKER-COMPOSE-2026-08-31.md`. `deploy/docker-compose.yml` pullt standardmäßig bereits fertige GHCR-Images (kein lokaler Build nötig); `BACKEND_PORT`/`FRONTEND_PORT` sind per `.env` überschreibbar für Mehrfach-Instanzen auf einem Host.
+
+Das optionale Honcho-Memory-Backend (`profiles: ["honcho"]`) pinnt alle aktiven Honcho-Engine-Module (Deriver, Peer-Card, Summary, Dream, Dialectic) auf den projekteigenen `opencode_go`-Provider (`mimo-v2.5` auf `https://opencode.ai/zen/go/v1`, wiederverwendet `LLM_API_KEY`) und setzt `DERIVER_ENABLED`/`PEER_CARD_ENABLED`/`SUMMARY_ENABLED`/`DREAM_ENABLED` explizit. Grund: Honchos eingebaute Modul-Defaults zeigen auf `transport=openai, model=gpt-5.4-mini`, aber der Container hält nur einen opencode_go-Key — ein nicht gepinntes Modul scheitert serverseitig und unsichtbar für ReqogniLooms UI (RFC #1002 F6). Details: `deploy/README.md`, `.env.example`.
 
 **Für Produktionsumgebungen:** Siehe die jeweilige Deployment-Option oben. Alle Optionen unterstützen die vollständige Feature-Set (Multi-Tenancy, RBAC, LLM-Integration, API-Keys, MCP-Server).
 

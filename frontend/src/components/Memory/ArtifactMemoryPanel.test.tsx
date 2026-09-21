@@ -8,6 +8,7 @@ vi.mock("../../api/memory", () => ({
   memoryApi: {
     listArtifactMemory: vi.fn(),
     createArtifactMemory: vi.fn(),
+    getArtifactDigest: vi.fn(),
     forgetEntry: vi.fn(),
   },
 }));
@@ -18,8 +19,21 @@ vi.mock("../../context/AuthContext", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: unknown) =>
-      typeof fallback === "string" ? fallback : key,
+    // Mirrors the real `t(key, "default")` / `t(key, { defaultValue })`
+    // shapes the component uses; interpolation keeps metadata assertions
+    // meaningful (e.g. "Backend: honcho").
+    t: (key: string, options?: unknown) => {
+      if (typeof options === "string") return options;
+      if (options && typeof options === "object") {
+        const opts = options as Record<string, unknown>;
+        const template =
+          typeof opts.defaultValue === "string" ? opts.defaultValue : key;
+        return template.replace(/\{\{(\w+)\}\}/g, (match, name: string) =>
+          name in opts ? String(opts[name]) : match
+        );
+      }
+      return key;
+    },
   }),
 }));
 
@@ -67,6 +81,12 @@ describe("ArtifactMemoryPanel", () => {
     );
     vi.mocked(memoryApi.createArtifactMemory).mockResolvedValue(entry());
     vi.mocked(memoryApi.forgetEntry).mockResolvedValue({ deleted: true });
+    vi.mocked(memoryApi.getArtifactDigest).mockResolvedValue({
+      digest: "Artifact summary line.",
+      generated_at: "2026-09-01T12:00:00Z",
+      backend: "honcho",
+      degraded: false,
+    });
   });
 
   it("lists artifact facts and shows the count badge", async () => {
@@ -136,5 +156,91 @@ describe("ArtifactMemoryPanel", () => {
     render(<ArtifactMemoryPanel artifactId={ARTIFACT_ID} />);
 
     expect(await screen.findByTestId("artifact-memory-error")).toHaveTextContent("boom");
+  });
+
+  // --- digest (RFC #1002 F6) -------------------------------------------
+
+  it("loads and renders the artifact digest with backend metadata", async () => {
+    const user = userEvent.setup();
+    render(<ArtifactMemoryPanel artifactId={ARTIFACT_ID} />);
+    await screen.findByTestId("artifact-memory-row-e1");
+
+    await user.click(screen.getByTestId("artifact-memory-digest-btn"));
+
+    expect(await screen.findByTestId("artifact-memory-digest-text")).toHaveTextContent(
+      "Artifact summary line."
+    );
+    expect(memoryApi.getArtifactDigest).toHaveBeenCalledWith(ARTIFACT_ID);
+    expect(screen.getByTestId("artifact-memory-digest-backend")).toHaveTextContent(
+      "honcho"
+    );
+  });
+
+  it("flags a degraded artifact digest", async () => {
+    vi.mocked(memoryApi.getArtifactDigest).mockResolvedValue({
+      digest: "Partial summary",
+      generated_at: "2026-09-01T12:00:00Z",
+      backend: "pgvector",
+      degraded: true,
+    });
+    const user = userEvent.setup();
+    render(<ArtifactMemoryPanel artifactId={ARTIFACT_ID} />);
+    await screen.findByTestId("artifact-memory-row-e1");
+
+    await user.click(screen.getByTestId("artifact-memory-digest-btn"));
+
+    expect(
+      await screen.findByTestId("artifact-memory-digest-degraded")
+    ).toBeInTheDocument();
+  });
+
+  it("shows a friendly empty state for a blank artifact digest", async () => {
+    vi.mocked(memoryApi.getArtifactDigest).mockResolvedValue({
+      digest: "",
+      generated_at: "2026-09-01T12:00:00Z",
+      backend: "honcho",
+      degraded: false,
+    });
+    const user = userEvent.setup();
+    render(<ArtifactMemoryPanel artifactId={ARTIFACT_ID} />);
+    await screen.findByTestId("artifact-memory-row-e1");
+
+    await user.click(screen.getByTestId("artifact-memory-digest-btn"));
+
+    expect(
+      await screen.findByTestId("artifact-memory-digest-empty")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("artifact-memory-digest-error")
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an error state when the artifact digest request rejects", async () => {
+    vi.mocked(memoryApi.getArtifactDigest).mockRejectedValue({
+      error: { message: "digest boom" },
+    });
+    const user = userEvent.setup();
+    render(<ArtifactMemoryPanel artifactId={ARTIFACT_ID} />);
+    await screen.findByTestId("artifact-memory-row-e1");
+
+    await user.click(screen.getByTestId("artifact-memory-digest-btn"));
+
+    expect(await screen.findByTestId("artifact-memory-digest-error")).toHaveTextContent(
+      "digest boom"
+    );
+  });
+
+  it("re-invokes the artifact digest endpoint on refresh", async () => {
+    const user = userEvent.setup();
+    render(<ArtifactMemoryPanel artifactId={ARTIFACT_ID} />);
+    await screen.findByTestId("artifact-memory-row-e1");
+
+    await user.click(screen.getByTestId("artifact-memory-digest-btn"));
+    await screen.findByTestId("artifact-memory-digest-text");
+    await user.click(screen.getByTestId("artifact-memory-digest-btn"));
+
+    await waitFor(() => {
+      expect(memoryApi.getArtifactDigest).toHaveBeenCalledTimes(2);
+    });
   });
 });

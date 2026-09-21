@@ -1,4 +1,5 @@
 """Tests for the ``memory.*`` MCP tool group (Task 7, extended RFC #1002 PR B)."""
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -27,6 +28,7 @@ class TestMemoryToolGroupRegistration:
         assert "memory.query" in _READ_ONLY_TOOL_NAMES
         assert "memory.list" in _READ_ONLY_TOOL_NAMES
         assert "memory.get" in _READ_ONLY_TOOL_NAMES
+        assert "memory.digest" in _READ_ONLY_TOOL_NAMES
         assert "memory.forget" not in _READ_ONLY_TOOL_NAMES
         assert "memory.write" not in _READ_ONLY_TOOL_NAMES
 
@@ -68,6 +70,7 @@ class TestMemoryKeyScopeVisibility:
         assert "memory.forget" not in names
         assert "memory.query" in names
         assert "memory.get" in names
+        assert "memory.digest" in names
 
     def test_author_key_sees_memory_write(self, monkeypatch):
         names = _key_scoped_tools(monkeypatch, "author")
@@ -115,6 +118,91 @@ class TestMemoryToolGroupHandlers:
             assert len(result.data["entries"]) == 2
             assert result.data["backend"] == "pgvector"
             assert "degraded" in result.data
+
+    def test_digest_returns_workspace_summary(self, monkeypatch):
+        """``memory.digest`` answers the four-key digest shape (RFC #1002 F6)."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", ws.id, "Fact one.")
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group._handle_digest(
+                params={"workspace_id": str(ws.id)}, auth_context=ctx, api_key=None
+            )
+            assert result.success
+            assert set(result.data) == {
+                "digest",
+                "generated_at",
+                "backend",
+                "degraded",
+            }
+            assert "Fact one." in result.data["digest"]
+            assert result.data["backend"] == "pgvector"
+            assert result.data["degraded"] is False
+            # generated_at must be an ISO-8601 string, not a raw datetime.
+            assert isinstance(result.data["generated_at"], str)
+            datetime.fromisoformat(result.data["generated_at"])
+
+    def test_digest_artifact_scope_via_execute_tool(self, monkeypatch):
+        """An ``artifact_id`` narrows the digest to that artifact's memory."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            from persistence.models import Artifact
+
+            ws = make_workspace(tenant)
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=ws, artifact_type="Requirement"
+            )
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "artifact", artifact.id, "Artifact fact.")
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group.execute_tool(
+                "memory.digest",
+                {"workspace_id": str(ws.id), "artifact_id": str(artifact.id)},
+                ctx,
+                None,
+            )
+            assert result.success
+            assert set(result.data) == {
+                "digest",
+                "generated_at",
+                "backend",
+                "degraded",
+            }
+            assert "Artifact fact." in result.data["digest"]
+            datetime.fromisoformat(result.data["generated_at"])
+
+    def test_digest_without_workspace_is_validation_error(self, monkeypatch):
+        """``workspace_id`` is required by the input schema."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group.execute_tool("memory.digest", {}, ctx, None)
+            assert not result.success
+            assert result.error_code == "VALIDATION_ERROR"
+
+    def test_digest_denies_workspace_caller_has_no_role_in(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            other_ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", other_ws.id, "Secret fact.")
+            ctx = editor_ctx(tenant, ws)  # role in `ws`, not in `other_ws`
+            group = MemoryToolGroup()
+            result = group._handle_digest(
+                params={"workspace_id": str(other_ws.id)}, auth_context=ctx, api_key=None
+            )
+            assert not result.success
+            assert result.error_code == "PERMISSION_DENIED"
 
     def test_write_and_get_round_trip_with_provenance(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
