@@ -599,21 +599,31 @@ job; it is only missing when seeding a local dev stack by hand.
 **Third prerequisite — global attribute definitions.** Every artifact editor renders its fields
 from the tenant's `GlobalAttributeDefinition` rows; without them a run fails with "No global
 attribute definition for `<ItemType>/<preset>`" on every editor spec (issue #947). `manage.py
-bootstrap_attribute_definitions` seeds them and `manage.py migrate` also invokes it via the
-REQ-188 `post_migrate` self-init — **but only for a tenant that exists while migrations run**.
-On a fresh database (CI, or a new dev stack) the tenant is created later, by `seed_demo`, so the
-hook finds zero tenants, seeds nothing and returns early. On that path the command has to run
-explicitly, after `seed_demo`:
+bootstrap_attribute_definitions` seeds them, and `manage.py migrate` normally does it for you via
+the REQ-188 `post_migrate` self-init (see `backend/application/self_init.py`) — that hook
+provisions the tenant itself and then bootstraps its definitions in the same pass, so a correctly
+configured stack has them automatically.
+
+Two cases are why `CI` and `make test-e2e-reseed` still run the command explicitly:
+
+- **No `SYSTEM_ADMIN_PASSWORD`.** The self-init only provisions when it may create the admin; with
+  no password on a fresh database it logs "Self-init skipped ..." and returns early, so no tenant —
+  and therefore no definitions — is created.
+- **A swallowed failure.** The hook's own bootstrap call is wrapped in a `try/except` that only
+  *logs* (it runs inside `post_migrate`, where raising would abort the whole migrate), so a green
+  `migrate` does not by itself prove the definitions landed. The explicit, idempotent run makes the
+  outcome observable instead of inferred.
+
+It is also the recovery path for a database that predates the attribute-definition migrations (or a
+restored stale dump):
 
 ```bash
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py bootstrap_attribute_definitions   # idempotent
 ```
 
-On a database that predates the attribute-definition migrations (or after restoring a stale dump)
-the same command is the recovery path. `make test-e2e:reseed` below runs all three prerequisites in
-one go.
+All three prerequisites in one go: `make test-e2e-reseed`.
 
-> **How to tell which path you are on:** if the editors render their fields, the definitions are
+> **How to tell whether you need it:** if the editors render their fields, the definitions are
 > there — nothing to do. The Playwright preconditions guard reports the miss explicitly either way
 > (see below), so guessing is not necessary.
 
@@ -635,13 +645,13 @@ reproduce.
 
 ```bash
 # ONCE, after `make up` (or whenever you want the three prerequisites re-applied):
-make test-e2e:reseed
+make test-e2e-reseed
 
 # AS OFTEN AS YOU LIKE — no re-seed between runs:
 make test-e2e
 ```
 
-`make test-e2e:reseed` runs `seed_demo`, `seed_toothbrush` and
+`make test-e2e-reseed` runs `seed_demo`, `seed_toothbrush` and
 `bootstrap_attribute_definitions` (all idempotent) and then smoke-tests the stack with one small
 spec, so a broken seed surfaces there instead of mid-suite. The individual commands behind it:
 
@@ -651,9 +661,11 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.ym
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python manage.py bootstrap_attribute_definitions   # idempotent
 ```
 
-CI (`.github/workflows/playwright.yml`) runs the same three commands before every E2E job — note
-that it must call `bootstrap_attribute_definitions` explicitly after `seed_demo`, because the
-`post_migrate` hook is a no-op on a fresh database (see the third prerequisite above).
+CI (`.github/workflows/playwright.yml`) runs the same three commands before every E2E job. It calls
+`bootstrap_attribute_definitions` explicitly as belt-and-braces rather than relying on `migrate`'s
+`post_migrate` hook — that hook does normally seed the rows here (CI sets `SYSTEM_ADMIN_PASSWORD`),
+but it also stays silent about its own failures by design, so the explicit idempotent call makes the
+outcome observable (see the third prerequisite above).
 
 > **Two more local-only pitfalls that read like app bugs but aren't** (found while triaging
 > docs/SYSTEMAUDIT_2026-08-18.md BUG-17/B-SRCH-001 — both traced back to these, not to the app):
@@ -674,7 +686,7 @@ that it must call `bootstrap_attribute_definitions` explicitly after `seed_demo`
 >    clashes with other running stacks).
 
 ```bash
-make test-e2e:reseed         # ONCE after `make up` (or if the stack drifted) — idempotent
+make test-e2e-reseed         # ONCE after `make up` (or if the stack drifted) — idempotent
 make test-e2e                # full suite via Makefile (installs deps + runs Playwright)
 
 # Or manually (BACKEND_URL only needed if your stack doesn't use the default 8001 — see pitfall 2 above):

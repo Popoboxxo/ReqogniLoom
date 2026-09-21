@@ -28,7 +28,7 @@ DEV_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f deploy/docker-compose.
 MINIMAL_COMPOSE := $(COMPOSE) -f deploy/docker-compose.minimal.yml --project-directory .
 TEST_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f testing/docker-compose.test.yml --project-directory .
 
-.PHONY: up down minimal minimal-down honcho bluepencil bluepencil-down build test test-backend test-frontend test-e2e reseed-e2e help
+.PHONY: up down minimal minimal-down honcho bluepencil bluepencil-down build test test-backend test-frontend test-e2e test-e2e-reseed help
 
 ## up: Start the full dev stack (hot-reload override applied)
 up:
@@ -91,12 +91,12 @@ test-frontend:
 # on Windows and Linux.
 E2E_SEED_CMD := $(DEV_COMPOSE) exec -T backend python manage.py
 
-## test-e2e: Run Playwright E2E tests (manual only — slow, high resource use). Assumes a seeded stack; see test-e2e:reseed
+## test-e2e: Run Playwright E2E tests (manual only — slow, high resource use). Assumes a seeded stack; see test-e2e-reseed
 test-e2e:
 	cd e2e && npm install && npx playwright test
 
-## test-e2e:reseed: Re-seed the E2E prerequisites (seed_demo + seed_toothbrush + global attribute definitions) and smoke-test the stack. Idempotent.
-reseed-e2e:
+## test-e2e-reseed: Re-seed the E2E prerequisites (seed_demo + seed_toothbrush + global attribute definitions) and smoke-test the stack. Idempotent.
+test-e2e-reseed:
 	@echo "==> seeding E2E prerequisites (all three commands are idempotent)"
 	$(E2E_SEED_CMD) seed_demo
 	$(E2E_SEED_CMD) seed_toothbrush

@@ -615,4 +615,3 @@ export function DiagramDetailView({
     </div>
   );
 }
-

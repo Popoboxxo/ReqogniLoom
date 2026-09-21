@@ -152,18 +152,33 @@ interface ApiIds {
  * used to be in the same bucket only because their helpers never returned an id
  * (issue #947) — they are deleted now.
  *
- * Requirements need a `change_reason` body: `RequirementService.delete_requirement`
- * enforces the workspace's change_reason preset policy (#604) and this scenario
- * sets the workspace to `extended` in Phase 0, so a body-less DELETE is answered
- * with 400 VALIDATION_ERROR. The previous `.delete(url)` call ignored the
- * response, so the failure was invisible — same silent-no-op class as the
- * diagram leak, found while verifying #947.
+ * Requirements are sent WITH a `change_reason` body. `RequirementService.
+ * delete_requirement` enforces the workspace's change_reason preset policy
+ * (#604) whenever the preset makes the reason mandatory. This workspace is
+ * created by `createIsolatedWorkspace`, which POSTs only `{name}` and therefore
+ * gets the backend's `standard` default (rest_api/views.py: `extract_preset_tier(
+ * request.data.get("preset", "standard"))`), and `standard` has
+ * `change_reason="optional"` (presets/registry.py) — so the DELETE would succeed
+ * without the body too. The body is supplied anyway because the reason is
+ * exactly what an audit trail wants on a delete, and because it makes the call
+ * correct regardless of which tier the workspace ends up on.
  *
- * Failures are reported instead of swallowed: a cleanup that silently no-ops is
- * exactly how the diagram leak went unnoticed, and it makes the next run's
- * "is this state fresh?" question unanswerable.
+ * Non-2xx responses are reported instead of swallowed: the previous
+ * `.delete(url)` call ignored them, which is how the missing-reason 400 on the
+ * extended-preset seed workspace (see the shared helper in helpers/cleanup.ts)
+ * went unnoticed for so long.
+ *
+ * Deliberately NOT deleted: the isolated workspace itself, and the baselines /
+ * test runs — baselines and TestRuns are immutable by design, there is no delete
+ * path for them. Those stay behind on every run and are the reason this spec
+ * keeps creating a fresh workspace rather than reusing one.
+ *
+ * Returns the list of failures so the caller can ASSERT on it (issue #947
+ * review F-5). A `console.warn` here would leave a leaking cleanup green, which
+ * is how the dead diagram loop and the 400-ing requirement deletes stayed
+ * invisible in the first place.
  */
-async function cleanupViaAPI(ids: ApiIds, token: string): Promise<void> {
+async function cleanupViaAPI(ids: ApiIds, token: string): Promise<string[]> {
   const apiCtx = await pwRequest.newContext({
     baseURL: BACKEND_URL,
     extraHTTPHeaders: { Authorization: `Bearer ${token}` },
@@ -217,14 +232,7 @@ async function cleanupViaAPI(ids: ApiIds, token: string): Promise<void> {
   }
 
   await apiCtx.dispose();
-  if (failures.length > 0) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `\n⚠️  cleanupViaAPI: ${failures.length} artifact(s) could not be deleted ` +
-        `(the run leaves them behind in workspace ${ids.workspaceId}):\n  ` +
-        failures.join('\n  ')
-    );
-  }
+  return failures;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,8 +293,18 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   });
 
   test.afterAll(async () => {
+    // Issue #947 review F-5: assert the cleanup result instead of only warning
+    // about it. A leak has to turn this spec red — otherwise "the suite is
+    // idempotent" is a claim nothing enforces, which is exactly how the dead
+    // diagram/ICD loops survived.
     if (ids) {
-      await cleanupViaAPI(ids, token);
+      const cleanupFailures = await cleanupViaAPI(ids, token);
+      expect(
+        cleanupFailures,
+        `cleanupViaAPI could not delete ${cleanupFailures.length} artifact(s) in ` +
+          `workspace ${ids.workspaceId} — they stay behind for the next run:\n  ` +
+          cleanupFailures.join('\n  ')
+      ).toEqual([]);
     }
     // Bug-Report aus den einzelnen Bug-Dateien zusammenbauen,
     // dedupliziert nach Bug-ID (über mehrere Worker-Reloads hinweg
@@ -627,10 +645,13 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
   test('Phase 4d: Diagramm editieren — erzeugt das eine neue Version?', async ({ page }) => {
     const diagramId = ids.diagramIds['BLOCK'];
-    if (!diagramId) {
-      test.skip(true, 'Diagramm-ID fehlt — Phase 4a fehlgeschlagen');
-      return;
-    }
+    // Issue #947 review F-7: a `test.skip` here turned "Phase 4a never produced
+    // an id" — a hard, actionable failure — into a silently skipped test. The id
+    // is a hard precondition; assert it so the real breakage is reported.
+    expect(
+      diagramId,
+      'Phase 4d needs the diagram id from Phase 4a — Phase 4a did not record one'
+    ).toBeTruthy();
 
     // Direkt über die ID ins Detail — kein Suchfeld, kein `.first()`.
     await page.goto(`${FRONTEND_URL}/diagrams`);
@@ -642,12 +663,12 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     // also immer wahr und der Check konnte nie anschlagen (false negative).
     // Gelesen wird jetzt das Versions-Label selbst.
     //
-    // Prefix-Match statt `getByTestId` (das exakt matcht): das Label ist heute
-    // ungescoped, aber ein Suffix je Diagramm-ID ist der Haus-Stil
-    // (`diagram-item-<id>`, `artifact-field-cell-<name>`), also bleibt der
-    // Locator auch dann korrekt, wenn das Label später gescoped wird.
-    const versionLabel = page.locator('[data-testid^="diagram-version-label"]');
-    await expect(versionLabel).toHaveCount(1, { timeout: 10000 });
+    // Issue #947 review F-6: the testid IS unscoped
+    // (DiagramDetailView.tsx renders exactly one `data-testid="diagram-version-label"`),
+    // so use the exact id and assert its CONTENT, not just its presence. The
+    // earlier prefix form plus `toHaveCount(1)` only proved "a label exists".
+    const versionLabel = page.getByTestId('diagram-version-label');
+    await expect(versionLabel).toHaveText(/^v\d+$/, { timeout: 10000 });
     const versionBefore = (await versionLabel.innerText()).trim();
 
     await expect(page.locator('[data-testid="diagram-open-editor-btn"]')).toBeVisible();
@@ -683,7 +704,7 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
     // Back to the detail pane to read the (possibly bumped) version label.
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}`);
-    await expect(versionLabel).toHaveCount(1, { timeout: 10000 });
+    await expect(versionLabel).toHaveText(/^v\d+$/, { timeout: 10000 });
     const versionAfter = (await versionLabel.innerText()).trim();
 
     const bumped = versionAfter !== versionBefore;
