@@ -167,6 +167,13 @@ function collectReferencedKeys(dir: string): Set<string> {
 // the glossary and test-run list). All six are now translated in de.json and
 // en.json (new `export` and `workspace` namespaces), so the measured count is
 // 123 - 6 = 117.
+//
+// PR D of RFC #1002 pre-emptively added the bare `memory.summary` key to both
+// locale files instead of leaving the new memory page to breach this ratchet:
+// `MemoryPage` calls `t("memory.summary", {count})` while only the pluralized
+// `memory.summary_one`/`summary_other` forms existed — the same scanner-blind
+// spot as the `adrs/risks/issues.summary` fix above. With the key added the
+// measured count is still 117, so the ceiling is unchanged.
 const MISSING_KEY_BASELINE = 117;
 
 describe("i18n code-to-locale coverage (#619)", () => {

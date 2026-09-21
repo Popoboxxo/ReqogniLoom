@@ -3,62 +3,55 @@
  *
  * leaf_id: COMP-RF-006 (UserProfileSettings — user-owned data controls)
  *
- * Memory Admin UI Phase 4 (spec 2026-08-26): GDPR-style self-service erasure
- * control for the authenticated user's OWN UserTenantMemory rows — never
- * WorkspaceMemory, which is team-owned and stays exclusively under the
- * System-Admin "Memory" tab (MemoryAdminService, Phase 1). No admin gate:
- * any authenticated user, no role required (mirrors ApiKeysSection).
+ * RFC #1002 PR D: lists the authenticated user's OWN user-scoped facts
+ * (`GET /memory/me/?include_entries=true`) with a per-row forget action, on
+ * top of the existing "delete everything" self-service control. Never touches
+ * workspace/artifact memory, which is team-owned (see `memory/policy.py`).
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  memorySelfServiceApi,
-  type MemorySelfServiceOverview,
-} from "../../api/memory-self-service";
+import { extractApiErrorMessage } from "../../api/client";
+import { memoryApi, type MemoryEntry } from "../../api/memory";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { formatMemoryDate } from "../Memory/memory-format";
 import styles from "./MemorySection.module.css";
 
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
-const EMPTY_OVERVIEW: MemorySelfServiceOverview = {
-  entry_count: 0,
-  last_updated_at: null,
-};
+const PAGE_SIZE = 100;
 
 export function MemorySection(): JSX.Element {
   const { t } = useTranslation();
-  const [overview, setOverview] = useState<MemorySelfServiceOverview>(EMPTY_OVERVIEW);
+  const [entries, setEntries] = useState<MemoryEntry[]>([]);
+  const [entryCount, setEntryCount] = useState(0);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingForget, setPendingForget] = useState<MemoryEntry | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await memorySelfServiceApi.get();
-      setOverview(result);
-    } catch (err) {
-      setError(extractErrorMessage(err));
+      const overview = await memoryApi.getSelfOverview({
+        includeEntries: true,
+        pageSize: PAGE_SIZE,
+      });
+      setEntries(overview.entries ?? []);
+      setEntryCount(overview.entry_count);
+      setLastUpdated(overview.last_updated_at);
+    } catch (err: unknown) {
+      setError(
+        extractApiErrorMessage(err) ??
+          t("memorySelfService.error", "Memory konnte nicht geladen werden.")
+      );
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -68,14 +61,38 @@ export function MemorySection(): JSX.Element {
     setIsDeleting(true);
     setError(null);
     try {
-      await memorySelfServiceApi.deleteAll();
-      setOverview(EMPTY_OVERVIEW);
-    } catch (err) {
-      setError(extractErrorMessage(err));
+      await memoryApi.deleteSelfMemory();
+      setEntries([]);
+      setEntryCount(0);
+      setLastUpdated(null);
+    } catch (err: unknown) {
+      setError(
+        extractApiErrorMessage(err) ??
+          t("memorySelfService.error", "Memory konnte nicht gelöscht werden.")
+      );
     } finally {
       setIsDeleting(false);
     }
-  }, []);
+  }, [t]);
+
+  const handleForget = useCallback(async (): Promise<void> => {
+    if (!pendingForget) return;
+    const entryId = pendingForget.entry_id;
+    setPendingForget(null);
+    setBusyId(entryId);
+    setError(null);
+    try {
+      await memoryApi.forgetEntry(entryId);
+      await load();
+    } catch (err: unknown) {
+      setError(
+        extractApiErrorMessage(err) ??
+          t("memorySelfService.forgetError", "Eintrag konnte nicht gelöscht werden.")
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }, [pendingForget, load, t]);
 
   return (
     <section className={styles.section} data-testid="memory-self-service-section">
@@ -106,16 +123,16 @@ export function MemorySection(): JSX.Element {
               <p className={styles.metaLine}>
                 {t("memorySelfService.countLabel", "Gespeicherte Einträge")}:{" "}
                 <span data-testid="memory-self-service-count" className={styles.countValue}>
-                  {overview.entry_count}
+                  {entryCount}
                 </span>
               </p>
               <p className={styles.metaLine}>
                 {t("memorySelfService.lastUpdatedLabel", "Zuletzt aktualisiert")}:{" "}
                 <span data-testid="memory-self-service-last-updated">
-                  {formatDate(overview.last_updated_at)}
+                  {formatMemoryDate(lastUpdated)}
                 </span>
               </p>
-              {overview.entry_count === 0 && (
+              {entries.length === 0 && (
                 <p data-testid="memory-self-service-empty" className={styles.empty}>
                   {t("memorySelfService.empty", "Noch keine Memory-Einträge vorhanden.")}
                 </p>
@@ -125,12 +142,40 @@ export function MemorySection(): JSX.Element {
               type="button"
               data-testid="memory-self-service-delete-btn"
               onClick={() => setShowDeleteConfirm(true)}
-              disabled={overview.entry_count === 0 || isDeleting}
+              disabled={entryCount === 0 || isDeleting}
               className={styles.deleteBtn}
             >
               {isDeleting ? "…" : t("memorySelfService.deleteButton", "Mein Memory löschen")}
             </button>
           </div>
+
+          {entries.length > 0 && (
+            <ul className={styles.list} data-testid="memory-self-service-list">
+              {entries.map((entry) => (
+                <li
+                  key={entry.entry_id}
+                  className={styles.listRow}
+                  data-testid={`memory-self-service-row-${entry.entry_id}`}
+                >
+                  <div className={styles.listRowMain}>
+                    <p className={styles.listContent}>{entry.content}</p>
+                    <span className={styles.metaLine}>
+                      {formatMemoryDate(entry.created_at)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid={`memory-self-service-forget-${entry.entry_id}`}
+                    onClick={() => setPendingForget(entry)}
+                    disabled={busyId === entry.entry_id}
+                    className={styles.forgetBtn}
+                  >
+                    {t("memorySelfService.forgetButton", "Vergessen")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -148,6 +193,20 @@ export function MemorySection(): JSX.Element {
           }}
           onCancel={() => setShowDeleteConfirm(false)}
           testId="memory-self-service-delete-confirm"
+        />
+      )}
+
+      {pendingForget && (
+        <ConfirmDialog
+          title={t("memorySelfService.forgetButton", "Vergessen")}
+          message={t(
+            "memorySelfService.forgetConfirm",
+            "Diesen Eintrag endgültig löschen? Das kann nicht rückgängig gemacht werden."
+          )}
+          confirmLabel={t("memorySelfService.forgetButton", "Vergessen")}
+          onConfirm={() => void handleForget()}
+          onCancel={() => setPendingForget(null)}
+          testId="memory-self-service-forget-confirm"
         />
       )}
     </section>

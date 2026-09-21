@@ -9,7 +9,7 @@
  * users/me/preferences/ — no admin gate, any authenticated user, no role
  * required. The wrapper is consumed by direct import (NotificationsSection);
  * it is deliberately NOT re-exported from api/index.ts, exactly like
- * memory-self-service.ts.
+ * api/memory.ts (self-service memory surface).
  *
  * The stored model is opt-out (`disabled_triggers`); the wire surface only
  * ever exposes the *effective* map (a missing row means all triggers on), so

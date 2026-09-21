@@ -13,12 +13,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import {
-  memoryVisualizationApi,
-  type MemoryEntryRow,
-  type MemoryProjection,
-  type MemoryVizScope,
-} from "../../api/memory-visualization";
+import { memoryApi } from "../../api/memory";
+import type {
+  MemoryProjection,
+  MemorySystemEntryRow,
+  SystemMemoryVizScope,
+} from "../../api/memory";
 import styles from "./MemoryVisualizationSection.module.css";
 
 type VizView = "list" | "cluster" | "scatter";
@@ -63,7 +63,7 @@ function truncate(text: string, maxLen: number): string {
   return text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;
 }
 
-function scopeKey(scope: MemoryVizScope, workspaceId: string | undefined): string {
+function scopeKey(scope: SystemMemoryVizScope, workspaceId: string | undefined): string {
   return `${scope}:${workspaceId ?? ""}`;
 }
 
@@ -96,11 +96,11 @@ export function MemoryVisualizationSection(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
 
-  const [scope, setScope] = useState<MemoryVizScope>(activeWorkspace ? "workspace" : "global");
+  const [scope, setScope] = useState<SystemMemoryVizScope>(activeWorkspace ? "workspace" : "global");
   const [view, setView] = useState<VizView>("list");
 
   // --- List view state -------------------------------------------------
-  const [entries, setEntries] = useState<MemoryEntryRow[]>([]);
+  const [entries, setEntries] = useState<MemorySystemEntryRow[]>([]);
   const [entriesCount, setEntriesCount] = useState(0);
   const [entriesPage, setEntriesPage] = useState(1);
   const [entriesLoading, setEntriesLoading] = useState(false);
@@ -115,6 +115,9 @@ export function MemoryVisualizationSection(): JSX.Element {
   const [projectionLoading, setProjectionLoading] = useState(false);
   const [projectionError, setProjectionError] = useState<string | null>(null);
   const projectionCacheRef = useRef<Map<string, MemoryProjection>>(new Map());
+  // RFC #1002 F9: the list/projection responses carry `degraded`, so the
+  // dashboard can distinguish "backend down" from "nothing remembered".
+  const [isDegraded, setIsDegraded] = useState(false);
 
   // Monotonically-increasing request ids so a slow, stale response (e.g. the
   // admin toggled scope A -> B -> A again before A's first request returned)
@@ -137,8 +140,8 @@ export function MemoryVisualizationSection(): JSX.Element {
       const requestId = ++entriesRequestIdRef.current;
       setEntriesLoading(true);
       setEntriesError(null);
-      memoryVisualizationApi
-        .listEntries({
+      memoryApi
+        .listSystemEntries({
           scope,
           workspaceId: scope === "workspace" ? workspaceId : undefined,
           page: targetPage,
@@ -151,6 +154,7 @@ export function MemoryVisualizationSection(): JSX.Element {
           setEntriesCount(resp.count);
           setEntriesPage(resp.page);
           setEntriesLoaded(true);
+          setIsDegraded(Boolean(resp.degraded));
         })
         .catch((err: unknown) => {
           if (requestId !== entriesRequestIdRef.current) return;
@@ -186,8 +190,8 @@ export function MemoryVisualizationSection(): JSX.Element {
       const requestId = ++projectionRequestIdRef.current;
       setProjectionLoading(true);
       setProjectionError(null);
-      memoryVisualizationApi
-        .getProjection({
+      memoryApi
+        .getSystemProjection({
           scope,
           workspaceId: scope === "workspace" ? workspaceId : undefined,
         })
@@ -195,6 +199,7 @@ export function MemoryVisualizationSection(): JSX.Element {
           projectionCacheRef.current.set(key, resp);
           if (requestId !== projectionRequestIdRef.current) return;
           setProjection(resp);
+          setIsDegraded(Boolean(resp.degraded));
         })
         .catch((err: unknown) => {
           if (requestId !== projectionRequestIdRef.current) return;
@@ -216,7 +221,7 @@ export function MemoryVisualizationSection(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, scope, workspaceId]);
 
-  const handleScopeChange = (next: MemoryVizScope): void => {
+  const handleScopeChange = (next: SystemMemoryVizScope): void => {
     if (next === scope) return;
     setScope(next);
     setEntriesPage(1);
@@ -250,6 +255,16 @@ export function MemoryVisualizationSection(): JSX.Element {
     <section className={styles.section} data-testid="memory-visualization-section">
       <h3>{t("systemSettings.memory.viz.heading")}</h3>
       <p className={styles.hint}>{t("systemSettings.memory.viz.hint")}</p>
+
+      {isDegraded && (
+        <p
+          role="status"
+          data-testid="memory-viz-degraded"
+          className={styles.notice}
+        >
+          {t("systemSettings.memory.degraded", "Gedächtnis aktuell nicht erreichbar.")}
+        </p>
+      )}
 
       <div className={styles.switcherRow}>
         <div className={styles.switcherGroup} role="group" aria-label={t("systemSettings.memory.viz.scopeLabel")}>

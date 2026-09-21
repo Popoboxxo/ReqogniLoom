@@ -26,7 +26,7 @@ import {
   notificationPreferencesApi,
 } from "../../api/notification-preferences";
 import { apiKeysApi } from "../../api/api-keys";
-import { memorySelfServiceApi } from "../../api/memory-self-service";
+import { memoryApi } from "../../api/memory";
 
 vi.mock("../../api/notification-preferences", async (importOriginal) => {
   const actual =
@@ -65,8 +65,12 @@ vi.mock("../../api/api-keys", () => ({
   apiKeysApi: { list: vi.fn(), create: vi.fn(), revoke: vi.fn() },
 }));
 
-vi.mock("../../api/memory-self-service", () => ({
-  memorySelfServiceApi: { get: vi.fn(), deleteAll: vi.fn() },
+vi.mock("../../api/memory", () => ({
+  memoryApi: {
+    getSelfOverview: vi.fn(),
+    deleteSelfMemory: vi.fn(),
+    forgetEntry: vi.fn(),
+  },
 }));
 
 const ALL_ON = {
@@ -92,9 +96,15 @@ describe("NotificationsSection", () => {
       ...changes,
     }));
     vi.mocked(apiKeysApi.list).mockResolvedValue([]);
-    vi.mocked(memorySelfServiceApi.get).mockResolvedValue({
+    vi.mocked(memoryApi.getSelfOverview).mockResolvedValue({
       entry_count: 0,
       last_updated_at: null,
+      entries: [],
+      total: 0,
+      page: 1,
+      page_size: 100,
+      backend: "pgvector",
+      degraded: false,
     });
   });
 

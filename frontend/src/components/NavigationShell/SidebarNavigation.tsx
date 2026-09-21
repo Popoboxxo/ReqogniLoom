@@ -81,6 +81,10 @@ const NAV_ITEMS: NavItem[] = [
   // `visibleItems` against `activeWorkspace.goals_enabled`.
   { path: "/goals", labelKey: "nav.goals", feature: "dashboard", group: "overview" },
   { path: "/metrics", labelKey: "nav.metrics", feature: "metrics", group: "overview" },
+  // RFC #1002 PR D: workspace memory hub ("Gedächtnis") — visible to every
+  // workspace member (no preset/role gate); server-side RBAC still applies per
+  // scope inside the page.
+  { path: "/memory", labelKey: "nav.memory", feature: "dashboard", group: "overview" },
   // Always visible (like glossary/workflows/audit below) — the interview flow
   // itself is the entry point for brainstorming any artifact type, so it must
   // not disappear behind a preset that hides one of its target types.
