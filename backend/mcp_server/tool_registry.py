@@ -242,6 +242,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "test.run_report_results",
     "test.run_complete",
     "test.derive_from_requirement",
+    # #424: the only write path for TestCase.reviewed.
+    "test.mark_reviewed",
     "test.outdate",
     "test.reactivate",
     "workspace.close",

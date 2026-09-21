@@ -318,6 +318,11 @@ class TestCaseOrigin(models.TextChoices):
     ``traceability.coverage_calculator.counts_as_verification_evidence``.
     """
 
+    # pytest collects any imported name starting with "Test"; without this the
+    # choices class is mistaken for a test class in every module that imports
+    # it (same idiom as ``TestCase``/``TestRun`` below).
+    __test__ = False
+
     MANUAL = "manual", "Manual"
     AI_GENERATED = "ai_generated", "AI-generated"
     UNKNOWN = "unknown", "Unknown"
@@ -330,6 +335,9 @@ class ScenarioKind(models.TextChoices):
     negative and boundary cases. Additive metadata only - deliberately no
     enforcement rule in cluster 5 (spec F2).
     """
+
+    # See ``TestCaseOrigin``: keeps pytest from collecting this choices class.
+    __test__ = False
 
     NOMINAL = "nominal", "Nominal"
     OFF_NOMINAL = "off_nominal", "Off-nominal"

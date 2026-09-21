@@ -124,7 +124,7 @@ _JSON_FIELDS = frozenset({"steps"})
 _ENTITY_FIELDS: Dict[str, List[str]] = {
     "Requirement": ["title", "description", "category"],
     "ArchitectureElement": ["title", "description", "element_type"],
-    "TestCase": ["title", "description", "steps"],
+    "TestCase": ["title", "description", "steps", "origin", "reviewed", "scenario_kind"],
     "StakeholderNeed": ["title", "description", "category"],
     "Adr": ["title", "description", "context", "consequences"],
     "Risk": ["title", "description", "category", "probability", "impact"],

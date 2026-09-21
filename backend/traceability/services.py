@@ -158,23 +158,32 @@ def coverage(
     workspace_id: uuid.UUID,
     artifact_type: Optional[str] = None,
     link_type: Optional[str] = None,
+    *,
+    include_unreviewed_ai: bool = False,
 ) -> CoverageReport:
     """Compute test coverage for Requirements in a workspace.
 
     IF-TE-EXT-IN-002 (ApplicationService → CoverageCalculator).
 
     REQ-L2-TE-006 / REQ-L2-TE-007 / REQ-L2-TE-012 (≤500ms).
+
+    #424/R4: this facade deliberately inherits the calculator's new
+    ``include_unreviewed_ai=False`` default — an unreviewed AI-generated
+    TestCase is not coverage. Pass ``True`` for the raw view.
     """
     return _coverage_calc.coverage(
         workspace_id=workspace_id,
         artifact_type=artifact_type,
         link_type=link_type,
+        include_unreviewed_ai=include_unreviewed_ai,
     )
 
 
 def get_coverage_data(
     workspace_id: uuid.UUID,
     baseline_id: Optional[uuid.UUID] = None,
+    *,
+    include_unreviewed_ai: bool = False,
 ) -> CoverageData:
     """Return per-requirement test-case data (used by VCRMReportGenerator).
 
@@ -183,11 +192,15 @@ def get_coverage_data(
     Note: explicitly passes ``include_outdated=True`` to preserve this
     facade's pre-existing behavior (show all requirements, including
     outdated ones) regardless of the underlying calculator's new default.
+    #424/R4: ``include_unreviewed_ai`` defaults to ``False``, so the facade
+    also drops unreviewed AI test cases — the intended semantics; pass
+    ``True`` for the raw view.
     """
     return _coverage_calc.get_coverage_data(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
         include_outdated=True,
+        include_unreviewed_ai=include_unreviewed_ai,
     )
 
 

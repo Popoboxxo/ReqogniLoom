@@ -2411,6 +2411,12 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 steps=data.get("steps") or None,
                 custom_fields=data.get("custom_fields"),
                 test_type_value=data.get("test_type"),
+                # #424: the client states provenance; `reviewed` is NOT part of
+                # the API surface (the service derives it from `origin`). This
+                # REST path is the productive persistence path of the UI
+                # (DeriveTestCasePanel -> testcasesApi.create), which is why it
+                # must forward `origin` at all.
+                origin=data.get("origin", "manual"),
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "TestCase", item, ctx)
@@ -2544,6 +2550,67 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="review")
+    def review(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/testcases/{pk}/review/ — set the in-content review flag.
+
+        #424: this is the only write path for ``reviewed`` (the serializer
+        exposes it read-only and rejects a PATCH carrying it). A manually
+        created test case starts reviewed; an ``origin="ai_generated"`` one
+        starts unreviewed and stops counting as verification evidence /
+        coverage until this endpoint flips it.
+
+        Body (both fields optional)::
+
+            {"reviewed": true, "change_reason": "..."}
+
+        ``reviewed`` defaults to ``true``. The call is idempotent — a second
+        call with the same value does not bump ``version`` again.
+
+        Returns the full ``TestCaseSerializer`` representation (200).
+        """
+        lang = detect_lang(request)
+        body = request.data if isinstance(request.data, dict) else {}
+        reviewed = body.get("reviewed", True)
+        if not isinstance(reviewed, bool):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": "reviewed", "errors": ["Must be a boolean."]}
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        change_reason = body.get("change_reason") or ""
+        if not isinstance(change_reason, str):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": "change_reason", "errors": ["Must be a string."]}
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().mark_reviewed(
+                UUID(pk), ctx, reviewed=reviewed, change_reason=change_reason
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(TestCaseSerializer(_test_to_dict(item)).data)
 
     @action(detail=True, methods=["get"], url_path="diff")
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -4408,6 +4475,10 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
         # the ArtifactForm's initial value was always empty regardless of
         # what had been saved.
         "test_type": getattr(tc, "test_type", None),
+        # #424/#402: provenance, review flag and off-nominal category. Read-only
+        # provenance fields; `reviewed` moves via POST .../review/.
+        "origin": getattr(tc, "origin", "manual"),
+        "reviewed": bool(getattr(tc, "reviewed", False)),
         "custom_fields": _artifact_custom_fields(tc),
         # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
         **artifact_system_fields(tc),
