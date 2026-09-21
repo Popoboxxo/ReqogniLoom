@@ -271,8 +271,15 @@ class BaselineFacade(ServiceBase):
             # (``details`` is v1-reserved and currently dropped by the writer,
             # exactly like the GH-513 keys above — the change_reason set further
             # down is the part that persists).
+            #
+            # The canonical key is rendered WITHOUT the scope, deliberately
+            # (see baseline.waivers.finding_key): that is the exact rendering
+            # every persisted BaselineGateWaiver row was stored with, and this
+            # summary has to name the same identities the rows match.
+            from baseline.waivers import finding_key
+
             suppressed_keys = [
-                _finding_key(f.rule_id, f.artifact_ids) for f in outcome.suppressed
+                finding_key(f.rule_id, f.artifact_ids) for f in outcome.suppressed
             ]
             details.update(
                 {
@@ -422,6 +429,7 @@ class BaselineFacade(ServiceBase):
                 not overridable).
         """
         from application.audit_service import AuditService
+        from baseline.waivers import finding_key
         from traceability.audit import AuditScope
 
         audit_scope = AuditScope(
@@ -466,11 +474,11 @@ class BaselineFacade(ServiceBase):
             findings=findings,
             requests=requests,
         )
-        suppressed_keys = {_finding_key(f.rule_id, f.artifact_ids) for f in suppressed}
+        suppressed_keys = {finding_key(f.rule_id, f.artifact_ids) for f in suppressed}
         remaining = tuple(
             f
             for f in findings
-            if _finding_key(f.rule_id, f.artifact_ids) not in suppressed_keys
+            if finding_key(f.rule_id, f.artifact_ids) not in suppressed_keys
         )
 
         if not remaining:
@@ -539,7 +547,11 @@ class BaselineFacade(ServiceBase):
             ValidationError: A supplied waiver is malformed or names a finding
                 that is not blocking.
         """
-        from baseline.waivers import load_waived_finding_keys, record_waiver
+        from baseline.waivers import (
+            finding_key,
+            load_waived_finding_keys,
+            record_waiver,
+        )
 
         stored_keys = load_waived_finding_keys(workspace_id, ctx.tenant_id)
 
@@ -549,7 +561,7 @@ class BaselineFacade(ServiceBase):
             # deviation is an approval act, not a write act.
             self._assert_override_permission(ctx)
             by_key = {
-                _finding_key(f.rule_id, f.artifact_ids): f for f in findings
+                finding_key(f.rule_id, f.artifact_ids): f for f in findings
             }
             unknown = [r for r in requests if r.key not in by_key]
             if unknown:
@@ -603,7 +615,7 @@ class BaselineFacade(ServiceBase):
         suppressed = tuple(
             f
             for f in findings
-            if _finding_key(f.rule_id, f.artifact_ids) in stored_keys
+            if finding_key(f.rule_id, f.artifact_ids) in stored_keys
         )
         return suppressed, tuple(created_ids)
 
@@ -865,18 +877,6 @@ def _summarise_findings(findings: Sequence["Finding"]) -> str:
             "full list)"
         )
     return listed
-
-
-def _finding_key(rule_id: str, artifact_ids: Sequence[str]) -> str:
-    """Canonical finding identity — single source of truth is ``baseline``.
-
-    Thin wrapper so the facade (and its tests) never re-implement the key
-    rendering; the identical function decides which ``BaselineGateWaiver`` row a
-    finding matches.
-    """
-    from baseline.waivers import finding_key
-
-    return finding_key(rule_id, artifact_ids)
 
 
 def _validate_gate_reason(reason: str, *, label: str) -> str:

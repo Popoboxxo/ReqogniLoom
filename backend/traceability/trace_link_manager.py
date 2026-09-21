@@ -39,7 +39,12 @@ from django.db.models import QuerySet
 from persistence.models import Artifact, TraceLink
 from persistence.tenancy import TenantContext
 
+from traceability.audit.hierarchy import (
+    HIERARCHY_LINK_TYPES,
+    normalise_hierarchy_edge,
+)
 from traceability.exceptions import (
+    ContradictoryHierarchyLinkError,
     CrossTenantLinkError,
     CycleDetectedError,
     InvalidLinkTypeError,
@@ -356,6 +361,21 @@ class TraceLinkManager:
         if _dfs_has_cycle_to(target_id, source_id, adj):
             raise CycleDetectedError(link_type)
 
+        # Issue #1021: the check above is deliberately scoped to ONE link type,
+        # and that scoping is exactly what let the contradictory combination
+        # through. `decomposes` (parent -> child) and `derives-from`
+        # (child -> parent) are the two spellings of one hierarchy fact: on the
+        # same object pair in the same direction each is a DAG on its own, but
+        # the *normalised union* of the two carries both (a, b) and (b, a) —
+        # a cycle in which every involved Requirement is its own ancestor.
+        # root/leaf classification (TRACE-P1/VERIF-P8) then returns nothing at
+        # all for that component, so the audit silently stops reporting instead
+        # of blocking. Rejected at the write path, on the union graph.
+        if link_type in HIERARCHY_LINK_TYPES:
+            self._reject_hierarchy_contradiction(
+                source_id=source_id, target_id=target_id, link_type=link_type
+            )
+
         link = TraceLink(
             source=source,
             target=target,
@@ -368,6 +388,67 @@ class TraceLinkManager:
             link.modified_by_id = created_by_id
         link.save()
         return link
+
+    def _reject_hierarchy_contradiction(
+        self,
+        *,
+        source_id: uuid.UUID,
+        target_id: uuid.UUID,
+        link_type: str,
+    ) -> None:
+        """Reject a hierarchy write that would close a cycle in the union graph.
+
+        Issue #1021. Normalises every existing hierarchy link (both link types,
+        see :mod:`traceability.audit.hierarchy`) into the ``(parent_id,
+        child_id)`` orientation and runs the same DFS the per-type check above
+        uses — only now over ``PARENT_TO_CHILD_LINK_TYPES ∪
+        CHILD_TO_PARENT_LINK_TYPES``, so a cycle whose two halves carry
+        different link types is visible.
+
+        The direct contradictory pair is called out by name in the raised
+        error (both links are known); a longer mixed cycle is reported as a
+        cycle, with the pair that closes it.
+
+        Read cost is one ``values_list`` over the tenant's hierarchy links —
+        the same O(N) shape the per-type check above already pays on every
+        write, and the alternative (a fully targeted pair lookup only) would
+        not see a longer cycle at all.
+        """
+        normalised = normalise_hierarchy_edge(link_type, source_id, target_id)
+        if normalised is None:  # pragma: no cover — caller guards on membership
+            return
+        parent_id, child_id = normalised
+
+        edges: list[tuple[uuid.UUID, uuid.UUID]] = []
+        conflict: Optional[tuple[uuid.UUID, uuid.UUID, str]] = None
+        rows = TraceLink.objects.filter(
+            link_type__in=HIERARCHY_LINK_TYPES
+        ).values_list("source_id", "target_id", "link_type")
+        for existing_source, existing_target, existing_type in rows:
+            existing = normalise_hierarchy_edge(
+                existing_type, existing_source, existing_target
+            )
+            if existing is None:  # pragma: no cover — filtered above
+                continue
+            edges.append(existing)
+            if existing == (child_id, parent_id):
+                conflict = (existing_source, existing_target, existing_type)
+
+        adjacency = _build_adjacency_from_edges(edges)
+        if not _dfs_has_cycle_to(child_id, parent_id, adjacency):
+            return
+
+        conflict_source, conflict_target, conflict_type = (
+            conflict if conflict is not None else (child_id, parent_id, link_type)
+        )
+        raise ContradictoryHierarchyLinkError(
+            link_type=link_type,
+            source_id=source_id,
+            target_id=target_id,
+            conflicting_link_type=conflict_type,
+            conflicting_source_id=conflict_source,
+            conflicting_target_id=conflict_target,
+        )
 
     # IF-TE-EXT-IN-003: read
     def get(self, link_id: uuid.UUID) -> TraceLink:

@@ -85,7 +85,10 @@ from persistence.models import (
     RequirementLevel,
     StakeholderNeed,
 )
-from traceability.audit.hierarchy import root_requirement_ids as _root_requirement_ids
+from traceability.audit.hierarchy import (
+    hierarchy_cycle_nodes as _hierarchy_cycle_nodes,
+    root_requirement_ids as _root_requirement_ids,
+)
 from traceability.audit.registry import (
     TRACE_P1,
     TRACE_P1B,
@@ -200,6 +203,25 @@ def _sources_by_link_type(
     return result
 
 
+#: How many cyclic Requirement ids the TRACE-P1 cycle finding names before it
+#: falls back to a count. Mirrors ``baseline_facade._MAX_LISTED_FINDINGS``:
+#: the message has to stay readable in a gate error string and in the audit
+#: dashboard, while ``artifact_ids`` always carries the complete set.
+_MAX_LISTED_CYCLE_NODES = 8
+
+
+def _describe_cycle_nodes(requirements: Dict[str, str], cycle_ids: FrozenSet[str]) -> str:
+    """Render the cyclic Requirements as ``Title (id)``, capped for readability."""
+    listed = ", ".join(
+        f"'{requirements[node_id]}' ({node_id})"
+        for node_id in sorted(cycle_ids)[:_MAX_LISTED_CYCLE_NODES]
+    )
+    remaining = len(cycle_ids) - _MAX_LISTED_CYCLE_NODES
+    if remaining > 0:
+        listed += f", … and {remaining} more"
+    return listed
+
+
 def _targets_by_link_type(
     context: AuditContext, link_types: FrozenSet[str]
 ) -> Dict[str, set]:
@@ -224,7 +246,37 @@ def _targets_by_link_type(
 
 @register_rule
 class SystemRequirementDerivesFromNeedRule(Rule):
-    """TRACE-P1: every root Requirement derives from a StakeholderNeed."""
+    """TRACE-P1: every root Requirement derives from a StakeholderNeed.
+
+    Cycle handling (issue #1021)
+    ---------------------------
+    Root classification is a set difference (``requirements - children``), so a
+    cyclic/contradictory hierarchy makes it return ∅ and this rule used to exit
+    through ``if not root_ids: return []`` — the gate's most important rule
+    reporting "conformant" for precisely the workspaces whose hierarchy is
+    broken. ``decomposes`` (parent -> child) plus ``derives-from`` (child ->
+    parent) written on the same object pair in the same direction is the
+    reproducible way to get there; ``TraceLinkManager.create`` now rejects that
+    write, and everything else (imports, direct ORM writes, data migrations,
+    rows written before the guard) lands here.
+
+    On a detected cycle this rule therefore:
+      1. emits one dedicated cycle finding naming the affected Requirements,
+         and
+      2. runs the ordinary P1 check against **all cycle nodes** instead of ∅ —
+         a Requirement that is its own ancestor still has to derive from a
+         StakeholderNeed, and "the graph is broken" must not be the answer that
+         unlocks a baseline gate.
+
+    The cycle finding carries ``rule_id = TRACE-P1`` rather than an id of its
+    own: the rule registry only accepts ids listed in ``RULE_PRESET_MAP``
+    (``register_rule`` rejects unknown ones) and every rule emits findings
+    under its own id, so a fabricated id would be the only one in the codebase
+    that no registered rule can produce. It is marked explicitly in the message
+    and is distinguishable by its multi-artifact ``artifact_ids`` — which is
+    also what keeps its per-finding waiver identity (``baseline.waivers``)
+    separate from the single-artifact findings below.
+    """
 
     rule_id = TRACE_P1
 
@@ -235,16 +287,40 @@ class SystemRequirementDerivesFromNeedRule(Rule):
 
         requirement_ids = frozenset(requirements)
         root_ids = _root_requirement_ids(context, requirement_ids)
-        if not root_ids:
+        cycle_ids = _hierarchy_cycle_nodes(context, requirement_ids)
+        if not root_ids and not cycle_ids:
             return []
+
+        findings: List[Finding] = []
+        if cycle_ids:
+            findings.append(
+                Finding(
+                    rule_id=self.rule_id,
+                    severity=Severity.BLOCKER,
+                    message=(
+                        f"[TRACE-P1] Cyclic Requirement hierarchy: "
+                        f"{len(cycle_ids)} Requirement(s) are their own "
+                        f"ancestor(s) because 'decomposes' and 'derives-from' "
+                        f"assert contradictory parent/child orders on the same "
+                        f"artifacts — {_describe_cycle_nodes(requirements, cycle_ids)}. "
+                        f"Root classification cannot report on them, so TRACE-P1 "
+                        f"is evaluated against every listed Requirement below. "
+                        f"Remove one half of each contradictory link pair "
+                        f"('decomposes' runs parent -> child, 'derives-from' "
+                        f"child -> parent) to restore the hierarchy."
+                    ),
+                    artifact_ids=tuple(sorted(cycle_ids)),
+                )
+            )
 
         need_ids = _active_stakeholder_need_ids(context)
         derives_from = _sources_by_link_type(
             context, frozenset({LinkType.DERIVES_FROM.value})
         )
 
-        findings: List[Finding] = []
-        for req_id in sorted(root_ids):
+        # Root Requirements, plus every cycle node: a Requirement that escaped
+        # classification must still be checked, not skipped.
+        for req_id in sorted(root_ids | cycle_ids):
             targets = derives_from.get(req_id, set())
             if targets & need_ids:
                 continue
