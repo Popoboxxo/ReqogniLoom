@@ -247,11 +247,18 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
 #:   the artifact's workspace). The workspace is resolved inside the service,
 #:   so the dispatcher cannot pre-resolve it — same "enforced by the handler"
 #:   class as the two above.
+#: * ``memory.digest`` (RFC #1002 F6) — declares ``workspace_id`` as *required*,
+#:   so the dispatcher already narrows and gates on it; the handler then calls
+#:   ``MemoryEntryService.digest``, which re-checks the read matrix via
+#:   ``MemoryPolicy`` (an ``artifact_id`` resolves its owning workspace inside
+#:   the service). Listed explicitly so the coverage ratchet records the
+#:   handler-side enforcement rather than inferring it from the schema alone.
 TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
     {
         "memory.query",
         "memory.list",
         "memory.get",
+        "memory.digest",
     }
 )
 

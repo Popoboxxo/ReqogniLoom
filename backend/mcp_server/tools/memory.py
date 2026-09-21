@@ -1,12 +1,12 @@
 """MemoryToolGroup — MCP tool group for AI Long-Term Memory (Spec 2026-08-24, RFC #1002 PR B).
 
 Exposes ``memory.write`` / ``memory.get`` / ``memory.query`` / ``memory.list``
-/ ``memory.forget`` over the ``MemoryEntryService`` façade (ADR-01: the tools
-perform no ORM access of their own). ``memory.query``/``memory.list``/
-``memory.get`` are read-only (registered in ``_READ_ONLY_TOOL_NAMES``);
-``memory.write``/``memory.forget`` are writes and are RBAC-gated
-(``_WRITE_TOOL_PREFIXES``) in addition to the ``MemoryPolicy`` check the service
-performs.
+/ ``memory.forget`` / ``memory.digest`` over the ``MemoryEntryService`` façade
+(ADR-01: the tools perform no ORM access of their own). ``memory.query``/
+``memory.list``/``memory.get``/``memory.digest`` are read-only (registered in
+``_READ_ONLY_TOOL_NAMES``); ``memory.write``/``memory.forget`` are writes and are
+RBAC-gated (``_WRITE_TOOL_PREFIXES``) in addition to the ``MemoryPolicy`` check
+the service performs.
 
 Scopes: ``user`` (own only), ``workspace`` (any active role to read, Editor+ to
 write), ``artifact`` (role in the artifact's workspace). The service resolves
@@ -50,6 +50,7 @@ class MemoryToolGroup(BaseToolGroup):
         "memory.query": "_handle_query",
         "memory.list": "_handle_list",
         "memory.forget": "_handle_forget",
+        "memory.digest": "_handle_digest",
     }
     _TOOL_SCHEMAS = [
         {
@@ -78,6 +79,22 @@ class MemoryToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {"entry_id": {"type": "string"}},
                 "required": ["entry_id"],
+            },
+        },
+        {
+            "name": "memory.digest",
+            "description": (
+                "Consolidated digest of one memory scope: the active backend's "
+                "prompt-ready summary of what a workspace (or one artifact in "
+                "it) remembers right now."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "format": "uuid"},
+                    "artifact_id": {"type": "string", "format": "uuid"},
+                },
+                "required": ["workspace_id"],
             },
         },
         {
@@ -169,6 +186,33 @@ class MemoryToolGroup(BaseToolGroup):
         return self._service_call(
             lambda: MemoryEntryService().get(auth_context, entry_id=entry_id)
         )
+
+    def _handle_digest(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Return the active backend's digest for one scope (read-only).
+
+        ``workspace_id`` is required because it is also the scope id when no
+        ``artifact_id`` is given; with an ``artifact_id`` the service resolves
+        the artifact's owning workspace itself. The response is the digest's
+        own fields — ``generated_at`` is serialised to ISO-8601 because the
+        service returns a ``datetime``.
+        """
+        workspace_id = require_param(params, "workspace_id")
+        artifact_id = optional_uuid(params, "artifact_id")
+
+        def _call() -> Dict[str, Any]:
+            digest = MemoryEntryService().digest(
+                auth_context, workspace_id=workspace_id, artifact_id=artifact_id
+            )
+            return {
+                "digest": digest.text,
+                "generated_at": digest.generated_at.isoformat(),
+                "backend": digest.backend,
+                "degraded": digest.degraded,
+            }
+
+        return self._service_call(_call)
 
     def _handle_query(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
