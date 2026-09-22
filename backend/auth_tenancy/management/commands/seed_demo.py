@@ -30,6 +30,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
+from application.attribute_bootstrap import bootstrap_attribute_definitions_for_tenant
 from application.workspace_provisioning import provision_workspace_defaults_scoped
 from auth_tenancy.provisioning import (
     DEFAULT_ADMIN_EMAIL,
@@ -95,6 +96,15 @@ class Command(BaseCommand):
             tenant_id=result.tenant.id,
             requirement_preset=_WORKSPACE_TIER,
         )
+
+        # Issue #29: a workspace provisioned only via seed_demo had ZERO
+        # GlobalAttributeDefinition rows, so the custom-fields/attribute feature
+        # rendered empty ("No global attribute definition for '<type>/<preset>'").
+        # application.self_init.run_self_init() already bootstraps them for its
+        # own tenants; reuse the same shared helper here so the two provisioning
+        # paths cannot diverge. It is idempotent (get-then-initialize), so a
+        # re-run creates no duplicates and never raises on already-seeded data.
+        bootstrap_attribute_definitions_for_tenant(result.tenant.id)
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded."))
         if result.password_set:

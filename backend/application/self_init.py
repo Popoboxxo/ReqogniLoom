@@ -34,6 +34,12 @@ from __future__ import annotations
 import logging
 import os
 
+from application.attribute_bootstrap import (
+    bootstrap_attribute_definitions_for_tenant,
+)
+from application.workspace_provisioning import (
+    provision_workspace_defaults_scoped,
+)
 from auth_tenancy.provisioning import (
     DEFAULT_ADMIN_EMAIL,
     DEFAULT_ADMIN_USERNAME,
@@ -42,10 +48,6 @@ from auth_tenancy.provisioning import (
 )
 from persistence.models import User
 from presets.models import WorkspacePresetConfig
-
-from application.workspace_provisioning import (
-    provision_workspace_defaults_scoped,
-)
 
 logger = logging.getLogger("reqogniloom")
 
@@ -130,13 +132,13 @@ def _bootstrap_attribute_definitions(tenant_id) -> None:
     fields. Existing databases are unaffected: the command only creates rows
     that are missing.
 
-    Failures are logged, never raised: this runs inside ``post_migrate``, where
-    an exception would abort the whole ``migrate`` step.
+    Delegates to the shared :mod:`.attribute_bootstrap` helper so ``seed_demo``
+    bootstraps exactly the same rows. Failures are logged, never raised: this
+    runs inside ``post_migrate``, where an exception would abort the whole
+    ``migrate`` step.
     """
-    from django.core.management import call_command
-
     try:
-        call_command("bootstrap_attribute_definitions", tenant=str(tenant_id))
+        bootstrap_attribute_definitions_for_tenant(tenant_id)
     except Exception as exc:  # noqa: BLE001 — must not abort migrate
         logger.error(
             "Self-init: attribute-definition bootstrap failed for tenant %s: %s. "
