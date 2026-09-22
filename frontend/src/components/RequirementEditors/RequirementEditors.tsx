@@ -55,6 +55,7 @@ import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
+import { BaselineDriftBadge } from '../shared/BaselineDriftBadge/BaselineDriftBadge';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { REQ_CATEGORIES } from '../../types';
 import styles from './RequirementEditors.module.css';
@@ -690,6 +691,17 @@ export default function RequirementEditors(): JSX.Element {
         onOpenArtifact={handleOpenChainArtifact}
         isOpenable={derivationChain.isOpenable}
       />
+      {/* #399 (D7): drift badge + CR shortcut live in the editor header only.
+          Bound to the BACKING Artifact id (`artifact_id`) — the
+          baseline-membership endpoint keys on artifacts, not entity pks. */}
+      {activeWorkspace && (
+        <BaselineDriftBadge
+          artifactId={requirement.artifact_id ?? requirement.id}
+          workspaceId={activeWorkspace.id}
+          artifactTitle={requirement.title}
+          summary={requirement.baseline_drift}
+        />
+      )}
       <RequirementArtifactForm
         key={requirement.id}
         requirement={requirement}

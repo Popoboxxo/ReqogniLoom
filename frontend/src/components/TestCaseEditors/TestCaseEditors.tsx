@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { TestCaseList } from './TestCaseList';
 import { TestCaseArtifactForm } from './TestCaseArtifactForm';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
+import { BaselineDriftBadge } from '../shared/BaselineDriftBadge/BaselineDriftBadge';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
@@ -297,6 +298,16 @@ export default function TestCaseEditors(): JSX.Element {
                     isOpenable={derivationChain.isOpenable}
                   />
                 )}
+                {/* #399 (D7): drift badge + CR shortcut live in the editor
+                    header only — never in the list rows (N+1). */}
+                {item && activeWorkspace && (
+                  <BaselineDriftBadge
+                    artifactId={item.id}
+                    workspaceId={activeWorkspace.id}
+                    artifactTitle={item.title}
+                    summary={item.baseline_drift}
+                  />
+                )}
                 {/* DEVIATION from the plan brief (same class as Risk/Issue/
                     StakeholderNeed, Tasks 19/20/23): `TestCaseArtifactForm`
                     takes a non-nullable `testCase: TestCase` (unlike the
@@ -313,6 +324,7 @@ export default function TestCaseEditors(): JSX.Element {
                       onDeleted={handleDeleted}
                       onDirtyChange={setFormDirty}
                       customFields={customFieldsDraft}
+                      onReviewed={refresh}
                     />
                     {/* Sibling of the definition-driven form, not inside it
                         — see TestCaseArtifactForm's docstring for why. */}
