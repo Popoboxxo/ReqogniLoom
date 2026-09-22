@@ -1623,7 +1623,9 @@
     "counts": {
       "total": "Findings",
       "blockers": "Blocker",
-      "warnings": "Warnungen"
+      "warnings": "Warnungen",
+      "suppressed": "Unterdrückt",
+      "suppressedBlockers": "Unterdrückte Blocker"
     },
     "tier": "Rigor-Stufe",
     "refresh": "Aktualisieren",
@@ -1647,10 +1649,39 @@
     "modifyReasonPrefix": "Nicht automatisch korrigierbar",
     "modifyHint": "Betroffenes Artefakt öffnen, um es manuell zu korrigieren.",
     "modifyNoTarget": "Dieses Finding verweist auf kein öffenbares Artefakt — korrigiere es über die oben gelisteten betroffenen Artefakte.",
-    "actionLegend": "Übernehmen wendet die Korrektur an, die der Auditor automatisch abgeleitet hat. Anpassen öffnet das betroffene Artefakt zur manuellen Korrektur — Findings werden aus dem Trace-Graph neu berechnet und verschwinden, sobald das Artefakt korrigiert ist.",
+    "actionLegend": "Übernehmen wendet die Korrektur an, die der Auditor automatisch abgeleitet hat. Anpassen öffnet das betroffene Artefakt zur manuellen Korrektur — Findings werden aus dem Trace-Graph neu berechnet und verschwinden, sobald das Artefakt korrigiert ist. Unterdrücken hinterlegt eine begründete Ausnahme: Das Finding bleibt sichtbar, blockiert aber keine Baselines mehr.",
     "truncated": "{{shown}} von {{total}} Findings werden angezeigt — mit „Mehr laden“ werden die restlichen eingebunden.",
     "loadMore": "Mehr Findings laden",
     "loadingMore": "Weitere Findings werden geladen...",
+    "showSuppressed": "Unterdrückte anzeigen",
+    "suppressedBadge": "Unterdrückt",
+    "suppressionReasonPrefix": "Begründung",
+    "suppressedUntilPrefix": "Gültig bis",
+    "waive": "Unterdrücken",
+    "waiving": "Wird unterdrückt...",
+    "waiveTitle": "Finding unterdrücken",
+    "waiveReasonLabel": "Begründung (Pflicht)",
+    "waiveReasonPlaceholder": "Warum ist dieses Blocker-Finding eine akzeptierte Abweichung?",
+    "waiveExpiresLabel": "Ablaufdatum (optional)",
+    "waiveExpiresHint": "Leer lassen für unbegrenzt. Ein bereits vergangener Zeitpunkt wird abgelehnt.",
+    "waiveConfirm": "Unterdrücken",
+    "waiveCancel": "Abbrechen",
+    "waiveReasonRequired": "Bitte eine Begründung angeben.",
+    "waiveSuccess": "Unterdrückung gespeichert — das Finding bleibt sichtbar, blockiert aber keine Baseline mehr.",
+    "waiveReasonRejected": "Die Begründung erfüllt die Richtlinie nicht. Bitte konkreter begründen.",
+    "waiveNotBlocking": "Dieses Finding ist aktuell kein Blocker. Bitte den Audit erneut ausführen und neu bewerten.",
+    "waiveExpired": "Für dieses Finding existiert bereits eine abgelaufene Unterdrückung. Ein erneutes Gewähren ist ohne Widerruf (offene Entscheidung O1) nicht möglich.",
+    "waiveForbidden": "Dir fehlt die Berechtigung, Findings zu unterdrücken (Admin/Approver erforderlich).",
+    "waivers": {
+      "title": "Unterdrückungen",
+      "empty": "Keine Unterdrückungen vorhanden.",
+      "until": "Gültig bis",
+      "grantedBy": "Gewährt von",
+      "state": {
+        "active": "Aktiv",
+        "expired": "Abgelaufen"
+      }
+    },
     "pageSummary": "Automatisierte Regelprüfung für Requirements und Architektur, gruppiert nach Regel mit Blocker-/Warnungs-Einstufung."
   },
   "archDecompose": {
