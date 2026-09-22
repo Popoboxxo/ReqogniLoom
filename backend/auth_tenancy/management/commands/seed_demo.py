@@ -103,7 +103,19 @@ class Command(BaseCommand):
         # application.self_init.run_self_init() already bootstraps them for its
         # own tenants; reuse the same shared helper here so the two provisioning
         # paths cannot diverge. It is idempotent (get-then-initialize), so a
-        # re-run creates no duplicates and never raises on already-seeded data.
+        # re-run creates no duplicates.
+        #
+        # Intentional fail-loud divergence from self_init: that path runs inside
+        # post_migrate and must never raise (its wrapper catches and logs so a
+        # failure cannot abort the whole `migrate`). This call deliberately lets
+        # an exception propagate — seed_demo is operator-invoked, so a bootstrap
+        # failure should fail loudly with a non-zero exit instead of silently
+        # shipping an empty attribute set. handle() runs outside a transaction,
+        # so if it raises, the tenant/workspace/user provisioned above stay
+        # committed; only the bootstrap command's own atomic block rolls back.
+        # The nested call_command also prints its own
+        # "bootstrap_attribute_definitions: N created, ..." SUCCESS line to
+        # stdout, in addition to seed_demo's final message below.
         bootstrap_attribute_definitions_for_tenant(result.tenant.id)
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded."))
