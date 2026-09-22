@@ -282,7 +282,18 @@ def section_order_index(section: str) -> int:
 #: declared, but `ChangeRequestSerializer.requestor_id` is
 #: `read_only=True` — same landmine class as `uid` above (introspected as
 #: `editable=True`, every PATCH round-trip 400s).
-READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset({"uid", "requestor_id"})
+#:
+#: #424 (cluster 5): `TestCase.reviewed` is a real column, but it is the
+#: in-content human-approval flag and the spec makes it write-once through the
+#: dedicated review action only ("`reviewed` ist nicht Parameter — ausschließlich
+#: über `mark_reviewed` änderbar"). `TestCaseSerializer.reviewed` is
+#: `read_only=True` and `validate()` rejects a supplied value; introspecting it
+#: as `editable=True` made the definition-driven ArtifactForm render a control
+#: whose PATCH the serializer refuses. Keeping it editable would re-open the
+#: silent-no-op class this set exists to close.
+READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset(
+    {"uid", "requestor_id", "reviewed"}
+)
 
 #: Curated widget attributes (spec section 6.3). ``fields[]`` names the core
 #: attributes the widget renders; the form renderer skips those individually so

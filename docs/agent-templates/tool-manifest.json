@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 215,
+  "tool_count": 216,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -5590,6 +5590,22 @@
             "additionalProperties": true,
             "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
           },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "ai_generated"
+            ],
+            "description": "Provenance of the content. Defaults to 'manual'. 'ai_generated' marks LLM-produced content, which starts unreviewed and does not count as verification evidence until test.mark_reviewed."
+          },
+          "scenario_kind": {
+            "type": "string",
+            "enum": [
+              "nominal",
+              "off_nominal"
+            ],
+            "description": "'nominal' (default) or 'off_nominal'."
+          },
           "owner": {
             "type": [
               "object",
@@ -5691,6 +5707,32 @@
         "required": [
           "test_id",
           "req_id"
+        ]
+      }
+    },
+    {
+      "name": "test.mark_reviewed",
+      "prefix": "test",
+      "is_write": true,
+      "description": "#424: set the in-content review flag of a TestCase (write, audited). A test case with origin='ai_generated' starts unreviewed and does not count as verification evidence or test coverage until this flag is set. Independent of the workflow lifecycle state (test.get's 'status'). Idempotent. 'reviewed' changes are the only way to make an AI-generated test case count.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string",
+            "description": "UUID of the test case."
+          },
+          "reviewed": {
+            "type": "boolean",
+            "description": "Target review state. Defaults to true."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Optional rationale, recorded on the audit trail."
+          }
+        },
+        "required": [
+          "test_case_id"
         ]
       }
     },
@@ -5914,6 +5956,14 @@
                 "type": "object",
                 "additionalProperties": true,
                 "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+              },
+              "scenario_kind": {
+                "type": "string",
+                "enum": [
+                  "nominal",
+                  "off_nominal"
+                ],
+                "description": "'nominal' or 'off_nominal'."
               },
               "execution_status": {
                 "type": "string",

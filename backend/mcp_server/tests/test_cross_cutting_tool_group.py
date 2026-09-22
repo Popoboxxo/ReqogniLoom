@@ -632,20 +632,32 @@ def test_context_test_coverage_excludes_outdated_test_case_by_default(
     """A verifying TestCase that is outdated must not appear in
     ``test_cases`` unless ``include_outdated=True`` is passed — mirrors the
     ``CoverageCalculator.get_coverage_data(include_outdated=...)`` contract.
+
+    The Requirement being verified stays *active* here on purpose: since #272
+    (spec §7.3) a new manual link may no longer target a soft-deleted
+    (``lifecycle_status == "outdated"``) endpoint, so the ``verifies`` link is
+    established while the artifact is live and only the TestCase is then
+    outdated. Requirement-and-TestCase soft-delete exclusions are independent
+    in ``get_coverage_data``, so an active target isolates the TestCase half.
     """
+    from application.requirement_service import RequirementService
     from application.test_service import TestService
     from application.trace_link_service import TraceLinkService
     from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
     from mcp_server.tools.tests import McpTestToolGroup
     from traceability.types import LinkType
 
-    workspace_id, tenant_id, outdated_req_id = workspace_with_outdated_requirement
+    workspace_id, tenant_id, _outdated_req_id = workspace_with_outdated_requirement
 
     from persistence.models import Tenant, Workspace
 
     workspace = Workspace.objects.get(id=workspace_id)
     tenant = Tenant.objects.get(id=tenant_id)
     _ensure_workflow(tenant, workspace, "standard", "TestCase")
+
+    requirement = RequirementService().create_requirement(
+        workspace_id=workspace_id, title="Verified Req", ctx=auth_ctx
+    )
 
     test_svc = TestService()
     test_case = test_svc.create_test_case(
@@ -654,7 +666,7 @@ def test_context_test_coverage_excludes_outdated_test_case_by_default(
     trace_svc = TraceLinkService()
     trace_svc.create_trace_link(
         source_id=test_case.artifact_id,
-        target_id=outdated_req_id,
+        target_id=requirement.id,
         link_type=LinkType.VERIFIES.value,
         ctx=auth_ctx,
     )
@@ -670,16 +682,16 @@ def test_context_test_coverage_excludes_outdated_test_case_by_default(
     group = CrossCuttingToolGroup()
     result_default = group.execute_tool(
         "context.test_coverage",
-        params={"requirement_id": str(outdated_req_id)},
+        params={"requirement_id": str(requirement.id)},
         auth_context=auth_ctx, api_key="",
     )
     assert result_default.success is True
     assert result_default.data["test_cases"] == []
-    assert result_default.data["gaps"] == [str(outdated_req_id)]
+    assert result_default.data["gaps"] == [str(requirement.id)]
 
     result_incl = group.execute_tool(
         "context.test_coverage",
-        params={"requirement_id": str(outdated_req_id), "include_outdated": True},
+        params={"requirement_id": str(requirement.id), "include_outdated": True},
         auth_context=auth_ctx, api_key="",
     )
     assert result_incl.success is True
