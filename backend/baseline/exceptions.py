@@ -111,6 +111,42 @@ class VersionNotFoundError(BaselineError):
         super().__init__(message)
 
 
+class GovernanceReasonError(BaselineError):
+    """Raised when a waiver/suppression justification fails the policy (#569).
+
+    Domain error for :func:`baseline.waivers.validate_waiver_reason`, so the
+    Layer-1 module can own the policy without importing the Layer-2
+    ``application.base.ValidationError``. Facades remap it to their own layer's
+    error type:
+
+      * ``application.baseline_facade._validate_gate_reason`` re-raises a plain
+        ``ValidationError`` — the legacy ``waived_findings`` path keeps its type,
+        message and 400 ``VALIDATION_ERROR`` code unchanged (GH-821);
+      * ``application.audit_service.AuditService.suppress_finding`` maps it to
+        ``WaiverReasonPolicyViolation`` (400 ``WAIVER_REASON_REJECTED``).
+
+    Deliberately NOT registered in the REST ``_EXC_TO_HTTP``/``_EXC_TO_CODE``
+    maps (#569 N6): a leak past the facade is a bug and must surface loudly as a
+    500 rather than silently degrade to a 400.
+    """
+
+
+class GovernanceAuthorityError(BaselineError):
+    """Raised when a caller lacks authority to grant/waive a gate verdict (#569).
+
+    Domain error for :func:`baseline.waivers.assert_gate_waiver_authority` — the
+    single source of truth for "who may accept a known deviation" (Admin or
+    Approver role *and*, for API keys, the ADMIN capability tier, #865). Both
+    ``BaselineFacade`` and ``AuditService`` catch it and re-raise
+    ``PermissionDeniedError`` (403), so there is exactly one choke point and no
+    duplicated check.
+
+    Like :class:`GovernanceReasonError`, it is deliberately NOT registered in the
+    REST exception maps: reaching the adapter means a facade forgot to remap it,
+    which must fail closed and loud (#569 N6).
+    """
+
+
 __all__ = [
     "BaselineError",
     "BaselineImmutableError",
@@ -122,4 +158,6 @@ __all__ = [
     "ScopeNotAllowedError",
     "ItemNotInBaselineError",
     "VersionNotFoundError",
+    "GovernanceReasonError",
+    "GovernanceAuthorityError",
 ]
