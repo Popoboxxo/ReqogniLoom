@@ -286,7 +286,7 @@ def _productive_create_test_case_call_sites() -> dict[str, int]:
 
 
 def test_create_test_case_producer_set_is_frozen():
-    """AC-424-16: exactly the P1..P5 producers from spec section 4.8.
+    """AC-424-16: exactly the P1..P6 producers from spec section 4.8.
 
     A new productive call site (or a second one in an existing file) must turn
     this test red so its author makes an explicit ``origin``/``reviewed``
@@ -303,4 +303,8 @@ def test_create_test_case_producer_set_is_frozen():
         "application/interview_artifact_adapters.py": 1,
         # P5 seed_toothbrush fixture command
         "auth_tenancy/management/commands/seed_toothbrush.py": 1,
+        # P6 seed_full_chain fixture command (#272, review finding R2). The
+        # fixture is human-authored demo material, so it pins
+        # origin="manual"/reviewed=True explicitly.
+        "auth_tenancy/management/commands/seed_full_chain.py": 1,
     }

@@ -211,7 +211,21 @@ _ENTITY_MODELS = {
 
 
 def creation_baseline_entry() -> Dict[str, Any]:
-    """Return the synthetic version-0 row (empty creation baseline)."""
+    """Return the synthetic version-0 row (empty creation baseline).
+
+    #272 (cluster 5, spec section 7.4.2 / decision D6): ``content_available``
+    keeps its ``False`` value — it means "a stored ``ArtifactVersion`` payload
+    exists behind this version number", and v0 is a *synthetic* row with no
+    stored payload (``ArtifactVersionService.get_payload`` returns ``None``).
+    Reporting ``True`` would deceive a client that binds an "open content"
+    action to the flag.
+
+    The additive ``is_creation_baseline`` key lets a client recognise this
+    synthetic row unambiguously instead of inferring it from the flag. Every
+    non-v0 producer must state ``False`` explicitly; see the module-level
+    producers below (``ArtifactVersionService.list_revisions`` and
+    ``_current_version_entry``) — the three sources together are the contract.
+    """
     return {
         "version": 0,
         "label": "Creation baseline",
@@ -219,6 +233,8 @@ def creation_baseline_entry() -> Dict[str, Any]:
         # Version 0 is the empty "before creation" state: diffing *against* it
         # is supported, but there is no stored content to display.
         "content_available": False,
+        #: #272: distinguishes the synthetic v0 row from a real revision.
+        "is_creation_baseline": True,
     }
 
 
@@ -530,12 +546,17 @@ class ArtifactDiffService(ServiceBase):
         ``Current (v7)`` invited readers to assume seven retrievable
         revisions exist (issue #213). ``version`` is still returned because
         it is the addressing token for ``/diff/`` and for baseline pinning.
+
+        #272: ``is_creation_baseline`` is stated explicitly (producer contract,
+        spec section 7.4.2) — this row is the entity's live state, never the
+        synthetic v0 row.
         """
         return {
             "version": self._current_lock_version(entity),
             "label": "Current",
             "modified_at": _entity_timestamp(entity),
             "content_available": True,
+            "is_creation_baseline": False,
         }
 
     def diff_for_entity(

@@ -1321,6 +1321,122 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             logger.exception("RequirementViewSet.derive_testcase: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @action(detail=False, methods=["get"], url_path="coverage-report")
+    def coverage_report(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/requirements/coverage-report/?workspace_id=<uuid> (#272).
+
+        Requirement→Test coverage report: the summary
+        (``CoverageCalculator.coverage``) plus a per-requirement row list with
+        its verifying TestCases (``get_coverage_data``). This is the report the
+        ``allocation-coverage`` action on ArchitectureElement never provided
+        for Requirements.
+
+        Query params:
+            workspace_id (required): target workspace UUID.
+            include_outdated (default false): include soft-deleted
+                Requirements/TestCases.
+            include_unreviewed_ai (default false): #424 — count an
+                ``origin="ai_generated"``, unreviewed TestCase as coverage
+                (the raw view). The default excludes it and reports the
+                exclusion count as ``summary.pending_ai_review``.
+
+        Response::
+
+            {
+              "summary": {"total": 24, "covered": 21, "percentage": 87.5,
+                          "pending_ai_review": 2},
+              "requirements": [
+                {"requirement_id": "uuid", "uid": "REQ-L1-004", "title": "...",
+                 "level": 1, "covered": true,
+                 "test_cases": [{"id": "uuid", "uid": "TC-007", "title": "...",
+                                 "origin": "manual", "reviewed": true,
+                                 "scenario_kind": "off_nominal",
+                                 "result": "Passed"}]}
+              ]
+            }
+
+        Errors: missing/invalid ``workspace_id`` → 400 VALIDATION_ERROR;
+        unknown workspace → 404 NOT_FOUND.
+        """
+        lang = detect_lang(request)
+        workspace_id, error = parse_workspace_id(
+            request.query_params.get("workspace_id"),
+            lang,
+        )
+        if error is not None:
+            return error
+
+        def _flag(name: str) -> bool:
+            """Read a boolean query flag ('true'/'1'/'yes', any casing)."""
+            return str(request.query_params.get(name, "")).strip().lower() in {
+                "true",
+                "1",
+                "yes",
+            }
+
+        include_outdated = _flag("include_outdated")
+        include_unreviewed_ai = _flag("include_unreviewed_ai")
+
+        try:
+            ctx = get_auth_context(request)
+            # Existence check first: an unknown workspace is a 404, not an
+            # empty report that looks like "no requirements". Goes through the
+            # service layer (no direct model query in a view).
+            WorkspaceService().get_workspace(workspace_id, ctx)
+
+            from traceability.coverage_calculator import CoverageCalculator
+
+            calculator = CoverageCalculator()
+            report = calculator.coverage(
+                workspace_id,
+                include_outdated=include_outdated,
+                include_unreviewed_ai=include_unreviewed_ai,
+            )
+            data = calculator.get_coverage_data(
+                workspace_id,
+                include_outdated=include_outdated,
+                include_unreviewed_ai=include_unreviewed_ai,
+            )
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)),
+                lang,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("RequirementViewSet.coverage_report: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        covered_ids = {
+            entry.requirement_id for entry in data.entries if entry.test_cases
+        }
+        requirements_payload = [
+            {
+                "requirement_id": entry.requirement_id,
+                "uid": entry.uid,
+                "title": entry.title,
+                "level": entry.level,
+                "covered": entry.requirement_id in covered_ids,
+                "test_cases": entry.test_cases,
+            }
+            for entry in data.entries
+        ]
+
+        return Response(
+            {
+                "summary": {
+                    "total": report.total,
+                    "covered": report.covered,
+                    "percentage": report.percentage,
+                    # #424: TestCases excluded solely for being unreviewed AI
+                    # content. 0 on the raw view.
+                    "pending_ai_review": report.pending_ai_review,
+                },
+                "requirements": requirements_payload,
+            }
+        )
+
     @action(detail=True, methods=["get"], url_path="allocation")
     def allocation_coverage(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/allocation/ — list allocations.
