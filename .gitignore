@@ -98,3 +98,8 @@ docs/test-reports/e2e/
 # captured JSON-RPC/REST bodies). Regenerated on every run, so they are not
 # tracked - the spec is the durable artefact, these are its evidence.
 e2e/proof/
+
+# Frontend build artifacts (vite config emit + tsc incremental build info)
+frontend/tsconfig*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
