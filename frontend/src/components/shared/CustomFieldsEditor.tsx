@@ -141,7 +141,12 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
   return (
     <div data-testid="custom-fields-editor">
       {rows.length === 0 && (
+        // #29: the empty hint must be addressable by tests/E2E and now also
+        // names the real "+ Add field" affordance `custom-field-add` below
+        // (see the updated `customFields.empty` copy), rather than a bare
+        // "no fields" statement.
         <p
+          data-testid="custom-fields-empty"
           style={{
             color: 'var(--color-text-muted)',
             fontSize: 'var(--font-size-sm)',

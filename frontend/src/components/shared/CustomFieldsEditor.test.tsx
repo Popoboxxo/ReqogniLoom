@@ -68,4 +68,21 @@ describe('CustomFieldsEditor', () => {
 
     expect(getByTestId('harness-value').textContent).toBe(JSON.stringify({}));
   });
+
+  /**
+   * #29 — the empty branch was a bare `<p>` with no testId, so no test or E2E
+   * spec could assert on the "no custom fields" guidance.
+   */
+  it('shows the custom-fields-empty hint while there are no fields', () => {
+    const { getByTestId } = render(<Harness />);
+    expect(getByTestId('custom-fields-empty')).toBeInTheDocument();
+  });
+
+  it('hides the custom-fields-empty hint once a field row is added', () => {
+    const { getByTestId, queryByTestId } = render(<Harness />);
+
+    fireEvent.click(getByTestId('custom-field-add'));
+
+    expect(queryByTestId('custom-fields-empty')).not.toBeInTheDocument();
+  });
 });

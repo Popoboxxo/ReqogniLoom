@@ -90,9 +90,13 @@ export function IcdList({ items, selectedId, onSelect, onCreateNew }: IcdListPro
           // empty workspace.
           testId="icds-empty"
           title={t("icds.emptyTitle", "No ICDs yet")}
+          // #27: the description does not just say what an ICD is, it tells
+          // the user how to create the first one — the button already exists
+          // (this EmptyState's own "+ New ICD" action, mirrored by the
+          // PageHeader's `create-icd-btn` above).
           description={t(
             "icds.emptyDescription",
-            "Interface Control Documents capture the contract between two architecture elements.",
+            'Interface Control Documents capture the contract between two architecture elements. Create your first ICD with the "New ICD" button.',
           )}
           actions={[{ label: t("icds.create", "New ICD"), prefixWithPlus: true, onClick: onCreateNew, testId: "icd-list-empty-create" }]}
         />

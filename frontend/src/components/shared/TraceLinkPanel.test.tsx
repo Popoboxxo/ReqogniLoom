@@ -416,3 +416,36 @@ describe("TraceLinkPanel — soft-deleted endpoints (UI-P3)", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+/**
+ * #28 — the two empty branches used to be indistinguishable bare `<p>`s with
+ * no testId and one generic "no links" label. Each now carries a stable
+ * testId and direction-aware guidance that names the *real* create
+ * affordance: this panel's dialog pins the current artifact as the source,
+ * so it only ever produces outgoing links — incoming links must be created
+ * on the other artifact or in the Traceability view.
+ */
+describe("TraceLinkPanel — empty-state guidance (#28)", () => {
+  it("renders a direction-specific empty hint for each column", async () => {
+    await i18n.changeLanguage("de");
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValueOnce({
+      results: [],
+      count: 0,
+    } as never);
+
+    render(
+      <MemoryRouter>
+        <TraceLinkPanel workspaceId="ws-1" artifactId="art-1" />
+      </MemoryRouter>
+    );
+
+    const upstream = await screen.findByTestId("tracelink-upstream-empty");
+    const downstream = screen.getByTestId("tracelink-downstream-empty");
+
+    // Incoming links cannot be created here — the guidance points at the
+    // other artifact / the Traceability view.
+    expect(upstream).toHaveTextContent("Traceability");
+    // Outgoing links are created from this panel; the artifact is the source.
+    expect(downstream).toHaveTextContent("Quelle");
+  });
+});
