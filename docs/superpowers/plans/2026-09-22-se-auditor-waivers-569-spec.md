@@ -4,7 +4,8 @@ scope: "#569"
 status: proposed
 date: 2026-09-22
 revision: 3
-review_iteration: 2
+review_iteration: 3
+review_iteration_note: "Iteration 3 = factual correction after two post-implementation reviews (2026-09-22); no design change, revision stays 3."
 resolves_review:
   - docs/superpowers/plans/2026-09-22-se-auditor-waivers-569-spec-review-rev2.md
   - docs/superpowers/plans/2026-09-22-se-auditor-waivers-569-spec-review-rev3.md
@@ -55,7 +56,7 @@ wo sich die Bedeutung eines AC ändert, steht die Änderung in der Tabelle.
 | **R3-05** (minor) GET-Waiver ohne 500, GET-Report ohne 403/500 | **resolved** | §3.4.1: neue Zeilen **E19** (`GET …/audit/waivers/` 500) und **E20** (`GET …/audit/` 500) plus Absatz „Totality des GET-Status-Sets": der erweiterte Report-Endpunkt hat bewusst keine 403-Zeile (heutiges Verhalten: `except Exception` → 500, `audit_views.py:155-164`; Status-Set unverändert), der neue Waiver-Endpunkt hat E12 (403). AC-569-28/V32 referenzieren E19–E20 mit. |
 | **R3-06** (minor) „422 nur bei remediate" codebase-weit falsch | **resolved** | §1/D1, §3.4.1-Invariante, §7-Non-Goal: Aussage auf „in diesem Audit-Modul" eingegrenzt; `architecture_decompose_views.py:156` als zweiter 422-Nutzer explizit als außerhalb/unberührt benannt. Belastbarer Vertrag bleibt „kein neuer Endpunkt emittiert 422". |
 | **R3-07** (minor) Präzedenz E3 vs. E8 unstated | **resolved** | §3.2 (neuer R3-07-Absatz in D2), §3.3 Schritt 8, §3.4.1 E8-Zeile, 409-RFC-Bullet: die Request-`expires_at`-Prüfung (E3/D2, 400) läuft **vor** der Bestandsprüfung (m1/E8, 409) und gewinnt im kombinierten Fall. |
-| **R3-08** (minor) „`granted_by` Pflicht" gilt nur auf neuen Oberflächen | **resolved** | §3.2 (neuer Geltungsbereich-Absatz), §3.4.2 Negativ-Invariante: Invariante explizit auf die zwei neuen Oberflächen gescoped; der unveränderte Gate-Pfad `baseline_facade.py:637` (kein Blank-Check) und die unangetasteten `granted_by=""`-Bestandszeilen sind als bekannte, out-of-scope Altlast benannt. |
+| **R3-08** (minor) „`granted_by` Pflicht" gilt nur auf neuen Oberflächen | **resolved** | §3.2 (neuer Geltungsbereich-Absatz), §3.4.2 Negativ-Invariante: Invariante explizit auf die zwei neuen Oberflächen gescoped; der unveränderte Gate-Pfad `baseline_facade.py:594` (Autor-Stempel, kein Blank-Check) und die unangetasteten `granted_by=""`-Bestandszeilen sind als bekannte, out-of-scope Altlast benannt. **Präzisiert (2026-09-22, C3):** Dreiteilung — (a) Reason und (c) Audit-Eintrag gelten auf **allen** Pfaden, (b) Autor nur auf den neuen. |
 | **R3-09** (minor) AC-569-30-Formel vs. None-Fall | **resolved** | AC-569-30, V34: `str(ctx.user_id).strip()` ersetzt durch die None-sichere Service-Formel `str(getattr(ctx, "user_id", "") or "").strip()`; der `None`-Fall (`""`, nicht `"None"`) ist explizit benannt. |
 | **R3-10** (minor) `Closes #569` fehlt | **resolved** | §9 Rollout: neuer Bullet „PR-Pflicht" mit `Closes #569` (Bundle-Plan `:49,193`) und Zielbranch-Angabe. |
 | **R3-11** (info) Mutationsprobe nur im Docstring | **resolved** | AC-569-COMPAT(d): Proben zusätzlich mit Marker `# mutation-probe: …` und in der PR-Beschreibung wiederholbar dokumentiert. |
@@ -75,6 +76,66 @@ bleiben unverändert.
 (`BaselineGateWaiver`/`bl_baseline_gate_waiver`), die bestehenden Unique-/Check-Constraints,
 die `override_reason`-Semantik (`baseline_facade.py:539-556`) und der bestehende
 `waived_findings`-Pfad (inkl. dessen 400-`VALIDATION_ERROR`-Antwort, siehe §3.4.2).
+
+---
+
+## Post-implementation corrections (2026-09-22)
+
+**Basis:** zwei unabhängige Post-Implementierungs-Reviews auf dem Zielbranch
+`feat/se-audit-waivers` — eine **formale DoD-/AC-Traceability-Validierung** und eine
+**adversariale Backend-Review**. Beide bestätigten unabhängig denselben Sachdefekt (C1 unten).
+Diese Iteration ist eine **Faktenkorrektur**, keine Design-Änderung: `revision: 3` bleibt stehen,
+`review_iteration` wird auf `3` gesetzt. Keine AC wird abgeschwächt; C1 macht AC-569-09
+**präziser**, nicht vager.
+
+### C1 — Die M3-Prämisse „`details` werden persistiert" ist FALSCH
+
+Revision 2/3 behaupteten (gestützt auf einen veralteten Kommentar), `ServiceBase._audit`
+**persistiere** den `details`-Payload, sodass `baseline.create`/`baseline.waiver_create`
+`suppressed_blocker_count`, `suppressed_finding_keys`, `waiver_ids`, `matched_waiver_ids` in der
+Audit-Tabelle tragen. **Verifiziert ist das Gegenteil:**
+
+- `backend/audit/services.py:159` — `details` ist dokumentiert als *„Reserved for v2 field-level
+  diff (ADR-10). Ignored in v1."* und wird **nie** geschrieben.
+- `backend/audit/writer.py:190-202` — `AuditLogWriter.write` konstruiert den `AuditEntry`
+  **ohne** `details`.
+- `backend/audit/models.py:246-306` — `AuditEntry` hat **keine** `details`-/JSON-Spalte.
+- `backend/audit/migrations/0013_alter_auditentry_op.py` — entschied sich bewusst für eine eigene
+  Operation, statt „in einem `baseline.create`-details-Blob mitzureiten".
+
+**Konsequenz:** Die `details`-Persistenz-Klausel von AC-569-09 ist auf diesem Branch **nicht
+literal erfüllbar**, und ein AuditLog-Writer-Umbau ist explizites Non-Goal (§7). Der ehrliche
+Vertrag ist: der **konstruierte** `details`-Payload wird **an der `_audit`-Aufrufgrenze**
+asserted (Intercept/Mock); der **durable Trail** ist die `AuditEntry`-Zeile
+(`op`/`entity_type`/`entity_id`/`actor`/`change_reason`) **plus** die append-only
+`BaselineGateWaiver`-Zeile (`finding_key`, `rule_id`, `artifact_ids`, `scope`, `reason`,
+`granted_by`, `expires_at`). „Wer / was / warum / bis wann" ist über den Join
+`AuditEntry.entity_id → BaselineGateWaiver.id` rekonstruierbar — mit **einer Asymmetrie:** auf
+dem MCP-Pfad ist `change_reason` `None` (`write_mcp_audit` setzt keinen `change_reason`,
+`mcp_server/tools/base.py:269-306`), dort ist die Begründung **nur** über den Join erreichbar.
+Strukturierte `details`-Queryability ist auf den AuditLog-Writer-Umbau verschoben (Non-Goal).
+Betroffen: §1/M3, §2/DoD 4, §3.2/M4, §3.3 Schritt 8, §4, §5/E2, §7, AC-569-09, V13.
+
+### C2 — MCP `audit.waivers` ist bewusst strenger als der reine Read-Tier
+
+§3.5 weist `audit.waivers` den Read-Tier zu (`_READ_ONLY_TOOL_NAMES`). Die Implementierung behält
+den Tier, erzwingt im Handler aber **zusätzlich** den REST-E12-Approval-Authority-Choke-Point, sodass
+ein Editor/Viewer auf MCP `PERMISSION_DENIED` erhält — genau wie auf REST. Das schließt eine
+Transport-Asymmetrie, über die ein Aufrufer durch bloßes Wechseln des Transports hätte lesen
+können, wer was und warum unterdrückt hat. **Rationale:** die Suppressions-Liste ist
+Governance-Metadaten (wer / warum). Tier = read, effektive Autorität = Approval-Authority. Siehe
+§3.5, AC-569-07, V11.
+
+### C3 — Der Autor-Invariante fehlt die Pfad-Qualifizierung
+
+Die Invariante las sich absolut („kein Waiver ohne Autor"). Verifiziert: der **Legacy**-Gate-Pfad
+(`backend/application/baseline_facade.py:587-595`, Autor-Stempel `:594`) kann weiterhin
+`granted_by=""` persistieren — Reason-Policy und Authority-Check **werden** dort erzwungen, und
+`baseline.waiver_create` **wird** geschrieben, der Autor aber nicht. R3-08 qualifizierte die
+Invariante bereits auf die neuen Oberflächen; C3 stellt die Dreiteilung unmissverständlich fest:
+(a) Reason und (c) Audit-Eintrag gelten auf **allen** Pfaden, (b) die Autor-Garantie gilt **nur**
+auf den neuen Oberflächen. Der Legacy-Blank-Autor ist dokumentierte Schuld auf append-only-Zeilen
+(keine History-Rewrite, kein Backfill). Siehe §3.2, §3.4.2.
 
 ---
 
@@ -142,19 +203,30 @@ Zeilenformen:
 Beide sind gewollt und beide werden von den Regeln R2a/R2b (§3.1) abgedeckt. Kein Pfad darf die
 Zeilenform des anderen „vereinheitlichen" — das wäre ein GH-821-Bruch.
 
-**Präzisierung aus dem Review (M3):** `ServiceBase._audit` **persistiert** `details` seit
-#399/ADR-10 (`backend/application/base.py:197-205`). Der Kommentar in
-`baseline_facade.py:322-325` („dropped by the writer") ist veraltet und wird in dieser
-Spezifikation **nicht** als Prämisse verwendet. Der `baseline.create`-Audit-Eintrag trägt
-bereits `suppressed_blocker_count`, `suppressed_rule_ids`, `suppressed_finding_keys` und
-`waiver_ids` (`baseline_facade.py:336-344`) — er ist damit der strukturierte
-Baseline-Metadaten-Trail (siehe E5). Ein AuditLog-Writer-Umbau ist nicht nötig und bleibt
-Non-Goal; er wäre die falsche Konsequenz aus einer veralteten Annahme.
+**Korrektur der M3-Prämisse (Post-Implementierungs-Review, 2026-09-22 — siehe „Post-implementation
+corrections"/C1):** Die in Revision 2 und 3 aufgestellte Behauptung, `ServiceBase._audit`
+**persistiere** `details`, ist **falsch** und wird hiermit zurückgezogen. Verifiziert:
+`backend/audit/services.py:159` dokumentiert den `details`-Parameter als *„Reserved for v2
+field-level diff (ADR-10). Ignored in v1."* und schreibt ihn nie; `backend/audit/writer.py:190-202`
+konstruiert den `AuditEntry` **ohne** `details`; `backend/audit/models.py:246-306` hat **keine**
+`details`-/JSON-Spalte; die Migration `backend/audit/migrations/0013_alter_auditentry_op.py` hat sich
+bewusst für eine eigene Operation entschieden, statt „in einem `baseline.create`-details-Blob
+mitzureiten". Der beim `baseline.create` **konstruierte** `details`-Payload
+(`suppressed_blocker_count`, `suppressed_rule_ids`, `suppressed_finding_keys`, `waiver_ids`,
+additiv `matched_waiver_ids`; `baseline_facade.py:272-287`) ist damit **nur an der
+`_audit`-Aufrufgrenze** prüfbar (Intercept/Mock), **nicht** als persistierte Spalte. Der durable
+Trail ist die `AuditEntry`-Zeile (`op`/`entity_type`/`entity_id`/`actor`/`change_reason`) **plus**
+die append-only `BaselineGateWaiver`-Zeile; „wer / was / warum / bis wann" ist über den Join
+`AuditEntry.entity_id → BaselineGateWaiver.id` rekonstruierbar. Strukturierte
+`details`-Queryability ist auf den AuditLog-Writer-Umbau verschoben und bleibt Non-Goal (§7). Siehe
+AC-569-09.
 
 **In Revision 2 getroffene Entscheidungen** (aus dem Review beantwortete offene Fragen,
 vormals O2–O6 — siehe §8): O2 = **blocker-only** (WARNING-Findings sind nicht unterdrückbar),
 O3 = `include_suppressed` Default **`true`**, O4 = Ablauf **optional**, `NULL` = unbefristet,
-O5 = **Description + `baseline.create`-Audit-`details` genügen** (kein Join-Modell),
+O5 = **Description + `baseline.create`-`details`-Payload (an der `_audit`-Grenze geprüft) +
+`BaselineGateWaiver`-Zeile + AuditEntry genügen** (kein Join-Modell; die frühere Begründung
+„`details` sind persistiert" ist zurückgezogen, siehe §1/M3-Korrektur),
 O6 = i18n-Keys **profilunabhängig neutral**. Nur O1 (Revoke) bleibt offen.
 
 **In Revision 3 getroffene Entscheidungen:**
@@ -184,7 +256,7 @@ O6 = i18n-Keys **profilunabhängig neutral**. Nur O1 (Revoke) bleibt offen.
 | **1** Stabile Finding-Identität dokumentiert + gegen Re-Audit getestet | **teilweise** | `backend/baseline/waivers.py:56-98` (`finding_key`), `:46-53` (`canonical_artifact_ids`); `backend/application/audit_service.py:80-85` (`AuditFindingView.finding_key`), `:90` (`to_dict` trägt `finding_key`); `backend/application/tests/test_audit_finding_identity_1021.py:115-141` (Byte-Identität, Scope), `:188-248` (Re-Audit-Stabilität) | Kein Test, der die Stabilität einer **scope-behafteten** Finding über einen Re-Audit prüft; keine explizite Dokumentation des Verhältnisses „Audit-API-Key (scoped) vs. Gate-Waiver-Key (unscoped)" für `scope != None`. `test_the_gate_matches_the_canonical_scope_less_key` (`:261-276`) deckt nur TRACE-P1 (scope-agnostisch) ab. **M7:** der Gate-Matching-Pfad (`baseline_facade.py:529-534`, `:667-671`, reine Key-Mengen-Zugehörigkeit) ist nicht gegen die in 3.1 neu eingeführte `suppression_applies`-Semantik abgesichert. |
 | **2** Suppression-Entität mit Pflicht-Begründung + Audit-Log-Eintrag | **teilweise** | `backend/baseline/models.py:190-269` (`BaselineGateWaiver`: UniqueConstraint `(workspace_id, finding_key)` `:249-252`, CheckConstraint „reason not blank" `:253-256`); `backend/baseline/migrations/0007_baselinegatewaiver.py`, `0008_baseline_gate_waiver_rls.py`; `backend/baseline/waivers.py:140-192` (`record_waiver`); `backend/application/baseline_facade.py:645-657` (Audit-Eintrag), `:1117-1177` (Begründungs-Policy); `backend/audit/models.py:165` (`OP_BASELINE_WAIVER_CREATE`) | Entität ist **nur als Nebeneffekt** von `create_baseline(waived_findings=…)` erreichbar. Kein standalone Erzeugen/Listen. **Kein Ablaufdatum** (`expires_at` fehlt). Kein Revoke. Unterdrückung ist im **Audit-Report unsichtbar** (`run_audit` konsultiert keine Waiver). DB-CheckConstraint verbietet nur `""`, nicht Whitespace (`models.py:253-256`). |
 | **3** REST- und MCP-Zugang über die bestehende Layer-2-Fassade | **teilweise** | REST: `backend/rest_api/views.py:3782-3830` (`waived_findings` auf `POST .../baselines/`), `backend/rest_api/serializers.py:1486-1523` (`BlockerWaiverSerializer`), `:1568-1578`; MCP: `backend/mcp_server/tools/baseline.py:117-154` (Schema), `:220-238` (Handler) — beide über `BaselineFacade` | **Kein** Zugang über die Auditor-Oberfläche: `backend/rest_api/audit_views.py` hat nur `run`/`remediate`/`ai-review` (`:131`, `:167`, `:222`), `backend/mcp_server/tools/audit.py:233-241` hat nur `query`/`ai_review`/`se_audit`/`dlq_list`/`dlq_replay`. `AuditService` besitzt **keine** Waiver-Methoden. Der geforderte Pfad `AuditService → rest_api/audit_views.py + MCP-Gruppe audit` existiert nicht. |
-| **4** Explizite, getestete §490-Interplay | **teilweise** | `backend/application/baseline_facade.py:529-537` (unterdrückte zählen nicht als Blocker), `:336-350` (Summary in `details` + `change_reason`), `:370` (Event-Payload), `:1180-1214` (`_annotate_waiver` → Baseline-Description); Tests `backend/application/tests/test_baseline_gate_waivers_821.py:143-170`, `:199-225`; `backend/rest_api/tests/test_baseline_gate_waivers_821_rest.py:132-158` | **Korrigiert in Revision 2 (M3):** die `details` werden **nicht** verworfen — `ServiceBase._audit` persistiert sie seit #399/ADR-10 (`backend/application/base.py:197-205`); der `baseline.create`-Eintrag trägt `suppressed_blocker_count`/`suppressed_rule_ids`/`suppressed_finding_keys`/`waiver_ids` (`baseline_facade.py:336-344`). Der persistierte Metadaten-Trail existiert also bereits. Offen: **kein Test**, der „unterdrückt ⇒ kein Blocker, aber in Baseline-Metadaten dokumentiert" als #490-Entscheidung festnagelt, keiner für die Ablauf-Semantik, und (M4) `waiver_ids` enthält nur **neu erzeugte** Zeilen — bei wiederverwendeten Waivern ist `suppressed > 0` bei `waiver_ids == []`. |
+| **4** Explizite, getestete §490-Interplay | **teilweise** | `backend/application/baseline_facade.py:529-537` (unterdrückte zählen nicht als Blocker), `:336-350` (Summary in `details` + `change_reason`), `:370` (Event-Payload), `:1180-1214` (`_annotate_waiver` → Baseline-Description); Tests `backend/application/tests/test_baseline_gate_waivers_821.py:143-170`, `:199-225`; `backend/rest_api/tests/test_baseline_gate_waivers_821_rest.py:132-158` | **Korrigiert (Post-Implementierungs-Review, 2026-09-22):** die in rev2/rev3 angenommene `details`-Persistenz ist **widerlegt** — `ServiceBase._audit` reicht `details` zwar an `log_write` durch, der Writer ignoriert es aber (`audit/services.py:159`, `audit/writer.py:190-202`, keine Spalte in `audit/models.py:246-306`). Der `baseline.create`-Service **konstruiert** den Trail in `details` (`suppressed_blocker_count`/`suppressed_rule_ids`/`suppressed_finding_keys`/`waiver_ids`, `baseline_facade.py:272-287`), er ist aber **nur an der `_audit`-Aufrufgrenze** prüfbar. Durable ist die `AuditEntry`-Zeile plus die append-only `BaselineGateWaiver`-Zeile (Join `AuditEntry.entity_id → BaselineGateWaiver.id`). Offen: **kein Test**, der „unterdrückt ⇒ kein Blocker, aber dokumentiert" als #490-Entscheidung festnagelt, keiner für die Ablauf-Semantik, und (M4) `waiver_ids` enthält nur **neu erzeugte** Zeilen — bei wiederverwendeten Waivern ist `suppressed > 0` bei `waiver_ids == []`. |
 | **5** UI: dritte Aktion + Filter „unterdrückte anzeigen" | **fehlt** | `frontend/src/components/Audit/audit-dashboard.tsx:777-827` (nur Adopt/Modify), `:159` (`severityFilter`, kein Suppressed-Filter); `frontend/src/api/audit.ts:40-50` (`AuditFinding` ohne `finding_key`/`suppressed`), `:112-134` (nur `run`/`remediate`) | Keine Waive/Suppress-Aktion, kein „unterdrückte anzeigen"-Filter, keine Suppressed-Kennzeichnung, keine Waiver-API. Zusätzlich Contract-Drift: das Backend liefert bereits `finding_key` (`audit_service.py:90`), der TS-Typ deklariert ihn nicht. |
 | **6** Kein Weg, ein Blocker-Finding ohne Begründung/Audit-Spur loszuwerden | **teilweise** | `backend/application/baseline_facade.py:1117-1177` (Placeholder-/Regel-ID-Abwehr), `:739-780` (`_assert_override_permission`), `backend/baseline/models.py:253-256` (DB-Constraint), Tests `test_baseline_gate_waivers_821.py:421-451`, `test_baseline_gate_waivers_821_rest.py:187-213`, `:245-266`; `test_granular_api_key_scope_865.py:203-...` (AUTHOR-Key-Abwehr) | Gilt nur für den bestehenden `waived_findings`-Pfad. Die neuen Auditor-Endpunkte/MCP-Tools existieren noch nicht, also auch keine Negativtests für sie. Whitespace-only-Begründung ist nur app-seitig, nicht DB-seitig abgewehrt. |
 | **7** (rev3) Deterministischer Status-/Fehler-Code-Vertrag | **fehlt / kollidiert** | `backend/rest_api/audit_views.py:207-213` (Modul mappt `ValidationError` → **422**), `:141-144`/`:178-184` (Parse-/Serializer-Fehler → **400**); `backend/rest_api/views.py:169-206` (`_EXC_TO_HTTP`/`_EXC_TO_CODE`, **exakte** Typ-Keys, sonst 500); `frontend/src/api/client.ts:303-324` + `errors.ts:23-48` (422 ⇒ `UnprocessableEntityError`); `frontend/src/components/Audit/audit-dashboard.tsx:309` (422 ⇒ Finding flippt auf Modify); `backend/mcp_server/protocol_handler.py:51-122` (`ERROR_CODES`/`ERROR_CODE_MAP`, höchster Server-Code `-32007`) | Ein einziger `ValidationError`-Typ kann die geforderte 400/422-Aufteilung nicht ausdrücken (Review N1). Ohne eigene L2-Fehlertypen + stabile Codes degradieren neue Fehlerklassen in `_service_error_response` zu 500 (Review N6), und die UI kann „Begründung abgelehnt" nicht von „Adopt-Konflikt → Modify" unterscheiden. |
@@ -355,14 +427,23 @@ Governance-Entscheidung, die keinem Akteur zugeordnet werden kann, darf auf den 
 nicht persistiert werden. Der Client kann `granted_by` **nicht** setzen (`UnknownFieldRejectionMixin`
 lehnt das Feld mit 400 ab).
 
-**Geltungsbereich der Invariante „kein Waiver ohne Autor" (R3-08).** Die Aussage gilt für die
-**neuen** Oberflächen. Der bestehende Gate-Pfad (`baseline_facade.py:637`) bleibt unverändert und
-persistiert `granted_by = str(getattr(ctx, "user_id", "") or "")` **ohne** Leerwert-Prüfung — ein
-Waiver mit leerem Autor ist dort weiterhin erreichbar. Das ist eine bekannte, bewusst
-out-of-scope gelassene Altlast: bereits vor #569 persistierte `granted_by=""`-Bestandszeilen
-bleiben **unangetastet** (keine Datenmigration, kein Backfill, kein nachträgliches Verwerfen —
-die Zeile ist eine append-only Governance-Aufzeichnung), und der Gate-Pfad wird in #569 nicht
-umgebaut. Nur die neuen Schreibpfade erzwingen den Autor.
+**Geltungsbereich der Invariante „kein Waiver ohne Autor" (R3-08; präzisiert im
+Post-Implementierungs-Review, 2026-09-22).** Die Invariante ist eine **Dreiteilung** und gilt
+nicht einheitlich auf allen Pfaden:
+
+| Teil | Aussage | Geltung |
+|---|---|---|
+| **(a)** Pflicht-Begründung (Reason-Policy) | kein Waiver ohne policy-konforme Begründung | **alle** Pfade (neue Oberflächen **und** Legacy-Gate-Pfad, `baseline_facade.py:1117-1177`) |
+| **(b)** Autor-Pflicht (`granted_by != ""`) | kein Waiver ohne auflösbaren Autor | **nur** die neuen Oberflächen (REST `POST …/audit/waivers/`, MCP `audit.waive_finding`) |
+| **(c)** Audit-Eintrag (`baseline.waiver_create`) | jeder **neu** erzeugte Waiver erhält einen AuditEntry | **alle** Pfade (Gate-Pfad schreibt ihn in `baseline_facade.py:601-613`) |
+
+Der bestehende Gate-Pfad (`baseline_facade.py:594`) stempelt `granted_by = str(getattr(ctx,
+"user_id", "") or "")` **ohne** Leerwert-Prüfung — ein Waiver mit leerem Autor ist dort weiterhin
+erreichbar. Das ist eine bekannte, bewusst out-of-scope gelassene **Schuld auf append-only-Zeilen**:
+bereits vor #569 persistierte `granted_by=""`-Bestandszeilen bleiben **unangetastet** (keine
+Datenmigration, kein Backfill, kein nachträgliches Verwerfen — die Zeile ist eine append-only
+Governance-Aufzeichnung), und der Gate-Pfad wird in #569 **nicht** umgebaut. Eine History-Rewrite
+wird ausdrücklich **nicht** vorgeschlagen. Nur die neuen Schreibpfade erzwingen den Autor.
 
 `record_waiver(...)` erhält additive Keyword-Parameter:
 
@@ -404,10 +485,12 @@ class GateWaiverOutcome:
 
 `_apply_waivers` lädt die aktiven Suppressions (`load_suppressions`) und gibt zusätzlich die IDs
 **aller gematchten** Zeilen zurück (`load_waived_finding_keys` wird dabei durch
-`load_suppressions`+`suppression_applies` ersetzt, siehe M7/§4). `_annotate_waiver` und die
-`baseline.create`-`details` nennen die **gematchten** IDs (gekappt analog `_MAX_LISTED_FINDINGS`,
-`baseline_facade.py:1099`, plus Zähler-Hinweis). `details["waiver_ids"]` bleibt = neu erzeugt
-(Bestandscontract); additiv kommt `details["matched_waiver_ids"]` hinzu.
+`load_suppressions`+`suppression_applies` ersetzt, siehe M7/§4). `_annotate_waiver` und der beim
+`baseline.create` **konstruierte** `details`-Payload nennen die **gematchten** IDs (gekappt analog
+`_MAX_LISTED_FINDINGS`, `baseline_facade.py:1099`, plus Zähler-Hinweis).
+`details["waiver_ids"]` bleibt = neu erzeugt (Bestandscontract); additiv kommt
+`details["matched_waiver_ids"]` hinzu. Der `details`-Payload ist an der `_audit`-Aufrufgrenze
+prüfbar; der Writer persistiert `details` **nicht** — §1/M3-Korrektur.
 
 **m1 — abgelaufener Bestandswaiver + neuer Grant.** `get_or_create` ist idempotent und
 überschreibt `expires_at` nicht. Beantragt `suppress_finding` einen Waiver für einen
@@ -567,10 +650,14 @@ umzudeuten.
    `409 SUPPRESSION_EXPIRED` geworfen (keine stille 200). **R3-07-Präzedenz:** die
    `expires_at`-Prüfung aus Schritt 4 (E3/D2, 400) ist zu diesem Zeitpunkt bereits gelaufen und
    hat Vorrang — dieser Zweig greift nur, wenn ein **gültiges** `expires_at` (oder keines) im
-   Request stand. Bei `created=True` Audit-Eintrag
-   `baseline.waiver_create` (unverändert, `audit/models.py:165`) mit `details` inkl.
-   `finding_key`, `workspace_id`, `rule_id`, `artifact_ids`, `scope`, `scope_artifact_id`,
-   `expires_at`, `granted_by`.
+   Request stand. Bei `created=True` Audit-Eintrag `baseline.waiver_create` (unverändert,
+   `audit/models.py:165`). Der Service **konstruiert** einen `details`-Payload mit `finding_key`,
+   `workspace_id`, `rule_id`, `artifact_ids`, `scope`, `scope_artifact_id`, `expires_at`,
+   `granted_by`; dieser ist **nur an der `_audit`-Aufrufgrenze** verifizierbar — der Writer
+   persistiert `details` **nicht** (§1/M3-Korrektur). **Durable** ist die `AuditEntry`-Zeile
+   selbst (`op`/`entity_type`/`entity_id`/`actor`/`change_reason=reason`) **plus** die
+   `BaselineGateWaiver`-Zeile; auf dem **MCP**-Pfad ist `change_reason` `None`, die Begründung
+   dort nur über den Join `AuditEntry.entity_id → BaselineGateWaiver.id` erreichbar (AC-569-09).
 9. Rückgabe `(SuppressionView(row), created)`.
 
 ### 3.4 REST (`backend/rest_api/audit_views.py`, `urls.py`, `serializers.py`)
@@ -767,10 +854,15 @@ Klassenattribut `error_code`, damit Adapter ihn nicht duplizieren.
 Blocker-Finding ohne Begründung und Audit-Spur loszuwerden." Auf den **neuen** Oberflächen
 erzwingt der Vertrag das dreifach: (a) eine Policy-Verletzung ist ein eigener, nicht
 schluckbarer 400-Typ; (b) die Begründung wird als `change_reason` des
-`baseline.waiver_create`-Audit-Eintrags persistiert (§3.3 Schritt 8); (c) `granted_by` ist auf
-den neuen Oberflächen Pflicht und kommt ausschließlich aus dem AuthContext (§3.2). Der bestehende
-Gate-Pfad (`baseline_facade.py:637`) prüft den Autor **nicht** und bleibt unverändert; bereits
-persistierte `granted_by=""`-Bestandszeilen werden nicht nachträglich verworfen oder migriert.
+`baseline.waiver_create`-Audit-Eintrags persistiert (§3.3 Schritt 8; auf dem **MCP**-Pfad ist
+`change_reason` `None` — die Begründung bleibt dort über den Join `AuditEntry.entity_id →
+BaselineGateWaiver.id` erreichbar, AC-569-09); (c) `granted_by` ist auf den neuen Oberflächen
+Pflicht und kommt ausschließlich aus dem AuthContext (§3.2). **Geltung der Dreiteilung
+(präzisiert 2026-09-22):** (a) Reason-Policy und (c) Audit-Eintrag gelten auf **allen** Pfaden;
+(b) die Autor-Pflicht gilt **nur** auf den neuen Oberflächen. Der bestehende Gate-Pfad
+(`baseline_facade.py:594`) prüft den Autor **nicht** und bleibt unverändert; bereits persistierte
+`granted_by=""`-Bestandszeilen werden nicht nachträglich verworfen oder migriert (dokumentierte
+Schuld auf append-only-Zeilen, keine History-Rewrite).
 
 Bestehende Response-Shapes (`remediate`, `ai-review`, `audit/`-Basis) bleiben unverändert;
 `audit/` erhält nur additive Felder/Query-Param.
@@ -783,6 +875,16 @@ Neue Tools in der Gruppe `audit` (kein neuer Namespace):
 |---|---|---|---|
 | `audit.waive_finding` | write | `_WRITE_TOOL_PREFIXES += "audit.waive_finding"`; **neue** `_GOVERNANCE_TOOL_NAMES += "audit.waive_finding"` | `_handle_waive_finding` |
 | `audit.waivers` | read | `_READ_ONLY_TOOL_NAMES += "audit.waivers"` | `_handle_waivers` |
+
+**`audit.waivers` — Tier vs. effektive Autorität (Post-Implementierungs-Review, 2026-09-22).**
+Der Tool-Tier bleibt **read** (`_READ_ONLY_TOOL_NAMES`; es endet nicht auf `.read`/`.query`), aber
+der Handler `_handle_waivers` erzwingt **zusätzlich** denselben Approval-Authority-Choke-Point wie
+der REST-Zwilling `GET …/audit/waivers/` (REST-E12, §3.4.1): ein Editor/Viewer erhält auf MCP
+`PERMISSION_DENIED` — exakt wie auf REST. **Rationale (eine Zeile):** die Suppressions-Liste ist
+Governance-Metadaten (wer / warum), und eine Lesbarkeit über die schwächere MCP-Tür wäre eine
+transportabhängige Asymmetrie, die ein Aufrufer durch bloßes Wechseln des Transports ausnutzen
+könnte. **Vertrag: Tier = read, effektive Autorität = Approval-Authority** (intentional strenger
+als der reine Read-Tier der Tool-Tabelle). Siehe AC-569-07/V11.
 
 **M1 — kein Namespace-Eintrag, sondern Tool-Level-Governance.** `_GOVERNANCE_TOOL_NAMESPACES`
 darf **nicht** um `"audit"` erweitert werden: `audit.se_audit` steht **nicht** in
@@ -961,7 +1063,7 @@ Baseline-Gate (#490):
     │                                                          [M7: ersetzt die reine Key-Mengen-Zugehörigkeit]
     ├─ suppressed, remaining
     ├─ remaining leer?  → Baseline bauen
-    └─ Description-Annotation (matched_waiver_ids, M4) + AuditLog-`details` (persistiert, M3) + Event-Payload
+    └─ Description-Annotation (matched_waiver_ids, M4) + AuditLog-Aufruf mit `details`-Payload (nur an der `_audit`-Grenze prüfbar, M3-Korrektur) + Event-Payload
 ```
 
 ---
@@ -984,13 +1086,20 @@ Dreifach, dauerhaft und ohne neues Metadaten-Schema:
    Zeilen, nicht nur die neu erzeugten; bei vielen Waivern gekappt analog `_MAX_LISTED_FINDINGS`,
    `:1099`, plus Zähler-Hinweis) und behält Anzahl + sortierte `rule_ids`.
 2. **`BaselineGateWaiver`-Zeile** (append-only) mit Begründung, Autor, Scope und `expires_at`.
-3. **AuditLog:** je **neu angelegtem** Waiver `baseline.waiver_create`, plus die Summary im
-   `baseline.create`-Eintrag. **M3-Korrektur:** die `baseline.create`-`details` **werden
-   persistiert** (`ServiceBase._audit`, `application/base.py:197-205`, seit #399/ADR-10) und
-   tragen bereits `suppressed_blocker_count`, `suppressed_rule_ids`, `suppressed_finding_keys`,
-   `waiver_ids` (`baseline_facade.py:336-344`); additiv kommt `matched_waiver_ids` hinzu. Ein
-   AuditLog-Writer-Umbau ist damit **nicht** nötig und bleibt Non-Goal — die Begründung aus
-   Revision 1 („`details` werden verworfen") war falsch.
+3. **AuditLog:** je **neu angelegtem** Waiver `baseline.waiver_create`, plus der
+   `baseline.create`-Eintrag. **M3-Korrektur (Post-Implementierungs-Review, 2026-09-22):** Entgegen
+   rev2/rev3 werden `details` **nicht** persistiert — der Writer ignoriert sie
+   (`audit/services.py:159`, `audit/writer.py:190-202`; `AuditEntry` hat keine `details`-Spalte,
+   `audit/models.py:246-306`). Der `baseline.create`-Service **konstruiert** in `details`
+   `suppressed_blocker_count`, `suppressed_rule_ids`, `suppressed_finding_keys`, `waiver_ids`
+   (`baseline_facade.py:272-287`) und additiv `matched_waiver_ids`, aber dieser Payload ist **nur
+   an der `_audit`-Aufrufgrenze** verifizierbar. **Durable** ist (a) die `AuditEntry`-Zeile selbst
+   (`op`/`entity_type`/`entity_id`/`actor`/`change_reason`) und (b) die append-only
+   `BaselineGateWaiver`-Zeile; „wer / was / warum / bis wann" ist über den Join
+   `AuditEntry.entity_id → BaselineGateWaiver.id` rekonstruierbar. Auf dem **MCP**-Pfad ist
+   `change_reason` `None`, die Begründung dort also nur über diesen Join erreichbar (AC-569-09).
+   Ein AuditLog-Writer-Umbau (der `details` persistierbar machen würde) bleibt ausdrücklich
+   **Non-Goal** (§7); die strukturierte `details`-Queryability ist dorthin verschoben.
 
 **E5 — Sind WARNING-Findings unterdrückbar? (O2, entschieden)**
 **Nein — blocker-only.** `suppress_finding` prüft und matcht ausschließlich
@@ -1143,12 +1252,17 @@ d Mutationsprobe).
 
 ### AC-569-07 — MCP `audit.waivers` (read) + `audit.se_audit` Sichtbarkeit
 
-- **Given** ein aktiver Waiver.
+- **Given** ein aktiver Waiver und ein autorisierter Aufrufer (Approval-Authority).
 - **When** `audit.waivers` bzw. `audit.se_audit` aufgerufen wird.
 - **Then** listet `audit.waivers` den Waiver und ist in `_READ_ONLY_TOOL_NAMES`; `audit.se_audit`
   liefert `suppressed=true` samt `suppression_reason` am betroffenen Finding und
   `counts.suppressed`; `audit.se_audit` bleibt AUTHOR-Tier (nicht ADMIN, M1).
+- **Autoritäts-Klausel (C2, Post-Implementierungs-Review 2026-09-22):** `audit.waivers` bleibt
+  Tier **read**, erzwingt aber im Handler denselben Approval-Authority-Choke-Point wie REST-E12 —
+  ein Editor/Viewer erhält **`PERMISSION_DENIED`**, nicht die Liste. Tier = read, effektive
+  Autorität = Approval-Authority (§3.5).
 - **Test:** `test_audit_tool_group.py::test_waivers_is_read_only`,
+  `::test_waivers_requires_approval_authority` (Editor/Viewer ⇒ `PERMISSION_DENIED`),
   `::test_se_audit_marks_suppressed_findings` und `::test_audit_namespace_is_not_bulk_reclassified`.
 
 ### AC-569-08 — Gate: unterdrückt ≠ Blocker, nicht unterdrückt blockiert weiter
@@ -1170,12 +1284,32 @@ d Mutationsprobe).
   sortierten `rule_ids` und den **`matched_waiver_ids`** (alle gematchten Zeilen — der
   Wiederverwendungsfall liefert **nicht** `[]`); die Waiver-Zeile(n) existieren; je **neu**
   erzeugtem Waiver existiert ein `baseline.waiver_create`-AuditEntry.
-- **M3-Zusatz:** der `baseline.create`-AuditEntry trägt in `details` (persistiert,
-  `application/base.py:197-205`) `suppressed_blocker_count`, `suppressed_finding_keys`,
-  `waiver_ids` und additiv `matched_waiver_ids`.
+- **M3-Korrektur (Post-Implementierungs-Review, 2026-09-22):** die frühere Formulierung „der
+  `baseline.create`-AuditEntry **trägt** diese Werte in `details`" war an eine widerlegte Prämisse
+  gebunden und ist **nicht** literal erfüllbar (`details` wird nie persistiert:
+  `audit/services.py:159`, `audit/writer.py:190-202`, keine Spalte in `audit/models.py:246-306`).
+  Präzise gilt: der Service **konstruiert** beim `baseline.create` einen `details`-Payload mit
+  `suppressed_blocker_count`, `suppressed_finding_keys`, `waiver_ids` und additiv
+  `matched_waiver_ids`; dieser Payload wird **an der `_audit`-Aufrufgrenze** asserted (der Test
+  fängt den `_audit`-Aufruf ab). **Persistiert wird er nicht.**
+- **Durable Trail (der eigentliche Nachweis):** die `AuditEntry`-Zeile mit `op="baseline.create"`,
+  `entity_type`, `entity_id`, `actor`, `change_reason` **plus** die append-only
+  `BaselineGateWaiver`-Zeile (`finding_key`, `rule_id`, `artifact_ids`, `scope`, `reason`,
+  `granted_by`, `expires_at`).
+- **Recovery-Pfad (explizit für Reviewer):** „wer / was / warum / bis wann" ist über den Join
+  `AuditEntry.entity_id → BaselineGateWaiver.id` rekonstruierbar. **Eine Asymmetrie:** auf dem
+  **MCP**-Pfad ist `change_reason` **`None`** (`write_mcp_audit` setzt keinen `change_reason`,
+  `mcp_server/tools/base.py:269-306`), d. h. die Begründung ist dort **nur** über den Join auf
+  `BaselineGateWaiver.reason` erreichbar; auf dem REST-Pfad steht sie zusätzlich in
+  `AuditEntry.change_reason` (`audit_service.py:623`). Auf **beiden** Pfaden bleibt die Begründung
+  nachweisbar — nur nicht über `change_reason` allein.
+- **Deferred:** strukturierte `details`-Queryability (JSON-Spalte/Filter) ist auf den
+  AuditLog-Writer-Umbau verschoben und **Non-Goal** (§7).
 - **Test:** Erweiterung von `backend/rest_api/tests/test_baseline_gate_waivers_821_rest.py:132-158`
   um `test_baseline_metadata_names_matched_waiver_ids_on_reuse` (zweiter Build, der die Zeile
-  wiederverwendet) sowie `test_baseline_create_audit_details_carry_the_suppression_trail`.
+  wiederverwendet) sowie `test_baseline_create_audit_details_carry_the_suppression_trail`
+  (interceptet den `_audit`-Aufruf und prüft den **konstruierten** `details`-Payload an der
+  Aufrufgrenze; prüft zusätzlich den durabilen `AuditEntry`/`BaselineGateWaiver`-Join).
 
 ### AC-569-10 — Ablauf-Semantik
 
@@ -1451,9 +1585,12 @@ AC-569-28 … AC-569-33).
 - Keine Änderung der 11 built-in Trace-Link-Typen, keine neuen Regel-IDs.
 - Keine Änderung des `override_reason`-Verhaltens oder der `BaselineGateWaiver`-Unique-/Check-
   Constraints.
-- Kein AuditLog-Writer-Umbau. **Korrigiert (M3):** er ist nicht nötig, weil `details` bereits
-  persistiert werden (`application/base.py:197-205`); es wird lediglich ein additiver Key
-  (`matched_waiver_ids`) ergänzt.
+- **Kein AuditLog-Writer-Umbau** — insbesondere wird keine `details`-Spalte ergänzt. **Korrigiert
+  (Post-Implementierungs-Review, 2026-09-22):** entgegen rev2/rev3 werden `details` **nicht**
+  persistiert (`audit/services.py:159`, `audit/writer.py:190-202`, keine Spalte in
+  `audit/models.py:246-306`). Der `details`-Payload (`matched_waiver_ids` etc.) ist damit nur an
+  der `_audit`-Aufrufgrenze prüfbar; die strukturierte `details`-Queryability ist ausdrücklich auf
+  einen späteren Writer-Umbau verschoben und **nicht** Teil von #569.
 - Keine Umdeutung von `counts.blockers`/`counts.warnings`/`total_blockers_available`/
   `total_warnings_available` — sie bleiben deskriptiv (M5); Unterdrückung wird rein additiv gezählt.
 - Keine Scope-Erweiterung über die C1-Mindestmenge hinaus: kein Multi-Scope-Report, kein
@@ -1539,9 +1676,11 @@ In Revision 2 durch den Review aus Code/Issue beantwortet und als **getroffene E
   konsistent zu DoD 6; AC-569-13/22).
 - **O4 (Ablauf-Pflicht)** — **optional**, `NULL` = unbefristet (Bundle-Plan
   `2026-09-21-open-issues-bundle.md:182`); E3/AC-569-10.
-- **O5 (Baseline-Metadaten-Träger)** — **Description-Annotation + `baseline.create`-`details`
-  (persistiert) + je Waiver ein Audit-Eintrag genügen**; kein Join-Modell (M3 korrigiert die
-  Prämisse, E2, AC-569-09/AC-569-19).
+- **O5 (Baseline-Metadaten-Träger)** — **Description-Annotation + `baseline.create`-`details`-
+  Payload (an der `_audit`-Aufrufgrenze geprüft, **nicht** persistiert) + `BaselineGateWaiver`-
+  Zeile + je Waiver ein Audit-Eintrag genügen**; kein Join-Modell. Die rev2/rev3-Begründung
+  „`details` sind persistiert" ist zurückgezogen (Post-Implementierungs-Review 2026-09-22,
+  §1/M3-Korrektur, E2, AC-569-09/AC-569-19).
 - **O6 (Terminologie/i18n)** — Audit-/Suppression-Begriffe sind **nicht** Teil des
   Terminology-Profils (`presets/terminology.py:49-74`); i18n-Keys bleiben profilunabhängig neutral
   (`audit.suppress…`, §3.6).
@@ -1637,7 +1776,7 @@ Review: `docs/superpowers/plans/2026-09-22-se-auditor-waivers-569-spec-review.md
 | **C1** Document-Scope nicht unterdrückbar | `scope`/`scope_artifact_id` additiv in REST-Body + MCP-Schema; Existenz-Prüfung läuft über den benannten Scope (`_run_engine_uncapped(scopes=…)`), persistierter Scope weiter aus dem gematchten Finding; UI sendet den Finding-Scope mit. | §3.3 (4), §3.4, §3.5, §3.6, AC-569-17 |
 | **M1** `audit`-Namespace reklassifiziert `audit.se_audit` | Statt Namespace-Erweiterung neue Tool-Level-Menge `_GOVERNANCE_TOOL_NAMES = {"audit.waive_finding"}`; `audit.se_audit` bleibt AUTHOR-Tier, `audit.waivers` in `_READ_ONLY_TOOL_NAMES`; Tier mit Test gepinnt. | §3.5, AC-569-18 |
 | **M2** Verortung des Autoritäts-Choke-Points | `validate_waiver_reason` + `assert_gate_waiver_authority` als SSOT in `baseline/waivers.py`; neue Domain-Exception `GovernanceAuthorityError`; `BaselineFacade._assert_override_permission` delegiert (Bestandstests kompatibel). | §3.1 (M2-Block), AC-569-20 |
-| **M3** Prämisse „`details` werden verworfen" veraltet | Ist-Zustand korrigiert: `details` persistieren seit #399 (`application/base.py:197-205`); `baseline.create` trägt den Trail bereits; AC-569-09 prüft die `details`; O5 auf dieser Basis entschieden. | §1, §2 (DoD 4), §5/E2, AC-569-09 |
+| **M3** Prämisse „`details` werden verworfen" veraltet | **Diese rev2-Auflösung ist selbst widerlegt (Post-Implementierungs-Review 2026-09-22).** Korrekt: `details` werden **nicht** persistiert (`audit/services.py:159`, `audit/writer.py:190-202`, keine Spalte in `audit/models.py:246-306`); der Payload ist nur an der `_audit`-Aufrufgrenze prüfbar, der durable Trail ist `AuditEntry` + `BaselineGateWaiver`-Zeile (Join via `entity_id`). AC-569-09 auf dieser Basis präzisiert; Writer-Umbau bleibt Non-Goal. | §1, §2 (DoD 4), §3.2/M4, §5/E2, §7, AC-569-09, V13 |
 | **M4** `waiver_ids` nur neu erzeugt | `GateWaiverOutcome.matched_waiver_ids` additiv (alle gematchten Zeilen); `_apply_waivers` liefert sie; Description + `details["matched_waiver_ids"]`; `waiver_ids` bleibt Bestandscontract. | §3.2 (M4-Block), §5/E2, AC-569-09/19 |
 | **M5** Zähler-Umdeutung nicht additiv | `counts.blockers`/`total_blockers_available` bleiben deskriptiv; rein additiv `counts.suppressed`, `counts.suppressed_blockers`, `total_suppressed_available`, `total_suppressed_blockers_available`. | §3.3 (M5-Block), §7, AC-569-13 |
 | **M6** MCP-Manifest-Regeneration fehlt | Rollout ergänzt: `python backend/manage.py export_tool_manifest` + Manifest-Commit; Ratchet-Tests benannt. | §9, AC-569-25 |
@@ -1695,9 +1834,9 @@ Eintrag benennt die Assertion so konkret, dass eine Abschwächung des Tests auff
 | V8 | AC-569-04 | `test_audit_waivers_569_rest.py::test_waiver_is_idempotent_per_finding` | Erster POST `201`, zweiter `200`; `BaselineGateWaiver.objects.count() == 1`; `reason`/`granted_by` unverändert; `AuditEntry`-Zahl mit `operation="baseline.waiver_create"` bleibt `1`. |
 | V9 | AC-569-05 | `test_audit_waivers_569_rest.py::test_list_filters_by_state` | Default ⇒ nur `state == "active"`; `?state=expired` ⇒ nur `"expired"`; `?state=all` ⇒ beide; `counts == {"active": 1, "expired": 1}`; `identity_key` enthält den Scope, `finding_key` nicht. |
 | V10 | AC-569-06 | `test_audit_tool_group.py::test_waive_finding_is_write_and_governance_gated` | `"audit.waive_finding" in _WRITE_TOOL_PREFIXES`; `in _GOVERNANCE_TOOL_NAMES`; `"audit" not in _GOVERNANCE_TOOL_NAMESPACES`; `not in _READ_ONLY_TOOL_NAMES`; Persistenz über `AuditService.suppress_finding`. |
-| V11 | AC-569-07 | `test_audit_tool_group.py::test_waivers_is_read_only`, `::test_se_audit_marks_suppressed_findings` | `"audit.waivers" in _READ_ONLY_TOOL_NAMES`; `audit.se_audit`-Finding hat `suppressed is True` und `suppression_reason`; `counts["suppressed"] >= 1`. |
+| V11 | AC-569-07 | `test_audit_tool_group.py::test_waivers_is_read_only`, `::test_waivers_requires_approval_authority`, `::test_se_audit_marks_suppressed_findings` | `"audit.waivers" in _READ_ONLY_TOOL_NAMES`; Editor/Viewer ⇒ `error_code == "PERMISSION_DENIED"` (Tier read, effektive Autorität = Approval-Authority, C2); `audit.se_audit`-Finding hat `suppressed is True` und `suppression_reason`; `counts["suppressed"] >= 1`. |
 | V12 | AC-569-08 | `test_baseline_gate_waivers_569.py::test_suppressed_blocker_does_not_block_but_is_recorded` (+ Bestand `test_baseline_gate_waivers_821.py::test_unwaived_findings_still_block`) | 3 Blocker, 1 unterdrückt ⇒ `BaselineGateBlockedError` und die Meldung nennt genau die **2** verbleibenden; alle unterdrückt ⇒ Baseline wird erzeugt. |
-| V13 | AC-569-09 | `test_baseline_gate_waivers_821_rest.py::test_baseline_metadata_names_matched_waiver_ids_on_reuse`, `::test_baseline_create_audit_details_carry_the_suppression_trail` | Description enthält `[SE-Auditor waiver]` + `rule_ids` + die persistierte Waiver-UUID; `baseline.create`-`details` enthalten `suppressed_blocker_count`, `suppressed_finding_keys`, `waiver_ids` **und** `matched_waiver_ids` (nicht leer beim Reuse). |
+| V13 | AC-569-09 | `test_baseline_gate_waivers_821_rest.py::test_baseline_metadata_names_matched_waiver_ids_on_reuse`, `::test_baseline_create_audit_details_carry_the_suppression_trail` | Description enthält `[SE-Auditor waiver]` + `rule_ids` + die persistierte Waiver-UUID; der beim `baseline.create` **konstruierte** `details`-Payload (abgefangen an der `_audit`-Aufrufgrenze) enthält `suppressed_blocker_count`, `suppressed_finding_keys`, `waiver_ids` **und** `matched_waiver_ids` (nicht leer beim Reuse). **Nicht** als persistierte Spalte geprüft (der Writer verwirft `details`); durable sind `AuditEntry` (`op`/`entity_type`/`entity_id`/`actor`/`change_reason`) + die `BaselineGateWaiver`-Zeile, verbunden über `AuditEntry.entity_id → BaselineGateWaiver.id` (MCP: `change_reason is None`). |
 | V14 | AC-569-10 | `test_baseline_gate_waivers_569.py::test_expired_waiver_re_blocks` + `test_audit_waivers_569.py::test_expired_suppression_is_not_applied` | Abgelaufener Waiver ⇒ Finding `suppressed is False`, Build blockiert ohne Override; `GET ?state=expired` liefert `state == "expired"`. |
 | V15 | AC-569-11 | `test_audit_waivers_569_rest.py::test_no_suppression_without_reason_authority_or_finding` | Für alle vier Negativfälle: `status_code in {400, 403}`, **`status_code != 422`**, `BaselineGateWaiver.objects.count() == 0`, kein `baseline.waiver_create`-`AuditEntry`. |
 | V16 | AC-569-12 | `test_audit_waivers_569_rest.py::test_editor_waiver_is_rejected_with_403` + `test_granular_api_key_scope_865.py::test_audit_waive_endpoint_rejects_author_tier_key` | Editor ⇒ `403`/`PERMISSION_DENIED`; AUTHOR-Tier-Key ⇒ `403`; MCP ⇒ `error_code == "PERMISSION_DENIED"`. |
