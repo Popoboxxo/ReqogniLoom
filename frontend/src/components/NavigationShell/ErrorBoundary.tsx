@@ -9,6 +9,7 @@
  */
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import styles from "./ErrorBoundary.module.css";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -69,19 +70,12 @@ export class ErrorBoundary extends Component<
     } = this.props;
 
     return (
-      <div
-        role="alert"
-        style={{
-          padding: "2rem",
-          textAlign: "center",
-          fontFamily: "sans-serif",
-        }}
-      >
+      <div role="alert" className={styles.wrapper}>
         <h2>{errorTitle}</h2>
-        <p style={{ color: "var(--color-errorboundary-text)", marginBottom: "1.5rem" }}>
+        <p className={styles.message}>
           {this.state.error?.message ?? unknownErrorLabel}
         </p>
-        <div style={{ display: "flex", gap: "1rem", justifyContent: "center" }}>
+        <div className={styles.actions}>
           <button onClick={this.handleReload} data-testid="error-reload-btn">{reloadLabel}</button>
           <button onClick={this.handleBack} data-testid="error-back-btn">{backLabel}</button>
         </div>

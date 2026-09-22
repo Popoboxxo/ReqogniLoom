@@ -21,6 +21,7 @@ import {
   type RestoreResult,
 } from "../../api/admin-ops";
 import { Spinner } from "../shared/Spinner/Spinner";
+import styles from "./BackupRestoreSection.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -42,69 +43,6 @@ function formatBytes(bytes: number | null): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-const sectionStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const inputStyle: React.CSSProperties = {
-  background: "var(--color-surface-raised)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-3)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-base)",
-  boxSizing: "border-box",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-  // GESAMTTEST_BERICHT_2026-08-21.md §6 "Admin backup-button loading state":
-  // without a floor, the button's label swapping to a bare "…" (now a
-  // <Spinner>, see call sites) made it visibly collapse to almost nothing
-  // during the request. display:flex + centered content keeps the spinner
-  // centered instead of left-aligned once the wider label text is gone.
-  minWidth: "140px",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "var(--space-2)",
-};
-
-// Visually-hidden but screen-reader-accessible label — the inline
-// create-backup row has no room for a visible caption next to the type
-// select, but the control still needs a programmatic accessible name
-// (WCAG 4.1.2).
-const visuallyHiddenStyle: React.CSSProperties = {
-  position: "absolute",
-  width: "1px",
-  height: "1px",
-  padding: 0,
-  margin: "-1px",
-  overflow: "hidden",
-  clip: "rect(0, 0, 0, 0)",
-  whiteSpace: "nowrap",
-  border: 0,
-};
 
 export function BackupRestoreSection(): JSX.Element {
   const { t } = useTranslation();
@@ -179,18 +117,11 @@ export function BackupRestoreSection(): JSX.Element {
   }, [restoreTargetId, confirmationText, load]);
 
   return (
-    <section style={sectionStyle} data-testid="backup-restore-section">
-      <h3 style={headingStyle}>
+    <section className={styles.section} data-testid="backup-restore-section">
+      <h3 className={styles.heading}>
         {t("adminOps.title", "Backup & Restore (Disaster Recovery)")}
       </h3>
-      <p
-        style={{
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-text-muted)",
-          marginTop: 0,
-          marginBottom: "var(--space-3)",
-        }}
-      >
+      <p className={styles.hint}>
         {t(
           "adminOps.hint",
           "Instance-level backups. A restore overwrites current data — the confirmation text is required."
@@ -198,14 +129,7 @@ export function BackupRestoreSection(): JSX.Element {
       </p>
 
       {/* Create backup */}
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-3)",
-          marginBottom: "var(--space-4)",
-          flexWrap: "wrap",
-        }}
-      >
+      <div className={styles.createRow}>
         <input
           data-testid="backup-reason-input"
           type="text"
@@ -213,9 +137,9 @@ export function BackupRestoreSection(): JSX.Element {
           onChange={(e) => setReason(e.target.value)}
           placeholder={t("adminOps.reasonPlaceholder", "Reason (optional)")}
           disabled={isCreating}
-          style={{ ...inputStyle, flex: 1, minWidth: "200px" }}
+          className={`${styles.input} ${styles.inputFlex}`}
         />
-        <label htmlFor="backup-type-select" style={visuallyHiddenStyle}>
+        <label htmlFor="backup-type-select" className={styles.visuallyHidden}>
           {t("adminOps.backupTypeLabel", "Backup type")}
         </label>
         <select
@@ -224,7 +148,7 @@ export function BackupRestoreSection(): JSX.Element {
           value={backupType}
           onChange={(e) => setBackupType(e.target.value as BackupTypeValue)}
           disabled={isCreating}
-          style={inputStyle}
+          className={styles.input}
         >
           <option value="full">{t("adminOps.typeFull", "full")}</option>
           <option value="partial">{t("adminOps.typePartial", "partial")}</option>
@@ -234,11 +158,7 @@ export function BackupRestoreSection(): JSX.Element {
           data-testid="backup-create-btn"
           onClick={() => void handleCreateBackup()}
           disabled={isCreating}
-          style={{
-            ...primaryButtonStyle,
-            opacity: isCreating ? 0.7 : 1,
-            cursor: isCreating ? "wait" : "pointer",
-          }}
+          className={`btn-primary ${styles.createButton}`}
         >
           {isCreating ? (
             <Spinner label={t("adminOps.creatingBackup", "Creating backup...")} />
@@ -252,10 +172,7 @@ export function BackupRestoreSection(): JSX.Element {
         <p
           role="alert"
           data-testid="backup-restore-error"
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.errorText}
         >
           {error}
         </p>
@@ -266,15 +183,7 @@ export function BackupRestoreSection(): JSX.Element {
         <div
           data-testid="restore-result"
           role="status"
-          style={{
-            background: "rgba(var(--color-success-rgb), 0.08)",
-            border: "1px solid var(--color-success)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-3)",
-            marginBottom: "var(--space-4)",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text)",
-          }}
+          className={styles.restoreResult}
         >
           <strong>
             {t("adminOps.restoreDone", "Restore completed")}
@@ -289,46 +198,40 @@ export function BackupRestoreSection(): JSX.Element {
 
       {/* Backup list */}
       {isLoading ? (
-        <p role="status" style={{ color: "var(--color-text-muted)" }}>
+        <p role="status" className={styles.mutedText}>
           {t("loading", "Loading...")}
         </p>
       ) : backups.length === 0 ? (
         <p
           data-testid="backups-empty"
-          style={{
-            color: "var(--color-text-muted)",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.emptyText}
         >
           {t("adminOps.empty", "No backups yet.")}
         </p>
       ) : (
-        <table
-          data-testid="backups-table"
-          style={{ width: "100%", borderCollapse: "collapse" }}
-        >
+        <table data-testid="backups-table" className={styles.table}>
           <thead>
             <tr>
-              <th style={thStyle}>{t("adminOps.id", "ID")}</th>
-              <th style={thStyle}>{t("adminOps.type", "Type")}</th>
-              <th style={thStyle}>{t("adminOps.status", "Status")}</th>
-              <th style={thStyle}>{t("adminOps.size", "Size")}</th>
-              <th style={thStyle}>{t("adminOps.created", "Created")}</th>
-              <th style={thStyle} />
+              <th className={styles.th}>{t("adminOps.id", "ID")}</th>
+              <th className={styles.th}>{t("adminOps.type", "Type")}</th>
+              <th className={styles.th}>{t("adminOps.status", "Status")}</th>
+              <th className={styles.th}>{t("adminOps.size", "Size")}</th>
+              <th className={styles.th}>{t("adminOps.created", "Created")}</th>
+              <th className={styles.th} />
             </tr>
           </thead>
           <tbody>
             {backups.map((backup) => (
               <React.Fragment key={backup.id}>
                 <tr data-testid={`backup-row-${backup.id}`}>
-                  <td style={{ ...tdStyle, fontFamily: "monospace" }}>
+                  <td className={`${styles.td} ${styles.tdMono}`}>
                     {backup.id.slice(0, 8)}…
                   </td>
-                  <td style={tdStyle}>{backup.backup_type}</td>
-                  <td style={tdStyle}>{backup.status}</td>
-                  <td style={tdStyle}>{formatBytes(backup.file_size_bytes)}</td>
-                  <td style={tdStyle}>{formatDate(backup.created_at)}</td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>
+                  <td className={styles.td}>{backup.backup_type}</td>
+                  <td className={styles.td}>{backup.status}</td>
+                  <td className={styles.td}>{formatBytes(backup.file_size_bytes)}</td>
+                  <td className={styles.td}>{formatDate(backup.created_at)}</td>
+                  <td className={`${styles.td} ${styles.tdRight}`}>
                     {backup.is_restorable && (
                       <button
                         type="button"
@@ -340,15 +243,7 @@ export function BackupRestoreSection(): JSX.Element {
                           setConfirmationText("");
                           setRestoreResult(null);
                         }}
-                        style={{
-                          background: "transparent",
-                          color: "var(--color-danger)",
-                          border: "1px solid var(--color-danger)",
-                          borderRadius: "var(--radius-md)",
-                          padding: "var(--space-1) var(--space-3)",
-                          fontSize: "var(--font-size-sm)",
-                          cursor: "pointer",
-                        }}
+                        className={styles.restoreLinkButton}
                       >
                         {restoreTargetId === backup.id
                           ? t("actions.cancel", "Cancel")
@@ -359,19 +254,14 @@ export function BackupRestoreSection(): JSX.Element {
                 </tr>
                 {restoreTargetId === backup.id && (
                   <tr>
-                    <td colSpan={6} style={{ ...tdStyle, background: "var(--color-surface-raised)" }}>
+                    <td colSpan={6} className={`${styles.td} ${styles.tdRaised}`}>
                       <div
                         data-testid="restore-confirm-box"
-                        style={{
-                          display: "flex",
-                          gap: "var(--space-3)",
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                        }}
+                        className={styles.restoreConfirmRow}
                       >
                         <label
                           htmlFor="restore-confirmation-input"
-                          style={{ fontSize: "var(--font-size-sm)" }}
+                          className={styles.captchaLabel}
                         >
                           {t("adminOps.restoreCaptchaPrompt", {
                             defaultValue:
@@ -388,7 +278,7 @@ export function BackupRestoreSection(): JSX.Element {
                           placeholder={RESTORE_CONFIRMATION_TEXT}
                           disabled={isRestoring}
                           aria-required="true"
-                          style={{ ...inputStyle, width: "160px" }}
+                          className={`${styles.input} ${styles.inputNarrow}`}
                         />
                         <button
                           type="button"
@@ -398,25 +288,7 @@ export function BackupRestoreSection(): JSX.Element {
                             isRestoring ||
                             confirmationText !== RESTORE_CONFIRMATION_TEXT
                           }
-                          style={{
-                            background: "var(--color-danger)",
-                            color: "var(--color-on-danger)",
-                            border: "none",
-                            borderRadius: "var(--radius-md)",
-                            padding: "var(--space-2) var(--space-4)",
-                            fontSize: "var(--font-size-sm)",
-                            fontWeight: 600,
-                            cursor:
-                              isRestoring ||
-                              confirmationText !== RESTORE_CONFIRMATION_TEXT
-                                ? "not-allowed"
-                                : "pointer",
-                            opacity:
-                              isRestoring ||
-                              confirmationText !== RESTORE_CONFIRMATION_TEXT
-                                ? 0.5
-                                : 1,
-                          }}
+                          className="btn-danger"
                         >
                           {isRestoring
                             ? "…"
@@ -434,22 +306,3 @@ export function BackupRestoreSection(): JSX.Element {
     </section>
   );
 }
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  color: "var(--color-text-muted)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  borderBottom: "1px solid var(--color-border)",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  borderBottom: "1px solid var(--color-border)",
-  verticalAlign: "middle",
-};

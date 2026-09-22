@@ -512,8 +512,43 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // WorkspaceSettings' page-local layout onto `WorkspaceSettings.module.css` and
 // the AppShell's route host onto `AppShell.module.css` (-21). Re-measured on
 // the tree: 784. Baseline lowered to the measured value per the ratchet rule.
+//
+// Issue #876 (inline styles / hardcoded hex on tokens.css), bounded hotspot
+// pass: -79, from the clean HEAD value of 784 to 705. Eight files were fully
+// migrated off inline `style={{...}}` objects and hoisted style constants onto
+// co-located CSS Modules — `NavigationShell/LoginPage.tsx` (-17),
+// `NavigationShell/ErrorBoundary.tsx` (-3),
+// `NavigationShell/CreateWorkspaceModal.tsx` (-1),
+// `WorkspaceSettings/BackupRestoreSection.tsx` (-17),
+// `WorkspaceSettings/WorkflowPermissionsSection.tsx` (-15),
+// `WorkspaceSettings/PermissionsSection.tsx` (-14),
+// `WorkspaceSettings/AiPromptsSection.tsx` (-8) and
+// `WorkspaceSettings/LlmSettingsSection.tsx` (-4). Re-measured with this
+// file's own scanner on the tree: 705, matching the arithmetic exactly.
+//
+// Deliberately NOT part of this pass — the issue's other named hotspots
+// (`RequirementEditors/*`) are still open; the issue calls its 1.015 inline
+// styles a ratchet target, not a big-bang, so this is one bounded slice.
+// `ReqTraceLinkPanel.tsx` in particular was skipped because it is touched by
+// the concurrent #318 work in the same working tree.
+//
+// Ratchet bookkeeping, all measured before/after with this file's scanner:
+//   - `(b)` hex in `.tsx`: unchanged at 3 files / 17 occurrences. Every
+//     remaining literal is genuinely unmigratable — `CanvasEditor.tsx` (15)
+//     feeds Fabric.js Canvas2D `fillStyle`/`strokeStyle` and an
+//     `<input type="color">`, which cannot resolve `var()`; `GraphEdge.tsx`
+//     (1) has no collision-free primitive; `SidebarNavigation.tsx` (1) is the
+//     documented `// issue #317` scanner false positive. No lowering possible
+//     without breaking the canvas (explicitly out of bounds per #876).
+//   - `(b.1)` hex in CSS: unchanged at 1 file / 203 occurrences — all of them
+//     the `tokens.css` primitive layer, which is the intentional bottom of the
+//     two-layer token architecture and never a migration target.
+//   - `(f)` primary fill: unchanged at 29. No migrated module re-declares the
+//     primary fill; `LoginPage.module.css`'s decorative `.brandDot` uses the
+//     `background-color` long-hand explicitly so it does not push this ceiling
+//     to 30 (see its own comment).
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 784;
+const STYLE_BRACE_BASELINE = 705;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

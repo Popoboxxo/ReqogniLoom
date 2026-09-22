@@ -122,15 +122,23 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
     await expect(targetEl).toBeVisible({ timeout: 6000 });
     await targetEl.click();
 
-    // Select link type if options available
-    const typeSelect = page.locator('[data-testid="create-trace-link-type-select"]');
-    const typeCount = await typeSelect.locator('option').count();
+    // Select link type if options are available.
+    // #318: the link-type control is a non-native listbox — open the trigger,
+    // then click an option instead of using selectOption(). The option catalog
+    // loads asynchronously and the trigger is not openable while it is empty
+    // (`canOpen = optionCount > 0`), so wait for the first option BEFORE
+    // opening — otherwise the click is a no-op and `count()` would read 0.
+    const typeTrigger = page.locator('[data-testid="create-trace-link-type-select"]');
+    const typeOptions = page.locator('[data-testid^="create-trace-link-type-option-"]');
+    await expect(typeOptions.first()).toBeAttached();
+    await typeTrigger.click();
+    await expect(page.locator('[data-testid="create-trace-link-type-listbox"]')).toBeVisible();
+    const typeCount = await typeOptions.count();
     if (typeCount > 1) {
-      const typeOptions = await typeSelect.locator('option').allInnerTexts();
-      const firstType = typeOptions.find((o) => o.trim() && !/select|choose|--/i.test(o));
-      if (firstType) {
-        await typeSelect.selectOption({ label: firstType });
-      }
+      await typeOptions.nth(1).click();
+    } else {
+      // Only one (already-selected) type: dismiss the popup again.
+      await typeTrigger.press('Escape');
     }
 
     await page.locator('[data-testid="create-trace-link-submit"]').click();

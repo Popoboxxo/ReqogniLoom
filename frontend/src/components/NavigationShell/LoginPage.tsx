@@ -19,11 +19,11 @@ import { bannersApi, type LoginBanner } from "../../api/banners";
 import { APP_NAME } from "../../config/app-name";
 import styles from "./LoginPage.module.css";
 
-const LOGIN_BANNER_COLORS: Record<LoginBanner["level"], string> = {
-  neutral: "var(--color-text-muted)",
-  info: "var(--color-primary)",
-  warning: "var(--color-warning)",
-  critical: "var(--color-danger)",
+const LOGIN_BANNER_CLASS: Record<LoginBanner["level"], string> = {
+  neutral: styles.bannerNeutral,
+  info: styles.bannerInfo,
+  warning: styles.bannerWarning,
+  critical: styles.bannerCritical,
 };
 
 /**
@@ -148,24 +148,12 @@ export function LoginPage(): JSX.Element {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        minHeight: "100vh",
-        fontFamily: "var(--font-sans)",
-        background: "var(--color-surface)",
-      }}
-    >
+    <div className={styles.page}>
       {loginBanner && !bannerDismissed && (
         <div
           data-testid="login-page-banner"
           role="status"
-          className={styles.banner}
-          style={{
-            borderBottomColor: LOGIN_BANNER_COLORS[loginBanner.level],
-          }}
+          className={`${styles.banner} ${LOGIN_BANNER_CLASS[loginBanner.level]}`}
         >
           {/* Plain text, never Markdown: this endpoint is unauthenticated, so
               its content must not be able to render links or HTML on the login
@@ -188,62 +176,22 @@ export function LoginPage(): JSX.Element {
           )}
         </div>
       )}
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-4)",
-          minWidth: "320px",
-          padding: "var(--space-8)",
-          background: "var(--color-surface-raised)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <div style={{ textAlign: "center", marginBottom: "var(--space-2)" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "var(--space-2)",
-              marginBottom: "var(--space-2)",
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                display: "inline-block",
-                width: "10px",
-                height: "10px",
-                borderRadius: "var(--radius-full)",
-                background: "var(--color-primary)",
-                boxShadow: "0 0 0 3px rgba(var(--color-primary-rgb), 0.20)",
-              }}
-            />
-            <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, margin: 0, color: "var(--color-text)" }}>
-              {APP_NAME}
-            </h1>
+      <form onSubmit={handleSubmit} className={styles.form}>
+        <div className={styles.brandBlock}>
+          <div className={styles.brandRow}>
+            <span aria-hidden="true" className={styles.brandDot} />
+            <h1 className={styles.appTitle}>{APP_NAME}</h1>
           </div>
-          <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
-            AI-native Requirements Management
-          </p>
+          <p className={styles.tagline}>AI-native Requirements Management</p>
           {versionLabel && (
-            <span
-              data-testid="login-version-indicator"
-              style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", opacity: 0.7 }}
-            >
+            <span data-testid="login-version-indicator" className={styles.version}>
               {versionLabel}
             </span>
           )}
         </div>
-        <h2 style={{ fontSize: "var(--font-size-md)", fontWeight: 600, margin: 0, color: "var(--color-text)" }}>
-          {t("login.title")}
-        </h2>
+        <h2 className={styles.formTitle}>{t("login.title")}</h2>
         {error && (
-          <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: 0 }}>
+          <p role="alert" className={styles.errorText}>
             {error}
           </p>
         )}
@@ -251,12 +199,12 @@ export function LoginPage(): JSX.Element {
           <p
             role="alert"
             data-testid="login-session-expired-notice"
-            style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", margin: 0 }}
+            className={styles.mutedNotice}
           >
             {t("login.sessionExpired")}
           </p>
         )}
-        <label htmlFor="username-input" style={{ fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--color-text)" }}>
+        <label htmlFor="username-input" className={styles.fieldLabel}>
           {t("login.usernameLabel")}
         </label>
         <input
@@ -268,16 +216,9 @@ export function LoginPage(): JSX.Element {
           placeholder={t("login.usernamePlaceholder")}
           autoComplete="username"
           disabled={isLoading}
-          style={{
-            padding: "var(--space-2) var(--space-3)",
-            fontSize: "var(--font-size-sm)",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-border)",
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
-          }}
+          className={styles.input}
         />
-        <label htmlFor="password-input" style={{ fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--color-text)" }}>
+        <label htmlFor="password-input" className={styles.fieldLabel}>
           {t("login.passwordLabel")}
         </label>
         <input
@@ -289,21 +230,13 @@ export function LoginPage(): JSX.Element {
           placeholder={t("login.passwordPlaceholder")}
           autoComplete="current-password"
           disabled={isLoading}
-          style={{
-            padding: "var(--space-2) var(--space-3)",
-            fontSize: "var(--font-size-sm)",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-border)",
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
-          }}
+          className={styles.input}
         />
         <button
           type="submit"
           data-testid="login-submit-button"
           disabled={isLoading}
-          className="btn-primary"
-          style={{ justifyContent: "center", width: "100%", fontSize: "var(--font-size-sm)" }}
+          className={`btn-primary ${styles.submitButton}`}
         >
           {isLoading ? t("loading") : t("login.submit")}
         </button>

@@ -1,0 +1,235 @@
+/*
+ * PermissionsSection — item permissions + members roster (REQ-L1-039).
+ *
+ * Issue #876: section/form/table chrome moved out of inline `style={{...}}`
+ * objects and hoisted style constants into this module. Token-based only;
+ * the primary action uses the shared `.btn-primary` class so this module never
+ * re-declares the primary fill (UI-ratchet gate UI-50).
+ */
+
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: 0;
+  margin-bottom: var(--space-3);
+}
+
+.input {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  box-sizing: border-box;
+}
+
+.inputFlex {
+  flex: 1;
+}
+
+.inputFlexWide {
+  flex: 1;
+  min-width: 220px;
+}
+
+.grantForm {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-md);
+}
+
+.filterRow {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* Secondary/outline action — primary colour for text/border only, so this
+   module does not shadow `.btn-primary`. */
+.outlineButton {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.outlineButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.errorText {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.emptyText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.td {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.tdMono {
+  font-family: monospace;
+}
+
+.tdRight {
+  text-align: right;
+}
+
+/* Level chip — colour depends on whether the rule is an explicit deny. */
+.levelChip {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  background: rgba(var(--color-primary-rgb), 0.12);
+  color: var(--color-primary);
+}
+
+.levelChipDeny {
+  background: rgba(var(--color-danger-rgb), 0.12);
+  color: var(--color-danger);
+}
+
+.revokeButton {
+  background: transparent;
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.revokeButton:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+/* ---- Workspace-members roster (Task 13) ---- */
+
+.membersSection {
+  margin-bottom: var(--space-4);
+}
+
+.membersHeading {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.membersError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.membersEmpty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.roleChipWrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-right: var(--space-3);
+}
+
+.roleLabelActive {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.roleLabelSuspended {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+.roleActionBase {
+  background: transparent;
+  border-radius: var(--radius-md);
+  padding: 1px var(--space-2);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  opacity: 1;
+}
+
+.suspendAction {
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+.suspendActionPending {
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.reactivateAction {
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.reactivateActionPending {
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  cursor: wait;
+  opacity: 0.6;
+}

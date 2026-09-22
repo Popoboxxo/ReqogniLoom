@@ -1,0 +1,24 @@
+/*
+ * ErrorBoundary — top-level crash fallback (REQ-L3-RF001-003).
+ *
+ * Styling moved out of inline `style={{...}}` objects (inline-style ratchet,
+ * issue #876). Values are token-based so the fallback follows the active theme
+ * like every other surface.
+ */
+
+.wrapper {
+  padding: var(--space-8);
+  text-align: center;
+  font-family: var(--font-sans);
+}
+
+.message {
+  color: var(--color-errorboundary-text);
+  margin-bottom: var(--space-6);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: center;
+}
