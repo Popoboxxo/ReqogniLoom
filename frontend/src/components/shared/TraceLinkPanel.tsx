@@ -364,9 +364,21 @@ export function TraceLinkPanel({
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
               {t("tracelinks.upstream", "Incoming")} {liveUpstreamCount > 0 && <Badge variant="info" testId="trace-link-upstream-count" style={INLINE_COUNT_BADGE_STYLE}>{liveUpstreamCount}</Badge>}
             </h4>
+            {/* #28: an incoming link cannot be created from this panel — the
+                create dialog here fixes *this* artifact as the source, so it
+                only ever produces outgoing links. The guidance therefore
+                points at the surface that can: the other artifact's panel or
+                the global Traceability view (also reachable via "show all"
+                above). */}
             {upstream.length === 0 && (
-              <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>
-                {t("tracelinks.empty", "Keine Links vorhanden.")}
+              <p
+                data-testid="tracelink-upstream-empty"
+                style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}
+              >
+                {t(
+                  "tracelinks.upstreamEmpty",
+                  "No incoming links yet. Incoming links are created on the other artifact or in the Traceability view.",
+                )}
               </p>
             )}
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
@@ -379,9 +391,19 @@ export function TraceLinkPanel({
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
               {t("tracelinks.downstream", "Outgoing")} {liveDownstreamCount > 0 && <Badge variant="info" testId="trace-link-downstream-count" style={INLINE_COUNT_BADGE_STYLE}>{liveDownstreamCount}</Badge>}
             </h4>
+            {/* #28: this panel's "new link" dialog pins this artifact as the
+                source, so what it creates is an outgoing link — the guidance
+                names that real affordance instead of a create button that
+                does not exist for a specific direction. */}
             {downstream.length === 0 && (
-              <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>
-                {t("tracelinks.empty", "Keine Links vorhanden.")}
+              <p
+                data-testid="tracelink-downstream-empty"
+                style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}
+              >
+                {t(
+                  "tracelinks.downstreamEmpty",
+                  "No outgoing links yet. Create a new link above — this artifact is automatically the source.",
+                )}
               </p>
             )}
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
