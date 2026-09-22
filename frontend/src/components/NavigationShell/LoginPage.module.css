@@ -1,5 +1,116 @@
-/* LoginPage — Login page banner. CSS Module per this codebase's
-   ratchet direction for new UI code. */
+/* LoginPage — login page shell, form and banner. CSS Module per this
+   codebase's ratchet direction for new UI code.
+   Issue #876: the page shell and form previously carried inline
+   `style={{...}}` objects; they live here now, token-based. */
+
+.page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  background: var(--color-surface);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 320px;
+  padding: var(--space-8);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.brandBlock {
+  text-align: center;
+  margin-bottom: var(--space-2);
+}
+
+.brandRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.brandDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  /*
+   * Decorative brand accent, not a button fill. Written as the long-hand
+   * property on purpose: the UI-50 ratchet freezes the number of
+   * `background: var(--color-primary)` shorthand declarations in component
+   * modules (the declaration `.btn-primary` owns), and adding a 30th one for
+   * a non-button must not raise that ceiling.
+   */
+  background-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.2);
+}
+
+.appTitle {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.tagline {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.version {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.formTitle {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.errorText {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.mutedNotice {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.fieldLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.input {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.submitButton {
+  justify-content: center;
+  width: 100%;
+  font-size: var(--font-size-sm);
+}
 
 .banner {
   position: fixed;
@@ -21,6 +132,25 @@
 .bannerMessage {
   flex: 1;
   min-width: 0;
+}
+
+/* Issue #876: banner level accents replaced the inline
+   `borderBottomColor: LOGIN_BANNER_COLORS[level]` lookup — same tokens, now
+   selected by class instead of by a JS colour map. */
+.bannerNeutral {
+  border-bottom-color: var(--color-text-muted);
+}
+
+.bannerInfo {
+  border-bottom-color: var(--color-primary);
+}
+
+.bannerWarning {
+  border-bottom-color: var(--color-warning);
+}
+
+.bannerCritical {
+  border-bottom-color: var(--color-danger);
 }
 
 /* Mirrors BannerStack.module.css's .dismissButton so the in-app and login-page

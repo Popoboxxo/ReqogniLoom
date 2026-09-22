@@ -33,6 +33,7 @@ import {
 import { promptVariablesApi, type PromptVariableState } from "../../api/prompt-variables";
 import { extractErrorMessage } from "../../api/client";
 import { PromptVariableTable } from "./PromptVariableTable";
+import styles from "./AiPromptsSection.module.css";
 
 interface Props {
   /** Workspace whose overrides are edited when scope is "workspace". */
@@ -41,99 +42,6 @@ interface Props {
 
 /** Which scope the admin is currently editing. */
 type EditScope = "workspace" | "global";
-
-const sectionStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const hintStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-  marginBottom: "var(--space-4)",
-};
-
-const fieldLabelStyle: React.CSSProperties = {
-  display: "block",
-  marginBottom: "var(--space-2)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const textareaStyle: React.CSSProperties = {
-  width: "100%",
-  minHeight: "120px",
-  padding: "var(--space-2) var(--space-3)",
-  background: "var(--color-surface-raised)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-  fontFamily: "var(--font-mono, monospace)",
-  resize: "vertical",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "var(--color-text-muted)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  cursor: "pointer",
-};
-
-const badgeStyle: React.CSSProperties = {
-  display: "inline-block",
-  padding: "2px var(--space-2)",
-  borderRadius: "var(--radius-sm, 4px)",
-  border: "1px solid var(--color-border)",
-  fontSize: "var(--font-size-xs, 0.75rem)",
-  color: "var(--color-text-muted)",
-  marginLeft: "var(--space-2)",
-  fontWeight: 500,
-};
-
-const selectStyle: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
-  background: "var(--color-surface-raised)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const warningStyle: React.CSSProperties = {
-  marginTop: "var(--space-2)",
-  padding: "var(--space-2) var(--space-3)",
-  background: "var(--color-badge-warning-bg)",
-  color: "var(--color-badge-warning-text)",
-  borderRadius: "var(--radius-sm)",
-  fontSize: "var(--font-size-sm)",
-};
 
 /** Human-readable label fallbacks for the slots the product ships with. */
 const SLOT_LABELS: Record<string, string> = {
@@ -315,8 +223,8 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
 
   if (isLoading) {
     return (
-      <section style={sectionStyle} data-testid="prompt-template-section">
-        <h3 style={headingStyle}>
+      <section className={styles.section} data-testid="prompt-template-section">
+        <h3 className={styles.heading}>
           {t("settings.promptTemplates.title", "AI Prompt Templates")}
         </h3>
         <p>{t("loading", "Loading...")}</p>
@@ -325,11 +233,11 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
   }
 
   return (
-    <section style={sectionStyle} data-testid="prompt-template-section">
-      <h3 style={headingStyle}>
+    <section className={styles.section} data-testid="prompt-template-section">
+      <h3 className={styles.heading}>
         {t("settings.promptTemplates.title", "AI Prompt Templates")}
       </h3>
-      <p style={hintStyle}>
+      <p className={styles.hint}>
         {t(
           "settings.promptTemplates.description",
           "Customise the prompts used for AI-assisted derivation. Available placeholders: " +
@@ -341,7 +249,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
       </p>
 
       {orderedSlots.some((s) => s.name.startsWith("interview.")) && (
-        <p style={hintStyle}>
+        <p className={styles.hint}>
           {t(
             "settings.promptTemplates.interviewDescription",
             "Interview prompt placeholders differ by slot. " +
@@ -355,15 +263,8 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
         </p>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-3)",
-          marginBottom: "var(--space-4)",
-        }}
-      >
-        <label htmlFor="prompt-scope-select" style={{ ...fieldLabelStyle, marginBottom: 0 }}>
+      <div className={styles.scopeRow}>
+        <label htmlFor="prompt-scope-select" className={styles.fieldLabelInline}>
           {t("settings.promptTemplates.scope", "Geltungsbereich")}
         </label>
         <select
@@ -371,7 +272,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
           data-testid="prompt-scope-select"
           value={scope}
           onChange={(e) => handleScopeChange(e.target.value as EditScope)}
-          style={selectStyle}
+          className={styles.select}
         >
           <option value="workspace">
             {t("settings.promptTemplates.scopeWorkspace", "Nur dieser Workspace")}
@@ -386,7 +287,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
         <p
           role="alert"
           data-testid="prompt-template-error"
-          style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)" }}
+          className={styles.errorText}
         >
           {error}
         </p>
@@ -399,13 +300,13 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
         // Nothing to clear when the shown value is already inherited.
         const canReset = origin === scope;
         return (
-          <div key={slot.name} style={{ marginBottom: "var(--space-4)" }}>
-            <label style={fieldLabelStyle} htmlFor={`prompt-${slot.name}`}>
+          <div key={slot.name} className={styles.slot}>
+            <label className={styles.fieldLabel} htmlFor={`prompt-${slot.name}`}>
               {t(
                 `settings.promptTemplates.slot.${slot.name}`,
                 labelForSlot(slot.name)
               )}
-              <span style={badgeStyle} data-testid={`prompt-${slot.name}-origin`}>
+              <span className={styles.badge} data-testid={`prompt-${slot.name}-origin`}>
                 {originLabel(origin)}
               </span>
             </label>
@@ -414,26 +315,15 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
               data-testid={`prompt-${slot.name}-input`}
               value={value}
               onChange={(e) => handleChange(slot.name, e.target.value)}
-              style={textareaStyle}
+              className={styles.textarea}
             />
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-2)",
-                marginTop: "var(--space-2)",
-              }}
-            >
+            <div className={styles.buttonRow}>
               <button
                 type="button"
                 data-testid={`prompt-${slot.name}-save`}
                 onClick={() => void handleSave(slot)}
                 disabled={isBusy}
-                style={{
-                  ...primaryButtonStyle,
-                  cursor: isBusy ? "not-allowed" : "pointer",
-                  opacity: isBusy ? 0.7 : 1,
-                }}
+                className="btn-primary"
               >
                 {isBusy ? t("saving", "Saving...") : t("save", "Save")}
               </button>
@@ -442,11 +332,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
                 data-testid={`prompt-${slot.name}-reset`}
                 onClick={() => void handleReset(slot)}
                 disabled={isBusy || !canReset}
-                style={{
-                  ...secondaryButtonStyle,
-                  cursor: isBusy || !canReset ? "not-allowed" : "pointer",
-                  opacity: isBusy || !canReset ? 0.5 : 1,
-                }}
+                className="btn-secondary"
               >
                 {scope === "workspace"
                   ? t(
@@ -458,7 +344,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
               {savedSlot === slot.name && (
                 <span
                   data-testid={`prompt-${slot.name}-saved`}
-                  style={{ color: "var(--color-success)", fontSize: "var(--font-size-sm)" }}
+                  className={styles.savedText}
                 >
                   {t("settings.saved", "Saved")}
                 </span>
@@ -471,7 +357,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
             />
             {slot.unknown_placeholders.length > 0 && (
               <p
-                style={warningStyle}
+                className={styles.warning}
                 data-testid={`prompt-${slot.name}-unknown-placeholders`}
               >
                 {t(

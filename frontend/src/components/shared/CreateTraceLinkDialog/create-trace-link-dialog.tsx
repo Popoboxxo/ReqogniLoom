@@ -9,14 +9,15 @@
  *   - Search field: client-side filtering of element list by title
  *   - Element type filter: tabs to narrow by artifact type
  *   - Element list: shows resolved titles (target_title from REQ-002 API fix)
- *   - Link type selector: all backend link types
+ *   - Link type selector: non-native accessible listbox (#318)
  *   - Consistent modal design: same overlay layout in every view
- *   - Optional sourceId: when absent, a source picker (select) is shown too
+ *   - Optional sourceId: when absent, a source ElementPicker is shown too
  */
 
 import React, {
   useState,
   useEffect,
+  useId,
   useMemo,
   useCallback,
   useRef,
@@ -31,6 +32,7 @@ import { issuesApi } from '../../../api/issues';
 import { tracelinksApi } from '../../../api/tracelinks';
 import { useLinkTypes } from '../../../context/LinkTypeContext';
 import { Dialog } from '../Dialog';
+import { LinkTypeListbox } from './link-type-listbox';
 import type { LinkType } from '../../../types';
 
 // ---------------------------------------------------------------------------
@@ -354,7 +356,7 @@ function ElementPicker({
  * AdrEditors), the dialog shows only a target picker with search.
  *
  * When `sourceId` is omitted (global context like TraceabilityView), both a
- * source picker (simple select with titles) and the searchable target picker
+ * source picker (searchable ElementPicker) and the searchable target picker
  * are shown, resulting in the same modal design.
  */
 export function CreateTraceLinkDialog({
@@ -399,6 +401,12 @@ export function CreateTraceLinkDialog({
   const [linkType, setLinkType] = useState<LinkType>(defaultLinkType);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // #318: the link-type dropdown is a non-native listbox, so its open state
+  // lives here and its visible label is referenced through `aria-labelledby`.
+  const [isTypeMenuOpen, setIsTypeMenuOpen] = useState(false);
+  const linkTypeLabelId = useId();
+  const linkTypeHintId = useId();
 
   // The actual source to use in the API call
   const effectiveSourceId = sourceId ?? selectedSourceId;
@@ -505,6 +513,7 @@ export function CreateTraceLinkDialog({
     setSelectedTargetId('');
     setLinkType(defaultLinkType);
     setSubmitError(null);
+    setIsTypeMenuOpen(false);
     void loadElements();
   }, [isOpen, defaultLinkType, loadElements]);
 
@@ -666,27 +675,33 @@ export function CreateTraceLinkDialog({
           />
         </fieldset>
 
-        {/* Link type selector */}
+        {/* Link type selector — non-native accessible listbox (#318).
+            Replaces the former native <select>: a programmatic DOM value-set
+            never reached React state there, so the shown value and the
+            submitted value could diverge. Selection now flows through a
+            React handler, which also makes the Create button's enabled
+            state deterministic. */}
         <div>
-          <label htmlFor="ctl-link-type" style={labelStyle}>
+          <span id={linkTypeLabelId} style={labelStyle}>
             {t('traceability.linkType', 'Link Type')}
-          </label>
-          <select
-            id="ctl-link-type"
-            data-testid="create-trace-link-type-select"
+          </span>
+          <LinkTypeListbox
+            options={availableLinkTypes.map((row) => ({
+              key: row.key,
+              label: labelFor(row.key, triLabelLang, 'neutral'),
+            }))}
             value={linkType}
-            onChange={(e) => setLinkType(e.target.value as LinkType)}
+            onSelect={(key) => setLinkType(key as LinkType)}
+            isOpen={isTypeMenuOpen}
+            onOpenChange={setIsTypeMenuOpen}
+            labelledBy={linkTypeLabelId}
+            describedBy={availableLinkTypes.length === 0 ? linkTypeHintId : undefined}
+            testId="create-trace-link-type-select"
+            optionTestIdPrefix="create-trace-link-type"
             disabled={isSubmitting}
-            style={inputStyle}
-          >
-            {availableLinkTypes.map((row) => (
-              <option key={row.key} value={row.key}>
-                {labelFor(row.key, triLabelLang, 'neutral')}
-              </option>
-            ))}
-          </select>
+          />
           {availableLinkTypes.length === 0 && (
-            <p data-testid="create-trace-link-no-types" style={noTypesHintStyle}>
+            <p id={linkTypeHintId} data-testid="create-trace-link-no-types" style={noTypesHintStyle}>
               {t(
                 'traceability.noLinkTypeForPair',
                 'No link type in this workspace connects these two artifact types.',

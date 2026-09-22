@@ -292,10 +292,7 @@ export function CreateWorkspaceModal({
           <div
             role="alert"
             data-testid="create-workspace-error"
-            style={{
-              color: "var(--color-danger)",
-              fontSize: "var(--font-size-xs)",
-            }}
+            className={fieldHints.fieldError}
           >
             {createError}
           </div>

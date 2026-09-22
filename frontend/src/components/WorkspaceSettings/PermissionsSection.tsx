@@ -56,6 +56,7 @@ import {
 import { artifactsApi } from "../../api/artifacts";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { Artifact, UUID } from "../../types";
+import styles from "./PermissionsSection.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -98,122 +99,6 @@ function memberRoleKey(userId: string, role: string): string {
 }
 
 const LEVELS: ItemPermissionLevel[] = ["read", "write", "none"];
-
-const sectionStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const inputStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-3)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-  boxSizing: "border-box",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-// Workspace-members roster styles (Task 13). Hoisted to module-level
-// constants — referenced via `style={constName}` (single-brace) rather than
-// an inline double-brace object literal — per the UI-concept ratchet guard
-// (`frontend/src/test/ui-ratchet.test.ts`), which freezes the project-wide
-// count of inline-style-object-literal usages and fails on any net increase.
-const membersSectionStyle: React.CSSProperties = { marginBottom: "var(--space-4)" };
-
-const membersHeadingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-md)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-2) 0",
-};
-
-const membersErrorStyle: React.CSSProperties = {
-  color: "var(--color-danger)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const membersEmptyStyle: React.CSSProperties = {
-  color: "var(--color-text-muted)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const membersTableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse" };
-
-const roleChipWrapperStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--space-1)",
-  marginRight: "var(--space-3)",
-};
-
-const roleLabelActiveStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  textDecoration: "none",
-};
-
-const roleLabelSuspendedStyle: React.CSSProperties = {
-  ...roleLabelActiveStyle,
-  color: "var(--color-text-muted)",
-  textDecoration: "line-through",
-};
-
-const roleActionBaseStyle: React.CSSProperties = {
-  background: "transparent",
-  borderRadius: "var(--radius-md)",
-  padding: "1px var(--space-2)",
-  fontSize: "var(--font-size-xs)",
-  cursor: "pointer",
-  opacity: 1,
-};
-
-const suspendActionStyle: React.CSSProperties = {
-  ...roleActionBaseStyle,
-  color: "var(--color-danger)",
-  border: "1px solid var(--color-danger)",
-};
-
-const suspendActionPendingStyle: React.CSSProperties = {
-  ...suspendActionStyle,
-  cursor: "wait",
-  opacity: 0.6,
-};
-
-const reactivateActionStyle: React.CSSProperties = {
-  ...roleActionBaseStyle,
-  color: "var(--color-primary)",
-  border: "1px solid var(--color-primary)",
-};
-
-const reactivateActionPendingStyle: React.CSSProperties = {
-  ...reactivateActionStyle,
-  cursor: "wait",
-  opacity: 0.6,
-};
 
 export interface PermissionsSectionProps {
   workspaceId: UUID;
@@ -487,18 +372,11 @@ export function PermissionsSection({
   );
 
   return (
-    <section style={sectionStyle} data-testid="permissions-section">
-      <h3 style={headingStyle}>
+    <section className={styles.section} data-testid="permissions-section">
+      <h3 className={styles.heading}>
         {t("permissions.title", "Item Permissions")}
       </h3>
-      <p
-        style={{
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-text-muted)",
-          marginTop: 0,
-          marginBottom: "var(--space-3)",
-        }}
-      >
+      <p className={styles.hint}>
         {t(
           "permissions.hint",
           "Per-user access rules for this workspace. A rule without an artifact applies workspace-wide; level 'none' is an explicit deny."
@@ -506,34 +384,34 @@ export function PermissionsSection({
       </p>
 
       {/* Workspace members roster — suspend/reactivate role actions (Task 13) */}
-      <div data-testid="workspace-members-section" style={membersSectionStyle}>
-        <h4 style={membersHeadingStyle}>
+      <div data-testid="workspace-members-section" className={styles.membersSection}>
+        <h4 className={styles.membersHeading}>
           {t("permissions.members.title", "Workspace Members")}
         </h4>
 
         {membersError && (
-          <p role="alert" data-testid="workspace-members-error" style={membersErrorStyle}>
+          <p role="alert" data-testid="workspace-members-error" className={styles.membersError}>
             {membersError}
           </p>
         )}
 
         {displayMembers.length === 0 ? (
-          <p data-testid="workspace-members-empty" style={membersEmptyStyle}>
+          <p data-testid="workspace-members-empty" className={styles.membersEmpty}>
             {t("permissions.members.empty", "No workspace members.")}
           </p>
         ) : (
-          <table data-testid="workspace-members-table" style={membersTableStyle}>
+          <table data-testid="workspace-members-table" className={styles.table}>
             <thead>
               <tr>
-                <th style={thStyle}>{t("permissions.members.member", "Member")}</th>
-                <th style={thStyle}>{t("permissions.members.roles", "Roles")}</th>
+                <th className={styles.th}>{t("permissions.members.member", "Member")}</th>
+                <th className={styles.th}>{t("permissions.members.roles", "Roles")}</th>
               </tr>
             </thead>
             <tbody>
               {displayMembers.map((m) => (
                 <tr key={m.user_id} data-testid={`workspace-member-row-${m.user_id}`}>
-                  <td style={tdStyle}>{memberLabel(m)}</td>
-                  <td style={tdStyle}>
+                  <td className={styles.td}>{memberLabel(m)}</td>
+                  <td className={styles.td}>
                     {rolesForDisplay(m).map((role) => {
                       const key = memberRoleKey(m.user_id, role);
                       const suspended = isRoleSuspended(m, role);
@@ -542,9 +420,13 @@ export function PermissionsSection({
                         <span
                           key={role}
                           data-testid={`workspace-member-role-${m.user_id}-${role}`}
-                          style={roleChipWrapperStyle}
+                          className={styles.roleChipWrapper}
                         >
-                          <span style={suspended ? roleLabelSuspendedStyle : roleLabelActiveStyle}>
+                          <span
+                            className={
+                              suspended ? styles.roleLabelSuspended : styles.roleLabelActive
+                            }
+                          >
                             {role}
                           </span>
                           {suspended ? (
@@ -553,7 +435,11 @@ export function PermissionsSection({
                               data-testid={`workspace-member-reactivate-${m.user_id}-${role}`}
                               onClick={() => void handleReactivateRole(m, role)}
                               disabled={isPending}
-                              style={isPending ? reactivateActionPendingStyle : reactivateActionStyle}
+                              className={`${styles.roleActionBase} ${
+                                isPending
+                                  ? styles.reactivateActionPending
+                                  : styles.reactivateAction
+                              }`}
                             >
                               {t("permissions.members.reactivate", "Reactivate")}
                             </button>
@@ -563,7 +449,9 @@ export function PermissionsSection({
                               data-testid={`workspace-member-suspend-${m.user_id}-${role}`}
                               onClick={() => requestSuspendRole(m, role)}
                               disabled={isPending}
-                              style={isPending ? suspendActionPendingStyle : suspendActionStyle}
+                              className={`${styles.roleActionBase} ${
+                                isPending ? styles.suspendActionPending : styles.suspendAction
+                              }`}
                             >
                               {t("permissions.members.suspend", "Suspend")}
                             </button>
@@ -580,25 +468,13 @@ export function PermissionsSection({
       </div>
 
       {/* Grant form */}
-      <div
-        data-testid="permission-grant-form"
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          flexWrap: "wrap",
-          alignItems: "center",
-          marginBottom: "var(--space-4)",
-          padding: "var(--space-3)",
-          background: "var(--color-surface-raised)",
-          borderRadius: "var(--radius-md)",
-        }}
-      >
+      <div data-testid="permission-grant-form" className={styles.grantForm}>
         <select
           data-testid="permission-user-input"
           value={grantUserId}
           onChange={(e) => setGrantUserId(e.target.value)}
           disabled={isGranting || members.length === 0}
-          style={{ ...inputStyle, flex: 1, minWidth: "220px" }}
+          className={`${styles.input} ${styles.inputFlexWide}`}
         >
           <option value="">
             {members.length === 0
@@ -616,7 +492,7 @@ export function PermissionsSection({
           value={grantArtifactId}
           onChange={(e) => setGrantArtifactId(e.target.value)}
           disabled={isGranting}
-          style={inputStyle}
+          className={styles.input}
         >
           <option value="">
             {t("permissions.workspaceWide", "Workspace-wide (all artifacts)")}
@@ -632,7 +508,7 @@ export function PermissionsSection({
           value={grantLevel}
           onChange={(e) => setGrantLevel(e.target.value as ItemPermissionLevel)}
           disabled={isGranting}
-          style={inputStyle}
+          className={styles.input}
         >
           {LEVELS.map((lvl) => (
             <option key={lvl} value={lvl}>
@@ -645,24 +521,14 @@ export function PermissionsSection({
           data-testid="permission-grant-btn"
           onClick={() => void handleGrant()}
           disabled={isGranting || !grantUserId.trim()}
-          style={{
-            ...primaryButtonStyle,
-            opacity: isGranting || !grantUserId.trim() ? 0.5 : 1,
-            cursor: isGranting || !grantUserId.trim() ? "not-allowed" : "pointer",
-          }}
+          className="btn-primary"
         >
           {isGranting ? "…" : `+ ${t("permissions.grant", "Grant")}`}
         </button>
       </div>
 
       {/* Filter / list */}
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-3)",
-        }}
-      >
+      <div className={styles.filterRow}>
         <select
           data-testid="permission-filter-input"
           value={filterUserId}
@@ -672,7 +538,7 @@ export function PermissionsSection({
             if (value) void loadPermissions(value);
           }}
           disabled={members.length === 0}
-          style={{ ...inputStyle, flex: 1 }}
+          className={`${styles.input} ${styles.inputFlex}`}
         >
           <option value="">
             {members.length === 0
@@ -690,13 +556,7 @@ export function PermissionsSection({
           data-testid="permission-load-btn"
           onClick={() => void loadPermissions(filterUserId)}
           disabled={isLoading || !filterUserId.trim()}
-          style={{
-            ...primaryButtonStyle,
-            background: "var(--color-surface)",
-            color: "var(--color-primary)",
-            border: "1px solid var(--color-primary)",
-            opacity: isLoading || !filterUserId.trim() ? 0.5 : 1,
-          }}
+          className={styles.outlineButton}
         >
           {isLoading ? "…" : t("permissions.load", "Load rules")}
         </button>
@@ -706,10 +566,7 @@ export function PermissionsSection({
         <p
           role="alert"
           data-testid="permissions-error"
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.errorText}
         >
           {error}
         </p>
@@ -718,75 +575,50 @@ export function PermissionsSection({
       {hasLoaded && permissions.length === 0 && !isLoading && (
         <p
           data-testid="permissions-empty"
-          style={{
-            color: "var(--color-text-muted)",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.emptyText}
         >
           {t("permissions.empty", "No permission rules for this user.")}
         </p>
       )}
 
       {permissions.length > 0 && (
-        <table
-          data-testid="permissions-table"
-          style={{ width: "100%", borderCollapse: "collapse" }}
-        >
+        <table data-testid="permissions-table" className={styles.table}>
           <thead>
             <tr>
-              <th style={thStyle}>{t("permissions.user", "User")}</th>
-              <th style={thStyle}>{t("permissions.artifact", "Artifact")}</th>
-              <th style={thStyle}>{t("permissions.level", "Level")}</th>
-              <th style={thStyle} />
+              <th className={styles.th}>{t("permissions.user", "User")}</th>
+              <th className={styles.th}>{t("permissions.artifact", "Artifact")}</th>
+              <th className={styles.th}>{t("permissions.level", "Level")}</th>
+              <th className={styles.th} />
             </tr>
           </thead>
           <tbody>
             {permissions.map((perm) => (
               <tr key={perm.id} data-testid={`permission-row-${perm.id}`}>
-                <td style={tdStyle}>
+                <td className={styles.td}>
                   {members.find((m) => m.user_id === perm.user_id)
                     ?.display_name ?? `${perm.user_id.slice(0, 8)}…`}
                 </td>
-                <td style={{ ...tdStyle, fontFamily: "monospace" }}>
+                <td className={`${styles.td} ${styles.tdMono}`}>
                   {perm.artifact_id
                     ? `${perm.artifact_id.slice(0, 8)}…`
                     : t("permissions.workspaceWideShort", "workspace-wide")}
                 </td>
-                <td style={tdStyle}>
+                <td className={styles.td}>
                   <span
-                    style={{
-                      display: "inline-block",
-                      padding: "1px var(--space-2)",
-                      borderRadius: "var(--radius-full)",
-                      fontSize: "var(--font-size-xs)",
-                      fontWeight: 600,
-                      background: perm.is_explicit_deny
-                        ? "rgba(var(--color-danger-rgb), 0.12)"
-                        : "rgba(var(--color-primary-rgb), 0.12)",
-                      color: perm.is_explicit_deny
-                        ? "var(--color-danger)"
-                        : "var(--color-primary)",
-                    }}
+                    className={`${styles.levelChip} ${
+                      perm.is_explicit_deny ? styles.levelChipDeny : ""
+                    }`}
                   >
                     {perm.permission_level}
                   </span>
                 </td>
-                <td style={{ ...tdStyle, textAlign: "right" }}>
+                <td className={`${styles.td} ${styles.tdRight}`}>
                   <button
                     type="button"
                     data-testid={`permission-revoke-${perm.id}`}
                     onClick={() => setPendingRevokeId(perm.id)}
                     disabled={revokingId === perm.id}
-                    style={{
-                      background: "transparent",
-                      color: "var(--color-danger)",
-                      border: "1px solid var(--color-danger)",
-                      borderRadius: "var(--radius-md)",
-                      padding: "var(--space-1) var(--space-3)",
-                      fontSize: "var(--font-size-sm)",
-                      cursor: revokingId === perm.id ? "wait" : "pointer",
-                      opacity: revokingId === perm.id ? 0.6 : 1,
-                    }}
+                    className={styles.revokeButton}
                   >
                     {t("permissions.revoke", "Revoke")}
                   </button>
@@ -825,22 +657,3 @@ export function PermissionsSection({
     </section>
   );
 }
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  color: "var(--color-text-muted)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  borderBottom: "1px solid var(--color-border)",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  borderBottom: "1px solid var(--color-border)",
-  verticalAlign: "middle",
-};

@@ -41,6 +41,26 @@ function descriptionEditor(page: Page): Locator {
 }
 
 /**
+ * Wählt den Link-Typ im einheitlichen CreateTraceLinkDialog (REQ-005).
+ *
+ * #318: Das Link-Typ-Feld ist kein natives `<select>` mehr, sondern eine
+ * nicht-native Listbox. `selectOption()` greift daher nicht mehr — stattdessen
+ * wird der Trigger geöffnet und die passende Option geklickt.
+ *
+ * Der Options-Katalog lädt asynchron und der Trigger ist bei leerer Liste
+ * nicht öffenbar (`canOpen = optionCount > 0`). Deshalb erst auf die Option
+ * warten, dann öffnen, dann klicken.
+ */
+export async function selectTraceLinkTypeViaUI(page: Page, linkType: string): Promise<void> {
+  const trigger = page.locator('[data-testid="create-trace-link-type-select"]');
+  const option = page.locator(`[data-testid="create-trace-link-type-option-${linkType}"]`);
+  await expect(option).toBeAttached();
+  await trigger.click();
+  await expect(page.locator('[data-testid="create-trace-link-type-listbox"]')).toBeVisible();
+  await option.click();
+}
+
+/**
  * Erstellt eine Anforderung über die UI. Liefert die ID der neuen Anforderung
  * (aus der URL abgeleitet, in die der Editor nach Create navigiert).
  */
@@ -186,7 +206,7 @@ export async function createTraceLinkViaUI(
   const target = page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`);
   await target.waitFor({ timeout: 10000 });
   await target.click();
-  await page.locator('[data-testid="create-trace-link-type-select"]').selectOption(linkType);
+  await selectTraceLinkTypeViaUI(page, linkType);
   await page.locator('[data-testid="create-trace-link-submit"]').click();
   await page.waitForLoadState('networkidle');
 }
@@ -211,7 +231,7 @@ export async function createArchTraceLinkViaUI(
   await page.locator('[data-testid="create-trace-link-dialog"]').waitFor({ timeout: 8000 });
   await page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`).waitFor({ timeout: 8000 });
   await page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`).click();
-  await page.locator('[data-testid="create-trace-link-type-select"]').selectOption(linkType);
+  await selectTraceLinkTypeViaUI(page, linkType);
   await page.locator('[data-testid="create-trace-link-submit"]').click();
   await page.waitForLoadState('networkidle');
 }

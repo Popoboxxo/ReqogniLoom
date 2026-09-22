@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CreateTraceLinkDialog } from './create-trace-link-dialog';
 import * as requirementsApi from '../../../api/requirements';
@@ -173,6 +173,32 @@ function renderDialog(overrides: Partial<React.ComponentProps<typeof CreateTrace
     onCreated: vi.fn(),
   };
   render(<CreateTraceLinkDialog {...defaults} {...overrides} />);
+}
+
+/**
+ * #318: the link type control is no longer a native <select>. It is a
+ * non-native listbox whose popup only exists while open, so every assertion
+ * on the option list has to open it first — and selection goes through a
+ * click on a `role="option"`, never through a DOM value-set.
+ */
+async function openLinkTypeListbox(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByTestId('create-trace-link-type-select'));
+}
+
+/** Rendered option values of the currently open link-type listbox. */
+function linkTypeOptionValues(): string[] {
+  return screen
+    .getAllByTestId(/^create-trace-link-type-option-/)
+    .map((option) => option.getAttribute('data-value') ?? '');
+}
+
+/** Open the listbox and click the option with `key`. */
+async function selectLinkTypeViaListbox(
+  user: ReturnType<typeof userEvent.setup>,
+  key: string,
+): Promise<void> {
+  await openLinkTypeListbox(user);
+  await user.click(screen.getByTestId(`create-trace-link-type-option-${key}`));
 }
 
 // ---------------------------------------------------------------------------
@@ -473,7 +499,7 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
       });
 
       await user.click(screen.getByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`));
-      await user.selectOptions(screen.getByTestId('create-trace-link-type-select'), 'decomposes');
+      await selectLinkTypeViaListbox(user, 'decomposes');
       await user.click(screen.getByTestId('create-trace-link-submit'));
 
       await waitFor(() => {
@@ -639,9 +665,8 @@ describe('CreateTraceLinkDialog link-type options (Task 23)', () => {
       await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
     );
 
-    const select = screen.getByTestId('create-trace-link-type-select');
-    const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
-    expect(options).toEqual(['verifies']);
+    await openLinkTypeListbox(user);
+    expect(linkTypeOptionValues()).toEqual(['verifies']);
   });
 
   it('hides a type whose allowed_pairs do not match the resolved source artifact type', async () => {
@@ -653,8 +678,8 @@ describe('CreateTraceLinkDialog link-type options (Task 23)', () => {
       await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
     );
 
-    const select = screen.getByTestId('create-trace-link-type-select');
-    const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
+    await openLinkTypeListbox(user);
+    const options = linkTypeOptionValues();
     expect(options).toEqual(['mitigates']);
     expect(options).not.toContain('verifies');
   });
@@ -675,8 +700,8 @@ describe('CreateTraceLinkDialog link-type options (Task 23)', () => {
       await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
     );
 
-    const select = screen.getByTestId('create-trace-link-type-select');
-    expect(select.querySelector('option')?.textContent).toBe('Verifikation');
+    // The trigger renders the resolved Tri-Label, never the raw catalog key.
+    expect(screen.getByTestId('create-trace-link-type-value')).toHaveTextContent('Verifikation');
   });
 
   it('shows an empty-state hint and disables submit when no type fits the endpoints', async () => {
@@ -711,11 +736,11 @@ describe('CreateTraceLinkDialog link-type options (Task 23)', () => {
 
     // Wait for the element load to settle (allElements populated, so
     // effectiveSourceType actually resolves) — but never click a target.
+    const user = userEvent.setup();
     await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`);
 
-    const select = screen.getByTestId('create-trace-link-type-select');
-    const options = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
-    expect(options).toEqual(['verifies']);
+    await openLinkTypeListbox(user);
+    expect(linkTypeOptionValues()).toEqual(['verifies']);
     expect(screen.queryByTestId('create-trace-link-no-types')).not.toBeInTheDocument();
   });
 
@@ -738,16 +763,286 @@ describe('CreateTraceLinkDialog link-type options (Task 23)', () => {
       ]);
     // A StakeholderNeed/GlossaryTerm id: never returned by any of the six
     // listAll() mocks, so it is absent from allElements.
+    const user = userEvent.setup();
     renderDialog({ sourceId: 'need-999-not-in-any-listing' });
 
     await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`);
 
-    const select = screen.getByTestId('create-trace-link-type-select');
-    const options = Array.from(select.querySelectorAll('option')).map(
-      (o) => (o as HTMLOptionElement).value,
-    );
+    await openLinkTypeListbox(user);
+    const options = linkTypeOptionValues();
     expect(options.length).toBeGreaterThan(0);
     expect(options).toContain('references');
     expect(screen.queryByTestId('create-trace-link-no-types')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Accessible link-type dropdown (#318)
+//
+// The former native <select> let the DOM value and React state diverge: a
+// programmatic `element.value = …` never reached React (reproduced before
+// the change — the submit carried the stale default while the DOM showed the
+// new value). These tests pin the replacement's contract: listbox semantics,
+// full keyboard operation and a Create button that enables deterministically
+// from React state.
+// ---------------------------------------------------------------------------
+
+describe('CreateTraceLinkDialog accessible link-type dropdown (#318)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    useLinkTypesMock.current = () => buildCatalog(MOCK_CATALOG);
+  });
+
+  it('exposes the select-only-combobox ARIA contract on the trigger (finding #1)', async () => {
+    renderDialog();
+    const trigger = await screen.findByTestId('create-trace-link-type-select');
+
+    expect(trigger.tagName).toBe('BUTTON');
+    // ARIA 1.2 only honours `aria-activedescendant` on application/combobox/
+    // composite/group/textbox — on the implicit `button` role it was ignored
+    // and arrow-key navigation stayed silent for screen readers.
+    expect(trigger).toHaveAttribute('role', 'combobox');
+    expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // `aria-controls` always references the popup, which is kept in the DOM
+    // and merely hidden while collapsed (no dangling ID reference).
+    const listbox = screen.getByTestId('create-trace-link-type-listbox');
+    expect(trigger).toHaveAttribute('aria-controls', listbox.id);
+    // Named by the visible "Link Type" caption plus the current value.
+    expect(trigger.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(trigger).not.toHaveAttribute('aria-activedescendant');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('exposes the selected value in the accessible name (finding #2)', async () => {
+    renderDialog();
+    const trigger = await screen.findByTestId('create-trace-link-type-select');
+    const valueSpan = screen.getByTestId('create-trace-link-type-value');
+
+    expect(valueSpan.id).toBeTruthy();
+    const labelledBy = trigger.getAttribute('aria-labelledby') ?? '';
+    expect(labelledBy.split(/\s+/)).toContain(valueSpan.id);
+    // The value is also the trigger's text content, so a combobox exposes it
+    // as its value (the native <select> did too).
+    expect(trigger).toHaveTextContent('derives-from');
+  });
+
+  it('opens on click and renders a listbox with the selected option marked', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByTestId('create-trace-link-type-select'));
+
+    const trigger = screen.getByTestId('create-trace-link-type-select');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const listbox = screen.getByRole('listbox');
+    expect(trigger).toHaveAttribute('aria-controls', listbox.id);
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+    expect(screen.getByTestId('create-trace-link-type-option-derives-from')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByTestId('create-trace-link-type-option-decomposes')).toHaveAttribute(
+      'aria-selected',
+      'false',
+    );
+    // Finding #5: the selected row is visibly marked, the other one is not.
+    expect(screen.getByTestId('create-trace-link-type-option-derives-from')).toHaveTextContent('✓');
+    expect(screen.getByTestId('create-trace-link-type-option-decomposes')).not.toHaveTextContent('✓');
+  });
+
+  it('drives selection with ArrowDown + Enter and submits the chosen type', async () => {
+    vi.mocked(tracelinksApi.tracelinksApi.create).mockResolvedValue({} as any);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
+    );
+
+    const trigger = screen.getByTestId('create-trace-link-type-select');
+    // Click opens with the selected type active; one ArrowDown moves to the
+    // next type, Enter commits it (the trigger keeps DOM focus, conveyed via
+    // aria-activedescendant).
+    await user.click(trigger);
+    await user.keyboard('{ArrowDown}');
+    expect(trigger).toHaveAttribute('aria-activedescendant');
+    await user.keyboard('{Enter}');
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByTestId('create-trace-link-type-value')).toHaveTextContent('decomposes');
+    expect(trigger).toHaveFocus();
+
+    await user.click(screen.getByTestId('create-trace-link-submit'));
+    await waitFor(() => {
+      expect(tracelinksApi.tracelinksApi.create).toHaveBeenCalledWith({
+        source_id: SOURCE_ID,
+        target_id: MOCK_REQUIREMENTS[0].id,
+        link_type: 'decomposes',
+      });
+    });
+  });
+
+  it('Escape closes the listbox but keeps the dialog open and restores trigger focus', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderDialog({ onClose });
+
+    const trigger = await screen.findByTestId('create-trace-link-type-select');
+    await user.click(trigger);
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByTestId('create-trace-link-dialog')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('Tab closes the listbox and lets focus move on', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderDialog({ onClose });
+
+    const trigger = await screen.findByTestId('create-trace-link-type-select');
+    await user.click(trigger);
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+
+    await user.tab();
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(trigger).not.toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('enables Create deterministically once both required fields are set', async () => {
+    const user = userEvent.setup();
+    // Global mode: the source is part of the form, so both required fields
+    // have to be filled before Create unlocks.
+    renderDialog({ sourceId: undefined });
+
+    const submit = await screen.findByTestId('create-trace-link-submit');
+    expect(submit).toBeDisabled();
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-source-element-${MOCK_REQUIREMENTS[0].id}`),
+    );
+    expect(submit).toBeDisabled();
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[1].id}`),
+    );
+    await waitFor(() => expect(submit).not.toBeDisabled());
+  });
+
+  it('typeahead: a printable character opens the popup and prefix-selects a row (finding #3)', async () => {
+    useLinkTypesMock.current = () =>
+      buildCatalog([
+        makeCatalogRow('derives-from', [['Requirement', 'Requirement']], 'Derivation'),
+        makeCatalogRow('decomposes', [['Requirement', 'Requirement']], 'Zerlegung'),
+        makeCatalogRow('references', [['Requirement', 'Requirement']], 'Verweis'),
+      ]);
+    vi.mocked(tracelinksApi.tracelinksApi.create).mockResolvedValue({} as any);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
+    );
+
+    const trigger = screen.getByTestId('create-trace-link-type-select');
+    act(() => {
+      trigger.focus();
+    });
+    await user.keyboard('z');
+
+    // Typing opened the popup and moved the active row to "Zerlegung".
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByTestId('create-trace-link-type-value')).toHaveTextContent('Zerlegung');
+
+    await user.click(screen.getByTestId('create-trace-link-submit'));
+    await waitFor(() => {
+      expect(tracelinksApi.tracelinksApi.create).toHaveBeenCalledWith({
+        source_id: SOURCE_ID,
+        target_id: MOCK_REQUIREMENTS[0].id,
+        link_type: 'decomposes',
+      });
+    });
+  });
+
+  it('typeahead cycles on a repeated identical character (N1)', async () => {
+    // Two options share the initial "Z", so a second "z" must advance from
+    // the first to the second instead of getting stuck (APG select-only
+    // combobox).
+    useLinkTypesMock.current = () =>
+      buildCatalog([
+        makeCatalogRow('derives-from', [['Requirement', 'Requirement']], 'Derivation'),
+        makeCatalogRow('decomposes', [['Requirement', 'Requirement']], 'Zerlegung'),
+        makeCatalogRow('references', [['Requirement', 'Requirement']], 'Zuordnung'),
+      ]);
+    vi.mocked(tracelinksApi.tracelinksApi.create).mockResolvedValue({} as any);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(
+      await screen.findByTestId(`create-trace-link-target-element-${MOCK_REQUIREMENTS[0].id}`),
+    );
+
+    const trigger = screen.getByTestId('create-trace-link-type-select');
+    act(() => {
+      trigger.focus();
+    });
+
+    // First "z" -> first "Z…" option.
+    await user.keyboard('z');
+    expect(trigger).toHaveAttribute(
+      'aria-activedescendant',
+      screen.getByTestId('create-trace-link-type-option-decomposes').id,
+    );
+
+    // Second "z" -> next "Z…" option (buffer "zz" behaves like "z").
+    await user.keyboard('z');
+    expect(trigger).toHaveAttribute(
+      'aria-activedescendant',
+      screen.getByTestId('create-trace-link-type-option-references').id,
+    );
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByTestId('create-trace-link-type-value')).toHaveTextContent('Zuordnung');
+
+    await user.click(screen.getByTestId('create-trace-link-submit'));
+    await waitFor(() => {
+      expect(tracelinksApi.tracelinksApi.create).toHaveBeenCalledWith({
+        source_id: SOURCE_ID,
+        target_id: MOCK_REQUIREMENTS[0].id,
+        link_type: 'references',
+      });
+    });
+  });
+
+  it('with no fitting type the trigger is described by the hint and cannot open (finding #4)', async () => {
+    useLinkTypesMock.current = () =>
+      buildCatalog([
+        makeCatalogRow('verifies', [['TestCase', 'Requirement']], 'Verifikation'),
+        makeCatalogRow('mitigates', [['Risk', 'Requirement']], 'Risikominderung'),
+      ]);
+    const user = userEvent.setup();
+    // Adr source: neither 'verifies' (TestCase) nor 'mitigates' (Risk)
+    // matches, so the option list is empty.
+    renderDialog({ sourceId: MOCK_ADRS[0].id });
+
+    const trigger = await screen.findByTestId('create-trace-link-type-select');
+    const hint = await screen.findByTestId('create-trace-link-no-types');
+    expect(trigger).toHaveAttribute('aria-describedby', hint.id);
+
+    await user.click(trigger);
+    // No empty listbox is announced; the trigger stays collapsed.
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 });
