@@ -357,6 +357,15 @@ class WorkspaceAuditView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         except Exception:
+            # #569 review BR-569-01: an unexpected fault on a governance
+            # surface must be loud. Returning a Response means Django's
+            # ``django.request`` logger never fires, so without this line the
+            # failure (leaked L1 domain error, TenantContextNotSetError, DB
+            # error) would be undiagnosable — the exact safety net the spec
+            # built deliberately (spec §3.4.2 / N6).
+            logger.exception(
+                "SE-Auditor report failed for workspace %s", workspace_id
+            )
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -455,6 +464,15 @@ class WorkspaceAuditWaiverView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:
+            # #569 review BR-569-01: log before masking — see the sibling
+            # comment on WorkspaceAuditView.get. Rule/artifact identity is the
+            # useful context for a governance write that blew up.
+            logger.exception(
+                "Waiver grant failed for workspace %s (rule=%s, artifacts=%s)",
+                workspace_id,
+                data.get("rule_id"),
+                data.get("artifact_ids"),
+            )
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -501,6 +519,11 @@ class WorkspaceAuditWaiverView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:
+            # #569 review BR-569-01: log before masking — see the sibling
+            # comment on WorkspaceAuditView.get.
+            logger.exception(
+                "Waiver list failed for workspace %s", workspace_id
+            )
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
