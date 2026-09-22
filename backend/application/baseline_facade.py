@@ -964,9 +964,10 @@ class BaselineFacade(ServiceBase):
     def _assert_permission_read(ctx: AuthContext) -> None:
         """Require a role that may read this tenant's baseline metadata.
 
-        Reuses the WRITE gate: every role that can edit an artifact can also
-        see whether it is baselined (and the drift badge is rendered on exactly
-        those edit surfaces). The endpoint stays tenant-scoped regardless.
+        Uses the READ gate (``Operation.READ``), so the lowest permitted role
+        is ``viewer`` — reading whether an artifact is baselined is a read-only
+        concern and must not require an edit-capable role. The endpoint stays
+        tenant-scoped regardless.
         """
         from auth_tenancy.services.authorization import AuthorizationService, Operation
 
