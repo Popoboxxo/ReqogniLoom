@@ -44,6 +44,10 @@ from application.dlq_service import _DlqSnapshot
 
 from auth_tenancy.services import Operation
 
+from baseline.models import BaselineGateWaiver
+
+from persistence.models import Tenant
+
 from mcp_server.protocol_handler import (
     ERROR_CODES,
     ERROR_CODE_MAP,
@@ -58,6 +62,7 @@ from mcp_server.tool_registry import (
     _WRITE_TOOL_PREFIXES,
 )
 from mcp_server.tools.audit import AuditToolGroup
+from mcp_server.tools.base import McpAuditWriteError, write_mcp_audit
 
 
 # ---------------------------------------------------------------------------
@@ -1105,7 +1110,11 @@ class TestAuditWaiverRegistryGating:
         assert ToolRegistry()._required_scope_operation("audit.waivers") is Operation.READ
 
 
+@pytest.mark.django_db
 class TestAuditWaiveFinding:
+    # BR-569-02: the handler opens the waiver transaction around the service
+    # call, so this class needs a live DB. The service and the MCP audit write
+    # stay mocked, so no real row is persisted in these tests.
     """AC-569-06 / AC-569-02 / AC-569-17 â€” the grant tool over the facade."""
 
     def _params(self, **overrides):
@@ -1277,6 +1286,147 @@ class TestAuditWaiveFinding:
         )
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
+
+    def test_non_string_reason_is_a_validation_error(self):
+        """BR-569-03: an untyped ``reason`` is a shape error, not a policy one."""
+        with patch(
+            "application.audit_service.AuditService.suppress_finding"
+        ) as suppress:
+            result = AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params=self._params(reason=123),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        suppress.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestAuditWaiveFindingFailClosed:
+    """BR-569-02 — a failed governance audit must roll back and error out."""
+
+    def test_a_failed_audit_write_rolls_back_the_waiver(self):
+        """With the audit writer forced to raise, the row must NOT persist.
+
+        The service is stubbed to *insert a real row* (mirroring what
+        ``suppress_finding`` does inside the handler's transaction) and the
+        audit writer is forced to fail. Because both run in one atomic block,
+        the row is rolled back and the caller receives an error — never ``ok``
+        without an ``AuditEntry``.
+        """
+        tenant = Tenant.objects.create(
+            name="mcp-failclosed", slug="mcp-failclosed"
+        )
+        workspace_id = uuid4()
+        inserted_ids: list[UUID] = []
+
+        def _create_then_report(*args, **kwargs):
+            row = BaselineGateWaiver.unscoped.create(
+                workspace_id=workspace_id,
+                tenant_id=tenant.id,
+                finding_key="TRACE-P1\x1fa1",
+                rule_id="TRACE-P1",
+                artifact_ids=["a1"],
+                scope="project",
+                scope_artifact_id="",
+                reason=_VALID_REASON,
+                granted_by=str(USER_ID),
+            )
+            inserted_ids.append(row.id)
+            return _suppression_view(waiver_id=row.id), True
+
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            side_effect=_create_then_report,
+        ), patch(
+            "audit.services.log_write",
+            side_effect=RuntimeError("audit backend down"),
+        ):
+            result = AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params={
+                    "workspace_id": str(workspace_id),
+                    "rule_id": "TRACE-P1",
+                    "reason": _VALID_REASON,
+                },
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+
+        assert inserted_ids, "the simulated service insert never ran"
+        # (b) the caller receives an error, not a success …
+        assert result.success is False
+        assert result.error_code == "INTERNAL_ERROR"
+        # (a) … and the waiver row was rolled back with the failed audit write.
+        assert not BaselineGateWaiver.unscoped.filter(
+            workspace_id=workspace_id
+        ).exists()
+
+
+@pytest.mark.django_db
+class TestAuditWaiverTenantParity:
+    """BR-569-03 — a foreign workspace is NOT_FOUND on MCP, like REST."""
+
+    def test_foreign_workspace_grant_maps_to_not_found(self):
+        """Not ``WAIVER_FINDING_NOT_BLOCKING`` (spec E7/E13)."""
+        result = AuditToolGroup().execute_tool(
+            "audit.waive_finding",
+            params={
+                "workspace_id": str(uuid4()),
+                "rule_id": "TRACE-P1",
+                "reason": _VALID_REASON,
+            },
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+    def test_foreign_workspace_list_maps_to_not_found(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.waivers",
+            params={"workspace_id": str(uuid4())},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+
+class TestWriteMcpAuditFailClosed:
+    """BR-569-02 — ``write_mcp_audit`` keeps best-effort by default."""
+
+    def test_default_swallows_a_write_fault(self):
+        with patch(
+            "audit.services.log_write",
+            side_effect=RuntimeError("audit backend down"),
+        ):
+            write_mcp_audit(
+                ctx=ADMIN_CTX,
+                operation="baseline.waiver_create",
+                entity_type="BaselineGateWaiver",
+                entity_id=uuid4(),
+                tool_name="audit.waive_finding",
+                api_key=VALID_API_KEY,
+            )
+
+    def test_fail_closed_reraises(self):
+        with patch(
+            "audit.services.log_write",
+            side_effect=RuntimeError("audit backend down"),
+        ):
+            with pytest.raises(McpAuditWriteError):
+                write_mcp_audit(
+                    ctx=ADMIN_CTX,
+                    operation="baseline.waiver_create",
+                    entity_type="BaselineGateWaiver",
+                    entity_id=uuid4(),
+                    tool_name="audit.waive_finding",
+                    api_key=VALID_API_KEY,
+                    fail_closed=True,
+                )
 
 
 class TestAuditWaivers:

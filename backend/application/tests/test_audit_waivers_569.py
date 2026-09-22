@@ -31,11 +31,13 @@ from __future__ import annotations
 import contextlib
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
+from uuid import uuid4
 
 import pytest
 
 from application.audit_service import AuditService, SuppressionView
 from application.base import (
+    NotFoundError,
     PermissionDeniedError,
     SuppressionExpiredError,
     ValidationError,
@@ -321,6 +323,73 @@ class TestSuppressFinding:
         assert not BaselineGateWaiver.unscoped.filter(
             workspace_id=workspace.id
         ).exists()
+
+
+class TestSuppressFindingAtomicity:
+    """BR-569-02 — the waiver row and its audit entry are one transaction."""
+
+    def test_a_failed_audit_write_rolls_back_the_waiver(
+        self, tenant, workspace, admin_ctx
+    ):
+        """With the audit writer forced to raise, the row must NOT persist.
+
+        The hard requirement is structural: "Kein Weg darf existieren, ein
+        Blocker-Finding ohne Begründung und Audit-Spur loszuwerden." The row
+        and the ``baseline.waiver_create`` entry are written in the same
+        ``@atomic_transaction``; a writer fault therefore rolls the row back
+        instead of committing a silenced blocker with no trail.
+        """
+        from unittest.mock import patch
+
+        service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
+        with patch(
+            "audit.services.log_write",
+            side_effect=RuntimeError("audit backend down"),
+        ):
+            with pytest.raises(RuntimeError):
+                service.suppress_finding(
+                    workspace.id,
+                    admin_ctx,
+                    rule_id="TRACE-P1",
+                    artifact_ids=["art-1"],
+                    reason=_REASON,
+                )
+
+        # (a) the waiver row did not survive the failed audit write …
+        assert not BaselineGateWaiver.unscoped.filter(
+            workspace_id=workspace.id
+        ).exists()
+        # (b) … and no audit entry was produced either.
+        assert _waiver_entries(tenant).count() == 0
+
+
+class TestWorkspaceTenantGuard:
+    """BR-569-03 — the suppression surface rejects a foreign workspace.
+
+    The guard lives on the Layer-2 facade (ADR-01 single entry point), so the
+    REST and MCP transports cannot drift: a workspace outside the caller's
+    tenant is ``NotFoundError`` (404 ``NOT_FOUND``), never a finding-level
+    ``WAIVER_FINDING_NOT_BLOCKING``.
+    """
+
+    def test_foreign_workspace_grant_raises_not_found(self, admin_ctx):
+        foreign = uuid4()
+        service = AuditService(engine=_ScopeAwareStubEngine([_blocker()]))
+        with pytest.raises(NotFoundError):
+            service.suppress_finding(
+                foreign,
+                admin_ctx,
+                rule_id="TRACE-P1",
+                artifact_ids=["art-1"],
+                reason=_REASON,
+            )
+        assert not BaselineGateWaiver.unscoped.filter(
+            workspace_id=foreign
+        ).exists()
+
+    def test_foreign_workspace_list_raises_not_found(self, admin_ctx):
+        with pytest.raises(NotFoundError):
+            AuditService().list_suppressions(uuid4(), admin_ctx)
 
 
 # ---------------------------------------------------------------------------
