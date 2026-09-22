@@ -116,6 +116,13 @@ export interface ArtifactFormProps {
   /** Adapter-owned selectors for existing create-dialog automation. */
   fieldTestIds?: Record<string, string>;
   saveTestId?: string;
+  /**
+   * Adapter-owned action row rendered at the top of the form, before the
+   * sections (issue #424: the TestCase "mark reviewed" action). Additive and
+   * optional — the shared renderer keeps owning layout, the adapter owns what
+   * the actions mean.
+   */
+  headerActions?: ReactNode;
 }
 
 export interface FormSection {
@@ -200,6 +207,7 @@ export function ArtifactForm({
   onCancel,
   fieldTestIds,
   saveTestId = "artifact-form-save",
+  headerActions,
 }: ArtifactFormProps): JSX.Element {
   const { t, i18n } = useTranslation();
   const { definition: resolvedDefinition, loading, error: loadError } =
@@ -644,6 +652,12 @@ export function ArtifactForm({
           data-testid="artifact-form-error"
         >
           {formError}
+        </div>
+      ) : null}
+
+      {headerActions ? (
+        <div className={styles.headerActions} data-testid="artifact-form-header-actions">
+          {headerActions}
         </div>
       ) : null}
 

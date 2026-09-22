@@ -188,6 +188,15 @@
   justify-content: flex-end;
 }
 
+/* Adapter-owned top-of-form action row (#424). Layout only — the adapter
+   supplies the controls (e.g. the TestCase "mark reviewed" button). */
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .widget {
   display: flex;
   flex-direction: column;

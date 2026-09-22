@@ -118,7 +118,9 @@ def test_create_without_configuration_fields_keeps_defaults() -> None:
     assert resp.status_code == 201, resp.content
     body = resp.json()
     assert body["theme"] == "dark"
-    assert body["goals_enabled"] is False
+    # #402 (cluster 5): goals_enabled now defaults to True; goals_ai_enabled
+    # deliberately stays False (no unannounced LLM generation).
+    assert body["goals_enabled"] is True
     assert body["goals_ai_enabled"] is False
     assert body["decomposition_link_type"] == "decomposes"
     assert body["default_link_type"] == "references"

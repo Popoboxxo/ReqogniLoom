@@ -8,7 +8,42 @@
  */
 
 import { apiClient, getList } from "./client";
-import type { Artifact, PaginatedResponse, UUID } from "../types";
+import type { Artifact, ISODateTime, PaginatedResponse, UUID } from "../types";
+
+/**
+ * #399: one baseline the artifact is a member of, with its drift verdict.
+ * Mirrors `BaselineFacade.ArtifactBaselineMembership` (spec section 6.2).
+ */
+export interface ArtifactBaselineMembership {
+  baseline_id: UUID;
+  baseline_name: string;
+  /** document | project | global */
+  scope: string;
+  baselined_at: ISODateTime;
+  /**
+   * Informational: the `Artifact.version` captured at baseline time — not the
+   * entity's own version. A content edit bumps the entity version without
+   * bumping `Artifact.version`, so this can equal `current_version` even when
+   * the artifact genuinely drifted. `drifted` is authoritative.
+   */
+  baselined_version: number;
+  /** Informational: the `Artifact.version` right now; same caveat as `baselined_version`. */
+  current_version: number;
+  drifted: boolean;
+  /**
+   * `false` for legacy delta-index entries captured without a `state` — the
+   * version comparison is then the only signal available.
+   */
+  drift_known: boolean;
+}
+
+/** #399: response of `GET /api/v1/artifacts/{id}/baseline-membership/`. */
+export interface BaselineMembershipResponse {
+  artifact_id: UUID;
+  /** `true` when at least one membership is drifted. */
+  drifted: boolean;
+  memberships: ArtifactBaselineMembership[];
+}
 
 export const artifactsApi = {
   list(workspaceId: UUID, parentId?: UUID): Promise<PaginatedResponse<Artifact>> {
@@ -19,6 +54,17 @@ export const artifactsApi = {
 
   get(id: UUID): Promise<Artifact> {
     return apiClient.get<Artifact>(`/artifacts/${id}/`);
+  },
+
+  /**
+   * #399: baseline membership + drift for one artifact. Called once per open
+   * editor header, never per list row (spec D7 — a list badge would be an
+   * N+1 without a batch endpoint).
+   */
+  baselineMembership(id: UUID): Promise<BaselineMembershipResponse> {
+    return apiClient.get<BaselineMembershipResponse>(
+      `/artifacts/${id}/baseline-membership/`
+    );
   },
 
   create(data: {

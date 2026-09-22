@@ -16,6 +16,7 @@
 // so this spec does not depend on a workspace preset actually enabling it.
 import { test, expect, APIRequestContext, Route } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { deleteRequirement as deleteRequirementFixture } from '../helpers/cleanup';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -44,6 +45,14 @@ async function createRequirement(
       // pass — the POST 400s, the signature dialog stays open and the item
       // stays in the queue.
       acceptance_criteria: 'Given the review queue, when approved, then the status is approved.',
+      // #272 (spec section 7.2): `verification_method` joined the Extended
+      // approval gate's mandatory fields. Same failure mode as
+      // acceptance_criteria above — omit it and the approve POST 400s, the
+      // signature dialog stays open and the item stays in the queue. The
+      // requirement defaults to `type: 'SyReq'`, so the value is accepted and
+      // persisted; 'Test' mirrors the backend policy fixture
+      // (test_se_validation_remainder_272.py).
+      verification_method: 'Test',
     },
   });
   expect(response.ok()).toBeTruthy();
@@ -70,9 +79,12 @@ async function deleteRequirement(
   token: string,
   id: string
 ): Promise<void> {
-  await request.delete(`${BACKEND_URL}/api/v1/requirements/${id}/`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  // Issue #947: delegates to the shared helper. The local copy sent no
+  // `change_reason` body and never inspected the response — and this spec's
+  // fixtures live in the SEEDED workspace, whose `extended` preset makes the
+  // reason mandatory (#604), so every DELETE was answered with 400 and every
+  // fixture silently stayed behind.
+  await deleteRequirementFixture(request, token, id, 'E2E cleanup (review-workflow.spec.ts)');
 }
 
 test.describe('[COMP-RF-REV] Reviews view (REQ-144)', () => {

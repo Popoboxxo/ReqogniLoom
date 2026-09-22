@@ -93,7 +93,33 @@ def _risk(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
 
 
 def _test_case(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
-    obj = TestService().create_test_case(workspace_id=workspace_id, ctx=ctx, **fields)
+    # #424 producer P4: the interview formalisation is an LLM extraction step
+    # (``interview_multi_protocol`` extracts a fenced JSON proposal) with no
+    # per-TestCase human confirmation gate, so the created row is AI-generated
+    # and unreviewed. Marking it ``manual``/``reviewed`` reintroduced exactly
+    # the false-green class #424 closes (prompt output counting as verified
+    # evidence).
+    #
+    # Overwrite protection: a tenant-defined interview protocol derives its
+    # field names from attribute definitions, so a field literally named
+    # ``origin``/``reviewed`` can land in *fields*. Keyword-argument ordering
+    # provides no protection here — ``create_test_case(..., origin=X,
+    # **fields)`` raises ``TypeError: got multiple values for keyword
+    # argument 'origin'`` regardless of the order. The normative mechanism is
+    # therefore this dictionary filter: the adapter owns ``origin``/``reviewed``,
+    # every other proposal field (including ``scenario_kind``) passes through.
+    adapter_fields = {
+        key: value
+        for key, value in fields.items()
+        if key not in ("origin", "reviewed")
+    }
+    obj = TestService().create_test_case(
+        workspace_id=workspace_id,
+        ctx=ctx,
+        origin="ai_generated",
+        reviewed=False,
+        **adapter_fields,
+    )
     return CreatedArtifactRef(
         artifact_id=obj.artifact_id, artifact_type="TestCase", entity_id=obj.id
     )

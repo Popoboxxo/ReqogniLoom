@@ -72,6 +72,45 @@ export interface RequirementListOptions {
   includeDeleted?: boolean;
 }
 
+/**
+ * #424: one TestCase row of the requirement coverage report, including the
+ * provenance fields the false-green exclusion is derived from (§4.5).
+ */
+export interface CoverageReportTestCase {
+  id: UUID;
+  uid?: string;
+  title?: string;
+  origin?: string;
+  reviewed?: boolean;
+  scenario_kind?: string;
+  latest_result?: string | null;
+}
+
+/** #272: one requirement row of the coverage report. */
+export interface CoverageReportRequirement {
+  requirement_id: UUID;
+  uid?: string;
+  title?: string;
+  level?: number | null;
+  covered: boolean;
+  test_cases?: CoverageReportTestCase[];
+}
+
+/** #272: `GET /api/v1/requirements/coverage-report/` response. */
+export interface RequirementCoverageReport {
+  summary: {
+    total: number;
+    covered: number;
+    percentage: number;
+    /**
+     * #424: distinct TestCase artifacts excluded from coverage solely because
+     * they are unreviewed AI output. `0` when `include_unreviewed_ai=true`.
+     */
+    pending_ai_review: number;
+  };
+  requirements: CoverageReportRequirement[];
+}
+
 export const requirementsApi = {
   /**
    * REQ-144: optional `status` filters the list by the WorkflowEngine
@@ -334,6 +373,29 @@ export const requirementsApi = {
   ): Promise<SimilarRequirement[]> {
     return apiClient.get<SimilarRequirement[]>(
       `/requirements/similar/?requirement_id=${requirementId}&limit=${limit}`
+    );
+  },
+
+  /**
+   * #272 / #424: requirement → test coverage report
+   * (`GET /api/v1/requirements/coverage-report/`, spec section 7.4.1).
+   *
+   * `summary.pending_ai_review` is the number of distinct TestCase artifacts
+   * excluded from `covered` only because they are `ai_generated` and not yet
+   * `reviewed` (§4.5). `includeUnreviewedAi` restores the raw view, in which
+   * `pending_ai_review` is `0`.
+   */
+  coverageReport(
+    workspaceId: UUID,
+    options?: { includeOutdated?: boolean; includeUnreviewedAi?: boolean }
+  ): Promise<RequirementCoverageReport> {
+    const query = new URLSearchParams({ workspace_id: workspaceId });
+    if (options?.includeOutdated) query.set("include_outdated", "true");
+    if (options?.includeUnreviewedAi) {
+      query.set("include_unreviewed_ai", "true");
+    }
+    return apiClient.get<RequirementCoverageReport>(
+      `/requirements/coverage-report/?${query.toString()}`
     );
   },
 };

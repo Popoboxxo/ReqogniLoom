@@ -541,6 +541,9 @@ class RequirementService(ServiceBase):
             entity_type="Requirement",
             entity_id=requirement_id,
             change_reason=change_reason,
+            # #399: durable drift marking on the edit of a baselined artifact
+            # (fail-open — a label must never fail the write).
+            details=self._baseline_drift_details(requirement.artifact_id, ctx),
         )
         self._emit_event(
             self._make_event(
@@ -600,7 +603,14 @@ class RequirementService(ServiceBase):
             reason="deleted via requirement.delete",
         )
 
-        self._audit(ctx=ctx, operation="delete", entity_type="Requirement", entity_id=requirement_id)
+        self._audit(
+            ctx=ctx,
+            operation="delete",
+            entity_type="Requirement",
+            entity_id=requirement_id,
+            # #399: same durable drift marking as update (spec section 6.2).
+            details=self._baseline_drift_details(requirement.artifact_id, ctx),
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.REQUIREMENT_DELETED,

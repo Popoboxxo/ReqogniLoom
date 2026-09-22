@@ -391,6 +391,11 @@ def check_verification_evidence(
       2. the most recent ``TestRunResult`` of *every* such TestCase is
          ``passed``.
 
+    #424: "non-outdated" is now "counts as verification evidence" — an
+    ``origin="ai_generated"``, unreviewed TestCase is not evidence either
+    (the shared predicate lives in
+    ``traceability.coverage_calculator.counts_as_verification_evidence``).
+
     Returns:
         ``None`` when the precondition holds (including every non-verification
         transition and every entity type outside
@@ -423,10 +428,13 @@ def check_verification_evidence(
         }
 
         calculator = CoverageCalculator()
-        # An outdated TestCase is not valid evidence.
+        # An outdated TestCase is not valid evidence — and neither is an
+        # unreviewed AI-generated one (#424, the false-green path). Both
+        # exclusions live in the shared predicate; this call names the wrapper
+        # explicitly so the intent is visible at the call site.
         if testcase_artifact_ids:
             testcase_artifact_ids = calculator._exclude_outdated_testcase_ids(
-                testcase_artifact_ids
+                testcase_artifact_ids, include_unreviewed_ai=False
             )
 
         if not testcase_artifact_ids:
@@ -434,8 +442,10 @@ def check_verification_evidence(
                 EC_VERIFICATION_EVIDENCE_MISSING,
                 (
                     "Cannot mark this Requirement as verified: it has no active "
-                    "TestCase linked via a 'verifies' trace link. Link at least "
-                    "one TestCase and record a passing test run first."
+                    "TestCase linked via a 'verifies' trace link, or its only "
+                    "linked test case is an unreviewed AI-generated test case. "
+                    "Link at least one TestCase, review it, and record a "
+                    "passing test run first."
                 ),
             )
 

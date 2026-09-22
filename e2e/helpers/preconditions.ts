@@ -24,10 +24,10 @@
  *
  * It deliberately does *not* seed anything itself: CI
  * (`.github/workflows/playwright.yml`) runs `migrate` + `seed_demo` +
- * `seed_toothbrush` before the tests, and the dev stack self-initialises the
- * base tenant (including the attribute definitions, see
- * `backend/application/self_init.py`) on `migrate` — a second, hidden seeding
- * path here would only mask a broken setup.
+ * `seed_toothbrush` + `bootstrap_attribute_definitions` before the tests, and
+ * the dev stack self-initialises the base tenant (including the attribute
+ * definitions, see `backend/application/self_init.py`) on `migrate` — a second,
+ * hidden seeding path here would only mask a broken setup.
  */
 import { request } from '@playwright/test';
 import { SEEDED_WORKSPACE_ID, TEST_USER } from './auth';
@@ -218,9 +218,13 @@ async function requireGlobalAttributeDefinitions(
         '  docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml ' +
           '--project-directory . exec backend python manage.py bootstrap_attribute_definitions',
         '',
-        'It is idempotent. On a fresh database `manage.py migrate` already runs it via',
-        'the REQ-188 post_migrate self-init, so a miss here means migrate never ran or',
-        'the tenant predates the attribute-definition migrations.',
+        'It is idempotent. On most stacks `manage.py migrate` already seeds them via',
+        'the REQ-188 post_migrate self-init (self_init.py calls',
+        'bootstrap_attribute_definitions for the tenant it provisions). A miss here',
+        'therefore means one of: migrate never ran, the stack has no',
+        'SYSTEM_ADMIN_PASSWORD so the self-init returned early on a fresh database,',
+        'or the self-init bootstrap threw — self_init only logs that, it cannot raise',
+        'inside post_migrate.',
       ].join('\n')
     );
   }

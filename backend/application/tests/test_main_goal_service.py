@@ -111,8 +111,15 @@ class MainGoalServiceCreateManualTests(TestCase):
         TenantContext.clear_tenant()
 
     def test_create_manual_raises_when_goals_disabled(self):
-        """Workspace.goals_enabled defaults to False; create_manual must reject it."""
-        workspace = Workspace.objects.create(tenant=self.tenant, name="W-disabled")
+        """An explicitly disabled workspace must still reject the write.
+
+        #402 (cluster 5, spec D2) flipped the *default* to True, so the gate
+        is now exercised with an explicit ``goals_enabled=False`` instead of
+        relying on the model default.
+        """
+        workspace = Workspace.objects.create(
+            tenant=self.tenant, name="W-disabled", goals_enabled=False
+        )
         ctx = _make_ctx(tenant_id=self.tenant.id)
 
         with self.assertRaises(PermissionDeniedError):

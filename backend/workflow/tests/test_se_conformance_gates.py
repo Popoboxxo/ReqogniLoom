@@ -347,6 +347,9 @@ class TestMandatoryFieldGate:
             title="R1",
             description="A description",
             acceptance_criteria="Given/When/Then",
+            # #272 (spec §7.2): the Extended approval gate also requires the
+            # verification method, so a "complete" Requirement must carry it.
+            verification_method="Test",
         )
 
         result = _validate(
@@ -1031,7 +1034,14 @@ class TestVerifiesLinkGate:
         ws = _workspace(tenant, "extended")
         _make_workflow(tenant, ws, "extended", "Requirement")
         req = _requirement(
-            tenant, ws, title="R1", description="d", acceptance_criteria="ac"
+            tenant,
+            ws,
+            title="R1",
+            description="d",
+            acceptance_criteria="ac",
+            # #272 (spec §7.2): required by the Extended approval gate; the
+            # subject here is that rule 7 (TestCase-only) adds nothing.
+            verification_method="Test",
         )
 
         result = _validate(
