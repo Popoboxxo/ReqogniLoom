@@ -7,12 +7,17 @@ req_id  : REQ-L1-046 (admin DR / observability),
           REQ-L2-MC-011 (structured error response),
           REQ-L2-MC-012 (MCP audit trail)
 
-Tools implemented (admin-only):
+Tools implemented:
 
-  audit.query        (read)  — query the audit log with filters
+  audit.query        (read)  — query the audit log with filters (admin-only)
   audit.ai_review    (read)  — SysEng 2.0 N8: bundle SE-Auditor findings into
                                 LLM-generated refactoring packages
-  events.dlq_list    (read)  — list events in the dead-letter queue
+  audit.se_audit     (read)  — raw SE-Auditor run (issue #410); AUTHOR tier
+  audit.waive_finding(write) — grant a per-finding suppression (#569);
+                                ADMIN tier via _GOVERNANCE_TOOL_NAMES
+  audit.waivers      (read)  — list the workspace's suppressions (#569);
+                                approval-authority gated (REST E12 parity)
+  events.dlq_list    (read)  — list events in the dead-letter queue (admin-only)
   events.dlq_replay  (write) — replay a single DLQ event back into the outbox
 
 Architecture
@@ -66,6 +71,17 @@ Error mapping (REQ-L2-MC-011):
                              failure / daily token budget must never fall
                              through to the bare catch-all — issue #951)
 
+  #569 suppression errors (``audit.waive_finding``, spec §3.4.2/§3.5) — listed
+  before the generic ``ValidationError`` branch because all three are
+  ``ValidationError`` subclasses:
+  WaiverReasonPolicyViolation   -> WAIVER_REASON_REJECTED
+  WaiverFindingNotBlockingError -> WAIVER_FINDING_NOT_BLOCKING
+  SuppressionExpiredError       -> SUPPRESSION_EXPIRED
+  These three codes are deliberately absent from
+  ``protocol_handler._PROTOCOL_ERROR_CODES``: on ``tools/call`` they surface as
+  a successful JSON-RPC result with ``result.isError == true`` and the string
+  ``error_code`` (spec §3.5/R3-02), never as a numeric JSON-RPC code.
+
 Parameters accepted by ``audit.query`` (all optional):
     actor         : user_id / agent_id string to filter on.
     operation     : ``"create" | "update" | "delete" | "transition"``.
@@ -100,9 +116,15 @@ from application.ai_review_service import AiReviewResponseError, AiReviewService
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
+    SuppressionExpiredError,
     ValidationError,
+    WaiverFindingNotBlockingError,
+    WaiverReasonPolicyViolation,
 )
 from application.dlq_service import DlqService
+
+from baseline.exceptions import GovernanceAuthorityError
+from baseline.waivers import assert_gate_waiver_authority
 
 from audit.models import AuditEntry
 from audit.query import AuditQueryFilters
@@ -117,6 +139,7 @@ from mcp_server.tools.base import (
     ParameterError,
     mcp_audit_handoff,
     optional_uuid,
+    require_param,
     require_uuid,
     write_mcp_audit,
 )
@@ -145,6 +168,15 @@ _VALID_AI_REVIEW_SCOPES = frozenset({"document", "project", "global"})
 # issue #410 (audit.se_audit): the three rigor presets the SE-Auditor engine
 # resolves a rule set for (``traceability.audit.registry.RULE_PRESET_MAP``).
 _VALID_SE_TIERS = frozenset({"minimal", "standard", "extended"})
+
+# #569 (audit.waive_finding / audit.waivers) — mirrors rest_api/audit_views.py
+# (kept local to avoid a REST -> MCP import, same rationale as
+# ``_VALID_AI_REVIEW_SCOPES`` above).
+_VALID_SUPPRESSION_SCOPES = frozenset({"document", "project", "global"})
+
+#: Suppression lifecycle states accepted by ``audit.waivers`` ``state``
+#: (#569/m2). ``active`` is the default; anything else is a 400.
+_VALID_WAIVER_STATES = frozenset({"active", "expired", "all"})
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +254,37 @@ def _parse_iso8601(raw: Any, field_name: str) -> datetime:
     return parsed
 
 
+def _parse_suppression_expires_at(raw: Any) -> Optional[datetime]:
+    """Parse an optional ISO-8601 suppression expiry, preserving naivety.
+
+    Unlike :func:`_parse_iso8601` this must NOT silently attach UTC to an
+    offset-less timestamp: #569/E3/D2 requires a naive ``expires_at`` to be
+    *rejected* (400), because an expiry the caller did not fully specify must
+    not be reinterpreted behind its back. The parsed value (naive or aware) is
+    handed to ``AuditService.suppress_finding``, whose defensive guard owns the
+    decision — so this helper only answers "is it a parseable ISO-8601 string?".
+
+    ``None``/absent -> ``None`` (unbounded). A malformed value raises
+    :class:`ParameterError`, which the dispatcher maps to ``VALIDATION_ERROR``.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    if not isinstance(raw, str):
+        raise ParameterError(
+            "Parameter 'expires_at' must be an ISO-8601 string or null."
+        )
+    text = raw.strip()
+    # Python <3.11 does not natively accept "Z"; normalise to "+00:00".
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ParameterError(
+            f"Parameter 'expires_at' is not a valid ISO-8601 timestamp: {exc}"
+        ) from exc
+
+
 # ---------------------------------------------------------------------------
 # AuditToolGroup
 # ---------------------------------------------------------------------------
@@ -236,6 +299,10 @@ class AuditToolGroup(BaseToolGroup):
         # issue #410: the raw SE-Auditor run (no LLM), for agents that need
         # the findings themselves rather than a refactoring bundle.
         "audit.se_audit": "_handle_se_audit",
+        # #569: standalone per-finding suppression surface over the L2 facade
+        # (AuditService.suppress_finding / list_suppressions).
+        "audit.waive_finding": "_handle_waive_finding",
+        "audit.waivers": "_handle_waivers",
         "events.dlq_list": "_handle_dlq_list",
         "events.dlq_replay": "_handle_dlq_replay",
     }
@@ -330,6 +397,110 @@ class AuditToolGroup(BaseToolGroup):
                     "offset": {
                         "type": "integer",
                         "description": "Optional start offset; only used together with limit.",
+                    },
+                    "include_suppressed": {
+                        "type": "boolean",
+                        "description": (
+                            "#569: keep suppressed findings in the report "
+                            "(default true — nothing is hidden; suppressed "
+                            "findings are marked with suppressed/reason/expiry). "
+                            "Set false to filter them out."
+                        ),
+                    },
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "audit.waive_finding",
+            "description": (
+                "#569: grant a per-finding suppression (waiver) for a reported "
+                "BLOCKER SE-Auditor finding, with a mandatory written "
+                "justification. Takes away the finding's gate-blocking effect "
+                "but keeps it visible and audited (who, what, why, until when). "
+                "Requires approval authority (Admin/Approver and, for API keys, "
+                "the ADMIN tier). Response: the persisted suppression "
+                "(waiver_id, finding_key, identity_key, scope, reason, "
+                "granted_by, created_at, expires_at, state) plus 'created' "
+                "(false on an idempotent replay of an identical active waiver)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the target workspace.",
+                    },
+                    "rule_id": {
+                        "type": "string",
+                        "description": "SE-Auditor rule being suppressed, e.g. 'TRACE-P1'.",
+                    },
+                    "artifact_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Artifacts the finding concerns, as returned by the "
+                            "audit report (empty for graph-level findings)."
+                        ),
+                    },
+                    "scope": {
+                        "type": "string",
+                        "description": (
+                            "Optional baseline scope used only to locate the "
+                            "finding for the existence check "
+                            "(document|project|global). The persisted scope "
+                            "always comes from the matched finding."
+                        ),
+                    },
+                    "scope_artifact_id": {
+                        "type": "string",
+                        "description": "Document root; required when scope='document'.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": (
+                            "Mandatory justification for accepting this single "
+                            "deviation; recorded on the waiver and in the audit "
+                            "log. A placeholder is rejected with "
+                            "WAIVER_REASON_REJECTED."
+                        ),
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "description": (
+                            "Optional expiry (ISO-8601, timezone-aware). "
+                            "Omitted/null means unbounded; an already-past or "
+                            "naive value is rejected with VALIDATION_ERROR."
+                        ),
+                    },
+                },
+                "required": ["workspace_id", "rule_id", "reason"],
+            },
+        },
+        {
+            "name": "audit.waivers",
+            "description": (
+                "#569: list the workspace's per-finding suppressions, filtered "
+                "by lifecycle state (active|expired|all, default active). "
+                "Requires the same approval authority as the REST twin "
+                "GET .../audit/waivers/ (spec E12) — an Editor or an "
+                "AUTHOR-tier API key gets PERMISSION_DENIED. Response: "
+                "{waivers: [...], counts: {active, expired}}; counts describe "
+                "the whole set so a filter never hides anything."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the target workspace.",
+                    },
+                    "state": {
+                        "type": "string",
+                        "description": (
+                            "Optional lifecycle filter: active|expired|all "
+                            "(default active)."
+                        ),
                     },
                 },
                 "required": ["workspace_id"],
@@ -614,9 +785,11 @@ class AuditToolGroup(BaseToolGroup):
         Required params:
             workspace_id : UUID of the target workspace.
         Optional params:
-            tier   : rigor tier override (minimal|standard|extended).
-            limit  : page size (max 500).
-            offset : start offset (only with limit).
+            tier               : rigor tier override (minimal|standard|extended).
+            limit              : page size (max 500).
+            offset             : start offset (only with limit).
+            include_suppressed : #569 — keep suppressed findings in the report
+                                 (default true; suppressed findings are marked).
 
         No admin gate (mirrors audit.ai_review): it is a workspace-scoped,
         read-only audit run any workspace member may call; the required
@@ -647,11 +820,39 @@ class AuditToolGroup(BaseToolGroup):
                 "VALIDATION_ERROR", "Parameter 'offset' must be an integer."
             )
 
+        # #569/m2: strict parse — only true/false (case-insensitive); absent
+        # keeps the service default (True, O3). Only forwarded when the caller
+        # named it, so the pre-#569 call shape is unchanged.
+        include_suppressed: Optional[bool] = None
+        raw_include_suppressed = params.get("include_suppressed")
+        if raw_include_suppressed is not None:
+            if isinstance(raw_include_suppressed, bool):
+                include_suppressed = raw_include_suppressed
+            else:
+                lowered = str(raw_include_suppressed).strip().lower()
+                if lowered == "true":
+                    include_suppressed = True
+                elif lowered == "false":
+                    include_suppressed = False
+                else:
+                    return ToolResult.error(
+                        "VALIDATION_ERROR",
+                        "Parameter 'include_suppressed' must be 'true' or 'false'.",
+                    )
+
         from application.audit_service import AuditService
+
+        run_kwargs: Dict[str, Any] = {
+            "tier": tier,
+            "limit": limit,
+            "offset": offset,
+        }
+        if include_suppressed is not None:
+            run_kwargs["include_suppressed"] = include_suppressed
 
         try:
             report = AuditService().run_audit(
-                workspace_id, auth_context, tier=tier, limit=limit, offset=offset
+                workspace_id, auth_context, **run_kwargs
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -661,6 +862,202 @@ class AuditToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
         return ToolResult.ok(report.to_dict())
+
+    # ------------------------------------------------------------------
+    # audit.waive_finding (write, governance-gated) — #569
+    # ------------------------------------------------------------------
+
+    def _handle_waive_finding(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """audit.waive_finding — grant a per-finding suppression (#569).
+
+        Delegates exclusively to ``AuditService.suppress_finding`` (ADR-01);
+        the handler adds no second, weaker waiver path. The service owns the
+        authority choke point, the reason policy, the blocker-only existence
+        check and the persisted row; this handler only shapes the params and
+        translates the typed errors into MCP error codes.
+
+        Required params:
+            workspace_id : UUID of the target workspace.
+            rule_id      : SE-Auditor rule being suppressed.
+            reason       : mandatory justification (a placeholder is rejected
+                           with ``WAIVER_REASON_REJECTED``).
+        Optional params:
+            artifact_ids      : artifacts the finding concerns (default []).
+            scope             : document|project|global — used only for the
+                                existence check; the persisted scope comes from
+                                the matched finding.
+            scope_artifact_id : document root; required when scope='document'.
+            expires_at        : optional ISO-8601 expiry; null = unbounded.
+
+        No admin gate inside the handler: the facade's shared SSOT choke point
+        (``baseline.waivers.assert_gate_waiver_authority``) decides authority,
+        and the registry additionally requires the ADMIN tier via
+        ``_GOVERNANCE_TOOL_NAMES``.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+        rule_id = require_param(params, "rule_id")
+
+        raw_artifacts = params.get("artifact_ids") or []
+        if not isinstance(raw_artifacts, (list, tuple)):
+            raise ParameterError(
+                "Parameter 'artifact_ids' must be an array of strings."
+            )
+        artifact_ids = [str(a) for a in raw_artifacts]
+
+        scope = params.get("scope")
+        if scope is not None and str(scope).strip():
+            scope = str(scope).strip()
+            if scope not in _VALID_SUPPRESSION_SCOPES:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"Parameter 'scope' must be one of "
+                    f"{sorted(_VALID_SUPPRESSION_SCOPES)}.",
+                )
+        else:
+            scope = None
+
+        scope_artifact_id = params.get("scope_artifact_id")
+        if scope_artifact_id is not None:
+            scope_artifact_id = str(scope_artifact_id).strip() or None
+        # scope='document' without a document root is rejected by the service
+        # (400 VALIDATION_ERROR, never 422) — same rule as the REST twin.
+
+        # Deliberately NOT require_param: a missing/blank justification is a
+        # policy violation (WAIVER_REASON_REJECTED), not a shape error.
+        reason = params.get("reason", "")
+
+        try:
+            expires_at = _parse_suppression_expires_at(params.get("expires_at"))
+        except ParameterError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        from application.audit_service import AuditService
+
+        try:
+            # Codeberg #313: suppress the facade's own baseline.waiver_create
+            # entry for this entity — the write_mcp_audit call below (with the
+            # agent identity, REQ-L2-MC-012) is the sole audit entry for a
+            # newly created waiver.
+            with mcp_audit_handoff():
+                view, created = AuditService().suppress_finding(
+                    workspace_id,
+                    auth_context,
+                    rule_id=rule_id,
+                    artifact_ids=artifact_ids,
+                    scope=scope,
+                    scope_artifact_id=scope_artifact_id,
+                    reason=reason,
+                    expires_at=expires_at,
+                )
+        except WaiverReasonPolicyViolation as exc:
+            return ToolResult.error("WAIVER_REASON_REJECTED", str(exc))
+        except WaiverFindingNotBlockingError as exc:
+            return ToolResult.error("WAIVER_FINDING_NOT_BLOCKING", str(exc))
+        except SuppressionExpiredError as exc:
+            return ToolResult.error("SUPPRESSION_EXPIRED", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except (ValidationError, ValueError) as exc:
+            # Remaining shape/invariant failures (invalid scope, missing
+            # document root, naive/past expiry). Deliberately 400 — never 422.
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        if created:
+            # #569/E2: one baseline.waiver_create entry per *newly created*
+            # waiver — an idempotent replay writes nothing (AC-569-04 spirit).
+            write_mcp_audit(
+                ctx=auth_context,
+                operation="baseline.waiver_create",
+                entity_type="BaselineGateWaiver",
+                entity_id=view.waiver_id,
+                tool_name="audit.waive_finding",
+                api_key=api_key,
+                details={
+                    "finding_key": view.finding_key,
+                    "workspace_id": str(workspace_id),
+                    "rule_id": view.rule_id,
+                    "artifact_ids": list(view.artifact_ids),
+                    "scope": view.scope,
+                    "scope_artifact_id": view.scope_artifact_id,
+                    "expires_at": (
+                        view.expires_at.isoformat() if view.expires_at else None
+                    ),
+                    "granted_by": view.granted_by,
+                    "reason": view.reason,
+                },
+            )
+
+        payload = view.to_dict()
+        payload["created"] = created
+        return ToolResult.ok(payload)
+
+    # ------------------------------------------------------------------
+    # audit.waivers (read, authority-gated) — #569
+    # ------------------------------------------------------------------
+
+    def _handle_waivers(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """audit.waivers — list the workspace's suppressions (#569).
+
+        Required params:
+            workspace_id : UUID of the target workspace.
+        Optional params:
+            state : active|expired|all (default active).
+
+        Deliberate transport-parity decision (spec §3.5 vs REST E12): the tool
+        is a *read* at the scope gate (``_READ_ONLY_TOOL_NAMES``, so no ADMIN
+        capability tier is required to reach the handler), but the handler
+        evaluates the very same approval-authority choke point as the REST twin
+        ``GET .../audit/waivers/`` and answers ``PERMISSION_DENIED`` for a
+        caller without it. This is intentionally STRICTER than the plain READ
+        tier the spec's tool table implies: suppression records are governance
+        *management* metadata (who suppressed what and why), and reading them
+        through a weaker door on MCP than on REST would be an asymmetry a
+        caller could exploit by switching transport.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+
+        state = params.get("state") or "active"
+        if state not in _VALID_WAIVER_STATES:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Parameter 'state' must be one of "
+                f"{sorted(_VALID_WAIVER_STATES)}.",
+            )
+
+        # REST E12 parity: the suppression list is the governance management
+        # surface, so it needs the same approval authority as the grant path.
+        try:
+            assert_gate_waiver_authority(auth_context)
+        except GovernanceAuthorityError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from application.audit_service import AuditService
+
+        try:
+            all_views = AuditService().list_suppressions(
+                workspace_id, auth_context, state="all"
+            )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except (ValidationError, ValueError) as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        counts = {
+            "active": sum(1 for v in all_views if v.state == "active"),
+            "expired": sum(1 for v in all_views if v.state == "expired"),
+        }
+        waivers = [
+            v.to_dict() for v in all_views if state == "all" or v.state == state
+        ]
+        return ToolResult.ok({"waivers": waivers, "counts": counts})
 
     # ------------------------------------------------------------------
     # events.dlq_list (read)
