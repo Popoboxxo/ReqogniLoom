@@ -99,6 +99,11 @@ docs/test-reports/e2e/
 # tracked - the spec is the durable artefact, these are its evidence.
 e2e/proof/
 
+# Frontend build artifacts (vite config emit + tsc incremental build info)
+frontend/tsconfig*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
 # Run artefacts from e2e/tests/waterkettle-fullblown.spec.ts: its bug report and
 # the per-finding files are rewritten on every run (the report embeds a
 # timestamp), so tracking them left the working tree permanently dirty with
