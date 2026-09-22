@@ -195,14 +195,14 @@ class ServiceBase:
             # fail an otherwise-valid business operation.
             actor_type = ctx.actor_type if ctx.actor_type in ("user", "agent") else "user"
             # #399: `details` is now persisted (ADR-10 groundwork) instead of
-            # being dropped by the v1 writer. The agent label used to be merged
-            # into a details dict even when the caller passed none, which was
-            # harmless while details was ignored — now it would add a payload
-            # to every agent write. Only enrich an existing payload so
-            # "no details" still stores SQL NULL (default behaviour unchanged).
+            # being dropped by the v1 writer. Agent writes ALWAYS carry the
+            # `client_name` label — even when the caller passes no `details`
+            # (existing contract REQ-L2-AL-002 / #913, guarded by
+            # application/tests/test_audit_actor_type.py). Non-agent writes
+            # without caller `details` still store SQL NULL (default unchanged).
             audit_details = details
-            if details is not None and actor_type == "agent" and ctx.agent_label:
-                audit_details = {**details, "client_name": ctx.agent_label}
+            if actor_type == "agent" and ctx.agent_label:
+                audit_details = {**(details or {}), "client_name": ctx.agent_label}
 
             log_write(
                 actor=str(ctx.user_id),
