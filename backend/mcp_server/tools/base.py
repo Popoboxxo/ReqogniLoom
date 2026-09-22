@@ -266,6 +266,15 @@ def artifact_custom_fields(entity: Any) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+class McpAuditWriteError(RuntimeError):
+    """Raised by :func:`write_mcp_audit` under ``fail_closed=True`` (#569).
+
+    A distinct type (not a bare ``RuntimeError``) so a governance handler can
+    map exactly this failure to an error result without catching unrelated
+    runtime faults.
+    """
+
+
 def write_mcp_audit(
     ctx: AuthContext,
     operation: str,
@@ -274,6 +283,8 @@ def write_mcp_audit(
     tool_name: str,
     api_key: str,
     details: Optional[Dict[str, Any]] = None,
+    *,
+    fail_closed: bool = False,
 ) -> None:
     """Write an MCP-specific audit log entry synchronously.
 
@@ -287,6 +298,20 @@ def write_mcp_audit(
     same entity, wrap that one call in :func:`mcp_audit_handoff` (re-exported
     here from ``audit.services``) immediately before calling this function —
     this call then becomes the single audit entry for the operation.
+
+    Args:
+        fail_closed: #569 review BR-569-02. ``False`` (default) keeps the
+            historical best-effort contract — a failed audit write is logged
+            and swallowed so an optional courtesy entry can never fail an
+            otherwise-valid tool call. ``True`` opts a *governance* write into
+            fail-closed semantics: the failure is re-raised as
+            :class:`McpAuditWriteError` so the caller can roll back its
+            mutation and answer an error instead of ``ok`` (a blocking finding
+            must never be silenced without an audit trail).
+
+    Raises:
+        McpAuditWriteError: only when ``fail_closed`` is ``True`` and the
+            underlying write failed.
     """
     try:
         from audit.services import log_write
@@ -304,10 +329,16 @@ def write_mcp_audit(
             },
             details=details,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "MCP audit write failed for tool=%s entity=%s", tool_name, entity_id
         )
+        if fail_closed:
+            raise McpAuditWriteError(
+                f"The audit entry for {operation!r} on {entity_type} "
+                f"({entity_id}) could not be written; the governance write was "
+                "rolled back."
+            ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +441,7 @@ class BaseToolGroup(ABC):
 
 __all__ = [
     "BaseToolGroup",
+    "McpAuditWriteError",
     "ParameterError",
     "artifact_custom_fields",
     "require_param",

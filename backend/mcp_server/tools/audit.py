@@ -131,11 +131,13 @@ from audit.query import AuditQueryFilters
 from audit.services import query as audit_query
 
 from persistence.tenancy import TenantContext
+from persistence.transactions import TransactionContextManager
 from traceability.audit import AuditScope
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    McpAuditWriteError,
     ParameterError,
     mcp_audit_handoff,
     optional_uuid,
@@ -895,6 +897,11 @@ class AuditToolGroup(BaseToolGroup):
         (``baseline.waivers.assert_gate_waiver_authority``) decides authority,
         and the registry additionally requires the ADMIN tier via
         ``_GOVERNANCE_TOOL_NAMES``.
+
+        Atomicity (BR-569-02): the service call and the compensating
+        ``write_mcp_audit`` run in one transaction, and the audit write is
+        ``fail_closed`` — a failed trail rolls the waiver row back and answers
+        ``INTERNAL_ERROR`` instead of ``ok``.
         """
         workspace_id = require_uuid(params, "workspace_id")
         rule_id = require_param(params, "rule_id")
@@ -926,7 +933,16 @@ class AuditToolGroup(BaseToolGroup):
 
         # Deliberately NOT require_param: a missing/blank justification is a
         # policy violation (WAIVER_REASON_REJECTED), not a shape error.
+        # BR-569-03: but a *non-string* reason (int/list/dict) is a shape error
+        # — reject it here instead of handing an untyped value to the service.
+        # ``None`` stays "missing" (the service's policy check still owns it).
         reason = params.get("reason", "")
+        if reason is None:
+            reason = ""
+        elif not isinstance(reason, str):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'reason' must be a string."
+            )
 
         try:
             expires_at = _parse_suppression_expires_at(params.get("expires_at"))
@@ -936,27 +952,68 @@ class AuditToolGroup(BaseToolGroup):
         from application.audit_service import AuditService
 
         try:
-            # Codeberg #313: suppress the facade's own baseline.waiver_create
-            # entry for this entity — the write_mcp_audit call below (with the
-            # agent identity, REQ-L2-MC-012) is the sole audit entry for a
-            # newly created waiver.
-            with mcp_audit_handoff():
-                view, created = AuditService().suppress_finding(
-                    workspace_id,
-                    auth_context,
-                    rule_id=rule_id,
-                    artifact_ids=artifact_ids,
-                    scope=scope,
-                    scope_artifact_id=scope_artifact_id,
-                    reason=reason,
-                    expires_at=expires_at,
-                )
+            # BR-569-02: the waiver row and its audit entry are one unit of
+            # work. The outer atomic spans the service call (whose own
+            # ``@atomic_transaction`` becomes a nested savepoint) and the
+            # compensating ``write_mcp_audit`` below, so an audit-write fault
+            # rolls the row back instead of leaving a silenced blocker without
+            # a trail. ``fail_closed=True`` turns that fault into
+            # ``McpAuditWriteError`` instead of the historical silent swallow.
+            with TransactionContextManager():
+                # Codeberg #313: suppress the facade's own
+                # baseline.waiver_create entry for this entity — the
+                # write_mcp_audit call below (with the agent identity,
+                # REQ-L2-MC-012) is the sole audit entry for a newly created
+                # waiver.
+                with mcp_audit_handoff():
+                    view, created = AuditService().suppress_finding(
+                        workspace_id,
+                        auth_context,
+                        rule_id=rule_id,
+                        artifact_ids=artifact_ids,
+                        scope=scope,
+                        scope_artifact_id=scope_artifact_id,
+                        reason=reason,
+                        expires_at=expires_at,
+                    )
+                if created:
+                    # #569/E2: one baseline.waiver_create entry per *newly
+                    # created* waiver — an idempotent replay writes nothing
+                    # (AC-569-04 spirit).
+                    write_mcp_audit(
+                        ctx=auth_context,
+                        operation="baseline.waiver_create",
+                        entity_type="BaselineGateWaiver",
+                        entity_id=view.waiver_id,
+                        tool_name="audit.waive_finding",
+                        api_key=api_key,
+                        fail_closed=True,
+                        details={
+                            "finding_key": view.finding_key,
+                            "workspace_id": str(workspace_id),
+                            "rule_id": view.rule_id,
+                            "artifact_ids": list(view.artifact_ids),
+                            "scope": view.scope,
+                            "scope_artifact_id": view.scope_artifact_id,
+                            "expires_at": (
+                                view.expires_at.isoformat()
+                                if view.expires_at
+                                else None
+                            ),
+                            "granted_by": view.granted_by,
+                            "reason": view.reason,
+                        },
+                    )
         except WaiverReasonPolicyViolation as exc:
             return ToolResult.error("WAIVER_REASON_REJECTED", str(exc))
         except WaiverFindingNotBlockingError as exc:
             return ToolResult.error("WAIVER_FINDING_NOT_BLOCKING", str(exc))
         except SuppressionExpiredError as exc:
             return ToolResult.error("SUPPRESSION_EXPIRED", str(exc))
+        except McpAuditWriteError as exc:
+            # Fail-closed governance (BR-569-02): the row was rolled back with
+            # the transaction; the caller must not see ``ok``.
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except NotFoundError as exc:
@@ -965,31 +1022,6 @@ class AuditToolGroup(BaseToolGroup):
             # Remaining shape/invariant failures (invalid scope, missing
             # document root, naive/past expiry). Deliberately 400 — never 422.
             return ToolResult.error("VALIDATION_ERROR", str(exc))
-
-        if created:
-            # #569/E2: one baseline.waiver_create entry per *newly created*
-            # waiver — an idempotent replay writes nothing (AC-569-04 spirit).
-            write_mcp_audit(
-                ctx=auth_context,
-                operation="baseline.waiver_create",
-                entity_type="BaselineGateWaiver",
-                entity_id=view.waiver_id,
-                tool_name="audit.waive_finding",
-                api_key=api_key,
-                details={
-                    "finding_key": view.finding_key,
-                    "workspace_id": str(workspace_id),
-                    "rule_id": view.rule_id,
-                    "artifact_ids": list(view.artifact_ids),
-                    "scope": view.scope,
-                    "scope_artifact_id": view.scope_artifact_id,
-                    "expires_at": (
-                        view.expires_at.isoformat() if view.expires_at else None
-                    ),
-                    "granted_by": view.granted_by,
-                    "reason": view.reason,
-                },
-            )
 
         payload = view.to_dict()
         payload["created"] = created

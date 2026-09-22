@@ -40,6 +40,7 @@ from django.utils import timezone
 from auth_tenancy.context import AuthContext
 
 from application.base import (
+    NotFoundError,
     PermissionDeniedError,
     ServiceBase,
     SuppressionExpiredError,
@@ -68,6 +69,8 @@ from traceability.audit import (
     Severity,
     get_remediation,
 )
+
+from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -439,6 +442,39 @@ class AuditService(ServiceBase):
 
     # ---------- Suppression surface (#569) ----------
 
+    @staticmethod
+    def _assert_workspace_in_tenant(
+        workspace_id: str | UUID, ctx: AuthContext
+    ) -> None:
+        """Raise ``NotFoundError`` when *workspace_id* is foreign to the tenant.
+
+        The transport-agnostic counterpart of the REST
+        ``rest_api.audit_views._assert_workspace_in_tenant`` (BR-569-03). It
+        lives on the Layer-2 facade — the ADR-01 single entry point both the
+        REST and the MCP adapter call — so the two transports cannot drift:
+        without it a foreign workspace fell through to the engine and surfaced
+        as ``WAIVER_FINDING_NOT_BLOCKING`` (MCP) instead of the REST ``404``
+        (spec E7/E13). It runs *before* the authority choke point, so a foreign
+        workspace answers 404 regardless of the caller's role, exactly like
+        the REST pre-check.
+
+        The existence check is delegated to
+        :meth:`auth_tenancy.services.authorization.AuthorizationService.workspace_exists_in_tenant`
+        (a read-only service) — this layer performs no direct ORM access.
+        Imported lazily: ``auth_tenancy.services.__init__`` pulls in modules
+        that import ``application.base`` (circular at package-init time).
+        """
+        from auth_tenancy.services.authorization import AuthorizationService
+
+        if not AuthorizationService().workspace_exists_in_tenant(
+            workspace_id=UUID(str(workspace_id)), tenant_id=ctx.tenant_id
+        ):
+            raise NotFoundError(
+                f"Workspace '{workspace_id}' was not found in the caller's "
+                "tenant."
+            )
+
+    @atomic_transaction
     def suppress_finding(
         self,
         workspace_id: str | UUID,
@@ -510,6 +546,7 @@ class AuditService(ServiceBase):
                 (409).
         """
         self._set_tenant_context(ctx)
+        self._assert_workspace_in_tenant(workspace_id, ctx)
 
         try:
             assert_gate_waiver_authority(ctx)
@@ -668,6 +705,7 @@ class AuditService(ServiceBase):
                 "'expired' or 'all'."
             )
         self._set_tenant_context(ctx)
+        self._assert_workspace_in_tenant(workspace_id, ctx)
         all_records = load_suppressions(
             workspace_id, ctx.tenant_id, include_expired=True, now=now
         )
