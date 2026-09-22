@@ -34,11 +34,29 @@ from auth_tenancy.errors import AuthenticationFailed
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
+    SuppressionExpiredError,
+    ValidationError,
+    WaiverFindingNotBlockingError,
+    WaiverReasonPolicyViolation,
 )
+from application.audit_service import SuppressionView
 from application.dlq_service import _DlqSnapshot
 
-from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
-from mcp_server.tool_registry import ToolRegistry
+from auth_tenancy.services import Operation
+
+from mcp_server.protocol_handler import (
+    ERROR_CODES,
+    ERROR_CODE_MAP,
+    ProtocolHandler,
+    _PROTOCOL_ERROR_CODES,
+)
+from mcp_server.tool_registry import (
+    ToolRegistry,
+    _GOVERNANCE_TOOL_NAMES,
+    _GOVERNANCE_TOOL_NAMESPACES,
+    _READ_ONLY_TOOL_NAMES,
+    _WRITE_TOOL_PREFIXES,
+)
 from mcp_server.tools.audit import AuditToolGroup
 
 
@@ -398,7 +416,7 @@ class TestAuditToolGroup:
     @patch("mcp_server.tools.audit.TenantContext.set_tenant")
     @patch("mcp_server.tools.audit.audit_query")
     def test_audit_query_workspace_id_is_validated_but_not_applied(self, mock_query, mock_set_tenant):
-        """workspace_id param is reserved/forward-compat — validate UUID but
+        """workspace_id param is reserved/forward-compat â€” validate UUID but
         do not pass to the service (AuditEntry is tenant-scoped)."""
         group, _ = self._group()
         mock_query.return_value = _mock_paginated_result(entries=[], total=0)
@@ -422,7 +440,7 @@ class TestAuditToolGroup:
     @patch("mcp_server.tools.audit.TenantContext.set_tenant")
     @patch("mcp_server.tools.audit.audit_query")
     def test_audit_query_does_not_write_audit(self, mock_query, mock_set_tenant):
-        """audit.query is a read tool — must NOT call write_mcp_audit."""
+        """audit.query is a read tool â€” must NOT call write_mcp_audit."""
         group, _ = self._group()
         mock_query.return_value = _mock_paginated_result(entries=[], total=0)
         with patch("mcp_server.tools.audit.write_mcp_audit") as mock_audit:
@@ -765,13 +783,16 @@ class TestAuditToolGroupWiring:
         group = AuditToolGroup()
         assert group._dlq_service is not None
 
-    def test_tool_map_has_exactly_five_entries(self):
+    def test_tool_map_has_the_expected_entries(self):
         # SysEng 2.0 N8 (audit.ai_review, Phase 4b) added the 4th entry;
-        # issue #410 (audit.se_audit) added the 5th.
+        # issue #410 (audit.se_audit) added the 5th; #569 added
+        # audit.waive_finding (6th) and audit.waivers (7th).
         assert set(AuditToolGroup._TOOL_MAP.keys()) == {
             "audit.query",
             "audit.ai_review",
             "audit.se_audit",
+            "audit.waive_finding",
+            "audit.waivers",
             "events.dlq_list",
             "events.dlq_replay",
         }
@@ -824,7 +845,7 @@ class TestToolRegistryWiring:
 
 
 # ---------------------------------------------------------------------------
-# E2E — JSON-RPC pipeline
+# E2E â€” JSON-RPC pipeline
 # ---------------------------------------------------------------------------
 
 
@@ -871,7 +892,7 @@ def _post(handler: ProtocolHandler, method: str, params: dict, request_id: int =
 
     The key is supplied via the ``Authorization`` header, not the JSON-RPC
     body: the HTTP transport no longer honours ``params.api_key`` (D-1 /
-    REQ-018 — see TestApiKeyTransportRestriction in test_protocol_handler.py).
+    REQ-018 â€” see TestApiKeyTransportRestriction in test_protocol_handler.py).
     """
     body = json.dumps({
         "jsonrpc": "2.0",
@@ -992,3 +1013,514 @@ class TestE2EDlqReplay:
         assert "error" in response
         assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
         dlq.replay_dlq_event.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# #569 â€” suppression surface (audit.waive_finding / audit.waivers)
+# ---------------------------------------------------------------------------
+
+_VALID_REASON = "Accepted deviation for the reviewed finding."
+
+
+def _suppression_view(
+    *,
+    state: str = "active",
+    waiver_id: UUID = None,
+    rule_id: str = "TRACE-P1",
+    expires_at: datetime = None,
+) -> SuppressionView:
+    """Build a real SuppressionView (the facade's DTO)."""
+    return SuppressionView(
+        waiver_id=waiver_id or uuid4(),
+        finding_key="TRACE-P1\x1f",
+        identity_key="TRACE-P1\x1f\x1fproject",
+        rule_id=rule_id,
+        artifact_ids=(),
+        scope="project",
+        scope_artifact_id="",
+        reason=_VALID_REASON,
+        granted_by=str(USER_ID),
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        expires_at=expires_at,
+        state=state,
+    )
+
+
+def _post_tools_call(
+    handler: ProtocolHandler,
+    name: str,
+    arguments: dict,
+    request_id: int = 1,
+    *,
+    api_key: str = VALID_API_KEY,
+):
+    """Build a ``tools/call`` JSON-RPC body and run it through ProtocolHandler.
+
+    The ``tools/call`` path is what the reviewer note (Â§5) pins: an
+    ``isError`` result carries only ``content`` + ``isError`` â€” no numeric
+    JSON-RPC code.
+    """
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": request_id,
+            "params": {"name": name, "arguments": arguments},
+        }
+    ).encode()
+    headers = {"HTTP_AUTHORIZATION": f"Bearer {api_key}"}
+    return handler.handle_http_request(body=body, headers=headers)
+
+
+class TestAuditWaiverRegistryGating:
+    """AC-569-06 / AC-569-07 / AC-569-18 â€” registry classification."""
+
+    def test_waive_finding_is_write_and_governance_gated(self):
+        assert "audit.waive_finding" in _WRITE_TOOL_PREFIXES
+        assert "audit.waive_finding" in _GOVERNANCE_TOOL_NAMES
+        assert "audit" not in _GOVERNANCE_TOOL_NAMESPACES
+        assert "audit.waive_finding" not in _READ_ONLY_TOOL_NAMES
+
+    def test_waivers_is_read_only(self):
+        assert "audit.waivers" in _READ_ONLY_TOOL_NAMES
+        assert "audit.waivers" not in _WRITE_TOOL_PREFIXES
+
+    def test_audit_namespace_is_not_bulk_reclassified(self):
+        registry = ToolRegistry()
+        # M1: audit.se_audit keeps its AUTHOR tier (Operation.WRITE) â€” it must
+        # NOT be lifted to ADMIN by adding "audit" to the namespace set.
+        assert registry._required_scope_operation("audit.se_audit") is Operation.WRITE
+        assert registry._required_scope_operation("audit.query") is Operation.READ
+        assert registry._required_scope_operation("audit.ai_review") is Operation.READ
+        # The suppression grant is the one ADMIN-tier tool in this namespace.
+        assert (
+            registry._required_scope_operation("audit.waive_finding")
+            is Operation.WORKSPACE_CONFIG
+        )
+        assert "audit" not in _GOVERNANCE_TOOL_NAMESPACES
+
+    def test_waivers_is_read_tier_at_the_scope_gate(self):
+        # The scope gate itself stays READ (the handler adds the authority
+        # check â€” see TestAuditWaiversAuthority).
+        assert ToolRegistry()._required_scope_operation("audit.waivers") is Operation.READ
+
+
+class TestAuditWaiveFinding:
+    """AC-569-06 / AC-569-02 / AC-569-17 â€” the grant tool over the facade."""
+
+    def _params(self, **overrides):
+        params = {
+            "workspace_id": str(WORKSPACE_ID),
+            "rule_id": "TRACE-P1",
+            "reason": _VALID_REASON,
+        }
+        params.update(overrides)
+        return params
+
+    @patch("mcp_server.tools.audit.write_mcp_audit")
+    def test_waive_finding_goes_through_the_audit_service_facade(self, mock_audit):
+        """The tool must persist via AuditService.suppress_finding (ADR-01)."""
+        view = _suppression_view()
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            return_value=(view, True),
+        ) as suppress:
+            result = AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params=self._params(artifact_ids=["a1", "a2"]),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+
+        assert result.success is True
+        assert result.data["waiver_id"] == str(view.waiver_id)
+        assert result.data["created"] is True
+        # Delegation, not a second ORM path: the facade method was called with
+        # the caller's context and the shaped params.
+        assert suppress.call_args.args[0] == WORKSPACE_ID
+        assert suppress.call_args.args[1] is ADMIN_CTX
+        kwargs = suppress.call_args.kwargs
+        assert kwargs["rule_id"] == "TRACE-P1"
+        assert kwargs["artifact_ids"] == ["a1", "a2"]
+        assert kwargs["reason"] == _VALID_REASON
+        assert kwargs["expires_at"] is None
+
+    @patch("mcp_server.tools.audit.write_mcp_audit")
+    def test_new_waiver_writes_one_mcp_audit_entry(self, mock_audit):
+        view = _suppression_view()
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            return_value=(view, True),
+        ):
+            AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params=self._params(),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        mock_audit.assert_called_once()
+        kwargs = mock_audit.call_args.kwargs
+        assert kwargs["operation"] == "baseline.waiver_create"
+        assert kwargs["entity_type"] == "BaselineGateWaiver"
+        assert kwargs["entity_id"] == view.waiver_id
+        assert kwargs["tool_name"] == "audit.waive_finding"
+        assert kwargs["details"]["granted_by"] == str(USER_ID)
+
+    @patch("mcp_server.tools.audit.write_mcp_audit")
+    def test_idempotent_replay_writes_no_second_audit_entry(self, mock_audit):
+        view = _suppression_view()
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            return_value=(view, False),
+        ):
+            result = AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params=self._params(),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is True
+        assert result.data["created"] is False
+        mock_audit.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("exc", "code"),
+        [
+            (WaiverReasonPolicyViolation("rejected"), "WAIVER_REASON_REJECTED"),
+            (WaiverFindingNotBlockingError("not blocking"), "WAIVER_FINDING_NOT_BLOCKING"),
+            (SuppressionExpiredError("expired"), "SUPPRESSION_EXPIRED"),
+            (PermissionDeniedError("denied"), "PERMISSION_DENIED"),
+            (NotFoundError("missing"), "NOT_FOUND"),
+            (ValidationError("bad shape"), "VALIDATION_ERROR"),
+        ],
+    )
+    def test_error_mapping(self, exc, code):
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            side_effect=exc,
+        ):
+            result = AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params=self._params(),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is False
+        assert result.error_code == code
+
+    def test_waive_document_scope_requires_artifact_id(self):
+        """AC-569-17/V21: document scope without a root is 400 VALIDATION_ERROR."""
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            side_effect=ValidationError(
+                "scope_artifact_id is required when scope is 'document'."
+            ),
+        ) as suppress:
+            result = AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params=self._params(rule_id="TRACE-P7", scope="document"),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert suppress.call_args.kwargs["scope"] == "document"
+        assert suppress.call_args.kwargs["scope_artifact_id"] is None
+
+    def test_invalid_scope_is_rejected_before_the_facade(self):
+        with patch(
+            "application.audit_service.AuditService.suppress_finding"
+        ) as suppress:
+            result = AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params=self._params(scope="banana"),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        suppress.assert_not_called()
+
+    def test_missing_rule_id_is_a_validation_error(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.waive_finding",
+            params={"workspace_id": str(WORKSPACE_ID), "reason": _VALID_REASON},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_naive_expires_at_is_rejected_by_the_service(self):
+        """A naive timestamp must not be silently reinterpreted (E3/D2)."""
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            side_effect=ValidationError("expiry must be timezone-aware"),
+        ) as suppress:
+            result = AuditToolGroup().execute_tool(
+                "audit.waive_finding",
+                params=self._params(expires_at="2026-12-31T00:00:00"),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        forwarded = suppress.call_args.kwargs["expires_at"]
+        assert forwarded is not None and forwarded.tzinfo is None
+
+    def test_malformed_expires_at_is_a_validation_error(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.waive_finding",
+            params=self._params(expires_at="not-a-date"),
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+
+class TestAuditWaivers:
+    """AC-569-07 â€” the read-only suppression list."""
+
+    @patch("mcp_server.tools.audit.assert_gate_waiver_authority")
+    def test_waivers_lists_suppressions_with_counts(self, mock_authority):
+        active = _suppression_view(state="active")
+        expired = _suppression_view(state="expired")
+        with patch(
+            "application.audit_service.AuditService.list_suppressions",
+            return_value=[active, expired],
+        ) as list_supp:
+            result = AuditToolGroup().execute_tool(
+                "audit.waivers",
+                params={"workspace_id": str(WORKSPACE_ID)},
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is True
+        assert result.data["counts"] == {"active": 1, "expired": 1}
+        # Default state=active filters the returned list, counts stay whole.
+        assert len(result.data["waivers"]) == 1
+        assert result.data["waivers"][0]["waiver_id"] == str(active.waiver_id)
+        list_supp.assert_called_once_with(WORKSPACE_ID, ADMIN_CTX, state="all")
+        mock_authority.assert_called_once_with(ADMIN_CTX)
+
+    @patch("mcp_server.tools.audit.assert_gate_waiver_authority")
+    def test_waivers_state_all_returns_both(self, mock_authority):
+        active = _suppression_view(state="active")
+        expired = _suppression_view(state="expired")
+        with patch(
+            "application.audit_service.AuditService.list_suppressions",
+            return_value=[active, expired],
+        ):
+            result = AuditToolGroup().execute_tool(
+                "audit.waivers",
+                params={"workspace_id": str(WORKSPACE_ID), "state": "all"},
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is True
+        assert len(result.data["waivers"]) == 2
+
+    def test_waivers_rejects_an_unknown_state(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.waivers",
+            params={"workspace_id": str(WORKSPACE_ID), "state": "banana"},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_waivers_requires_workspace_id(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.waivers", params={}, auth_context=ADMIN_CTX, api_key=VALID_API_KEY
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+
+class TestAuditWaiversAuthority:
+    """Requirement 4 â€” the deliberate, stricter-than-spec authority ruling.
+
+    ``audit.waivers`` is a READ tool at the scope gate, but its handler
+    evaluates the same approval-authority choke point as the REST twin
+    ``GET .../audit/waivers/`` (spec E12). Reading governance metadata through
+    a weaker door on MCP than on REST would be a transport asymmetry.
+    """
+
+    def test_editor_is_denied_without_approval_authority(self):
+        with patch(
+            "application.audit_service.AuditService.list_suppressions"
+        ) as list_supp:
+            result = AuditToolGroup().execute_tool(
+                "audit.waivers",
+                params={"workspace_id": str(WORKSPACE_ID)},
+                auth_context=EDITOR_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+        list_supp.assert_not_called()
+
+    def test_viewer_is_denied_without_approval_authority(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.waivers",
+            params={"workspace_id": str(WORKSPACE_ID)},
+            auth_context=VIEWER_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+
+
+class TestSeAuditSuppressionVisibility:
+    """AC-569-07 â€” audit.se_audit surfaces suppressed findings + counts."""
+
+    def test_se_audit_marks_suppressed_findings(self):
+        report = MagicMock()
+        report.to_dict.return_value = {
+            "tier": "standard",
+            "counts": {
+                "total": 1,
+                "blockers": 1,
+                "warnings": 0,
+                "suppressed": 1,
+                "suppressed_blockers": 1,
+            },
+            "findings": [
+                {
+                    "index": 0,
+                    "rule_id": "TRACE-P1",
+                    "severity": "blocker",
+                    "suppressed": True,
+                    "suppression_reason": _VALID_REASON,
+                }
+            ],
+        }
+        with patch(
+            "application.audit_service.AuditService.run_audit", return_value=report
+        ):
+            result = AuditToolGroup().execute_tool(
+                "audit.se_audit",
+                params={"workspace_id": str(uuid4())},
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is True
+        assert result.data["findings"][0]["suppressed"] is True
+        assert result.data["findings"][0]["suppression_reason"] == _VALID_REASON
+        assert result.data["counts"]["suppressed"] >= 1
+
+    def test_se_audit_forwards_include_suppressed(self):
+        report = MagicMock()
+        report.to_dict.return_value = {"tier": "standard", "counts": {}, "findings": []}
+        with patch(
+            "application.audit_service.AuditService.run_audit", return_value=report
+        ) as run:
+            AuditToolGroup().execute_tool(
+                "audit.se_audit",
+                params={"workspace_id": str(uuid4()), "include_suppressed": "false"},
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+        assert run.call_args.kwargs["include_suppressed"] is False
+
+    def test_se_audit_rejects_a_non_boolean_include_suppressed(self):
+        result = AuditToolGroup().execute_tool(
+            "audit.se_audit",
+            params={"workspace_id": str(uuid4()), "include_suppressed": "banana"},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+
+class TestWaiverErrorCodeRegistry:
+    """AC-569-32 â€” the three dedicated codes are registered (MCP side)."""
+
+    def test_new_waiver_error_codes_are_registered(self):
+        assert ERROR_CODE_MAP["WAIVER_REASON_REJECTED"] == -32008
+        assert ERROR_CODE_MAP["WAIVER_FINDING_NOT_BLOCKING"] == -32009
+        assert ERROR_CODE_MAP["SUPPRESSION_EXPIRED"] == -32010
+        for code in (
+            "WAIVER_REASON_REJECTED",
+            "WAIVER_FINDING_NOT_BLOCKING",
+            "SUPPRESSION_EXPIRED",
+        ):
+            assert code in ERROR_CODES
+            assert ERROR_CODES[code].strip()
+        # Not protocol errors: they must surface as isError on tools/call
+        # (R3-02) â€” never as a numeric JSON-RPC error code.
+        assert not (
+            {
+                "WAIVER_REASON_REJECTED",
+                "WAIVER_FINDING_NOT_BLOCKING",
+                "SUPPRESSION_EXPIRED",
+            }
+            & _PROTOCOL_ERROR_CODES
+        )
+
+
+@pytest.mark.django_db
+class TestE2EWaiveFinding:
+    """AC-569-02 â€” the tools/call wire shape (reviewer note Â§5)."""
+
+    def test_placeholder_reason_returns_waiver_reason_rejected(self):
+        registry, _, _ = _build_registry()
+        handler = _handler(registry)
+        params = {
+            "workspace_id": str(WORKSPACE_UUID),
+            "rule_id": "TRACE-P1",
+            "reason": "ok",
+        }
+
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            side_effect=WaiverReasonPolicyViolation(
+                "the suppression justification must contain at least 15 characters"
+            ),
+        ):
+            # 1) The handler's ToolResult carries the stable string code (the
+            #    existing convention — reviewer note §5).
+            handler_result = registry._groups["audit"].execute_tool(
+                "audit.waive_finding",
+                params=dict(params),
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+            # 2) The raw tools/call frame carries only content + isError — no
+            #    numeric JSON-RPC code (spec §3.5/R3-02).
+            response = _post_tools_call(handler, "audit.waive_finding", params)
+
+        assert handler_result.success is False
+        assert handler_result.error_code == "WAIVER_REASON_REJECTED"
+        assert "error" not in response
+        assert response["result"]["isError"] is True
+        # No numeric JSON-RPC code on this tools/call path.
+        assert "code" not in response["result"]
+        assert "Error:" in response["result"]["content"][0]["text"]
+
+    def test_tools_call_success_returns_the_suppression(self):
+        registry, _, _ = _build_registry()
+        handler = _handler(registry)
+        view = _suppression_view()
+
+        with patch(
+            "application.audit_service.AuditService.suppress_finding",
+            return_value=(view, True),
+        ), patch("mcp_server.tools.audit.write_mcp_audit"):
+            response = _post_tools_call(
+                handler,
+                "audit.waive_finding",
+                {
+                    "workspace_id": str(WORKSPACE_UUID),
+                    "rule_id": "TRACE-P1",
+                    "reason": _VALID_REASON,
+                },
+            )
+
+        assert "error" not in response
+        assert "isError" not in response["result"]
+        payload = json.loads(response["result"]["content"][0]["text"])
+        assert payload["waiver_id"] == str(view.waiver_id)
