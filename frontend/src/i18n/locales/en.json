@@ -453,6 +453,8 @@
     "emptyTitle": "No trace links yet",
     "coverageSummary": "{{covered}}/{{total}} requirements verified · {{uncovered}} without a test",
     "showUncoveredOnly": "Only requirements without coverage",
+    "pendingAiReview": "{{count}} AI test case(s) not yet reviewed (do not count as coverage)",
+    "includeUnreviewedAi": "Count unreviewed AI test cases as coverage",
     "verified": "verified",
     "notVerified": "no test",
     "allCoveredTitle": "All requirements are verified",
@@ -759,9 +761,21 @@
     "removeStep": "Remove step {{index}}",
     "summary_one": "{{count}} test case",
     "summary_other": "{{count}} test cases",
+    "summary": "{{count}} test cases",
     "emptyTitle": "No test cases yet",
     "emptyDescription": "Test cases verify requirements are met and record how the system was checked.",
     "untitled": "Untitled",
+    "originAi": "AI-generated",
+    "originAiTooltip": "Content was produced by AI. It only counts as verification evidence after human review.",
+    "unreviewed": "Unreviewed",
+    "reviewed": "Reviewed",
+    "markReviewed": "Mark as reviewed",
+    "reviewedFailed": "The test case could not be marked as reviewed.",
+    "scenarioKind": {
+      "label": "Scenario",
+      "nominal": "Nominal",
+      "offNominal": "Off-nominal"
+    },
     "testType": {
       "label": "Test Type",
       "none": "Not specified",
@@ -1719,7 +1733,8 @@
     "create": "Create test case",
     "creating": "Creating...",
     "discard": "Discard",
-    "created": "Test case \"{{title}}\" was created."
+    "created": "Test case \"{{title}}\" was created.",
+    "aiNotice": "AI-generated and not yet reviewed. Mark it as \"Reviewed\" once you have checked it."
   },
   "workflow": {
     "header": {
@@ -2434,5 +2449,15 @@
         "lg": "Large (4 columns)"
       }
     }
+  },
+  "baseline": {
+    "driftBadge": "Baseline: {{name}} — changed",
+    "driftBadgeFallback": "Changed since baseline",
+    "driftTooltip": "This artifact belongs to baseline \"{{name}}\" and was changed since it was captured (baselined v{{baselined}}, current v{{current}}).",
+    "driftTooltipUnknown": "This artifact belongs to at least one baseline and was changed since it was captured.",
+    "raiseChangeRequest": "Create change request",
+    "crCreated": "Change request created and this artifact registered as an affected item.",
+    "crFailed": "The change request could not be created.",
+    "crTitle": "Change to \"{{title}}\""
   }
 }

@@ -131,10 +131,30 @@ describe("DeriveTestCasePanel", () => {
       description: DRAFT_RESULT.draft.description,
       steps: DRAFT_RESULT.draft.steps,
       linked_requirement_id: "req-1",
+      // #424 (spec section 4.6): this LLM-driven path declares its provenance
+      // explicitly. `reviewed` is read-only and derived server-side from
+      // `origin` — it must NOT appear in the payload.
+      origin: "ai_generated",
+      scenario_kind: "nominal",
     });
     expect(onCreated).toHaveBeenCalledWith(CREATED_TEST_CASE);
     // Draft view is cleared after a successful create.
     expect(screen.queryByTestId("derive-testcase-draft")).toBeNull();
+  });
+
+  it("shows the AI-generated/unreviewed notice wherever a draft is on screen (#424)", async () => {
+    aiDeriveTestcase.mockResolvedValue(DRAFT_RESULT);
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(screen.queryByTestId("derive-testcase-ai-notice")).toBeNull();
+
+    await user.click(screen.getByTestId("derive-testcase-generate"));
+    await screen.findByTestId("derive-testcase-draft");
+
+    expect(screen.getByTestId("derive-testcase-ai-notice")).toHaveTextContent(
+      "deriveTestcase.aiNotice"
+    );
   });
 
   it("adds and removes steps in the draft", async () => {

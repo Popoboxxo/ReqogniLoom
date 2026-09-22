@@ -182,6 +182,8 @@ export interface Requirement extends SystemFieldValues {
   level?: RequirementLevel | null;
   suspect?: boolean;
   change_reason?: string;
+  /** #399: additive baseline-drift summary on the detail retrieve. */
+  baseline_drift?: { drifted: boolean; count: number };
   custom_fields?: CustomFields;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -237,6 +239,14 @@ export interface TestCase extends SystemFieldValues {
   description: string;
   status: string;
   suspect?: boolean;
+  /** #424: content provenance (`manual` | `ai_generated` | `unknown`). */
+  origin?: "manual" | "ai_generated" | "unknown";
+  /** #424: human content sign-off — only toggled via the review endpoint. */
+  reviewed?: boolean;
+  /** #402: `nominal` (default) or `off_nominal`. */
+  scenario_kind?: "nominal" | "off_nominal";
+  /** #399: additive baseline-drift summary on the detail retrieve. */
+  baseline_drift?: { drifted: boolean; count: number };
   version: number;
   uid?: string;
   custom_fields?: CustomFields;

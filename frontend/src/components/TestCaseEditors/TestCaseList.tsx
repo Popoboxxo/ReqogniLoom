@@ -18,6 +18,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
 import { ArtifactRow } from '../shared/ArtifactRow';
+import { Badge } from '../shared/Badge';
 import { EmptyState } from '../shared/EmptyState';
 import { WorkspaceTree } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
@@ -27,6 +28,7 @@ import {
   compareWorkflowStatus,
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
+import styles from './TestCaseEditors.module.css';
 
 interface TestCaseListProps {
   items: TestCase[];
@@ -149,24 +151,57 @@ export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestC
           showSearch={false}
           virtualize
           // <ArtifactRow>'s two-line id/title layout is taller than
-          // WorkspaceTree's default single-line row estimate (34px).
-          virtualRowHeight={64}
+          // WorkspaceTree's default single-line row estimate (34px). #424/#402
+          // add an optional provenance/off-nominal badge line below the row.
+          virtualRowHeight={84}
           emptyLabel={t('editor.empty', 'No items.')}
           noMatchesLabel={t('editor.noMatches', 'No matches found.')}
           renderRow={(node, { isSelected }) => {
             const tc = testCaseById.get(node.id);
             if (!tc) return null;
+            // #424/#402: provenance + scenario markers. `origin === "unknown"`
+            // (legacy rows) is deliberately unbadged — it is neither manually
+            // nor AI-asserted. An "unreviewed" badge is only meaningful for
+            // AI-generated content (the false-green pair, spec section 3).
+            const isAi = tc.origin === 'ai_generated';
+            const isUnreviewed = isAi && tc.reviewed === false;
+            const isOffNominal = tc.scenario_kind === 'off_nominal';
             return (
-              <ArtifactRow
-                id={tc.uid}
-                idFallback={tc.id.slice(0, 8)}
-                title={tc.title || t('testcases.untitled', 'Untitled')}
-                status={tc.status}
-                statusLabel={getWorkflowStatusLabel(tc.status)}
-                version={tc.version}
-                selected={isSelected}
-                testId={`tc-row-${tc.id}`}
-              />
+              <div className={styles.rowWrapper}>
+                <ArtifactRow
+                  id={tc.uid}
+                  idFallback={tc.id.slice(0, 8)}
+                  title={tc.title || t('testcases.untitled', 'Untitled')}
+                  status={tc.status}
+                  statusLabel={getWorkflowStatusLabel(tc.status)}
+                  version={tc.version}
+                  selected={isSelected}
+                  testId={`tc-row-${tc.id}`}
+                />
+                {(isAi || isUnreviewed || isOffNominal) && (
+                  <div className={styles.rowBadges} data-testid={`tc-row-badges-${tc.id}`}>
+                    {isAi && (
+                      <Badge
+                        variant="info"
+                        title={t('testcases.originAiTooltip')}
+                        testId={`tc-row-ai-badge-${tc.id}`}
+                      >
+                        {t('testcases.originAi')}
+                      </Badge>
+                    )}
+                    {isUnreviewed && (
+                      <Badge variant="warning" testId={`tc-row-unreviewed-badge-${tc.id}`}>
+                        {t('testcases.unreviewed')}
+                      </Badge>
+                    )}
+                    {isOffNominal && (
+                      <Badge variant="neutral" testId={`tc-row-offnominal-badge-${tc.id}`}>
+                        {t('testcases.scenarioKind.offNominal')}
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </div>
             );
           }}
         />
