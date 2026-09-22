@@ -1674,6 +1674,8 @@
     "waiveForbidden": "Dir fehlt die Berechtigung, Findings zu unterdrücken (Admin/Approver erforderlich).",
     "waivers": {
       "title": "Unterdrückungen",
+      "loading": "Unterdrückungen werden geladen...",
+      "loadError": "Unterdrückungen konnten nicht geladen werden.",
       "empty": "Keine Unterdrückungen vorhanden.",
       "until": "Gültig bis",
       "grantedBy": "Gewährt von",

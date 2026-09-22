@@ -21,7 +21,7 @@ import { AuditDashboard } from "./audit-dashboard";
 import { auditApi } from "../../api/audit";
 import { artifactsApi } from "../../api/artifacts";
 import { traceabilityApi } from "../../api/traceability";
-import { UnprocessableEntityError } from "../../api/errors";
+import { ForbiddenError, UnprocessableEntityError } from "../../api/errors";
 import type { AuditFinding, AuditReport, SuppressionView } from "../../api/audit";
 import type { Artifact, PaginatedResponse } from "../../types";
 
@@ -886,5 +886,92 @@ describe("AuditDashboard — waivers (#569)", () => {
     expect(screen.getByTestId("audit-waiver-state-w-active").getAttribute("style")).not.toBe(
       screen.getByTestId("audit-waiver-state-w-expired").getAttribute("style")
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #569 UI review — the three minor findings fixed on the branch.
+// ---------------------------------------------------------------------------
+
+describe("AuditDashboard — waiver UI review fixes (#569)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+  });
+
+  // UI-569-01: `apiFetch` intercepts 403 and throws `ForbiddenError`, a plain
+  // Error subclass with no `.error` — so a real 403 (no Admin/Approver role, or
+  // an AUTHOR-tier API key) used to resolve to code `null` and the dedicated
+  // forbidden message was unreachable. Deriving the code from the typed error
+  // must render `audit.waiveForbidden`, not the generic fallback.
+  it("renders the dedicated forbidden message when the waive is rejected with 403", async () => {
+    vi.mocked(auditApi.waive).mockRejectedValue(new ForbiddenError("Forbidden."));
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    const error = await screen.findByTestId("audit-waive-error");
+    expect(error.textContent).toContain("You are not allowed to suppress findings");
+    // Not the generic/raw transport message...
+    expect(error.textContent).not.toContain("Forbidden.");
+    // ...and still never the Modify flip (422 belongs to `remediate` alone).
+    expect(screen.getByTestId("audit-adopt-0")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-modify-0")).not.toBeInTheDocument();
+  });
+
+  // UI-569-02: the suppression panel is an independent request. Zero rows must
+  // render the already-defined empty key, not nothing at all.
+  it("renders the suppression panel's empty state instead of hiding the panel", async () => {
+    render(<AuditDashboard />);
+
+    const empty = await screen.findByTestId("audit-waivers-empty");
+    expect(empty.textContent).toContain("No suppressions on file.");
+    expect(screen.queryByTestId("audit-waivers-error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("audit-waivers-loading")).not.toBeInTheDocument();
+  });
+
+  // UI-569-02: a failed/forbidden read must be distinguishable from "no
+  // suppressions on file".
+  it("renders a distinct error state when the suppression list request fails", async () => {
+    vi.mocked(auditApi.waivers).mockRejectedValue(new Error("waivers unavailable"));
+
+    render(<AuditDashboard />);
+
+    const error = await screen.findByTestId("audit-waivers-error");
+    expect(error.textContent).toContain("waivers unavailable");
+    expect(screen.queryByTestId("audit-waivers-empty")).not.toBeInTheDocument();
+  });
+
+  it("renders a loading state while the suppression list request is in flight", async () => {
+    vi.mocked(auditApi.waivers).mockReturnValue(new Promise<never>(() => {}));
+
+    render(<AuditDashboard />);
+
+    expect(await screen.findByTestId("audit-waivers-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-waivers-empty")).not.toBeInTheDocument();
+  });
+
+  // UI-569-03: a successful waive unmounts the Waive trigger, so the dialog's
+  // focus trap (which only restores to a connected element) cannot return
+  // focus to it. Focus must land on the still-mounted finding row instead of
+  // falling to `<body>`.
+  it("moves focus onto the finding row after a successful waive", async () => {
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    await screen.findByTestId("audit-suppressed-badge-0");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByTestId("audit-finding-0"));
+    });
   });
 });

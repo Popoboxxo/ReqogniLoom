@@ -83,7 +83,7 @@ import type {
 } from "../../api/audit";
 import { artifactsApi } from "../../api/artifacts";
 import { extractErrorMessage } from "../../api/client";
-import { UnprocessableEntityError } from "../../api/errors";
+import { ForbiddenError, UnprocessableEntityError } from "../../api/errors";
 import type { ApiError, Artifact } from "../../types";
 import { Badge } from "../shared/Badge";
 import { PageHeader } from "../shared/PageHeader";
@@ -139,13 +139,24 @@ function artifactLabel(a: Artifact): string {
 }
 
 /**
- * #569: the stable `error.code` of a thrown API error, if any. The non-2xx
- * path of `apiFetch` throws the parsed `{error: {code, message, details}}`
- * body, so the code lives on the object rather than on an `Error` subclass.
+ * #569: the stable `error.code` of a thrown API error, if any.
+ *
+ * Two different shapes reach a caller: the non-2xx path of `apiFetch` throws
+ * the parsed `{error: {code, message, details}}` body (so the code lives on
+ * the object rather than on an `Error` subclass), but `apiFetch` intercepts
+ * **403 before** that generic path and throws `ForbiddenError` — a plain
+ * `Error` subclass that carries **no** `.error` property (client.ts:287-301).
+ * Reading only `apiErr.error.code` therefore made the `PERMISSION_DENIED`
+ * branch dead on REST: a real 403 (no Admin/Approver role, or an AUTHOR-tier
+ * API key) resolved to `null` and the dedicated forbidden message was
+ * unreachable. `ForbiddenError` is mapped back onto its stable code here so
+ * both transports land on the same branch.
+ *
  * Callers must branch on this code — not on the HTTP status, and never on 422
  * (which the waive paths deliberately never emit; see spec E18).
  */
 function waiverErrorCode(err: unknown): string | null {
+  if (err instanceof ForbiddenError) return "PERMISSION_DENIED";
   const apiErr = err as Partial<ApiError> | null;
   return apiErr?.error?.code ?? null;
 }
@@ -202,6 +213,11 @@ export function AuditDashboard(): JSX.Element {
   // suppression is visible and visually distinct from an active one (the
   // report only marks active ones).
   const [waivers, setWaivers] = useState<SuppressionView[]>([]);
+  // UI-569-02: the suppression list is an independent request, so it needs its
+  // own lifecycle. Without it a failed/forbidden `GET …/audit/waivers/` looked
+  // exactly like "no suppressions on file" (the empty key never rendered).
+  const [waiversLoading, setWaiversLoading] = useState<boolean>(false);
+  const [waiversError, setWaiversError] = useState<string | null>(null);
   const [actionState, setActionState] = useState<Record<number, ActionState>>({});
   const [toast, setToast] = useState<string | null>(null);
   // UI-57: Adopt applies an automatic correction with no undo — interpose a
@@ -215,6 +231,10 @@ export function AuditDashboard(): JSX.Element {
   const [waiveExpiresAt, setWaiveExpiresAt] = useState<string>("");
   const [waiveError, setWaiveError] = useState<string | null>(null);
   const [isWaiving, setIsWaiving] = useState<boolean>(false);
+  // UI-569-03: a successful waive unmounts the row's Waive trigger, so the
+  // dialog's focus trap cannot restore focus to it. This carries the index of
+  // the row that should take focus instead.
+  const [focusFindingIndex, setFocusFindingIndex] = useState<number | null>(null);
 
   // ---- Load artifacts once per workspace (needed for the document-scope picker) ----
   useEffect(() => {
@@ -286,18 +306,29 @@ export function AuditDashboard(): JSX.Element {
 
   /**
    * #569: load every suppression (both lifecycles). Non-critical to the audit
-   * run — a failure must not blank the findings list, so it degrades to "no
-   * waivers shown" rather than surfacing a second error banner.
+   * run — a failure must not blank the findings list. It must not be
+   * indistinguishable from "no suppressions on file" either (UI-569-02): the
+   * suppression panel gets its own loading/error/empty states driven by these
+   * flags instead of silently degrading to an empty panel.
    */
   const loadWaivers = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
+    setWaiversLoading(true);
+    setWaiversError(null);
     try {
       const resp = await auditApi.waivers(activeWorkspace.id, "all");
       setWaivers(resp?.waivers ?? []);
-    } catch {
-      // Findings still render; the suppression panel simply stays empty.
+    } catch (err) {
+      setWaiversError(
+        resolveErrorMessage(
+          err,
+          t("audit.waivers.loadError", "Could not load suppressions.")
+        )
+      );
+    } finally {
+      setWaiversLoading(false);
     }
-  }, [activeWorkspace]);
+  }, [activeWorkspace, t]);
 
   useEffect(() => {
     void load();
@@ -355,6 +386,22 @@ export function AuditDashboard(): JSX.Element {
     const timer = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // UI-569-03: after a successful waive the finding flips to `suppressed` and
+  // its Waive trigger unmounts — so the dialog's focus trap skips the restore
+  // (`previouslyFocused.isConnected` is false) and keyboard focus falls to
+  // `<body>`. Move it explicitly onto the still-mounted finding row
+  // (`tabIndex={-1}`, so it stays out of the Tab cycle), which keeps the user's
+  // place in the list after the decision.
+  useEffect(() => {
+    if (focusFindingIndex === null) return;
+    const row = document.querySelector<HTMLElement>(
+      `[data-testid="audit-finding-${focusFindingIndex}"]`
+    );
+    if (!row) return;
+    row.focus();
+    setFocusFindingIndex(null);
+  }, [focusFindingIndex, findings]);
 
   // ---- Adopt workflow ----
   const handleAdopt = useCallback(
@@ -524,6 +571,8 @@ export function AuditDashboard(): JSX.Element {
       );
       setPendingWaive(null);
       setToast(t("audit.waiveSuccess", "Suppression saved."));
+      // UI-569-03: the trigger that opened the dialog is about to unmount.
+      setFocusFindingIndex(finding.index);
       void loadWaivers();
     } catch (err) {
       // Deliberately NOT `instanceof UnprocessableEntityError`: the waive
@@ -760,12 +809,27 @@ export function AuditDashboard(): JSX.Element {
           *active* ones, so an expired suppression would otherwise be
           invisible; here it is listed with a distinct "expired" badge, which
           is what keeps an expired waiver visually distinguishable from an
-          active one. */}
-      {waivers.length > 0 && (
-        <section data-testid="audit-waivers" style={waiversPanelStyle}>
-          <h2 style={waiversHeadingStyle}>
-            {t("audit.waivers.title", "Suppressions")}
-          </h2>
+          active one.
+          UI-569-02: this is an independent request with its own lifecycle —
+          loading, error and empty are distinct, testable states, so a failed
+          or forbidden read no longer masquerades as "no suppressions". */}
+      <section data-testid="audit-waivers" style={waiversPanelStyle}>
+        <h2 style={waiversHeadingStyle}>
+          {t("audit.waivers.title", "Suppressions")}
+        </h2>
+        {waiversLoading ? (
+          <p data-testid="audit-waivers-loading" style={waiversStateStyle}>
+            {t("audit.waivers.loading", "Loading suppressions...")}
+          </p>
+        ) : waiversError ? (
+          <p role="alert" data-testid="audit-waivers-error" style={waiversErrorStyle}>
+            {waiversError}
+          </p>
+        ) : waivers.length === 0 ? (
+          <p data-testid="audit-waivers-empty" style={waiversStateStyle}>
+            {t("audit.waivers.empty", "No suppressions on file.")}
+          </p>
+        ) : (
           <ul style={waiversListStyle}>
             {waivers.map((w) => (
               <li
@@ -799,8 +863,8 @@ export function AuditDashboard(): JSX.Element {
               </li>
             ))}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* #596: more findings exist than the page currently mounts — say so
           explicitly (with the real totals) instead of showing a partial list
@@ -1094,6 +1158,10 @@ function FindingRow({
   return (
     <li
       data-testid={`audit-finding-${finding.index}`}
+      // UI-569-03: programmatic focus target after a successful waive (the
+      // trigger unmounts, so the dialog's focus trap cannot restore it).
+      // `-1` keeps the row out of the Tab cycle (getFocusableElements skips it).
+      tabIndex={-1}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -1459,6 +1527,20 @@ const waiversListStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-2)",
+};
+
+/** UI-569-02: the suppression panel's loading/empty placeholder text. */
+const waiversStateStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-sm)",
+};
+
+/** UI-569-02: the suppression panel's own read failure (distinct from empty). */
+const waiversErrorStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--color-danger)",
+  fontSize: "var(--font-size-sm)",
 };
 
 const waiverRowStyle: CSSProperties = {

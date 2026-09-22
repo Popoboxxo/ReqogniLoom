@@ -1674,6 +1674,8 @@
     "waiveForbidden": "You are not allowed to suppress findings (Admin/Approver required).",
     "waivers": {
       "title": "Suppressions",
+      "loading": "Loading suppressions...",
+      "loadError": "Could not load suppressions.",
       "empty": "No suppressions on file.",
       "until": "Valid until",
       "grantedBy": "Granted by",
