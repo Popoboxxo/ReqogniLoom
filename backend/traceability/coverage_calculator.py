@@ -82,11 +82,13 @@ def counts_as_verification_evidence(origin: str, reviewed: bool) -> bool:
 def _is_ai_unreviewed(origin: str, reviewed: bool) -> bool:
     """Return whether *origin*/*reviewed* describe an unreviewed AI test case.
 
-    The complement of :func:`counts_as_verification_evidence`, named separately
-    so the ``pending_ai_review`` counter does not have to read a negated
-    predicate.
+    Deliberately derived from :func:`counts_as_verification_evidence` rather
+    than restating ``origin == "ai_generated" and not reviewed``: the
+    ``pending_ai_review`` counter must exclude exactly the rows the coverage
+    predicate excludes, or the two surfaces drift apart at the next predicate
+    change.
     """
-    return origin == ORIGIN_AI_GENERATED and not reviewed
+    return not counts_as_verification_evidence(origin, reviewed)
 
 
 class CoverageCalculator:

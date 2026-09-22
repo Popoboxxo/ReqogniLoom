@@ -26,12 +26,31 @@ migration intentionally carries no per-tenant arming.
 Reverse: Django's default (three ``RemoveField`` plus a default revert for the
 ``AlterField``). Unapplying drops the columns and their data, the inherent,
 documented semantics of ``AddField``.
+
+The choice literals are inlined rather than imported from the live
+``persistence.models`` classes: a data migration must describe the schema as of
+this migration, and importing the live model makes the file follow every later
+choice change (exactly the coupling ``apps.get_model`` exists to avoid). The
+values below must stay identical to ``TestCaseOrigin.choices`` /
+``ScenarioKind.choices`` at this revision — ``makemigrations --check`` guards
+that.
 """
 from __future__ import annotations
 
 from django.db import migrations, models
 
-from persistence.models import ScenarioKind, TestCaseOrigin
+# Mirrors persistence.models.TestCaseOrigin.choices at this revision.
+_ORIGIN_CHOICES = [
+    ("manual", "Manual"),
+    ("ai_generated", "AI-generated"),
+    ("unknown", "Unknown"),
+]
+
+# Mirrors persistence.models.ScenarioKind.choices at this revision.
+_SCENARIO_KIND_CHOICES = [
+    ("nominal", "Nominal"),
+    ("off_nominal", "Off-nominal"),
+]
 
 
 class Migration(migrations.Migration):
@@ -46,7 +65,7 @@ class Migration(migrations.Migration):
             name="origin",
             field=models.CharField(
                 max_length=20,
-                choices=TestCaseOrigin.choices,
+                choices=_ORIGIN_CHOICES,
                 default="unknown",
                 help_text=(
                     "#424: provenance of the test-case content. 'manual' "
@@ -62,7 +81,7 @@ class Migration(migrations.Migration):
             name="origin",
             field=models.CharField(
                 max_length=20,
-                choices=TestCaseOrigin.choices,
+                choices=_ORIGIN_CHOICES,
                 default="manual",
                 help_text=(
                     "#424: provenance of the test-case content. 'manual' "
@@ -77,7 +96,7 @@ class Migration(migrations.Migration):
             name="scenario_kind",
             field=models.CharField(
                 max_length=20,
-                choices=ScenarioKind.choices,
+                choices=_SCENARIO_KIND_CHOICES,
                 default="nominal",
                 help_text=(
                     "#402: 'nominal' (happy path, default) or 'off_nominal' "

@@ -124,9 +124,17 @@ class ArtifactBaselineMembership:
         baseline_name: Human-readable baseline name.
         scope: ``document`` | ``project`` | ``global``.
         baselined_at: Baseline creation timestamp.
-        baselined_version: The artifact version the baseline captured.
-        current_version: The artifact's version right now.
-        drifted: Whether the artifact changed since it was baselined.
+        baselined_version: Informational. The ``Artifact.version`` the baseline
+            captured — *not* the entity's own version. A content edit bumps
+            ``Requirement.version``/``TestCase.version`` but not
+            ``Artifact.version``, so this can equal ``current_version`` even
+            when the recorded state genuinely differs. ``drifted`` (derived
+            from the recorded ``state``) is authoritative; never derive drift
+            from this pair.
+        current_version: Informational. The ``Artifact.version`` right now,
+            same caveat as ``baselined_version``.
+        drifted: Whether the artifact changed since it was baselined. Derived
+            from the recorded ``state``; the authoritative verdict.
         drift_known: ``False`` for legacy delta-index entries without a
             recorded state, where drift degrades to a version comparison and
             must not be presented as authoritative.
@@ -940,9 +948,13 @@ class BaselineFacade(ServiceBase):
 
         prior_tenant_id = TenantContext.get_tenant() if TenantContext.is_set() else None
         armed_here = prior_tenant_id is None
-        if armed_here:
-            set_request_tenant(ctx.tenant_id)
         try:
+            # Arming inside the try (spec review MINOR-3): if `SET` itself
+            # raises after touching the thread-local, the `finally` below still
+            # clears it — otherwise the failure would leak a half-armed
+            # tenant into every later query on this thread.
+            if armed_here:
+                set_request_tenant(ctx.tenant_id)
             return self._memberships_armed(artifact_id, ctx)
         finally:
             if armed_here:

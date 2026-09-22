@@ -20,7 +20,14 @@ export interface ArtifactBaselineMembership {
   /** document | project | global */
   scope: string;
   baselined_at: ISODateTime;
+  /**
+   * Informational: the `Artifact.version` captured at baseline time — not the
+   * entity's own version. A content edit bumps the entity version without
+   * bumping `Artifact.version`, so this can equal `current_version` even when
+   * the artifact genuinely drifted. `drifted` is authoritative.
+   */
   baselined_version: number;
+  /** Informational: the `Artifact.version` right now; same caveat as `baselined_version`. */
   current_version: number;
   drifted: boolean;
   /**

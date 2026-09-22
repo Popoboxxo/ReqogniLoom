@@ -454,6 +454,8 @@
     "coverageSummary": "{{covered}}/{{total}} requirements verified · {{uncovered}} without a test",
     "showUncoveredOnly": "Only requirements without coverage",
     "pendingAiReview": "{{count}} AI test case(s) not yet reviewed (do not count as coverage)",
+    "pendingAiReview_one": "{{count}} AI test case not yet reviewed (does not count as coverage)",
+    "pendingAiReview_other": "{{count}} AI test cases not yet reviewed (do not count as coverage)",
     "includeUnreviewedAi": "Count unreviewed AI test cases as coverage",
     "verified": "verified",
     "notVerified": "no test",

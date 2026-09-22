@@ -454,6 +454,8 @@
     "coverageSummary": "{{covered}}/{{total}} Anforderungen verifiziert · {{uncovered}} ohne Test",
     "showUncoveredOnly": "Nur nicht abgedeckte Anforderungen",
     "pendingAiReview": "{{count}} KI-Testfall/-Testfälle noch nicht geprüft (zählen nicht als Abdeckung)",
+    "pendingAiReview_one": "{{count}} KI-Testfall noch nicht geprüft (zählt nicht als Abdeckung)",
+    "pendingAiReview_other": "{{count}} KI-Testfälle noch nicht geprüft (zählen nicht als Abdeckung)",
     "includeUnreviewedAi": "Ungeprüfte KI-Testfälle als Abdeckung zählen",
     "verified": "verifiziert",
     "notVerified": "kein Test",
