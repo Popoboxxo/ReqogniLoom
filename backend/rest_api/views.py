@@ -2781,10 +2781,30 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         ``reviewed`` defaults to ``true``. The call is idempotent — a second
         call with the same value does not bump ``version`` again.
 
+        A non-object body (list/string/number) is rejected with
+        ``400 VALIDATION_ERROR`` rather than coerced to ``{}``: coercing would
+        silently apply the ``reviewed=true`` default to a request that never
+        carried an intent to review anything. An empty/missing body (``{}``)
+        keeps the documented ``reviewed=true`` default.
+
         Returns the full ``TestCaseSerializer`` representation (200).
         """
         lang = detect_lang(request)
-        body = request.data if isinstance(request.data, dict) else {}
+        if not isinstance(request.data, dict):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {
+                            "field": "body",
+                            "errors": ["Request body must be a JSON object."],
+                        }
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        body = request.data
         reviewed = body.get("reviewed", True)
         if not isinstance(reviewed, bool):
             return Response(

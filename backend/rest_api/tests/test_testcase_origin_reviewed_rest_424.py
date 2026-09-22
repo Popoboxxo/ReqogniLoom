@@ -182,3 +182,33 @@ def test_review_endpoint_rejects_non_boolean(authed_client, created_test_case):
     )
     assert resp.status_code == 400, resp.content
 
+
+def test_review_endpoint_rejects_non_object_body(authed_client, workspace):
+    """M2: a non-object body must 400, not be coerced to ``{}``.
+
+    The old ``body = request.data if isinstance(request.data, dict) else {}``
+    turned a list/string body into an empty object, which then applied the
+    documented ``reviewed=true`` default and flipped an unreviewed AI case to
+    reviewed without any intent in the request.
+    """
+    created = authed_client.post(
+        "/api/v1/testcases/",
+        {
+            "workspace_id": str(workspace.id),
+            "title": "AI TC",
+            "origin": "ai_generated",
+        },
+        format="json",
+    ).json()
+    assert created["reviewed"] is False
+
+    resp = authed_client.post(
+        f"/api/v1/testcases/{created['id']}/review/",
+        ["not", "an", "object"],
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    fetched = authed_client.get(f"/api/v1/testcases/{created['id']}/").json()
+    assert fetched["reviewed"] is False
