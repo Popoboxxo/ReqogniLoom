@@ -60,6 +60,42 @@ def test_get_exposes_the_new_fields(authed_client, created_test_case):
     assert {"origin", "reviewed"} <= set(body)
 
 
+def test_get_exposes_the_backing_artifact_id(authed_client, created_test_case):
+    """#399 (MAJOR-1): the read path must expose the Artifact id.
+
+    The TestCase entity pk and the backing ``Artifact`` pk are different
+    UUIDs; the baseline-membership surface keys on the latter.
+    """
+    resp = authed_client.get(f"/api/v1/testcases/{created_test_case['id']}/")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["artifact_id"]
+    assert body["artifact_id"] != body["id"]
+
+
+def test_membership_endpoint_is_addressed_by_the_exposed_artifact_id(
+    authed_client, created_test_case
+):
+    """#399 (MAJOR-1): the exposed ``artifact_id`` is what the membership
+    endpoint accepts; the entity pk is *not* an Artifact id and 404s.
+
+    This is the guard against re-sending ``item.id`` from the UI — the bug
+    only showed up as a silently empty drift lookup.
+    """
+    body = authed_client.get(f"/api/v1/testcases/{created_test_case['id']}/").json()
+
+    by_artifact = authed_client.get(
+        f"/api/v1/artifacts/{body['artifact_id']}/baseline-membership/"
+    )
+    assert by_artifact.status_code == 200, by_artifact.content
+    assert by_artifact.json()["artifact_id"] == body["artifact_id"]
+
+    by_entity = authed_client.get(
+        f"/api/v1/artifacts/{body['id']}/baseline-membership/"
+    )
+    assert by_entity.status_code == 404, by_entity.content
+
+
 def test_patch_origin_is_rejected(authed_client, created_test_case):
     """AC-424-6 (origin is immutable)."""
     resp = authed_client.patch(

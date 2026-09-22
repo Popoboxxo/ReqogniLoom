@@ -203,8 +203,9 @@ export default function TestCaseEditors(): JSX.Element {
   // opened test case still gets its own "current" station showing what it
   // verifies/derives from.
   const derivationChain = useDerivationChain(
-    // TestCase has no separate `artifact_id` field on the frontend type
-    // (unlike Requirement/Adr/Risk/Issue) — its own id is the Artifact id.
+    // #399: `TestCase.artifact_id` is now exposed by the read path (the drift
+    // badge below binds to it). This spine call keeps the TestCase entity pk —
+    // its existing behaviour, out of scope for the artifact-id fix.
     item?.id ?? null,
     'TestCase',
     null,
@@ -299,10 +300,13 @@ export default function TestCaseEditors(): JSX.Element {
                   />
                 )}
                 {/* #399 (D7): drift badge + CR shortcut live in the editor
-                    header only — never in the list rows (N+1). */}
+                    header only — never in the list rows (N+1). Bound to the
+                    BACKING Artifact id (`artifact_id`): the membership
+                    endpoint and `affected_item_ids` key on artifacts, not on
+                    the TestCase entity pk. */}
                 {item && activeWorkspace && (
                   <BaselineDriftBadge
-                    artifactId={item.id}
+                    artifactId={item.artifact_id ?? item.id}
                     workspaceId={activeWorkspace.id}
                     artifactTitle={item.title}
                     summary={item.baseline_drift}

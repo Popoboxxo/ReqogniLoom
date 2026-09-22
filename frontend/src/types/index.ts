@@ -235,6 +235,12 @@ export interface SimilarTraceLink {
 export interface TestCase extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
+  /**
+   * #399 (MAJOR-1): the backing Artifact id, distinct from the TestCase pk —
+   * the baseline-membership endpoint and `affected_item_ids` prefill key on
+   * Artifact ids, never on the entity pk.
+   */
+  artifact_id?: UUID;
   title: string;
   description: string;
   status: string;

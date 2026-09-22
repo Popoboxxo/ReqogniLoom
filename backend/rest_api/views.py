@@ -1781,6 +1781,13 @@ class ArtifactViewSet(BaseEntityViewSet):
         An empty ``memberships`` list means the artifact is in no baseline
         (``drifted`` is then ``false``). Tenant-scoped through the service's
         tenant-checked loading path.
+
+        Contract note: ``baselined_version``/``current_version`` are
+        **informational** — they are the ``Artifact.version`` pair captured
+        now vs. at baseline time, not the entity's own version. A content edit
+        bumps the entity version without bumping ``Artifact.version``, so the
+        two can be equal while the artifact genuinely drifted. ``drifted``
+        (from the recorded state) is the authoritative verdict.
         """
         lang = detect_lang(request)
         try:
@@ -4670,6 +4677,14 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
     """Convert TestCase ORM object to dict."""
     return {
         "id": str(tc.id),
+        # #399 (MAJOR-1): the backing Artifact id, distinct from the TestCase
+        # entity pk. `GET /artifacts/{id}/baseline-membership/` and
+        # `ChangeRequest.affected_item_ids` key on Artifact ids, so the editor
+        # header must be able to send this value (it used to send the entity
+        # pk, which the membership endpoint answered with a 404).
+        "artifact_id": (
+            str(tc.artifact_id) if getattr(tc, "artifact_id", None) else None
+        ),
         "workspace_id": str(tc.artifact.workspace_id) if hasattr(tc, "artifact") else None,
         "title": tc.title,
         "description": getattr(tc, "description", ""),

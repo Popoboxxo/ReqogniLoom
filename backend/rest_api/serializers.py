@@ -1170,6 +1170,12 @@ class TestCaseSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # #399 (MAJOR-1): the backing Artifact id, distinct from the TestCase pk.
+    # `GET /artifacts/{id}/baseline-membership/` and the `affected_item_ids`
+    # prefill key on Artifact ids (#413/#416 for Requirement); without this
+    # field the UI has no way to name the artifact it must ask about and sent
+    # the entity pk instead. `_test_to_dict` supplies the value. Read-only.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)

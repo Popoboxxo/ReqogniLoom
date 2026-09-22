@@ -431,4 +431,60 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
     expect(await screen.findByTestId("baseline-drift-badge")).toBeInTheDocument();
     expect(screen.getByTestId("raise-cr-from-drift")).toBeInTheDocument();
   });
+
+  // #399 (MAJOR-1): the membership lookup and the CR shortcut must key on the
+  // BACKING Artifact id, never on the TestCase entity pk. The get-mock matches
+  // the *exact* path on purpose: a `path.includes("/baseline-membership/")`
+  // branch would answer for either id and hide precisely this bug.
+  it("binds the drift lookup and CR prefill to artifact_id, not the entity pk (#399)", async () => {
+    const ARTIFACT_ID = "art-tc-001";
+    const withArtifact = { ...TEST_CASE, artifact_id: ARTIFACT_ID };
+    vi.mocked(testcasesApi.listAll).mockResolvedValue([withArtifact]);
+    vi.mocked(testcasesApi.get).mockResolvedValue(withArtifact);
+
+    const membershipPath = `/artifacts/${ARTIFACT_ID}/baseline-membership/`;
+    const entityPath = `/artifacts/${TEST_CASE.id}/baseline-membership/`;
+    const requestedPaths: string[] = [];
+
+    vi.mocked(apiClient.get).mockImplementation((path?: string) => {
+      requestedPaths.push(String(path));
+      if (path === "/auth/me/") {
+        return Promise.resolve({
+          user: {
+            id: "u-1", username: "tester", email: "t@x.test", first_name: "",
+            last_name: "", is_active: true, tenant_id: "t-1", roles: ["admin"],
+          },
+          tenant_id: "t-1",
+          roles: ["admin"],
+        });
+      }
+      if (path === membershipPath) {
+        return Promise.resolve({
+          artifact_id: ARTIFACT_ID,
+          drifted: true,
+          memberships: [
+            {
+              baseline_id: "b-1", baseline_name: "Release 1.8", scope: "project",
+              baselined_at: "2026-09-01T10:00:00Z", baselined_version: 3,
+              current_version: 4, drifted: true, drift_known: true,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor(`/testcases/${TEST_CASE.id}`);
+
+    expect(await screen.findByTestId("baseline-drift-badge")).toBeInTheDocument();
+    expect(requestedPaths).toContain(membershipPath);
+    expect(requestedPaths).not.toContain(entityPath);
+
+    await userEvent.click(screen.getByTestId("raise-cr-from-drift"));
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/change-requests/",
+      expect.objectContaining({ affected_item_ids: [ARTIFACT_ID] })
+    );
+  });
 });

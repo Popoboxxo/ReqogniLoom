@@ -73,6 +73,13 @@ export interface BaselineDriftSummary {
 /** Mirror of the backend TestCaseSerializer (REQ-L2-RA-001). */
 export interface TestCase {
   id: UUID;
+  /**
+   * #399 (MAJOR-1): the backing Artifact id, distinct from the TestCase
+   * entity pk. The baseline-membership endpoint and the change-request
+   * `affected_item_ids` prefill key on Artifact ids — the editor header must
+   * send this, never `id`.
+   */
+  artifact_id?: UUID;
   workspace_id: UUID;
   title: string;
   description: string;
