@@ -30,6 +30,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand
 
+from application.attribute_bootstrap import bootstrap_attribute_definitions_for_tenant
 from application.workspace_provisioning import provision_workspace_defaults_scoped
 from auth_tenancy.provisioning import (
     DEFAULT_ADMIN_EMAIL,
@@ -95,6 +96,27 @@ class Command(BaseCommand):
             tenant_id=result.tenant.id,
             requirement_preset=_WORKSPACE_TIER,
         )
+
+        # Issue #29: a workspace provisioned only via seed_demo had ZERO
+        # GlobalAttributeDefinition rows, so the custom-fields/attribute feature
+        # rendered empty ("No global attribute definition for '<type>/<preset>'").
+        # application.self_init.run_self_init() already bootstraps them for its
+        # own tenants; reuse the same shared helper here so the two provisioning
+        # paths cannot diverge. It is idempotent (get-then-initialize), so a
+        # re-run creates no duplicates.
+        #
+        # Intentional fail-loud divergence from self_init: that path runs inside
+        # post_migrate and must never raise (its wrapper catches and logs so a
+        # failure cannot abort the whole `migrate`). This call deliberately lets
+        # an exception propagate — seed_demo is operator-invoked, so a bootstrap
+        # failure should fail loudly with a non-zero exit instead of silently
+        # shipping an empty attribute set. handle() runs outside a transaction,
+        # so if it raises, the tenant/workspace/user provisioned above stay
+        # committed; only the bootstrap command's own atomic block rolls back.
+        # The nested call_command also prints its own
+        # "bootstrap_attribute_definitions: N created, ..." SUCCESS line to
+        # stdout, in addition to seed_demo's final message below.
+        bootstrap_attribute_definitions_for_tenant(result.tenant.id)
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded."))
         if result.password_set:
