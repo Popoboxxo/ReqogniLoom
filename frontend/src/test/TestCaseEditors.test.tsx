@@ -76,6 +76,7 @@ vi.mock("../api/testcases", () => ({
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    review: vi.fn(),
     versions: vi.fn().mockResolvedValue([]),
     diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
   },
@@ -102,6 +103,7 @@ vi.mock("../context/WorkspaceContext", () => ({
 // Must import AFTER vi.mock
 import TestCaseEditors from "../components/TestCaseEditors/TestCaseEditors";
 import { testcasesApi } from "../api/testcases";
+import { apiClient } from "../api/client";
 import { getWorkflowStatusLabel } from "../utils/workflowStatus";
 
 function renderEditor(initialPath = `/testcases/${TEST_CASE.id}`): ReturnType<typeof render> {
@@ -359,5 +361,130 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
     expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
 
     void i18n.changeLanguage(previousLanguage);
+  });
+
+  // #424 / #402: provenance + scenario markers come from the list payload —
+  // no extra per-row request.
+  it("renders the AI / unreviewed / off-nominal badges on the row (#424, #402)", async () => {
+    const aiCase = {
+      ...TEST_CASE,
+      origin: "ai_generated" as const,
+      reviewed: false,
+      scenario_kind: "off_nominal" as const,
+    };
+    vi.mocked(testcasesApi.listAll).mockResolvedValue([aiCase]);
+
+    renderEditor("/testcases");
+
+    expect(await screen.findByTestId(`tc-row-ai-badge-${TEST_CASE.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`tc-row-unreviewed-badge-${TEST_CASE.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`tc-row-offnominal-badge-${TEST_CASE.id}`)).toBeInTheDocument();
+  });
+
+  it("leaves legacy and manual rows unbadged (#424 grandfathering)", async () => {
+    vi.mocked(testcasesApi.listAll).mockResolvedValue([
+      { ...TEST_CASE, origin: "unknown" as const, reviewed: false },
+    ]);
+
+    renderEditor("/testcases");
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`tc-row-${TEST_CASE.id}`)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId(`tc-row-ai-badge-${TEST_CASE.id}`)).toBeNull();
+    expect(screen.queryByTestId(`tc-row-unreviewed-badge-${TEST_CASE.id}`)).toBeNull();
+    expect(screen.queryByTestId(`tc-row-offnominal-badge-${TEST_CASE.id}`)).toBeNull();
+  });
+
+  // #399 / D7: the drift badge lives in the editor header (one membership
+  // lookup for the open artifact), never in the list rows.
+  it("renders the baseline drift badge + CR shortcut in the editor header (#399)", async () => {
+    vi.mocked(apiClient.get).mockImplementation((path?: string) => {
+      if (path === "/auth/me/") {
+        return Promise.resolve({
+          user: {
+            id: "u-1", username: "tester", email: "t@x.test", first_name: "",
+            last_name: "", is_active: true, tenant_id: "t-1", roles: ["admin"],
+          },
+          tenant_id: "t-1",
+          roles: ["admin"],
+        });
+      }
+      if (path?.includes("/baseline-membership/")) {
+        return Promise.resolve({
+          artifact_id: TEST_CASE.id,
+          drifted: true,
+          memberships: [
+            {
+              baseline_id: "b-1", baseline_name: "Release 1.8", scope: "project",
+              baselined_at: "2026-09-01T10:00:00Z", baselined_version: 3,
+              current_version: 4, drifted: true, drift_known: true,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor(`/testcases/${TEST_CASE.id}`);
+
+    expect(await screen.findByTestId("baseline-drift-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("raise-cr-from-drift")).toBeInTheDocument();
+  });
+
+  // #399 (MAJOR-1): the membership lookup and the CR shortcut must key on the
+  // BACKING Artifact id, never on the TestCase entity pk. The get-mock matches
+  // the *exact* path on purpose: a `path.includes("/baseline-membership/")`
+  // branch would answer for either id and hide precisely this bug.
+  it("binds the drift lookup and CR prefill to artifact_id, not the entity pk (#399)", async () => {
+    const ARTIFACT_ID = "art-tc-001";
+    const withArtifact = { ...TEST_CASE, artifact_id: ARTIFACT_ID };
+    vi.mocked(testcasesApi.listAll).mockResolvedValue([withArtifact]);
+    vi.mocked(testcasesApi.get).mockResolvedValue(withArtifact);
+
+    const membershipPath = `/artifacts/${ARTIFACT_ID}/baseline-membership/`;
+    const entityPath = `/artifacts/${TEST_CASE.id}/baseline-membership/`;
+    const requestedPaths: string[] = [];
+
+    vi.mocked(apiClient.get).mockImplementation((path?: string) => {
+      requestedPaths.push(String(path));
+      if (path === "/auth/me/") {
+        return Promise.resolve({
+          user: {
+            id: "u-1", username: "tester", email: "t@x.test", first_name: "",
+            last_name: "", is_active: true, tenant_id: "t-1", roles: ["admin"],
+          },
+          tenant_id: "t-1",
+          roles: ["admin"],
+        });
+      }
+      if (path === membershipPath) {
+        return Promise.resolve({
+          artifact_id: ARTIFACT_ID,
+          drifted: true,
+          memberships: [
+            {
+              baseline_id: "b-1", baseline_name: "Release 1.8", scope: "project",
+              baselined_at: "2026-09-01T10:00:00Z", baselined_version: 3,
+              current_version: 4, drifted: true, drift_known: true,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderEditor(`/testcases/${TEST_CASE.id}`);
+
+    expect(await screen.findByTestId("baseline-drift-badge")).toBeInTheDocument();
+    expect(requestedPaths).toContain(membershipPath);
+    expect(requestedPaths).not.toContain(entityPath);
+
+    await userEvent.click(screen.getByTestId("raise-cr-from-drift"));
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/change-requests/",
+      expect.objectContaining({ affected_item_ids: [ARTIFACT_ID] })
+    );
   });
 });

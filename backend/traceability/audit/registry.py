@@ -67,6 +67,11 @@ CONS_P10 = "CONS-P10"
 #: Pflichtmatrix; added when RequirementLevel was realigned with the
 #: documented V-model cascade. See rules/level_progression.py.
 CONS_P11 = "CONS-P11"
+#: #402 (cluster 5) — Stakeholder-Goal traceability. Not part of the original
+#: §2.2 Pflichtmatrix: it is the validation-pillar rule the Goals feature was
+#: missing. Advisory (WARNING) at every tier it runs in; see
+#: rules/validation_goals.py.
+VAL_P1 = "VAL-P1"
 
 # ---------------------------------------------------------------------------
 # Preset → active rule ids (single source of truth, §2.2)
@@ -94,6 +99,7 @@ _EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
         ARCH_003,
         VERIF_P8,
         CONS_P11,
+        VAL_P1,
     }
 )
 
@@ -306,4 +312,5 @@ __all__ = [
     "CONS_P9",
     "CONS_P10",
     "CONS_P11",
+    "VAL_P1",
 ]

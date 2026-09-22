@@ -195,6 +195,42 @@ def _active_test_cases(context: AuditContext) -> Dict[str, str]:
     }
 
 
+def _active_verifying_test_cases(context: AuditContext) -> Dict[str, str]:
+    """Return ``{artifact_id: title}`` for active *verification-evidence* TestCases.
+
+    #424: unlike :func:`_active_test_cases`, this helper applies the shared
+    :func:`traceability.coverage_calculator.counts_as_verification_evidence`
+    predicate as well: an ``origin="ai_generated"``, unreviewed TestCase is
+    **not** verification evidence, so a leaf Requirement whose only "coverage"
+    was such a test case re-opens VERIF-P8 instead of staying silently
+    "covered".
+
+    TRACE-P6 deliberately keeps using :func:`_active_test_cases`: that rule
+    asks "does this TestCase point at an existing target at all?", which is
+    independent of the TestCase's review status. Applying the review filter
+    there would silently switch the rule off for unreviewed AI test cases — a
+    rule gap, not a rule effect.
+    """
+    from traceability.coverage_calculator import counts_as_verification_evidence
+
+    rows = list(
+        TestCase.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+        ).values("id", "artifact_id", "title", "origin", "reviewed")
+    )
+    states = state_reader.current_states(
+        "TestCase", (row["id"] for row in rows), tenant_id=context.tenant_id
+    )
+    testcase_initial_state = state_reader.initial_state("TestCase")
+    return {
+        str(row["artifact_id"]): row["title"]
+        for row in rows
+        if (states.get(str(row["id"])) or testcase_initial_state) != "outdated"
+        and counts_as_verification_evidence(row["origin"], row["reviewed"])
+    }
+
+
 def _targets_by_source(
     context: AuditContext, link_types: FrozenSet[str]
 ) -> Dict[str, Set[str]]:
@@ -279,7 +315,7 @@ class LeafRequirementHasTestCaseRule(Rule):
         if not leaf_ids:
             return []
 
-        active_test_case_ids = frozenset(_active_test_cases(context))
+        active_test_case_ids = frozenset(_active_verifying_test_cases(context))
         verifies = _targets_by_source(context, frozenset({LinkType.VERIFIES.value}))
 
         verified_requirement_ids: Set[str] = set()
@@ -378,4 +414,5 @@ __all__ = [
     "LeafRequirementHasTestCaseRule",
     "OpenConflictBlocksApprovalRule",
     "NoDanglingSupersededReferenceRule",
+    "_active_verifying_test_cases",
 ]

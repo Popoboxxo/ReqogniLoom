@@ -161,6 +161,49 @@ describe("RequirementArtifactForm", () => {
     expect(patch.title).toBe("Login (updated)");
   });
 
+  // #399: the requirement `retrieve` view attaches an additive, read-only
+  // `baseline_drift` annotation to the response (backend/rest_api/views.py)
+  // that the editor header's drift badge consumes — but it is not a serializer
+  // field, so a PATCH carrying it is rejected with `Unknown field
+  // 'baseline_drift'`. Same read-only-key exclusion the TestCase adapter
+  // already applies to the identical annotation (#424).
+  it("keeps the baseline_drift annotation out of the PATCH payload (#399)", () => {
+    const patch = formValuesToRequirementPatch({
+      title: "T",
+      baseline_drift: { drifted: true, count: 1 },
+      custom_fields: {},
+    });
+    expect(patch).not.toHaveProperty("baseline_drift");
+    expect(patch.title).toBe("T");
+  });
+
+  // The actual production regression this pins: `requirementToFormValues`
+  // spreads the whole GET payload into the form bag, so the additive
+  // `baseline_drift` from the detail response reached the emitted PATCH and the
+  // server answered 400 — the form's save was dead for any requirement the
+  // drift badge rendered on. Exercises the full mount -> save -> PATCH path.
+  it("does not send the baseline_drift annotation back on save (#399)", async () => {
+    vi.mocked(requirementsApi.update).mockResolvedValue(REQUIREMENT);
+    render(
+      <RequirementArtifactForm
+        requirement={
+          Object.assign({}, FULL_REQUIREMENT_GET_PAYLOAD, {
+            baseline_drift: { drifted: true, count: 1 },
+          }) as never
+        }
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("artifact-form-save"));
+    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
+    const patch = vi.mocked(requirementsApi.update).mock.calls[0][1] as Record<
+      string,
+      unknown
+    >;
+    expect(patch).not.toHaveProperty("baseline_drift");
+  });
+
   it("renders the classification and change-control sections", async () => {
     render(
       <RequirementArtifactForm

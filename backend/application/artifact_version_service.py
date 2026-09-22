@@ -168,6 +168,10 @@ class ArtifactVersionService(ServiceBase):
         Returns the same entry shape the diff API already publishes for
         Diagram (``version``/``label``/``modified_at``/``content_available``),
         so ``ArtifactDiffService`` can serve one format for every type.
+
+        #272: ``is_creation_baseline`` is stated explicitly — every row here is
+        a real stored revision, never the synthetic v0 row (producer contract,
+        spec section 7.4.2).
         """
         self._set_tenant_context(ctx)
         rows = ArtifactVersion.objects.filter(artifact_id=artifact_id).order_by(
@@ -180,6 +184,7 @@ class ArtifactVersionService(ServiceBase):
                 "modified_at": row.created_at.isoformat() if row.created_at else None,
                 # Every row is a stored snapshot — always retrievable.
                 "content_available": True,
+                "is_creation_baseline": False,
             }
             for row in rows
         ]

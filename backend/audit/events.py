@@ -74,6 +74,15 @@ class AuditableOperationOccurred:
     change_reason: Optional[str] = None
     """Optional human-readable reason (e.g. workflow transition label)."""
 
+    details: Optional[Dict[str, Any]] = None
+    """Optional structured payload for the operation (ADR-10 groundwork).
+
+    Kept out of ``ctx`` on purpose: ``ctx`` is request/enrichment context
+    (source, client_name, api_key) that the enricher *derives* from, while
+    ``details`` is caller-supplied operation payload that is persisted as-is.
+    ``None`` means "no payload" and stores SQL NULL.
+    """
+
     ctx: Dict[str, Any] = field(default_factory=dict)
     """Request context. MCP path provides: source, client_name, api_key."""
 

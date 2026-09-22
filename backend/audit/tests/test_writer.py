@@ -125,6 +125,46 @@ class TestEventBusSubscription:
 
         assert entry is not None
 
+    # ADR-10 groundwork (#399): the optional structured payload is no longer
+    # dropped — it is persisted verbatim, and omitting it keeps the v1 NULL.
+    def test_details_payload_is_persisted(self, tenant_a: Tenant) -> None:
+        writer = AuditLogWriter()
+        entity_id = uuid.uuid4()
+        payload = {
+            "baseline_drift": [
+                {"baseline_id": str(uuid.uuid4()), "scope": "project", "drift_known": True}
+            ]
+        }
+
+        with active_tenant(tenant_a):
+            event = AuditableOperationOccurred(
+                actor="user-1",
+                actor_type="user",
+                op="update",
+                entity_type="Requirement",
+                entity_id=entity_id,
+                details=payload,
+            )
+            entry = writer.write(event)
+
+        assert entry.details == payload
+
+    def test_details_defaults_to_null(self, tenant_a: Tenant) -> None:
+        writer = AuditLogWriter()
+        entity_id = uuid.uuid4()
+
+        with active_tenant(tenant_a):
+            event = AuditableOperationOccurred(
+                actor="user-1",
+                actor_type="user",
+                op="create",
+                entity_type="Requirement",
+                entity_id=entity_id,
+            )
+            entry = writer.write(event)
+
+        assert entry.details is None
+
 
 # ---------------------------------------------------------------------------
 # REQ-L3-AL001-002: MCP Enrichment

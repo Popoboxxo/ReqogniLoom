@@ -174,7 +174,16 @@ function collectReferencedKeys(dir: string): Set<string> {
 // `memory.summary_one`/`summary_other` forms existed — the same scanner-blind
 // spot as the `adrs/risks/issues.summary` fix above. With the key added the
 // measured count is still 117, so the ceiling is unchanged.
-const MISSING_KEY_BASELINE = 117;
+//
+// Lowered to 116 (cluster 5, #424/#402): the TestCase work added the same bare
+// `testcases.summary` key to both locale files for the identical plural-blind
+// reason — `TestCaseEditors` calls `t("testcases.summary", {count})` while only
+// `summary_one`/`summary_other` existed, so the scanner flagged the bare key
+// even though i18next resolves the plural forms at runtime. Every other new
+// cluster-5 key (`testcases.*`, `deriveTestcase.aiNotice`, `baseline.*`,
+// `traceability.pendingAiReview`/`includeUnreviewedAi`) is present in both
+// files, so none of them contributes to this count. Re-measured: 117 - 1 = 116.
+const MISSING_KEY_BASELINE = 116;
 
 describe("i18n code-to-locale coverage (#619)", () => {
   it("does not reference more undefined translation keys than the frozen baseline", () => {

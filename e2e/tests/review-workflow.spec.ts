@@ -45,6 +45,14 @@ async function createRequirement(
       // pass — the POST 400s, the signature dialog stays open and the item
       // stays in the queue.
       acceptance_criteria: 'Given the review queue, when approved, then the status is approved.',
+      // #272 (spec section 7.2): `verification_method` joined the Extended
+      // approval gate's mandatory fields. Same failure mode as
+      // acceptance_criteria above — omit it and the approve POST 400s, the
+      // signature dialog stays open and the item stays in the queue. The
+      // requirement defaults to `type: 'SyReq'`, so the value is accepted and
+      // persisted; 'Test' mirrors the backend policy fixture
+      // (test_se_validation_remainder_272.py).
+      verification_method: 'Test',
     },
   });
   expect(response.ok()).toBeTruthy();

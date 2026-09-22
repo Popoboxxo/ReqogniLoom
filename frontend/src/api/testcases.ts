@@ -44,9 +44,42 @@ export type TestCaseType =
   | "analysis"
   | "demonstration";
 
+/**
+ * #424: provenance of a TestCase's content — mirror of
+ * `persistence/models.py::TestCaseOrigin`.
+ *
+ * `ai_generated` + `reviewed === false` is exactly the pair the coverage
+ * calculator excludes from verification evidence. `unknown` is system/
+ * migration-owned (legacy rows) and is deliberately NOT client-writable
+ * (spec section 4.4: serializer choices are `{manual, ai_generated}`).
+ */
+export type TestCaseOrigin = "manual" | "ai_generated" | "unknown";
+
+/** #402: off-nominal classification — mirror of `ScenarioKind`. */
+export type ScenarioKind = "nominal" | "off_nominal";
+
+/**
+ * #399: additive drift summary that `TestCaseViewSet.retrieve` (and the
+ * Requirement retrieve) attach to their responses — `{drifted, count}`.
+ * The full per-baseline detail lives behind
+ * `GET /api/v1/artifacts/{id}/baseline-membership/` (`artifactsApi.
+ * baselineMembership`), which the editor header calls once per open artifact.
+ */
+export interface BaselineDriftSummary {
+  drifted: boolean;
+  count: number;
+}
+
 /** Mirror of the backend TestCaseSerializer (REQ-L2-RA-001). */
 export interface TestCase {
   id: UUID;
+  /**
+   * #399 (MAJOR-1): the backing Artifact id, distinct from the TestCase
+   * entity pk. The baseline-membership endpoint and the change-request
+   * `affected_item_ids` prefill key on Artifact ids — the editor header must
+   * send this, never `id`.
+   */
+  artifact_id?: UUID;
   workspace_id: UUID;
   title: string;
   description: string;
@@ -54,6 +87,21 @@ export interface TestCase {
   steps?: TestCaseStep[];
   /** #864: real `TestCase.test_type` column; `null` when not set. */
   test_type?: TestCaseType | null;
+  /**
+   * #424: content provenance. Absent on responses from a backend older than
+   * cluster 5 — treat `undefined` as "not asserted", never as `manual`.
+   */
+  origin?: TestCaseOrigin;
+  /**
+   * #424: human content sign-off, derived server-side from `origin` at create
+   * time (`manual` → `true`, `ai_generated` → `false`) and toggled only
+   * through `POST /testcases/{id}/review/`. Read-only in the serializer.
+   */
+  reviewed?: boolean;
+  /** #402: nominal (default) or off-nominal scenario category. */
+  scenario_kind?: ScenarioKind;
+  /** #399: additive baseline-drift summary on the detail retrieve. */
+  baseline_drift?: BaselineDriftSummary;
   version: number;
   uid?: string;
   custom_fields?: CustomFields;
@@ -91,10 +139,31 @@ export const testcasesApi = {
      * create contract now accepts it. Omit to leave the column NULL.
      */
     test_type?: TestCaseType;
+    /**
+     * #424: provenance the interactive client declares for the new row.
+     * `ai_generated` is what the AI derivation panel sends; omit for a
+     * human-authored test case (server default `manual`). `unknown` is not a
+     * valid client value.
+     */
+    origin?: Exclude<TestCaseOrigin, "unknown">;
+    /** #402: nominal (default) or off-nominal classification. */
+    scenario_kind?: ScenarioKind;
     /** SysEng 2.0 N5: optional requirement to auto-link via a 'verifies' TraceLink. */
     linked_requirement_id?: UUID;
   }): Promise<TestCase> {
     return apiClient.post<TestCase>("/testcases/", data);
+  },
+
+  /**
+   * #424: set the human content sign-off via
+   * `POST /api/v1/testcases/{id}/review/`. Idempotent server-side; `reviewed`
+   * defaults to `true`. The response is the full updated TestCase.
+   */
+  review(
+    id: UUID,
+    data: { reviewed?: boolean; change_reason?: string } = {}
+  ): Promise<TestCase> {
+    return apiClient.post<TestCase>(`/testcases/${id}/review/`, data);
   },
 
   /**

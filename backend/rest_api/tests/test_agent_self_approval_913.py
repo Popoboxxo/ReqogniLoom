@@ -202,6 +202,10 @@ def test_human_can_still_approve_an_agent_proposal(approval_env):
         {
             "description": "Extended tier needs a description to approve.",
             "acceptance_criteria": "Human approval is the intended path.",
+            # #272 (spec §7.2): the Extended approval gate now also requires
+            # verification_method — without it the human transition below is
+            # refused with MANDATORY_FIELDS_MISSING instead of 200.
+            "verification_method": "Test",
             "change_reason": "fill the approval prerequisites",
         },
         format="json",

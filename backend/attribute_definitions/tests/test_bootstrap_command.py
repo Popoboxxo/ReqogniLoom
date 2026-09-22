@@ -601,3 +601,46 @@ def test_no_introspected_attribute_is_both_editable_and_not_writable() -> None:
                     f"editable but {serializer_cls.__name__}.{name} is "
                     "read_only."
                 )
+
+
+@pytest.mark.django_db
+def test_testcase_provenance_controls_are_not_exposed_as_editable() -> None:
+    """#424/#402 review finding M-A: the bootstrap must not render edit
+    controls for controls its own serializer/form owns.
+
+    Two distinct mechanisms, asserted separately and for **every** preset:
+
+    * ``origin`` stays in the definition (complete, still validated) but is
+      ``editable=False``. It is write-once after creation, so an editable
+      control would silently discard/crash every save; the definition layer
+      rejects *updates* carrying a non-editable attribute while the create
+      path stays intact.
+    * ``scenario_kind`` is owned by the ``TestCaseArtifactForm`` adapter, which
+      renders its own select, so it must not be introspected a second time.
+
+    This assertion goes red if ``origin`` is dropped from
+    ``READ_ONLY_MODEL_FIELDS`` (it would be introspected ``editable=True``) or
+    if ``scenario_kind`` is re-added to the introspection for ``TestCase``.
+    """
+    for preset in PRESETS:
+        by_name = {
+            attribute["name"]: attribute
+            for attribute in introspect_core_attributes("TestCase", preset)
+        }
+
+        assert "origin" in by_name, (
+            f"TestCase/{preset}: 'origin' must stay declared in the definition"
+        )
+        assert by_name["origin"]["editable"] is False, (
+            f"TestCase/{preset}: 'origin' is write-once after creation but is "
+            "introspected as an editable control (editable="
+            f"{by_name['origin']['editable']!r}); it must be listed in "
+            "READ_ONLY_MODEL_FIELDS."
+        )
+
+        scenario_kind = by_name.get("scenario_kind")
+        assert scenario_kind is None or scenario_kind["editable"] is not True, (
+            f"TestCase/{preset}: 'scenario_kind' is owned by the "
+            "TestCaseArtifactForm adapter and must not be introspected as an "
+            "editable control."
+        )

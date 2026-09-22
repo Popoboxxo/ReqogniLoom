@@ -33,7 +33,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("../api/testcases", () => ({
-  testcasesApi: { update: vi.fn(), delete: vi.fn() },
+  testcasesApi: { update: vi.fn(), delete: vi.fn(), review: vi.fn() },
 }));
 vi.mock("../api/attribute-definitions", () => ({
   attributeDefinitionsApi: { getWorkspace: vi.fn() },
@@ -80,6 +80,7 @@ describe("TestCaseArtifactForm", () => {
     } as never);
     vi.mocked(testcasesApi.update).mockReset();
     vi.mocked(testcasesApi.delete).mockReset();
+    vi.mocked(testcasesApi.review).mockReset();
   });
 
   it("aliases the wire field steps onto the form field steps_data", () => {
@@ -160,6 +161,92 @@ describe("TestCaseArtifactForm", () => {
     expect(banner).toHaveTextContent("Server exploded");
     expect(banner).toHaveAttribute("role", "alert");
     expect(banner).toHaveAttribute("aria-live", "assertive");
+  });
+
+  // #402: the scenario select is this adapter's own control (fixed two-value
+  // contract), not a definition-driven attribute.
+  it("sends the selected scenario_kind on save (#402)", async () => {
+    vi.mocked(testcasesApi.update).mockResolvedValue(TEST_CASE);
+    render(
+      <TestCaseArtifactForm
+        testCase={TEST_CASE}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    const select = await screen.findByTestId("tc-scenario-kind-select");
+    expect(select).toHaveValue("nominal");
+    await userEvent.selectOptions(select, "off_nominal");
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
+    await waitFor(() =>
+      expect(testcasesApi.update).toHaveBeenCalledWith(
+        "t-1",
+        expect.objectContaining({ scenario_kind: "off_nominal" })
+      )
+    );
+  });
+
+  // #424: the review action is wired to POST /testcases/{id}/review/ and asks
+  // the host to refetch on success.
+  it("marks the test case as reviewed via the review endpoint (#424)", async () => {
+    vi.mocked(testcasesApi.review).mockResolvedValue({ ...TEST_CASE, reviewed: true });
+    const onReviewed = vi.fn();
+    render(
+      <TestCaseArtifactForm
+        testCase={TEST_CASE}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+        onReviewed={onReviewed}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("tc-review-button"));
+    await waitFor(() =>
+      expect(testcasesApi.review).toHaveBeenCalledWith("t-1", { reviewed: true })
+    );
+    expect(onReviewed).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the reviewed badge and no review button once reviewed (#424)", async () => {
+    render(
+      <TestCaseArtifactForm
+        testCase={{ ...TEST_CASE, reviewed: true } as never}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    expect(await screen.findByTestId("tc-reviewed-badge")).toBeInTheDocument();
+    expect(screen.queryByTestId("tc-review-button")).toBeNull();
+  });
+
+  it("announces a failed review without hiding the button (#424)", async () => {
+    vi.mocked(testcasesApi.review).mockRejectedValue(new Error("not allowed"));
+    render(
+      <TestCaseArtifactForm
+        testCase={TEST_CASE}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    await userEvent.click(await screen.findByTestId("tc-review-button"));
+    const alert = await screen.findByTestId("tc-review-error");
+    expect(alert).toHaveTextContent("not allowed");
+    expect(alert).toHaveAttribute("role", "alert");
+  });
+
+  // #424: origin (write-once), reviewed (review endpoint only) and the
+  // read-only baseline_drift annotation must never ride along on a PATCH.
+  it("keeps origin, reviewed and baseline_drift out of the PATCH payload (#424)", () => {
+    const patch = formValuesToTestCasePatch({
+      title: "T",
+      origin: "ai_generated",
+      reviewed: false,
+      baseline_drift: { drifted: true, count: 1 },
+      custom_fields: {},
+    });
+    expect(patch).not.toHaveProperty("origin");
+    expect(patch).not.toHaveProperty("reviewed");
+    expect(patch).not.toHaveProperty("baseline_drift");
+    expect(patch.title).toBe("T");
   });
 });
 

@@ -1,0 +1,23 @@
+/* #399 baseline drift badge + change-request shortcut (editor header).
+   Token-only (styles/tokens.css); no hardcoded colours or sizes. */
+
+.wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.status {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.error {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}

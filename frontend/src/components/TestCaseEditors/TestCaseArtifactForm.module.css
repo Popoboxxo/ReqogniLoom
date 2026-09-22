@@ -1,0 +1,31 @@
+/* TestCase adapter-local chrome (#402 scenario select + #424 review action).
+   Token-only (styles/tokens.css); no hardcoded colours. */
+
+.scenarioField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.scenarioLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.scenarioSelect {
+  width: 100%;
+  max-width: 16rem;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.reviewError {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}

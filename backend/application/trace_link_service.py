@@ -342,6 +342,39 @@ class TraceLinkService(ServiceBase):
             manual=manual,
         )
 
+        if manual:
+            self._assert_endpoints_live(link_type, source, target)
+
+    @staticmethod
+    def _assert_endpoints_live(link_type: str, source, target) -> None:
+        """Refuse a *manually* created link whose endpoint is soft-deleted (#272).
+
+        `validate_link_pair` answers "may these two artifact *types* be
+        connected by this link type?" and knows nothing about the soft-delete
+        state, so a manual link could previously be attached to an
+        already-deleted (``lifecycle_status == "outdated"``) artifact —
+        re-establishing a trace edge that coverage, the auditor and every list
+        view treat as gone.
+
+        Soft-delete is exactly ``Artifact.lifecycle_status``
+        (Datenmodell-Konsolidierung Phase 4, D-3); both endpoint rows are
+        already loaded by :meth:`_check_link_pair`, so this is a pure in-memory
+        check — no ``outdated_item_ids`` round-trip and no
+        entity-id-to-artifact-id resolution.
+
+        Only the manual path is checked: the diagram reconciler
+        (``manual=False``) and the import paths keep their existing behaviour,
+        and existing links are untouched (soft-delete is not a cascade,
+        GH-484). ``reactivate()`` makes an endpoint linkable again.
+        """
+        for artifact in (source, target):
+            if getattr(artifact, "lifecycle_status", None) == "outdated":
+                raise ValidationError(
+                    f"Cannot create '{link_type}' link: the "
+                    f"{artifact.artifact_type} endpoint '{artifact.id}' is "
+                    "deleted (outdated). Reactivate it first."
+                )
+
     @atomic_transaction
     def create_trace_link(
         self,
