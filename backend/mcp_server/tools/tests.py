@@ -88,7 +88,7 @@ from mcp_server.tools.system_fields import (
     apply_system_fields,
     system_field_values,
 )
-from persistence.models import TestCase, TestCaseOrigin, TestCaseType
+from persistence.models import ScenarioKind, TestCase, TestCaseOrigin, TestCaseType
 from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
@@ -100,6 +100,9 @@ _VALID_RUN_RESULT_STATUSES = frozenset({"passed", "failed", "blocked", "not_run"
 #: not exposed (system/migration-only) — mirrors the REST serializer's choices,
 #: not ``TestCaseOrigin.values``.
 _VALID_CLIENT_ORIGINS = (TestCaseOrigin.MANUAL.value, TestCaseOrigin.AI_GENERATED.value)
+
+#: #402: the ``scenario_kind`` vocabulary (nominal | off_nominal).
+_VALID_SCENARIO_KINDS = tuple(value for value, _label in ScenarioKind.choices)
 
 #: Real ``TestCase.test_type`` column values (migration 0041, lowercase
 #: ``TestCaseType``). The resolved attribute definition exposes exactly these
@@ -151,6 +154,7 @@ def _test_case_to_dict(
         # as verification evidence.
         "origin": getattr(tc, "origin", TestCaseOrigin.MANUAL),
         "reviewed": bool(getattr(tc, "reviewed", False)),
+        "scenario_kind": getattr(tc, "scenario_kind", ScenarioKind.NOMINAL),
         # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
         # backing Artifact and must round-trip through test.get/test.query.
         "custom_fields": artifact_custom_fields(tc),
@@ -274,6 +278,12 @@ class McpTestToolGroup(BaseToolGroup):
                             "verification evidence until test.mark_reviewed."
                         ),
                     },
+                    # #402: off-nominal categorisation.
+                    "scenario_kind": {
+                        "type": "string",
+                        "enum": list(_VALID_SCENARIO_KINDS),
+                        "description": "'nominal' (default) or 'off_nominal'.",
+                    },
                     # Attribut v3 WS2 (#936): Artifact-level system fields.
                     **SYSTEM_FIELD_SCHEMA,
                     "linked_req_id": {
@@ -323,6 +333,12 @@ class McpTestToolGroup(BaseToolGroup):
                                     "Extended user-defined attributes (flat "
                                     "key/value map). Replaces the stored map."
                                 ),
+                            },
+                            # #402: off-nominal categorisation (editable).
+                            "scenario_kind": {
+                                "type": "string",
+                                "enum": list(_VALID_SCENARIO_KINDS),
+                                "description": "'nominal' or 'off_nominal'.",
                             },
                             "execution_status": {
                                 "type": "string",
@@ -611,6 +627,14 @@ class McpTestToolGroup(BaseToolGroup):
                 f"Invalid origin '{origin}'. Valid: "
                 f"{list(_VALID_CLIENT_ORIGINS)}",
             )
+        # #402: off-nominal categorisation.
+        scenario_kind = params.get("scenario_kind") or ScenarioKind.NOMINAL
+        if scenario_kind not in _VALID_SCENARIO_KINDS:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Invalid scenario_kind '{scenario_kind}'. Valid: "
+                f"{list(_VALID_SCENARIO_KINDS)}",
+            )
 
         # Ledger gap #1 / issue #881: same central gate as
         # TestCaseViewSet.create.
@@ -641,6 +665,7 @@ class McpTestToolGroup(BaseToolGroup):
                     test_type=legacy_test_type,
                     custom_fields=custom_fields,
                     origin=origin,
+                    scenario_kind=scenario_kind,
                     **create_kwargs,
                 )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
@@ -765,7 +790,10 @@ class McpTestToolGroup(BaseToolGroup):
                 existing_tc = self._service.get_test_case(tc_id, auth_context)
                 changed_fields = {
                     name: data[name]
-                    for name in ("title", "description", "steps", "test_type", "custom_fields")
+                    for name in (
+                        "title", "description", "steps", "test_type",
+                        "custom_fields", "scenario_kind",
+                    )
                     if name in data
                 }
                 changed_fields.update(system_values)
@@ -787,6 +815,11 @@ class McpTestToolGroup(BaseToolGroup):
                     optional_kwargs["test_type"] = data["test_type"]
                 if "custom_fields" in data:
                     optional_kwargs["custom_fields"] = data["custom_fields"]
+                # #402: `scenario_kind` is editable; `origin`/`reviewed` are
+                # deliberately not accepted here (`origin` is write-once,
+                # `reviewed` moves via test.mark_reviewed).
+                if "scenario_kind" in data:
+                    optional_kwargs["scenario_kind"] = data["scenario_kind"]
 
                 # Codeberg #313: suppress update_test_case's single internal
                 # _audit() call for the same entity — write_mcp_audit below

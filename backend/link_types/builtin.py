@@ -179,7 +179,16 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
         # stakeholder Goal. Coverage-relevant, unlike the generic `references`
         # link that used to be the only way to express it. The legacy
         # `satisfies` (ArchitectureElement -> Requirement) is unrelated.
-        "allowed_pairs": _pairs(("Requirement", "Goal")),
+        #
+        # #402 (cluster 5): the direct StakeholderNeed -> Goal edge. The
+        # validation pillar needs the stakeholder layer connected to the goal
+        # layer; the transitive alternative (Need <- derives-from - Requirement
+        # - satisfies -> Goal) exists but is invisible to a user remediating a
+        # VAL-P1 finding, so the explicit edge is offered instead.
+        "allowed_pairs": _pairs(
+            ("Requirement", "Goal"),
+            ("StakeholderNeed", "Goal"),
+        ),
         "coverage_relevant": True,
         "suspect_rule": "target_change_flags_source",
         "impact_weight": 1.0,

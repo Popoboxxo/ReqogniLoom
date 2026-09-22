@@ -40,7 +40,7 @@ from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.mixins.workflow_transitions import _ALWAYS_ALLOWED_PATCH_FIELDS
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
-from persistence.models import ElementType, TestCaseOrigin, TestCaseType
+from persistence.models import ElementType, ScenarioKind, TestCaseOrigin, TestCaseType
 
 # ---------------------------------------------------------------------------
 # Lock-counter semantics (issue #213)
@@ -1244,6 +1244,14 @@ class TestCaseSerializer(
     # reading ``initial_data``, because DRF discards a read-only field before
     # validate() ever sees it (#851 silent-no-op class).
     reviewed = serializers.BooleanField(read_only=True)
+    # #402: off-nominal categorisation (nominal | off_nominal). Editable after
+    # creation; `off_nominal` marks negative/boundary cases.
+    scenario_kind = serializers.ChoiceField(
+        choices=ScenarioKind.choices,
+        required=False,
+        default=ScenarioKind.NOMINAL,
+        help_text="Test-case category: 'nominal' (default) or 'off_nominal'.",
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
@@ -1680,7 +1688,7 @@ class WorkspaceSerializer(
     default_link_type = serializers.CharField(
         required=False, default="derives-from", max_length=50
     )
-    goals_enabled = serializers.BooleanField(required=False, default=False)
+    goals_enabled = serializers.BooleanField(required=False, default=True)
     goals_ai_enabled = serializers.BooleanField(required=False, default=False)
     terminology_profile = serializers.CharField(
         required=False, default="se_mode", max_length=32

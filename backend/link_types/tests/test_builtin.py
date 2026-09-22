@@ -153,9 +153,15 @@ def test_every_definition_is_active_and_flagged_built_in():
 
 
 def test_satisfaction_types_have_the_expected_pairs():
-    """#950: `satisfies`/`realizes` are Requirement -> Goal, `refines` Req -> Req."""
+    """#950: `satisfies`/`realizes` are Requirement -> Goal, `refines` Req -> Req.
+
+    #402 (cluster 5) added the direct ``StakeholderNeed -> Goal`` edge to
+    `satisfies` — the validation pillar's remediation path. `realizes` stays
+    Requirement -> Goal only (it is not the coverage-relevant edge).
+    """
     assert BUILTIN_LINK_TYPES["satisfies"]["allowed_pairs"] == [
-        {"source_type": "Requirement", "target_type": "Goal"}
+        {"source_type": "Requirement", "target_type": "Goal"},
+        {"source_type": "StakeholderNeed", "target_type": "Goal"},
     ]
     assert BUILTIN_LINK_TYPES["realizes"]["allowed_pairs"] == [
         {"source_type": "Requirement", "target_type": "Goal"}

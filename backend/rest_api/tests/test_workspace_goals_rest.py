@@ -43,7 +43,11 @@ def admin_client(db):
     user.save()
     ctx = _admin_ctx(tenant, user)
     # create_workspace() already grants the creator an 'admin' UserRole (#232).
-    ws = WorkspaceService().create_workspace(ctx, name="WS", preset="extended")
+    # #402 (cluster 5, spec D2): the model default is now True, so the toggle
+    # round-trip below starts from an explicitly disabled workspace.
+    ws = WorkspaceService().create_workspace(
+        ctx, name="WS", preset="extended", goals_enabled=False
+    )
 
     client = APIClient()
     with override_settings(**_JWT):

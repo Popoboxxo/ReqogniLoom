@@ -2417,6 +2417,8 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 # (DeriveTestCasePanel -> testcasesApi.create), which is why it
                 # must forward `origin` at all.
                 origin=data.get("origin", "manual"),
+                # #402: off-nominal categorisation.
+                scenario_kind=data.get("scenario_kind", "nominal"),
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "TestCase", item, ctx)
@@ -2496,6 +2498,12 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # PATCH actually persists instead of only passing validation.
         if "test_type" in data:
             extra_kwargs["test_type"] = data["test_type"]
+        # #402: same conditional-forward pattern — `scenario_kind` is writable
+        # and `update_test_case()` accepts it. `origin`/`reviewed` are
+        # deliberately NOT forwarded (immutable / review-action only); a
+        # request carrying them is rejected by the serializer's validate().
+        if "scenario_kind" in data:
+            extra_kwargs["scenario_kind"] = data["scenario_kind"]
         try:
             ctx = get_auth_context(request)
             # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded
@@ -4479,6 +4487,7 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
         # provenance fields; `reviewed` moves via POST .../review/.
         "origin": getattr(tc, "origin", "manual"),
         "reviewed": bool(getattr(tc, "reviewed", False)),
+        "scenario_kind": getattr(tc, "scenario_kind", "nominal"),
         "custom_fields": _artifact_custom_fields(tc),
         # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
         **artifact_system_fields(tc),

@@ -21,6 +21,7 @@ from . import decomposition_consistency  # noqa: F401  (registration side effect
 from . import level_progression  # noqa: F401  (registration side effect)
 from . import trace_derivation_allocation  # noqa: F401  (registration side effect)
 from . import trace_p7  # noqa: F401  (registration side effect)
+from . import validation_goals  # noqa: F401  (registration side effect)
 
 __all__ = [
     "coverage_consistency",
@@ -28,4 +29,5 @@ __all__ = [
     "level_progression",
     "trace_derivation_allocation",
     "trace_p7",
+    "validation_goals",
 ]
