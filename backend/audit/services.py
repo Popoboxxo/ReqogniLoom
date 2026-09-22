@@ -156,7 +156,12 @@ def log_write(
         ctx: Request context dict. MCP callers include:
              {'source': 'mcp', 'client_name': '...', 'api_key': '...'}
              REST callers may omit or pass {'source': 'rest'}.
-        details: Reserved for v2 field-level diff (ADR-10). Ignored in v1.
+        details: Optional structured payload for this operation, persisted
+             as-is in ``AuditEntry.details`` (nullable JSON). ADR-10
+             groundwork; ``None`` (the default) stores SQL NULL and is the
+             v1 behaviour for every caller that omits it. First consumer:
+             the #399 baseline-drift evidence on an edit of a baselined
+             artifact.
 
     Returns:
         The newly created AuditEntry (INSERT only — never UPDATE), or
@@ -178,6 +183,7 @@ def log_write(
         entity_id=entity_id,
         version=version,
         change_reason=change_reason,
+        details=details,
         ctx=ctx or {},
     )
     writer = get_writer()

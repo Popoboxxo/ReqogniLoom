@@ -196,6 +196,7 @@ class AuditLogWriter:
             entity_id=event.entity_id,
             entity_version=event.version,
             change_reason=event.change_reason,
+            details=event.details,
             source=enrichment["source"],
             client_name=enrichment["client_name"],
             api_key_hash=enrichment["api_key_hash"],

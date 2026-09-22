@@ -277,6 +277,21 @@ class AuditEntry(TenantScopedModel):
         blank=True,
         help_text="Optional human-readable reason for the change (e.g. workflow transition).",
     )
+    # ADR-10 groundwork (#399, cluster 5): the optional structured payload a
+    # write path passes through ``log_write(details=...)`` / ``ServiceBase.
+    # _audit(details=...)``. Purely additive — NULL for every call that omits
+    # it, and v1 behaviour is otherwise unchanged. First consumer: the
+    # baseline-drift evidence recorded on an edit of a baselined artifact
+    # (``{"baseline_drift": [{"baseline_id": ..., ...}]}``).
+    details = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Optional structured payload for the operation (ADR-10 "
+            "groundwork). NULL when the caller supplies none."
+        ),
+    )
 
     # Timestamp — partition key (REQ-L2-AL-008)
     timestamp = models.DateTimeField(

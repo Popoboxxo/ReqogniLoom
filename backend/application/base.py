@@ -194,9 +194,15 @@ class ServiceBase:
             # than let an audit-log field the caller never meant to control
             # fail an otherwise-valid business operation.
             actor_type = ctx.actor_type if ctx.actor_type in ("user", "agent") else "user"
+            # #399: `details` is now persisted (ADR-10 groundwork) instead of
+            # being dropped by the v1 writer. The agent label used to be merged
+            # into a details dict even when the caller passed none, which was
+            # harmless while details was ignored — now it would add a payload
+            # to every agent write. Only enrich an existing payload so
+            # "no details" still stores SQL NULL (default behaviour unchanged).
             audit_details = details
-            if actor_type == "agent" and ctx.agent_label:
-                audit_details = {**(details or {}), "client_name": ctx.agent_label}
+            if details is not None and actor_type == "agent" and ctx.agent_label:
+                audit_details = {**details, "client_name": ctx.agent_label}
 
             log_write(
                 actor=str(ctx.user_id),
@@ -237,11 +243,10 @@ class ServiceBase:
         Returns ``None`` when the artifact is in no baseline, when nothing
         drifted, or when detection failed.
 
-        Note: the v1 audit writer documents ``details`` as "Reserved for v2
-        (ADR-10). Ignored in v1." — ``AuditEntry`` has no column for it, so the
-        payload is passed through but not yet persisted. The call site is still
-        the specified contract, and the drift summary is separately observable
-        via ``GET /artifacts/{id}/baseline-membership/``.
+        The payload is persisted on the edit's ``AuditEntry.details`` (nullable
+        JSON, ADR-10 groundwork — see ``audit.models.AuditEntry.details``), so
+        the marking outlives the request. The drift summary is separately
+        observable via ``GET /artifacts/{id}/baseline-membership/``.
         """
         try:
             from application.baseline_facade import BaselineFacade

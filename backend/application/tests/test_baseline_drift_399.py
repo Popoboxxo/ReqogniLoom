@@ -5,10 +5,10 @@ Cluster-5 spec section 6. Covers the service contract
 semantics (spec review finding N2) and the REST surface (membership endpoint,
 additive ``baseline_drift`` on retrieve, CR prefill).
 
-Deviations asserted around (documented in the implementation): the v1 audit
-writer drops ``details`` (ADR-10), so AC-D1-4's ``details.baseline_drift`` is
-not observable in ``AuditEntry`` — the audit *entry* for the edit is asserted
-instead.
+The edit's drift evidence is durable: ``AuditEntry.details`` is a real nullable
+JSON column (ADR-10 groundwork), so AC-D1-4/13 assert the persisted
+``details.baseline_drift`` payload (including the baseline id), not merely that
+an audit entry exists.
 """
 from __future__ import annotations
 
@@ -267,13 +267,11 @@ def test_service_leaves_a_pre_armed_context_untouched(env):
 
 
 def test_edit_audits_the_drift(env):
-    """AC-D1-4 / AC-D1-13: the edit succeeds and leaves an audit entry.
+    """AC-D1-4 / AC-D1-13: the edit persists the drift evidence.
 
-    The entry's ``details`` payload is not asserted — the v1 audit writer
-    documents ``details`` as ignored (ADR-10) and ``AuditEntry`` has no column
-    for it, so the drift payload is not persistable without a schema change
-    (out of this cluster's scope). Drift stays observable through the
-    membership endpoint, which the REST test covers.
+    The marking must outlive the request, so it lives on the edit's audit
+    entry — ``AuditEntry.details.baseline_drift`` names every baseline the
+    artifact drifted from (here exactly one, identified by its id).
     """
     from application.requirement_service import RequirementService
     from audit.models import AuditEntry
@@ -281,7 +279,7 @@ def test_edit_audits_the_drift(env):
 
     tenant, workspace, user, ctx = env
     _artifact, req = _make_requirement(tenant, workspace)
-    _make_baseline(tenant, workspace, ctx)
+    baseline_id = _make_baseline(tenant, workspace, ctx)
 
     set_request_tenant(tenant.id)
     try:
@@ -293,9 +291,53 @@ def test_edit_audits_the_drift(env):
 
         clear_request_tenant()
 
-    entries = AuditEntry.unscoped.filter(
-        entity_type="Requirement", entity_id=req.id, op="update"
+    entry = (
+        AuditEntry.unscoped.filter(
+            entity_type="Requirement", entity_id=req.id, op="update"
+        )
+        .order_by("-timestamp")
+        .first()
     )
-    assert entries.exists()
+    assert entry is not None
+    assert entry.details is not None
+    drift = entry.details["baseline_drift"]
+    assert len(drift) == 1
+    assert drift[0]["baseline_id"] == str(baseline_id)
+    assert drift[0]["scope"] == "project"
+    assert drift[0]["drift_known"] is True
+
+
+def test_edit_without_baseline_persists_no_details(env):
+    """The additive field stays NULL when the artifact is in no baseline.
+
+    Guards the "default behaviour unchanged when ``details`` is omitted" side
+    of FIX 2: an edit that produced no drift payload must not gain one.
+    """
+    from application.requirement_service import RequirementService
+    from audit.models import AuditEntry
+    from persistence.middleware import set_request_tenant
+
+    tenant, workspace, user, ctx = env
+    _artifact, req = _make_requirement(tenant, workspace)
+
+    set_request_tenant(tenant.id)
+    try:
+        RequirementService().update_requirement(
+            req.id, ctx, title="Unbaselined rename", change_reason="no baseline"
+        )
+    finally:
+        from persistence.middleware import clear_request_tenant
+
+        clear_request_tenant()
+
+    entry = (
+        AuditEntry.unscoped.filter(
+            entity_type="Requirement", entity_id=req.id, op="update"
+        )
+        .order_by("-timestamp")
+        .first()
+    )
+    assert entry is not None
+    assert entry.details is None
 
 
