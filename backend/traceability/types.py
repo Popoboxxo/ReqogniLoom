@@ -172,6 +172,12 @@ class CoverageReport:
     covered: int
     uncovered: list[str]
     percentage: float
+    #: #424: number of distinct TestCase artifacts that were excluded from
+    #: ``covered`` *solely* because they are ``origin="ai_generated"`` and
+    #: ``reviewed=False``. ``origin="unknown"`` rows (pre-#424) are
+    #: grandfathered and never counted here. Always ``0`` on the raw view
+    #: (``include_unreviewed_ai=True``).
+    pending_ai_review: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -179,6 +185,7 @@ class CoverageReport:
             "covered": self.covered,
             "uncovered": self.uncovered,
             "percentage": self.percentage,
+            "pending_ai_review": self.pending_ai_review,
         }
 
 
@@ -190,7 +197,13 @@ class RequirementCoverageEntry:
     """
 
     requirement_id: str
-    test_cases: list[dict]  # [{id, result: "Passed"|"Failed"|"Not Run"}]
+    test_cases: list[dict]  # [{id, result: "Passed"|"Failed"|"Not Run", ...}]
+    #: #272 / #424: identifier, title and V-model level of the requirement,
+    #: additive so the REST coverage report can render a row without a second
+    #: request. Empty/None when the producer did not resolve them.
+    uid: str = ""
+    title: str = ""
+    level: Optional[int] = None
 
 
 @dataclass

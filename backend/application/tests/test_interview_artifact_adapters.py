@@ -175,8 +175,17 @@ class TestArtifactCreationAdapters:
             return_value=fake_case,
         ) as mocked:
             ref = ARTIFACT_CREATION_ADAPTERS["TestCase"]({"title": "TC-1"}, fake_ctx, "ws-1")
+        # #424 producer P4: the adapter is the LLM formalisation path, so it
+        # owns `origin`/`reviewed` and always passes them explicitly.
         _assert_called_once_with_kwargs(
-            mocked, {"workspace_id": "ws-1", "ctx": fake_ctx, "title": "TC-1"}
+            mocked,
+            {
+                "workspace_id": "ws-1",
+                "ctx": fake_ctx,
+                "title": "TC-1",
+                "origin": "ai_generated",
+                "reviewed": False,
+            },
         )
         assert ref == CreatedArtifactRef(
             artifact_id=fake_case.artifact_id, artifact_type="TestCase", entity_id=fake_case.id

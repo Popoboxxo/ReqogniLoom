@@ -184,8 +184,17 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
 #: definition so it cannot collide with the artifact-level ``owner`` attribute
 #: (duplicate name -> AttributeSchemaError during normalize). The physical
 #: column is dropped in a later contract step.
+#:
+#: #402 review finding M-A: ``TestCase.scenario_kind`` is deliberately owned by
+#: the ``TestCaseArtifactForm`` adapter, which already renders its own
+#: ``tc-scenario-kind-select`` and carries the value into the same PATCH
+#: (TestCaseArtifactForm.tsx:256). The generic introspection would render a
+#: SECOND, competing enum select bound to the same key. It is excluded here
+#: rather than marked read-only because the field is genuinely writable — the
+#: adapter is its one intended editor, not the definition-driven renderer.
 PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
     "Risk": frozenset({"severity", "owner_name"}),
+    "TestCase": frozenset({"scenario_kind"}),
 }
 
 #: Attributes an interview must elicit ON TOP of the ``title``/``description``
@@ -282,7 +291,35 @@ def section_order_index(section: str) -> int:
 #: declared, but `ChangeRequestSerializer.requestor_id` is
 #: `read_only=True` — same landmine class as `uid` above (introspected as
 #: `editable=True`, every PATCH round-trip 400s).
-READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset({"uid", "requestor_id"})
+#:
+#: #424 (cluster 5): `TestCase.reviewed` is a real column, but it is the
+#: in-content human-approval flag and the spec makes it write-once through the
+#: dedicated review action only ("`reviewed` ist nicht Parameter — ausschließlich
+#: über `mark_reviewed` änderbar"). `TestCaseSerializer.reviewed` is
+#: `read_only=True` and `validate()` rejects a supplied value; introspecting it
+#: as `editable=True` made the definition-driven ArtifactForm render a control
+#: whose PATCH the serializer refuses. Keeping it editable would re-open the
+#: silent-no-op class this set exists to close.
+#:
+#: #424 (cluster 5) review finding M-A: `TestCase.origin` has the same
+#: write-once shape. The spec makes it immutable after creation
+#: ("`origin` ist nach dem Anlegen immutable", §4.3/§4.4) and the client
+#: vocabulary is `{manual, ai_generated}` only (`unknown` is system/migration
+#: state). `TestCaseSerializer.origin` is declared writable (it must be, for
+#: create), but `TestCaseSerializer.validate()` rejects it on every update —
+#: including PATCH — so an `editable=True` introspection rendered an edit
+#: control whose save could never round-trip. Marking it `editable=False` here
+#: is deliberately safe for the create path: `editable` is only enforced as a
+#: rejection in the UPDATE branch of
+#: `attribute_definitions.field_validation.validate_values`
+#: (`if not is_create and attribute["editable"] is False`, field_validation.py
+#: :369), so a create payload may still carry `origin`. The definition thus
+#: stays complete (origin is still declared, still validated) while the form
+#: renderer omits it from the editable surface, closing the silent-discard
+#: class this set exists to close.
+READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset(
+    {"uid", "requestor_id", "reviewed", "origin"}
+)
 
 #: Curated widget attributes (spec section 6.3). ``fields[]`` names the core
 #: attributes the widget renders; the form renderer skips those individually so

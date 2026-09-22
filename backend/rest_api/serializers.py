@@ -40,7 +40,7 @@ from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.mixins.workflow_transitions import _ALWAYS_ALLOWED_PATCH_FIELDS
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
-from persistence.models import ElementType, TestCaseType
+from persistence.models import ElementType, ScenarioKind, TestCaseOrigin, TestCaseType
 
 # ---------------------------------------------------------------------------
 # Lock-counter semantics (issue #213)
@@ -1204,6 +1204,12 @@ class TestCaseSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # #399 (MAJOR-1): the backing Artifact id, distinct from the TestCase pk.
+    # `GET /artifacts/{id}/baseline-membership/` and the `affected_item_ids`
+    # prefill key on Artifact ids (#413/#416 for Requirement); without this
+    # field the UI has no way to name the artifact it must ask about and sent
+    # the entity pk instead. `_test_to_dict` supplies the value. Read-only.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
@@ -1261,11 +1267,69 @@ class TestCaseSerializer(
     change_reason = SanitizedCharField(
         write_only=True, required=False, allow_blank=True, max_length=2000
     )
+    # #424: provenance of the content. Three-valued on the model, but ``unknown``
+    # is system/migration-only and deliberately NOT offered here — see
+    # ``TestCaseOrigin``. Immutable after creation (rejected in validate()).
+    origin = serializers.ChoiceField(
+        choices=[TestCaseOrigin.MANUAL, TestCaseOrigin.AI_GENERATED],
+        required=False,
+        default=TestCaseOrigin.MANUAL,
+        help_text=(
+            "Provenance of the test-case content: 'manual' (default) or "
+            "'ai_generated'. Immutable after creation."
+        ),
+    )
+    # #424: read-only in the representation; set via POST .../review/ (or
+    # TestService.mark_reviewed). Writing it here is rejected in validate() —
+    # reading ``initial_data``, because DRF discards a read-only field before
+    # validate() ever sees it (#851 silent-no-op class).
+    reviewed = serializers.BooleanField(read_only=True)
+    # #402: off-nominal categorisation (nominal | off_nominal). Editable after
+    # creation; `off_nominal` marks negative/boundary cases.
+    scenario_kind = serializers.ChoiceField(
+        choices=ScenarioKind.choices,
+        required=False,
+        default=ScenarioKind.NOMINAL,
+        help_text="Test-case category: 'nominal' (default) or 'off_nominal'.",
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject post-creation writes to the immutable provenance fields (#424).
+
+        Only enforced on update. The spec's canonical instance check
+        (``self.instance is not None``) is widened by ``self.partial`` because
+        the real view (`TestCaseViewSet.partial_update`) builds this serializer
+        without an ``instance`` (it validates field names first and only loads
+        the row inside the service call) — an instance-only gate would never
+        fire there and the rejection would be a silent no-op, which is exactly
+        the #851 class this finding is about. ``create`` constructs the
+        serializer with ``partial=False``, so the create contract is untouched.
+
+        ``reviewed`` is read-only on this serializer, so DRF drops it from
+        ``attrs`` *before* ``validate()`` runs — checking ``attrs`` would
+        silently accept and ignore the write. The check therefore reads
+        ``self.initial_data``, the raw request body.
+        """
+        attrs = super().validate(attrs)
+        if self.instance is None and not self.partial:
+            return attrs
+
+        errors: dict[str, Any] = {}
+        if "origin" in attrs:
+            errors["origin"] = "origin is immutable after creation"
+        supplied = getattr(self, "initial_data", None)
+        if isinstance(supplied, dict) and "reviewed" in supplied:
+            errors["reviewed"] = (
+                "reviewed is set via POST /api/v1/testcases/{id}/review/"
+            )
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
 
 
 class TraceLinkSerializer(UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer):
@@ -1664,7 +1728,7 @@ class WorkspaceSerializer(
     default_link_type = serializers.CharField(
         required=False, default="derives-from", max_length=50
     )
-    goals_enabled = serializers.BooleanField(required=False, default=False)
+    goals_enabled = serializers.BooleanField(required=False, default=True)
     goals_ai_enabled = serializers.BooleanField(required=False, default=False)
     terminology_profile = serializers.CharField(
         required=False, default="se_mode", max_length=32
@@ -2052,6 +2116,20 @@ class ChangeRequestSerializer(
     requestor_id = serializers.UUIDField(read_only=True, allow_null=True)
     assigned_reviewer_id = serializers.UUIDField(
         allow_null=True, required=False, default=None
+    )
+    # #399 (cluster 5) / spec section 4.4: the drift badge's "raise change
+    # request" shortcut needs a declared contract for pre-filling the affected
+    # items. Write-only and additive: `create_change_request` already validates
+    # the ids workspace-/tenant-scoped (`_validate_affected_items`) and
+    # snapshots the "before" state, it was only never reachable through REST.
+    affected_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        write_only=True,
+        help_text=(
+            "Optional list of artifact UUIDs to register as affected items "
+            "of the new change request."
+        ),
     )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT

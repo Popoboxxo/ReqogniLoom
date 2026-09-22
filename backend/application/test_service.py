@@ -38,7 +38,15 @@ from uuid import UUID
 from django.db.models import F, Q, QuerySet
 
 from auth_tenancy.context import AuthContext
-from persistence.models import Artifact, TestCase, Tenant, TestCaseType, Workspace
+from persistence.models import (
+    Artifact,
+    ScenarioKind,
+    TestCase,
+    Tenant,
+    TestCaseOrigin,
+    TestCaseType,
+    Workspace,
+)
 from persistence.transactions import atomic_transaction
 
 from application.artifact_service import (
@@ -89,6 +97,16 @@ VALID_TEST_TYPE_VALUES = VALID_TEST_TYPES
 #: Default applied when a caller does not name a test type (documented default
 #: of the REST/MCP create contracts, issue #953).
 DEFAULT_TEST_TYPE = TestCaseType.UNIT
+
+#: #424: accepted ``origin`` values on the service boundary. Deliberately the
+#: full three-valued vocabulary (``unknown`` included) so the migration/
+#: grandfathering path keeps working; no *client* contract exposes ``unknown``
+#: (the REST serializer and the MCP create schema restrict to
+#: ``{manual, ai_generated}``).
+_VALID_ORIGINS = frozenset(value for value, _label in TestCaseOrigin.choices)
+
+#: #402: accepted ``scenario_kind`` values.
+_VALID_SCENARIO_KINDS = frozenset(value for value, _label in ScenarioKind.choices)
 
 
 def normalize_test_type(value: object) -> Optional[str]:
@@ -150,6 +168,9 @@ class TestService(ServiceBase):
         uid: Optional[str] = None,
         custom_fields: Optional[dict] = None,
         test_type_value: object = _UNSET,
+        origin: str = TestCaseOrigin.MANUAL,
+        reviewed: Optional[bool] = None,
+        scenario_kind: str = ScenarioKind.NOMINAL,
     ) -> TestCase:
         """Create a TestCase with initial WorkflowState.
 
@@ -169,9 +190,42 @@ class TestService(ServiceBase):
           "no type given".
         * ``Artifact.artifact_type`` is always the plain ``"TestCase"``; the
           old ``"TestCase:<Type>"`` sub-type tag is no longer written.
+
+        Provenance contract (#424, spec section 4.3):
+
+        * ``origin`` is three-valued (``manual`` | ``ai_generated`` |
+          ``unknown``) and **immutable after creation**. ``unknown`` is a
+          system/migration-only value: the client-writable sets (REST
+          serializer, MCP ``test.create``) expose ``{manual, ai_generated}``
+          only, but the service accepts it defensively so the grandfathering
+          path cannot break.
+        * ``reviewed`` defaults to ``True`` for ``manual`` content and
+          ``False`` for everything else when omitted (``None``). An explicitly
+          passed value always wins.
+        * **Every LLM-driven producer must pass** ``origin="ai_generated"``
+          explicitly — the ``manual`` default is for interactive clients (the
+          REST ``POST /testcases/`` path and MCP ``test.create``) only. See
+          the producer enumeration in the cluster-5 spec section 4.8.
+        * ``scenario_kind`` (#402) categorises the test case as ``nominal``
+          (default) or ``off_nominal``.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
+
+        if origin not in _VALID_ORIGINS:
+            raise ValidationError(
+                f"Invalid origin '{origin}'. Valid: {sorted(_VALID_ORIGINS)}"
+            )
+        if scenario_kind not in _VALID_SCENARIO_KINDS:
+            raise ValidationError(
+                f"Invalid scenario_kind '{scenario_kind}'. "
+                f"Valid: {sorted(_VALID_SCENARIO_KINDS)}"
+            )
+        if reviewed is None:
+            # The `unknown` value cannot reach this branch via any client
+            # contract (it is service/migration-only), but the derivation is
+            # written to be correct for it too: only `manual` is auto-reviewed.
+            reviewed = origin == TestCaseOrigin.MANUAL
 
         canonical_test_type = normalize_test_type(
             test_type if test_type_value is _UNSET else test_type_value
@@ -202,6 +256,11 @@ class TestService(ServiceBase):
             # Issue #932: allocate the local readable uid when not supplied.
             uid=uid or generate_local_uid("TestCase", workspace_id),
             test_type=canonical_test_type,
+            # #424: provenance + in-content review flag, both resolved above.
+            origin=origin,
+            reviewed=bool(reviewed),
+            # #402: nominal (default) vs. off-nominal categorisation.
+            scenario_kind=scenario_kind,
         )
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
@@ -253,6 +312,7 @@ class TestService(ServiceBase):
         custom_fields: object = _UNSET,
         change_reason: Optional[str] = None,
         expected_version: Optional[int] = None,
+        scenario_kind: object = _UNSET,
     ) -> TestCase:
         """Update a TestCase.
 
@@ -265,6 +325,12 @@ class TestService(ServiceBase):
         refused with ``OptimisticLockError`` (409 CONFLICT) instead of silently
         overwriting a concurrent edit. Omitting it keeps the previous
         last-writer-wins behaviour.
+
+        #424: ``origin`` and ``reviewed`` are deliberately **not** parameters.
+        ``origin`` is write-once (it describes where the content came from);
+        ``reviewed`` is changed exclusively through :meth:`mark_reviewed`, so
+        every change of the review flag leaves an audit entry. ``scenario_kind``
+        (#402) is editable.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -301,6 +367,17 @@ class TestService(ServiceBase):
         if test_type is not _UNSET:
             test_case.test_type = normalize_test_type(test_type)
 
+        # #402: off-nominal category. `_UNSET` sentinel, same pattern as
+        # `test_type`/`custom_fields` above — an explicit value is validated
+        # against the model vocabulary rather than silently stored.
+        if scenario_kind is not _UNSET:
+            if scenario_kind not in _VALID_SCENARIO_KINDS:
+                raise ValidationError(
+                    f"Invalid scenario_kind '{scenario_kind}'. "
+                    f"Valid: {sorted(_VALID_SCENARIO_KINDS)}"
+                )
+            test_case.scenario_kind = scenario_kind
+
         # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
         # outside the TestCase snapshot and has to be compared separately.
         if custom_fields is not _UNSET:
@@ -336,6 +413,9 @@ class TestService(ServiceBase):
             entity_type="TestCase",
             entity_id=test_case_id,
             change_reason=change_reason,
+            # #399: durable drift marking on the edit of a baselined artifact
+            # (fail-open — a label must never fail the write).
+            details=self._baseline_drift_details(test_case.artifact_id, ctx),
         )
         self._emit_event(
             self._make_event(
@@ -346,6 +426,84 @@ class TestService(ServiceBase):
                 payload={"artifact_id": str(test_case.artifact_id)},
             )
         )
+        return test_case
+
+    @atomic_transaction
+    def mark_reviewed(
+        self,
+        test_case_id: UUID,
+        ctx: AuthContext,
+        *,
+        reviewed: bool = True,
+        change_reason: str = "",
+    ) -> TestCase:
+        """Set the in-content review flag of a TestCase (#424).
+
+        ``reviewed`` is **independent** of the workflow lifecycle state
+        (``draft``/``ready``/``approved``/``deprecated``) and of rule 7
+        (``check_verifies_link``): workflow-``approved`` is the artifact's
+        process transition, ``reviewed`` is the human in-content approval that
+        makes the test case count as verification evidence and coverage.
+        Neither implies the other.
+
+        Semantics:
+
+        * idempotent — a call that does not change the stored value bumps
+          nothing, records no revision and writes no new ``version``;
+        * a real change bumps ``version`` and appends an
+          ``ArtifactVersionService`` revision, exactly like
+          :meth:`update_test_case` does for content changes;
+        * always audited (``operation="update"``, ``entity_type="TestCase"``,
+          ``details={"reviewed": <bool>}``), which is why the permission gate
+          is the same write check the other mutations use.
+
+        Args:
+            test_case_id: TestCase row id (not the Artifact id).
+            ctx: Resolved AuthContext (editor/admin).
+            reviewed: Target review state (default ``True``).
+            change_reason: Optional rationale, recorded on the revision.
+
+        Returns:
+            The updated TestCase instance.
+
+        Raises:
+            NotFoundError: No such TestCase in the active tenant.
+            PermissionDeniedError: Caller lacks WRITE.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        test_case = TestCase.objects.select_related("artifact").filter(
+            id=test_case_id
+        ).first()
+        if test_case is None:
+            raise NotFoundError(f"TestCase {test_case_id} not found")
+
+        target = bool(reviewed)
+        if test_case.reviewed != target:
+            test_case.reviewed = target
+            test_case.save(update_fields=["reviewed", "modified_at"])
+            # Same "this really changed something" gait as update_test_case.
+            TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
+            test_case.refresh_from_db(fields=["version"])
+            ArtifactVersionService().record(
+                test_case.artifact_id,
+                snapshot_fields(test_case, "TestCase"),
+                ctx,
+                change_reason=change_reason or "",
+            )
+
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="TestCase",
+            entity_id=test_case_id,
+            change_reason=change_reason or None,
+            details={"reviewed": target},
+        )
+        # No new DomainEvent: DomainEventOutbox.EventType has no review value,
+        # and inventing one is out of scope for #424 (documented deviation from
+        # the sibling update_test_case, which emits TEST_CASE_UPDATED).
         return test_case
 
     @atomic_transaction
@@ -495,7 +653,12 @@ class TestService(ServiceBase):
         """Return requirement coverage statistics for *workspace_id*.
 
         REQ-L2-AS-025: delegates to TraceabilityEngine.coverage().
-        Returns {total, covered, percentage}.
+        Returns {total, covered, percentage, pending_ai_review}.
+
+        #424: ``pending_ai_review`` counts the distinct TestCases excluded from
+        ``covered`` solely because they are unreviewed AI content
+        (``origin="ai_generated"`` + ``reviewed=False``) — the false-green
+        signal. ``origin="unknown"`` rows are grandfathered and not counted.
         """
         self._set_tenant_context(ctx)
 
@@ -511,13 +674,22 @@ class TestService(ServiceBase):
         if hasattr(report, "total"):
             total = report.total
             covered = report.covered
+            pending_ai_review = getattr(report, "pending_ai_review", 0)
         else:
             # dict-like fallback
             total = report.get("total", 0) if isinstance(report, dict) else 0
             covered = report.get("covered", 0) if isinstance(report, dict) else 0
+            pending_ai_review = (
+                report.get("pending_ai_review", 0) if isinstance(report, dict) else 0
+            )
 
         percentage = round((covered / total * 100), 1) if total > 0 else 0.0
-        return {"total": total, "covered": covered, "percentage": percentage}
+        return {
+            "total": total,
+            "covered": covered,
+            "percentage": percentage,
+            "pending_ai_review": pending_ai_review,
+        }
 
 
 __all__ = [

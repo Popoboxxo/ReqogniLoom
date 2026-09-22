@@ -191,6 +191,14 @@ _EXTENDED = PresetConfig(
         "title",
         "description",
         "acceptance_criteria",
+        # #272 (cluster 5, spec section 7.2): how a requirement is verified is
+        # part of the Extended approval gate alongside its acceptance criteria.
+        # `Requirement.verification_method` is a real model column, so
+        # `check_mandatory_fields` resolves it through `_resolve_attribute`'s
+        # column branch — no attribute-definition entry is needed, and
+        # `policy_fields_without_consumer` must not report it as dead policy
+        # (pinned by a test).
+        "verification_method",
         "priority",
         "classification",
         "traceability_target",

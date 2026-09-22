@@ -453,6 +453,10 @@
     "emptyTitle": "Noch keine Verknüpfungen",
     "coverageSummary": "{{covered}}/{{total}} Anforderungen verifiziert · {{uncovered}} ohne Test",
     "showUncoveredOnly": "Nur nicht abgedeckte Anforderungen",
+    "pendingAiReview": "{{count}} KI-Testfall/-Testfälle noch nicht geprüft (zählen nicht als Abdeckung)",
+    "pendingAiReview_one": "{{count}} KI-Testfall noch nicht geprüft (zählt nicht als Abdeckung)",
+    "pendingAiReview_other": "{{count}} KI-Testfälle noch nicht geprüft (zählen nicht als Abdeckung)",
+    "includeUnreviewedAi": "Ungeprüfte KI-Testfälle als Abdeckung zählen",
     "verified": "verifiziert",
     "notVerified": "kein Test",
     "allCoveredTitle": "Alle Anforderungen sind verifiziert",
@@ -759,9 +763,21 @@
     "removeStep": "Schritt {{index}} entfernen",
     "summary_one": "{{count}} Testfall",
     "summary_other": "{{count}} Testfälle",
+    "summary": "{{count}} Testfälle",
     "emptyTitle": "Noch keine Testfälle",
     "emptyDescription": "Testfälle prüfen, ob Anforderungen erfüllt sind, und dokumentieren, wie das System geprüft wurde.",
     "untitled": "Unbenannt",
+    "originAi": "KI-generiert",
+    "originAiTooltip": "Inhalt wurde von der KI erzeugt. Erst nach inhaltlicher Prüfung zählt er als Verifikationsnachweis.",
+    "unreviewed": "Nicht geprüft",
+    "reviewed": "Geprüft",
+    "markReviewed": "Als geprüft markieren",
+    "reviewedFailed": "Testfall konnte nicht als geprüft markiert werden.",
+    "scenarioKind": {
+      "label": "Szenario",
+      "nominal": "Nominal",
+      "offNominal": "Off-Nominal"
+    },
     "testType": {
       "label": "Testtyp",
       "none": "Nicht angegeben",
@@ -1752,7 +1768,8 @@
     "create": "Testfall anlegen",
     "creating": "Wird angelegt...",
     "discard": "Verwerfen",
-    "created": "Testfall \"{{title}}\" wurde angelegt."
+    "created": "Testfall \"{{title}}\" wurde angelegt.",
+    "aiNotice": "KI-generiert und noch nicht inhaltlich geprüft. Nach der Prüfung als \"Geprüft\" markieren."
   },
   "workflow": {
     "header": {
@@ -2467,5 +2484,15 @@
         "lg": "Groß (4 Spalten)"
       }
     }
+  },
+  "baseline": {
+    "driftBadge": "Baseline: {{name}} — geändert",
+    "driftBadgeFallback": "Seit Baseline geändert",
+    "driftTooltip": "Dieses Artefakt gehört zur Baseline \"{{name}}\" und wurde seit der Aufnahme geändert (baseliniert v{{baselined}}, aktuell v{{current}}).",
+    "driftTooltipUnknown": "Dieses Artefakt gehört zu mindestens einer Baseline und wurde seit der Aufnahme geändert.",
+    "raiseChangeRequest": "Change Request anlegen",
+    "crCreated": "Change Request wurde angelegt und dieses Artefakt als betroffenes Element eingetragen.",
+    "crFailed": "Change Request konnte nicht angelegt werden.",
+    "crTitle": "Änderung an \"{{title}}\""
   }
 }

@@ -44,6 +44,7 @@ TenantContext = AuthContext
 
 from application.base import (
     BaselineGateBlockedError,
+    NotFoundError,
     PermissionDeniedError,
     ServiceBase,
     ValidationError,
@@ -99,6 +100,56 @@ class GateWaiverOutcome:
     def any_waived(self) -> bool:
         """True when at least one finding was waived on the way through."""
         return bool(self.overridden or self.suppressed)
+
+
+@dataclass(frozen=True)
+class ArtifactBaselineMembership:
+    """One baseline an artifact is a member of, plus its drift verdict (#399).
+
+    Attributes:
+        baseline_id: The baseline snapshot the artifact is recorded in.
+        baseline_name: Human-readable baseline name.
+        scope: ``document`` | ``project`` | ``global``.
+        baselined_at: Baseline creation timestamp.
+        baselined_version: Informational. The ``Artifact.version`` the baseline
+            captured — *not* the entity's own version. A content edit bumps
+            ``Requirement.version``/``TestCase.version`` but not
+            ``Artifact.version``, so this can equal ``current_version`` even
+            when the recorded state genuinely differs. ``drifted`` (derived
+            from the recorded ``state``) is authoritative; never derive drift
+            from this pair.
+        current_version: Informational. The ``Artifact.version`` right now,
+            same caveat as ``baselined_version``.
+        drifted: Whether the artifact changed since it was baselined. Derived
+            from the recorded ``state``; the authoritative verdict.
+        drift_known: ``False`` for legacy delta-index entries without a
+            recorded state, where drift degrades to a version comparison and
+            must not be presented as authoritative.
+    """
+
+    baseline_id: UUID
+    baseline_name: str
+    scope: str
+    baselined_at: datetime
+    baselined_version: int
+    current_version: int
+    drifted: bool
+    drift_known: bool
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serialisable representation (REST contract)."""
+        return {
+            "baseline_id": str(self.baseline_id),
+            "baseline_name": self.baseline_name,
+            "scope": self.scope,
+            "baselined_at": (
+                self.baselined_at.isoformat() if self.baselined_at else None
+            ),
+            "baselined_version": self.baselined_version,
+            "current_version": self.current_version,
+            "drifted": self.drifted,
+            "drift_known": self.drift_known,
+        }
 
 
 class BaselineFacade(ServiceBase):
@@ -858,6 +909,189 @@ class BaselineFacade(ServiceBase):
             )
         except Exception as exc:
             _remap_baseline_exc(exc)
+
+    def memberships_for_artifact(
+        self,
+        artifact_id: UUID,
+        ctx: AuthContext,
+    ) -> List[ArtifactBaselineMembership]:
+        """Return the baselines *artifact_id* is a member of, with drift info.
+
+        #399 (cluster 5, decision D1): baseline membership produces a *visible,
+        durable drift marking* on the artifact — it deliberately does **not**
+        block an edit without an approved change request. A baseline is an
+        immutable snapshot, a workspace may hold arbitrarily many across three
+        scopes, and the edit paths (`update_requirement`/`update_test_case`)
+        have no CCB context; a hard block would freeze most artifacts
+        permanently (see the spec's D1 rationale).
+
+        Drift is a pure derivation of the recorded ``state``/``version``
+        against the current row — no schema change, no ``drifted`` column to
+        keep in sync on every baseline create and edit.
+
+        **Tenant context (save/restore).** ``baseline.state_capture`` resolves
+        engine status through ``WorkflowItemState.objects``, the
+        tenant-*scoped* manager, so it needs an active ``TenantContext``; without
+        one every status silently comes back empty and the drift verdict is
+        wrong. This method therefore arms the context itself when none is
+        active (``armed_here``) and clears it again in ``finally`` — it never
+        touches a context it did not set. That matters because the callers are
+        request-scoped service methods whose subsequent ``self._audit(...)``
+        write needs the ambient context: an unconditional
+        ``clear_request_tenant()`` would break that write
+        (``TenantContextNotSetError``/500). Invariant: after the call,
+        ``TenantContext.is_set()`` and the effective tenant value are identical
+        to before it.
+
+        Membership lookup is batched (no N+1): one query resolves every
+        candidate snapshot, one resolves every membership row for the artifact,
+        and one ``capture_states`` pass resolves the current state. All of them
+        are gated by the tenant-checked candidate query
+        (``BaselineSnapshot.unscoped.filter(tenant_id=...)``) — the only
+        permitted way to reach the tenant-less ``BaselineDeltaIndexEntry``
+        (spec section 3).
+
+        Args:
+            artifact_id: UUID of the backing ``Artifact`` row.
+            ctx: Resolved AuthContext (tenant scoping + permission).
+
+        Returns:
+            Memberships sorted by ``baselined_at`` descending. Empty when the
+            artifact is in no baseline.
+
+        Raises:
+            NotFoundError: The artifact does not exist in this tenant.
+        """
+        from persistence.middleware import clear_request_tenant, set_request_tenant
+        from persistence.tenancy import TenantContext
+
+        self._assert_permission_read(ctx)
+
+        prior_tenant_id = TenantContext.get_tenant() if TenantContext.is_set() else None
+        armed_here = prior_tenant_id is None
+        try:
+            # Arming inside the try (spec review MINOR-3): if `SET` itself
+            # raises after touching the thread-local, the `finally` below still
+            # clears it — otherwise the failure would leak a half-armed
+            # tenant into every later query on this thread.
+            if armed_here:
+                set_request_tenant(ctx.tenant_id)
+            return self._memberships_armed(artifact_id, ctx)
+        finally:
+            if armed_here:
+                clear_request_tenant()
+
+    @staticmethod
+    def _assert_permission_read(ctx: AuthContext) -> None:
+        """Require a role that may read this tenant's baseline metadata.
+
+        Uses the READ gate (``Operation.READ``), so the lowest permitted role
+        is ``viewer`` — reading whether an artifact is baselined is a read-only
+        concern and must not require an edit-capable role. The endpoint stays
+        tenant-scoped regardless.
+        """
+        from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+        decision = AuthorizationService().decide_access(ctx.active_roles, Operation.READ)
+        if not decision.allow:
+            raise PermissionDeniedError(
+                "Permission denied: reading baseline membership requires at "
+                "least 'viewer' role, user has "
+                f"{ctx.active_roles}"
+            )
+
+    def _memberships_armed(
+        self, artifact_id: UUID, ctx: AuthContext
+    ) -> List[ArtifactBaselineMembership]:
+        """Body of :meth:`memberships_for_artifact` (tenant context is armed)."""
+        from django.db.models import Q
+
+        from baseline.models import BaselineDeltaIndexEntry, BaselineSnapshot
+        from baseline.state_capture import capture_states
+        from baseline.types import DeltaIndexTuple
+        from persistence.models import Artifact
+
+        artifact = Artifact.objects.filter(id=artifact_id).first()
+        if artifact is None:
+            raise NotFoundError(f"Artifact {artifact_id} not found")
+
+        workspace_id = artifact.workspace_id
+        current_version = artifact.version
+        item_key = str(artifact_id)
+
+        # Candidate baselines (spec section 6.2 step 2). A `global` baseline is
+        # a *tenant* question, not a workspace one: it stores the calling
+        # workspace in `workspace_id` but indexes artifacts of every workspace
+        # of the tenant (`ScopeResolver._resolve_global`), so filtering it by
+        # the artifact's workspace would hide a real membership.
+        candidates = list(
+            BaselineSnapshot.unscoped.filter(tenant_id=ctx.tenant_id)
+            .filter(
+                Q(scope=BaselineSnapshot.SCOPE_GLOBAL)
+                | Q(
+                    scope__in=(
+                        BaselineSnapshot.SCOPE_DOCUMENT,
+                        BaselineSnapshot.SCOPE_PROJECT,
+                    ),
+                    workspace_id=workspace_id,
+                )
+            )
+            .values("id", "name", "scope", "created_at")
+        )
+        if not candidates:
+            return []
+
+        candidate_ids = [row["id"] for row in candidates]
+
+        # Tenant check performed above on the snapshot rows; the delta index is
+        # a plain (non-tenant-scoped) model, so this is the sanctioned read
+        # order (spec section 3). Batched: one row per (baseline, artifact).
+        membership_rows = BaselineDeltaIndexEntry.objects.filter(
+            baseline_id__in=candidate_ids, item_id=item_key
+        ).values_list("baseline_id", "version", "state")
+        membership = {
+            str(row[0]): (row[1], row[2]) for row in membership_rows
+        }
+        if not membership:
+            return []
+
+        # Current curated state — one batched pass, and the reason the tenant
+        # context must be armed (see the docstring).
+        current_state = capture_states(
+            [DeltaIndexTuple(item_id=item_key, version=0, entity_type="item")],
+            ctx.tenant_id,
+        ).get(item_key)
+
+        memberships: List[ArtifactBaselineMembership] = []
+        for row in candidates:
+            baseline_key = str(row["id"])
+            if baseline_key not in membership:
+                continue
+            baselined_version, recorded_state = membership[baseline_key]
+            if recorded_state is None:
+                # Legacy entry created before full-state capture existed: only
+                # the version counter is available, so drift is a version
+                # comparison and must not claim to be authoritative.
+                drift_known = False
+                drifted = baselined_version != current_version
+            else:
+                drift_known = True
+                drifted = recorded_state != current_state
+            memberships.append(
+                ArtifactBaselineMembership(
+                    baseline_id=row["id"],
+                    baseline_name=row["name"],
+                    scope=row["scope"],
+                    baselined_at=row["created_at"],
+                    baselined_version=baselined_version,
+                    current_version=current_version,
+                    drifted=drifted,
+                    drift_known=drift_known,
+                )
+            )
+
+        memberships.sort(key=lambda m: m.baselined_at, reverse=True)
+        return memberships
 
     # ---------- Private helpers ----------
 

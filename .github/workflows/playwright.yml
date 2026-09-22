@@ -117,6 +117,28 @@ jobs:
           # to seed itself via `docker compose exec`, which no CI job can do —
           # there is no compose stack here, only the runserver process below.
           python manage.py seed_toothbrush
+          # Issue #947: the tenant's GlobalAttributeDefinition rows. Every
+          # artifact editor renders its fields from them; without them the whole
+          # editor suite fails with "No global attribute definition for
+          # '<ItemType>/<preset>'" instead of its real assertions.
+          #
+          # Belt-and-braces, not a fix for a broken chain: `migrate` above
+          # already reaches this through self_init's post_migrate hook
+          # (REQ-188). With SYSTEM_ADMIN_PASSWORD set (see the migrate step) that
+          # hook does NOT return early — it provisions the tenant itself via
+          # provision_admin() -> _ensure_tenant() and then calls
+          # _bootstrap_attribute_definitions() in the same pass, so on this
+          # workflow the rows normally exist by the time seed_demo runs.
+          #
+          # The explicit call covers the one path where the hook IS a no-op: a
+          # stack without SYSTEM_ADMIN_PASSWORD (self_init logs "Self-init
+          # skipped ..." and returns early), and — silently — the case where the
+          # hook's own bootstrap throws: self_init deliberately swallows that
+          # exception (it runs inside post_migrate, where raising would abort the
+          # whole migrate) and only logs it, so a green migrate does not prove
+          # the definitions landed. This command makes the outcome explicit and
+          # idempotent (existing rows are left alone).
+          python manage.py bootstrap_attribute_definitions
 
       - name: Start Django backend
         working-directory: backend

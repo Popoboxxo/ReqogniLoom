@@ -987,7 +987,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return self.with_etag(Response(RequirementSerializer(_dto_from_orm(item)).data), item)
+        payload = RequirementSerializer(_dto_from_orm(item)).data
+        # #399: additive drift summary for the editor header (no extra request).
+        payload["baseline_drift"] = _baseline_drift_summary(item.artifact_id, ctx)
+        return self.with_etag(Response(payload), item)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/requirements/ — create a requirement. Returns 201.
@@ -1337,6 +1340,122 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             logger.exception("RequirementViewSet.derive_testcase: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @action(detail=False, methods=["get"], url_path="coverage-report")
+    def coverage_report(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/requirements/coverage-report/?workspace_id=<uuid> (#272).
+
+        Requirement→Test coverage report: the summary
+        (``CoverageCalculator.coverage``) plus a per-requirement row list with
+        its verifying TestCases (``get_coverage_data``). This is the report the
+        ``allocation-coverage`` action on ArchitectureElement never provided
+        for Requirements.
+
+        Query params:
+            workspace_id (required): target workspace UUID.
+            include_outdated (default false): include soft-deleted
+                Requirements/TestCases.
+            include_unreviewed_ai (default false): #424 — count an
+                ``origin="ai_generated"``, unreviewed TestCase as coverage
+                (the raw view). The default excludes it and reports the
+                exclusion count as ``summary.pending_ai_review``.
+
+        Response::
+
+            {
+              "summary": {"total": 24, "covered": 21, "percentage": 87.5,
+                          "pending_ai_review": 2},
+              "requirements": [
+                {"requirement_id": "uuid", "uid": "REQ-L1-004", "title": "...",
+                 "level": 1, "covered": true,
+                 "test_cases": [{"id": "uuid", "uid": "TC-007", "title": "...",
+                                 "origin": "manual", "reviewed": true,
+                                 "scenario_kind": "off_nominal",
+                                 "result": "Passed"}]}
+              ]
+            }
+
+        Errors: missing/invalid ``workspace_id`` → 400 VALIDATION_ERROR;
+        unknown workspace → 404 NOT_FOUND.
+        """
+        lang = detect_lang(request)
+        workspace_id, error = parse_workspace_id(
+            request.query_params.get("workspace_id"),
+            lang,
+        )
+        if error is not None:
+            return error
+
+        def _flag(name: str) -> bool:
+            """Read a boolean query flag ('true'/'1'/'yes', any casing)."""
+            return str(request.query_params.get(name, "")).strip().lower() in {
+                "true",
+                "1",
+                "yes",
+            }
+
+        include_outdated = _flag("include_outdated")
+        include_unreviewed_ai = _flag("include_unreviewed_ai")
+
+        try:
+            ctx = get_auth_context(request)
+            # Existence check first: an unknown workspace is a 404, not an
+            # empty report that looks like "no requirements". Goes through the
+            # service layer (no direct model query in a view).
+            WorkspaceService().get_workspace(workspace_id, ctx)
+
+            from traceability.coverage_calculator import CoverageCalculator
+
+            calculator = CoverageCalculator()
+            report = calculator.coverage(
+                workspace_id,
+                include_outdated=include_outdated,
+                include_unreviewed_ai=include_unreviewed_ai,
+            )
+            data = calculator.get_coverage_data(
+                workspace_id,
+                include_outdated=include_outdated,
+                include_unreviewed_ai=include_unreviewed_ai,
+            )
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)),
+                lang,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("RequirementViewSet.coverage_report: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        covered_ids = {
+            entry.requirement_id for entry in data.entries if entry.test_cases
+        }
+        requirements_payload = [
+            {
+                "requirement_id": entry.requirement_id,
+                "uid": entry.uid,
+                "title": entry.title,
+                "level": entry.level,
+                "covered": entry.requirement_id in covered_ids,
+                "test_cases": entry.test_cases,
+            }
+            for entry in data.entries
+        ]
+
+        return Response(
+            {
+                "summary": {
+                    "total": report.total,
+                    "covered": report.covered,
+                    "percentage": report.percentage,
+                    # #424: TestCases excluded solely for being unreviewed AI
+                    # content. 0 on the raw view.
+                    "pending_ai_review": report.pending_ai_review,
+                },
+                "requirements": requirements_payload,
+            }
+        )
+
     @action(detail=True, methods=["get"], url_path="allocation")
     def allocation_coverage(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/allocation/ — list allocations.
@@ -1657,6 +1776,89 @@ class ArtifactViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get"], url_path="baseline-membership")
+    def baseline_membership(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/artifacts/{pk}/baseline-membership/ (#399).
+
+        Ans: Baseline-Mitgliedschaft + Drift-Kennzeichnung des Artefakts —
+        Decision D1 (no hard block, drift marking instead).
+
+        Response::
+
+            {
+              "artifact_id": "uuid",
+              "drifted": true,
+              "memberships": [
+                {"baseline_id": "uuid", "baseline_name": "Release 1.8",
+                 "scope": "project", "baselined_at": "...",
+                 "baselined_version": 3, "current_version": 4,
+                 "drifted": true, "drift_known": true}
+              ]
+            }
+
+        An empty ``memberships`` list means the artifact is in no baseline
+        (``drifted`` is then ``false``). Tenant-scoped through the service's
+        tenant-checked loading path.
+
+        Contract note: ``baselined_version``/``current_version`` are
+        **informational** — they are the ``Artifact.version`` pair captured
+        now vs. at baseline time, not the entity's own version. A content edit
+        bumps the entity version without bumping ``Artifact.version``, so the
+        two can be equal while the artifact genuinely drifted. ``drifted``
+        (from the recorded state) is the authoritative verdict.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            from application.baseline_facade import BaselineFacade
+
+            memberships = BaselineFacade().memberships_for_artifact(
+                UUID(pk), ctx
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "artifact_id": str(pk),
+                "drifted": any(m.drifted for m in memberships),
+                "memberships": [m.to_dict() for m in memberships],
+            }
+        )
+
+
+def _baseline_drift_summary(artifact_id: Any, ctx: Any) -> dict[str, Any]:
+    """Return the additive ``baseline_drift`` summary for a retrieve response.
+
+    #399 (cluster 5): document/TestCase ``retrieve`` carry
+    ``{"drifted": bool, "count": int}`` so the editor header can render the
+    drift badge from the detail response instead of an extra request per row
+    (the list badge is deliberately out of scope — it would need a batch
+    endpoint, spec D7).
+
+    Fail-open on purpose: a drift *label* must never turn a successful read
+    into a 500. Any error yields the neutral ``{drifted: False, count: 0}``.
+    """
+    try:
+        from application.baseline_facade import BaselineFacade
+
+        memberships = BaselineFacade().memberships_for_artifact(
+            UUID(str(artifact_id)), ctx
+        )
+    except Exception:  # noqa: BLE001 — never mask the read itself
+        logger.exception(
+            "baseline drift summary failed for artifact=%s", artifact_id
+        )
+        return {"drifted": False, "count": 0}
+    drifted = [m for m in memberships if m.drifted]
+    return {"drifted": bool(drifted), "count": len(drifted)}
 
 
 # ---------------------------------------------------------------------------
@@ -2396,7 +2598,10 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except ValueError:
             return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
-        return self.with_etag(Response(TestCaseSerializer(_test_to_dict(item)).data), item)
+        payload = TestCaseSerializer(_test_to_dict(item)).data
+        # #399: additive drift summary for the editor header (no extra request).
+        payload["baseline_drift"] = _baseline_drift_summary(item.artifact_id, ctx)
+        return self.with_etag(Response(payload), item)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -2430,6 +2635,14 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 steps=data.get("steps") or None,
                 custom_fields=data.get("custom_fields"),
                 test_type_value=data.get("test_type"),
+                # #424: the client states provenance; `reviewed` is NOT part of
+                # the API surface (the service derives it from `origin`). This
+                # REST path is the productive persistence path of the UI
+                # (DeriveTestCasePanel -> testcasesApi.create), which is why it
+                # must forward `origin` at all.
+                origin=data.get("origin", "manual"),
+                # #402: off-nominal categorisation.
+                scenario_kind=data.get("scenario_kind", "nominal"),
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "TestCase", item, ctx)
@@ -2509,6 +2722,12 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # PATCH actually persists instead of only passing validation.
         if "test_type" in data:
             extra_kwargs["test_type"] = data["test_type"]
+        # #402: same conditional-forward pattern — `scenario_kind` is writable
+        # and `update_test_case()` accepts it. `origin`/`reviewed` are
+        # deliberately NOT forwarded (immutable / review-action only); a
+        # request carrying them is rejected by the serializer's validate().
+        if "scenario_kind" in data:
+            extra_kwargs["scenario_kind"] = data["scenario_kind"]
         try:
             ctx = get_auth_context(request)
             # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded
@@ -2563,6 +2782,87 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="review")
+    def review(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/testcases/{pk}/review/ — set the in-content review flag.
+
+        #424: this is the only write path for ``reviewed`` (the serializer
+        exposes it read-only and rejects a PATCH carrying it). A manually
+        created test case starts reviewed; an ``origin="ai_generated"`` one
+        starts unreviewed and stops counting as verification evidence /
+        coverage until this endpoint flips it.
+
+        Body (both fields optional)::
+
+            {"reviewed": true, "change_reason": "..."}
+
+        ``reviewed`` defaults to ``true``. The call is idempotent — a second
+        call with the same value does not bump ``version`` again.
+
+        A non-object body (list/string/number) is rejected with
+        ``400 VALIDATION_ERROR`` rather than coerced to ``{}``: coercing would
+        silently apply the ``reviewed=true`` default to a request that never
+        carried an intent to review anything. An empty/missing body (``{}``)
+        keeps the documented ``reviewed=true`` default.
+
+        Returns the full ``TestCaseSerializer`` representation (200).
+        """
+        lang = detect_lang(request)
+        if not isinstance(request.data, dict):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {
+                            "field": "body",
+                            "errors": ["Request body must be a JSON object."],
+                        }
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        body = request.data
+        reviewed = body.get("reviewed", True)
+        if not isinstance(reviewed, bool):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": "reviewed", "errors": ["Must be a boolean."]}
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        change_reason = body.get("change_reason") or ""
+        if not isinstance(change_reason, str):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": "change_reason", "errors": ["Must be a string."]}
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().mark_reviewed(
+                UUID(pk), ctx, reviewed=reviewed, change_reason=change_reason
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(TestCaseSerializer(_test_to_dict(item)).data)
 
     @action(detail=True, methods=["get"], url_path="diff")
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -4416,6 +4716,14 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
     """Convert TestCase ORM object to dict."""
     return {
         "id": str(tc.id),
+        # #399 (MAJOR-1): the backing Artifact id, distinct from the TestCase
+        # entity pk. `GET /artifacts/{id}/baseline-membership/` and
+        # `ChangeRequest.affected_item_ids` key on Artifact ids, so the editor
+        # header must be able to send this value (it used to send the entity
+        # pk, which the membership endpoint answered with a 404).
+        "artifact_id": (
+            str(tc.artifact_id) if getattr(tc, "artifact_id", None) else None
+        ),
         "workspace_id": str(tc.artifact.workspace_id) if hasattr(tc, "artifact") else None,
         "title": tc.title,
         "description": getattr(tc, "description", ""),
@@ -4427,6 +4735,11 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
         # the ArtifactForm's initial value was always empty regardless of
         # what had been saved.
         "test_type": getattr(tc, "test_type", None),
+        # #424/#402: provenance, review flag and off-nominal category. Read-only
+        # provenance fields; `reviewed` moves via POST .../review/.
+        "origin": getattr(tc, "origin", "manual"),
+        "reviewed": bool(getattr(tc, "reviewed", False)),
+        "scenario_kind": getattr(tc, "scenario_kind", "nominal"),
         "custom_fields": _artifact_custom_fields(tc),
         # Attribut v3 WS2 (#936): Artifact-level system fields, actor wire form.
         **artifact_system_fields(tc),
@@ -6844,6 +7157,10 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 assigned_reviewer_id=data.get("assigned_reviewer_id"),
                 # REQ-L2-AS-037: extended attributes from the serializer.
                 custom_fields=data.get("custom_fields"),
+                # #399: write-only prefill from the drift badge's "raise change
+                # request" shortcut. The service validates the ids
+                # workspace-/tenant-scoped and snapshots their "before" state.
+                affected_item_ids=data.get("affected_item_ids"),
             )
             self._apply_artifact_system_fields(request, "ChangeRequest", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:

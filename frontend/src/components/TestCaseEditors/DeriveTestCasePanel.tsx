@@ -86,6 +86,13 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "var(--radius-sm)",
     padding: "var(--space-3)",
   },
+  notice: {
+    background: "var(--color-surface-muted)",
+    color: "var(--color-text-muted)",
+    borderRadius: "var(--radius-sm)",
+    padding: "var(--space-2) var(--space-3)",
+    fontSize: "var(--font-size-sm)",
+  },
   actions: { display: "flex", gap: "var(--space-3)", flexWrap: "wrap" },
   muted: { color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" },
 };
@@ -133,6 +140,11 @@ export function DeriveTestCasePanel({
         description: draft.description,
         steps: draft.steps,
         linked_requirement_id: requirement.id,
+        // #424 (spec section 4.6): this path persists LLM output, so it must
+        // declare its provenance explicitly. `reviewed` is read-only on the
+        // serializer and is derived server-side from `origin` (false here).
+        origin: "ai_generated",
+        scenario_kind: "nominal",
       });
       setCreated(testCase);
       setDraft(null);
@@ -187,6 +199,15 @@ export function DeriveTestCasePanel({
         <div style={styles.error} role="alert" data-testid="derive-testcase-error">
           {error}
         </div>
+      )}
+
+      {/* #424: the persisted row is AI-generated and unreviewed. State that
+          plainly wherever a draft or a result is on screen, so the human
+          review step is discoverable (reviewed only via the TestCase editor). */}
+      {(draft || created) && (
+        <p style={styles.notice} data-testid="derive-testcase-ai-notice">
+          {t("deriveTestcase.aiNotice")}
+        </p>
       )}
 
       {phase === "idle" && (

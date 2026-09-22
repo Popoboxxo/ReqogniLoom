@@ -18,7 +18,11 @@ Tools implemented:
                   support (Phase 3, REQ-L2-AI-003): mode="preview" (default)
                   returns the draft only; mode="write" persists it as a
                   TestCase and creates a 'verifies' TraceLink back to the
-                  source Requirement (write, audited).
+                  source Requirement (write, audited). #424: the persisted row
+                  is marked origin="ai_generated"/reviewed=False.
+  test.mark_reviewed — #424: set the in-content review flag of a TestCase, the
+                  only write path for it (write, audited). Independent of the
+                  workflow lifecycle state.
 
 Interface contracts implemented:
   IF-MC-INT-004  — inbound: execute_tool(tool_name, params, auth_context) -> ToolResult
@@ -84,13 +88,21 @@ from mcp_server.tools.system_fields import (
     apply_system_fields,
     system_field_values,
 )
-from persistence.models import TestCase, TestCaseType
+from persistence.models import ScenarioKind, TestCase, TestCaseOrigin, TestCaseType
 from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
 
 _VALID_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
 _VALID_RUN_RESULT_STATUSES = frozenset({"passed", "failed", "blocked", "not_run"})
+
+#: #424: the client-writable ``origin`` vocabulary. ``unknown`` is deliberately
+#: not exposed (system/migration-only) — mirrors the REST serializer's choices,
+#: not ``TestCaseOrigin.values``.
+_VALID_CLIENT_ORIGINS = (TestCaseOrigin.MANUAL.value, TestCaseOrigin.AI_GENERATED.value)
+
+#: #402: the ``scenario_kind`` vocabulary (nominal | off_nominal).
+_VALID_SCENARIO_KINDS = tuple(value for value, _label in ScenarioKind.choices)
 
 #: Real ``TestCase.test_type`` column values (migration 0041, lowercase
 #: ``TestCaseType``). The resolved attribute definition exposes exactly these
@@ -137,6 +149,12 @@ def _test_case_to_dict(
         "status": resolve_engine_status("TestCase", tc.id, status_map=status_map),
         "version": tc.version,
         "steps": tc.steps if hasattr(tc, "steps") else [],
+        # #424: provenance and in-content review flag. Additive; `reviewed` is
+        # how a caller tells whether an ai_generated test case already counts
+        # as verification evidence.
+        "origin": getattr(tc, "origin", TestCaseOrigin.MANUAL),
+        "reviewed": bool(getattr(tc, "reviewed", False)),
+        "scenario_kind": getattr(tc, "scenario_kind", ScenarioKind.NOMINAL),
         # REQ-L2-AS-037 / Epic #934 WS1: extended attributes live on the
         # backing Artifact and must round-trip through test.get/test.query.
         "custom_fields": artifact_custom_fields(tc),
@@ -174,6 +192,7 @@ class McpTestToolGroup(BaseToolGroup):
         "test.run_report_results": "_handle_run_report_results",
         "test.run_complete": "_handle_run_complete",
         "test.derive_from_requirement": "_handle_derive_from_requirement",
+        "test.mark_reviewed": "_handle_mark_reviewed",
         "test.outdate": "_handle_outdate",
         "test.reactivate": "_handle_reactivate",
     }
@@ -244,6 +263,27 @@ class McpTestToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
+                    # #424: provenance. Optional; the default stays `manual` on
+                    # purpose — test.create creates a *caller-named* test case
+                    # (interactive client, not an LLM artefact). `unknown` is
+                    # not offered (system/migration-only) and `reviewed` is not
+                    # an input at all: it moves via test.mark_reviewed.
+                    "origin": {
+                        "type": "string",
+                        "enum": list(_VALID_CLIENT_ORIGINS),
+                        "description": (
+                            "Provenance of the content. Defaults to 'manual'. "
+                            "'ai_generated' marks LLM-produced content, which "
+                            "starts unreviewed and does not count as "
+                            "verification evidence until test.mark_reviewed."
+                        ),
+                    },
+                    # #402: off-nominal categorisation.
+                    "scenario_kind": {
+                        "type": "string",
+                        "enum": list(_VALID_SCENARIO_KINDS),
+                        "description": "'nominal' (default) or 'off_nominal'.",
+                    },
                     # Attribut v3 WS2 (#936): Artifact-level system fields.
                     **SYSTEM_FIELD_SCHEMA,
                     "linked_req_id": {
@@ -293,6 +333,12 @@ class McpTestToolGroup(BaseToolGroup):
                                     "Extended user-defined attributes (flat "
                                     "key/value map). Replaces the stored map."
                                 ),
+                            },
+                            # #402: off-nominal categorisation (editable).
+                            "scenario_kind": {
+                                "type": "string",
+                                "enum": list(_VALID_SCENARIO_KINDS),
+                                "description": "'nominal' or 'off_nominal'.",
                             },
                             "execution_status": {
                                 "type": "string",
@@ -420,6 +466,36 @@ class McpTestToolGroup(BaseToolGroup):
             },
         },
         {
+            "name": "test.mark_reviewed",
+            "description": (
+                "#424: set the in-content review flag of a TestCase (write, "
+                "audited). A test case with origin='ai_generated' starts "
+                "unreviewed and does not count as verification evidence or "
+                "test coverage until this flag is set. Independent of the "
+                "workflow lifecycle state (test.get's 'status'). Idempotent. "
+                "'reviewed' changes are the only way to make an AI-generated "
+                "test case count."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "test_case_id": {
+                        "type": "string",
+                        "description": "UUID of the test case.",
+                    },
+                    "reviewed": {
+                        "type": "boolean",
+                        "description": "Target review state. Defaults to true.",
+                    },
+                    "change_reason": {
+                        "type": "string",
+                        "description": "Optional rationale, recorded on the audit trail.",
+                    },
+                },
+                "required": ["test_case_id"],
+            },
+        },
+        {
             "name": "test.outdate",
             "description": "Soft-delete a TestCase via the workflow engine's outdate escape hatch (write).",
             "inputSchema": {
@@ -541,6 +617,24 @@ class McpTestToolGroup(BaseToolGroup):
         # REQ-L2-AS-037: TestService.create_test_case already accepts
         # custom_fields; the handler used to drop it.
         custom_fields = params.get("custom_fields")
+        # #424: provenance. Optional; the default stays `manual` on purpose —
+        # test.create creates a caller-named test case (interactive client).
+        # `reviewed` is NOT read from params: it is set via test.mark_reviewed.
+        origin = params.get("origin") or TestCaseOrigin.MANUAL
+        if origin not in _VALID_CLIENT_ORIGINS:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Invalid origin '{origin}'. Valid: "
+                f"{list(_VALID_CLIENT_ORIGINS)}",
+            )
+        # #402: off-nominal categorisation.
+        scenario_kind = params.get("scenario_kind") or ScenarioKind.NOMINAL
+        if scenario_kind not in _VALID_SCENARIO_KINDS:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Invalid scenario_kind '{scenario_kind}'. Valid: "
+                f"{list(_VALID_SCENARIO_KINDS)}",
+            )
 
         # Ledger gap #1 / issue #881: same central gate as
         # TestCaseViewSet.create.
@@ -570,6 +664,8 @@ class McpTestToolGroup(BaseToolGroup):
                     description=description,
                     test_type=legacy_test_type,
                     custom_fields=custom_fields,
+                    origin=origin,
+                    scenario_kind=scenario_kind,
                     **create_kwargs,
                 )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
@@ -694,7 +790,10 @@ class McpTestToolGroup(BaseToolGroup):
                 existing_tc = self._service.get_test_case(tc_id, auth_context)
                 changed_fields = {
                     name: data[name]
-                    for name in ("title", "description", "steps", "test_type", "custom_fields")
+                    for name in (
+                        "title", "description", "steps", "test_type",
+                        "custom_fields", "scenario_kind",
+                    )
                     if name in data
                 }
                 changed_fields.update(system_values)
@@ -716,6 +815,11 @@ class McpTestToolGroup(BaseToolGroup):
                     optional_kwargs["test_type"] = data["test_type"]
                 if "custom_fields" in data:
                     optional_kwargs["custom_fields"] = data["custom_fields"]
+                # #402: `scenario_kind` is editable; `origin`/`reviewed` are
+                # deliberately not accepted here (`origin` is write-once,
+                # `reviewed` moves via test.mark_reviewed).
+                if "scenario_kind" in data:
+                    optional_kwargs["scenario_kind"] = data["scenario_kind"]
 
                 # Codeberg #313: suppress update_test_case's single internal
                 # _audit() call for the same entity — write_mcp_audit below
@@ -1117,6 +1221,13 @@ class McpTestToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     description=draft["description"],
                     steps=draft["steps"],
+                    # #424 producer P3: this is the productive LLM persistence
+                    # path (the draft comes from the LLM adapter), so the row is
+                    # marked AI-generated and unreviewed. Leaving the service
+                    # default (`manual`) here was the false-green root cause:
+                    # mock/LLM-derived test cases counted as full coverage.
+                    origin="ai_generated",
+                    reviewed=False,
                 ),
                 # SE endpoint semantics fix TestCase as the link *source* for
                 # 'verifies' (traceability.types.SE_LINK_SEMANTICS), so the
@@ -1155,6 +1266,57 @@ class McpTestToolGroup(BaseToolGroup):
                 "written": result,
                 "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
             }
+        )
+
+    # ------------------------------------------------------------------
+    # test.mark_reviewed (#424)
+    # ------------------------------------------------------------------
+
+    def _handle_mark_reviewed(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.mark_reviewed — set the in-content review flag (#424).
+
+        The only write path for ``reviewed`` (test.update does not accept it).
+        Idempotent: a call that does not change the stored value bumps no
+        version and writes no second revision, but is still audited.
+        """
+        tc_id = require_uuid(params, "test_case_id")
+        reviewed = params.get("reviewed", True)
+        if not isinstance(reviewed, bool):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'reviewed' must be a boolean."
+            )
+        change_reason: str = params.get("change_reason") or ""
+
+        try:
+            # Codeberg #313: suppress mark_reviewed's single internal _audit()
+            # call for the same entity — write_mcp_audit below is the sole entry.
+            with mcp_audit_handoff():
+                tc = self._service.mark_reviewed(
+                    tc_id,
+                    auth_context,
+                    reviewed=reviewed,
+                    change_reason=change_reason,
+                )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="TestCase",
+            entity_id=tc_id,
+            tool_name="test.mark_reviewed",
+            api_key=api_key,
+            details={"reviewed": bool(tc.reviewed)},
+        )
+        return ToolResult.ok(
+            {"id": str(tc.id), "reviewed": bool(tc.reviewed), "version": tc.version}
         )
 
     # ------------------------------------------------------------------

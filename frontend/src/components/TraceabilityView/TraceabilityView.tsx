@@ -57,6 +57,7 @@ import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState";
+import { PendingAiReviewNote } from "./PendingAiReviewNote";
 import { IMPACT_PRESET_STORAGE_KEY } from "../ImpactView/impact-preset";
 import type { ImpactPreset } from "../ImpactView/impact-preset";
 import {
@@ -588,6 +589,10 @@ export default function TraceabilityView(): JSX.Element {
         />
         {t("traceability.showUncoveredOnly", "Nur nicht abgedeckte Anforderungen")}
       </label>
+      {/* #424: unreviewed AI test cases do not count as coverage, but the
+          exclusion must be visible and reversible from where coverage is
+          shown. The component owns its own loading/error/empty states. */}
+      {activeWorkspace && <PendingAiReviewNote workspaceId={activeWorkspace.id} />}
     </div>
   );
 

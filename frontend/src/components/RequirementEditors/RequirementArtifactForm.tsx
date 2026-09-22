@@ -59,6 +59,15 @@ import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
  * never accept back, matching the same defensive-exclude convention every
  * other adapter (`RiskArtifactForm`'s `rpn`, `IssueArtifactForm`'s
  * `assignee`) already applies to its own type's derived/computed fields.
+ *
+ * `baseline_drift` (#399): an additive, read-only response annotation the
+ * requirement `retrieve` view attaches to the GET body for the editor header's
+ * drift badge (backend/rest_api/views.py). It is not a serializer field at
+ * all, so `RequirementViewSet.partial_update` rejects any PATCH carrying it
+ * with `Unknown field 'baseline_drift'`
+ * (backend/rest_api/mixins/workflow_transitions.py). It must stay in the GET
+ * response — the badge consumes it — but must never ride along on the PATCH,
+ * exactly like `TestCaseArtifactForm`'s `baseline_drift` (#424).
  */
 const READ_ONLY_KEYS = new Set([
   "id",
@@ -73,6 +82,7 @@ const READ_ONLY_KEYS = new Set([
   "parent_id",
   "suspect",
   "atomicity_warning",
+  "baseline_drift",
 ]);
 
 /**

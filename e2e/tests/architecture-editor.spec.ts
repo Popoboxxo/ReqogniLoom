@@ -62,9 +62,16 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
     await expect(previewBtn).toBeVisible();
     await expect(editBtn).toBeVisible();
 
-    // Edit mode reveals a textarea
+    // Edit mode reveals a textarea.
+    //
+    // Issue #947: scoped to the description widget's own editor instead of
+    // `page.locator('textarea').first()` — the form renders further textareas
+    // (custom fields, other widgets), so a positional selector does not
+    // actually verify the markdown editor under test.
     await editBtn.click();
-    await expect(page.locator('textarea').first()).toBeVisible({ timeout: 4000 });
+    await expect(
+      page.locator('[data-testid="artifact-widget-description_editor"] textarea')
+    ).toBeVisible({ timeout: 4000 });
   });
 
   test('[REQ-L3-RF004-003] linked-requirements sidebar is rendered (empty state ok)', async ({ page }) => {

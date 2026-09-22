@@ -239,6 +239,12 @@ class ServiceBase:
             # than let an audit-log field the caller never meant to control
             # fail an otherwise-valid business operation.
             actor_type = ctx.actor_type if ctx.actor_type in ("user", "agent") else "user"
+            # #399: `details` is now persisted (ADR-10 groundwork) instead of
+            # being dropped by the v1 writer. Agent writes ALWAYS carry the
+            # `client_name` label — even when the caller passes no `details`
+            # (existing contract REQ-L2-AL-002 / #913, guarded by
+            # application/tests/test_audit_actor_type.py). Non-agent writes
+            # without caller `details` still store SQL NULL (default unchanged).
             audit_details = details
             if actor_type == "agent" and ctx.agent_label:
                 audit_details = {**(details or {}), "client_name": ctx.agent_label}
@@ -261,6 +267,60 @@ class ServiceBase:
                 entity_id,
             )
             raise
+
+    # ---------- Baseline drift (#399) ----------
+
+    @staticmethod
+    def _baseline_drift_details(
+        artifact_id: UUID, ctx: AuthContext
+    ) -> Optional[dict]:
+        """Return ``{"baseline_drift": [...]}`` for an edit's audit entry.
+
+        #399 (cluster 5, decision D1): membership in a baseline produces a
+        visible drift marking, not a hard block. The *audit trail* is where the
+        marking is durable, so every edit of a baselined artifact records which
+        baselines it drifted from.
+
+        Fail-open on purpose: drift detection is a label, not an approval, so
+        an error while computing it must never fail the edit
+        (``logger.exception`` and ``None`` = "no drift details").
+
+        Returns ``None`` when the artifact is in no baseline, when nothing
+        drifted, or when detection failed.
+
+        The payload is persisted on the edit's ``AuditEntry.details`` (nullable
+        JSON, ADR-10 groundwork — see ``audit.models.AuditEntry.details``), so
+        the marking outlives the request. The drift summary is separately
+        observable via ``GET /artifacts/{id}/baseline-membership/``.
+        """
+        try:
+            from application.baseline_facade import BaselineFacade
+
+            memberships = BaselineFacade().memberships_for_artifact(
+                artifact_id, ctx
+            )
+        except Exception:  # noqa: BLE001 — never fail the edit for a label
+            logger.exception(
+                "ServiceBase._baseline_drift_details: drift lookup failed for %s",
+                artifact_id,
+            )
+            return None
+
+        drifted = [m for m in memberships if m.drifted]
+        if not drifted:
+            return None
+        return {
+            "baseline_drift": [
+                {
+                    "baseline_id": str(m.baseline_id),
+                    "scope": m.scope,
+                    "baselined_version": m.baselined_version,
+                    "current_version": m.current_version,
+                    "drift_known": m.drift_known,
+                }
+                for m in drifted
+            ]
+        }
 
     # ---------- DomainEvent emission ----------
 

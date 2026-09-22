@@ -3,6 +3,17 @@ import { getAuthToken, createIsolatedWorkspace, setWorkspaceId, loginAsAdmin } f
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
+/**
+ * Row testid of one need in the needs tree (issue #947).
+ *
+ * `NeedList.tsx` renders `<WorkspaceTree data-testid="need-list-tree">`, and the
+ * tree puts `data-testid={`${testIdPrefix}-node-${node.id}`}` on each
+ * `<li role="treeitem">` — so the row for a known id is addressable without
+ * matching its rendered title (which changes per run) or using a `text=` CSS
+ * pseudo-selector.
+ */
+const needRow = (id: string): string => `need-list-tree-node-${id}`;
+
 test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
   let workspaceId: string;
   let token: string;
@@ -41,6 +52,7 @@ test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
       }
     });
     expect(createResp.status()).toBe(201);
+    const created = (await createResp.json()) as { id: string };
 
     // 2. Verify in UI
     // NOTE: the nav link text is locale-dependent ("Bedarfe" in de,
@@ -49,15 +61,19 @@ test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
     // (navigator.language), so the app renders the English label and a
     // hardcoded German-text selector times out regardless of app health.
     // The route link itself (NavLink to="/needs") is locale-independent —
-    // select on the href instead.
+    // select on the href instead. (Route-based, not text-based: the nav items
+    // are data-driven in SidebarNavigation.tsx, so a per-module `data-testid`
+    // would mean touching the shared navigation shell — documented as
+    // deliberately unchanged in the #947 report.)
     await page.goto('/');
     await page.click('a[href="/needs"]');
 
-    // Verify list contains the item
-    await expect(page.locator(`text=${apiTitle}`)).toBeVisible();
+    // Verify the list contains *this* need, addressed by its id (issue #947).
+    const row = page.getByTestId(needRow(created.id));
+    await expect(row).toBeVisible();
 
     // Click to verify details
-    await page.click(`text=${apiTitle}`);
+    await row.click();
     await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(apiTitle);
     // Attribut v3 WS6 (#939) added further extended textareas to the Need form
     // (e.g. rationale), so a bare `page.locator('textarea')` is now ambiguous
@@ -66,13 +82,15 @@ test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
     await expect(page.locator('[data-testid="artifact-field-description"]')).toHaveValue(
       'Created via REST API'
     );
-    // NOTE: NeedForm's MoSCoW-priority <select> has no data-testid/label
-    // association (frontend/src/components/NeedsEditors/NeedForm.tsx), and
-    // the page renders several other <select> elements (status filter, sort,
-    // diff version pickers), so a bare `page.locator('select')` is ambiguous
-    // (Playwright strict-mode violation). Scope to the select that has the
-    // 'Must' MoSCoW option, which is unique to the priority field.
-    await expect(page.locator('select:has(option[value="Must"])')).toHaveValue('Must');
+    // Issue #947: the MoSCoW priority <select> is rendered by the shared
+    // `ArtifactForm`/`EnumSelect` (NeedArtifactForm renders through it and does
+    // not override the testid), so it is addressable as
+    // `artifact-field-moscow_priority`. The previous
+    // `select:has(option[value="Must"])` was a structural CSS guess: "whichever
+    // <select> happens to own a Must option" — the page also renders
+    // status/sort/diff selects, and a second Must-valued enum anywhere on the
+    // page would make the selector ambiguous.
+    await expect(page.getByTestId('artifact-field-moscow_priority')).toHaveValue('Must');
   });
 
   test('Write via MCP -> Read in UI', async ({ page, request }) => {
@@ -88,12 +106,13 @@ test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
       }
     });
     expect(createResp.status()).toBe(201);
+    const created = (await createResp.json()) as { id: string };
 
     // 2. Verify in UI (locale-independent selector — see note above)
     await page.goto('/');
     await page.click('a[href="/needs"]');
 
-    await expect(page.locator(`text=${mcpTitle}`)).toBeVisible();
+    await expect(page.getByTestId(needRow(created.id))).toBeVisible();
   });
 
   test('Write via UI -> Read via API', async ({ page, request }) => {
@@ -111,19 +130,44 @@ test.describe('Stakeholder Needs Cross-Boundary E2E (API/MCP/UI)', () => {
     const titleInput = page.locator('[data-testid="need-new-title-input"]');
     await expect(titleInput).toBeVisible({ timeout: 5000 });
     await titleInput.fill(uiTitle);
-    await page.click('form button[type="submit"]');
+    // Issue #947: the submit button has its own testid
+    // (need-create-submit-btn) — `form button[type="submit"]` was a structural
+    // guess that breaks as soon as the form gains a second submit control.
+    await page.click('[data-testid="need-create-submit-btn"]');
 
-    // Wait for it to appear in list
-    await expect(page.locator(`text=${uiTitle}`)).toBeVisible();
+    // 2. Verify via API. The id is only known after the create, so resolve it
+    // through the API and then assert the UI row by id — deterministic, no
+    // title-substring matching.
+    //
+    // Issue #947: `expect.poll` (not a single GET) because `createResp.status()`
+    // is not capturable here without adding a request interceptor, and the
+    // create is a POST from the UI whose completion is only observable through
+    // its effect. A one-shot read raced it before; polling the *condition* also
+    // gives a far better failure message than "expected [ ] to contain".
+    await expect
+      .poll(
+        async () => {
+          const listResp = await request.get(
+            `${BACKEND_URL}/api/v1/workspaces/${workspaceId}/needs/`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (listResp.status() !== 200) return [];
+          const listJson = await listResp.json();
+          return listJson.results as Array<{ id: string; title: string }>;
+        },
+        { timeout: 10000, message: `need "${uiTitle}" did not reach the API` }
+      )
+      .toContainEqual(expect.objectContaining({ title: uiTitle }));
 
-    // 2. Verify via API
     const listResp = await request.get(`${BACKEND_URL}/api/v1/workspaces/${workspaceId}/needs/`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    expect(listResp.status()).toBe(200);
     const listJson = await listResp.json();
-    const found = listJson.results.find((n: any) => n.title === uiTitle);
-    expect(found).toBeDefined();
-    expect(found.title).toBe(uiTitle);
+    const found = (listJson.results as Array<{ id: string; title: string }>).find(
+      (n) => n.title === uiTitle
+    )!;
+
+    // Wait for it to appear in list, addressed by id.
+    await expect(page.getByTestId(needRow(found.id))).toBeVisible();
   });
 });

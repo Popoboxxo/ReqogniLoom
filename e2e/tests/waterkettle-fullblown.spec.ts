@@ -133,51 +133,106 @@ interface ApiIds {
   riskIds: string[];
   adrIds: string[];
   testRunIds: Record<string, string>;
-  diagramIds: string[];
+  /**
+   * Issue #947: keyed by scenario key ('BLOCK' | 'CONTEXT' | 'FLOW') so Phase 4d
+   * can address *its* diagram by ID instead of by name + `.first()`, and so
+   * `cleanupViaAPI` actually has something to delete. `createDiagramViaUI`
+   * returned `void` before, which left this map permanently empty and made the
+   * diagram-cleanup loop dead code.
+   */
+  diagramIds: Record<string, string>;
   icdIds: string[];
   baselineIds: string[];
 }
 
-async function cleanupViaAPI(ids: ApiIds, token: string): Promise<void> {
+/**
+ * Soft-delete every artifact this run created.
+ *
+ * Baselines and TestRuns are immutable and stay behind by design. Diagrams/ICDs
+ * used to be in the same bucket only because their helpers never returned an id
+ * (issue #947) — they are deleted now.
+ *
+ * Requirements are sent WITH a `change_reason` body. `RequirementService.
+ * delete_requirement` enforces the workspace's change_reason preset policy
+ * (#604) whenever the preset makes the reason mandatory. This workspace is
+ * created by `createIsolatedWorkspace`, which POSTs only `{name}` and therefore
+ * gets the backend's `standard` default (rest_api/views.py: `extract_preset_tier(
+ * request.data.get("preset", "standard"))`), and `standard` has
+ * `change_reason="optional"` (presets/registry.py) — so the DELETE would succeed
+ * without the body too. The body is supplied anyway because the reason is
+ * exactly what an audit trail wants on a delete, and because it makes the call
+ * correct regardless of which tier the workspace ends up on.
+ *
+ * Non-2xx responses are reported instead of swallowed: the previous
+ * `.delete(url)` call ignored them, which is how the missing-reason 400 on the
+ * extended-preset seed workspace (see the shared helper in helpers/cleanup.ts)
+ * went unnoticed for so long.
+ *
+ * Deliberately NOT deleted: the isolated workspace itself, and the baselines /
+ * test runs — baselines and TestRuns are immutable by design, there is no delete
+ * path for them. Those stay behind on every run and are the reason this spec
+ * keeps creating a fresh workspace rather than reusing one.
+ *
+ * Returns the list of failures so the caller can ASSERT on it (issue #947
+ * review F-5). A `console.warn` here would leave a leaking cleanup green, which
+ * is how the dead diagram loop and the 400-ing requirement deletes stayed
+ * invisible in the first place.
+ */
+async function cleanupViaAPI(ids: ApiIds, token: string): Promise<string[]> {
   const apiCtx = await pwRequest.newContext({
     baseURL: BACKEND_URL,
     extraHTTPHeaders: { Authorization: `Bearer ${token}` },
   });
   const headers = { Authorization: `Bearer ${token}` };
+  const failures: string[] = [];
 
-  // Baselines sind immutable — werden nicht gelöscht
-  // TestRuns sind immutable
+  const remove = async (
+    path: string,
+    data?: Record<string, string>
+  ): Promise<void> => {
+    const response = await apiCtx.delete(path, { headers, ...(data ? { data } : {}) });
+    // 404 is tolerated: an earlier phase may already have removed the artifact
+    // (or a previous run cleaned it up), which is not a cleanup defect.
+    if (!response.ok() && response.status() !== 404) {
+      failures.push(`${path} -> ${response.status()}`);
+    }
+  };
+
   // Diagrams: löschbar
-  for (const id of ids.diagramIds) {
-    await apiCtx.delete(`/api/v1/diagrams/${id}/`, { headers });
+  for (const id of Object.values(ids.diagramIds)) {
+    await remove(`/api/v1/diagrams/${id}/`);
   }
   // ICDs: löschbar
   for (const id of ids.icdIds) {
-    await apiCtx.delete(`/api/v1/icds/${id}/`, { headers });
+    await remove(`/api/v1/icds/${id}/`);
   }
   // Issues/Risks/ADRs: löschbar
   for (const id of ids.issueIds) {
-    await apiCtx.delete(`/api/v1/issues/${id}/`, { headers });
+    await remove(`/api/v1/issues/${id}/`);
   }
   for (const id of ids.riskIds) {
-    await apiCtx.delete(`/api/v1/risks/${id}/`, { headers });
+    await remove(`/api/v1/risks/${id}/`);
   }
   for (const id of ids.adrIds) {
-    await apiCtx.delete(`/api/v1/adrs/${id}/`, { headers });
+    await remove(`/api/v1/adrs/${id}/`);
   }
   // TestCases
   for (const id of Object.values(ids.testCaseIds)) {
-    await apiCtx.delete(`/api/v1/testcases/${id}/`, { headers });
+    await remove(`/api/v1/testcases/${id}/`);
   }
   // Architektur
   for (const id of Object.values(ids.architectureIds)) {
-    await apiCtx.delete(`/api/v1/architecture/${id}/`, { headers });
+    await remove(`/api/v1/architecture/${id}/`);
   }
-  // Requirements
+  // Requirements — change_reason required under the extended preset policy.
   for (const id of Object.values(ids.requirementIds)) {
-    await apiCtx.delete(`/api/v1/requirements/${id}/`, { headers });
+    await remove(`/api/v1/requirements/${id}/`, {
+      change_reason: 'E2E cleanup (waterkettle-fullblown afterAll)',
+    });
   }
+
   await apiCtx.dispose();
+  return failures;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,15 +286,25 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
       riskIds: [],
       adrIds: [],
       testRunIds: {},
-      diagramIds: [],
+      diagramIds: {},
       icdIds: [],
       baselineIds: [],
     };
   });
 
   test.afterAll(async () => {
+    // Issue #947 review F-5: assert the cleanup result instead of only warning
+    // about it. A leak has to turn this spec red — otherwise "the suite is
+    // idempotent" is a claim nothing enforces, which is exactly how the dead
+    // diagram/ICD loops survived.
     if (ids) {
-      await cleanupViaAPI(ids, token);
+      const cleanupFailures = await cleanupViaAPI(ids, token);
+      expect(
+        cleanupFailures,
+        `cleanupViaAPI could not delete ${cleanupFailures.length} artifact(s) in ` +
+          `workspace ${ids.workspaceId} — they stay behind for the next run:\n  ` +
+          cleanupFailures.join('\n  ')
+      ).toEqual([]);
     }
     // Bug-Report aus den einzelnen Bug-Dateien zusammenbauen,
     // dedupliziert nach Bug-ID (über mehrere Worker-Reloads hinweg
@@ -385,9 +450,11 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     await page.waitForLoadState('networkidle');
     // Wait for the requirement tree to actually render (RequirementList.tsx
     // data-testid="req-list-tree") instead of a fixed delay, before probing
-    // for the long-title card below.
-    await expect(page.locator('[data-testid="req-list-tree"]')).toBeVisible({ timeout: 8000 });
-    const card = page.getByText(longTitle.slice(0, 25)).first();
+    // for the long-title card below. Scoped to the tree (issue #947): the bare
+    // getByText could also resolve a matching node in the sidebar/header.
+    const tree = page.getByTestId('req-list-tree');
+    await expect(tree).toBeVisible({ timeout: 8000 });
+    const card = tree.getByText(longTitle.slice(0, 25)).first();
     const visible = await card.isVisible().catch(() => false);
     if (visible) {
       const overflow = await card.evaluate((el) => {
@@ -493,7 +560,7 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
       test.skip(true, 'Architektur-IDs fehlen');
       return;
     }
-    await createIcdViaUI(page, {
+    const icdId = await createIcdViaUI(page, {
       name: 'WK-ICD-001: MCU ↔ Temperatursensor',
       sourceArchId: sourceId,
       targetArchId: targetId,
@@ -503,15 +570,26 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
       contract: 'ADC1_IN1 liest NTC-Spannung; Update-Rate ≥ 1 Hz.',
       direction: 'unidirectional',
     });
+    // Issue #947: ID festhalten, damit `cleanupViaAPI` das ICD wirklich löscht
+    // (der Helper gab vorher `void` zurück → `ids.icdIds` blieb leer) und die
+    // Assertion auf *dieses* ICD geht statt auf "irgendeine Zeile in der Liste".
+    ids.icdIds.push(icdId);
     await page.goto(`${FRONTEND_URL}/icds`);
-    await expect(page.locator('[data-testid="icds-list"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId(`icd-item-${icdId}`)).toBeVisible({ timeout: 10000 });
   });
 
   // ===========================================================================
   // PHASE 4 — Diagramme über UI
   // ===========================================================================
+  //
+  // Issue #947: alle vier Phase-4-Tests adressieren ihr Diagramm ab jetzt über
+  // die von `createDiagramViaUI` zurückgegebene ID (`diagram-item-<id>`) statt
+  // über den Namen mit `.first()`. Feste Namen + `.first()` treffen in einem
+  // Workspace, in dem derselbe Lauf bzw. ein früherer Lauf mehrere Diagramme
+  // hinterlässt, irgendeinen Treffer — die Assertion war damit nicht an *dieses*
+  // Diagramm gebunden.
   test('Phase 4a: Block-Diagramm Wasserkessel über UI', async ({ page }) => {
-    await createDiagramViaUI(page, {
+    const id = await createDiagramViaUI(page, {
       name: 'WK-Block-001: Wasserkessel Top-Level',
       diagramType: 'block',
       payloadFormat: 'mermaid',
@@ -524,11 +602,13 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   D --> F[Safety-IF]
   F --> D`,
     });
-    await expect(page.getByText('WK-Block-001: Wasserkessel Top-Level').first()).toBeVisible();
+    ids.diagramIds['BLOCK'] = id;
+    await page.goto(`${FRONTEND_URL}/diagrams`);
+    await expect(page.getByTestId(`diagram-item-${id}`)).toBeVisible();
   });
 
   test('Phase 4b: Context-Diagramm Anwender-Wasserkasser über UI', async ({ page }) => {
-    await createDiagramViaUI(page, {
+    const id = await createDiagramViaUI(page, {
       name: 'WK-Context-001: User-System',
       diagramType: 'context',
       payloadFormat: 'mermaid',
@@ -542,50 +622,62 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   WK -->|kocht| User
   Power -->|230 V| WK`,
     });
-    await expect(page.getByText('WK-Context-001: User-System').first()).toBeVisible();
+    ids.diagramIds['CONTEXT'] = id;
+    await page.goto(`${FRONTEND_URL}/diagrams`);
+    await expect(page.getByTestId(`diagram-item-${id}`)).toBeVisible();
   });
 
   test('Phase 4c: Flow-Diagramm State-Machine über UI', async ({ page }) => {
     test.setTimeout(45_000);
-    const name = 'WK-Flow-001: State Machine';
-    await createDiagramViaUI(page, {
-      name,
+    const id = await createDiagramViaUI(page, {
+      name: 'WK-Flow-001: State Machine',
       diagramType: 'flow',
       payloadFormat: 'mermaid',
       description: 'Zustandsmaschine',
       content: `graph LR\n  A[Idle] --> B[Heating]\n  B --> C[Done]\n  B --> D[Error]\n  C --> A\n  D --> A`,
     });
-    // createDiagramViaUI() already waits for networkidle after saving; the
-    // retrying toBeVisible() assertion below is the real wait for the new
-    // diagram to show up after navigating to the list, so no extra fixed
-    // delay is needed here.
+    ids.diagramIds['FLOW'] = id;
+    // Deterministische Zielwahl: die Zeile des *gerade erzeugten* Diagramms,
+    // aufgelöst über seine ID — keine Namenssuche, kein `.first()`.
     await page.goto(`${FRONTEND_URL}/diagrams`);
-    await page.waitForLoadState('networkidle');
-    await expect(page.getByText(name).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId(`diagram-item-${id}`)).toBeVisible({ timeout: 10000 });
   });
 
   test('Phase 4d: Diagramm editieren — erzeugt das eine neue Version?', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/diagrams`);
-    // Filter first — the diagram list grows with every phase (and every prior
-    // run against a persistent dev database), so a bare getByText can be left
-    // waiting on an entry that is simply further down the list.
-    await page.getByTestId('diagram-list-search-input').fill('WK-Block-001');
-    await page.getByText('WK-Block-001: Wasserkessel Top-Level').first().click();
+    const diagramId = ids.diagramIds['BLOCK'];
+    // Issue #947 review F-7: a `test.skip` here turned "Phase 4a never produced
+    // an id" — a hard, actionable failure — into a silently skipped test. The id
+    // is a hard precondition; assert it so the real breakage is reported.
+    expect(
+      diagramId,
+      'Phase 4d needs the diagram id from Phase 4a — Phase 4a did not record one'
+    ).toBeTruthy();
 
-    // GH-353 Task 9 / D4: mermaid (like node_graph and canvas_stroke) is edited
-    // in a fullscreen editor, so the detail pane's primary action navigates
-    // there instead of turning into an inline source form. Only plantuml/json
-    // still render diagram-edit-btn + diagram-source-textarea.
-    const detailContent = await page.content();
-    const hasV1 = detailContent.includes('v1') || detailContent.includes('v—') || detailContent.includes('—');
+    // Direkt über die ID ins Detail — kein Suchfeld, kein `.first()`.
+    await page.goto(`${FRONTEND_URL}/diagrams`);
+    await page.getByTestId(`diagram-item-${diagramId}`).click();
+
+    // Issue #947: Version NICHT mehr über `page.content().includes('v2')`
+    // prüfen. Der Detail-Pane rendert den Quellcode (diagram-source-preview),
+    // und der Test schreibt selbst "Heizelement v2" hinein — der Substring war
+    // also immer wahr und der Check konnte nie anschlagen (false negative).
+    // Gelesen wird jetzt das Versions-Label selbst.
+    //
+    // Issue #947 review F-6: the testid IS unscoped
+    // (DiagramDetailView.tsx renders exactly one `data-testid="diagram-version-label"`),
+    // so use the exact id and assert its CONTENT, not just its presence. The
+    // earlier prefix form plus `toHaveCount(1)` only proved "a label exists".
+    const versionLabel = page.getByTestId('diagram-version-label');
+    await expect(versionLabel).toHaveText(/^v\d+$/, { timeout: 10000 });
+    const versionBefore = (await versionLabel.innerText()).trim();
 
     await expect(page.locator('[data-testid="diagram-open-editor-btn"]')).toBeVisible();
     await page.locator('[data-testid="diagram-open-editor-btn"]').click();
     await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     const newContent = `graph LR
-  A[Stromversorgung] --> B[Heizelement v2]
-  B --> C[Wasserbehälter v2]`;
+  A[Stromversorgung] --> B[Heizelement]
+  B --> C[Wasserbehälter]`;
     // CodeMirror renders a contenteditable div, not a textarea — select-all
     // and retype (same helper shape as tests/mermaid-diagram.spec.ts).
     const cmContent = page.locator('[data-testid="mermaid-code-editor"] .cm-content');
@@ -611,21 +703,18 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     ]);
 
     // Back to the detail pane to read the (possibly bumped) version label.
-    await page.goto(`${FRONTEND_URL}/diagrams`);
-    await page.getByTestId('diagram-list-search-input').fill('WK-Block-001');
-    await page.getByText('WK-Block-001: Wasserkessel Top-Level').first().click();
-    await expect(page.locator('[data-testid="diagram-open-editor-btn"]')).toBeVisible({
-      timeout: 10000,
-    });
+    await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}`);
+    await expect(versionLabel).toHaveText(/^v\d+$/, { timeout: 10000 });
+    const versionAfter = (await versionLabel.innerText()).trim();
 
-    const afterContent = await page.content();
-    const hasV2 = afterContent.includes('v2');
-    if (!hasV2) {
+    const bumped = versionAfter !== versionBefore;
+    if (!bumped) {
       logBug(
         'B-DIAG-001',
         'Diagramm-Edit erzeugt KEINE neue Version (REQ-L1-029 Immutability Bruch)',
-        'Nach dem Edit sollte eine v2 erzeugt werden, der Quellcode ist aber direkt überschrieben. ' +
-          'Versions-Feld zeigt: ' + (hasV1 ? 'v1' : 'kein v-Label')
+        `Nach dem Edit sollte eine neue Version entstehen, der Quellcode ist aber direkt ` +
+          `überschrieben. Versions-Label vorher: "${versionBefore}", nachher: "${versionAfter}" ` +
+          `(diagram id ${diagramId}).`
       );
     }
   });
@@ -747,20 +836,29 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
         await seedTestRunResult(token, runId, testCases[i], status, status === 'failed' ? 'Trockenlauf zu langsam' : 'OK');
       }
 
-      // Close via UI und Status- Badge prüfen
+      // Close via UI und Status-Badge prüfen
       await transitionTestRunViaUI(page, runId, 'in_progress', run.fail ? 'failed' : 'passed');
       await page.goto(`${FRONTEND_URL}/test-runs`);
       const item = page.locator(`[data-testid="testrun-item-${runId}"]`);
       await expect(item).toBeVisible({ timeout: 8000 });
-      const badge = item.locator('span').filter({ hasText: run.fail ? 'failed' : 'passed' });
-      await expect(badge).toBeVisible({ timeout: 5000 });
+      // Scoped to the row's own StatusBadge (shared/StatusBadge.tsx,
+      // data-testid="status-badge") instead of "any <span> inside the row
+      // whose text contains the word" (issue #947).
+      await expect(item.getByTestId('status-badge')).toHaveText(
+        run.fail ? /failed/i : /passed/i,
+        { timeout: 5000 }
+      );
     }
 
-    // Aggregate-Check: jeder Run zeigt im Detail das Result-Summary
+    // Aggregate-Check: jeder Run zeigt im Detail das Result-Summary.
+    // Prefix-Match: die Summary-Cards sind per artifact gescoped
+    // (`testrun-result-summary-<runId>`), getByTestId matcht exakt.
     for (const runId of Object.values(ids.testRunIds)) {
       await page.goto(`${FRONTEND_URL}/test-runs`);
       await page.locator(`[data-testid="testrun-item-${runId}"]`).click();
-      await expect(page.getByText('Total').first()).toBeVisible({ timeout: 8000 });
+      await expect(
+        page.locator('[data-testid^="testrun-result-summary"]')
+      ).toBeVisible({ timeout: 8000 });
     }
   });
 
@@ -797,13 +895,17 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     test.setTimeout(30_000);
     await page.goto(`${FRONTEND_URL}/`);
     await page.waitForLoadState('networkidle');
-    const list = page.locator('[data-testid="workspace-list"]');
-    const empty = page.getByText(/no workspace|kein workspace|empty|leer/i).first();
+    // Issue #947: beide Zustände haben einen eigenen data-testid
+    // (DashboardViews.tsx) — der frühere Text-Regex ('no workspace|kein
+    // workspace|empty|leer') traf auch jeden beliebigen Fließtext, der eines
+    // dieser Wörter enthielt.
+    const list = page.getByTestId('workspace-list');
+    const empty = page.getByTestId('workspace-list-empty');
     await Promise.race([
       expect(list).toBeVisible({ timeout: 10000 }).catch(() => null),
       expect(empty).toBeVisible({ timeout: 10000 }).catch(() => null),
     ]);
-    const cards = page.locator('[data-testid="workspace-card"]');
+    const cards = page.getByTestId('workspace-card');
     const count = await cards.count();
     if (count > 0) {
       const firstCard = cards.first();
