@@ -76,6 +76,7 @@ from rest_api.audit_views import (
     WorkspaceAuditAiReviewView,
     WorkspaceAuditRemediateView,
     WorkspaceAuditView,
+    WorkspaceAuditWaiverView,
 )
 from rest_api.traceability_suggest_views import WorkspaceTraceabilitySuggestLinksView
 from rest_api.architecture_decompose_views import (
@@ -842,6 +843,13 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/audit/ai-review/",
         WorkspaceAuditAiReviewView.as_view(),
         name="workspace-audit-ai-review",
+    ),
+    # #569: standalone per-finding suppressions (waivers). Must precede the
+    # bare audit/ run route so the specific path is never shadowed.
+    path(
+        "workspaces/<uuid:workspace_id>/audit/waivers/",
+        WorkspaceAuditWaiverView.as_view(),
+        name="workspace-audit-waivers",
     ),
     path(
         "workspaces/<uuid:workspace_id>/audit/",

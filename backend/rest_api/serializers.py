@@ -138,6 +138,40 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
             "oder geben Sie eine schriftliche Ausnahmebegründung an."
         ),
     },
+    # #569: the three dedicated suppression error codes (§3.4.2). Bilingual
+    # entries are mandatory for every key (CI rule at the top of this registry).
+    "WAIVER_REASON_REJECTED": {
+        "en": (
+            "The suppression justification does not meet the governance "
+            "policy; state which deviation is accepted and why."
+        ),
+        "de": (
+            "Die Begründung der Unterdrückung erfüllt die Governance-Richtlinie "
+            "nicht; nennen Sie die akzeptierte Abweichung und den Grund."
+        ),
+    },
+    "WAIVER_FINDING_NOT_BLOCKING": {
+        "en": (
+            "No blocking SE-Auditor finding matches this suppression request; "
+            "re-run the auditor and suppress a finding it reports."
+        ),
+        "de": (
+            "Zu dieser Unterdrückungsanfrage passt kein blockierendes "
+            "SE-Auditor-Finding; starten Sie den Auditor neu und unterdrücken "
+            "Sie ein gemeldetes Finding."
+        ),
+    },
+    "SUPPRESSION_EXPIRED": {
+        "en": (
+            "A suppression for this finding exists but has expired; re-granting "
+            "is a separate governance decision that is not supported yet."
+        ),
+        "de": (
+            "Für dieses Finding existiert eine Unterdrückung, die jedoch "
+            "abgelaufen ist; eine erneute Gewährung ist eine separate "
+            "Governance-Entscheidung, die noch nicht unterstützt wird."
+        ),
+    },
     "INTERNAL_SERVER_ERROR": {
         "en": "An internal server error occurred.",
         "de": "Ein interner Serverfehler ist aufgetreten.",
