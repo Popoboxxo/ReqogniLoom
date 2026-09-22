@@ -16,6 +16,7 @@
 // so this spec does not depend on a workspace preset actually enabling it.
 import { test, expect, APIRequestContext, Route } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { deleteRequirement as deleteRequirementFixture } from '../helpers/cleanup';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -70,9 +71,12 @@ async function deleteRequirement(
   token: string,
   id: string
 ): Promise<void> {
-  await request.delete(`${BACKEND_URL}/api/v1/requirements/${id}/`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  // Issue #947: delegates to the shared helper. The local copy sent no
+  // `change_reason` body and never inspected the response — and this spec's
+  // fixtures live in the SEEDED workspace, whose `extended` preset makes the
+  // reason mandatory (#604), so every DELETE was answered with 400 and every
+  // fixture silently stayed behind.
+  await deleteRequirementFixture(request, token, id, 'E2E cleanup (review-workflow.spec.ts)');
 }
 
 test.describe('[COMP-RF-REV] Reviews view (REQ-144)', () => {
