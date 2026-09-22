@@ -2077,6 +2077,20 @@ class ChangeRequestSerializer(
     assigned_reviewer_id = serializers.UUIDField(
         allow_null=True, required=False, default=None
     )
+    # #399 (cluster 5) / spec section 4.4: the drift badge's "raise change
+    # request" shortcut needs a declared contract for pre-filling the affected
+    # items. Write-only and additive: `create_change_request` already validates
+    # the ids workspace-/tenant-scoped (`_validate_affected_items`) and
+    # snapshots the "before" state, it was only never reachable through REST.
+    affected_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        write_only=True,
+        help_text=(
+            "Optional list of artifact UUIDs to register as affected items "
+            "of the new change request."
+        ),
+    )
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )

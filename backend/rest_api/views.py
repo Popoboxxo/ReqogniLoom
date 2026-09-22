@@ -968,7 +968,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return self.with_etag(Response(RequirementSerializer(_dto_from_orm(item)).data), item)
+        payload = RequirementSerializer(_dto_from_orm(item)).data
+        # #399: additive drift summary for the editor header (no extra request).
+        payload["baseline_drift"] = _baseline_drift_summary(item.artifact_id, ctx)
+        return self.with_etag(Response(payload), item)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/requirements/ — create a requirement. Returns 201.
@@ -1638,6 +1641,82 @@ class ArtifactViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get"], url_path="baseline-membership")
+    def baseline_membership(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/artifacts/{pk}/baseline-membership/ (#399).
+
+        Ans: Baseline-Mitgliedschaft + Drift-Kennzeichnung des Artefakts —
+        Decision D1 (no hard block, drift marking instead).
+
+        Response::
+
+            {
+              "artifact_id": "uuid",
+              "drifted": true,
+              "memberships": [
+                {"baseline_id": "uuid", "baseline_name": "Release 1.8",
+                 "scope": "project", "baselined_at": "...",
+                 "baselined_version": 3, "current_version": 4,
+                 "drifted": true, "drift_known": true}
+              ]
+            }
+
+        An empty ``memberships`` list means the artifact is in no baseline
+        (``drifted`` is then ``false``). Tenant-scoped through the service's
+        tenant-checked loading path.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            from application.baseline_facade import BaselineFacade
+
+            memberships = BaselineFacade().memberships_for_artifact(
+                UUID(pk), ctx
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "artifact_id": str(pk),
+                "drifted": any(m.drifted for m in memberships),
+                "memberships": [m.to_dict() for m in memberships],
+            }
+        )
+
+
+def _baseline_drift_summary(artifact_id: Any, ctx: Any) -> dict[str, Any]:
+    """Return the additive ``baseline_drift`` summary for a retrieve response.
+
+    #399 (cluster 5): document/TestCase ``retrieve`` carry
+    ``{"drifted": bool, "count": int}`` so the editor header can render the
+    drift badge from the detail response instead of an extra request per row
+    (the list badge is deliberately out of scope — it would need a batch
+    endpoint, spec D7).
+
+    Fail-open on purpose: a drift *label* must never turn a successful read
+    into a 500. Any error yields the neutral ``{drifted: False, count: 0}``.
+    """
+    try:
+        from application.baseline_facade import BaselineFacade
+
+        memberships = BaselineFacade().memberships_for_artifact(
+            UUID(str(artifact_id)), ctx
+        )
+    except Exception:  # noqa: BLE001 — never mask the read itself
+        logger.exception(
+            "baseline drift summary failed for artifact=%s", artifact_id
+        )
+        return {"drifted": False, "count": 0}
+    drifted = [m for m in memberships if m.drifted]
+    return {"drifted": bool(drifted), "count": len(drifted)}
 
 
 # ---------------------------------------------------------------------------
@@ -2377,7 +2456,10 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except ValueError:
             return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
-        return self.with_etag(Response(TestCaseSerializer(_test_to_dict(item)).data), item)
+        payload = TestCaseSerializer(_test_to_dict(item)).data
+        # #399: additive drift summary for the editor header (no extra request).
+        payload["baseline_drift"] = _baseline_drift_summary(item.artifact_id, ctx)
+        return self.with_etag(Response(payload), item)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -6905,6 +6987,10 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 assigned_reviewer_id=data.get("assigned_reviewer_id"),
                 # REQ-L2-AS-037: extended attributes from the serializer.
                 custom_fields=data.get("custom_fields"),
+                # #399: write-only prefill from the drift badge's "raise change
+                # request" shortcut. The service validates the ids
+                # workspace-/tenant-scoped and snapshots their "before" state.
+                affected_item_ids=data.get("affected_item_ids"),
             )
             self._apply_artifact_system_fields(request, "ChangeRequest", item, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:

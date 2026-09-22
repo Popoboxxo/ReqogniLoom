@@ -413,6 +413,9 @@ class TestService(ServiceBase):
             entity_type="TestCase",
             entity_id=test_case_id,
             change_reason=change_reason,
+            # #399: durable drift marking on the edit of a baselined artifact
+            # (fail-open — a label must never fail the write).
+            details=self._baseline_drift_details(test_case.artifact_id, ctx),
         )
         self._emit_event(
             self._make_event(
