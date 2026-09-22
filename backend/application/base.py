@@ -77,6 +77,51 @@ class BaselineGateBlockedError(ValidationError):
     """
 
 
+class WaiverReasonPolicyViolation(ValidationError):
+    """Raised when a suppression justification fails the policy (#569).
+
+    Same precedent as :class:`BaselineGateBlockedError`: a ``ValidationError``
+    subclass, so every existing ``except ValidationError`` caller keeps working,
+    but a *distinct* type so the API layer answers a dedicated code instead of
+    the generic ``VALIDATION_ERROR``. The reason policy itself is owned once at
+    Layer 1 (:func:`baseline.waivers.validate_waiver_reason`), which raises
+    ``baseline.exceptions.GovernanceReasonError``;
+    ``AuditService.suppress_finding`` remaps it here (REST/MCP: 400
+    ``WAIVER_REASON_REJECTED``).
+    """
+
+    error_code = "WAIVER_REASON_REJECTED"
+
+
+class WaiverFindingNotBlockingError(ValidationError):
+    """Raised when a suppression names a finding that is not blocking (#569).
+
+    A waiver accepts a *known* deviation: naming a finding the auditor is not
+    currently reporting as a BLOCKER (unknown, or only a WARNING) is refused
+    rather than stored — accepting something that does not exist would silently
+    suppress it if it ever appeared. 400 ``WAIVER_FINDING_NOT_BLOCKING`` (never
+    422: that status is reserved for the Adopt/Modify conflict in the audit
+    module).
+    """
+
+    error_code = "WAIVER_FINDING_NOT_BLOCKING"
+
+
+class SuppressionExpiredError(ValidationError):
+    """Raised when only an expired waiver row exists for the finding (#569/m1).
+
+    ``get_or_create`` is idempotent and never overwrites ``expires_at``, so
+    re-requesting a suppression whose only row has expired would be a silent
+    200 no-op — exactly what "Nachvollziehbarkeit statt Verstecken" forbids.
+    Answered as 409 ``SUPPRESSION_EXPIRED`` (a conflict with the current state
+    of the target resource), not 400: the request is well-formed and
+    authorised. Re-granting is deliberately out of scope until the O1
+    revoke/re-grant decision.
+    """
+
+    error_code = "SUPPRESSION_EXPIRED"
+
+
 class OptimisticLockError(RuntimeError):
     """Raised when an update targets a stale version (REQ-L2-AS-004)."""
 
@@ -323,6 +368,9 @@ class ServiceBase:
 __all__ = [
     "ServiceBase",
     "BaselineGateBlockedError",
+    "WaiverReasonPolicyViolation",
+    "WaiverFindingNotBlockingError",
+    "SuppressionExpiredError",
     "PermissionDeniedError",
     "NotFoundError",
     "ValidationError",

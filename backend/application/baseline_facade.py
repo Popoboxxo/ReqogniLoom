@@ -19,7 +19,6 @@ Architecture:
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -54,38 +53,19 @@ from application.event_bus import DomainEvent
 from application.preset_policy_service import get_preset_policy_service
 from persistence.transactions import atomic_transaction
 
+# D4 (#569): the reason-policy constants now live at Layer 1
+# (``baseline.waivers``, the SSOT for finding identity and matching). They are
+# re-exported here so the established import surface
+# (``from application.baseline_facade import MIN_OVERRIDE_REASON_LENGTH``, used
+# by ``test_baseline_gate_waivers_821.py``) stays valid. The private patterns
+# stay private to ``baseline.waivers`` and are deliberately NOT re-exported.
+from baseline.waivers import (  # noqa: F401  (re-exported public constants)
+    MIN_OVERRIDE_REASON_LENGTH,
+    MIN_REASON_DISTINCT_WORDS,
+    MIN_REASON_WORDS,
+)
+
 logger = logging.getLogger(__name__)
-
-#: Minimum length of an SE-Auditor gate justification (GH-513, hardened by
-#: GH-821). A waiver is a governance record that outlives the person who
-#: granted it — "ok" or "later" is not one. Length alone is a weak bar though
-#: ("aaaaaaaaaaaaaaa" cleared the old 10-character rule), so
-#: :func:`_validate_gate_reason` layers content checks on top of it: a minimum
-#: word count, a minimum number of *distinct* words (blocks padding with one
-#: repeated token) and at least one readable word. A sentence written for a
-#: reviewer passes; a placeholder does not.
-MIN_OVERRIDE_REASON_LENGTH = 15
-
-#: Minimum words in a justification (GH-821).
-MIN_REASON_WORDS = 4
-
-#: Minimum *distinct* words in a justification (GH-821). Blocks "test test
-#: test test" and one-token padding, which a raw word count would accept.
-MIN_REASON_DISTINCT_WORDS = 3
-
-#: Words shorter than this do not count towards the word minimum — they are
-#: almost always punctuation fragments ("a", "z") rather than content.
-_MIN_REASON_WORD_LENGTH = 2
-
-#: A readable word: three or more consecutive letters (Unicode-aware). Rejects
-#: justifications made of digits, ids or punctuation only.
-_READABLE_WORD_RE = re.compile(r"[^\W\d_]{3,}", re.UNICODE)
-
-#: An audit rule id token ("TRACE-P1", "VERIF-P8"). Tokens matching this carry
-#: no reasoning — they only repeat the verdict the gate just printed, which is
-#: why they do not count towards the word minimum (GH-821: "copied the finding
-#: list into the justification" must not pass as a justification).
-_RULE_ID_TOKEN_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 
 
 @dataclass(frozen=True)
@@ -102,12 +82,19 @@ class GateWaiverOutcome:
         suppressed: Findings matched by a per-finding waiver — either one the
             caller supplied in this request or one already on file (GH-821).
         waiver_ids: Ids of the waiver rows *created* by this request. Empty for
-            waivers that were already on file, which are not re-audited.
+            waivers that were already on file, which are not re-audited. Kept
+            as-is for backward compatibility (#569/M4).
+        matched_waiver_ids: Ids of **all** waiver rows that matched a suppressed
+            finding — created *and* reused (#569/M4). :attr:`waiver_ids` alone
+            cannot name the row that suppressed a finding on a later build
+            (``suppressed > 0`` with ``waiver_ids == ()``), so the baseline
+            metadata would otherwise be unable to say *which* decision applied.
     """
 
     overridden: Tuple["Finding", ...] = ()
     suppressed: Tuple["Finding", ...] = ()
     waiver_ids: Tuple[UUID, ...] = ()
+    matched_waiver_ids: Tuple[UUID, ...] = ()
 
     @property
     def any_waived(self) -> bool:
@@ -341,6 +328,12 @@ class BaselineFacade(ServiceBase):
                     ),
                     "suppressed_finding_keys": suppressed_keys,
                     "waiver_ids": [str(waiver_id) for waiver_id in outcome.waiver_ids],
+                    # #569/M4: all matched rows (created + reused), not only
+                    # the ones created in this build. ``waiver_ids`` keeps the
+                    # legacy "created here" meaning.
+                    "matched_waiver_ids": [
+                        str(waiver_id) for waiver_id in outcome.matched_waiver_ids
+                    ],
                 }
             )
             if audit_change_reason is None:
@@ -385,6 +378,7 @@ class BaselineFacade(ServiceBase):
         ctx: AuthContext,
         override_reason: Optional[str] = None,
         waived_findings: Optional[Sequence[Mapping[str, Any]]] = None,
+        now: Optional[datetime] = None,
     ) -> GateWaiverOutcome:
         """Reject the baseline build when the SE-Auditor reports BLOCKERs.
 
@@ -466,6 +460,9 @@ class BaselineFacade(ServiceBase):
                 behaviour.
             waived_findings: Per-finding waivers (``GH-821``), each a mapping
                 with ``rule_id``, ``artifact_ids`` and a mandatory ``reason``.
+            now: Injectable decision instant (#569/D3) for expiry evaluation of
+                persisted suppressions; ``None`` uses the current time. Additive
+                and keyword-only so every existing caller is unaffected.
 
         Returns:
             A :class:`GateWaiverOutcome`. Empty for a clean audit and for a
@@ -481,7 +478,6 @@ class BaselineFacade(ServiceBase):
                 not overridable).
         """
         from application.audit_service import AuditService
-        from baseline.waivers import finding_key
         from traceability.audit import AuditScope
 
         audit_scope = AuditScope(
@@ -519,22 +515,21 @@ class BaselineFacade(ServiceBase):
             return GateWaiverOutcome()
 
         requests = self._coerce_waiver_requests(waived_findings)
-        suppressed, waiver_ids = self._apply_waivers(
+        suppressed, remaining, waiver_ids, matched_waiver_ids = self._apply_waivers(
             workspace_id=workspace_id,
             scope=scope,
             ctx=ctx,
             findings=findings,
             requests=requests,
-        )
-        suppressed_keys = {finding_key(f.rule_id, f.artifact_ids) for f in suppressed}
-        remaining = tuple(
-            f
-            for f in findings
-            if finding_key(f.rule_id, f.artifact_ids) not in suppressed_keys
+            now=now,
         )
 
         if not remaining:
-            return GateWaiverOutcome(suppressed=suppressed, waiver_ids=waiver_ids)
+            return GateWaiverOutcome(
+                suppressed=suppressed,
+                waiver_ids=waiver_ids,
+                matched_waiver_ids=matched_waiver_ids,
+            )
 
         if override_reason is not None and str(override_reason).strip():
             self._assert_override_permission(ctx)
@@ -553,6 +548,7 @@ class BaselineFacade(ServiceBase):
                 overridden=remaining,
                 suppressed=suppressed,
                 waiver_ids=waiver_ids,
+                matched_waiver_ids=matched_waiver_ids,
             )
 
         raise BaselineGateBlockedError(
@@ -575,8 +571,9 @@ class BaselineFacade(ServiceBase):
         ctx: AuthContext,
         findings: Sequence["Finding"],
         requests: Sequence["BlockerWaiverRequest"],
-    ) -> Tuple[Tuple["Finding", ...], Tuple[UUID, ...]]:
-        """Suppress findings covered by per-finding waivers (GH-821).
+        now: Optional[datetime] = None,
+    ) -> Tuple[Tuple["Finding", ...], Tuple["Finding", ...], Tuple[UUID, ...], Tuple[UUID, ...]]:
+        """Suppress findings covered by per-finding waivers (GH-821, #569).
 
         Two sources count as "covered": the waivers on file for this workspace
         (persisted by an earlier build — a suppression is durable, otherwise
@@ -591,8 +588,20 @@ class BaselineFacade(ServiceBase):
         the tool call's own entry are the record.) Waivers already on file are
         neither re-validated nor re-audited.
 
+        #569/M7: coverage is decided by :func:`baseline.waivers.suppression_applies`
+        (R1–R3: scope-less key + scope binding + expiry), *not* by a scope-blind
+        key-set membership. That is what keeps a document-bound waiver from
+        silently suppressing the scope-agnostic finding of the same rule, while
+        the production-real GH-821 rows (``scope="project"``,
+        ``scope_artifact_id=""``) keep matching. Expiry is evaluated here at
+        decision time; ``now`` is injectable (#569/D3).
+
         Returns:
-            ``(suppressed_findings, created_waiver_ids)``.
+            ``(suppressed_findings, remaining_findings, created_waiver_ids,
+            matched_waiver_ids)``. ``created_waiver_ids`` is the legacy
+            ``waiver_ids`` contract (rows created by this request only);
+            ``matched_waiver_ids`` names **every** matched row — created *and*
+            reused (#569/M4).
 
         Raises:
             PermissionDeniedError: Waivers supplied without approval authority.
@@ -601,11 +610,10 @@ class BaselineFacade(ServiceBase):
         """
         from baseline.waivers import (
             finding_key,
-            load_waived_finding_keys,
+            load_suppressions,
             record_waiver,
+            suppression_applies,
         )
-
-        stored_keys = load_waived_finding_keys(workspace_id, ctx.tenant_id)
 
         created_ids: List[UUID] = []
         if requests:
@@ -636,7 +644,6 @@ class BaselineFacade(ServiceBase):
                     scope_artifact_id=finding.scope_artifact_id,
                     granted_by=str(getattr(ctx, "user_id", "") or ""),
                 )
-                stored_keys = stored_keys | {request.key}
                 if not created:
                     continue
                 created_ids.append(row.id)
@@ -664,12 +671,42 @@ class BaselineFacade(ServiceBase):
                     request.reason,
                 )
 
-        suppressed = tuple(
-            f
-            for f in findings
-            if finding_key(f.rule_id, f.artifact_ids) in stored_keys
+        # Reloaded after any grants so newly persisted rows suppress too; only
+        # active rows are candidates (expiry is part of the decision).
+        records = load_suppressions(
+            workspace_id, ctx.tenant_id, include_expired=False, now=now
         )
-        return suppressed, tuple(created_ids)
+
+        suppressed: List["Finding"] = []
+        remaining: List["Finding"] = []
+        matched_ids: List[UUID] = []
+        for finding in findings:
+            matching = [
+                record
+                for record in records
+                if suppression_applies(
+                    record,
+                    finding.rule_id,
+                    finding.artifact_ids,
+                    finding.scope,
+                    finding.scope_artifact_id,
+                    now=now,
+                )
+            ]
+            if matching:
+                suppressed.append(finding)
+                for record in matching:
+                    if record.id not in matched_ids:
+                        matched_ids.append(record.id)
+            else:
+                remaining.append(finding)
+
+        return (
+            tuple(suppressed),
+            tuple(remaining),
+            tuple(created_ids),
+            tuple(matched_ids),
+        )
 
     @staticmethod
     def _coerce_waiver_requests(
@@ -739,45 +776,29 @@ class BaselineFacade(ServiceBase):
     def _assert_override_permission(ctx: AuthContext) -> None:
         """Require approval authority (Admin/Approver) to waive the gate.
 
-        Imported lazily for the same circular-import reason as
-        ``ServiceBase._assert_write_permission``.
+        #569/M2: this is now a thin delegator to
+        :func:`baseline.waivers.assert_gate_waiver_authority` — the single
+        authority choke point shared with ``AuditService.suppress_finding``, so
+        there is exactly one copy of the rule and no drift between the gate
+        waiver and the Auditor suppression paths. Kept as a
+        ``@staticmethod`` so direct callers
+        (``test_granular_api_key_scope_865.py``) stay compatible.
 
-        #865: an API key additionally has to carry the ADMIN capability tier.
-        Overriding or waiving the SE-Auditor gate is a governance act; an
-        AUTHOR-tier (content-writing) key — typically one handed to an agent
-        that reads untrusted input — must not be able to talk its way past the
-        gate. This is the shared choke point for REST
-        (``BaselineViewSet.create`` with ``override_reason``/``waived_findings``)
-        and MCP (``baseline.create``), so both adapters get the same rule. Keys
-        without a scope at all (JWT bearer sessions) are unaffected, and the
-        legacy ``write`` alias is the ADMIN tier, so pre-#865 keys keep working.
+        The Layer-1 helper raises the domain error
+        ``GovernanceAuthorityError``; it is remapped here to the Layer-2
+        ``PermissionDeniedError`` (403) exactly as before. #865: an API key
+        additionally has to carry the ADMIN capability tier — an AUTHOR-tier
+        (content-writing) key must not be able to talk its way past the gate.
+        Keys without a scope at all (JWT bearer sessions) are unaffected, and
+        the legacy ``write`` alias is the ADMIN tier.
         """
-        from auth_tenancy.services.authorization import (
-            AuthorizationService,
-            Operation,
-            scope_denial_reason,
-        )
+        from baseline.exceptions import GovernanceAuthorityError
+        from baseline.waivers import assert_gate_waiver_authority
 
-        decision = AuthorizationService().decide_access(
-            tuple(getattr(ctx, "active_roles", ()) or ()),
-            Operation.WORKFLOW_APPROVAL,
-        )
-        if not decision.allow:
-            raise PermissionDeniedError(
-                "Permission denied: overriding or waiving the SE-Auditor "
-                "baseline gate requires approval authority ('admin' or "
-                "'approver'), user has "
-                f"{tuple(getattr(ctx, 'active_roles', ()) or ())}."
-            )
-
-        scope_error = scope_denial_reason(
-            getattr(ctx, "scope", None), Operation.WORKFLOW_APPROVAL
-        )
-        if scope_error:
-            raise PermissionDeniedError(
-                "Permission denied: overriding or waiving the SE-Auditor "
-                f"baseline gate is a governance operation. {scope_error}"
-            )
+        try:
+            assert_gate_waiver_authority(ctx)
+        except GovernanceAuthorityError as exc:
+            raise PermissionDeniedError(str(exc)) from exc
 
     @staticmethod
     def _validate_override_reason(override_reason: str) -> None:
@@ -1117,27 +1138,21 @@ def _summarise_findings(findings: Sequence["Finding"]) -> str:
 def _validate_gate_reason(reason: str, *, label: str) -> str:
     """Return the cleaned justification, or raise ``ValidationError`` (GH-821).
 
-    The GH-513 rule was ``len(reason) >= 10``, which accepts "aaaaaaaaaa" — a
-    length check answers "did the caller type something?", not "did the caller
-    state something?". A waiver is read by an auditor who was not in the room,
-    so the bar is a *statement*:
+    #569/M2/D4: a thin delegator to
+    :func:`baseline.waivers.validate_waiver_reason` — the single source of truth
+    for the reason policy, now owned at Layer 1. It stays a **module-level
+    function** (not a method) because callers
+    (``_coerce_waiver_requests``, ``_validate_override_reason``) and tests
+    (``from application.baseline_facade import _validate_gate_reason``) use it
+    that way.
 
-      * at least :data:`MIN_OVERRIDE_REASON_LENGTH` characters;
-      * at least :data:`MIN_REASON_WORDS` words of two or more characters
-        (single letters and stray punctuation are not content);
-      * at least :data:`MIN_REASON_DISTINCT_WORDS` distinct words, which is what
-        rejects one token repeated to satisfy the length (``"test test test"``,
-        ``"waiver waiver waiver"``);
-      * at least one readable word of three or more letters (rejects digit/id
-        padding);
-      * at least :data:`MIN_REASON_WORDS` words that are *not* audit rule ids:
-        echoing the blocked rule ids ("TRACE-P1 TRACE-P2 …") restates the
-        verdict instead of justifying its acceptance.
-
-    Deliberately still mechanical: judging whether a justification is *good* is
-    a reviewer's job, and any attempt to do it here would be both unfalsifiable
-    and easy to defeat. The point is only that the stored record cannot be a
-    placeholder.
+    The Layer-1 helper raises the domain error ``GovernanceReasonError``; it is
+    re-raised here as a plain ``application.base.ValidationError`` so the legacy
+    ``waived_findings`` path keeps its exact type, message and 400
+    ``VALIDATION_ERROR`` code (never ``WAIVER_REASON_REJECTED`` — that dedicated
+    code belongs to the new Auditor suppression surface only, #569 §7 Non-Goal).
+    The policy rules (length, word count, distinct words, readable word, no
+    rule-id echo) are documented on the Layer-1 helper.
 
     Args:
         reason: Raw caller input.
@@ -1147,34 +1162,13 @@ def _validate_gate_reason(reason: str, *, label: str) -> str:
     Returns:
         The cleaned (stripped) justification.
     """
-    cleaned = str(reason or "").strip()
-    words = [w for w in cleaned.split() if len(w) >= _MIN_REASON_WORD_LENGTH]
-    content_words = [w for w in words if not _RULE_ID_TOKEN_RE.match(w)]
-    distinct = {w.casefold() for w in words}
+    from baseline.exceptions import GovernanceReasonError
+    from baseline.waivers import validate_waiver_reason
 
-    if len(cleaned) < MIN_OVERRIDE_REASON_LENGTH:
-        required = f"at least {MIN_OVERRIDE_REASON_LENGTH} characters"
-    elif len(words) < MIN_REASON_WORDS:
-        required = f"at least {MIN_REASON_WORDS} words"
-    elif len(distinct) < MIN_REASON_DISTINCT_WORDS:
-        required = (
-            f"at least {MIN_REASON_DISTINCT_WORDS} different words (repeating "
-            "one word is not a justification)"
-        )
-    elif not _READABLE_WORD_RE.search(cleaned):
-        required = "at least one readable word of three or more letters"
-    elif len(content_words) < MIN_REASON_WORDS:
-        required = (
-            f"at least {MIN_REASON_WORDS} words that are not audit rule ids "
-            "(listing the findings is not a justification)"
-        )
-    else:
-        return cleaned
-
-    raise ValidationError(
-        f"Baseline cannot be created: the SE-Auditor {label} must contain "
-        f"{required}, stating which deviation is being accepted and why."
-    )
+    try:
+        return validate_waiver_reason(reason, label=label)
+    except GovernanceReasonError as exc:
+        raise ValidationError(str(exc)) from exc
 
 
 def _annotate_waiver(
@@ -1182,7 +1176,7 @@ def _annotate_waiver(
     outcome: GateWaiverOutcome,
     override_reason: str,
 ) -> str:
-    """Append the waiver note to the baseline description (GH-513, GH-821).
+    """Append the waiver note to the baseline description (GH-513, GH-821, #569).
 
     A baseline created over known BLOCKERs must not be indistinguishable from
     a clean one. The audit log is the authoritative record, but it is not what
@@ -1194,6 +1188,11 @@ def _annotate_waiver(
     remaining finding was accepted at once", ``waiver`` means "these specific
     findings were accepted, each with its own reason". Flattening them into one
     sentence would hide which of the two governance acts actually happened.
+
+    #569/M4: the waiver note also names the **matched** waiver ids (created and
+    reused), so a reused waiver is visible on the immutable baseline. The list
+    is capped like :func:`_summarise_findings` (plus a count hint) to keep the
+    description bounded when a workspace has many waivers.
     """
     notes: list[str] = []
     if outcome.overridden:
@@ -1204,14 +1203,27 @@ def _annotate_waiver(
         )
     if outcome.suppressed:
         rule_ids = ", ".join(sorted({f.rule_id for f in outcome.suppressed}))
+        waiver_part = _summarise_waiver_ids(outcome.matched_waiver_ids)
         notes.append(
             f"[SE-Auditor waiver] {len(outcome.suppressed)} blocking finding(s) "
             f"suppressed by per-finding waiver ({rule_ids}, GH-821). "
+            f"Waiver ids: {waiver_part}. "
             "Justifications: see the audit log (baseline.waiver_create)."
         )
     existing = (description or "").strip()
     joined = "\n\n".join(notes)
     return f"{existing}\n\n{joined}" if existing else joined
+
+
+def _summarise_waiver_ids(waiver_ids: Sequence[UUID]) -> str:
+    """Render up to :data:`_MAX_LISTED_FINDINGS` waiver ids, then a count hint."""
+    if not waiver_ids:
+        return "none"
+    listed = ", ".join(str(waiver_id) for waiver_id in waiver_ids[:_MAX_LISTED_FINDINGS])
+    remaining = len(waiver_ids) - _MAX_LISTED_FINDINGS
+    if remaining > 0:
+        listed += f"; … and {remaining} more"
+    return listed
 
 
 # ---------- Exception remapping ----------

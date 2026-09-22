@@ -1641,7 +1641,9 @@
     "counts": {
       "total": "Findings",
       "blockers": "Blockers",
-      "warnings": "Warnings"
+      "warnings": "Warnings",
+      "suppressed": "Suppressed",
+      "suppressedBlockers": "Suppressed blockers"
     },
     "tier": "Rigor tier",
     "refresh": "Refresh",
@@ -1665,10 +1667,41 @@
     "modifyReasonPrefix": "Not auto-fixable",
     "modifyHint": "Open the affected artifact to correct it manually.",
     "modifyNoTarget": "This finding references no artifact that can be opened — correct it via the affected artifacts listed above.",
-    "actionLegend": "Adopt applies the correction the auditor derived automatically. Modify opens the affected artifact so you can correct it yourself — findings are recomputed from the trace graph, so they disappear once the artifact is fixed.",
+    "actionLegend": "Adopt applies the correction the auditor derived automatically. Modify opens the affected artifact so you can correct it yourself — findings are recomputed from the trace graph, so they disappear once the artifact is fixed. Waive records a justified exception: the finding stays visible but stops blocking baselines.",
     "truncated": "Showing {{shown}} of {{total}} findings — “Load more” mounts the rest.",
     "loadMore": "Load more findings",
     "loadingMore": "Loading more findings...",
+    "showSuppressed": "Show suppressed",
+    "suppressedBadge": "Suppressed",
+    "suppressionReasonPrefix": "Reason",
+    "suppressedUntilPrefix": "Valid until",
+    "waive": "Waive",
+    "waiving": "Waiving...",
+    "waiveTitle": "Waive finding",
+    "waiveReasonLabel": "Justification (required)",
+    "waiveReasonPlaceholder": "Why is this blocker finding an accepted deviation?",
+    "waiveExpiresLabel": "Expiry date (optional)",
+    "waiveExpiresHint": "Leave empty for unbounded. An already-past timestamp is rejected.",
+    "waiveConfirm": "Waive",
+    "waiveCancel": "Cancel",
+    "waiveReasonRequired": "Please provide a justification.",
+    "waiveSuccess": "Suppression saved — the finding stays visible but no longer blocks a baseline.",
+    "waiveReasonRejected": "The justification does not satisfy the policy. Please be more specific.",
+    "waiveNotBlocking": "This finding is not a blocker right now. Re-run the audit and re-assess it.",
+    "waiveExpired": "An expired suppression already exists for this finding. Re-granting is not possible without revoke (open decision O1).",
+    "waiveForbidden": "You are not allowed to suppress findings (Admin/Approver required).",
+    "waivers": {
+      "title": "Suppressions",
+      "loading": "Loading suppressions...",
+      "loadError": "Could not load suppressions.",
+      "empty": "No suppressions on file.",
+      "until": "Valid until",
+      "grantedBy": "Granted by",
+      "state": {
+        "active": "Active",
+        "expired": "Expired"
+      }
+    },
     "pageSummary": "Automated rule checks for requirements and architecture, grouped by rule with blocker/warning severity."
   },
   "archDecompose": {

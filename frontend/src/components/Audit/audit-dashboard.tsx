@@ -8,11 +8,10 @@
  * scope selector (project/document/global — document scope additionally
  * needs a root-artifact pick).
  *
- * Per-finding actions (GitHub #451)
- * ---------------------------------
- * Every finding gets exactly one action, and which one it is follows the
- * backend's remediation analysis (`traceability/audit/remediation.py`), not the
- * rule id:
+ * Per-finding actions (GitHub #451, extended by #569)
+ * --------------------------------------------------
+ * Each finding gets the Adopt/Modify action that follows the backend's
+ * remediation analysis (`traceability/audit/remediation.py`), not the rule id:
  *
  *   - `remediation.automatic === true`  -> **Adopt**: POST .../audit/remediate/
  *     applies the proposal the backend already derived (today only TRACE-P1/P2/
@@ -24,6 +23,16 @@
  *     correct the underlying artifact. The button therefore navigates to that
  *     artifact's editor (`/traceability/resolve/` maps the finding's Artifact id
  *     to the entity id the SPA routes take, see `use-finding-targets.ts`).
+ *
+ * #569 adds a **third, independent** action, "Waive": record a justified
+ * suppression for a reported BLOCKER finding (POST .../audit/waivers/). It
+ * removes nothing — the finding stays in the list, marked as suppressed with
+ * its justification and expiry, so the decision stays visible
+ * ("Nachvollziehbarkeit statt Verstecken"). Its failures are handled by their
+ * stable `error.code` and are deliberately NEVER routed into the Adopt/Modify
+ * flip: HTTP 422 is reserved for `remediate` in this module and the waive
+ * endpoints never emit it, so a rejected justification must surface as a
+ * reason-specific message, not as a silent "Modify" state change.
  *
  * Before #451 the Modify button was permanently `disabled`, which left findings
  * without an automatic proposal — the overwhelming majority — with no path
@@ -66,14 +75,20 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { auditApi } from "../../api/audit";
-import type { AuditFinding, AuditScopeKind } from "../../api/audit";
+import type {
+  AuditFinding,
+  AuditScopeKind,
+  SuppressionView,
+  WaiveRequest,
+} from "../../api/audit";
 import { artifactsApi } from "../../api/artifacts";
 import { extractErrorMessage } from "../../api/client";
-import { UnprocessableEntityError } from "../../api/errors";
-import type { Artifact } from "../../types";
+import { ForbiddenError, UnprocessableEntityError } from "../../api/errors";
+import type { ApiError, Artifact } from "../../types";
 import { Badge } from "../shared/Badge";
 import { PageHeader } from "../shared/PageHeader";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { Dialog } from "../shared/Dialog";
 import { primaryTarget, useFindingTargets } from "./use-finding-targets";
 import type { FindingTarget, FindingTargetMap } from "./use-finding-targets";
 
@@ -123,6 +138,35 @@ function artifactLabel(a: Artifact): string {
   return `${a.artifact_type} — ${label}`;
 }
 
+/**
+ * #569: the stable `error.code` of a thrown API error, if any.
+ *
+ * Two different shapes reach a caller: the non-2xx path of `apiFetch` throws
+ * the parsed `{error: {code, message, details}}` body (so the code lives on
+ * the object rather than on an `Error` subclass), but `apiFetch` intercepts
+ * **403 before** that generic path and throws `ForbiddenError` — a plain
+ * `Error` subclass that carries **no** `.error` property (client.ts:287-301).
+ * Reading only `apiErr.error.code` therefore made the `PERMISSION_DENIED`
+ * branch dead on REST: a real 403 (no Admin/Approver role, or an AUTHOR-tier
+ * API key) resolved to `null` and the dedicated forbidden message was
+ * unreachable. `ForbiddenError` is mapped back onto its stable code here so
+ * both transports land on the same branch.
+ *
+ * Callers must branch on this code — not on the HTTP status, and never on 422
+ * (which the waive paths deliberately never emit; see spec E18).
+ */
+function waiverErrorCode(err: unknown): string | null {
+  if (err instanceof ForbiddenError) return "PERMISSION_DENIED";
+  const apiErr = err as Partial<ApiError> | null;
+  return apiErr?.error?.code ?? null;
+}
+
+/** Render an ISO-8601 expiry for display; invalid input degrades to the raw string. */
+function formatExpiry(iso: string): string {
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleDateString();
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -155,14 +199,42 @@ export function AuditDashboard(): JSX.Element {
   const [totalFindingsAvailable, setTotalFindingsAvailable] = useState<number>(0);
   const [totalBlockersAvailable, setTotalBlockersAvailable] = useState<number>(0);
   const [totalWarningsAvailable, setTotalWarningsAvailable] = useState<number>(0);
+  // #569: absolute (pre-cap, pre-filter) suppression totals from the last run.
+  const [totalSuppressedAvailable, setTotalSuppressedAvailable] = useState<number>(0);
+  const [totalSuppressedBlockersAvailable, setTotalSuppressedBlockersAvailable] =
+    useState<number>(0);
 
   const [severityFilter, setSeverityFilter] = useState<"all" | "blocker" | "warning">("all");
+  // #569: "show suppressed" is on by default — nothing is hidden by default
+  // (O3). Unchecking filters `suppressed === true` client-side; the report
+  // itself always keeps suppressed findings (include_suppressed default true).
+  const [showSuppressed, setShowSuppressed] = useState<boolean>(true);
+  // #569: every persisted suppression, both lifecycles — so an *expired*
+  // suppression is visible and visually distinct from an active one (the
+  // report only marks active ones).
+  const [waivers, setWaivers] = useState<SuppressionView[]>([]);
+  // UI-569-02: the suppression list is an independent request, so it needs its
+  // own lifecycle. Without it a failed/forbidden `GET …/audit/waivers/` looked
+  // exactly like "no suppressions on file" (the empty key never rendered).
+  const [waiversLoading, setWaiversLoading] = useState<boolean>(false);
+  const [waiversError, setWaiversError] = useState<string | null>(null);
   const [actionState, setActionState] = useState<Record<number, ActionState>>({});
   const [toast, setToast] = useState<string | null>(null);
   // UI-57: Adopt applies an automatic correction with no undo — interpose a
   // confirmation instead of firing the remediation call straight from the
   // row button.
   const [pendingAdopt, setPendingAdopt] = useState<AuditFinding | null>(null);
+  // #569: the Waive action opens a dialog that requires a justification before
+  // it can be confirmed — a suppression without a reason must not be possible.
+  const [pendingWaive, setPendingWaive] = useState<AuditFinding | null>(null);
+  const [waiveReason, setWaiveReason] = useState<string>("");
+  const [waiveExpiresAt, setWaiveExpiresAt] = useState<string>("");
+  const [waiveError, setWaiveError] = useState<string | null>(null);
+  const [isWaiving, setIsWaiving] = useState<boolean>(false);
+  // UI-569-03: a successful waive unmounts the row's Waive trigger, so the
+  // dialog's focus trap cannot restore focus to it. This carries the index of
+  // the row that should take focus instead.
+  const [focusFindingIndex, setFocusFindingIndex] = useState<number | null>(null);
 
   // ---- Load artifacts once per workspace (needed for the document-scope picker) ----
   useEffect(() => {
@@ -220,6 +292,8 @@ export function AuditDashboard(): JSX.Element {
       setTotalFindingsAvailable(report.total_findings_available);
       setTotalBlockersAvailable(report.total_blockers_available);
       setTotalWarningsAvailable(report.total_warnings_available);
+      setTotalSuppressedAvailable(report.total_suppressed_available);
+      setTotalSuppressedBlockersAvailable(report.total_suppressed_blockers_available);
       setActionState({});
     } catch (err) {
       setLoadError(
@@ -230,8 +304,35 @@ export function AuditDashboard(): JSX.Element {
     }
   }, [activeWorkspace, scope, scopeArtifactId, t]);
 
+  /**
+   * #569: load every suppression (both lifecycles). Non-critical to the audit
+   * run — a failure must not blank the findings list. It must not be
+   * indistinguishable from "no suppressions on file" either (UI-569-02): the
+   * suppression panel gets its own loading/error/empty states driven by these
+   * flags instead of silently degrading to an empty panel.
+   */
+  const loadWaivers = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace) return;
+    setWaiversLoading(true);
+    setWaiversError(null);
+    try {
+      const resp = await auditApi.waivers(activeWorkspace.id, "all");
+      setWaivers(resp?.waivers ?? []);
+    } catch (err) {
+      setWaiversError(
+        resolveErrorMessage(
+          err,
+          t("audit.waivers.loadError", "Could not load suppressions.")
+        )
+      );
+    } finally {
+      setWaiversLoading(false);
+    }
+  }, [activeWorkspace, t]);
+
   useEffect(() => {
     void load();
+    void loadWaivers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id, scope, scopeArtifactId]);
 
@@ -285,6 +386,22 @@ export function AuditDashboard(): JSX.Element {
     const timer = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // UI-569-03: after a successful waive the finding flips to `suppressed` and
+  // its Waive trigger unmounts — so the dialog's focus trap skips the restore
+  // (`previouslyFocused.isConnected` is false) and keyboard focus falls to
+  // `<body>`. Move it explicitly onto the still-mounted finding row
+  // (`tabIndex={-1}`, so it stays out of the Tab cycle), which keeps the user's
+  // place in the list after the decision.
+  useEffect(() => {
+    if (focusFindingIndex === null) return;
+    const row = document.querySelector<HTMLElement>(
+      `[data-testid="audit-finding-${focusFindingIndex}"]`
+    );
+    if (!row) return;
+    row.focus();
+    setFocusFindingIndex(null);
+  }, [focusFindingIndex, findings]);
 
   // ---- Adopt workflow ----
   const handleAdopt = useCallback(
@@ -360,6 +477,121 @@ export function AuditDashboard(): JSX.Element {
     [navigate]
   );
 
+  // ---- Waive workflow (#569) ----
+  // The third action: record a justified suppression for a reported BLOCKER
+  // finding. Unlike Adopt it removes nothing — the finding stays in the list,
+  // marked as suppressed, so the decision stays visible.
+  const waiveErrorMessage = useCallback(
+    (err: unknown): string => {
+      // The stable `error.code` decides the message. A rejected justification
+      // must be reason-specific, and a waive failure must NEVER fall through
+      // into the Adopt/Modify flip (that flip belongs to a 422 from
+      // `remediate` alone — the waive paths never emit 422, spec E18).
+      switch (waiverErrorCode(err)) {
+        case "WAIVER_REASON_REJECTED":
+          return t(
+            "audit.waiveReasonRejected",
+            "The justification does not satisfy the policy."
+          );
+        case "WAIVER_FINDING_NOT_BLOCKING":
+          return t("audit.waiveNotBlocking", "This finding is not a blocker right now.");
+        case "SUPPRESSION_EXPIRED":
+          return t(
+            "audit.waiveExpired",
+            "An expired suppression already exists for this finding."
+          );
+        case "PERMISSION_DENIED":
+          return t("audit.waiveForbidden", "You are not allowed to suppress findings.");
+        default:
+          // VALIDATION_ERROR (field-level feedback) and anything else: prefer
+          // the server's concrete message over a generic one.
+          return resolveErrorMessage(err, t("audit.actionError"));
+      }
+    },
+    [t]
+  );
+
+  const requestWaive = useCallback((finding: AuditFinding): void => {
+    setPendingWaive(finding);
+    setWaiveReason("");
+    setWaiveExpiresAt("");
+    setWaiveError(null);
+  }, []);
+
+  const cancelWaive = useCallback((): void => {
+    if (isWaiving) return;
+    setPendingWaive(null);
+    setWaiveError(null);
+  }, [isWaiving]);
+
+  const confirmWaive = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace || !pendingWaive) return;
+    const finding = pendingWaive;
+    const reason = waiveReason.trim();
+    // "No silent suppression": a justification is mandatory in the UI too.
+    if (!reason) {
+      setWaiveError(t("audit.waiveReasonRequired", "Please provide a justification."));
+      return;
+    }
+    setIsWaiving(true);
+    setWaiveError(null);
+    try {
+      const body: WaiveRequest = {
+        rule_id: finding.rule_id,
+        artifact_ids: finding.artifact_ids,
+        reason,
+      };
+      // C1: the engine scope of the clicked row must travel with the request
+      // so the existence check runs over the same scope the finding was
+      // reported in — a document-scoped finding is otherwise unreachable.
+      if (finding.scope) body.scope = finding.scope;
+      if (finding.scope === "document" && finding.scope_artifact_id) {
+        body.scope_artifact_id = finding.scope_artifact_id;
+      }
+      if (waiveExpiresAt) {
+        // <input type="datetime-local"> yields a *naive* local value; the
+        // backend rejects naive timestamps, so normalise to UTC ISO-8601.
+        body.expires_at = new Date(waiveExpiresAt).toISOString();
+      }
+      const view = await auditApi.waive(activeWorkspace.id, body);
+      // Mark the finding in-place as suppressed — it is NOT removed, so the
+      // suppression stays visible (Nachvollziehbarkeit statt Verstecken).
+      setFindings((prev) =>
+        prev.map((f) =>
+          f.index === finding.index
+            ? {
+                ...f,
+                suppressed: true,
+                suppressed_until: view.expires_at,
+                suppression_reason: view.reason,
+                suppression_id: view.waiver_id,
+              }
+            : f
+        )
+      );
+      setPendingWaive(null);
+      setToast(t("audit.waiveSuccess", "Suppression saved."));
+      // UI-569-03: the trigger that opened the dialog is about to unmount.
+      setFocusFindingIndex(finding.index);
+      void loadWaivers();
+    } catch (err) {
+      // Deliberately NOT `instanceof UnprocessableEntityError`: the waive
+      // paths never emit 422, and routing a failure here into the Modify
+      // flip would misreport a rejected reason as an Adopt conflict.
+      setWaiveError(waiveErrorMessage(err));
+    } finally {
+      setIsWaiving(false);
+    }
+  }, [
+    activeWorkspace,
+    pendingWaive,
+    waiveReason,
+    waiveExpiresAt,
+    t,
+    waiveErrorMessage,
+    loadWaivers,
+  ]);
+
   // ---- Derived state ----
   // GitHub #952: whether the last run FAILED is a flag, not "is the message
   // non-empty". `resolveErrorMessage` guarantees a non-empty string, but the
@@ -367,13 +599,16 @@ export function AuditDashboard(): JSX.Element {
   // failed run must never be able to render as the green "No findings" state.
   const loadFailed = loadError !== null;
 
-  const filteredFindings = useMemo(
-    () =>
+  const filteredFindings = useMemo(() => {
+    let list =
       severityFilter === "all"
         ? findings
-        : findings.filter((f) => f.severity === severityFilter),
-    [findings, severityFilter]
-  );
+        : findings.filter((f) => f.severity === severityFilter);
+    // #569: the "show suppressed" filter (default on) hides suppressed rows
+    // client-side only — the report keeps them marked, never silently.
+    if (!showSuppressed) list = list.filter((f) => !f.suppressed);
+    return list;
+  }, [findings, severityFilter, showSuppressed]);
 
   // Counts are recomputed from the live findings list (not the initial
   // report.counts) so the badges stay accurate after a finding is resolved —
@@ -385,6 +620,10 @@ export function AuditDashboard(): JSX.Element {
   // run_audit() call and do not shrink live as findings are Adopted, but that
   // is preferable to a badge that understates the real number of open
   // findings.
+  //
+  // #569: `blockers`/`warnings` stay descriptive of the returned findings
+  // (M5) — a suppressed blocker still counts there. Suppression is counted
+  // additively via `suppressed`/`suppressedBlockers`.
   const counts = useMemo(
     () =>
       hasMore
@@ -392,13 +631,27 @@ export function AuditDashboard(): JSX.Element {
             total: totalFindingsAvailable,
             blockers: totalBlockersAvailable,
             warnings: totalWarningsAvailable,
+            suppressed: totalSuppressedAvailable,
+            suppressedBlockers: totalSuppressedBlockersAvailable,
           }
         : {
             total: findings.length,
             blockers: findings.filter((f) => f.severity === "blocker").length,
             warnings: findings.filter((f) => f.severity === "warning").length,
+            suppressed: findings.filter((f) => f.suppressed).length,
+            suppressedBlockers: findings.filter(
+              (f) => f.suppressed && f.severity === "blocker"
+            ).length,
           },
-    [findings, hasMore, totalFindingsAvailable, totalBlockersAvailable, totalWarningsAvailable]
+    [
+      findings,
+      hasMore,
+      totalFindingsAvailable,
+      totalBlockersAvailable,
+      totalWarningsAvailable,
+      totalSuppressedAvailable,
+      totalSuppressedBlockersAvailable,
+    ]
   );
 
   const grouped = useMemo(() => {
@@ -497,6 +750,18 @@ export function AuditDashboard(): JSX.Element {
           </select>
         </label>
 
+        {/* #569: default ON — nothing is hidden by default (O3). Unchecking
+            filters suppressed findings out client-side. */}
+        <label style={toolbarLabelStyle}>
+          <input
+            type="checkbox"
+            data-testid="audit-show-suppressed"
+            checked={showSuppressed}
+            onChange={(e) => setShowSuppressed(e.target.checked)}
+          />
+          {t("audit.showSuppressed", "Show suppressed")}
+        </label>
+
         <button
           type="button"
           data-testid="audit-refresh-btn"
@@ -521,12 +786,85 @@ export function AuditDashboard(): JSX.Element {
         <Badge variant="warning" testId="audit-count-warnings">
           {t("audit.counts.warnings", "Warnings")}: {counts.warnings}
         </Badge>
+        {/* #569: suppression is counted additively — `counts.blockers` above
+            stays the descriptive blocker number (M5), so a suppressed blocker
+            shows up here instead of being subtracted there. */}
+        <Badge variant="neutral" testId="audit-count-suppressed">
+          {t("audit.counts.suppressed", "Suppressed")}: {counts.suppressed}
+        </Badge>
+        {counts.suppressedBlockers > 0 && (
+          <Badge variant="neutral" testId="audit-count-suppressed-blockers">
+            {t("audit.counts.suppressedBlockers", "Suppressed blockers")}:{" "}
+            {counts.suppressedBlockers}
+          </Badge>
+        )}
         {tier && (
           <Badge variant="neutral" testId="audit-tier">
             {t("audit.tier", "Rigor tier")}: {tier}
           </Badge>
         )}
       </div>
+
+      {/* #569: every suppression, both lifecycles. The report only marks
+          *active* ones, so an expired suppression would otherwise be
+          invisible; here it is listed with a distinct "expired" badge, which
+          is what keeps an expired waiver visually distinguishable from an
+          active one.
+          UI-569-02: this is an independent request with its own lifecycle —
+          loading, error and empty are distinct, testable states, so a failed
+          or forbidden read no longer masquerades as "no suppressions". */}
+      <section data-testid="audit-waivers" style={waiversPanelStyle}>
+        <h2 style={waiversHeadingStyle}>
+          {t("audit.waivers.title", "Suppressions")}
+        </h2>
+        {waiversLoading ? (
+          <p data-testid="audit-waivers-loading" style={waiversStateStyle}>
+            {t("audit.waivers.loading", "Loading suppressions...")}
+          </p>
+        ) : waiversError ? (
+          <p role="alert" data-testid="audit-waivers-error" style={waiversErrorStyle}>
+            {waiversError}
+          </p>
+        ) : waivers.length === 0 ? (
+          <p data-testid="audit-waivers-empty" style={waiversStateStyle}>
+            {t("audit.waivers.empty", "No suppressions on file.")}
+          </p>
+        ) : (
+          <ul style={waiversListStyle}>
+            {waivers.map((w) => (
+              <li
+                key={w.waiver_id}
+                data-testid={`audit-waiver-${w.waiver_id}`}
+                style={waiverRowStyle}
+              >
+                <Badge
+                  variant={w.state === "active" ? "neutral" : "warning"}
+                  testId={`audit-waiver-state-${w.waiver_id}`}
+                >
+                  {t(`audit.waivers.state.${w.state}`, w.state)}
+                </Badge>
+                <span style={waiverRuleStyle}>{w.rule_id}</span>
+                <span
+                  data-testid={`audit-waiver-reason-${w.waiver_id}`}
+                  style={waiverReasonStyle}
+                >
+                  {w.reason}
+                </span>
+                {w.expires_at && (
+                  <span style={waiverMetaStyle}>
+                    {t("audit.waivers.until", "Valid until")}: {formatExpiry(w.expires_at)}
+                  </span>
+                )}
+                {w.granted_by && (
+                  <span style={waiverMetaStyle}>
+                    {t("audit.waivers.grantedBy", "Granted by")}: {w.granted_by}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* #596: more findings exist than the page currently mounts — say so
           explicitly (with the real totals) instead of showing a partial list
@@ -587,6 +925,7 @@ export function AuditDashboard(): JSX.Element {
               targets={targets}
               onAdopt={requestAdopt}
               onModify={handleModify}
+              onWaive={requestWaive}
             />
           ))}
         </div>
@@ -627,6 +966,86 @@ export function AuditDashboard(): JSX.Element {
           testId="audit-adopt-confirm"
         />
       )}
+
+      {/* #569: the Waive dialog. A justification is mandatory (the confirm
+          button stays disabled until one is typed) — a suppression without a
+          reason must not be reachable through the UI. */}
+      {pendingWaive && (
+        <Dialog
+          title={t("audit.waiveTitle", "Waive finding")}
+          onClose={cancelWaive}
+          closeOnBackdropClick={!isWaiving}
+          testId="audit-waive-dialog"
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn-secondary"
+                data-testid="audit-waive-cancel"
+                onClick={cancelWaive}
+                disabled={isWaiving}
+              >
+                {t("audit.waiveCancel", "Cancel")}
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                data-testid="audit-waive-confirm"
+                onClick={() => void confirmWaive()}
+                disabled={isWaiving || waiveReason.trim() === ""}
+              >
+                {isWaiving
+                  ? t("audit.waiving", "Waiving...")
+                  : t("audit.waiveConfirm", "Waive")}
+              </button>
+            </>
+          }
+        >
+          <div style={waiveFieldStyle}>
+            <label style={waiveLabelStyle} htmlFor="audit-waive-reason-input">
+              {t("audit.waiveReasonLabel", "Justification (required)")}
+            </label>
+            <textarea
+              id="audit-waive-reason-input"
+              data-testid="audit-waive-reason"
+              value={waiveReason}
+              onChange={(e) => setWaiveReason(e.target.value)}
+              placeholder={t(
+                "audit.waiveReasonPlaceholder",
+                "Why is this blocker finding an accepted deviation?",
+              )}
+              rows={4}
+              style={waiveTextareaStyle}
+              disabled={isWaiving}
+            />
+          </div>
+          <div style={waiveFieldStyle}>
+            <label style={waiveLabelStyle} htmlFor="audit-waive-expires-input">
+              {t("audit.waiveExpiresLabel", "Expiry date (optional)")}
+            </label>
+            <input
+              id="audit-waive-expires-input"
+              type="datetime-local"
+              data-testid="audit-waive-expires"
+              value={waiveExpiresAt}
+              onChange={(e) => setWaiveExpiresAt(e.target.value)}
+              style={waiveInputStyle}
+              disabled={isWaiving}
+            />
+            <span style={waiveHintStyle}>
+              {t(
+                "audit.waiveExpiresHint",
+                "Leave empty for unbounded. An already-past timestamp is rejected.",
+              )}
+            </span>
+          </div>
+          {waiveError && (
+            <p role="alert" data-testid="audit-waive-error" style={waiveErrorStyle}>
+              {waiveError}
+            </p>
+          )}
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -642,6 +1061,7 @@ interface FindingGroupProps {
   targets: FindingTargetMap;
   onAdopt: (finding: AuditFinding) => void;
   onModify: (target: FindingTarget) => void;
+  onWaive: (finding: AuditFinding) => void;
 }
 
 function FindingGroup({
@@ -651,6 +1071,7 @@ function FindingGroup({
   targets,
   onAdopt,
   onModify,
+  onWaive,
 }: FindingGroupProps): JSX.Element {
   const { t } = useTranslation();
   const blockers = findings.filter((f) => f.severity === "blocker").length;
@@ -700,6 +1121,7 @@ function FindingGroup({
             target={primaryTarget(finding, targets)}
             onAdopt={onAdopt}
             onModify={onModify}
+            onWaive={onWaive}
           />
         ))}
       </ul>
@@ -718,6 +1140,7 @@ interface FindingRowProps {
   target: FindingTarget | null;
   onAdopt: (finding: AuditFinding) => void;
   onModify: (target: FindingTarget) => void;
+  onWaive: (finding: AuditFinding) => void;
 }
 
 function FindingRow({
@@ -726,13 +1149,19 @@ function FindingRow({
   target,
   onAdopt,
   onModify,
+  onWaive,
 }: FindingRowProps): JSX.Element {
   const { t } = useTranslation();
   const isPending = action.status === "pending";
+  const isSuppressed = finding.suppressed;
 
   return (
     <li
       data-testid={`audit-finding-${finding.index}`}
+      // UI-569-03: programmatic focus target after a successful waive (the
+      // trigger unmounts, so the dialog's focus trap cannot restore it).
+      // `-1` keeps the row out of the Tab cycle (getFocusableElements skips it).
+      tabIndex={-1}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -773,15 +1202,41 @@ function FindingRow({
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+      {/* #569: a suppressed finding is marked, never hidden — the badge shows
+          who decided what, with the mandatory justification and (when set)
+          the expiry, so the suppression stays auditable in the UI. */}
+      {isSuppressed && (
+        <div
+          data-testid={`audit-suppressed-badge-${finding.index}`}
+          style={suppressedBadgeStyle}
+        >
+          <Badge variant="neutral">{t("audit.suppressedBadge", "Suppressed")}</Badge>
+          {finding.suppression_reason && (
+            <span
+              data-testid={`audit-suppression-reason-${finding.index}`}
+              style={suppressionTextStyle}
+            >
+              {t("audit.suppressionReasonPrefix", "Reason")}: {finding.suppression_reason}
+            </span>
+          )}
+          {finding.suppressed_until && (
+            <span style={suppressionTextStyle}>
+              {t("audit.suppressedUntilPrefix", "Valid until")}:{" "}
+              {formatExpiry(finding.suppressed_until)}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
         {finding.remediation.automatic ? (
           <button
             type="button"
             data-testid={`audit-adopt-${finding.index}`}
             onClick={() => onAdopt(finding)}
-            disabled={isPending}
+            disabled={isPending || isSuppressed}
             title={finding.remediation.reason}
-            style={adoptButtonStyle(isPending)}
+            style={adoptButtonStyle(isPending || isSuppressed)}
           >
             {isPending ? t("audit.adopting", "Adopting...") : t("audit.adopt", "Adopt")}
           </button>
@@ -798,6 +1253,7 @@ function FindingRow({
                 type="button"
                 data-testid={`audit-modify-${finding.index}`}
                 onClick={() => onModify(target)}
+                disabled={isSuppressed}
                 title={t(
                   "audit.modifyHint",
                   "Open the affected artifact to correct it manually.",
@@ -824,6 +1280,20 @@ function FindingRow({
                 )}`}
             </span>
           </>
+        )}
+        {/* #569: the third action. Visible for every non-suppressed finding;
+            it opens the justification dialog. A suppressed finding gets no
+            Waive button (it already carries a suppression). */}
+        {!isSuppressed && (
+          <button
+            type="button"
+            data-testid={`audit-waive-${finding.index}`}
+            onClick={() => onWaive(finding)}
+            title={t("audit.waiveTitle", "Waive finding")}
+            style={waiveButtonStyle}
+          >
+            {t("audit.waive", "Waive")}
+          </button>
         )}
         {action.status === "error" && (
           <span data-testid={`audit-finding-error-${finding.index}`} role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-xs)" }}>
@@ -948,4 +1418,150 @@ const errorBannerStyle: CSSProperties = {
   borderRadius: "var(--radius-md)",
   color: "var(--color-badge-danger-text)",
   fontSize: "var(--font-size-sm)",
+};
+
+/**
+ * #569: shared label geometry for the toolbar controls. Hoisted (rather than
+ * an inline object literal) so the new "show suppressed" checkbox adds
+ * nothing to the ui-ratchet inline-style baseline.
+ */
+const toolbarLabelStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+};
+
+/** #569: the suppressed marker row (badge + justification + expiry). */
+const suppressedBadgeStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  flexWrap: "wrap",
+};
+
+const suppressionTextStyle: CSSProperties = {
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-xs)",
+};
+
+/** #569: the third action — outline styling keeps it subordinate to Adopt/Modify. */
+const waiveButtonStyle: CSSProperties = {
+  padding: "var(--space-1) var(--space-3)",
+  background: "transparent",
+  color: "var(--color-text)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  cursor: "pointer",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 600,
+  fontFamily: "inherit",
+  whiteSpace: "nowrap",
+};
+
+const waiveFieldStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-1)",
+  marginBottom: "var(--space-3)",
+};
+
+const waiveLabelStyle: CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 600,
+  color: "var(--color-text)",
+};
+
+const waiveTextareaStyle: CSSProperties = {
+  padding: "var(--space-2)",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--color-border)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+  fontFamily: "inherit",
+  resize: "vertical",
+};
+
+const waiveInputStyle: CSSProperties = {
+  padding: "var(--space-1) var(--space-2)",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--color-border)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+  fontFamily: "inherit",
+};
+
+const waiveHintStyle: CSSProperties = {
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-xs)",
+};
+
+const waiveErrorStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--color-danger)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const waiversPanelStyle: CSSProperties = {
+  marginBottom: "var(--space-4)",
+  padding: "var(--space-3) var(--space-4)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-lg)",
+  background: "var(--color-surface-raised)",
+};
+
+const waiversHeadingStyle: CSSProperties = {
+  margin: "0 0 var(--space-2) 0",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 700,
+  color: "var(--color-text)",
+};
+
+const waiversListStyle: CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-2)",
+};
+
+/** UI-569-02: the suppression panel's loading/empty placeholder text. */
+const waiversStateStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-sm)",
+};
+
+/** UI-569-02: the suppression panel's own read failure (distinct from empty). */
+const waiversErrorStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--color-danger)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const waiverRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  flexWrap: "wrap",
+};
+
+const waiverRuleStyle: CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text)",
+};
+
+const waiverReasonStyle: CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text)",
+};
+
+const waiverMetaStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
 };

@@ -76,6 +76,11 @@ from application.services import (
 )
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
+from application.base import (
+    SuppressionExpiredError,
+    WaiverFindingNotBlockingError,
+    WaiverReasonPolicyViolation,
+)
 from link_types.defaults import (
     default_decomposition_link_type,
     default_trace_link_type,
@@ -185,6 +190,15 @@ _EXC_TO_HTTP: dict[type, int] = {
     # indistinguishable from a real defect to every client. 403, matching the
     # established convention for this class of denial.
     AgentSelfConfirmError: status.HTTP_403_FORBIDDEN,
+    # #569: the three suppression error types. Same precedent as
+    # BaselineGateBlockedError — ValidationError subclasses with their own code
+    # and status, registered here so an escape from any view answers the
+    # business error instead of the 500 fallback (AC-569-29(iv)). The two L1
+    # governance domain errors are deliberately NOT registered: the facades
+    # remap them, and a leak would be a bug that must stay loud (AC-569-29(v)).
+    WaiverReasonPolicyViolation: status.HTTP_400_BAD_REQUEST,
+    WaiverFindingNotBlockingError: status.HTTP_400_BAD_REQUEST,
+    SuppressionExpiredError: status.HTTP_409_CONFLICT,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
 }
@@ -201,6 +215,11 @@ _EXC_TO_CODE: dict[type, str] = {
     # not confirm a proposed trace link.") to the client — a static domain
     # sentence with no internals, exactly like PermissionDeniedError.
     AgentSelfConfirmError: "PERMISSION_DENIED",
+    # #569: dedicated codes so a client can tell "justification rejected" apart
+    # from "named finding is not a blocker" and "the existing row expired".
+    WaiverReasonPolicyViolation: "WAIVER_REASON_REJECTED",
+    WaiverFindingNotBlockingError: "WAIVER_FINDING_NOT_BLOCKING",
+    SuppressionExpiredError: "SUPPRESSION_EXPIRED",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
 }

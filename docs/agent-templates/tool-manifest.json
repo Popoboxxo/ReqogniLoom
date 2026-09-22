@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 216,
+  "tool_count": 218,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1730,6 +1730,79 @@
           "offset": {
             "type": "integer",
             "description": "Optional start offset; only used together with limit."
+          },
+          "include_suppressed": {
+            "type": "boolean",
+            "description": "#569: keep suppressed findings in the report (default true — nothing is hidden; suppressed findings are marked with suppressed/reason/expiry). Set false to filter them out."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "audit.waive_finding",
+      "prefix": "audit",
+      "is_write": true,
+      "description": "#569: grant a per-finding suppression (waiver) for a reported BLOCKER SE-Auditor finding, with a mandatory written justification. Takes away the finding's gate-blocking effect but keeps it visible and audited (who, what, why, until when). Requires approval authority (Admin/Approver and, for API keys, the ADMIN tier). Response: the persisted suppression (waiver_id, finding_key, identity_key, scope, reason, granted_by, created_at, expires_at, state) plus 'created' (false on an idempotent replay of an identical active waiver).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "rule_id": {
+            "type": "string",
+            "description": "SE-Auditor rule being suppressed, e.g. 'TRACE-P1'."
+          },
+          "artifact_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Artifacts the finding concerns, as returned by the audit report (empty for graph-level findings)."
+          },
+          "scope": {
+            "type": "string",
+            "description": "Optional baseline scope used only to locate the finding for the existence check (document|project|global). The persisted scope always comes from the matched finding."
+          },
+          "scope_artifact_id": {
+            "type": "string",
+            "description": "Document root; required when scope='document'."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Mandatory justification for accepting this single deviation; recorded on the waiver and in the audit log. A placeholder is rejected with WAIVER_REASON_REJECTED."
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "Optional expiry (ISO-8601, timezone-aware). Omitted/null means unbounded; an already-past or naive value is rejected with VALIDATION_ERROR."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "rule_id",
+          "reason"
+        ]
+      }
+    },
+    {
+      "name": "audit.waivers",
+      "prefix": "audit",
+      "is_write": false,
+      "description": "#569: list the workspace's per-finding suppressions, filtered by lifecycle state (active|expired|all, default active). Requires the same approval authority as the REST twin GET .../audit/waivers/ (spec E12) — an Editor or an AUTHOR-tier API key gets PERMISSION_DENIED. Response: {waivers: [...], counts: {active, expired}}; counts describe the whole set so a filter never hides anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace."
+          },
+          "state": {
+            "type": "string",
+            "description": "Optional lifecycle filter: active|expired|all (default active)."
           }
         },
         "required": [

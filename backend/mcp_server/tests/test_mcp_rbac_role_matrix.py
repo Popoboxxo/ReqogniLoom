@@ -259,10 +259,24 @@ _ADMIN_ONLY_NAMESPACES = ("admin.", "audit.", "events.", "permissions.", "user."
 #   permissions.check  — self-introspection only: the handler hard-codes
 #                        ``user_id=auth_context.user_id``, so a caller can only
 #                        ask about their own effective permission.
+#   audit.waive_finding — #569: granting a per-finding suppression is an
+#                        *approval-authority* act (Admin **or Approver**), not
+#                        admin-only, so an Approver is a legitimate non-admin
+#                        caller. It additionally requires the ADMIN capability
+#                        tier for API keys (``_GOVERNANCE_TOOL_NAMES``); the
+#                        editor/viewer denial is proven in
+#                        ``test_audit_waiver_tools_deny_non_approvers`` below.
+#   audit.waivers       — #569: the suppression list evaluates the same
+#                        approval-authority choke point as the REST twin
+#                        GET .../audit/waivers/ (spec E12), so an Approver may
+#                        read it while an Editor/Viewer is denied (also proven
+#                        below).
 _ADMIN_NAMESPACE_NON_ADMIN_BY_DESIGN = frozenset(
     {
         "audit.ai_review",
         "audit.se_audit",
+        "audit.waive_finding",
+        "audit.waivers",
         "permissions.check",
     }
 )
@@ -428,6 +442,46 @@ def test_permissions_revoke_is_denied_and_leaves_the_rule_intact(role: str) -> N
     )
     assert ItemPermission.unscoped.filter(id=rule.id).exists(), (
         f"[{role}] permissions.revoke deleted the rule despite being denied"
+    )
+
+
+_AUDIT_WAIVER_TOOLS = ("audit.waive_finding", "audit.waivers")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", [ROLE_EDITOR, ROLE_VIEWER])
+@pytest.mark.parametrize("tool_name", _AUDIT_WAIVER_TOOLS)
+def test_audit_waiver_tools_deny_non_approvers(role: str, tool_name: str) -> None:
+    """#569: an Editor/Viewer must not reach the suppression surface.
+
+    ``audit.waive_finding`` is approval-authority gated by the shared SSOT
+    choke point (the registry additionally requires the ADMIN capability tier
+    via ``_GOVERNANCE_TOOL_NAMES``), and ``audit.waivers`` reuses the same gate
+    for the management list (REST E12 parity). Neither is admin-*only* — an
+    Approver is a legitimate caller, which is why both live in
+    ``_ADMIN_NAMESPACE_NON_ADMIN_BY_DESIGN``; this test pins the editor/viewer
+    half of that matrix.
+    """
+    identity = _setup_identity(role)
+    registry = ToolRegistry()
+
+    result = registry.dispatch_request(
+        tool_name=tool_name,
+        params={
+            "workspace_id": str(identity.workspace.id),
+            "rule_id": "TRACE-P1",
+            "reason": "An editor must not accept this deviation.",
+        },
+        api_key=identity.api_key,
+    )
+
+    assert result.success is False, (
+        f"[{role}] '{tool_name}' succeeded — the suppression surface is not "
+        "authority-gated."
+    )
+    assert result.error_code == "PERMISSION_DENIED", (
+        f"[{role}] '{tool_name}' must be PERMISSION_DENIED, got "
+        f"{result.error_code!r}: {result.message!r}"
     )
 
 

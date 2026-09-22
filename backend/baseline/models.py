@@ -241,6 +241,14 @@ class BaselineGateWaiver(TenantScopedModel):
     # if that user is later deleted (AuditableModel.created_by is SET_NULL).
     granted_by = models.CharField(max_length=255, blank=True, default="")
 
+    #: Optional expiry (#569). ``NULL`` = unbounded (the GH-821 behaviour, so
+    #: existing rows are untouched and lose nothing). ``> now`` = active;
+    #: ``<= now`` = expired and no longer suppressing. Evaluated *at decision
+    #: time* — there is no persisted ``state`` column and no background job
+    #: that flips it. Only the new Auditor surfaces set it; the gate waiver path
+    #: leaves it ``NULL``.
+    expires_at = models.DateTimeField(null=True, blank=True, default=None)
+
     class Meta:
         db_table = "bl_baseline_gate_waiver"
         constraints = [

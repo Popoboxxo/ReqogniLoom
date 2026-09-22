@@ -31,13 +31,35 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import List, Optional, Sequence
 from uuid import UUID
 
+from django.utils import timezone
+
 from auth_tenancy.context import AuthContext
 
-from application.base import ServiceBase, ValidationError
-from baseline.waivers import finding_key
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ServiceBase,
+    SuppressionExpiredError,
+    ValidationError,
+    WaiverFindingNotBlockingError,
+    WaiverReasonPolicyViolation,
+)
+from baseline.exceptions import GovernanceAuthorityError, GovernanceReasonError
+from baseline.waivers import (
+    BlockerWaiverRequest,
+    SuppressionRecord,
+    assert_gate_waiver_authority,
+    canonical_artifact_ids,
+    finding_key,
+    load_suppressions,
+    record_waiver,
+    suppression_applies,
+    validate_waiver_reason,
+)
 from traceability.audit import (
     AuditScope,
     Finding,
@@ -48,7 +70,15 @@ from traceability.audit import (
     get_remediation,
 )
 
+from persistence.transactions import atomic_transaction
+
 logger = logging.getLogger(__name__)
+
+#: Baseline scopes a suppression request may name for its existence check
+#: (#569/C1). ``scope=None`` (the default) keeps the RuleEngine's project
+#: default; naming a scope selects it for the engine run only — the persisted
+#: scope still comes from the matched finding.
+_ALLOWED_SUPPRESSION_SCOPES = frozenset({"document", "project", "global"})
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +106,17 @@ class AuditFindingView:
     index: int
     finding: Finding
     remediation: RemediationProposal
+    #: #569: whether an active suppression covers this finding. Additive with
+    #: defaults, so every pre-#569 construction keeps working. A suppressed
+    #: finding is *not hidden* — it stays in ``findings`` and is marked
+    #: (``include_suppressed`` default ``True``, O3).
+    suppressed: bool = False
+    #: Expiry of the matching suppression (``None`` = unbounded), if any.
+    suppressed_until: Optional[datetime] = None
+    #: Justification of the matching suppression, if any.
+    suppression_reason: Optional[str] = None
+    #: Id of the matching ``BaselineGateWaiver`` row, if any.
+    suppression_id: Optional[UUID] = None
 
     @property
     def finding_key(self) -> str:
@@ -88,8 +129,81 @@ class AuditFindingView:
         data = self.finding.to_dict()
         data["index"] = self.index
         data["finding_key"] = self.finding_key
+        data["suppressed"] = self.suppressed
+        data["suppressed_until"] = (
+            self.suppressed_until.isoformat() if self.suppressed_until else None
+        )
+        data["suppression_reason"] = self.suppression_reason
+        data["suppression_id"] = (
+            str(self.suppression_id) if self.suppression_id else None
+        )
         data["remediation"] = self.remediation.to_dict()
         return data
+
+
+@dataclass
+class SuppressionView:
+    """API view of one persisted suppression (#569).
+
+    ``finding_key`` is the *persisted*, scope-less key (GH-821); ``identity_key``
+    is the display/correlation rendering that includes the scope
+    (``finding_key(rule_id, artifact_ids, scope)``). ``state`` is derived at
+    read time (``"active"|"expired"``) — there is no persisted state column.
+
+    Built by :class:`AuditService`; the REST/MCP layer only calls
+    :meth:`to_dict`.
+    """
+
+    waiver_id: UUID
+    finding_key: str
+    identity_key: str
+    rule_id: str
+    artifact_ids: tuple[str, ...]
+    scope: str
+    scope_artifact_id: str
+    reason: str
+    granted_by: str
+    created_at: datetime
+    expires_at: Optional[datetime]
+    state: str
+
+    def to_dict(self) -> dict:
+        return {
+            "waiver_id": str(self.waiver_id),
+            "finding_key": self.finding_key,
+            "identity_key": self.identity_key,
+            "rule_id": self.rule_id,
+            "artifact_ids": list(self.artifact_ids),
+            "scope": self.scope,
+            "scope_artifact_id": self.scope_artifact_id,
+            "reason": self.reason,
+            "granted_by": self.granted_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "state": self.state,
+        }
+
+    @classmethod
+    def from_record(
+        cls, record: SuppressionRecord, *, state: str
+    ) -> "SuppressionView":
+        """Build a view from a loaded :class:`SuppressionRecord`."""
+        return cls(
+            waiver_id=record.id,
+            finding_key=record.finding_key,
+            identity_key=finding_key(
+                record.rule_id, record.artifact_ids, record.scope or None
+            ),
+            rule_id=record.rule_id,
+            artifact_ids=record.artifact_ids,
+            scope=record.scope,
+            scope_artifact_id=record.scope_artifact_id,
+            reason=record.reason,
+            granted_by=record.granted_by,
+            created_at=record.created_at,
+            expires_at=record.expires_at,
+            state=state,
+        )
 
 
 @dataclass
@@ -132,13 +246,35 @@ class AuditReport:
     #: together with `truncated` when a caller passed an explicit `limit`,
     #: to compute the next window's offset (`offset + len(findings)`).
     offset: int = 0
+    #: #569: whether the returned window still contains suppressed findings
+    #: (O3 default ``True`` — nothing is hidden by default).
+    include_suppressed: bool = True
+    #: #569: number of suppressed findings in the full, uncapped run (additive;
+    #: ``counts.*`` stays descriptive of the returned window, M5).
+    total_suppressed_available: int = 0
+    #: #569: of :attr:`total_suppressed_available`, the BLOCKER-severity ones.
+    total_suppressed_blockers_available: int = 0
+    #: #569: how many findings the ``include_suppressed=False`` filter removed
+    #: from the returned ``findings`` (0 when the filter is off). Explains the
+    #: ``counts.total`` vs ``total_findings_available`` difference (m7).
+    suppressed_filtered: int = 0
 
     def to_dict(self) -> dict:
+        # All three descriptive counters come from the *same* ``self.findings``
+        # list, and ``Severity`` has exactly two members (BLOCKER/WARNING), so
+        # ``blockers + warnings == total`` is an unconditional identity — never
+        # assert an intra-counts inequality (#569/R3-01).
         blockers = sum(
             1 for fv in self.findings if fv.finding.severity is Severity.BLOCKER
         )
         warnings = sum(
             1 for fv in self.findings if fv.finding.severity is Severity.WARNING
+        )
+        suppressed = sum(1 for fv in self.findings if fv.suppressed)
+        suppressed_blockers = sum(
+            1
+            for fv in self.findings
+            if fv.suppressed and fv.finding.severity is Severity.BLOCKER
         )
         return {
             "tier": self.tier,
@@ -148,11 +284,20 @@ class AuditReport:
                 "total": len(self.findings),
                 "blockers": blockers,
                 "warnings": warnings,
+                # #569, additive: counts.* stays descriptive of `findings` (M5).
+                "suppressed": suppressed,
+                "suppressed_blockers": suppressed_blockers,
             },
             "truncated": self.truncated,
             "total_findings_available": self.total_findings_available,
             "total_blockers_available": self.total_blockers_available,
             "total_warnings_available": self.total_warnings_available,
+            # #569, additive: absolute (pre-cap, pre-filter) suppression totals.
+            "total_suppressed_available": self.total_suppressed_available,
+            "total_suppressed_blockers_available": (
+                self.total_suppressed_blockers_available
+            ),
+            "suppressed_filtered": self.suppressed_filtered,
             "offset": self.offset,
             "findings": [fv.to_dict() for fv in self.findings],
         }
@@ -295,6 +440,357 @@ class AuditService(ServiceBase):
         )
         return [f for f in result.findings if f.severity is Severity.BLOCKER]
 
+    # ---------- Suppression surface (#569) ----------
+
+    @staticmethod
+    def _assert_workspace_in_tenant(
+        workspace_id: str | UUID, ctx: AuthContext
+    ) -> None:
+        """Raise ``NotFoundError`` when *workspace_id* is foreign to the tenant.
+
+        The transport-agnostic counterpart of the REST
+        ``rest_api.audit_views._assert_workspace_in_tenant`` (BR-569-03). It
+        lives on the Layer-2 facade — the ADR-01 single entry point both the
+        REST and the MCP adapter call — so the two transports cannot drift:
+        without it a foreign workspace fell through to the engine and surfaced
+        as ``WAIVER_FINDING_NOT_BLOCKING`` (MCP) instead of the REST ``404``
+        (spec E7/E13). It runs *before* the authority choke point, so a foreign
+        workspace answers 404 regardless of the caller's role, exactly like
+        the REST pre-check.
+
+        The existence check is delegated to
+        :meth:`auth_tenancy.services.authorization.AuthorizationService.workspace_exists_in_tenant`
+        (a read-only service) — this layer performs no direct ORM access.
+        Imported lazily: ``auth_tenancy.services.__init__`` pulls in modules
+        that import ``application.base`` (circular at package-init time).
+        """
+        from auth_tenancy.services.authorization import AuthorizationService
+
+        if not AuthorizationService().workspace_exists_in_tenant(
+            workspace_id=UUID(str(workspace_id)), tenant_id=ctx.tenant_id
+        ):
+            raise NotFoundError(
+                f"Workspace '{workspace_id}' was not found in the caller's "
+                "tenant."
+            )
+
+    @atomic_transaction
+    def suppress_finding(
+        self,
+        workspace_id: str | UUID,
+        ctx: AuthContext,
+        *,
+        rule_id: str,
+        artifact_ids: Sequence[str],
+        scope: Optional[str] = None,
+        scope_artifact_id: Optional[str] = None,
+        reason: str,
+        expires_at: Optional[datetime] = None,
+    ) -> tuple[SuppressionView, bool]:
+        """Persist a per-finding suppression and return ``(view, created)``.
+
+        The standalone Auditor counterpart of the gate's ``waived_findings``
+        (GH-821): the same ``BaselineGateWaiver`` row, but reachable without a
+        baseline build, with an optional expiry and its own audit entry. It does
+        not remove the finding from the world — it takes away its blocker effect
+        and keeps the decision (who, what, why, until when) visible.
+
+        Steps (#569 §3.3):
+
+        1. authority — the shared SSOT choke point
+           :func:`baseline.waivers.assert_gate_waiver_authority`
+           (Admin/Approver *and*, for API keys, the ADMIN tier, #865), remapped
+           to ``PermissionDeniedError`` (403).
+        2. author — ``granted_by`` comes only from ``AuthContext`` (never the
+           request body); an unresolvable author is refused (403).
+        3. reason — the shared policy
+           :func:`baseline.waivers.validate_waiver_reason`, remapped to
+           ``WaiverReasonPolicyViolation`` (400 ``WAIVER_REASON_REJECTED``).
+        4. ``expires_at`` guard (D2/E3): naive or already-past timestamps are
+           refused (400 ``VALIDATION_ERROR``) before anything is persisted —
+           this precedence also wins over the m1 409 below (R3-07).
+        5. existence check (C1) against the **uncapped** run over the requested
+           scope (``None`` keeps the engine's ``project`` default);
+           ``scope="document"`` requires ``scope_artifact_id``.
+        6. blocker-only (O2): only ``Severity.BLOCKER`` findings are matchable.
+        7. the persisted ``scope``/``scope_artifact_id`` come from the matched
+           finding, never the client (a scope-agnostic finding yields ``""``).
+        8. persist via ``record_waiver``; if only an **expired** row exists for
+           the key, raise ``SuppressionExpiredError`` (409) instead of a silent
+           200 no-op (m1). A newly created row gets exactly one
+           ``baseline.waiver_create`` audit entry.
+
+        Args:
+            workspace_id: Target workspace UUID.
+            ctx: Resolved AuthContext (tenant scoping + author).
+            rule_id: SE-Auditor rule id being suppressed.
+            artifact_ids: Artifacts the finding concerns.
+            scope: Optional baseline scope used *only* for the engine run
+                (``document`` | ``project`` | ``global``).
+            scope_artifact_id: Document root; required when ``scope="document"``.
+            reason: Mandatory written justification.
+            expires_at: Optional expiry; ``None`` = unbounded.
+
+        Returns:
+            ``(SuppressionView, created)`` — ``created`` is ``False`` when an
+            identical active suppression was already on file (idempotent).
+
+        Raises:
+            PermissionDeniedError: No approval authority, or an unresolvable
+                author (403).
+            WaiverReasonPolicyViolation: Justification fails the policy (400).
+            ValidationError: Invalid scope, missing document root, or a naive /
+                already-past ``expires_at`` (400).
+            WaiverFindingNotBlockingError: No matching BLOCKER finding (400).
+            SuppressionExpiredError: Only an expired row exists for the key
+                (409).
+        """
+        self._set_tenant_context(ctx)
+        self._assert_workspace_in_tenant(workspace_id, ctx)
+
+        try:
+            assert_gate_waiver_authority(ctx)
+        except GovernanceAuthorityError as exc:
+            raise PermissionDeniedError(str(exc)) from exc
+
+        granted_by = str(getattr(ctx, "user_id", "") or "").strip()
+        if not granted_by:
+            raise PermissionDeniedError(
+                "Permission denied: a suppression has to name its author, and "
+                "the authenticated context carries no resolvable user id."
+            )
+
+        try:
+            cleaned_reason = validate_waiver_reason(
+                reason, label="suppression justification"
+            )
+        except GovernanceReasonError as exc:
+            raise WaiverReasonPolicyViolation(str(exc)) from exc
+
+        decision_now = timezone.now()
+        if expires_at is not None:
+            if timezone.is_naive(expires_at):
+                raise ValidationError(
+                    "The suppression expiry must be a timezone-aware timestamp "
+                    "(ISO-8601 with an offset or 'Z')."
+                )
+            if expires_at <= decision_now:
+                raise ValidationError(
+                    "The suppression expiry must be in the future; a waiver "
+                    "that is already expired would never suppress anything."
+                )
+
+        normalized_scope = str(scope).strip() if scope is not None else None
+        if normalized_scope and normalized_scope not in _ALLOWED_SUPPRESSION_SCOPES:
+            raise ValidationError(
+                f"Unknown baseline scope {normalized_scope!r}; expected one of "
+                f"{sorted(_ALLOWED_SUPPRESSION_SCOPES)}."
+            )
+        normalized_scope_artifact = (
+            str(scope_artifact_id).strip() if scope_artifact_id is not None else None
+        )
+        if normalized_scope == "document" and not normalized_scope_artifact:
+            raise ValidationError(
+                "scope_artifact_id is required when scope is 'document' (the "
+                "root artifact whose subtree is being audited)."
+            )
+
+        audit_scopes = (
+            [
+                AuditScope(
+                    normalized_scope, artifact_id=normalized_scope_artifact
+                )
+            ]
+            if normalized_scope
+            else None
+        )
+        result = self._run_engine_uncapped(workspace_id, ctx, scopes=audit_scopes)
+        blockers = [f for f in result.findings if f.severity is Severity.BLOCKER]
+        target_key = finding_key(rule_id, artifact_ids)
+        matched = self._select_suppression_candidate(
+            [
+                finding
+                for finding in blockers
+                if finding_key(finding.rule_id, finding.artifact_ids) == target_key
+            ],
+            normalized_scope=normalized_scope,
+            normalized_scope_artifact=normalized_scope_artifact,
+        )
+        if matched is None:
+            raise WaiverFindingNotBlockingError(
+                "No blocking finding matches "
+                f"{target_key!r}. Suppressions may only accept deviations the "
+                "SE-Auditor currently reports as BLOCKER findings — re-run the "
+                "auditor and suppress a finding it reports."
+            )
+
+        request = BlockerWaiverRequest(
+            rule_id=matched.rule_id,
+            artifact_ids=canonical_artifact_ids(matched.artifact_ids),
+            reason=cleaned_reason,
+            expires_at=expires_at,
+        )
+        row, created = record_waiver(
+            workspace_id=workspace_id,
+            tenant_id=ctx.tenant_id,
+            request=request,
+            rule_id=matched.rule_id,
+            scope=matched.scope,
+            scope_artifact_id=matched.scope_artifact_id,
+            granted_by=granted_by,
+            expires_at=expires_at,
+        )
+
+        if not created and row.expires_at is not None and row.expires_at <= decision_now:
+            # m1: get_or_create is idempotent and never renews, so an existing
+            # expired row would make this a silent no-op (200 without effect).
+            raise SuppressionExpiredError(
+                "A suppression for this finding exists but has expired; "
+                "re-granting is a separate governance act that is not "
+                "supported yet (revoke/re-grant decision pending). The finding "
+                "currently blocks the baseline gate."
+            )
+
+        if created:
+            self._audit(
+                ctx=ctx,
+                operation="baseline.waiver_create",
+                entity_type="BaselineGateWaiver",
+                entity_id=row.id,
+                change_reason=cleaned_reason,
+                details={
+                    "finding_key": row.finding_key,
+                    "workspace_id": str(workspace_id),
+                    "rule_id": row.rule_id,
+                    "artifact_ids": list(row.artifact_ids or ()),
+                    "scope": row.scope,
+                    "scope_artifact_id": row.scope_artifact_id,
+                    "expires_at": (
+                        row.expires_at.isoformat() if row.expires_at else None
+                    ),
+                    "granted_by": row.granted_by,
+                },
+            )
+            logger.warning(
+                "AuditService: blocking finding %s suppressed for ws=%s by "
+                "user=%s; reason: %s",
+                row.rule_id,
+                workspace_id,
+                granted_by,
+                cleaned_reason,
+            )
+
+        return SuppressionView.from_record(
+            self._record_from_row(row), state="active"
+        ), created
+
+    def list_suppressions(
+        self,
+        workspace_id: str | UUID,
+        ctx: AuthContext,
+        *,
+        state: str = "active",
+        now: Optional[datetime] = None,
+    ) -> List[SuppressionView]:
+        """List the workspace's suppressions filtered by lifecycle *state*.
+
+        ``state`` accepts ``"active"`` (default), ``"expired"`` or ``"all"``;
+        anything else raises ``ValidationError`` (400). State is *derived* at
+        read time from ``expires_at`` vs the evaluation instant — there is no
+        persisted state column (#569/D3).
+        """
+        if state not in ("active", "expired", "all"):
+            raise ValidationError(
+                f"Unknown suppression state {state!r}; expected 'active', "
+                "'expired' or 'all'."
+            )
+        self._set_tenant_context(ctx)
+        self._assert_workspace_in_tenant(workspace_id, ctx)
+        all_records = load_suppressions(
+            workspace_id, ctx.tenant_id, include_expired=True, now=now
+        )
+        active_ids = {
+            record.id
+            for record in load_suppressions(
+                workspace_id, ctx.tenant_id, include_expired=False, now=now
+            )
+        }
+        views: List[SuppressionView] = []
+        for record in all_records:
+            record_state = "active" if record.id in active_ids else "expired"
+            if state != "all" and record_state != state:
+                continue
+            views.append(
+                SuppressionView.from_record(record, state=record_state)
+            )
+        return views
+
+    @staticmethod
+    def _match_suppression(
+        records: Sequence[SuppressionRecord],
+        finding: Finding,
+        *,
+        now: Optional[datetime] = None,
+    ) -> Optional[SuppressionRecord]:
+        """Return the first suppression that applies to *finding*, if any.
+
+        Uses the single matcher :func:`baseline.waivers.suppression_applies`
+        (R1–R3) so the report and the gate agree on "suppressed" (#569 §8 risk 2).
+        """
+        for record in records:
+            if suppression_applies(
+                record,
+                finding.rule_id,
+                finding.artifact_ids,
+                finding.scope,
+                finding.scope_artifact_id,
+                now=now,
+            ):
+                return record
+        return None
+
+    @staticmethod
+    def _select_suppression_candidate(
+        candidates: Sequence[Finding],
+        *,
+        normalized_scope: Optional[str],
+        normalized_scope_artifact: Optional[str],
+    ) -> Optional[Finding]:
+        """Pick the finding to suppress among same-key BLOCKER candidates.
+
+        When several findings share the scope-less key in different scopes, a
+        named scope selects the scope-equal one (for ``document``, the exact
+        document); otherwise the first candidate wins (#569 step 6).
+        """
+        if not candidates:
+            return None
+        if normalized_scope:
+            for finding in candidates:
+                if (finding.scope or "") != normalized_scope:
+                    continue
+                if normalized_scope == "document" and str(
+                    finding.scope_artifact_id or ""
+                ) != str(normalized_scope_artifact or ""):
+                    continue
+                return finding
+        return candidates[0]
+
+    @staticmethod
+    def _record_from_row(row) -> SuppressionRecord:
+        """Build a :class:`SuppressionRecord` from a persisted waiver row."""
+        return SuppressionRecord(
+            id=row.id,
+            finding_key=row.finding_key,
+            rule_id=row.rule_id,
+            artifact_ids=tuple(str(a) for a in (row.artifact_ids or ())),
+            scope=row.scope or "",
+            scope_artifact_id=row.scope_artifact_id or "",
+            reason=row.reason,
+            granted_by=row.granted_by or "",
+            created_at=row.created_at,
+            expires_at=row.expires_at,
+        )
+
     # ---------- Audit run ----------
 
     def run_audit(
@@ -306,6 +802,8 @@ class AuditService(ServiceBase):
         scopes: Optional[Sequence[AuditScope]] = None,
         limit: Optional[int] = None,
         offset: int = 0,
+        include_suppressed: bool = True,
+        now: Optional[datetime] = None,
     ) -> AuditReport:
         """Run the SE-Auditor for *workspace_id* and return findings + proposals.
 
@@ -332,6 +830,15 @@ class AuditService(ServiceBase):
                 only meaningful when ``limit`` is given. Out-of-range values
                 (negative, or past the end) yield an empty ``findings`` list
                 rather than an error.
+            include_suppressed: #569 (O3) — ``True`` (default) keeps suppressed
+                findings in ``findings`` and marks them with ``suppressed`` +
+                reason/expiry/id (nothing is hidden by default). ``False``
+                filters them out; ``counts.*`` then describes the filtered
+                window while ``total_*_available`` still describes the full,
+                unfiltered, uncapped run, and ``suppressed_filtered`` explains
+                the difference (m7).
+            now: Injectable decision instant (#569/D3) for expiry evaluation of
+                persisted suppressions; ``None`` uses the current time.
 
         Returns:
             :class:`AuditReport` with a remediation proposal attached to every
@@ -372,18 +879,49 @@ class AuditService(ServiceBase):
         )
         total_warnings = total_findings - total_blockers
 
+        # #569: evaluate suppressions at decision time (D3) — no persisted state,
+        # no background job. The full (uncapped) run is the basis for both the
+        # marking and the absolute suppression totals.
+        suppression_records = load_suppressions(
+            workspace_id, tenant_id, include_expired=True, now=now
+        )
+        suppression_by_index: dict[int, SuppressionRecord] = {}
+        total_suppressed = 0
+        total_suppressed_blockers = 0
+        for index, finding in enumerate(result.findings):
+            record = self._match_suppression(suppression_records, finding, now=now)
+            if record is None:
+                continue
+            suppression_by_index[index] = record
+            total_suppressed += 1
+            if finding.severity is Severity.BLOCKER:
+                total_suppressed_blockers += 1
+
         indexed = list(enumerate(result.findings))
+        suppressed_filtered = 0
+        if not include_suppressed:
+            # Filter before cap/window so a caller hiding suppressed findings
+            # still gets up to MAX_REPORT_FINDINGS *visible* ones.
+            kept: List[tuple[int, Finding]] = []
+            for pair in indexed:
+                if pair[0] in suppression_by_index:
+                    suppressed_filtered += 1
+                    continue
+                kept.append(pair)
+            indexed = kept
+
         report_offset = 0
+        visible_total = total_findings - suppressed_filtered
         if limit is not None:
             # #622: plain sequential window, engine order preserved — lets a
             # client page through the *entire* result set deterministically.
             window_limit = min(max(limit, 0), self.MAX_REPORT_FINDINGS)
             window_start = max(offset, 0)
             indexed = indexed[window_start : window_start + window_limit]
-            truncated = (window_start + len(indexed)) < total_findings
+            truncated = (window_start + len(indexed)) < visible_total
             report_offset = window_start
         else:
-            truncated = total_findings > self.MAX_REPORT_FINDINGS
+            truncated = len(indexed) > self.MAX_REPORT_FINDINGS
             if truncated:
                 # Stable-sort BLOCKER findings first (Python's sort is stable,
                 # so ties keep the engine's original rule/scope order), then
@@ -404,12 +942,25 @@ class AuditService(ServiceBase):
             total_blockers_available=total_blockers,
             total_warnings_available=total_warnings,
             offset=report_offset,
+            include_suppressed=include_suppressed,
+            total_suppressed_available=total_suppressed,
+            total_suppressed_blockers_available=total_suppressed_blockers,
+            suppressed_filtered=suppressed_filtered,
         )
 
         for index, finding in indexed:
             proposal = self._propose_for_finding(finding, tenant_id, ws_id)
+            record = suppression_by_index.get(index)
             report.findings.append(
-                AuditFindingView(index=index, finding=finding, remediation=proposal)
+                AuditFindingView(
+                    index=index,
+                    finding=finding,
+                    remediation=proposal,
+                    suppressed=record is not None,
+                    suppressed_until=record.expires_at if record else None,
+                    suppression_reason=record.reason if record else None,
+                    suppression_id=record.id if record else None,
+                )
             )
         return report
 
@@ -637,4 +1188,5 @@ __all__ = [
     "AuditReport",
     "AuditFindingView",
     "RemediationResult",
+    "SuppressionView",
 ]

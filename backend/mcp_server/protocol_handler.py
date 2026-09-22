@@ -84,6 +84,28 @@ ERROR_CODES = {
         "Rate limit exceeded for this MCP endpoint. Slow down and retry after "
         "the interval given in the Retry-After header."
     ),
+    # #569: the three dedicated suppression error codes (spec §3.4.2 duty 4 /
+    # AC-569-32). Distinct from VALIDATION_ERROR so a client can tell "your
+    # justification was rejected" apart from "the request shape is wrong" and
+    # from "the named finding is not blocking". These are tool-execution
+    # errors, NOT protocol errors: they are deliberately absent from
+    # ``_PROTOCOL_ERROR_CODES``, so on ``tools/call`` they surface as a
+    # successful JSON-RPC result with ``result.isError == true`` and the
+    # string ``error_code`` (spec §3.5/R3-02) — never as a numeric JSON-RPC
+    # code. The numeric ``ERROR_CODE_MAP`` entry below is only visible on the
+    # direct-method dispatch path.
+    "WAIVER_REASON_REJECTED": (
+        "The suppression justification does not meet the governance policy; "
+        "state which deviation is accepted and why."
+    ),
+    "WAIVER_FINDING_NOT_BLOCKING": (
+        "No blocking SE-Auditor finding matches this suppression request; "
+        "re-run the auditor and suppress a finding it reports."
+    ),
+    "SUPPRESSION_EXPIRED": (
+        "A suppression for this finding exists but has expired; re-granting "
+        "is a separate governance decision that is not supported yet."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -119,6 +141,11 @@ ERROR_CODE_MAP = {
     "SESSION_EXPIRED": -32005,       # Server-defined: SSE session gone (#427)
     "LAST_ADMIN": -32006,            # Server-defined: last-admin invariant (Task 9)
     "RATE_LIMITED": -32007,          # Server-defined: transport rate limit (audit A)
+    # #569: dedicated suppression errors, next free server codes after
+    # RATE_LIMITED. See the ERROR_CODES comment above for the wire behaviour.
+    "WAIVER_REASON_REJECTED": -32008,     # Server-defined: justification rejected (#569)
+    "WAIVER_FINDING_NOT_BLOCKING": -32009,  # Server-defined: no blocking finding (#569)
+    "SUPPRESSION_EXPIRED": -32010,        # Server-defined: only an expired row (#569)
 }
 
 

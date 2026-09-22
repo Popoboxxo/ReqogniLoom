@@ -46,6 +46,25 @@ export interface AuditFinding {
   scope_artifact_id: string | null;
   /** Stable position within this audit run — correlates an Adopt click back to the finding. */
   index: number;
+  /**
+   * #569: canonical, run-independent identity of the finding, rendered with
+   * its scope (`finding_key(rule_id, artifact_ids, scope)`). The backend has
+   * always sent it (`AuditFindingView.finding_key`); the type only lagged.
+   */
+  finding_key: string;
+  /**
+   * #569: an active suppression (waiver) covers this finding. A suppressed
+   * finding is **never hidden** by the default report — it stays in
+   * `findings` and is marked, so the suppression is visible rather than
+   * silent. `include_suppressed=false` filters it out server-side.
+   */
+  suppressed: boolean;
+  /** #569: expiry of the matching suppression (`null` = unbounded). */
+  suppressed_until: string | null;
+  /** #569: justification of the matching suppression. */
+  suppression_reason: string | null;
+  /** #569: id of the matching `BaselineGateWaiver` row. */
+  suppression_id: string | null;
   remediation: RemediationProposal;
 }
 
@@ -53,6 +72,14 @@ export interface AuditCounts {
   total: number;
   blockers: number;
   warnings: number;
+  /**
+   * #569 (additive, M5): how many of the returned findings are suppressed.
+   * `blockers`/`warnings` stay descriptive and are NOT re-interpreted — a
+   * suppressed blocker still counts there.
+   */
+  suppressed: number;
+  /** #569 (additive): of `suppressed`, the BLOCKER-severity ones. */
+  suppressed_blockers: number;
 }
 
 export interface AuditReport {
@@ -73,6 +100,21 @@ export interface AuditReport {
   total_blockers_available: number;
   /** True warning count before truncation (see total_blockers_available). */
   total_warnings_available: number;
+  /**
+   * #569 (additive): suppressed findings in the full, uncapped run. When the
+   * client filters (`include_suppressed=false`) or the run is capped, the
+   * `counts.*` describe the returned window while these describe the whole
+   * run — `counts.total != total_findings_available` is expected then.
+   */
+  total_suppressed_available: number;
+  /** #569 (additive): of `total_suppressed_available`, the BLOCKER ones. */
+  total_suppressed_blockers_available: number;
+  /**
+   * #569 (additive, m7): how many findings the `include_suppressed=false`
+   * filter removed from `findings` (0 when the filter is off). Explains the
+   * `counts.total` vs `total_findings_available` difference.
+   */
+  suppressed_filtered: number;
   /**
    * #622: position of `findings[0]` within the full (pre-cap) run — always 0
    * for a request without `limit`. Next window start: `offset + findings.length`.
@@ -95,6 +137,59 @@ export interface RemediateResult {
   proposal: RemediationProposal;
 }
 
+// ---------------------------------------------------------------------------
+// #569 — SE-Auditor finding suppression (waivers). Mirrors
+// SuppressionView.to_dict() / the POST …/audit/waivers/ request body.
+// ---------------------------------------------------------------------------
+
+/** Lifecycle filter accepted by `GET …/audit/waivers/?state=`. */
+export type WaiverState = "active" | "expired" | "all";
+
+/** Derived lifecycle of one suppression row (`expires_at` vs. now). */
+export type WaiverLifecycle = "active" | "expired";
+
+/**
+ * One persisted suppression (`BaselineGateWaiver`). `finding_key` is the
+ * scope-less, persisted identity (GH-821); `identity_key` includes the scope
+ * and exists only for display/correlation.
+ */
+export interface SuppressionView {
+  waiver_id: string;
+  finding_key: string;
+  identity_key: string;
+  rule_id: string;
+  artifact_ids: string[];
+  scope: string;
+  scope_artifact_id: string;
+  reason: string;
+  granted_by: string;
+  created_at: string;
+  expires_at: string | null;
+  state: WaiverLifecycle;
+}
+
+export interface WaiverListResponse {
+  waivers: SuppressionView[];
+  counts: { active: number; expired: number };
+}
+
+/**
+ * Request body for `POST …/audit/waivers/`. `scope`/`scope_artifact_id` only
+ * select the engine scope for the existence check and must be copied from the
+ * clicked finding (C1) — the persisted scope always comes from the matched
+ * finding server-side. `granted_by` is deliberately absent: the server derives
+ * the author from the auth context and rejects a body field with 400.
+ */
+export interface WaiveRequest {
+  rule_id: string;
+  artifact_ids: string[];
+  scope?: AuditScopeKind;
+  scope_artifact_id?: string;
+  reason: string;
+  /** ISO-8601 with timezone; a naive or already-past value is rejected 400. */
+  expires_at?: string;
+}
+
 export interface RunAuditOptions {
   scope?: AuditScopeKind;
   scopeArtifactId?: string;
@@ -107,6 +202,13 @@ export interface RunAuditOptions {
   limit?: number;
   /** Start position of the requested window; only meaningful with `limit`. */
   offset?: number;
+  /**
+   * #569 (O3): whether suppressed findings stay in `findings` (marked
+   * `suppressed=true`). Default `true` — nothing is hidden by default. Only
+   * the literals `true`/`false` are accepted server-side; anything else is
+   * rejected with 400.
+   */
+  includeSuppressed?: boolean;
 }
 
 export const auditApi = {
@@ -119,6 +221,10 @@ export const auditApi = {
     }
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     if (options.offset !== undefined) params.set("offset", String(options.offset));
+    if (options.includeSuppressed !== undefined) {
+      // #569/m2: the backend accepts only the literals `true`/`false`.
+      params.set("include_suppressed", options.includeSuppressed ? "true" : "false");
+    }
     const qs = params.toString();
     return apiClient.get<AuditReport>(
       `/workspaces/${workspaceId}/audit/${qs ? `?${qs}` : ""}`
@@ -130,6 +236,38 @@ export const auditApi = {
     return apiClient.post<RemediateResult>(
       `/workspaces/${workspaceId}/audit/remediate/`,
       data
+    );
+  },
+
+  /**
+   * #569: grant (or idempotently re-confirm) a suppression for one reported
+   * BLOCKER finding. 201 when a new row is persisted, 200 when an identical
+   * active waiver already exists. Failures carry a stable `error.code`
+   * (`WAIVER_REASON_REJECTED`, `WAIVER_FINDING_NOT_BLOCKING`,
+   * `SUPPRESSION_EXPIRED`, `VALIDATION_ERROR`, `PERMISSION_DENIED`,
+   * `NOT_FOUND`) — callers must branch on that code, never on 422, which is
+   * reserved for `remediate`.
+   */
+  waive(workspaceId: UUID, data: WaiveRequest): Promise<SuppressionView> {
+    return apiClient.post<SuppressionView>(
+      `/workspaces/${workspaceId}/audit/waivers/`,
+      data
+    );
+  },
+
+  /**
+   * #569: list the workspace's suppressions by lifecycle state
+   * (`active` default, `expired`, or `all`). An invalid state is a 400.
+   */
+  waivers(
+    workspaceId: UUID,
+    state: WaiverState = "active"
+  ): Promise<WaiverListResponse> {
+    const params = new URLSearchParams();
+    if (state) params.set("state", state);
+    const qs = params.toString();
+    return apiClient.get<WaiverListResponse>(
+      `/workspaces/${workspaceId}/audit/waivers/${qs ? `?${qs}` : ""}`
     );
   },
 };

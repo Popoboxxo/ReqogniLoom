@@ -28,9 +28,9 @@ from application import baseline_facade
 from application.audit_service import AuditFindingView, AuditService
 from auth_tenancy.context import AuthContext
 from baseline.waivers import finding_key
-from persistence.models import Artifact, Requirement, Tenant, User, Workspace
+from persistence.models import Artifact, Requirement, Tenant, TraceLink, User, Workspace
 from persistence.tenancy import TenantContext
-from traceability.audit import Finding, RemediationProposal, Severity
+from traceability.audit import AuditScope, Finding, RemediationProposal, Severity
 from traceability.audit.registry import TRACE_P1
 from persistence.tests.factories import make_workspace
 
@@ -246,6 +246,73 @@ class TestStableAcrossReAudit:
 
         keys = [fv.finding_key for fv in report.findings]
         assert len(keys) == len(set(keys))
+
+    def test_a_scoped_finding_keeps_its_unscoped_key_across_re_audit(
+        self, tenant, workspace, ctx
+    ):
+        """AC-569-01 / V5: a document-scoped finding is stable across runs.
+
+        TRACE-P7 is scope-aware, so its identity carries the scope. Both the
+        *unscoped* key (the persisted, scope-less one a waiver matches on) and
+        the *scoped* ``AuditFindingView.finding_key`` must be identical across
+        two runs with an unrelated finding inserted in between; only ``index``
+        may move.
+        """
+        with _active(tenant):
+            root = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            child = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="Requirement",
+                parent=root,
+            )
+            sibling = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            TraceLink.objects.create(
+                source=child,
+                target=sibling,
+                link_type="allocated-to",
+                tenant=tenant,
+            )
+            _orphan_requirement(tenant, workspace, "Unrelated A")
+
+            service = AuditService()
+            scopes = [AuditScope("document", artifact_id=str(root.id))]
+            first = service.run_audit(
+                workspace.id, ctx, tier="extended", scopes=scopes
+            )
+            # An unrelated finding appears between the two runs.
+            _orphan_requirement(tenant, workspace, "Unrelated B")
+            second = service.run_audit(
+                workspace.id, ctx, tier="extended", scopes=scopes
+            )
+
+        def _p7(report):
+            return next(
+                (
+                    fv
+                    for fv in report.findings
+                    if fv.finding.rule_id == "TRACE-P7"
+                ),
+                None,
+            )
+
+        first_view = _p7(first)
+        second_view = _p7(second)
+        assert first_view is not None and second_view is not None
+        assert first_view.finding.artifact_ids == second_view.finding.artifact_ids
+
+        ids = first_view.finding.artifact_ids
+        unscoped = finding_key("TRACE-P7", ids)
+        scoped = finding_key("TRACE-P7", ids, "document")
+        assert unscoped != scoped
+        assert first_view.finding_key == scoped
+        assert second_view.finding_key == scoped
+        assert finding_key("TRACE-P7", second_view.finding.artifact_ids) == unscoped
+        assert first_view.finding.scope == "document"
 
 
 # ---------------------------------------------------------------------------

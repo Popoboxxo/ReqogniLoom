@@ -371,6 +371,10 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     # tool at all -- spec §4 keeps deletion author-or-admin only.
     "comment.create",
     "comment.resolve",
+    # #569: granting a per-finding SE-Auditor suppression writes a
+    # BaselineGateWaiver row (and its audit entry) — a governance write.
+    # audit.waivers (the read-only list) lives in _READ_ONLY_TOOL_NAMES below.
+    "audit.waive_finding",
 )
 
 # ---------------------------------------------------------------------------
@@ -506,6 +510,15 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # ungated). comment.create/comment.resolve stay fail-closed
         # WRITE-gated via _WRITE_TOOL_PREFIXES above.
         "comment.list",
+        # #569: audit.waivers lists the workspace's suppressions — a plain
+        # read at the scope gate (it does not end on ".read"/".query", so it
+        # must be listed explicitly). NOTE: the handler additionally evaluates
+        # the shared approval-authority choke point and answers
+        # PERMISSION_DENIED for a caller without it, exactly like the REST twin
+        # GET .../audit/waivers/ (spec E12). The READ tier here only says "no
+        # ADMIN capability tier is required to reach the handler"; it is NOT a
+        # weaker door than REST.
+        "audit.waivers",
     }
 )
 
@@ -569,6 +582,35 @@ _GOVERNANCE_TOOL_NAMESPACES: frozenset[str] = frozenset(
         "attribute_definition",  # tenant-wide attribute schema
         "attribute_catalog",  # attribute-schema catalog
         "attribute_migration",  # attribute-schema migrations
+    }
+)
+
+# ---------------------------------------------------------------------------
+# Governance tool names (#569, spec M1)
+#
+# Tool-level counterpart of :data:`_GOVERNANCE_TOOL_NAMESPACES`, for the one
+# case where a governance tool lives inside a namespace that must stay mixed:
+# ``audit``. ``audit.se_audit`` is a workspace-scoped, read-only SE-Auditor run
+# that any workspace member may call (documented non-admin exception, issue
+# #410) and is fail-closed WRITE-gated — adding ``"audit"`` to
+# ``_GOVERNANCE_TOOL_NAMESPACES`` would silently lift it to ADMIN tier and take
+# access away from an AUTHOR-tier key. So the governance act is named at tool
+# level instead: only ``audit.waive_finding`` (granting a per-finding
+# suppression, #569) requires the ADMIN tier, exactly mirroring the REST rule
+# where the waiver surface evaluates the approval-authority choke point.
+#
+# Checked *before* the namespace set in :meth:`ToolRegistry.
+# _required_scope_operation`, so a future tool in a governance namespace can
+# still be narrowed individually if it ever needs the opposite.
+# ---------------------------------------------------------------------------
+
+_GOVERNANCE_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        # #569: granting a suppression accepts a known SE-Auditor deviation —
+        # an approval-authority act (Operation.WORKFLOW_APPROVAL), not an
+        # ordinary content write. The facade re-checks the same SSOT choke
+        # point; this tier gate can only ever narrow further.
+        "audit.waive_finding",
     }
 )
 
@@ -1415,6 +1457,11 @@ class ToolRegistry:
         both transports (#865):
 
         * read tools -> :attr:`Operation.READ` (any tier may read),
+        * write tools named in the tool-level governance set
+          (:data:`_GOVERNANCE_TOOL_NAMES`, e.g. ``audit.waive_finding``, #569)
+          -> :attr:`Operation.WORKSPACE_CONFIG`, i.e. the ADMIN tier. Checked
+          first so an individually-named governance tool wins over its
+          (mixed) namespace,
         * write tools in a governance namespace
           (:data:`_GOVERNANCE_TOOL_NAMESPACES`, e.g. ``user.create``,
           ``admin.restore``, ``baseline.create``, ``prompt_template.update``,
@@ -1424,6 +1471,8 @@ class ToolRegistry:
         """
         if not self._is_write_tool(tool_name):
             return Operation.READ
+        if tool_name in _GOVERNANCE_TOOL_NAMES:
+            return Operation.WORKSPACE_CONFIG
         namespace = tool_name.split(".", 1)[0]
         if namespace in _GOVERNANCE_TOOL_NAMESPACES:
             return Operation.WORKSPACE_CONFIG

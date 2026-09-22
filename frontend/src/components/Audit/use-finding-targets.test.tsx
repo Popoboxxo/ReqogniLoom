@@ -36,6 +36,12 @@ function makeFinding(index: number, artifactIds: string[]): AuditFinding {
     scope: "project",
     scope_artifact_id: null,
     index,
+    // #569: additive fields on the API contract (fixtures stay type-correct).
+    finding_key: `TRACE-P1\x1f${artifactIds.join(",")}`,
+    suppressed: false,
+    suppressed_until: null,
+    suppression_reason: null,
+    suppression_id: null,
     remediation: {
       rule_id: "TRACE-P1",
       automatic: false,

@@ -73,6 +73,11 @@ export type {
   RemediateRequest,
   RemediateResult,
   RunAuditOptions,
+  WaiverState,
+  WaiverLifecycle,
+  SuppressionView,
+  WaiverListResponse,
+  WaiveRequest,
 } from "./audit";
 export { metricsApi } from "./metrics";
 export type {

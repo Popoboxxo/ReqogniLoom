@@ -21,8 +21,8 @@ import { AuditDashboard } from "./audit-dashboard";
 import { auditApi } from "../../api/audit";
 import { artifactsApi } from "../../api/artifacts";
 import { traceabilityApi } from "../../api/traceability";
-import { UnprocessableEntityError } from "../../api/errors";
-import type { AuditFinding, AuditReport } from "../../api/audit";
+import { ForbiddenError, UnprocessableEntityError } from "../../api/errors";
+import type { AuditFinding, AuditReport, SuppressionView } from "../../api/audit";
 import type { Artifact, PaginatedResponse } from "../../types";
 
 vi.mock("react-i18next", () => ({
@@ -65,11 +65,14 @@ const PROJECT_REPORT: AuditReport = {
   tier: "extended",
   scope: "project",
   scope_artifact_id: null,
-  counts: { total: 2, blockers: 1, warnings: 1 },
+  counts: { total: 2, blockers: 1, warnings: 1, suppressed: 0, suppressed_blockers: 0 },
   truncated: false,
   total_findings_available: 2,
   total_blockers_available: 1,
   total_warnings_available: 1,
+  total_suppressed_available: 0,
+  total_suppressed_blockers_available: 0,
+  suppressed_filtered: 0,
   offset: 0,
   findings: [
     {
@@ -80,6 +83,11 @@ const PROJECT_REPORT: AuditReport = {
       scope: "project",
       scope_artifact_id: null,
       index: 0,
+      finding_key: "TRACE-P1\x1f11111111-1111-1111-1111-111111111111",
+      suppressed: false,
+      suppressed_until: null,
+      suppression_reason: null,
+      suppression_id: null,
       remediation: {
         rule_id: "TRACE-P1",
         automatic: true,
@@ -97,6 +105,11 @@ const PROJECT_REPORT: AuditReport = {
       scope: "project",
       scope_artifact_id: null,
       index: 1,
+      finding_key: "TRACE-P4\x1f33333333-3333-3333-3333-333333333333",
+      suppressed: false,
+      suppressed_until: null,
+      suppression_reason: null,
+      suppression_id: null,
       remediation: {
         rule_id: "TRACE-P4",
         automatic: false,
@@ -121,11 +134,14 @@ const DANGLING_REPORT: AuditReport = {
   tier: "extended",
   scope: "project",
   scope_artifact_id: null,
-  counts: { total: 1, blockers: 1, warnings: 0 },
+  counts: { total: 1, blockers: 1, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
   truncated: false,
   total_findings_available: 1,
   total_blockers_available: 1,
   total_warnings_available: 0,
+  total_suppressed_available: 0,
+  total_suppressed_blockers_available: 0,
+  suppressed_filtered: 0,
   offset: 0,
   findings: [
     {
@@ -136,6 +152,11 @@ const DANGLING_REPORT: AuditReport = {
       scope: "project",
       scope_artifact_id: null,
       index: 0,
+      finding_key: `TRACE-P7\x1f${DANGLING_ARTIFACT_ID}`,
+      suppressed: false,
+      suppressed_until: null,
+      suppression_reason: null,
+      suppression_id: null,
       remediation: {
         rule_id: "TRACE-P7",
         automatic: false,
@@ -152,11 +173,14 @@ const DOCUMENT_REPORT: AuditReport = {
   tier: "extended",
   scope: "document",
   scope_artifact_id: "44444444-4444-4444-4444-444444444444",
-  counts: { total: 0, blockers: 0, warnings: 0 },
+  counts: { total: 0, blockers: 0, warnings: 0, suppressed: 0, suppressed_blockers: 0 },
   truncated: false,
   total_findings_available: 0,
   total_blockers_available: 0,
   total_warnings_available: 0,
+  total_suppressed_available: 0,
+  total_suppressed_blockers_available: 0,
+  suppressed_filtered: 0,
   offset: 0,
   findings: [],
 };
@@ -172,6 +196,24 @@ const TRUNCATED_REPORT: AuditReport = {
   total_warnings_available: 0,
 };
 
+// #569: one persisted suppression (the POST .../audit/waivers/ response body).
+const WAIVER_VIEW: SuppressionView = {
+  waiver_id: "waiver-001",
+  finding_key: "TRACE-P1\x1f11111111-1111-1111-1111-111111111111",
+  identity_key: "TRACE-P1\x1f11111111-1111-1111-1111-111111111111\x1fproject",
+  rule_id: "TRACE-P1",
+  artifact_ids: ["11111111-1111-1111-1111-111111111111"],
+  scope: "project",
+  scope_artifact_id: "",
+  reason: "Accepted deviation — documented in the safety case.",
+  granted_by: "user-1",
+  created_at: "2026-09-22T10:00:00Z",
+  expires_at: null,
+  state: "active",
+};
+
+const WAIVE_REASON = "Accepted deviation — documented in the safety case.";
+
 // ---------------------------------------------------------------------------
 // #596: paged findings (one bounded window per request, `?limit=&offset=`)
 // ---------------------------------------------------------------------------
@@ -186,6 +228,11 @@ function findingAt(index: number): AuditFinding {
     scope: "project",
     scope_artifact_id: null,
     index,
+    finding_key: `TRACE-P${index % 3}\x1f`,
+    suppressed: false,
+    suppressed_until: null,
+    suppression_reason: null,
+    suppression_id: null,
     remediation: {
       rule_id: `TRACE-P${index % 3}`,
       automatic: false,
@@ -210,6 +257,8 @@ function windowReport(offset: number, length: number): AuditReport {
       total: findings.length,
       blockers: findings.filter((f) => f.severity === "blocker").length,
       warnings: findings.filter((f) => f.severity === "warning").length,
+      suppressed: 0,
+      suppressed_blockers: 0,
     },
     // #622: with a `limit` this flag means "more findings exist past this
     // window", not "the backend capped the result set".
@@ -217,6 +266,9 @@ function windowReport(offset: number, length: number): AuditReport {
     total_findings_available: total,
     total_blockers_available: 200,
     total_warnings_available: 50,
+    total_suppressed_available: 0,
+    total_suppressed_blockers_available: 0,
+    suppressed_filtered: 0,
     offset,
     findings,
   };
@@ -227,6 +279,15 @@ function setupDefaultMocks(): void {
     if (options?.scope === "document") return Promise.resolve(DOCUMENT_REPORT);
     return Promise.resolve(PROJECT_REPORT);
   });
+  // #569: the dashboard also loads the suppression list (both lifecycles) so
+  // an *expired* suppression stays visible and distinguishable. Default: none.
+  vi.mocked(auditApi.waivers).mockResolvedValue({
+    waivers: [],
+    counts: { active: 0, expired: 0 },
+  });
+  // Default successful waive — tests that exercise the failure paths override
+  // this with `mockRejectedValue`.
+  vi.mocked(auditApi.waive).mockResolvedValue(WAIVER_VIEW);
   const artifactsPage: PaginatedResponse<Artifact> = {
     results: [
       {
@@ -645,5 +706,272 @@ describe("AuditDashboard — paged findings (#596)", () => {
       expect(screen.getByTestId("audit-finding-100")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("audit-load-error")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #569 — finding suppression (waivers): the third action, the "show suppressed"
+// filter, the suppressed badge, and the *critical* invariant that a waive
+// failure never falls through into the Adopt -> Modify flip (422 belongs to
+// `remediate` alone; the waive endpoints never emit it).
+// ---------------------------------------------------------------------------
+
+describe("AuditDashboard — waivers (#569)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+  });
+
+  it("suppresses a finding via the waive dialog", async () => {
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    const confirm = await screen.findByTestId("audit-waive-confirm");
+
+    // "No silent suppression": a justification is mandatory in the UI — the
+    // confirm button stays disabled until one is typed.
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    expect(confirm).not.toBeDisabled();
+    fireEvent.click(confirm);
+
+    // The finding is marked in-place (never removed) with its justification.
+    const badge = await screen.findByTestId("audit-suppressed-badge-0");
+    expect(badge.textContent).toContain(WAIVE_REASON);
+    expect(screen.getByTestId("audit-suppression-reason-0").textContent).toContain(
+      WAIVE_REASON
+    );
+    expect(screen.getByTestId("audit-count-suppressed").textContent).toContain("1");
+    expect(screen.getByTestId("audit-toast")).toBeInTheDocument();
+
+    // The Waive action is gone once the finding carries a suppression.
+    expect(screen.queryByTestId("audit-waive-0")).not.toBeInTheDocument();
+
+    // C1: the finding's own scope travels with the request so the server's
+    // existence check runs over the same scope the finding was reported in.
+    expect(auditApi.waive).toHaveBeenCalledWith("ws-001", {
+      rule_id: "TRACE-P1",
+      artifact_ids: ["11111111-1111-1111-1111-111111111111"],
+      reason: WAIVE_REASON,
+      scope: "project",
+    });
+  });
+
+  it("hides suppressed findings when the filter is off and restores them when on", async () => {
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+    await screen.findByTestId("audit-suppressed-badge-0");
+
+    const filter = screen.getByTestId("audit-show-suppressed") as HTMLInputElement;
+    // Default ON — nothing is hidden by default (O3).
+    expect(filter.checked).toBe(true);
+
+    fireEvent.click(filter);
+    await waitFor(() =>
+      expect(screen.queryByTestId("audit-finding-0")).not.toBeInTheDocument()
+    );
+    // Only the suppressed row disappears; the other finding is untouched.
+    expect(screen.getByTestId("audit-finding-1")).toBeInTheDocument();
+
+    fireEvent.click(filter);
+    expect(await screen.findByTestId("audit-finding-0")).toBeInTheDocument();
+  });
+
+  // THE critical behavioural requirement of #569: a rejected justification
+  // (400 WAIVER_REASON_REJECTED) must surface as a reason-specific message and
+  // MUST NOT be routed into the Modify flip. That flip is triggered by a 422,
+  // which is reserved for POST .../audit/remediate/ — the waive paths never
+  // emit it (spec E18). If a future refactor routed waive failures through the
+  // same `instanceof UnprocessableEntityError` branch as Adopt, this test goes
+  // red: `audit-modify-0` would appear and `audit-adopt-0` would vanish.
+  it("shows a reason-specific error and never flips the finding into Modify when a waive is rejected", async () => {
+    vi.mocked(auditApi.waive).mockRejectedValue({
+      error: {
+        code: "WAIVER_REASON_REJECTED",
+        message: "Justification is a placeholder.",
+        details: [],
+      },
+    });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: "because" },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    const error = await screen.findByTestId("audit-waive-error");
+    expect(error.textContent).toContain(
+      "The justification does not satisfy the policy."
+    );
+
+    // The finding keeps its Adopt action and never gains a Modify action.
+    expect(screen.getByTestId("audit-adopt-0")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-modify-0")).not.toBeInTheDocument();
+    // No suppression was recorded, and the generic per-finding error channel
+    // used by the Adopt flip stays empty (the message lives in the dialog).
+    expect(screen.queryByTestId("audit-suppressed-badge-0")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("audit-finding-error-0")).not.toBeInTheDocument();
+  });
+
+  it("shows the dedicated SUPPRESSION_EXPIRED message instead of a generic error", async () => {
+    vi.mocked(auditApi.waive).mockRejectedValue({
+      error: { code: "SUPPRESSION_EXPIRED", message: "expired", details: [] },
+    });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    const error = await screen.findByTestId("audit-waive-error");
+    expect(error.textContent).toContain("An expired suppression already exists");
+    // Still no Modify flip.
+    expect(screen.queryByTestId("audit-modify-0")).not.toBeInTheDocument();
+  });
+
+  it("shows the dedicated WAIVER_FINDING_NOT_BLOCKING message", async () => {
+    vi.mocked(auditApi.waive).mockRejectedValue({
+      error: { code: "WAIVER_FINDING_NOT_BLOCKING", message: "warning", details: [] },
+    });
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    const error = await screen.findByTestId("audit-waive-error");
+    expect(error.textContent).toContain("not a blocker right now");
+  });
+
+  it("lists suppressions with a visually distinct badge for expired vs active", async () => {
+    vi.mocked(auditApi.waivers).mockResolvedValue({
+      waivers: [
+        { ...WAIVER_VIEW, waiver_id: "w-active", state: "active" },
+        {
+          ...WAIVER_VIEW,
+          waiver_id: "w-expired",
+          state: "expired",
+          expires_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      counts: { active: 1, expired: 1 },
+    });
+
+    render(<AuditDashboard />);
+
+    expect(await screen.findByTestId("audit-waivers")).toBeInTheDocument();
+    expect(screen.getByTestId("audit-waiver-state-w-active").textContent).toMatch(
+      /active/i
+    );
+    expect(screen.getByTestId("audit-waiver-state-w-expired").textContent).toMatch(
+      /expired/i
+    );
+    // Visually distinguishable: the two lifecycle states do not share the same
+    // badge styling (active = neutral, expired = warning).
+    expect(screen.getByTestId("audit-waiver-state-w-active").getAttribute("style")).not.toBe(
+      screen.getByTestId("audit-waiver-state-w-expired").getAttribute("style")
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #569 UI review — the three minor findings fixed on the branch.
+// ---------------------------------------------------------------------------
+
+describe("AuditDashboard — waiver UI review fixes (#569)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+  });
+
+  // UI-569-01: `apiFetch` intercepts 403 and throws `ForbiddenError`, a plain
+  // Error subclass with no `.error` — so a real 403 (no Admin/Approver role, or
+  // an AUTHOR-tier API key) used to resolve to code `null` and the dedicated
+  // forbidden message was unreachable. Deriving the code from the typed error
+  // must render `audit.waiveForbidden`, not the generic fallback.
+  it("renders the dedicated forbidden message when the waive is rejected with 403", async () => {
+    vi.mocked(auditApi.waive).mockRejectedValue(new ForbiddenError("Forbidden."));
+
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    const error = await screen.findByTestId("audit-waive-error");
+    expect(error.textContent).toContain("You are not allowed to suppress findings");
+    // Not the generic/raw transport message...
+    expect(error.textContent).not.toContain("Forbidden.");
+    // ...and still never the Modify flip (422 belongs to `remediate` alone).
+    expect(screen.getByTestId("audit-adopt-0")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-modify-0")).not.toBeInTheDocument();
+  });
+
+  // UI-569-02: the suppression panel is an independent request. Zero rows must
+  // render the already-defined empty key, not nothing at all.
+  it("renders the suppression panel's empty state instead of hiding the panel", async () => {
+    render(<AuditDashboard />);
+
+    const empty = await screen.findByTestId("audit-waivers-empty");
+    expect(empty.textContent).toContain("No suppressions on file.");
+    expect(screen.queryByTestId("audit-waivers-error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("audit-waivers-loading")).not.toBeInTheDocument();
+  });
+
+  // UI-569-02: a failed/forbidden read must be distinguishable from "no
+  // suppressions on file".
+  it("renders a distinct error state when the suppression list request fails", async () => {
+    vi.mocked(auditApi.waivers).mockRejectedValue(new Error("waivers unavailable"));
+
+    render(<AuditDashboard />);
+
+    const error = await screen.findByTestId("audit-waivers-error");
+    expect(error.textContent).toContain("waivers unavailable");
+    expect(screen.queryByTestId("audit-waivers-empty")).not.toBeInTheDocument();
+  });
+
+  it("renders a loading state while the suppression list request is in flight", async () => {
+    vi.mocked(auditApi.waivers).mockReturnValue(new Promise<never>(() => {}));
+
+    render(<AuditDashboard />);
+
+    expect(await screen.findByTestId("audit-waivers-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-waivers-empty")).not.toBeInTheDocument();
+  });
+
+  // UI-569-03: a successful waive unmounts the Waive trigger, so the dialog's
+  // focus trap (which only restores to a connected element) cannot return
+  // focus to it. Focus must land on the still-mounted finding row instead of
+  // falling to `<body>`.
+  it("moves focus onto the finding row after a successful waive", async () => {
+    render(<AuditDashboard />);
+
+    fireEvent.click(await screen.findByTestId("audit-waive-0"));
+    fireEvent.change(screen.getByTestId("audit-waive-reason"), {
+      target: { value: WAIVE_REASON },
+    });
+    fireEvent.click(screen.getByTestId("audit-waive-confirm"));
+
+    await screen.findByTestId("audit-suppressed-badge-0");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByTestId("audit-finding-0"));
+    });
   });
 });
