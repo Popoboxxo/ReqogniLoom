@@ -158,11 +158,20 @@ node server.js --store <path> [--port 8787] [--host 127.0.0.1] [--base /api/v1/b
 
 ## Provenance
 
-- Vendored from the `Popoboxxo/bluepencil` release **`v0.1.0-alpha.1`**.
-- `deploy/bluepencil/server.js` is `dist/server.js` from `bluepencil-0.1.0-alpha.1.tgz`.
-  SHA256: `931f65ffcf27da040578b4ff42f507e36debb659ac5537d856206f0185a8ef04`.
-- The release's own `SHA256SUMS` authenticates the tarball (SHA256
-  `0ad53281f673042ee8c90c05e2c733c021c6a105efe15743cb1d30f8255f5959`) plus the browser assets.
+The two vendored pieces come from **different** `Popoboxxo/bluepencil` releases:
+
+- **Browser assets** — `frontend/public/bluepencil/latest/*` (`attach.js`,
+  `bluepencil.element.min.js`) and `latest.json` are from release **`v0.1.0-alpha.2`** (re-vendored in
+  #988). `latest.json` pins `"version": "0.1.0-alpha.2"` and the element hash
+  `bb159b42d441abed7721c38ef76ba0c575315843adcf952f0e18b6706f60accf` (SHA256 of
+  `bluepencil.element.min.js`, verified against the vendored file). The vendored `attach.js` hashes to
+  `4d281b97db9221ee4e2eb180bb958822d87cc932af3a96dbae9eb5513fdcaef5`.
+- **Sidecar** — `deploy/bluepencil/server.js` was **not** re-vendored and is still `dist/server.js`
+  from the older `bluepencil-0.1.0-alpha.1.tgz`. SHA256:
+  `931f65ffcf27da040578b4ff42f507e36debb659ac5537d856206f0185a8ef04` (unchanged).
+- The alpha.1 release's own `SHA256SUMS` authenticates the sidecar tarball (SHA256
+  `0ad53281f673042ee8c90c05e2c733c021c6a105efe15743cb1d30f8255f5959`) plus the alpha.1 browser
+  assets.
 - The file imports **only Node builtins** — no npm dependencies, no build step. The Compose service
   therefore runs it on stock `node:22-slim`.
 
