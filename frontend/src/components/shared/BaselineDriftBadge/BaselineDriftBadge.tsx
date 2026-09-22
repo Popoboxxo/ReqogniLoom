@@ -96,7 +96,11 @@ export function BaselineDriftBadge({
   }, [artifactId]);
 
   const driftedMemberships = (memberships ?? []).filter((m) => m.drifted);
-  const drifted = summary?.drifted ?? driftedMemberships.length > 0;
+  // Drift wins as soon as ANY source reports it (M5): a fail-open
+  // `summary = {drifted: false}` (the membership-error path on the retrieve
+  // endpoint) must not suppress a membership list that is genuinely positive.
+  // Using `??` here would let the false summary mask the list.
+  const drifted = summary?.drifted === true || driftedMemberships.length > 0;
 
   const handleCreateChangeRequest = useCallback(async () => {
     if (creating) return;

@@ -108,6 +108,21 @@ describe("BaselineDriftBadge (#399)", () => {
     expect(await screen.findByTestId("baseline-drift-badge")).toBeInTheDocument();
   });
 
+  it("renders the badge when a fail-open summary says false but a membership is drifted", async () => {
+    // M5: the retrieve endpoint attaches `{drifted: false}` on its membership-
+    // error path, while the per-baseline lookup still reports a drifted
+    // membership. Drift wins as soon as any source reports it.
+    baselineMembership.mockResolvedValue({
+      artifact_id: "a-1",
+      drifted: false,
+      memberships: [DRIFTED_MEMBERSHIP],
+    });
+
+    renderBadge({ summary: { drifted: false, count: 0 } });
+
+    expect(await screen.findByTestId("baseline-drift-badge")).toBeInTheDocument();
+  });
+
   it("creates a change request pre-filled with the artifact as affected item", async () => {
     baselineMembership.mockResolvedValue({
       artifact_id: "a-1",
