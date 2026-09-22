@@ -307,3 +307,37 @@ def test_author_scope_message_names_the_required_tier(ws_context) -> None:
     resp = client.post(_KEYS_CREATE, {"name": "nope"}, format="json")
     assert resp.status_code == 403
     assert "admin" in str(resp.content).lower()
+
+
+# ---------------------------------------------------------------------------
+# #569 — the standalone Auditor suppression endpoint is governance-gated
+# ---------------------------------------------------------------------------
+
+_AUDIT_WAIVERS = "/api/v1/workspaces/{ws}/audit/waivers/"
+
+
+@pytest.mark.django_db
+def test_audit_waive_endpoint_rejects_author_tier_key(ws_context) -> None:
+    """AC-569-12/V16: an AUTHOR-tier key may not grant a suppression.
+
+    The key's owner holds the Admin role, so only the capability tier can stop
+    it — the shared SSOT choke point
+    (``baseline.waivers.assert_gate_waiver_authority``) remaps the denial to
+    403 ``PERMISSION_DENIED`` before any finding lookup happens.
+    """
+    tenant, user, workspace = ws_context
+    client = _api_key_client(tenant, user, "author")
+
+    resp = client.post(
+        _AUDIT_WAIVERS.format(ws=workspace.id),
+        {
+            "rule_id": "TRACE-P1",
+            "artifact_ids": [],
+            "reason": "An AUTHOR-tier key must not accept this deviation.",
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 403, resp.content
+    assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
+

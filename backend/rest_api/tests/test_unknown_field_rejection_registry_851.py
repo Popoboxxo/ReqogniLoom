@@ -28,7 +28,7 @@ from rest_framework.test import APIRequestFactory
 from application.settings_service import SettingsService
 from auth_tenancy.context import AuthContext, AuthMethod
 from rest_api.architecture_decompose_views import GenerateDraftRequestSerializer
-from rest_api.audit_views import RemediateRequestSerializer
+from rest_api.audit_views import RemediateRequestSerializer, WaiverCreateSerializer
 from rest_api.icd_views import IcdViewSet
 from rest_api.notification_preference_views import (
     NotificationPreferenceUpdateSerializer,
@@ -115,6 +115,8 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     GenerateDraftRequestSerializer,
     CanvasStrokeDataSerializer,
     MermaidSourceSerializer,
+    # #569: the standalone suppression create serializer (rejects granted_by).
+    WaiverCreateSerializer,
 )
 
 #: Every serializer in :data:`_SERIALIZER_MODULES` that legitimately carries no
