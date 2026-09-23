@@ -1,0 +1,252 @@
+/*
+ * <TestRunsList> — styles.
+ *
+ * Issue #876: this container's static inline `style={{...}}` objects (23
+ * literals + the 5 hoisted style constants) were migrated here so the file
+ * could be removed from `eslint-rules/legacy-static-inline-style-files.js`.
+ * Every value is carried over verbatim; colours and token-backed sizes come
+ * from `styles/tokens.css`. Values without a token of identical value
+ * (`max-height: 160px`, `opacity: 0.7`, the 1px border width) stay literal so
+ * the rendered result is unchanged.
+ *
+ * The run-list item's former imperative `onMouseEnter`/`onMouseLeave`
+ * `style.borderColor` toggle is reproduced by the `:hover` rule below,
+ * excluded from the selected state via `:not(.itemSelected)` (the same
+ * `:hover:not(...)` shape already used by `TestRunResultEntryGrid.module.css`).
+ */
+
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.formLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.nameInput {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.pickerLabel {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+}
+
+.pickerHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.pickerError {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin: 0;
+}
+
+.pickerToolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.pickerSearch {
+  flex: 1 1 auto;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.selectAllLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.selectAllLabelEnabled {
+  cursor: pointer;
+}
+
+.selectAllLabelDisabled {
+  cursor: not-allowed;
+}
+
+.pickerSelectedCount {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-1);
+}
+
+.pickerNoMatch {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.pickerList {
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: var(--color-surface);
+}
+
+.pickerItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.formActions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.cancelBtn {
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+}
+
+.cancelBtnEnabled {
+  cursor: pointer;
+}
+
+.cancelBtnDisabled {
+  cursor: not-allowed;
+}
+
+.submitBtn {
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.submitBtnEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.submitBtnDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.loadError {
+  margin-bottom: var(--space-3);
+}
+
+.loadErrorText {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-2);
+}
+
+.retryBtn {
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.item {
+  padding: var(--space-3) var(--space-3);
+  margin-bottom: var(--space-2);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.item:hover:not(.itemSelected) {
+  border-color: var(--color-border-hover);
+}
+
+.itemSelected {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+}
+
+.itemHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.itemCi {
+  margin: 0;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  opacity: 0.7;
+}
+
+.selectPrompt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  text-align: center;
+  padding: var(--space-8);
+}
