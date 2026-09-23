@@ -233,19 +233,13 @@ function ArtifactTreeNode({
       // No selection concept in this tree (only expand/collapse) — always false,
       // but jsx-a11y/role-has-required-aria-props requires it be present.
       aria-selected={false}
-      style={{ marginLeft: depth === 0 ? 0 : "var(--space-5)" }}
+      className={depth === 0 ? styles.treeItemRoot : styles.treeItemNested}
     >
       <div
         data-testid="impact-tree-node"
         data-depth={depth}
         data-cycle={isCycle ? "true" : undefined}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-2)",
-          padding: "var(--space-2) var(--space-1)",
-          borderBottom: "1px solid var(--color-border)",
-        }}
+        className={styles.nodeRow}
       >
         <button
           type="button"
@@ -261,32 +255,16 @@ function ArtifactTreeNode({
                 ? t("impact.maxDepthReached", "Maximale Tiefe erreicht")
                 : undefined
           }
-          style={{
-            background: "none",
-            border: "none",
-            cursor: toggleDisabled ? "not-allowed" : "pointer",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text-muted)",
-            width: "1.25em",
-            padding: 0,
-          }}
+          className={`${styles.nodeToggle} ${
+            toggleDisabled ? styles.nodeToggleDisabled : styles.nodeToggleEnabled
+          }`}
         >
           {toggleDisabled ? "·" : expanded ? "▼" : "▶"}
         </button>
-        <span
-          data-testid="impact-node-type"
-          style={{
-            fontSize: "var(--font-size-xs)",
-            background: "var(--color-surface-raised)",
-            padding: "2px 8px",
-            borderRadius: "var(--radius-full)",
-            color: "var(--color-text-muted)",
-            fontWeight: 500,
-          }}
-        >
+        <span data-testid="impact-node-type" className={styles.typeBadge}>
           {displayType}
         </span>
-        <span style={{ fontWeight: 500, color: "var(--color-text)" }}>
+        <span className={styles.nodeTitle}>
           {displayTitle}
         </span>
         {isCycle && (
@@ -299,14 +277,7 @@ function ArtifactTreeNode({
       {expanded && (
         <div role="group">
           {loading && (
-            <p
-              role="status"
-              style={{
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-muted)",
-                margin: "var(--space-2) 0 var(--space-2) var(--space-5)",
-              }}
-            >
+            <p role="status" className={styles.nodeMessage}>
               {t("loading")}
             </p>
           )}
@@ -314,24 +285,13 @@ function ArtifactTreeNode({
             <p
               role="alert"
               data-testid="impact-node-error"
-              style={{
-                color: "var(--color-danger)",
-                fontSize: "var(--font-size-sm)",
-                margin: "var(--space-2) 0 var(--space-2) var(--space-5)",
-              }}
+              className={styles.nodeError}
             >
               {error}
             </p>
           )}
           {!loading && !error && groups.length === 0 && (
-            <p
-              data-testid="impact-node-empty"
-              style={{
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-muted)",
-                margin: "var(--space-2) 0 var(--space-2) var(--space-5)",
-              }}
-            >
+            <p data-testid="impact-node-empty" className={styles.nodeMessage}>
               {t("impact.noLinks", "Keine weiteren Verknüpfungen.")}
             </p>
           )}
@@ -345,18 +305,9 @@ function ArtifactTreeNode({
                   key={key}
                   data-testid="impact-link-group"
                   data-link-type={linkType}
-                  style={{ marginLeft: "var(--space-5)" }}
+                  className={styles.linkGroup}
                 >
-                  <div
-                    style={{
-                      fontSize: "var(--font-size-xs)",
-                      color: "var(--color-text-muted)",
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.03em",
-                      padding: "var(--space-2) 0 var(--space-1)",
-                    }}
-                  >
+                  <div className={styles.groupHeading}>
                     {arrow} {getLinkTypeLabel(linkType)}
                   </div>
                   {groupEdgesForKey.map((edge) => (
@@ -469,21 +420,12 @@ export function ImpactView(): JSX.Element {
       />
 
       {!activeWorkspace ? (
-        <p style={{ color: "var(--color-text-muted)" }}>
+        <p className={styles.mutedText}>
           {t("traceability.noArtifacts", "Keine Architekturelemente verfügbar. Bitte zuerst Elemente anlegen.")}
         </p>
       ) : (
         <>
-          <section
-            style={{
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-lg)",
-              padding: "var(--space-4) var(--space-5)",
-              marginBottom: "var(--space-6)",
-              boxShadow: "var(--shadow-card)",
-            }}
-          >
+          <section className={styles.searchPanel}>
             <div className={styles.searchFieldGroup}>
               <label
                 htmlFor="impact-search-input"
@@ -511,29 +453,18 @@ export function ImpactView(): JSX.Element {
                     "impact.searchPlaceholder",
                     "Name oder ID…"
                   )}
-                  style={{
-                    flex: "1 1 320px",
-                    padding: "var(--space-2) var(--space-3)",
-                    borderRadius: "var(--radius-md)",
-                    border: "1px solid var(--color-border)",
-                    fontSize: "var(--font-size-base)",
-                  }}
+                  className={styles.searchInput}
                 />
                 <button
                   type="button"
                   data-testid="impact-search-btn"
                   onClick={() => void runSearch()}
                   disabled={!query.trim() || searching}
-                  style={{
-                    padding: "var(--space-2) var(--space-4)",
-                    fontSize: "var(--font-size-base)",
-                    fontWeight: 500,
-                    background: "var(--color-primary)",
-                    color: "var(--color-on-primary)",
-                    border: "none",
-                    borderRadius: "var(--radius-md)",
-                    cursor: !query.trim() || searching ? "not-allowed" : "pointer",
-                  }}
+                  className={`${styles.searchButton} ${
+                    !query.trim() || searching
+                      ? styles.searchButtonDisabled
+                      : styles.searchButtonEnabled
+                  }`}
                 >
                   {searching
                     ? t("nav.searching", "Suche läuft...")
@@ -546,11 +477,7 @@ export function ImpactView(): JSX.Element {
               <p
                 role="alert"
                 data-testid="impact-search-error"
-                style={{
-                  color: "var(--color-danger)",
-                  fontSize: "var(--font-size-sm)",
-                  marginTop: "var(--space-3)",
-                }}
+                className={styles.searchError}
               >
                 {searchError}
               </p>
@@ -559,14 +486,7 @@ export function ImpactView(): JSX.Element {
             {hits.length > 0 && (
               <ul
                 data-testid="impact-search-results"
-                style={{
-                  listStyle: "none",
-                  margin: "var(--space-3) 0 0",
-                  padding: 0,
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  overflow: "hidden",
-                }}
+                className={styles.searchResults}
               >
                 {hits.map((hit) => (
                   <li key={hit.id}>
@@ -574,31 +494,9 @@ export function ImpactView(): JSX.Element {
                       type="button"
                       data-testid="impact-search-result"
                       onClick={() => selectHit(hit)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "var(--space-2)",
-                        width: "100%",
-                        padding: "var(--space-2) var(--space-3)",
-                        border: "none",
-                        borderBottom: "1px solid var(--color-border)",
-                        background: "var(--color-surface)",
-                        color: "var(--color-text)",
-                        fontSize: "var(--font-size-base)",
-                        textAlign: "left",
-                        cursor: "pointer",
-                      }}
+                      className={styles.searchResult}
                     >
-                      <span
-                        style={{
-                          fontSize: "var(--font-size-xs)",
-                          background: "var(--color-surface-raised)",
-                          padding: "2px 8px",
-                          borderRadius: "var(--radius-full)",
-                          color: "var(--color-text-muted)",
-                          fontWeight: 500,
-                        }}
-                      >
+                      <span className={styles.typeBadge}>
                         {hit.artifact_type}
                       </span>
                       <span>{hit.title}</span>
@@ -611,11 +509,7 @@ export function ImpactView(): JSX.Element {
             {hasSearched && !searching && !searchError && hits.length === 0 && (
               <p
                 data-testid="impact-search-empty"
-                style={{
-                  color: "var(--color-text-muted)",
-                  fontSize: "var(--font-size-sm)",
-                  marginTop: "var(--space-3)",
-                }}
+                className={styles.searchEmpty}
               >
                 {t("impact.searchNoResults", "0 Treffer für „{{query}}“.", {
                   query: query.trim(),
@@ -625,27 +519,8 @@ export function ImpactView(): JSX.Element {
           </section>
 
           {rootArtifact && (
-            <section
-              data-testid="impact-tree-panel"
-              style={{
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-lg)",
-                padding: "var(--space-4) var(--space-5)",
-                boxShadow: "var(--shadow-card)",
-              }}
-            >
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--space-2)",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text)",
-                  marginBottom: "var(--space-4)",
-                  cursor: "pointer",
-                }}
-              >
+            <section data-testid="impact-tree-panel" className={styles.treePanel}>
+              <label className={styles.onlyActiveLabel}>
                 <input
                   type="checkbox"
                   data-testid="impact-only-active-toggle"

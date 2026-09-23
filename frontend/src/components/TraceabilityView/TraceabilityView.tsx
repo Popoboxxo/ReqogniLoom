@@ -512,14 +512,7 @@ export default function TraceabilityView(): JSX.Element {
   if (state.isLoading) {
     return (
       <div data-testid="traceability-view">
-        <p
-          role="status"
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-          }}
-        >
+        <p role="status" className={styles.loadingText}>
           {t("loading")}
         </p>
       </div>
@@ -529,18 +522,8 @@ export default function TraceabilityView(): JSX.Element {
   if (state.error) {
     return (
       <div data-testid="traceability-view">
-        <div
-          role="alert"
-          style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-danger)",
-            borderRadius: "var(--radius-lg)",
-            padding: "var(--space-6)",
-            boxShadow: "var(--shadow-card)",
-            maxWidth: "480px",
-          }}
-        >
-          <p style={{ color: "var(--color-danger)", margin: 0 }}>
+        <div role="alert" className={styles.errorPanel}>
+          <p className={styles.errorText}>
             {state.error}
           </p>
         </div>
@@ -660,26 +643,12 @@ export default function TraceabilityView(): JSX.Element {
         <div
           role="alert"
           data-testid="cycle-warning"
-          style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-danger)",
-            borderLeft: "4px solid var(--color-danger)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-4)",
-            marginBottom: "var(--space-6)",
-          }}
+          className={styles.cycleWarning}
         >
-          <strong style={{ color: "var(--color-danger)" }}>
+          <strong className={styles.cycleWarningTitle}>
             ⚠ {t("traceability.cycleWarning")} ({state.cycles.length})
           </strong>
-          <ul
-            style={{
-              margin: "var(--space-2) 0 0",
-              paddingLeft: "var(--space-5)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-            }}
-          >
+          <ul className={styles.cycleList}>
             {state.cycles.map((cycle, i) => (
               <li key={i} data-testid="cycle-item">
                 {cycle
@@ -713,10 +682,7 @@ export default function TraceabilityView(): JSX.Element {
         // a filter/search reset, never a create action.
         <EmptyState variant="no-match" testId="traceability-no-match" onResetFilters={resetListFilters} />
       ) : (
-        <div
-          data-testid="traceability-list"
-          style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}
-        >
+        <div data-testid="traceability-list" className={styles.linkList}>
           {groupKeys.map((linkType) => {
             const groupLinks = grouped[linkType];
             return (
@@ -724,63 +690,23 @@ export default function TraceabilityView(): JSX.Element {
                 key={linkType}
                 data-testid="tracelink-group"
                 data-link-type={linkType}
-                style={{
-                  background: "var(--color-surface)",
-                  borderRadius: "var(--radius-lg)",
-                  boxShadow: "var(--shadow-card)",
-                  overflow: "hidden",
-                }}
+                className={styles.groupSection}
               >
-                <header
-                  style={{
-                    background: "var(--color-surface-raised)",
-                    padding: "var(--space-3) var(--space-4)",
-                    borderBottom: "1px solid var(--color-border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontSize: "var(--font-size-lg)",
-                      fontWeight: 600,
-                      color: "var(--color-text)",
-                    }}
-                  >
+                <header className={styles.groupHeader}>
+                  <h3 className={styles.groupTitle}>
                     {getLinkTypeLabel(linkType)}
                   </h3>
-                  <span
-                    style={{
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text-muted)",
-                    }}
-                  >
+                  <span className={styles.groupCount}>
                     {groupLinks.length}
                   </span>
                 </header>
-                <ul
-                  style={{
-                    listStyle: "none",
-                    margin: 0,
-                    padding: 0,
-                  }}
-                >
+                <ul className={styles.groupList}>
                   {groupLinks.map((link) => (
                     <li
                       key={link.id}
                       data-testid="tracelink-item"
                       data-link-type={link.link_type}
-                      style={{
-                        padding: "var(--space-3) var(--space-4)",
-                        borderBottom: "1px solid var(--color-border)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "var(--space-3)",
-                        fontSize: "var(--font-size-base)",
-                        color: "var(--color-text)",
-                      }}
+                      className={styles.groupItem}
                     >
                       <EndpointCell
                         endpoint={endpointOf(link, "source")}
@@ -793,35 +719,16 @@ export default function TraceabilityView(): JSX.Element {
                         uncoveredLabel={t("traceability.notVerified", "kein Test")}
                         onOpen={handleOpenEndpoint}
                       />
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          color: "var(--color-text-muted)",
-                          fontWeight: 500,
-                        }}
-                      >
+                      <span aria-hidden="true" className={styles.arrow}>
                         →
                       </span>
                       <span
                         data-testid="tracelink-type"
-                        style={{
-                          fontSize: "var(--font-size-sm)",
-                          background: "var(--color-linktype-badge-bg)",
-                          padding: "2px 8px",
-                          borderRadius: "var(--radius-full)",
-                          color: "var(--color-linktype-badge-text)",
-                          fontWeight: 500,
-                        }}
+                        className={styles.linkTypeBadge}
                       >
                         {getLinkTypeLabel(link.link_type)}
                       </span>
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          color: "var(--color-text-muted)",
-                          fontWeight: 500,
-                        }}
-                      >
+                      <span aria-hidden="true" className={styles.arrow}>
                         →
                       </span>
                       <EndpointCell
@@ -855,71 +762,25 @@ export default function TraceabilityView(): JSX.Element {
   // `/impact`'s free-text search doesn't have) and hands off via
   // openImpactAnalysis(). See impact-preset.ts for the rationale.
   const detailPanel = (
-    <section
-      data-testid="impact-panel"
-      style={{
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "var(--space-4) var(--space-5)",
-        boxShadow: "var(--shadow-card)",
-      }}
-    >
-      <h3
-        style={{
-          margin: "0 0 var(--space-3)",
-          fontSize: "var(--font-size-lg)",
-          fontWeight: 600,
-          color: "var(--color-text)",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
+    <section data-testid="impact-panel" className={styles.impactPanel}>
+      <h3 className={styles.impactTitle}>
         {t("traceability.impactTitle")}
       </h3>
-      <p
-        style={{
-          margin: "0 0 var(--space-3)",
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-text-muted)",
-        }}
-      >
+      <p className={styles.impactHint}>
         {t(
           "traceability.impactHint",
           "Wähle ein Artefakt und öffne die vollständige Impact-Analyse (interaktiver Baum, beide Richtungen)."
         )}
       </p>
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-3)",
-          alignItems: "flex-end",
-          flexWrap: "wrap",
-        }}
-      >
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-1)",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text)",
-            flex: "1 1 260px",
-          }}
-        >
+      <div className={styles.impactRow}>
+        <label className={styles.impactFieldLabel}>
           <span>{t("traceability.impactArtifact")}</span>
           <select
             data-testid="impact-artifact-select"
             value={impactArtifact}
             onChange={(e) => setImpactArtifact(e.target.value)}
             disabled={!hasArtifacts}
-            style={{
-              padding: "var(--space-2)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--color-border)",
-              fontSize: "var(--font-size-base)",
-            }}
+            className={styles.impactSelect}
           >
             <option value="">
               {hasArtifacts ? "—" : t("traceability.noArtifacts")}
@@ -937,16 +798,9 @@ export default function TraceabilityView(): JSX.Element {
           data-testid="impact-run-btn"
           onClick={openImpactAnalysis}
           disabled={!impactArtifact}
-          style={{
-            padding: "var(--space-2) var(--space-4)",
-            fontSize: "var(--font-size-base)",
-            fontWeight: 500,
-            background: "var(--color-primary)",
-            color: "var(--color-on-primary)",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            cursor: !impactArtifact ? "not-allowed" : "pointer",
-          }}
+          className={`${styles.impactRunBtn} ${
+            !impactArtifact ? styles.impactRunBtnDisabled : styles.impactRunBtnEnabled
+          }`}
         >
           {t("traceability.impactRun", "Impact-Analyse öffnen")}
         </button>
@@ -955,16 +809,7 @@ export default function TraceabilityView(): JSX.Element {
   );
 
   return (
-    <div
-      data-testid="traceability-view"
-      style={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        fontFamily: "var(--font-sans)",
-        color: "var(--color-text)",
-      }}
-    >
+    <div data-testid="traceability-view" className={styles.page}>
       <PageHeader
         title={t("nav.traceability")}
         count={{ shown: state.links.length, total: state.links.length }}
@@ -988,7 +833,7 @@ export default function TraceabilityView(): JSX.Element {
         ]}
       />
 
-      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+      <div className={styles.splitHost}>
         <SplitView
           moduleType="traceability"
           leftPanel={listPanel}
