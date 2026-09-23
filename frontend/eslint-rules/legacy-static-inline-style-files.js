@@ -17,7 +17,8 @@
  *     style in one of them is not caught by ESLint. Within `src/components/`
  *     that gap is covered by the `STYLE_BRACE_BASELINE` ratchet in
  *     `src/test/ui-ratchet.test.ts`, whose monotonic assertion is an exact
- *     equality (`toBe(163)`), so any net increase turns it red. The residual
+ *     equality against that constant (no literal is repeated here, so it
+ *     cannot re-rot), so any net increase turns it red. The residual
  *     gap is a net-zero reshuffle (add here, delete there) in exempted files —
  *     accepted and documented in `no-static-inline-style.js`.
  *
@@ -215,11 +216,14 @@
  * `shared/PageHeader.tsx` (the `titleStyle` identifier described above).
  *
  * `SplitView.tsx`'s divider and legacy panels are pinned by
- * `toHaveStyle`/`getComputedStyle` assertions in `SplitView.test.tsx`,
- * `SplitPaneResize.test.tsx`, `RequirementEditors.test.tsx:360` and
- * `ArchitectureEditors.test.tsx:374`. Because the vitest run does not process
- * CSS Modules, those declarations must keep rendering as inline styles — the
- * hoisted identifier satisfies both the pins and the rule.
+ * `toHaveStyle`/`getComputedStyle` assertions in `SplitView.test.tsx` (its
+ * `getComputedStyle`/`toHaveStyle` assertions on `splitview-list`/`-detail`,
+ * with the divider as the locator for the legacy panels),
+ * `RequirementEditors.test.tsx:360` and `ArchitectureEditors.test.tsx:374`
+ * (both `toHaveStyle("cursor: col-resize")` on the divider). Because the
+ * vitest run does not process CSS Modules, those declarations must keep
+ * rendering as inline styles — the hoisted identifier satisfies both the pins
+ * and the rule.
  *
  * ---------------------------------------------------------------------------
  * THIS LIST IS NOW EMPTY (0 entries, was 14 at the start of this batch; 68

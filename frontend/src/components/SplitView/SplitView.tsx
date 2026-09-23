@@ -152,7 +152,9 @@ const SCROLL_SURFACE_STYLE: React.CSSProperties = {
 // ---------------------------------------------------------------------------
 // Issue #876 (Etappe 7, batch 3): the nine inline style-object literals of
 // the legacy contract are hoisted to named `React.CSSProperties` identifiers
-// and applied as `style={identifier}`.
+// (and, for the divider, a `dividerStyle(dragging)` function identifier whose
+// `transition` stays conditional per render, exactly as on `main`) and applied
+// as `style={identifier}`.
 //
 // This is the documented house pattern (not a workaround): the rule only
 // reports an *object literal* directly inside the attribute
@@ -161,10 +163,14 @@ const SCROLL_SURFACE_STYLE: React.CSSProperties = {
 // class — vitest's `css: false` (vite.config) means CSS Modules never load in
 // the test run, so a class-based migration would break
 // `SplitView.test.tsx` (`getComputedStyle` on `overscrollBehavior`/
-// `scrollbarGutter`/`maxWidth`, `toHaveStyle` on the list/detail flex widths
-// and the divider's `cursor: col-resize`), `SplitPaneResize.test.tsx` and
-// `RequirementEditors.test.tsx:360` / `ArchitectureEditors.test.tsx:374`.
+// `scrollbarGutter`/`maxWidth`, `toHaveStyle` on the list/detail flex widths,
+// with the divider as the locator for the legacy panels),
+// `RequirementEditors.test.tsx:360` and `ArchitectureEditors.test.tsx:374`
+// (both `toHaveStyle("cursor: col-resize")` on the divider).
 // Same sanctioned precedent as `MetricsDashboard.helpToggleStyle` (Etappe 5).
+//
+// The divider keeps its pre-migration drag-state transition — `none` while
+// dragging, `background 0.2s ease` at rest — via `dividerStyle` below.
 //
 // The legacy contract's *own* styles therefore stay inline by design; the
 // concept contract above (list/detail/spine/ratio) continues to use the
@@ -232,13 +238,21 @@ const DESKTOP_ROOT_STYLE: React.CSSProperties = {
 };
 
 /** Desktop divider: 12px hitbox, 2px visual center line via gradient. */
-const DIVIDER_STYLE: React.CSSProperties = {
+const DIVIDER_BASE_STYLE: React.CSSProperties = {
   flex: '0 0 12px',
   background: 'linear-gradient(90deg, transparent 5px, var(--color-border) 5px, var(--color-border) 7px, transparent 7px)',
   cursor: 'col-resize',
-  transition: 'background 0.2s ease',
   userSelect: 'none',
 };
+
+/** Divider style for one render pass: the transition is suppressed while a
+ * drag is in progress (`none`) and eased otherwise — restored from `main`'s
+ * pre-migration conditional. Hoisted as a function identifier so the
+ * conditional stays out of the `style` attribute as an object literal. */
+const dividerStyle = (dragging: boolean): React.CSSProperties => ({
+  ...DIVIDER_BASE_STYLE,
+  transition: dragging ? 'none' : 'background 0.2s ease',
+});
 
 /** Desktop right pane: the shared scroll surface, full flex, padded. */
 const RIGHT_PANEL_STYLE: React.CSSProperties = {
@@ -597,7 +611,7 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
           tabIndex={0}
           onMouseDown={handleDividerMouseDown}
           onKeyDown={handleDividerKeyDown}
-          style={DIVIDER_STYLE}
+          style={dividerStyle(isDraggingRef.current)}
           onMouseEnter={(e) => {
             if (!isDraggingRef.current) {
               e.currentTarget.style.background = 'linear-gradient(90deg, transparent 4px, var(--color-primary) 4px, var(--color-primary) 8px, transparent 8px)';
