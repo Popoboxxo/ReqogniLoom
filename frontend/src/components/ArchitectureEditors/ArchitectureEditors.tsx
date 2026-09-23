@@ -396,11 +396,7 @@ export default function ArchitectureEditors(): JSX.Element {
     return (
       <p
         role="status"
-        style={{
-          color: "var(--color-text-muted)",
-          fontFamily: "var(--font-sans)",
-          padding: "var(--space-4)",
-        }}
+        className={styles.loadingText}
       >
         {t("loading")}
       </p>
@@ -411,25 +407,12 @@ export default function ArchitectureEditors(): JSX.Element {
     return (
       <div
         role="alert"
-        style={{
-          background: "var(--color-surface)",
-          borderRadius: "var(--radius-md)",
-          boxShadow: "var(--shadow-card)",
-          padding: "var(--space-4)",
-          fontFamily: "var(--font-sans)",
-        }}
+        className={styles.errorPanel}
       >
-        <p style={{ color: "var(--color-danger)", marginTop: 0 }}>{error}</p>
+        <p className={styles.errorText}>{error}</p>
         <button
           onClick={refresh}
-          style={{
-            background: "var(--color-primary)",
-            color: "var(--color-on-primary)",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
-            cursor: "pointer",
-          }}
+          className={styles.reloadButton}
         >
           {t("actions.reload")}
         </button>
@@ -439,20 +422,14 @@ export default function ArchitectureEditors(): JSX.Element {
 
   // Build list panel with header
   const listPanel = (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-      }}
-    >
+    <div className={styles.listPanel}>
       {/* UI concept ch. 12.2: search / filter / sort come from the shared
           ListToolbar instead of a hand-built input + select pair. The
           heading and the primary action moved up into the page-level
           <PageHeader> (ch. 12.1) — a toolbar carries no primary action.
           The status filter is now `arch-filter-status` (was
           `arch-status-filter`); it is not referenced by any e2e spec. */}
-      <div style={{ marginBottom: 'var(--space-3)' }}>
+      <div className={styles.toolbarSlot}>
         <ListToolbar
           testIdPrefix="arch"
           searchValue={listSearch}
@@ -499,12 +476,7 @@ export default function ArchitectureEditors(): JSX.Element {
         >
         <form
           onSubmit={(e) => { e.preventDefault(); void handleInlineCreate(); }}
-          style={{
-            display: 'flex', flexDirection: 'column', gap: 'var(--space-2)',
-            padding: 'var(--space-3)', marginBottom: 'var(--space-3)',
-            background: 'var(--color-surface-raised)',
-            border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
-          }}
+          className={styles.createForm}
         >
           {/* #955: the input carried no id/name/aria-label and this label had
               no `htmlFor`, so the field had no accessible name — only a
@@ -512,7 +484,7 @@ export default function ArchitectureEditors(): JSX.Element {
               right below. */}
           <label
             htmlFor="arch-new-title"
-            style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}
+            className={styles.createTitleLabel}
           >
             {t('editor.title', 'Title')}
           </label>
@@ -522,11 +494,7 @@ export default function ArchitectureEditors(): JSX.Element {
             ref={newTitleInputRef}
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
             placeholder={t('arch.newElementTitle')}
-            style={{
-              padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)',
-              background: 'var(--color-surface)', color: 'var(--color-text)',
-            }}
+            className={styles.createTitleInput}
           />
           {/* BUG-11: description — an ordinary architectureApi.create() field
               the backend already accepts, previously missing here. */}
@@ -542,7 +510,7 @@ export default function ArchitectureEditors(): JSX.Element {
             className={fieldHints.createInput}
           />
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+          <div className={styles.createActions}>
             {/* issue #719: shared btn-secondary/btn-primary pair, same as the
                 Adr/Risk/Issue/TestCase/Requirement create dialogs. The inline
                 styles this replaces had no disabled treatment at all, so the
@@ -578,7 +546,7 @@ export default function ArchitectureEditors(): JSX.Element {
           onReparent: drag & drop moves an element under a new parent, or onto
           the root dropzone to detach it to L0. Reinstated on 2026-08-15,
           reversing the 2026-07-13 "won't do" note that stood here before. */}
-      <div style={{ flex: 1, overflow: "auto" }}>
+      <div className={styles.treeSlot}>
         {/* GESAMTTEST_BERICHT_2026-08-21.md §6 "Architecture empty-state":
             this route used to fall through to WorkspaceTree's built-in plain
             muted-text emptyLabel/noMatchesLabel instead of the shared
@@ -632,26 +600,11 @@ export default function ArchitectureEditors(): JSX.Element {
 
   // Build detail panel (form + sidebar)
   const detailPanel = (
-    <div
-      style={{
-        display: "flex",
-        gap: "var(--space-6)",
-        alignItems: "flex-start",
-        padding: "var(--space-4)",
-      }}
-    >
+    <div className={styles.detailPanel}>
       {element ? (
         <>
           {/* Main form wrapper */}
-          <div
-            style={{
-              flex: 1,
-              background: "var(--color-surface)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-card)",
-              padding: "var(--space-6)",
-            }}
-          >
+          <div className={styles.detailFormCard}>
             {/* Trace spine — UI concept ch. 5 / ch. 12.10. Architecture is
                 the pilot for it because its tree has a genuinely variable
                 depth, which is exactly what the dynamic station count has
@@ -720,7 +673,7 @@ export default function ArchitectureEditors(): JSX.Element {
             )}
 
             {/* Derive requirement allocated to this element */}
-            <div style={{ marginTop: "var(--space-4)" }}>
+            <div className={styles.deriveSlot}>
               <DeriveRequirementForm
                 isOpen={showDeriveForm}
                 onOpen={() => setShowDeriveForm(true)}
@@ -750,7 +703,7 @@ export default function ArchitectureEditors(): JSX.Element {
           />
         </>
       ) : (
-        <p style={{ color: "var(--color-text-muted)" }}>{t("arch.selectElement")}</p>
+        <p className={styles.selectPrompt}>{t("arch.selectElement")}</p>
       )}
     </div>
   );

@@ -15,6 +15,124 @@
 }
 
 /*
+ * Issue #876 (Etappe 5): the view's 15 AST-visible static inline `style={{...}}`
+ * literals were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (the `1px` border width and the
+ * `100%`/`flex: 1` layout figures) stay literal so the rendered result is
+ * unchanged.
+ *
+ * One further `style={{` remains in the source — inside a code-review comment
+ * (`#670`, near the delete `ConfirmDialog`), not an AST node. ESLint does not
+ * see it, but the raw-text ratchet in `ui-ratchet.test.ts` does; that single
+ * occurrence is the documented raw-vs-AST reconciliation for this file.
+ *
+ * The reload button's `--color-primary` fill uses the `background-color`
+ * long-hand rather than the `background` shorthand so the `(f)` primary-fill
+ * ratchet in `ui-ratchet.test.ts` does not move — same documented precedent as
+ * `BaselinesView.module.css` / `IcdView.module.css`.
+ */
+
+.loadingText {
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  padding: var(--space-4);
+}
+
+.errorPanel {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  font-family: var(--font-sans);
+}
+
+.errorText {
+  color: var(--color-danger);
+  margin-top: 0;
+}
+
+.reloadButton {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+
+.listPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.toolbarSlot {
+  margin-bottom: var(--space-3);
+}
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.createTitleLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.createTitleInput {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.createActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.treeSlot {
+  flex: 1;
+  overflow: auto;
+}
+
+.detailPanel {
+  display: flex;
+  gap: var(--space-6);
+  align-items: flex-start;
+  padding: var(--space-4);
+}
+
+.detailFormCard {
+  flex: 1;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-6);
+}
+
+.deriveSlot {
+  margin-top: var(--space-4);
+}
+
+.selectPrompt {
+  color: var(--color-text-muted);
+}
+
+/*
  * F-04 (code review, 2026-08-19): `.createLabel`/`.createInput` belong in the
  * shared `frontend/src/components/shared/FieldHints.module.css` (imported
  * here as `fieldHints`) instead, keeping the declarations in one place

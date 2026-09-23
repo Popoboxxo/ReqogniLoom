@@ -1,0 +1,121 @@
+/*
+ * <MismatchReviewTable> (REQ-187, SCR-206 Card 3) — styles.
+ *
+ * Issue #876 (Etappe 5): the table's 14 static inline `style={{...}}` literals
+ * and its 5 hoisted `React.CSSProperties` constants were migrated here so the
+ * file could be removed from `eslint-rules/legacy-static-inline-style-files.js`.
+ * Every value is carried over verbatim; colours and token-backed sizes come
+ * from `styles/tokens.css`. Values without a token of identical value (`4px`,
+ * the `1px` border width, the `0.05em` letter-spacing) stay literal so the
+ * rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the pagination buttons' disabled cursor uses `...Enabled` / `...Disabled`
+ *     composed onto the shared `.select` chrome,
+ *   - the monospace subject/artifact cells use `.td` + `.tdMono`.
+ */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.select {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.errorText {
+  color: var(--color-danger);
+}
+
+.loadingText {
+  color: var(--color-text-muted);
+}
+
+.emptyText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.td {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.tdMono {
+  font-family: monospace;
+}
+
+.rowWarn {
+  background: rgba(var(--color-warning-rgb), 0.08);
+}
+
+.warnGlyph {
+  margin-right: 4px;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.pageIndicator {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.pagerEnabled {
+  cursor: pointer;
+}
+
+.pagerDisabled {
+  cursor: not-allowed;
+}

@@ -1,0 +1,173 @@
+/*
+ * <WorkflowStatusEditor> (REQ-160 / REQ-161) — styles.
+ *
+ * Issue #876 (Etappe 5): the editor's 13 static inline `style={{...}}`
+ * literals and its 2 hoisted `React.CSSProperties` constants were migrated
+ * here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`200px`, the `4px`/`20`/`1.3`
+ * figures and the `1px` border width) stay literal so the rendered result is
+ * unchanged.
+ *
+ * The trigger keeps the `btn-secondary` global class (issue #954: one shared
+ * button vocabulary), so its look is expressed with a doubled class selector —
+ * the same precedent `ReqTraceLinkPanel.module.css`'s `.aiGradientButton`
+ * documents: `.trigger.trigger` (0,2,0) stays above `.btn-secondary` (0,1,0)
+ * and `.trigger.trigger:hover:not(:disabled)` (0,4,0) above
+ * `.btn-secondary:hover:not(:disabled)` (0,3,0), without `!important` and
+ * without depending on stylesheet order. The hover re-assertion is deliberate:
+ * the previous inline style also beat that hover rule, so the trigger showed
+ * no hover colour change — preserved verbatim here.
+ *
+ * The current-status badge is NOT migrated: it renders through the shared
+ * `getStatusBadgeStyle()` (`utils/statusBadge.ts` → `utils/badgeBase.ts`),
+ * which returns a `CSSProperties` object whose colour is a function of the
+ * (arbitrary) workflow state. `badgeBase.ts` documents that this object is
+ * spread onto a `style` prop by design, so it stays a computed identifier
+ * (never a `style={{...}}` literal).
+ *
+ * The loading spinner's keyframes moved here from the component's inline
+ * `<style>` element; the animation name is module-scoped with it.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the menu item's hover/active highlight uses `...Active` / `...Inactive`.
+ */
+
+@keyframes wfSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.proposalHint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-right: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-badge-info-text);
+  background: var(--color-badge-info-bg);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+.root {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.triggerRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  position: relative;
+}
+
+.spinner {
+  animation: wfSpin 1s linear infinite;
+}
+
+.trigger.trigger,
+.trigger.trigger:hover:not(:disabled) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 200px;
+  padding: var(--space-1);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  text-align: left;
+}
+
+.menuItemActive {
+  background: var(--color-card-active-bg);
+}
+
+.menuItemInactive {
+  background: transparent;
+}
+
+.reasonMark {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.reasonPrompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.reasonLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.reasonInput {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  background: var(--color-surface);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.reasonActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.errorText {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-danger);
+}

@@ -66,13 +66,40 @@
  * files are list entries. This matches the arithmetic (501 - 96 literals; the
  * hoisted constants were identifier references and were never AST-visible to
  * this rule).
+ *
+ * Issue #876 Etappe 5 (2026-09-23, branch
+ * `refactor/css-modules-migration-etappe-5`): eight more carriers were
+ * migrated onto co-located CSS Modules and dropped here —
+ * `MetricsDashboard/MetricsDashboard.tsx` (18 literals + 4 hoisted constants;
+ * existing module extended),
+ * `ArchitectureEditors/ArchitectureEditors.tsx` (15 AST-visible
+ * literals; the file's 16th `style={{` lives only inside a comment and stays
+ * in the raw-text count; existing module extended),
+ * `SystemSettings/MismatchReviewTable.tsx` (14 literals + 5 hoisted constants;
+ * new module), `Goals/MainGoalPanel.tsx` (14 literals + 3 hoisted constants;
+ * existing `Goals.module.css` extended),
+ * `shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx` (13 literals + 8
+ * hoisted constants; new module), `shared/WorkspaceTree/workspace-tree.tsx`
+ * (12 literals; existing module extended — two genuinely per-instance values
+ * stay on the `style` prop as computed identifiers: the row `--tree-depth` and
+ * the virtualized list's measured height),
+ * `WorkflowStatusEditor/WorkflowStatusEditor.tsx` (13 literals + 2 hoisted
+ * constants; new module — its status badge stays on the shared
+ * `getStatusBadgeStyle()` identifier) and
+ * `AdminDialog/SystemHealthDialog.tsx` (13 literals + 4 hoisted constants;
+ * existing module extended). Re-measured with this list temporarily empty:
+ * 293 AST-visible occurrences in 49 files. The ratchet's raw-text count in the
+ * same scope is 296, and the difference of exactly 3 is still the three
+ * comment-only `style={{` occurrences (RequirementTreeNode.tsx,
+ * ArchitectureEditors.tsx, WorkspaceSettings.tsx) — the ArchitectureEditors
+ * comment hit survived its file's migration, so the gap is unchanged. This
+ * matches the arithmetic (405 - 112 literals; the 26 hoisted constants were
+ * identifier references and were never AST-visible to this rule).
  */
 export const LEGACY_STATIC_INLINE_STYLE_FILES = [
-  "src/components/AdminDialog/SystemHealthDialog.tsx",
   "src/components/AdminDialog/TriLabelOverviewDialog.tsx",
   "src/components/AdrEditors/AdrEditors.tsx",
   "src/components/ArchitectureDecompose/ArchitectureDecomposePanel.tsx",
-  "src/components/ArchitectureEditors/ArchitectureEditors.tsx",
   "src/components/ArchitectureEditors/ArchitectureLegend.tsx",
   "src/components/BaselinesView/BaselinesPanels.tsx",
   "src/components/DashboardViews/DashboardViews.tsx",
@@ -80,11 +107,9 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/DiagramView/DiagramCreateForm.tsx",
   "src/components/DiagramView/DiagramView.tsx",
   "src/components/Goals/GoalDetail.tsx",
-  "src/components/Goals/MainGoalPanel.tsx",
   "src/components/IcdView/IcdDetailPane.tsx",
   "src/components/IcdView/SimilarIcdsPanel.tsx",
   "src/components/IssueEditors/IssueEditors.tsx",
-  "src/components/MetricsDashboard/MetricsDashboard.tsx",
   "src/components/NeedsEditors/NeedArtifactForm.tsx",
   "src/components/NeedsEditors/NeedList.tsx",
   "src/components/NeedsEditors/NeedsEditors.tsx",
@@ -102,7 +127,6 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/SplitView/SplitView.tsx",
   "src/components/SystemSettings/EnforcementFlipDialog.tsx",
   "src/components/SystemSettings/EnforcementModePanel.tsx",
-  "src/components/SystemSettings/MismatchReviewTable.tsx",
   "src/components/SystemSettings/PermissionDefaultsTab.tsx",
   "src/components/SystemSettings/SystemSettings.tsx",
   "src/components/SystemSettings/WorkspaceAdminSection.tsx",
@@ -112,17 +136,14 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/UserProfileSettings/UserProfileSettings.tsx",
   "src/components/WorkflowEditor/PresetSegmentedControl.tsx",
   "src/components/WorkflowEditor/TransitionEdge.tsx",
-  "src/components/WorkflowStatusEditor/WorkflowStatusEditor.tsx",
   "src/components/WorkspaceSettings/DefaultStatusBadge.tsx",
   "src/components/canvas/CanvasEditor.tsx",
   "src/components/mermaid/MermaidEditor.tsx",
-  "src/components/shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx",
   "src/components/shared/CustomFieldsEditor.tsx",
   "src/components/shared/DeriveRequirementForm.tsx",
   "src/components/shared/ListToolbar.tsx",
   "src/components/shared/PageHeader.tsx",
   "src/components/shared/VersionBadge.tsx",
-  "src/components/shared/WorkspaceTree/workspace-tree.tsx",
   "src/components/shared/tag-input.tsx",
   "src/components/shared/trace-link-display.tsx",
 ];

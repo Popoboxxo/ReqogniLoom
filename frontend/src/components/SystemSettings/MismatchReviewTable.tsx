@@ -17,6 +17,7 @@ import {
   type MismatchSubjectType,
   type PermissionDecisionMismatch,
 } from "../../api/permission-defaults";
+import styles from "./MismatchReviewTable.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -24,50 +25,6 @@ function extractErrorMessage(err: unknown): string {
 }
 
 const PAGE_SIZE = 25;
-
-const cardStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const selectStyle: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-border)",
-  background: "var(--color-surface-raised)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  color: "var(--color-text-muted)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  borderBottom: "1px solid var(--color-border)",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  borderBottom: "1px solid var(--color-border)",
-  verticalAlign: "middle",
-};
 
 const SUBJECT_TYPES: MismatchSubjectType[] = ["user", "apikey", "agent"];
 
@@ -129,23 +86,16 @@ export function MismatchReviewTable(): JSX.Element {
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
 
   return (
-    <section style={cardStyle} id="mismatch-review-card" data-testid="mismatch-review-section">
-      <h3 style={headingStyle}>Mismatch Review</h3>
+    <section className={styles.card} id="mismatch-review-card" data-testid="mismatch-review-section">
+      <h3 className={styles.heading}>Mismatch Review</h3>
 
       {/* Filters */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-4)",
-        }}
-      >
+      <div className={styles.filters}>
         <select
           data-testid="mismatch-filter-capability"
           value={capability}
           onChange={(e) => setCapability(e.target.value as CapabilityKey | "")}
-          style={selectStyle}
+          className={styles.select}
           aria-label="Filter by capability"
         >
           <option value="">All capabilities</option>
@@ -161,7 +111,7 @@ export function MismatchReviewTable(): JSX.Element {
           onChange={(e) =>
             setSubjectType(e.target.value as MismatchSubjectType | "")
           }
-          style={selectStyle}
+          className={styles.select}
           aria-label="Filter by subject type"
         >
           <option value="">All subjects</option>
@@ -176,7 +126,7 @@ export function MismatchReviewTable(): JSX.Element {
           data-testid="mismatch-filter-since"
           value={since}
           onChange={(e) => setSince(e.target.value)}
-          style={selectStyle}
+          className={styles.select}
           aria-label="Since"
         />
         <input
@@ -184,38 +134,38 @@ export function MismatchReviewTable(): JSX.Element {
           data-testid="mismatch-filter-until"
           value={until}
           onChange={(e) => setUntil(e.target.value)}
-          style={selectStyle}
+          className={styles.select}
           aria-label="Until"
         />
       </div>
 
       {error && (
-        <p role="alert" data-testid="mismatch-error" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" data-testid="mismatch-error" className={styles.errorText}>
           {error}
         </p>
       )}
 
       {loading ? (
-        <p style={{ color: "var(--color-text-muted)" }}>…</p>
+        <p className={styles.loadingText}>…</p>
       ) : items.length === 0 ? (
-        <p data-testid="mismatch-empty" style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+        <p data-testid="mismatch-empty" className={styles.emptyText}>
           No mismatches recorded in this window — legacy and new decisions agree.
         </p>
       ) : (
-        <div style={{ overflowX: "auto" }}>
+        <div className={styles.tableScroll}>
           <table
             data-testid="mismatch-table"
-            style={{ width: "100%", borderCollapse: "collapse" }}
+            className={styles.table}
           >
             <thead>
               <tr>
-                <th style={thStyle}>Time</th>
-                <th style={thStyle}>Subject</th>
-                <th style={thStyle}>Capability</th>
-                <th style={thStyle}>Workspace</th>
-                <th style={thStyle}>Artifact</th>
-                <th style={thStyle}>Legacy</th>
-                <th style={thStyle}>New</th>
+                <th className={styles.th}>Time</th>
+                <th className={styles.th}>Subject</th>
+                <th className={styles.th}>Capability</th>
+                <th className={styles.th}>Workspace</th>
+                <th className={styles.th}>Artifact</th>
+                <th className={styles.th}>Legacy</th>
+                <th className={styles.th}>New</th>
               </tr>
             </thead>
             <tbody>
@@ -223,29 +173,29 @@ export function MismatchReviewTable(): JSX.Element {
                 <tr
                   key={m.id}
                   data-testid={`mismatch-row-${m.id}`}
-                  style={{ background: "rgba(var(--color-warning-rgb), 0.08)" }}
+                  className={styles.rowWarn}
                 >
-                  <td style={tdStyle}>
-                    <span aria-hidden="true" style={{ marginRight: "4px" }}>
+                  <td className={styles.td}>
+                    <span aria-hidden="true" className={styles.warnGlyph}>
                       ⚠
                     </span>
                     {fmtTime(m.created_at)}
                   </td>
-                  <td style={{ ...tdStyle, fontFamily: "monospace" }} title={m.subject_identifier}>
+                  <td className={styles.td + ' ' + styles.tdMono} title={m.subject_identifier}>
                     {m.subject_type ? `${m.subject_type}: ` : ""}
                     {m.subject_identifier.length > 24
                       ? `${m.subject_identifier.slice(0, 24)}…`
                       : m.subject_identifier}
                   </td>
-                  <td style={tdStyle}>{m.capability}</td>
-                  <td style={tdStyle}>
+                  <td className={styles.td}>{m.capability}</td>
+                  <td className={styles.td}>
                     {m.workspace_id ? `${m.workspace_id.slice(0, 8)}…` : "tenant-wide"}
                   </td>
-                  <td style={{ ...tdStyle, fontFamily: "monospace" }}>
+                  <td className={styles.td + ' ' + styles.tdMono}>
                     {m.artifact_id ? `${m.artifact_id.slice(0, 8)}…` : "—"}
                   </td>
-                  <td style={tdStyle}>{decision(m.legacy_decision)}</td>
-                  <td style={tdStyle}>{decision(m.new_decision)}</td>
+                  <td className={styles.td}>{decision(m.legacy_decision)}</td>
+                  <td className={styles.td}>{decision(m.new_decision)}</td>
                 </tr>
               ))}
             </tbody>
@@ -255,24 +205,17 @@ export function MismatchReviewTable(): JSX.Element {
 
       {/* Pagination */}
       {count > PAGE_SIZE && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--space-3)",
-            marginTop: "var(--space-3)",
-          }}
-        >
+        <div className={styles.pagination}>
           <button
             type="button"
             data-testid="mismatch-prev"
             disabled={page <= 1 || loading}
             onClick={() => void load(page - 1)}
-            style={{ ...selectStyle, cursor: page <= 1 ? "not-allowed" : "pointer" }}
+            className={styles.select + ' ' + (page <= 1 ? styles.pagerDisabled : styles.pagerEnabled)}
           >
             Previous
           </button>
-          <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+          <span className={styles.pageIndicator}>
             Page {page} / {totalPages}
           </span>
           <button
@@ -280,7 +223,7 @@ export function MismatchReviewTable(): JSX.Element {
             data-testid="mismatch-next"
             disabled={page >= totalPages || loading}
             onClick={() => void load(page + 1)}
-            style={{ ...selectStyle, cursor: page >= totalPages ? "not-allowed" : "pointer" }}
+            className={styles.select + ' ' + (page >= totalPages ? styles.pagerDisabled : styles.pagerEnabled)}
           >
             Next
           </button>

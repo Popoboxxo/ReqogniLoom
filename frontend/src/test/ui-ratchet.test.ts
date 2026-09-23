@@ -590,6 +590,55 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // BaselinesView.module.css above), so the shorthand-only `PRIMARY_FILL_PATTERN`
 // stays at 29.
 //
+// Issue #876 Etappe 5 (2026-09-23, branch
+// `refactor/css-modules-migration-etappe-5`): eight more carriers were migrated
+// onto co-located CSS Modules and dropped from the ESLint exemption list —
+// `MetricsDashboard/MetricsDashboard.tsx` (18 literals + 4 hoisted constants;
+// existing `MetricsDashboard.module.css` extended),
+// `ArchitectureEditors/ArchitectureEditors.tsx` (15 AST-visible literals; its
+// 16th `style={{` lives only inside a comment and stays in the raw-text count;
+// existing `ArchitectureEditors.module.css` extended),
+// `SystemSettings/MismatchReviewTable.tsx` (14 literals + 5 hoisted constants;
+// new `MismatchReviewTable.module.css`), `Goals/MainGoalPanel.tsx` (14 literals
+// + 3 hoisted constants; existing `Goals.module.css` extended),
+// `shared/CreateTraceLinkDialog/create-trace-link-dialog.tsx` (13 literals + 8
+// hoisted constants; new `create-trace-link-dialog.module.css`),
+// `shared/WorkspaceTree/workspace-tree.tsx` (12 literals; existing
+// `workspace-tree.module.css` extended — its row `--tree-depth` and the
+// virtualized list's measured height stay as computed-identifier `style` props,
+// never object literals), `WorkflowStatusEditor/WorkflowStatusEditor.tsx` (13
+// literals + 2 hoisted constants; new `WorkflowStatusEditor.module.css`) and
+// `AdminDialog/SystemHealthDialog.tsx` (13 literals + 4 hoisted constants;
+// existing `SystemHealthDialog.module.css` extended). Re-measured with this
+// file's own scanner: 296, matching the arithmetic (408 - 112).
+//
+// Etappe 5 bookkeeping (2026-09-23), all measured before/after with this file's
+// own scanner: `(b)` hex in `.tsx` unchanged at 3 files / 17 occurrences (none
+// of the eight migrated files carried a raw hex literal — MetricsDashboard's
+// tile palette had already moved onto the `--color-metric-*`/`--palette-*`
+// tokens in the #568 checkpoint-4 pass, and `create-trace-link-dialog.tsx`'s
+// selected-chip tint already used `--color-on-primary-rgb`); `(b.1)` hex in CSS
+// unchanged at 1 file / 203 occurrences; `(f)` primary fill unchanged at 29 —
+// every new CSS `--color-primary` fill (`MetricsDashboard.module.css` refresh
+// button, `ArchitectureEditors.module.css` reload button,
+// `create-trace-link-dialog.module.css` active tab + selected element row) uses
+// the `background-color` long-hand (same documented precedent as
+// BaselinesView.module.css above), so the shorthand-only `PRIMARY_FILL_PATTERN`
+// stays at 29. MetricsDashboard's help-toggle fill is deliberately NOT in the
+// CSS module: it stays inline as the `helpToggleStyle` computed identifier
+// (documented FINDING), so the CSS-only scanner never sees it and it cannot
+// contribute a `PRIMARY_FILL_PATTERN` hit.
+//
+// Raw-vs-AST reconciliation (unchanged gap of 3): the ratchet counts raw
+// `style={{` text in every non-test `.tsx` under `components/` (296), while the
+// ESLint rule sees only AST object-literal `style` attributes (293 across 49
+// files). The difference is exactly the three `style={{` occurrences that exist
+// only inside comments — `RequirementEditors/RequirementTreeNode.tsx`,
+// `ArchitectureEditors/ArchitectureEditors.tsx` and
+// `WorkspaceSettings/WorkspaceSettings.tsx`. ArchitectureEditors.tsx was
+// migrated in this etappe but its comment hit remains, so the reconciliation is
+// unchanged from Etappe 4.
+//
 // Deliberately NOT part of this pass — the issue's other named hotspots
 // (`RequirementEditors/*`) are still open; the issue calls its 1.015 inline
 // styles a ratchet target, not a big-bang, so this is one bounded slice.
@@ -627,7 +676,7 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // (same documented precedent as `LoginPage.module.css`/`TestRunsList.module.css`
 // above), and `ArtifactDiff.module.css` declares none.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 408;
+const STYLE_BRACE_BASELINE = 296;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

@@ -42,6 +42,7 @@ import { VersionBadge } from "../shared/VersionBadge";
 import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
 import { isArchiveTransition, isDraftState } from "./goal-workflow";
 import type { MainGoal, UUID } from "../../types";
+import styles from "./Goals.module.css";
 
 interface MainGoalPanelProps {
   workspaceId: UUID;
@@ -53,30 +54,6 @@ interface MainGoalPanelProps {
    */
   onActiveChange?: (mainGoal: MainGoal | null) => void;
 }
-
-const sectionStyle: React.CSSProperties = {
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  background: "var(--color-surface-raised)",
-  padding: "var(--space-4)",
-};
-
-const bodyStyle: React.CSSProperties = {
-  margin: 0,
-  maxWidth: "var(--measure)",
-  fontSize: "var(--font-size-base)",
-  lineHeight: "var(--leading-relaxed)",
-  color: "var(--color-text)",
-  whiteSpace: "pre-wrap",
-};
-
-// UI-28: hoisted named style constant for the mock-fallback hint instead of
-// an inline literal (ui-ratchet.test.ts style-brace ceiling).
-const mockFallbackHintStyle: React.CSSProperties = {
-  margin: "0 0 var(--space-2)",
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text-muted)",
-};
 
 export function MainGoalPanel({
   workspaceId,
@@ -295,31 +272,13 @@ export function MainGoalPanel({
     : "";
 
   return (
-    <div data-testid="main-goal-panel" style={sectionStyle}>
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-3)",
-        }}
-      >
-        <h2
-          style={{
-            margin: 0,
-            fontSize: "var(--font-size-xl)",
-            lineHeight: "var(--leading-tight)",
-            letterSpacing: "var(--tracking-tight)",
-            fontWeight: "var(--weight-semibold)",
-            color: "var(--color-text)",
-          }}
-        >
+    <div data-testid="main-goal-panel" className={styles.mainGoalPanel}>
+      <div className={styles.mainGoalHeader}>
+        <h2 className={styles.mainGoalTitle}>
           {t("goals.mainGoal", "Haupt-Ziel")}
         </h2>
         {current && (
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          <div className={styles.identityRow}>
             <StatusBadge status={current.status} testId="main-goal-status" />
             <VersionBadge version={current.sequence_number} hideWhenFirst />
           </div>
@@ -330,39 +289,20 @@ export function MainGoalPanel({
         <p
           data-testid="main-goal-error"
           role="alert"
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-            marginTop: 0,
-          }}
+          className={styles.mainGoalError}
         >
           {error}
         </p>
       )}
 
       {current ? (
-        <p style={bodyStyle}>{current.content}</p>
+        <p className={styles.mainGoalBody}>{current.content}</p>
       ) : (
         <div data-testid="main-goal-empty">
-          <p
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: "var(--weight-semibold)",
-              color: "var(--color-text)",
-            }}
-          >
+          <p className={styles.mainGoalEmptyTitle}>
             {t("goals.mainGoalNone", "Noch kein Haupt-Ziel freigegeben.")}
           </p>
-          <p
-            style={{
-              margin: "var(--space-2) 0 0",
-              maxWidth: "var(--measure)",
-              fontSize: "var(--font-size-sm)",
-              lineHeight: "var(--leading-normal)",
-              color: "var(--color-text-muted)",
-            }}
-          >
+          <p className={styles.mainGoalEmptyHint}>
             {t(
               "goals.mainGoalNoneHint",
               "Das Haupt-Ziel fasst die freigegebenen Ziele des Workspace zusammen.",
@@ -371,14 +311,7 @@ export function MainGoalPanel({
         </div>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "var(--space-2)",
-          marginTop: "var(--space-4)",
-        }}
-      >
+      <div className={styles.mainGoalActions}>
         <button
           type="button"
           className="btn-secondary"
@@ -439,20 +372,11 @@ export function MainGoalPanel({
             e.preventDefault();
             void handleCreateManual();
           }}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-2)",
-            marginTop: "var(--space-3)",
-          }}
+          className={styles.mainGoalManualForm}
         >
           <label
             htmlFor="main-goal-manual"
-            style={{
-              fontSize: "var(--font-size-sm)",
-              fontWeight: "var(--weight-semibold)",
-              color: "var(--color-text)",
-            }}
+            className={styles.mainGoalManualLabel}
           >
             {t("goals.manualPlaceholder", "Haupt-Ziel")}
           </label>
@@ -462,19 +386,9 @@ export function MainGoalPanel({
             value={manualContent}
             rows={5}
             onChange={(e) => setManualContent(e.target.value)}
-            style={{
-              padding: "var(--space-2) var(--space-3)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--color-border)",
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-              fontFamily: "var(--font-sans)",
-              fontSize: "var(--font-size-sm)",
-              lineHeight: "var(--leading-normal)",
-              resize: "vertical",
-            }}
+            className={styles.mainGoalManualTextarea}
           />
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div className={styles.mainGoalManualActions}>
             <button
               type="submit"
               className="btn-primary"
@@ -489,22 +403,9 @@ export function MainGoalPanel({
       {draft && (
         <div
           data-testid="main-goal-draft"
-          style={{
-            marginTop: "var(--space-4)",
-            padding: "var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: "1px dashed var(--color-border-hover)",
-            background: "var(--color-surface)",
-          }}
+          className={styles.mainGoalDraft}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-              marginBottom: "var(--space-2)",
-            }}
-          >
+          <div className={styles.mainGoalDraftHeader}>
             <StatusBadge status={draft.status} testId="main-goal-draft-status" />
             <VersionBadge version={draft.sequence_number} hideWhenFirst />
           </div>
@@ -517,7 +418,7 @@ export function MainGoalPanel({
             <p
               data-testid="main-goal-mock-fallback"
               role="status"
-              style={mockFallbackHintStyle}
+              className={styles.mainGoalMockFallback}
             >
               {t(
                 "goals.mockFallback",
@@ -525,12 +426,11 @@ export function MainGoalPanel({
               )}
             </p>
           )}
-          <p style={bodyStyle}>{draft.content}</p>
+          <p className={styles.mainGoalBody}>{draft.content}</p>
           <button
             type="button"
-            className="btn-primary"
+            className={"btn-primary " + styles.mainGoalApprove}
             data-testid="main-goal-approve-button"
-            style={{ marginTop: "var(--space-3)" }}
             onClick={() => void handleApprove(draft.id)}
           >
             {t("goals.approve", "Freigeben")}

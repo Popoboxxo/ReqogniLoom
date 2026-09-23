@@ -34,6 +34,7 @@ import { useLinkTypes } from '../../../context/LinkTypeContext';
 import { Dialog } from '../Dialog';
 import { LinkTypeListbox } from './link-type-listbox';
 import type { LinkType } from '../../../types';
+import styles from './create-trace-link-dialog.module.css';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,74 +84,6 @@ export interface CreateTraceLinkDialogProps {
   /** Optional: pre-selected link type (defaults to "derives-from"). */
   defaultLinkType?: LinkType;
 }
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const bodyStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 'var(--space-3)',
-};
-
-const footerStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'flex-end',
-  gap: 'var(--space-2)',
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: 'var(--space-2) var(--space-3)',
-  borderRadius: 'var(--radius-md)',
-  border: '1px solid var(--color-border)',
-  fontSize: 'var(--font-size-sm)',
-  background: 'var(--color-surface)',
-  color: 'var(--color-text)',
-  boxSizing: 'border-box',
-  fontFamily: 'var(--font-sans)',
-};
-
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  display: 'block',
-  marginBottom: 'var(--space-1)',
-  color: 'var(--color-text)',
-  fontSize: 'var(--font-size-sm)',
-};
-
-// A named const, not an inline object literal, on purpose: the frozen
-// ratchet baseline in src/test/ui-ratchet.test.ts caps new inline-style
-// object literals used directly in a `style=` prop.
-const noTypesHintStyle: React.CSSProperties = {
-  margin: 'var(--space-1) 0 0',
-  color: 'var(--color-text-muted)',
-  fontSize: 'var(--font-size-sm)',
-};
-
-/** Reset default <fieldset> chrome so it matches the plain label+block look
- * used elsewhere in this dialog, while keeping the native grouping semantics
- * (fieldset/legend) that associate the "Source"/"Target" caption with the
- * whole composite picker (search + type tabs + list) for assistive tech. */
-const fieldsetStyle: React.CSSProperties = {
-  border: 'none',
-  margin: 0,
-  padding: 0,
-};
-
-const legendStyle: React.CSSProperties = {
-  ...labelStyle,
-  padding: 0,
-};
-
-const elementListStyle: React.CSSProperties = {
-  maxHeight: '200px',
-  overflowY: 'auto',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-md)',
-  background: 'var(--color-surface)',
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -232,7 +165,7 @@ function ElementPicker({
   }, [elements, typeFilter, search]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+    <div className={styles.pickerColumn}>
       {/* Search input */}
       <input
         type="text"
@@ -240,7 +173,7 @@ function ElementPicker({
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder={t('createTraceLinkDialog.searchPlaceholder', 'Filter by title…')}
-        style={inputStyle}
+        className={styles.input}
         aria-label={t('createTraceLinkDialog.searchLabel', 'Search elements')}
       />
 
@@ -249,7 +182,7 @@ function ElementPicker({
         <div
           role="group"
           aria-label={t('createTraceLinkDialog.typeFilterLabel', 'Filter by type')}
-          style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}
+          className={styles.typeTabs}
         >
           {visibleTypeFilters.map((key) => (
             <button
@@ -257,16 +190,11 @@ function ElementPicker({
               type="button"
               data-testid={`${testIdPrefix}-type-${key}`}
               onClick={() => setTypeFilter(key)}
-              style={{
-                padding: '2px var(--space-3)',
-                fontSize: 'var(--font-size-sm)',
-                borderRadius: 'var(--radius-full)',
-                border: '1px solid var(--color-border)',
-                cursor: 'pointer',
-                background: typeFilter === key ? 'var(--color-primary)' : 'var(--color-surface)',
-                color: typeFilter === key ? 'var(--color-on-primary)' : 'var(--color-text)',
-                fontWeight: typeFilter === key ? 600 : 400,
-              }}
+              className={
+                styles.typeTab +
+                ' ' +
+                (typeFilter === key ? styles.typeTabActive : styles.typeTabInactive)
+              }
             >
               {t(TYPE_LABEL_KEYS[key], TYPE_DISPLAY_LABELS[key])}
             </button>
@@ -275,62 +203,55 @@ function ElementPicker({
       )}
 
       {/* Element list */}
-      <div data-testid={`${testIdPrefix}-list`} style={elementListStyle}>
+      <div data-testid={`${testIdPrefix}-list`} className={styles.elementList}>
         {isLoading ? (
           <p
             role="status"
-            style={{ margin: 0, padding: 'var(--space-3)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}
+            className={styles.listStatus}
           >
             {t('loading', 'Loading…')}
           </p>
         ) : filtered.length === 0 ? (
           <p
             data-testid={`${testIdPrefix}-empty`}
-            style={{ margin: 0, padding: 'var(--space-3)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}
+            className={styles.listStatus}
           >
             {search.trim()
               ? t('editor.noMatches', 'No matches found.')
               : t('traceability.noArtifacts', 'No artifacts available.')}
           </p>
         ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          <ul className={styles.list}>
             {filtered.map((el) => {
               const isSelected = el.id === selectedId;
               return (
-                <li key={el.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <li key={el.id} className={styles.listItem}>
                   <button
                     type="button"
                     data-testid={`${testIdPrefix}-element-${el.id}`}
                     onClick={() => onSelect(el.id)}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--space-2)',
-                      padding: 'var(--space-2) var(--space-3)',
-                      background: isSelected ? 'var(--color-primary)' : 'transparent',
-                      color: isSelected ? 'var(--color-on-primary)' : 'var(--color-text)',
-                      border: 'none',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      fontSize: 'var(--font-size-sm)',
-                    }}
+                    className={
+                      styles.elementButton +
+                      ' ' +
+                      (isSelected
+                        ? styles.elementButtonSelected
+                        : styles.elementButtonUnselected)
+                    }
                   >
                     <span
-                      style={{
-                        fontSize: '0.7rem',
-                        background: isSelected ? 'rgba(var(--color-on-primary-rgb), 0.25)' : 'var(--color-badge-draft)',
-                        color: isSelected ? 'var(--color-on-primary)' : 'var(--color-badge-draft-text)',
-                        padding: '1px 6px',
-                        borderRadius: 'var(--radius-full)',
-                        flexShrink: 0,
-                      }}
+                      className={
+                        styles.typeBadge +
+                        ' ' +
+                        (isSelected
+                          ? styles.typeBadgeSelected
+                          : styles.typeBadgeUnselected)
+                      }
                     >
                       {TYPE_DISPLAY_LABELS[el.artifactType]}
                     </span>
                     <span
                       data-testid={`${testIdPrefix}-title-${el.id}`}
-                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      className={styles.elementTitle}
                     >
                       {el.title}
                     </span>
@@ -603,7 +524,7 @@ export function CreateTraceLinkDialog({
       size="md"
       testId="create-trace-link-dialog"
       footer={
-        <div style={footerStyle}>
+        <div className={styles.footer}>
           <button
             type="button"
             data-testid="create-trace-link-cancel"
@@ -633,16 +554,16 @@ export function CreateTraceLinkDialog({
         </div>
       }
     >
-      <form id={formId} onSubmit={(e) => void handleSubmit(e)} style={bodyStyle}>
+      <form id={formId} onSubmit={(e) => void handleSubmit(e)} className={styles.body}>
         {/* Source picker — only shown in global mode (no fixed sourceId).
             #53 Bug 2: uses the same searchable ElementPicker as the target
             list instead of a plain unfiltered <select>, for a consistent
             pattern on both sides of the dialog. */}
         {isGlobalMode && (
-          <fieldset style={fieldsetStyle}>
-            <legend style={legendStyle}>
+          <fieldset className={styles.fieldset}>
+            <legend className={styles.legend}>
               {t('traceability.source', 'Source')}{' '}
-              <span style={{ color: 'var(--color-danger)' }}>*</span>
+              <span className={styles.requiredMark}>*</span>
             </legend>
             <ElementPicker
               elements={sourceElements}
@@ -660,10 +581,10 @@ export function CreateTraceLinkDialog({
         )}
 
         {/* Target picker with search */}
-        <fieldset style={fieldsetStyle}>
-          <legend style={legendStyle}>
+        <fieldset className={styles.fieldset}>
+          <legend className={styles.legend}>
             {t('traceability.target', 'Target')}{' '}
-            <span style={{ color: 'var(--color-danger)' }}>*</span>
+            <span className={styles.requiredMark}>*</span>
           </legend>
           <ElementPicker
             elements={targetElements}
@@ -682,7 +603,7 @@ export function CreateTraceLinkDialog({
             React handler, which also makes the Create button's enabled
             state deterministic. */}
         <div>
-          <span id={linkTypeLabelId} style={labelStyle}>
+          <span id={linkTypeLabelId} className={styles.label}>
             {t('traceability.linkType', 'Link Type')}
           </span>
           <LinkTypeListbox
@@ -701,7 +622,7 @@ export function CreateTraceLinkDialog({
             disabled={isSubmitting}
           />
           {availableLinkTypes.length === 0 && (
-            <p id={linkTypeHintId} data-testid="create-trace-link-no-types" style={noTypesHintStyle}>
+            <p id={linkTypeHintId} data-testid="create-trace-link-no-types" className={styles.noTypesHint}>
               {t(
                 'traceability.noLinkTypeForPair',
                 'No link type in this workspace connects these two artifact types.',
@@ -715,7 +636,7 @@ export function CreateTraceLinkDialog({
           <p
             role="alert"
             data-testid="create-trace-link-error"
-            style={{ margin: 0, color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)' }}
+            className={styles.errorText}
           >
             {submitError}
           </p>

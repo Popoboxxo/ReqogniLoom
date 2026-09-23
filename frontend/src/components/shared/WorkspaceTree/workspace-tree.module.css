@@ -33,8 +33,31 @@
  * three states are mutually exclusive classes.
  */
 .treeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 32px;
+  padding: 4px 8px;
+  /* Depth indent — the per-row `--tree-depth` custom property is still set
+     inline (see the file header below), because depth is an unbounded,
+     per-instance value that cannot be expressed as a fixed class. */
+  padding-left: calc(8px + var(--tree-depth, 0) * 16px);
   border-left: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  color: var(--color-text);
+  box-sizing: border-box;
   transition: background var(--transition-fast);
+}
+
+/*
+ * Task 3.1: a `renderRow` override (e.g. <ArtifactRow>) owns its own vertical
+ * rhythm, so the row keeps only the horizontal padding + depth indent.
+ */
+.treeRowCustom {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .treeRowHoverable:hover {
@@ -113,4 +136,146 @@
   width: 16px;
   height: 1px;
   background: var(--color-border);
+}
+
+/*
+ * --- Issue #876 (Etappe 5): inline-style migration -----------------------
+ *
+ * The tree's 12 static inline `style={{...}}` literals were migrated here so
+ * the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`32px`/`16px`/`18px` boxes, the
+ * `4px 8px` padding, the `0.65rem`/`0.9rem` glyph sizes, the `70vh` cap and
+ * the `2px` list gap) stay literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the expand toggle's colour (`...Active` / `...Inactive`) and its
+ *     rotation (`...Expanded` / `...Collapsed`),
+ *   - the node name's selected weight (`...Selected` / `...Unselected`).
+ *
+ * Two genuinely per-instance values stay on the `style` prop as *computed
+ * identifiers* (never `style={{...}}` object literals, so neither the ESLint
+ * rule nor the raw-text ratchet sees them), because they are unbounded and
+ * cannot be frozen into a class:
+ *   1. `--tree-depth` on each row `<li>` — the depth is a runtime integer the
+ *      connector lines (`--tree-depth` above) and the indent depend on; this
+ *      is the documented structural inline token in
+ *      `src/test/design-tokens.test.ts`.
+ *   2. the virtualized `<ul>`'s `height`, set from
+ *      `rowVirtualizer.getTotalSize()` (REQ-091) — a measured pixel value.
+ * The virtualizer's per-row `transform` offset is likewise merged into the
+ * row's computed style object.
+ */
+
+.treeRoot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.searchInput {
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+  width: 100%;
+  outline: none;
+}
+
+.emptyText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.scrollHost {
+  overflow-y: auto;
+  max-height: 70vh;
+}
+
+.treeList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.treeListVirtual {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  position: relative;
+}
+
+.toggle {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.65rem;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.toggleActive {
+  color: var(--color-primary);
+}
+
+.toggleInactive {
+  color: var(--color-text-muted);
+}
+
+.toggleExpanded {
+  transform: rotate(90deg);
+}
+
+.toggleCollapsed {
+  transform: rotate(0deg);
+}
+
+.toggleSpacer {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.nodeName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+
+.nodeNameSelected {
+  font-weight: 600;
+}
+
+.nodeNameUnselected {
+  font-weight: 400;
+}
+
+.addChildButton {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
 }
