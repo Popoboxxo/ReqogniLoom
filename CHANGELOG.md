@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0-beta.15] — 2026-09-23
+
+### Added
+- **Validation as a first-class pillar (PR #1035; #399, #402, #424, #272):** TestCases now carry provenance — `origin` (`manual` | `ai_generated`) and `reviewed`, written exclusively through `POST /api/v1/testcases/{id}/review/` — and one shared `counts_as_verification_evidence` predicate makes coverage, precondition rule 6 and VERIF-P8 ignore an unreviewed AI-generated TestCase, so an AI draft can no longer produce a false green. `goals_enabled` now defaults to `true` and the Extended-only VAL-P1 rule requires every active StakeholderNeed to satisfy at least one active Goal (doubly gated, advisory, never able to block a baseline build). Editing a baselined artifact records drift instead of failing: `GET /api/v1/artifacts/{id}/baseline-membership/`, an additive `baseline_drift` summary on retrieve and an `affected_item_ids` change-request prefill. The requirement→test coverage report (`GET /api/v1/requirements/coverage-report/`) gains `pending_ai_review` and `scenario_kind`, `verification_method` joins the Extended approval gate, and a manual trace link to a soft-deleted endpoint is refused (system writers unaffected)
+- **SE-auditor finding waivers and suppression (PR #1037; #569):** findings get a stable `finding_key`, a `BaselineGateWaiver` entity with optional `expires_at` (migration 0009) and scope-aware matching with decision-time expiry. REST exposes `POST`/`GET /api/v1/workspaces/<id>/audit/waivers/` plus a strict `include_suppressed` filter on `GET .../audit/`; MCP adds `audit.waive_finding` (write, ADMIN tier) and `audit.waivers` (read, approval authority) with the dedicated error codes `-32008`/`-32009`/`-32010`. The SPA gains the third per-finding action *Waive* (justification required), a show-suppressed filter, a suppressed badge and a waivers panel that keeps expired waivers distinguishable from active ones
+- **Empty-state create guidance (PR #1039; #27, #28, #29):** the ICD list, the custom-fields editor and the trace-link panel now explain how to create the first item instead of rendering an unexplained blank area (DE/EN parity)
+
+### Fixed
+- **TRACE-P1 no longer goes silent on a cyclic hierarchy (PR #1030; #1021):** the traceability rule reports on cyclic hierarchies again instead of producing an empty result
+- **Embedding dimensions in image deployments (PR #1029; #1018, #1019):** shared embedding-column catalog introspection, an idempotent `align_embedding_dimensions` management command applied by `honcho-migrate`, and a dimension-mismatch signal surfaced on `/health/`; `deploy/README.md` documents the resize path for image deployments
+- **`seed_demo` bootstraps attribute definitions (PR #1038; #29):** a database populated only through `seed_demo` no longer has zero global attribute definitions — the same shared bootstrap step as `self_init` is reused, and the idempotency regression now compares a canonical content signature (attribute and workflow definitions, versions) instead of row counts alone
+- **Accessible trace-link dropdown (PR #1033; #318, #876):** the trace-link type dropdown is keyboard-accessible and migrated onto design tokens
+- **bluepencil browser assets re-vendored to alpha.2 (PR #1032; #988):** vendoring only, byte-identical and SHA-256-pinned
+
+### Changed
+- **No static inline styles left in the SPA (PRs #1040–#1047; #876):** a new `local/no-static-inline-style` rule at error level closed the gap that the colour rule and the `STYLE_BRACE` ratchet left open (a new non-colour inline style passed both), and the seven follow-up stages migrated every remaining carrier onto co-located CSS modules. `STYLE_BRACE_BASELINE` dropped 705 → 3 (all three comment-only) and the frozen exemption list went 70 → 0, so the rule now guards all of `src`
+- **E2E hardening and tenant predicates (PR #1034; #947, #433):** the waterkettle fixture is idempotent (the created diagram/ICD ids are returned, so the cleanup loops are no longer dead code), generic selectors and an always-true version assertion were removed, and the explicit `tenant_id` defence-in-depth predicate in the architecture-tree bundle gained a mutation-probed regression test
+- **Frontend build artifacts ignored (PR #1036):** `frontend/tsconfig*.tsbuildinfo` and `frontend/vite.config.{js,d.ts}` are no longer tracked working-tree noise
+
 ## [1.8.0-beta.14] — 2026-09-21
 
 ### Added

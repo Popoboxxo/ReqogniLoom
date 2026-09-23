@@ -1,7 +1,7 @@
 ---
 type: STRATEGY
 scope: Release v1.8.0-beta.14
-status: in-progress
+status: done
 date: 2026-09-21
 author_agent: release
 ---
@@ -130,46 +130,49 @@ angewendet: 12 Dateien / 22 Zeilen):
 
 ## 7. CI-Gates
 
-> **Nach Merge nachzutragen.** Dieser Abschnitt wird vom Release-Owner mit den
-> realen Ergebnissen des Vorbereitungs-PR gefüllt; die Werte unten sind die zu
-> erwartenden Gates, nicht die gemessenen.
+> **Nachgetragen** (Abschluss des Berichts am 2026-09-23): die realen Ergebnisse
+> des Vorbereitungs-PR #1028.
 
 | Gate | Ergebnis |
 |---|---|
-| Conventional-Commits-Check | nach Merge nachzutragen |
-| Backend pytest (`backend-test` set-1..4) | nach Merge nachzutragen |
-| Frontend vitest (`frontend-test`) | nach Merge nachzutragen |
-| E2E (`e2e` 1..4, Playwright/Chromium) | nach Merge nachzutragen |
-| Lint | nach Merge nachzutragen |
-| Agent-Templates / `dist` / Hermes-Plugin | nach Merge nachzutragen |
-| Docker-Build (`docker-publish`) | nach Merge nachzutragen |
-| Vorbereitungs-PR `chore/release-v1.8.0-beta.14` | nach Merge nachzutragen |
+| Conventional-Commits-Check | **pass** |
+| Backend pytest (`backend-test` set-1..4) | **pass** (set-1-core 8m54s, set-2-api 7m23s, set-3-mcp 6m29s, set-4-features 4m52s) |
+| Frontend vitest (`frontend-test`) | **pass** (3m12s) |
+| E2E (`e2e` 1..4, Playwright/Chromium) | **pass** (10m26s / 8m18s / 10m45s / 13m7s) |
+| Lint | **pass** (35s) |
+| Agent-Templates / `dist` / Hermes-Plugin | **pass** (Agent Templates 15s, Hermes IDE Plugin 23s) |
+| Backend Requirements Drift Check | **pass** (8s) |
+| Vorbereitungs-PR `chore/release-v1.8.0-beta.14` (**#1028**) | **13/13 grün** (0 fail) |
 
 ## 8. Tag & GitHub-Pre-Release
 
-> **Nach Merge nachzutragen.**
-
 | Schritt | Ergebnis |
 |---|---|
-| Merge des Vorbereitungs-PR → `main` | nach Merge nachzutragen |
-| Annotierter Tag `v1.8.0-beta.14` | nach Merge nachzutragen |
-| GitHub **Pre-Release** (`prerelease=true`) | nach Merge nachzutragen |
-| `Docker Publish (GHCR)` — `…-backend:1.8.0-beta.14` + `…-frontend:1.8.0-beta.14` | nach Merge nachzutragen |
+| Merge des Vorbereitungs-PR → `main` | PR **#1028** gemergt am `2026-09-21T10:53:45+02:00` → Commit `e11140d6` (`release: v1.8.0-beta.14 test plan for external testers + release prep (#1028)`) |
+| Annotierter Tag `v1.8.0-beta.14` (Tag-Objekt `1e7fef63`) | gesetzt auf `e11140d6`, **Tag-Zeit `2026-09-21T10:56:35+02:00`** |
+| GitHub **Pre-Release** (`prerelease=true`) | https://github.com/Popoboxxo/ReqogniLoom/releases/tag/v1.8.0-beta.14 (publiziert `2026-09-21T08:57:02Z`) |
+| `Docker Publish (GHCR)` — `…-backend:1.8.0-beta.14` + `…-frontend:1.8.0-beta.14` | Run `35580536116` **success** (`2026-09-21T08:56:38Z` → `2026-09-21T09:02:27Z`); beide GHCR-Tags `1.8.0-beta.14` am Package verifiziert |
 
 ## 9. Nachtrag (Auslieferung)
 
-**In diesem Branch NICHT ausgeliefert.** Tag `v1.8.0-beta.14`, GitHub
-Pre-Release (`prerelease=true`) und der GHCR-Publish der Images
-`1.8.0-beta.14` (backend + frontend) werden vom Release-Owner **nach dem Merge**
-dieses Vorbereitungs-PR durchgeführt und anschließend in Abschnitt 7 und 8
-nachgetragen. Dieser Bericht steht daher auf `status: in-progress`.
+**Abgeschlossen.** `APP_VERSION` wird beim gestempelten Build aus `VERSION`
+(`1.8.0-beta.14`) gesetzt; die GHCR-Tags `1.8.0-beta.14` sind für Backend und
+Frontend veröffentlicht. Ein Rollback auf `v1.8.0-beta.13` ist über den Tag plus
+die Compose-Variable `REQOGNILOOM_VERSION` möglich.
+
+> **Hinweis zur Nachführung:** Dieser Bericht stand seit dem Merge auf
+> `status: in-progress`, obwohl Tag, Pre-Release und GHCR-Publish bereits
+> erfolgt waren. Abschnitte 7–9 wurden im Rahmen der Vorbereitung von
+> `v1.8.0-beta.15` nachgetragen (Commit auf Branch
+> `chore/release-v1.8.0-beta.15`).
 
 ### Bekannte Punkte / Follow-ups
 
-- **`.env.example` (ca. Zeile 293) benennt das MCP-Tool `memory_forget`
+- **`.env.example` (Zeile 314) benennt das MCP-Tool `memory_forget`
   (Unterstrich), während der reale Tool-Name `memory.forget` (Punkt) lautet.**
   Rein dokumentarischer Defekt; **nicht** in diesem Branch behoben und als
-  nicht-blockierender Follow-up geführt.
+  nicht-blockierender Follow-up geführt. **Stand 2026-09-23 weiterhin offen**
+  (im beta.15-Bericht erneut vermerkt).
 - **Externer Testplan:** Der manuelle Testplan zu diesem Release liegt als
   `docs/se/reports/TESTPLAN_v1.8.0-beta.14.md` (Hand-off-Commit `0fe67bd1`) und
   ist nicht Teil dieses Berichts.
