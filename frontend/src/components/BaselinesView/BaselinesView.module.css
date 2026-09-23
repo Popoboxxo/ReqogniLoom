@@ -1,10 +1,34 @@
 /*
- * BaselinesView — static (non-dynamic) styles extracted from the override
- * panel's inline style={{...}} blocks (PR #554 review finding B1, UI
- * ratchet ui-ratchet.test.ts). Values reference styles/tokens.css custom
- * properties exclusively; the button's disabled-dependent cursor/opacity
- * stay expressed as a second, mutually-exclusive class (same pattern as
- * BaselinesPanels.module.css's compareRunBtnEnabled/Disabled).
+ * BaselinesView — styles.
+ *
+ * Originally the override panel's static styles (PR #554 review finding B1,
+ * UI ratchet ui-ratchet.test.ts); the button's disabled-dependent
+ * cursor/opacity stay expressed as a second, mutually-exclusive class (same
+ * pattern as BaselinesPanels.module.css's compareRunBtnEnabled/Disabled).
+ *
+ * Issue #876 (Etappe 2): the remaining 29 static inline `style={{...}}`
+ * literals and the 5 hoisted `React.CSSProperties` constants of
+ * BaselinesView.tsx were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`max-width: 480px/560px/640px`,
+ * `grid-template-columns: 160px 1fr`, `letter-spacing: 0.05em`,
+ * `font-family: monospace`, the `700` weight and the `1px` border width) stay
+ * literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the selected list row and the scope-count error colour use a base class
+ *     plus a conditional modifier (`styles.x` + `styles.xSelected` /
+ *     `styles.xError`), exactly like TestRunsList.module.css's
+ *     `.item`/`.itemSelected`;
+ *   - the submit button's disabled cursor/opacity use the mutually-exclusive
+ *     `...Enabled`/`...Disabled` pair, mirroring `overrideSubmitBtn*` above.
+ *
+ * The two `--color-primary` fills use the `background-color` long-hand rather
+ * than the `background` shorthand: identical rendering (no other background-*
+ * property is set) and it keeps the `(f)` primary-fill ratchet
+ * (`ui-ratchet.test.ts`, `PRIMARY_FILL_PATTERN` matches the shorthand only)
+ * from moving — same precedent as the migrated TestRuns modules.
  */
 
 .overridePanel {
@@ -58,4 +82,260 @@
 .overrideSubmitBtnDisabled {
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+/* --- Issue #876 (Etappe 2): page shell + loading/error states ----------- */
+
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+}
+
+.content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.loadingText {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  padding: var(--space-6);
+}
+
+.errorPanel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-card);
+  max-width: 480px;
+}
+
+.errorText {
+  color: var(--color-danger);
+  margin: 0;
+}
+
+.reloadBtn {
+  margin-top: var(--space-4);
+  background-color: var(--color-primary);
+  color: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+
+/* --- Baseline list ----------------------------------------------------- */
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.listItem {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.listItemSelected {
+  background: var(--color-surface-raised);
+  border-color: var(--color-primary);
+}
+
+.listItemName {
+  display: block;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.listItemMeta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* --- Create form ------------------------------------------------------- */
+
+.createPanel {
+  max-width: 560px;
+}
+
+.createHeading {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+  color: var(--color-text);
+}
+
+.formLabel {
+  display: block;
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+}
+
+.formInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: var(--font-size-base);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.formHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-1) 0 var(--space-4) 0;
+}
+
+.scopeGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.scopeOption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.scopeCount {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.scopeCountError {
+  color: var(--color-danger);
+}
+
+.artifactSelect {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: var(--font-size-base);
+  margin-bottom: var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.formError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.formActions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.submitBtn {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-6);
+  font-size: var(--font-size-sm);
+}
+
+.submitBtnEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.submitBtnDisabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.cancelBtn {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-6);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* --- Baseline detail --------------------------------------------------- */
+
+.detailPanel {
+  max-width: 640px;
+}
+
+.detailTitle {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text);
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  row-gap: var(--space-3);
+  column-gap: var(--space-4);
+  margin: 0;
+  margin-bottom: var(--space-6);
+}
+
+.detailTerm {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.detailValue {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  word-break: break-all;
+}
+
+.mono {
+  font-family: monospace;
+}
+
+.deleteBtn {
+  background: var(--color-danger);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  font-family: var(--font-sans);
+}
+
+.selectPrompt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  padding: var(--space-8);
+  text-align: center;
 }

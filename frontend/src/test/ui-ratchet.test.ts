@@ -532,6 +532,13 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // dropping both entries from the ESLint exemption list. Re-measured with this
 // file's own scanner: 653, matching the arithmetic (705 - 52).
 //
+// Issue #876 Etappe 2 (2026-09-23): `BaselinesView/BaselinesView.tsx`
+// (29 literals + 5 hoisted constants) and `ArtifactDiff/ArtifactDiff.tsx`
+// (28 literals + 4 hoisted constants) migrated onto co-located CSS Modules
+// (`BaselinesView.module.css` extended, new `ArtifactDiff.module.css`),
+// dropping both entries from the ESLint exemption list. Re-measured with this
+// file's own scanner: 596, matching the arithmetic (653 - 57).
+//
 // Deliberately NOT part of this pass — the issue's other named hotspots
 // (`RequirementEditors/*`) are still open; the issue calls its 1.015 inline
 // styles a ratchet target, not a big-bang, so this is one bounded slice.
@@ -558,8 +565,18 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 //     only, so those two do not move this ceiling: the count stays 29 for regex
 //     reasons, not because the duplication is gone. "Normalising" their
 //     long-hands to `background:` would drive `(f)` to 31.
+//
+// Etappe 2 bookkeeping (2026-09-23), all measured before/after with this file's
+// own scanner: `(b)` hex in `.tsx` unchanged at 3 files / 17 occurrences
+// (neither migrated file carried a raw hex literal — ArtifactDiff's diff
+// colours already moved onto `--color-diff-*` tokens in the multi-palette
+// Phase 2, Checkpoint 3 pass); `(b.1)` hex in CSS unchanged at 1 file / 203
+// occurrences; `(f)` primary fill unchanged at 29 — the two `--color-primary`
+// fills in `BaselinesView.module.css` use the `background-color` long-hand
+// (same documented precedent as `LoginPage.module.css`/`TestRunsList.module.css`
+// above), and `ArtifactDiff.module.css` declares none.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 653;
+const STYLE_BRACE_BASELINE = 596;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
