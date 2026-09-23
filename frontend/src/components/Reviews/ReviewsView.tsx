@@ -50,6 +50,7 @@ import { useReviewsData, type ReviewQueueMode } from "./useReviewsData";
 import { SignatureDialog } from "./SignatureDialog";
 import { ReviewHistoryPanel } from "./ReviewHistoryPanel";
 import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
+import styles from "./ReviewsView.module.css";
 
 // UI-34 (Systemaudit 2026-08-27 AP-5): the queue rendered every loaded item
 // in one unbounded `<ul>` with no pagination controls at all. This paginates
@@ -58,27 +59,6 @@ import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
 // fetched per page from the backend — see the caveat on `PAGE_SIZE` in the
 // component below.
 const REVIEWS_PAGE_SIZE = 20;
-
-// UI-34: hoisted named style constants for the pagination row instead of
-// inline literals (ui-ratchet.test.ts style-brace ceiling).
-const paginationRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "var(--space-3)",
-  marginTop: "var(--space-3)",
-};
-// Task 20: hoisted named style for the proposals-mode row (checkbox + button)
-// instead of an inline literal (ui-ratchet.test.ts style-brace ceiling).
-const reviewRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-};
-const paginationIndicatorStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-};
 
 type ReviewTab = "details" | "history";
 
@@ -486,17 +466,10 @@ export default function ReviewsView({
 
   const listPanel = (
     <div data-testid="reviews-list">
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-2)",
-        }}
-      >
+      <div className={styles.typeRow}>
         <label
           htmlFor="reviews-type-select"
-          style={{ fontWeight: 600, fontSize: "var(--font-size-sm)" }}
+          className={styles.typeLabel}
         >
           {t("reviews.typeLabel", "Type")}
         </label>
@@ -507,19 +480,7 @@ export default function ReviewsView({
           onChange={(e) =>
             handleTypeChange(e.target.value as WorkflowArtifactType)
           }
-          style={{
-            height: "32px",
-            flex: "1 1 0",
-            minWidth: 0,
-            borderRadius: "var(--radius-sm)",
-            border: "1px solid var(--color-border)",
-            padding: "0 var(--space-2)",
-            fontSize: "var(--font-size-sm)",
-            fontFamily: "inherit",
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
-            boxSizing: "border-box",
-          }}
+          className={styles.typeSelect}
         >
           {ARTIFACT_TYPE_OPTIONS.map((type) => (
             <option key={type} value={type}>
@@ -579,26 +540,26 @@ export default function ReviewsView({
       />
 
       {isLoading && (
-        <p role="status" style={{ color: "var(--color-text-muted)" }}>
+        <p role="status" className={styles.mutedText}>
           {t("loading")}
         </p>
       )}
 
       {error && (
-        <p role="alert" data-testid="reviews-list-error" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" data-testid="reviews-list-error" className={styles.errorText}>
           {error}
         </p>
       )}
 
       {!isLoading && !error && filtered.length === 0 && (
-        <p data-testid="reviews-empty" style={{ color: "var(--color-text-muted)" }}>
+        <p data-testid="reviews-empty" className={styles.mutedText}>
           {t("reviews.empty", "No requirements pending review.")}
         </p>
       )}
 
-      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+      <ul className={styles.reviewList}>
         {paged.map((r) => (
-          <li key={r.id} style={reviewRowStyle}>
+          <li key={r.id} className={styles.reviewRow}>
             {queueMode === "proposals" && (
               <input
                 type="checkbox"
@@ -618,25 +579,15 @@ export default function ReviewsView({
               type="button"
               data-testid={`review-list-item-${r.id}`}
               onClick={() => handleSelect(r.id)}
-              style={{
-                width: "100%",
-                flex: "1 1 0",
-                minWidth: 0,
-                textAlign: "left",
-                padding: "var(--space-2) var(--space-3)",
-                marginBottom: "var(--space-1)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                background:
-                  r.id === selectedId
-                    ? "var(--color-card-active-bg)"
-                    : "var(--color-surface)",
-                cursor: "pointer",
-              }}
+              className={`${styles.reviewItem} ${
+                r.id === selectedId
+                  ? styles.reviewItemSelected
+                  : styles.reviewItemUnselected
+              }`}
             >
-              <div style={{ fontWeight: 600 }}>{r.title}</div>
+              <div className={styles.reviewItemTitle}>{r.title}</div>
               {r.uid && (
-                <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                <div className={styles.reviewItemUid}>
                   {r.uid}
                 </div>
               )}
@@ -648,7 +599,7 @@ export default function ReviewsView({
       {filtered.length > REVIEWS_PAGE_SIZE && (
         <div
           data-testid="reviews-pagination"
-          style={paginationRowStyle}
+          className={styles.paginationRow}
         >
           <button
             type="button"
@@ -659,7 +610,7 @@ export default function ReviewsView({
           >
             {t("actions.previous", "Previous")}
           </button>
-          <span style={paginationIndicatorStyle}>
+          <span className={styles.paginationIndicator}>
             {t("reviews.pageIndicator", {
               page: clampedPage,
               totalPages,
@@ -681,12 +632,12 @@ export default function ReviewsView({
   );
 
   const detailPanel = !selected ? (
-    <p data-testid="review-detail-empty" style={{ color: "var(--color-text-muted)" }}>
+    <p data-testid="review-detail-empty" className={styles.mutedText}>
       {t("reviews.selectPrompt", "Select a requirement from the list to view details.")}
     </p>
   ) : (
     <div data-testid="review-detail">
-      <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
+      <div className={styles.detailTabRow}>
         <button
           type="button"
           data-testid="review-detail-tab-details"
@@ -709,8 +660,8 @@ export default function ReviewsView({
         <ReviewHistoryPanel entries={history} isLoading={historyLoading} error={historyError} />
       ) : (
         <>
-          <h2 style={{ margin: 0 }}>{selected.title}</h2>
-          <p style={{ whiteSpace: "pre-wrap", color: "var(--color-text)" }}>
+          <h2 className={styles.detailTitle}>{selected.title}</h2>
+          <p className={styles.detailDescription}>
             {selected.description}
           </p>
 
@@ -734,10 +685,10 @@ export default function ReviewsView({
             />
           )}
 
-          <div style={{ marginTop: "var(--space-4)" }}>
+          <div className={styles.changeReasonSlot}>
             <label
               htmlFor="review-change-reason"
-              style={{ display: "block", fontWeight: 600, marginBottom: "var(--space-1)" }}
+              className={styles.changeReasonLabel}
             >
               {t("reviews.changeReasonLabel", "Reason")}
             </label>
@@ -751,18 +702,18 @@ export default function ReviewsView({
                 "Why are you approving/rejecting this requirement?"
               )}
               rows={3}
-              style={{ width: "100%", boxSizing: "border-box" }}
+              className={styles.changeReasonInput}
               disabled={isActing}
             />
           </div>
 
           {actionError && (
-            <p role="alert" data-testid="review-action-error" style={{ color: "var(--color-danger)" }}>
+            <p role="alert" data-testid="review-action-error" className={styles.errorText}>
               {actionError}
             </p>
           )}
 
-          <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
+          <div className={styles.detailActions}>
             <button
               type="button"
               data-testid="review-approve-btn"

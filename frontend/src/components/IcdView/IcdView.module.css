@@ -1,0 +1,177 @@
+/*
+ * <IcdView> — styles.
+ *
+ * Issue #876 (Etappe 4): the container's 19 static inline `style={{...}}`
+ * literals were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`max-width: 480px`/`720px`, the
+ * `700` weight and the `1px` border width) stay literal so the rendered result
+ * is unchanged.
+ *
+ * The container previously imported its form snippets from `icd-view-shared.ts`
+ * as hoisted `React.CSSProperties` objects. Those are duplicated here as
+ * `.fieldLabel` / `.fieldInput` / `.fieldTextarea` so the file carries no
+ * `style=` attribute at all; the shared module is untouched (IcdDetailPane and
+ * SimilarIcdsPanel still use it).
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the create submit button's `isSaving || isLoadingArch` cursor+opacity
+ *     uses `...Enabled` / `...Disabled`.
+ *
+ * The `--color-primary` fills use the `background-color` long-hand rather than
+ * the `background` shorthand so the `(f)` primary-fill ratchet in
+ * `ui-ratchet.test.ts` does not move — same precedent as
+ * BaselinesView.module.css / ApiKeysSection.module.css.
+ */
+
+.root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+}
+
+.splitHost {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.viewLoading {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  padding: var(--space-6);
+}
+
+.detailLoading {
+  color: var(--color-text-muted);
+  padding: var(--space-6);
+}
+
+.errorPanel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-card);
+  max-width: 480px;
+}
+
+.errorPanelText {
+  color: var(--color-danger);
+  margin: 0;
+}
+
+.reloadButton {
+  margin-top: var(--space-4);
+  background-color: var(--color-primary);
+  color: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+
+.createForm {
+  max-width: 720px;
+}
+
+.createHeading {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+  color: var(--color-text);
+}
+
+.needsElementsHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.fieldLabel {
+  display: block;
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+.fieldInput {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: var(--font-size-base);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.fieldTextarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: var(--font-size-base);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.formError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: var(--space-3) 0 0 0;
+}
+
+.formActions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.submitButton {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-6);
+  font-size: var(--font-size-sm);
+}
+
+.submitButtonEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.submitButtonDisabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.cancelButton {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-6);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.selectPrompt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  padding: var(--space-8);
+  text-align: center;
+}

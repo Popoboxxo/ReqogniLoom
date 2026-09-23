@@ -43,15 +43,8 @@ import {
 } from "../DiagramGraphEditor/useGraphPayload";
 import { useDiagramDetail } from "./useDiagramData";
 import type { NodeGraphPayload } from "../../types";
-import {
-  diagramVersionLabel,
-  formCancelButtonStyle,
-  formDangerButtonStyle,
-  formPrimaryButtonStyle,
-  previewBoxStyle,
-  previewErrorStyle,
-  previewEmptyStyle,
-} from "./diagram-view-shared";
+import { diagramVersionLabel } from "./diagram-view-shared";
+import styles from "./DiagramDetailView.module.css";
 
 export interface DiagramDetailViewProps {
   diagramId: string;
@@ -294,29 +287,13 @@ export function DiagramDetailView({
   }
 
   return (
-    <div style={{ display: "flex", gap: "var(--space-6)", alignItems: "flex-start" }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <h2
-          style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            marginTop: 0,
-            marginBottom: "var(--space-2)",
-          }}
-        >
+    <div className={styles.layout}>
+      <div className={styles.main}>
+        <h2 className={styles.title}>
           {detail.name}
         </h2>
 
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--space-3)",
-            marginBottom: "var(--space-4)",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text-muted)",
-          }}
-        >
+        <div className={styles.metaRow}>
           <span>{t("diagrams.type", "Type")}: {detail.diagram_type}</span>
           <span>·</span>
           <span>{detail.payload_format ?? "?"}</span>
@@ -335,19 +312,14 @@ export function DiagramDetailView({
         </div>
 
         {detail.description && (
-          <p
-            style={{
-              color: "var(--color-text-muted)",
-              marginBottom: "var(--space-4)",
-            }}
-          >
+          <p className={styles.description}>
             {detail.description}
           </p>
         )}
 
         {/* REQ-173: WorkflowEngine-driven status editor for the diagram. */}
         {diagramId && (
-          <div style={{ marginBottom: "var(--space-4)" }}>
+          <div className={styles.workflowSlot}>
             <WorkflowStatusEditor
               artifactType="diagram"
               artifactId={diagramId}
@@ -358,13 +330,7 @@ export function DiagramDetailView({
           </div>
         )}
 
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--space-2)",
-            marginBottom: "var(--space-4)",
-          }}
-        >
+        <div className={styles.actions}>
           {/* D4: for formats with a fullscreen editor the primary action
               navigates there instead of turning this pane into a form. */}
           {editorRoute ? (
@@ -372,7 +338,7 @@ export function DiagramDetailView({
               type="button"
               data-testid="diagram-open-editor-btn"
               onClick={() => navigate(editorRoute)}
-              style={formPrimaryButtonStyle}
+              className={styles.formPrimaryButton}
             >
               {t("diagrams.openEditor", "Open editor")}
             </button>
@@ -384,7 +350,7 @@ export function DiagramDetailView({
                 setIsEditing(true);
                 setViewMode("code");
               }}
-              style={formPrimaryButtonStyle}
+              className={styles.formPrimaryButton}
             >
               {t("diagrams.edit", "Edit Source")}
             </button>
@@ -395,10 +361,11 @@ export function DiagramDetailView({
                 data-testid="diagram-save-btn"
                 onClick={() => void handleSave()}
                 disabled={isSaving}
-                style={{
-                  ...formPrimaryButtonStyle,
-                  opacity: isSaving ? 0.6 : 1,
-                }}
+                className={`${styles.formPrimaryButton} ${
+                  isSaving
+                    ? styles.formPrimaryButtonDisabled
+                    : styles.formPrimaryButtonEnabled
+                }`}
               >
                 {isSaving ? t("actions.saving", "Saving...") : t("actions.save", "Save")}
               </button>
@@ -409,7 +376,7 @@ export function DiagramDetailView({
                   setEditContent(detail.content ?? "");
                   resetSaveError();
                 }}
-                style={formCancelButtonStyle}
+                className={styles.formCancelButton}
               >
                 {t("actions.cancel", "Cancel")}
               </button>
@@ -419,7 +386,7 @@ export function DiagramDetailView({
             type="button"
             data-testid="diagram-delete-btn"
             onClick={() => setShowDeleteConfirm(true)}
-            style={formDangerButtonStyle}
+            className={styles.formDangerButton}
           >
             {t("diagrams.delete", "Delete")}
           </button>
@@ -429,7 +396,7 @@ export function DiagramDetailView({
           <p
             role="alert"
             data-testid="diagram-detail-error"
-            style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)" }}
+            className={styles.saveError}
           >
             {saveError}
           </p>
@@ -438,9 +405,9 @@ export function DiagramDetailView({
         {/* GH-353 Task 9: node_graph diagrams show the read-only React Flow
             preview; editing happens on the fullscreen /diagrams/:id/graph route. */}
         {isNodeGraph ? (
-          <div data-testid="diagram-node-graph-section" style={previewBoxStyle}>
+          <div data-testid="diagram-node-graph-section" className={styles.previewBox}>
             {nodeGraphError ? (
-              <p role="alert" data-testid="diagram-node-graph-error" style={previewErrorStyle}>
+              <p role="alert" data-testid="diagram-node-graph-error" className={styles.previewError}>
                 {nodeGraphError}
               </p>
             ) : nodeGraphPayload ? (
@@ -468,13 +435,13 @@ export function DiagramDetailView({
                 onAutoLayout={() => {}}
               />
             ) : (
-              <p style={previewEmptyStyle}>
+              <p className={styles.previewEmpty}>
                 {t("diagrams.emptySource", "(no source)")}
               </p>
             )}
           </div>
         ) : isCanvas ? (
-          <div data-testid="diagram-canvas-section" style={previewBoxStyle}>
+          <div data-testid="diagram-canvas-section" className={styles.previewBox}>
             {isCanvasLoading ? (
               <p role="status">{t("loading", "Loading...")}</p>
             ) : canvasSvg ? (
@@ -483,7 +450,7 @@ export function DiagramDetailView({
                 dangerouslySetInnerHTML={{ __html: safeCanvasSvg }}
               />
             ) : (
-              <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+              <p className={styles.previewEmpty}>
                 {t("diagrams.emptyCanvas", "This canvas is still empty.")}
               </p>
             )}
@@ -494,17 +461,18 @@ export function DiagramDetailView({
             <div
               role="group"
               aria-label={t("diagrams.viewMode", "View mode")}
-              style={{ display: "flex", gap: "var(--space-1)", marginBottom: "var(--space-3)" }}
+              className={styles.viewModeRow}
             >
               <button
                 type="button"
                 data-testid="diagram-viewmode-code-btn"
                 aria-pressed={viewMode === "code"}
                 onClick={() => setViewMode("code")}
-                style={{
-                  ...formCancelButtonStyle,
-                  ...(viewMode === "code" ? formPrimaryButtonStyle : {}),
-                }}
+                className={`${styles.viewModeButton} ${
+                  viewMode === "code"
+                    ? styles.viewModeButtonActive
+                    : styles.viewModeButtonInactive
+                }`}
               >
                 {t("diagrams.viewModeLabels.code", "Code")}
               </button>
@@ -513,19 +481,20 @@ export function DiagramDetailView({
                 data-testid="diagram-viewmode-visual-btn"
                 aria-pressed={viewMode === "visual"}
                 onClick={() => setViewMode("visual")}
-                style={{
-                  ...formCancelButtonStyle,
-                  ...(viewMode === "visual" ? formPrimaryButtonStyle : {}),
-                }}
+                className={`${styles.viewModeButton} ${
+                  viewMode === "visual"
+                    ? styles.viewModeButtonActive
+                    : styles.viewModeButtonInactive
+                }`}
               >
                 {t("diagrams.viewModeLabels.visual", "Visual")}
               </button>
             </div>
           )}
           {canRenderVisual && viewMode === "visual" ? (
-            <div data-testid="diagram-visual-preview" style={previewBoxStyle}>
+            <div data-testid="diagram-visual-preview" className={styles.previewBox}>
               {renderError ? (
-                <p role="alert" data-testid="diagram-visual-error" style={{ color: "var(--color-danger)", margin: 0 }}>
+                <p role="alert" data-testid="diagram-visual-error" className={styles.previewError}>
                   {renderError}
                 </p>
               ) : renderedSvg ? (
@@ -534,21 +503,14 @@ export function DiagramDetailView({
                   dangerouslySetInnerHTML={{ __html: safeRenderedSvg }}
                 />
               ) : (
-                <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+                <p className={styles.previewEmpty}>
                   {t("diagrams.emptySource", "(no source)")}
                 </p>
               )}
             </div>
           ) : isEditing ? (
-          <label style={{ display: "block" }}>
-            <span
-              style={{
-                fontWeight: 500,
-                display: "block",
-                marginBottom: "var(--space-1)",
-                color: "var(--color-text)",
-              }}
-            >
+          <label className={styles.sourceLabel}>
+            <span className={styles.sourceLabelText}>
               {t("diagrams.source", "Source")}
             </span>
             <textarea
@@ -556,37 +518,13 @@ export function DiagramDetailView({
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
               rows={18}
-              style={{
-                width: "100%",
-                padding: "var(--space-3)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                fontFamily: "var(--font-mono)",
-                fontSize: "var(--font-size-sm)",
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                resize: "vertical",
-                boxSizing: "border-box",
-              }}
+              className={styles.sourceTextarea}
             />
           </label>
         ) : (
           <pre
             data-testid="diagram-source-preview"
-            style={{
-              padding: "var(--space-4)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--color-border)",
-              background: "var(--color-surface-raised)",
-              fontFamily: "var(--font-mono)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text)",
-              overflow: "auto",
-              maxHeight: "480px",
-              margin: 0,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
+            className={styles.sourcePreview}
           >
             {detail.content || t("diagrams.emptySource", "(no source)")}
           </pre>
