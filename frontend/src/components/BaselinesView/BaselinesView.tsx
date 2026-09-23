@@ -74,33 +74,6 @@ const SCOPE_OPTIONS: { value: BaselineScope; labelKey: string }[] = [
   { value: "global", labelKey: "baselines.scopeGlobal" },
 ];
 
-// Create-form field chrome. Module-level constants rather than inline object
-// literals: the inline-`style` ratchet (frontend/src/test/ui-ratchet.test.ts)
-// only counts literals, and a named constant is reusable besides.
-const formLabelStyle: React.CSSProperties = {
-  display: "block",
-  fontWeight: 500,
-  color: "var(--color-text)",
-  marginBottom: "var(--space-1)",
-};
-
-const formInputStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-3)",
-  fontSize: "var(--font-size-base)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-};
-
-const formHintStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-  margin: "var(--space-1) 0 var(--space-4) 0",
-};
-
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
@@ -310,14 +283,7 @@ export default function BaselinesView(): JSX.Element {
   if (state.isLoading) {
     return (
       <div data-testid="baselines-view">
-        <p
-          role="status"
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-          }}
-        >
+        <p role="status" className={styles.loadingText}>
           {t("loading")}
         </p>
       </div>
@@ -326,31 +292,9 @@ export default function BaselinesView(): JSX.Element {
 
   if (state.error) {
     return (
-      <div
-        data-testid="baselines-view"
-        role="alert"
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-danger)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-6)",
-          boxShadow: "var(--shadow-card)",
-          maxWidth: "480px",
-        }}
-      >
-        <p style={{ color: "var(--color-danger)", margin: 0 }}>{state.error}</p>
-        <button
-          onClick={() => void refreshList()}
-          style={{
-            marginTop: "var(--space-4)",
-            background: "var(--color-primary)",
-            color: "var(--color-surface)",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
-            cursor: "pointer",
-          }}
-        >
+      <div data-testid="baselines-view" role="alert" className={styles.errorPanel}>
+        <p className={styles.errorText}>{state.error}</p>
+        <button onClick={() => void refreshList()} className={styles.reloadBtn}>
           {t("actions.reload")}
         </button>
       </div>
@@ -369,17 +313,13 @@ export default function BaselinesView(): JSX.Element {
   const overrideSubmitDisabled =
     isSaving || overrideReason.trim().length < MIN_OVERRIDE_REASON_LENGTH;
 
+  // REQ-L1-049: ``document`` scope needs an artifact — the same boolean drives
+  // the submit button's `disabled` attribute and its enabled/disabled class.
+  const createSubmitDisabled =
+    isSaving || (formScope === "document" && !formArtifactId);
+
   return (
-    <div
-      data-testid="baselines-view"
-      style={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        fontFamily: "var(--font-sans)",
-        color: "var(--color-text)",
-      }}
-    >
+    <div data-testid="baselines-view" className={styles.page}>
       {/* Baselines/TestRuns are not Spine artifacts (no derivation chain), but
           PageHeader still applies. Baseline creation is deliberately an
           overflow action, not a primary header button — creating a baseline
@@ -407,7 +347,7 @@ export default function BaselinesView(): JSX.Element {
         ]}
       />
 
-      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+      <div className={styles.content}>
       <SplitView
         moduleType="baselines"
         leftMinWidth={280}
@@ -455,10 +395,7 @@ export default function BaselinesView(): JSX.Element {
         ) : filteredBaselines.length === 0 ? (
           <EmptyState variant="no-match" testId="baselines-no-match" onResetFilters={resetListFilters} />
         ) : (
-          <ul
-            data-testid="baseline-list"
-            style={{ listStyle: "none", padding: 0, margin: 0 }}
-          >
+          <ul data-testid="baseline-list" className={styles.list}>
             {filteredBaselines.map((bl) => {
               const isSelected = bl.id === selectedId && !showForm;
               return (
@@ -479,35 +416,12 @@ export default function BaselinesView(): JSX.Element {
                       setSelectedId(bl.id);
                     }
                   }}
-                  style={{
-                    padding: "var(--space-3) var(--space-4)",
-                    marginBottom: "var(--space-2)",
-                    background: isSelected
-                      ? "var(--color-surface-raised)"
-                      : "var(--color-surface)",
-                    borderRadius: "var(--radius-md)",
-                    border: isSelected
-                      ? "1px solid var(--color-primary)"
-                      : "1px solid var(--color-border)",
-                    cursor: "pointer",
-                    transition: "var(--transition-fast)",
-                  }}
+                  className={`${styles.listItem} ${isSelected ? styles.listItemSelected : ""}`}
                 >
-                  <strong
-                    style={{
-                      display: "block",
-                      color: "var(--color-text)",
-                      fontSize: "var(--font-size-sm)",
-                    }}
-                  >
+                  <strong className={styles.listItemName}>
                     {bl.name || `${bl.id.slice(0, 8)}…`}
                   </strong>
-                  <span
-                    style={{
-                      color: "var(--color-text-muted)",
-                      fontSize: "var(--font-size-sm)",
-                    }}
-                  >
+                  <span className={styles.listItemMeta}>
                     {bl.scope} | {formatDate(bl.created_at)}
                   </span>
                 </li>
@@ -531,22 +445,14 @@ export default function BaselinesView(): JSX.Element {
               error={diffError}
             />
           ) : showForm ? (
-          <div data-testid="create-baseline-form" style={{ maxWidth: "560px" }}>
-            <h3
-              style={{
-                fontSize: "var(--font-size-lg)",
-                fontWeight: 700,
-                marginTop: 0,
-                marginBottom: "var(--space-4)",
-                color: "var(--color-text)",
-              }}
-            >
+          <div data-testid="create-baseline-form" className={styles.createPanel}>
+            <h3 className={styles.createHeading}>
               + {t("baselines.create")}
             </h3>
 
             {/* Issue #48: name the baseline. Optional — an empty value keeps
                 the backend's generated `Baseline <timestamp>` name. */}
-            <label htmlFor="baseline-name" style={formLabelStyle}>
+            <label htmlFor="baseline-name" className={styles.formLabel}>
               {t("baselines.name", "Name")}
             </label>
             <input
@@ -564,48 +470,25 @@ export default function BaselinesView(): JSX.Element {
                 "z. B. Release 1.2 Freigabe",
               )}
               aria-describedby="baseline-name-hint"
-              style={formInputStyle}
+              className={styles.formInput}
             />
-            <p id="baseline-name-hint" style={formHintStyle}>
+            <p id="baseline-name-hint" className={styles.formHint}>
               {t(
                 "baselines.nameHint",
                 "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein.",
               )}
             </p>
 
-            <label
-              htmlFor="baseline-scope"
-              style={{
-                display: "block",
-                fontWeight: 500,
-                color: "var(--color-text)",
-                marginBottom: "var(--space-1)",
-              }}
-            >
+            <label htmlFor="baseline-scope" className={styles.formLabel}>
               {t("baselines.scope")}
             </label>
             {/* REQ-L1-049: radio group with the three valid scopes. */}
-            <div
-              data-testid="baseline-scope-group"
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-2)",
-                marginBottom: "var(--space-3)",
-              }}
-            >
+            <div data-testid="baseline-scope-group" className={styles.scopeGroup}>
               {SCOPE_OPTIONS.map((opt) => (
                 <label
                   key={opt.value}
                   htmlFor={`baseline-scope-${opt.value}`}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--space-2)",
-                    cursor: "pointer",
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--color-text)",
-                  }}
+                  className={styles.scopeOption}
                 >
                   <input
                     id={`baseline-scope-${opt.value}`}
@@ -626,13 +509,7 @@ export default function BaselinesView(): JSX.Element {
             <p
               data-testid="baseline-scope-count"
               aria-live="polite"
-              style={{
-                fontSize: "var(--font-size-sm)",
-                color: scopePreviewError
-                  ? "var(--color-danger)"
-                  : "var(--color-text-muted)",
-                margin: "0 0 var(--space-4) 0",
-              }}
+              className={`${styles.scopeCount} ${scopePreviewError ? styles.scopeCountError : ""}`}
             >
               {scopePreviewError
                 ? scopePreviewError
@@ -650,15 +527,7 @@ export default function BaselinesView(): JSX.Element {
             {/* REQ-L1-049: artifact picker is shown only for document scope. */}
             {formScope === "document" && (
               <>
-                <label
-                  htmlFor="baseline-artifact"
-                  style={{
-                    display: "block",
-                    fontWeight: 500,
-                    color: "var(--color-text)",
-                    marginBottom: "var(--space-1)",
-                  }}
-                >
+                <label htmlFor="baseline-artifact" className={styles.formLabel}>
                   {t("baselines.artifact")}
                 </label>
                 <select
@@ -667,16 +536,7 @@ export default function BaselinesView(): JSX.Element {
                   value={formArtifactId}
                   onChange={(e) => setFormArtifactId(e.target.value)}
                   disabled={state.artifacts.length === 0}
-                  style={{
-                    width: "100%",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-3)",
-                    fontSize: "var(--font-size-base)",
-                    marginBottom: "var(--space-4)",
-                    background: "var(--color-surface)",
-                    color: "var(--color-text)",
-                  }}
+                  className={styles.artifactSelect}
                 >
                   {state.artifacts.length === 0 ? (
                     <option value="">{t("baselines.noArtifacts")}</option>
@@ -699,14 +559,7 @@ export default function BaselinesView(): JSX.Element {
             )}
 
             {createError && (
-              <p
-                role="alert"
-                style={{
-                  color: "var(--color-danger)",
-                  fontSize: "var(--font-size-sm)",
-                  margin: "0 0 var(--space-3) 0",
-                }}
-              >
+              <p role="alert" className={styles.formError}>
                 {createError}
               </p>
             )}
@@ -764,30 +617,16 @@ export default function BaselinesView(): JSX.Element {
               </div>
             )}
 
-            <div style={{ display: "flex", gap: "var(--space-3)" }}>
+            <div className={styles.formActions}>
               <button
                 data-testid="baseline-submit-btn"
                 onClick={() => void handleCreate()}
-                disabled={
-                  isSaving ||
-                  (formScope === "document" && !formArtifactId)
-                }
-                style={{
-                  background: "var(--color-primary)",
-                  color: "var(--color-on-primary)",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-6)",
-                  fontSize: "var(--font-size-sm)",
-                  cursor:
-                    isSaving || (formScope === "document" && !formArtifactId)
-                      ? "not-allowed"
-                      : "pointer",
-                  opacity:
-                    isSaving || (formScope === "document" && !formArtifactId)
-                      ? 0.7
-                      : 1,
-                }}
+                disabled={createSubmitDisabled}
+                className={`${styles.submitBtn} ${
+                  createSubmitDisabled
+                    ? styles.submitBtnDisabled
+                    : styles.submitBtnEnabled
+                }`}
               >
                 {isSaving ? t("actions.saving") : t("actions.save")}
               </button>
@@ -798,68 +637,38 @@ export default function BaselinesView(): JSX.Element {
                   setGateBlocked(false);
                   setOverrideReason("");
                 }}
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-6)",
-                  fontSize: "var(--font-size-sm)",
-                  cursor: "pointer",
-                }}
+                className={styles.cancelBtn}
               >
                 {t("actions.cancel")}
               </button>
             </div>
           </div>
         ) : selectedBaseline ? (
-          <div data-testid="baseline-detail" style={{ maxWidth: "640px" }}>
-            <h2
-              style={{
-                fontSize: "var(--font-size-2xl)",
-                fontWeight: 700,
-                color: "var(--color-text)",
-                marginTop: 0,
-                marginBottom: "var(--space-4)",
-              }}
-              title={selectedBaseline.id}
-            >
+          <div data-testid="baseline-detail" className={styles.detailPanel}>
+            <h2 className={styles.detailTitle} title={selectedBaseline.id}>
               {selectedBaseline.name || `${selectedBaseline.id.slice(0, 8)}…`}
             </h2>
 
-            <dl
-              style={{
-                display: "grid",
-                gridTemplateColumns: "160px 1fr",
-                rowGap: "var(--space-3)",
-                columnGap: "var(--space-4)",
-                margin: 0,
-                marginBottom: "var(--space-6)",
-              }}
-            >
-              <dt style={detailTermStyle}>{t("baselines.id")}</dt>
-              <dd style={detailValueStyle}>
-                <code style={{ fontFamily: "monospace" }}>
-                  {selectedBaseline.id}
-                </code>
+            <dl className={styles.detailGrid}>
+              <dt className={styles.detailTerm}>{t("baselines.id")}</dt>
+              <dd className={styles.detailValue}>
+                <code className={styles.mono}>{selectedBaseline.id}</code>
               </dd>
 
-              <dt style={detailTermStyle}>{t("baselines.scope")}</dt>
-              <dd style={detailValueStyle}>{selectedBaseline.scope}</dd>
+              <dt className={styles.detailTerm}>{t("baselines.scope")}</dt>
+              <dd className={styles.detailValue}>{selectedBaseline.scope}</dd>
 
-              <dt style={detailTermStyle}>{t("baselines.artifact")}</dt>
-              <dd style={detailValueStyle}>
+              <dt className={styles.detailTerm}>{t("baselines.artifact")}</dt>
+              <dd className={styles.detailValue}>
                 {selectedBaseline.artifact_id ? (
-                  <code style={{ fontFamily: "monospace" }}>
-                    {selectedBaseline.artifact_id}
-                  </code>
+                  <code className={styles.mono}>{selectedBaseline.artifact_id}</code>
                 ) : (
                   "—"
                 )}
               </dd>
 
-              <dt style={detailTermStyle}>{t("baselines.created")}</dt>
-              <dd style={detailValueStyle}>
+              <dt className={styles.detailTerm}>{t("baselines.created")}</dt>
+              <dd className={styles.detailValue}>
                 {formatDate(selectedBaseline.created_at)}
               </dd>
             </dl>
@@ -875,31 +684,13 @@ export default function BaselinesView(): JSX.Element {
               type="button"
               data-testid="baseline-delete-btn"
               onClick={() => setPendingDeleteId(selectedBaseline.id)}
-              style={{
-                background: "var(--color-danger)",
-                color: "var(--color-on-primary)",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "var(--transition-fast)",
-                fontFamily: "var(--font-sans)",
-              }}
+              className={styles.deleteBtn}
             >
               {t("actions.delete")}
             </button>
           </div>
         ) : (
-          <p
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-lg)",
-              padding: "var(--space-8)",
-              textAlign: "center",
-            }}
-          >
+          <p className={styles.selectPrompt}>
             {t("baselines.selectBaseline")}
           </p>
           )
@@ -920,22 +711,3 @@ export default function BaselinesView(): JSX.Element {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Style snippets
-// ---------------------------------------------------------------------------
-
-const detailTermStyle: React.CSSProperties = {
-  fontWeight: 600,
-  color: "var(--color-text-muted)",
-  fontSize: "var(--font-size-sm)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-};
-
-const detailValueStyle: React.CSSProperties = {
-  margin: 0,
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-base)",
-  wordBreak: "break-all",
-};

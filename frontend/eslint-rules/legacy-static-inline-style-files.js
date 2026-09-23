@@ -17,7 +17,7 @@
  *     style in one of them is not caught by ESLint. Within `src/components/`
  *     that gap is covered by the `STYLE_BRACE_BASELINE` ratchet in
  *     `src/test/ui-ratchet.test.ts`, whose monotonic assertion is an exact
- *     equality (`toBe(653)`), so any net increase turns it red. The residual
+ *     equality (`toBe(596)`), so any net increase turns it red. The residual
  *     gap is a net-zero reshuffle (add here, delete there) in exempted files —
  *     accepted and documented in `no-static-inline-style.js`.
  *
@@ -33,7 +33,12 @@
  * follow-up (2026-09-23): `TestRuns/TestRunDetailEditor.tsx` (29 literals + 1
  * hoisted constant) and `TestRuns/TestRunsList.tsx` (23 literals + 5 hoisted
  * constants) were migrated onto CSS Modules and dropped from this list;
- * re-measured with the list empty: 650 occurrences / 68 files.
+ * re-measured with the list empty: 650 occurrences / 68 files. Issue #876
+ * Etappe 2 (2026-09-23): `BaselinesView/BaselinesView.tsx` (29 literals + 5
+ * hoisted constants) was migrated onto its co-located CSS Module and dropped
+ * here too, leaving 67 entries and 621 AST-visible occurrences. The same
+ * etappe's `ArtifactDiff/ArtifactDiff.tsx` (28 literals + 4 hoisted constants)
+ * followed it, leaving 66 entries and 621 - 28 = 593 AST-visible occurrences.
  */
 export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/AdminDialog/SystemHealthDialog.tsx",
@@ -42,10 +47,8 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/ArchitectureDecompose/ArchitectureDecomposePanel.tsx",
   "src/components/ArchitectureEditors/ArchitectureEditors.tsx",
   "src/components/ArchitectureEditors/ArchitectureLegend.tsx",
-  "src/components/ArtifactDiff/ArtifactDiff.tsx",
   "src/components/Audit/audit-dashboard.tsx",
   "src/components/BaselinesView/BaselinesPanels.tsx",
-  "src/components/BaselinesView/BaselinesView.tsx",
   "src/components/DashboardViews/DashboardViews.tsx",
   "src/components/DashboardViews/WorkspaceCard.tsx",
   "src/components/DiagramView/DiagramCreateForm.tsx",

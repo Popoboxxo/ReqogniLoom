@@ -38,6 +38,7 @@ import type {
 import type { ArtifactKind } from "../shared/ArtifactInspector/types";
 import { DIFF_SUPPORTED_KINDS } from "../shared/ArtifactInspector/types";
 import { extractErrorMessage } from "../../api/client";
+import styles from "./ArtifactDiff.module.css";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -128,60 +129,21 @@ interface ArtifactDiffProps {
 }
 
 // ---------------------------------------------------------------------------
-// Status badge styles
+// Status badge classes
 // ---------------------------------------------------------------------------
 
 /**
- * Shared badge geometry. H-03: `flex: 0 0 auto` + `nowrap` keep the badge at
- * its natural size when the surrounding row wraps in the narrow
- * ArtifactInspector column — without it the badge itself shrank and its label
- * broke mid-word.
+ * Shared badge geometry (`.badge`) plus one colour modifier per status, mapped
+ * to the CSS-module classes that replaced the former `STATUS_STYLES`
+ * `React.CSSProperties` map. `padding`/`font-size`/`nowrap`/`flex` keep the
+ * badge at its natural size when the surrounding row wraps in the narrow
+ * ArtifactInspector column (H-03).
  */
-const STATUS_BADGE_BASE: React.CSSProperties = {
-  padding: "2px 8px",
-  borderRadius: "4px",
-  fontSize: "12px",
-  fontWeight: 600,
-  whiteSpace: "nowrap",
-  flex: "0 0 auto",
-};
-
-const STATUS_STYLES: Record<DiffFieldStatus, React.CSSProperties> = {
-  added: {
-    ...STATUS_BADGE_BASE,
-    background: "var(--color-diff-added-bg)",
-    color: "var(--color-diff-added-text)",
-  },
-  removed: {
-    ...STATUS_BADGE_BASE,
-    background: "var(--color-diff-removed-bg)",
-    color: "var(--color-diff-removed-text)",
-  },
-  modified: {
-    ...STATUS_BADGE_BASE,
-    background: "var(--color-diff-modified-bg)",
-    color: "var(--color-diff-modified-text)",
-  },
-  unchanged: {
-    ...STATUS_BADGE_BASE,
-    background: "var(--color-diff-unchanged-bg)",
-    color: "var(--color-diff-unchanged-text)",
-  },
-};
-
-/**
- * M-04 — framing for a version that has no stored predecessor. Reuses the
- * existing "note" palette (the limitation banner below) so the two read as
- * the same class of message rather than as an error.
- */
-const initialStateNoticeStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  background: "var(--color-diff-note-bg)",
-  color: "var(--color-diff-note-text)",
-  borderRadius: "4px",
-  fontSize: "12px",
-  lineHeight: 1.5,
-  marginBottom: "12px",
+const STATUS_BADGE_CLASS: Record<DiffFieldStatus, string> = {
+  added: `${styles.badge} ${styles.badgeAdded}`,
+  removed: `${styles.badge} ${styles.badgeRemoved}`,
+  modified: `${styles.badge} ${styles.badgeModified}`,
+  unchanged: `${styles.badge} ${styles.badgeUnchanged}`,
 };
 
 const STATUS_LABELS: Record<DiffFieldStatus, string> = {
@@ -195,35 +157,26 @@ const STATUS_LABELS: Record<DiffFieldStatus, string> = {
 // Diff line renderer
 // ---------------------------------------------------------------------------
 
+/**
+ * Colour class for one unified-diff line, keyed by its prefix — the former
+ * JS-computed `color` inline style, now one of four mutually-exclusive
+ * classes in `ArtifactDiff.module.css`.
+ */
+function diffLineClass(line: string): string {
+  if (line.startsWith("+")) return styles.lineSuccess;
+  if (line.startsWith("-")) return styles.lineDanger;
+  if (line.startsWith("@@")) return styles.linePrimary;
+  return styles.lineMuted;
+}
+
 function DiffLines({ lines }: { lines: string[] }): JSX.Element {
   return (
-    <pre
-      data-testid="diff-lines"
-      style={{
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "4px",
-        padding: "8px",
-        marginTop: "4px",
-        fontSize: "12px",
-        fontFamily: "monospace",
-        overflowX: "auto",
-        whiteSpace: "pre-wrap",
-        lineHeight: "1.6",
-      }}
-    >
-      {lines.map((line, i) => {
-        let color = "var(--color-text-muted)";
-        if (line.startsWith("+")) color = "var(--color-success)";
-        else if (line.startsWith("-")) color = "var(--color-danger)";
-        else if (line.startsWith("@@")) color = "var(--color-primary)";
-
-        return (
-          <div key={i} style={{ color }}>
-            {line}
-          </div>
-        );
-      })}
+    <pre data-testid="diff-lines" className={styles.diffLines}>
+      {lines.map((line, i) => (
+        <div key={i} className={diffLineClass(line)}>
+          {line}
+        </div>
+      ))}
     </pre>
   );
 }
@@ -236,64 +189,39 @@ function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
   const showLines = field.status === "modified" && field.lines && field.lines.length > 0;
 
   return (
-    <div
-      data-testid={`diff-field-${field.name}`}
-      style={{
-        borderBottom: "1px solid var(--color-border)",
-        padding: "12px 0",
-      }}
-    >
+    <div data-testid={`diff-field-${field.name}`} className={styles.fieldRow}>
       {/* H-03: the field name reserved a fixed 120px and the row never
           wrapped, so inside the narrow ArtifactInspector column the status
           badge was pushed past the right edge and rendered clipped ("Add…").
           The name now shrinks and the badge wraps below it instead. */}
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "8px",
-          rowGap: "4px",
-          marginBottom: showLines ? "8px" : "0",
-        }}
+        className={`${styles.fieldHeader} ${showLines ? styles.fieldHeaderWithLines : ""}`}
       >
-        <strong style={{ fontSize: "14px", flex: "1 1 auto", minWidth: 0, overflowWrap: "anywhere" }}>
-          {field.name}
-        </strong>
-        <span style={STATUS_STYLES[field.status]}>
+        <strong className={styles.fieldName}>{field.name}</strong>
+        <span className={STATUS_BADGE_CLASS[field.status]}>
           {STATUS_LABELS[field.status]}
         </span>
       </div>
 
       {field.status === "added" && (
-        <div style={{ color: "var(--color-success)", fontSize: "13px" }}>
-          {field.to}
-        </div>
+        <div className={styles.addedValue}>{field.to}</div>
       )}
 
       {field.status === "removed" && (
-        <div style={{ color: "var(--color-danger)", fontSize: "13px", textDecoration: "line-through" }}>
-          {field.from}
-        </div>
+        <div className={styles.removedValue}>{field.from}</div>
       )}
 
       {field.status === "modified" && !showLines && (
-        <div style={{ fontSize: "13px" }}>
-          <div style={{ color: "var(--color-danger)", textDecoration: "line-through" }}>
-            {field.from}
-          </div>
-          <div style={{ color: "var(--color-success)" }}>
-            {field.to}
-          </div>
+        <div className={styles.modifiedWrapper}>
+          <div className={styles.modifiedFrom}>{field.from}</div>
+          <div className={styles.modifiedTo}>{field.to}</div>
         </div>
       )}
 
       {showLines && <DiffLines lines={field.lines!} />}
 
       {field.status === "unchanged" && (
-        <div style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>
-          {field.from}
-        </div>
+        <div className={styles.unchangedValue}>{field.from}</div>
       )}
     </div>
   );
@@ -487,57 +415,18 @@ export function ArtifactDiff({
     }
   };
 
-  const selectStyle: React.CSSProperties = {
-    padding: "4px 8px",
-    borderRadius: "4px",
-    border: "1px solid var(--color-border)",
-    fontSize: "13px",
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text)",
-    // H-03: a select sizes to its widest option by default and overflowed the
-    // narrow inspector column, cutting off the dropdown arrow.
-    maxWidth: "100%",
-  };
-
   return (
-    <div
-      data-testid="artifact-diff-view"
-      style={{
-        background: "var(--color-surface-raised)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "8px",
-        padding: "16px",
-        marginTop: "16px",
-        color: "var(--color-text)",
-      }}
-    >
+    <div data-testid="artifact-diff-view" className={styles.panel}>
       {/* Header — H-03: wraps so the title and the Close button stop
           overlapping once the inspector column narrows. */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "8px",
-          marginBottom: "16px",
-        }}
-      >
-        <h3 style={{ margin: 0, fontSize: "16px", overflowWrap: "anywhere" }}>
+      <div className={styles.header}>
+        <h3 className={styles.title}>
           {ENTITY_LABELS[entityType]} Diff
         </h3>
         <button
           data-testid="diff-close-btn"
           onClick={onClose}
-          style={{
-            background: "none",
-            border: "1px solid var(--color-border)",
-            borderRadius: "4px",
-            padding: "4px 12px",
-            cursor: "pointer",
-            fontSize: "13px",
-            color: "var(--color-text)",
-          }}
+          className={styles.closeBtn}
         >
           Close
         </button>
@@ -546,25 +435,15 @@ export function ArtifactDiff({
       {/* Version selectors */}
       <div
         data-testid="diff-version-selectors"
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "16px",
-          rowGap: "8px",
-          alignItems: "center",
-          marginBottom: "16px",
-          padding: "8px",
-          background: "var(--color-surface)",
-          borderRadius: "4px",
-        }}
+        className={styles.versionSelectors}
       >
-        <label style={{ fontSize: "13px", fontWeight: 500, minWidth: 0 }}>
+        <label className={styles.versionLabel}>
           From:
           <select
             data-testid="diff-from-version"
             value={fromVersion ?? ""}
             onChange={(e) => handleFromChange(Number(e.target.value))}
-            style={{ ...selectStyle, marginLeft: "8px" }}
+            className={styles.versionSelect}
           >
             {fromOptions.map((v) => (
               <option key={v.version} value={v.version}>
@@ -574,17 +453,17 @@ export function ArtifactDiff({
           </select>
         </label>
 
-        <span style={{ color: "var(--color-text-muted)" }} aria-hidden="true">
+        <span className={styles.versionArrow} aria-hidden="true">
           →
         </span>
 
-        <label style={{ fontSize: "13px", fontWeight: 500, minWidth: 0 }}>
+        <label className={styles.versionLabel}>
           To:
           <select
             data-testid="diff-to-version"
             value={toVersion ?? ""}
             onChange={(e) => setToVersion(Number(e.target.value))}
-            style={{ ...selectStyle, marginLeft: "8px" }}
+            className={styles.versionSelect}
           >
             {toOptions.map((v) => (
               <option key={v.version} value={v.version}>
@@ -601,10 +480,7 @@ export function ArtifactDiff({
           missing was the framing that they are an initial state and not a
           comparison. */}
       {isInitialState && !loading && (
-        <div
-          data-testid="diff-initial-state"
-          style={initialStateNoticeStyle}
-        >
+        <div data-testid="diff-initial-state" className={styles.initialStateNotice}>
           <strong>{t("diff.initialState.title", "Ausgangszustand")}</strong>{" "}
           {t(
             "diff.initialState.body",
@@ -615,40 +491,20 @@ export function ArtifactDiff({
 
       {/* Loading / Error */}
       {loading && (
-        <div data-testid="diff-loading" style={{ padding: "16px", textAlign: "center" }}>
+        <div data-testid="diff-loading" className={styles.loading}>
           Loading diff...
         </div>
       )}
 
       {error && (
-        <div
-          role="alert"
-          data-testid="diff-error"
-          style={{
-            padding: "12px",
-            background: "var(--color-diff-removed-bg)",
-            color: "var(--color-diff-removed-text)",
-            borderRadius: "4px",
-            fontSize: "13px",
-          }}
-        >
+        <div role="alert" data-testid="diff-error" className={styles.error}>
           Error: {error}
         </div>
       )}
 
       {/* Note (limitation notice) */}
       {diffResult?.note && (
-        <div
-          data-testid="diff-note"
-          style={{
-            padding: "8px 12px",
-            background: "var(--color-diff-note-bg)",
-            color: "var(--color-diff-note-text)",
-            borderRadius: "4px",
-            fontSize: "12px",
-            marginBottom: "12px",
-          }}
-        >
+        <div data-testid="diff-note" className={styles.note}>
           {diffResult.note}
         </div>
       )}
@@ -670,46 +526,21 @@ export function ArtifactDiff({
           endpoint. */}
       {diffResult && !loading && !RICH_DIFF_KINDS.has(entityType) && (
         <div data-testid="diff-generic-fallback" data-kind={entityType}>
-          <p
-            style={{
-              fontSize: "13px",
-              color: "var(--color-text-muted)",
-              margin: "0 0 8px 0",
-            }}
-          >
+          <p className={styles.fallbackHint}>
             No field-level renderer for this artifact kind. Showing raw
             payload.
           </p>
-          <div
-            style={{
-              fontSize: "13px",
-              marginBottom: "8px",
-            }}
-          >
+          <div className={styles.fallbackVersion}>
             from: v{diffResult.from_version}, to: v{diffResult.to_version}
           </div>
           <details>
             <summary
-              style={{ cursor: "pointer", fontSize: "13px" }}
+              className={styles.rawToggle}
               data-testid="diff-generic-raw-toggle"
             >
               Raw JSON
             </summary>
-            <pre
-              data-testid="diff-generic-raw"
-              style={{
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "4px",
-                padding: "8px",
-                marginTop: "4px",
-                fontSize: "12px",
-                fontFamily: "monospace",
-                overflowX: "auto",
-                whiteSpace: "pre-wrap",
-                lineHeight: "1.6",
-              }}
-            >
+            <pre data-testid="diff-generic-raw" className={styles.diffLines}>
               {JSON.stringify(diffResult, null, 2)}
             </pre>
           </details>

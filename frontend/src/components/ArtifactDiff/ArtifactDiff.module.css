@@ -1,0 +1,283 @@
+/*
+ * ArtifactDiff — styles (issue #876, Etappe 2).
+ *
+ * The 28 static `style={{...}}` object literals plus the four hoisted
+ * `React.CSSProperties` constants (`STATUS_BADGE_BASE`/`STATUS_STYLES`,
+ * `initialStateNoticeStyle`, `selectStyle`) that used to live in
+ * `ArtifactDiff.tsx` moved here, so the file could be dropped from
+ * `eslint-rules/legacy-static-inline-style-files.js` and is now guarded by
+ * `local/no-static-inline-style` permanently.
+ *
+ * Colours and token-backed sizes come from `styles/tokens.css`. Values with no
+ * token of an identical value stay literal so the rendered result is unchanged:
+ * the `13px`/`2px` steps (the 4px `--space-*` scale has no 2px rung; the
+ * `--font-size-*` scale jumps 12px -> 14px), the `4px`/`8px` radii (the
+ * `--radius-*` scale starts at 6px), the `1px` border width, `line-height: 1.6`
+ * and the generic `monospace` keyword (`--font-mono` is the project's IBM Plex
+ * Mono stack — a visibly different face).
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the status badge is a base class plus one per-status colour modifier
+ *     (`STATUS_BADGE_CLASS` in the TSX — the same shape as
+ *     `TestRunsList.module.css`'s `.item`/`.itemSelected`);
+ *   - the field header's `margin-bottom` is the base class plus
+ *     `.fieldHeaderWithLines` when the row also renders a line diff;
+ *   - the unified-diff line colour is picked per line prefix by
+ *     `diffLineClass()` (`.lineMuted`/`.lineSuccess`/`.lineDanger`/
+ *     `.linePrimary`) instead of a JS-computed `color`.
+ */
+
+/* --- Panel shell ------------------------------------------------------- */
+
+.panel {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--space-4);
+  margin-top: var(--space-4);
+  color: var(--color-text);
+}
+
+/* Header — H-03: wraps so the title and the Close button stop overlapping
+   once the inspector column narrows. */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  overflow-wrap: anywhere;
+}
+
+.closeBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+/* --- Version selectors ------------------------------------------------- */
+
+.versionSelectors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  row-gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-4);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border-radius: 4px;
+}
+
+.versionLabel {
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  min-width: 0;
+}
+
+.versionSelect {
+  padding: var(--space-1) var(--space-2);
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  /* H-03: a select sizes to its widest option by default and overflowed the
+     narrow inspector column, cutting off the dropdown arrow. */
+  max-width: 100%;
+  /* Both call sites formerly merged an extra `marginLeft: "8px"` into
+     `selectStyle`; folded into the class since neither uses it bare. */
+  margin-left: var(--space-2);
+}
+
+.versionArrow {
+  color: var(--color-text-muted);
+}
+
+/* --- Banners ----------------------------------------------------------- */
+
+/* M-04 — framing for a version with no stored predecessor. Reuses the "note"
+   palette (the limitation banner below) so the two read as the same class of
+   message rather than as an error. */
+.initialStateNotice {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-diff-note-bg);
+  color: var(--color-diff-note-text);
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-3);
+}
+
+.loading {
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.error {
+  padding: var(--space-3);
+  background: var(--color-diff-removed-bg);
+  color: var(--color-diff-removed-text);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.note {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-diff-note-bg);
+  color: var(--color-diff-note-text);
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  margin-bottom: var(--space-3);
+}
+
+/* --- Unified-diff body (DiffLines + the generic raw payload) ----------- */
+
+.diffLines {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+  font-family: monospace;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.lineMuted {
+  color: var(--color-text-muted);
+}
+
+.lineSuccess {
+  color: var(--color-success);
+}
+
+.lineDanger {
+  color: var(--color-danger);
+}
+
+.linePrimary {
+  color: var(--color-primary);
+}
+
+/* --- Field diff row ---------------------------------------------------- */
+
+.fieldRow {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-3) 0;
+}
+
+.fieldHeader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  row-gap: var(--space-1);
+  margin-bottom: 0;
+}
+
+.fieldHeaderWithLines {
+  margin-bottom: var(--space-2);
+}
+
+/* H-03: the field name reserved a fixed 120px and the row never wrapped, so
+   inside the narrow ArtifactInspector column the status badge was pushed past
+   the right edge and rendered clipped ("Add…"). The name now shrinks and the
+   badge wraps below it instead. */
+.fieldName {
+  font-size: var(--font-size-sm);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* H-03: `flex: 0 0 auto` + `nowrap` keep the badge at its natural size when
+   the surrounding row wraps in the narrow ArtifactInspector column — without
+   it the badge itself shrank and its label broke mid-word. */
+.badge {
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.badgeAdded {
+  background: var(--color-diff-added-bg);
+  color: var(--color-diff-added-text);
+}
+
+.badgeRemoved {
+  background: var(--color-diff-removed-bg);
+  color: var(--color-diff-removed-text);
+}
+
+.badgeModified {
+  background: var(--color-diff-modified-bg);
+  color: var(--color-diff-modified-text);
+}
+
+.badgeUnchanged {
+  background: var(--color-diff-unchanged-bg);
+  color: var(--color-diff-unchanged-text);
+}
+
+.addedValue {
+  color: var(--color-success);
+  font-size: 13px;
+}
+
+.removedValue {
+  color: var(--color-danger);
+  font-size: 13px;
+  text-decoration: line-through;
+}
+
+.modifiedWrapper {
+  font-size: 13px;
+}
+
+.modifiedFrom {
+  color: var(--color-danger);
+  text-decoration: line-through;
+}
+
+.modifiedTo {
+  color: var(--color-success);
+}
+
+.unchangedValue {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* --- Generic fallback (kinds without a field-level renderer) ----------- */
+
+.fallbackHint {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.fallbackVersion {
+  font-size: 13px;
+  margin-bottom: var(--space-2);
+}
+
+.rawToggle {
+  cursor: pointer;
+  font-size: 13px;
+}
