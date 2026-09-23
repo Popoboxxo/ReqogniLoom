@@ -1,4 +1,4 @@
-import { useState, useEffect, type CSSProperties } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { TraceLink, UUID, type LinkType } from "../../types";
@@ -10,6 +10,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { Badge } from "./Badge";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { extractErrorMessage } from "../../api/client";
+import styles from "./TraceLinkPanel.module.css";
 
 
 interface TraceLinkPanelProps {
@@ -18,28 +19,6 @@ interface TraceLinkPanelProps {
   onDerive?: () => void;
   isDeriving?: boolean;
 }
-
-/**
- * Inline counter next to a section heading. Issue #675: it is a plain
- * `info` badge from the shared `<Badge>`; only the leading gap is local.
- */
-const INLINE_COUNT_BADGE_STYLE: CSSProperties = {
-  marginLeft: "var(--space-1)",
-};
-
-/** Issue #927: the AI-derive gradient, hoisted out of the `style=` prop. */
-const aiGradientButtonStyle: CSSProperties = {
-  background:
-    "linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))",
-};
-
-/** Muted, struck-through label for a soft-deleted endpoint. */
-const outdatedLabelStyle: CSSProperties = {
-  fontSize: "0.85rem",
-  color: "var(--color-text-muted)",
-  fontFamily: "monospace",
-  textDecoration: "line-through",
-};
 
 export function TraceLinkPanel({
   workspaceId,
@@ -177,28 +156,14 @@ export function TraceLinkPanel({
       <li
         key={trace.id}
         data-testid={isOutdated ? `trace-link-outdated-${trace.id}` : undefined}
-        style={{
-          background: "var(--color-surface-raised)",
-          border: "1px solid var(--color-border)",
-          padding: "var(--space-2) var(--space-3)",
-          borderRadius: "var(--radius-md)",
-          display: "flex",
-          gap: "var(--space-3)",
-          alignItems: "center",
-          marginBottom: "var(--space-2)",
-          opacity: isOutdated ? 0.65 : 1,
-        }}
+        className={
+          isOutdated
+            ? `${styles.linkItem} ${styles.linkItemOutdated}`
+            : styles.linkItem
+        }
       >
         <span
-          style={{
-            fontSize: "0.7rem",
-            background: "var(--color-badge-info-bg)",
-            color: "var(--color-badge-info-text)",
-            padding: "2px 6px",
-            borderRadius: "var(--radius-full)",
-            fontWeight: 600,
-            whiteSpace: "nowrap",
-          }}
+          className={styles.typeBadge}
           data-testid={`trace-type-${trace.link_type}`}
           title={getLinkTypeLabel(trace.link_type)}
         >
@@ -209,7 +174,7 @@ export function TraceLinkPanel({
           // rows out, so linking there would only produce a 404. Render a dead,
           // struck-through label plus an explicit badge instead.
           <>
-            <span data-testid={`trace-link-label-${trace.id}`} style={outdatedLabelStyle}>
+            <span data-testid={`trace-link-label-${trace.id}`} className={styles.outdatedLabel}>
               {label}
             </span>
             {/* UI-P3: badge marking a link whose far endpoint was soft-deleted.
@@ -232,34 +197,17 @@ export function TraceLinkPanel({
              type="button"
              data-testid={`trace-link-open-${trace.id}`}
              onClick={() => navigate(route)}
-             style={{
-               fontFamily: "monospace",
-               background: "none",
-               border: "none",
-               padding: 0,
-               color: "var(--color-primary)",
-               cursor: "pointer",
-               textDecoration: "underline",
-               fontSize: "0.85rem"
-             }}
+             className={styles.linkButton}
           >
             {label}
           </button>
         ) : (
-          <span style={{ fontSize: "0.85rem", color: "var(--color-text)", fontFamily: "monospace" }}>{label}</span>
+          <span className={styles.linkLabel}>{label}</span>
         )}
         <button
           data-testid={`trace-link-delete-${trace.id}`}
           onClick={() => setPendingDeleteLinkId(trace.id)}
-          style={{
-            marginLeft: "auto",
-            background: "none",
-            border: "none",
-            color: "var(--color-danger)",
-            cursor: "pointer",
-            fontSize: "1rem",
-            lineHeight: 1,
-          }}
+          className={styles.deleteButton}
           title={t("actions.delete")}
           // #741: `title` alone is only the last-resort fallback in the
           // accessible-name computation and is never surfaced on touch —
@@ -273,35 +221,18 @@ export function TraceLinkPanel({
   };
 
   return (
-    <div
-      style={{
-        marginTop: "var(--space-6)",
-        padding: "var(--space-4)",
-        background: "var(--color-surface)",
-        borderRadius: "var(--radius-lg)",
-        border: "1px solid var(--color-border)",
-        boxShadow: "var(--shadow-card)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "var(--space-4)",
-        }}
-      >
-        <h3 style={{ margin: 0, fontSize: "1.1rem" }}>{t("tracelinks.panelTitle", "Trace Links")}</h3>
-        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+    <div className={styles.panel}>
+      <div className={styles.header}>
+        <h3 className={styles.title}>{t("tracelinks.panelTitle", "Trace Links")}</h3>
+        <div className={styles.headerActions}>
           {onDerive && (
             // Issue #927: "KI-Ableitung" (distinct first word) + decorative
             // icon out of the accessible name + its own hint.
             <button
-              className="btn-primary"
+              className={`btn-primary ${styles.aiGradientButton}`}
               data-testid="trace-link-derive-btn"
               onClick={onDerive}
               disabled={isDeriving}
-              style={aiGradientButtonStyle}
               aria-label={t("actions.deriveAi", "KI-Ableitung")}
               title={t(
                 "actions.deriveAiHint",
@@ -324,9 +255,8 @@ export function TraceLinkPanel({
           </button>
           <a
             href="/traceability"
-            className="btn-secondary"
+            className={`btn-secondary ${styles.showAllLink}`}
             onClick={(e) => { e.preventDefault(); navigate('/traceability'); }}
-            style={{ textDecoration: "none" }}
           >
             {t("actions.showAll", "Alle anzeigen")}
           </a>
@@ -347,22 +277,22 @@ export function TraceLinkPanel({
         <p
           role="alert"
           data-testid="trace-link-panel-error"
-          style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)" }}
+          className={styles.errorText}
         >
           {error}
         </p>
       )}
 
       {loading && (
-        <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>{t("loading")}</p>
+        <p className={styles.mutedText}>{t("loading")}</p>
       )}
 
       {!loading && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
+        <div className={styles.columns}>
           {/* Upstream / Incoming */}
           <div>
-            <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.upstream", "Incoming")} {liveUpstreamCount > 0 && <Badge variant="info" testId="trace-link-upstream-count" style={INLINE_COUNT_BADGE_STYLE}>{liveUpstreamCount}</Badge>}
+            <h4 className={styles.columnHeading}>
+              {t("tracelinks.upstream", "Incoming")} {liveUpstreamCount > 0 && <Badge variant="info" testId="trace-link-upstream-count" className={styles.inlineCountBadge}>{liveUpstreamCount}</Badge>}
             </h4>
             {/* #28: an incoming link cannot be created from this panel — the
                 create dialog here fixes *this* artifact as the source, so it
@@ -373,7 +303,7 @@ export function TraceLinkPanel({
             {upstream.length === 0 && (
               <p
                 data-testid="tracelink-upstream-empty"
-                style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}
+                className={styles.emptyHint}
               >
                 {t(
                   "tracelinks.upstreamEmpty",
@@ -381,15 +311,15 @@ export function TraceLinkPanel({
                 )}
               </p>
             )}
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            <ul className={styles.linkList}>
               {upstream.map((trace) => renderLinkItem(trace, trace.source_id))}
             </ul>
           </div>
 
           {/* Downstream / Outgoing */}
           <div>
-            <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.downstream", "Outgoing")} {liveDownstreamCount > 0 && <Badge variant="info" testId="trace-link-downstream-count" style={INLINE_COUNT_BADGE_STYLE}>{liveDownstreamCount}</Badge>}
+            <h4 className={styles.columnHeading}>
+              {t("tracelinks.downstream", "Outgoing")} {liveDownstreamCount > 0 && <Badge variant="info" testId="trace-link-downstream-count" className={styles.inlineCountBadge}>{liveDownstreamCount}</Badge>}
             </h4>
             {/* #28: this panel's "new link" dialog pins this artifact as the
                 source, so what it creates is an outgoing link — the guidance
@@ -398,7 +328,7 @@ export function TraceLinkPanel({
             {downstream.length === 0 && (
               <p
                 data-testid="tracelink-downstream-empty"
-                style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}
+                className={styles.emptyHint}
               >
                 {t(
                   "tracelinks.downstreamEmpty",
@@ -406,7 +336,7 @@ export function TraceLinkPanel({
                 )}
               </p>
             )}
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            <ul className={styles.linkList}>
               {downstream.map((trace) => renderLinkItem(trace, trace.target_id))}
             </ul>
           </div>

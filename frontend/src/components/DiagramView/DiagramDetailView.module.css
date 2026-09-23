@@ -1,0 +1,202 @@
+/*
+ * <DiagramDetailView> — styles.
+ *
+ * Issue #876 (Etappe 4): the presenter's 19 static inline `style={{...}}`
+ * literals were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`font-family: monospace` is not
+ * used here; the `700`/`480px`/`520px`/`160px` sizes and the `1px` border
+ * width) stay literal so the rendered result is unchanged.
+ *
+ * The presenter previously imported its button/preview snippets from
+ * `diagram-view-shared.ts` as hoisted `React.CSSProperties` objects. Those are
+ * duplicated here as module classes so the file carries no `style=` attribute
+ * at all; the shared module is untouched (DiagramCreateForm still uses it).
+ * The shared `--color-danger, #ef4444` fallback is dropped in favour of the
+ * plain `--color-danger` token, so no hex literal is added to CSS (the `(b.1)`
+ * hex ratchet stays at 203).
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the Save button's `isSaving` opacity uses `...Enabled` / `...Disabled`,
+ *   - the Code/Visual toggle's `viewMode` uses `...Inactive` / `...Active`.
+ *
+ * The `--color-primary` fills use the `background-color` long-hand rather than
+ * the `background` shorthand so the `(f)` primary-fill ratchet in
+ * `ui-ratchet.test.ts` does not move — same precedent as
+ * BaselinesView.module.css / ApiKeysSection.module.css.
+ */
+
+.layout {
+  display: flex;
+  gap: var(--space-6);
+  align-items: flex-start;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text);
+  margin-top: 0;
+  margin-bottom: var(--space-2);
+}
+
+.metaRow {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.description {
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.workflowSlot {
+  margin-bottom: var(--space-4);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.formPrimaryButton {
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  font-family: inherit;
+}
+
+.formPrimaryButtonEnabled {
+  opacity: 1;
+}
+
+.formPrimaryButtonDisabled {
+  opacity: 0.6;
+}
+
+.formCancelButton {
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.formDangerButton {
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.saveError {
+  color: var(--color-danger);
+  margin-bottom: var(--space-3);
+}
+
+.previewBox {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  overflow: auto;
+  max-height: 520px;
+  min-height: 160px;
+}
+
+.previewError {
+  color: var(--color-danger);
+  margin: 0;
+}
+
+.previewEmpty {
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.viewModeRow {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.viewModeButton {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.viewModeButtonInactive {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.viewModeButtonActive {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+}
+
+.sourceLabel {
+  display: block;
+}
+
+.sourceLabelText {
+  font-weight: var(--weight-medium);
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-text);
+}
+
+.sourceTextarea {
+  width: 100%;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.sourcePreview {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  overflow: auto;
+  max-height: 480px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

@@ -69,7 +69,6 @@
  * has been loaded.
  */
 
-import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -91,6 +90,7 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { Dialog } from "../shared/Dialog";
 import { primaryTarget, useFindingTargets } from "./use-finding-targets";
 import type { FindingTarget, FindingTargetMap } from "./use-finding-targets";
+import styles from "./audit-dashboard.module.css";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -667,7 +667,7 @@ export function AuditDashboard(): JSX.Element {
   if (!activeWorkspace) {
     return (
       <div data-testid="audit-dashboard">
-        <p style={{ color: "var(--color-text-muted)" }}>
+        <p className={styles.mutedText}>
           {t("audit.noWorkspace", "Select a workspace to run the SE-Auditor.")}
         </p>
       </div>
@@ -684,17 +684,8 @@ export function AuditDashboard(): JSX.Element {
         )}
       />
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          marginBottom: "var(--space-4)",
-          gap: "var(--space-3)",
-          flexWrap: "wrap",
-        }}
-      >
-        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+      <div className={styles.toolbar}>
+        <label className={styles.toolbarLabel}>
           {t("audit.scope.label", "Scope")}
           <select
             data-testid="audit-scope-select"
@@ -703,7 +694,7 @@ export function AuditDashboard(): JSX.Element {
               setScope(e.target.value as AuditScopeKind);
               setScopeArtifactId("");
             }}
-            style={selectStyle}
+            className={styles.select}
           >
             {SCOPES.map((s) => (
               <option key={s} value={s}>
@@ -714,14 +705,14 @@ export function AuditDashboard(): JSX.Element {
         </label>
 
         {scope === "document" && (
-          <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+          <label className={styles.toolbarLabel}>
             {t("audit.scopeArtifact.label", "Document")}
             <select
               data-testid="audit-scope-artifact-select"
               value={scopeArtifactId}
               onChange={(e) => setScopeArtifactId(e.target.value)}
               disabled={artifacts.length === 0}
-              style={selectStyle}
+              className={styles.select}
             >
               {artifacts.length === 0 ? (
                 <option value="">{t("audit.scopeArtifact.empty", "No artifacts available.")}</option>
@@ -736,13 +727,13 @@ export function AuditDashboard(): JSX.Element {
           </label>
         )}
 
-        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+        <label className={styles.toolbarLabel}>
           {t("audit.severityFilter.label", "Severity")}
           <select
             data-testid="audit-severity-filter"
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value as "all" | "blocker" | "warning")}
-            style={selectStyle}
+            className={styles.select}
           >
             <option value="all">{t("audit.severityFilter.all", "All")}</option>
             <option value="blocker">{t("audit.severityFilter.blocker", "Blockers")}</option>
@@ -752,7 +743,7 @@ export function AuditDashboard(): JSX.Element {
 
         {/* #569: default ON — nothing is hidden by default (O3). Unchecking
             filters suppressed findings out client-side. */}
-        <label style={toolbarLabelStyle}>
+        <label className={styles.toolbarLabel}>
           <input
             type="checkbox"
             data-testid="audit-show-suppressed"
@@ -767,7 +758,9 @@ export function AuditDashboard(): JSX.Element {
           data-testid="audit-refresh-btn"
           onClick={() => void load()}
           disabled={isLoading}
-          style={refreshButtonStyle(isLoading)}
+          className={`${styles.refreshButton} ${
+            isLoading ? styles.refreshButtonDisabled : styles.refreshButtonEnabled
+          }`}
         >
           {isLoading ? t("audit.refreshing", "Refreshing...") : t("audit.refresh", "Refresh")}
         </button>
@@ -776,7 +769,7 @@ export function AuditDashboard(): JSX.Element {
       {/* Counts + tier. Issue #675: rendered through the shared <Badge> with
           its canonical variant semantics (blockers = danger, warnings =
           warning, totals/tier = neutral) instead of a local colour map. */}
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginBottom: "var(--space-4)", flexWrap: "wrap" }}>
+      <div className={styles.countsRow}>
         <Badge variant="neutral" testId="audit-count-total">
           {t("audit.counts.total", "Findings")}: {counts.total}
         </Badge>
@@ -813,29 +806,29 @@ export function AuditDashboard(): JSX.Element {
           UI-569-02: this is an independent request with its own lifecycle —
           loading, error and empty are distinct, testable states, so a failed
           or forbidden read no longer masquerades as "no suppressions". */}
-      <section data-testid="audit-waivers" style={waiversPanelStyle}>
-        <h2 style={waiversHeadingStyle}>
+      <section data-testid="audit-waivers" className={styles.waiversPanel}>
+        <h2 className={styles.waiversHeading}>
           {t("audit.waivers.title", "Suppressions")}
         </h2>
         {waiversLoading ? (
-          <p data-testid="audit-waivers-loading" style={waiversStateStyle}>
+          <p data-testid="audit-waivers-loading" className={styles.waiversState}>
             {t("audit.waivers.loading", "Loading suppressions...")}
           </p>
         ) : waiversError ? (
-          <p role="alert" data-testid="audit-waivers-error" style={waiversErrorStyle}>
+          <p role="alert" data-testid="audit-waivers-error" className={styles.waiversError}>
             {waiversError}
           </p>
         ) : waivers.length === 0 ? (
-          <p data-testid="audit-waivers-empty" style={waiversStateStyle}>
+          <p data-testid="audit-waivers-empty" className={styles.waiversState}>
             {t("audit.waivers.empty", "No suppressions on file.")}
           </p>
         ) : (
-          <ul style={waiversListStyle}>
+          <ul className={styles.waiversList}>
             {waivers.map((w) => (
               <li
                 key={w.waiver_id}
                 data-testid={`audit-waiver-${w.waiver_id}`}
-                style={waiverRowStyle}
+                className={styles.waiverRow}
               >
                 <Badge
                   variant={w.state === "active" ? "neutral" : "warning"}
@@ -843,20 +836,20 @@ export function AuditDashboard(): JSX.Element {
                 >
                   {t(`audit.waivers.state.${w.state}`, w.state)}
                 </Badge>
-                <span style={waiverRuleStyle}>{w.rule_id}</span>
+                <span className={styles.waiverRule}>{w.rule_id}</span>
                 <span
                   data-testid={`audit-waiver-reason-${w.waiver_id}`}
-                  style={waiverReasonStyle}
+                  className={styles.waiverReason}
                 >
                   {w.reason}
                 </span>
                 {w.expires_at && (
-                  <span style={waiverMetaStyle}>
+                  <span className={styles.waiverMeta}>
                     {t("audit.waivers.until", "Valid until")}: {formatExpiry(w.expires_at)}
                   </span>
                 )}
                 {w.granted_by && (
-                  <span style={waiverMetaStyle}>
+                  <span className={styles.waiverMeta}>
                     {t("audit.waivers.grantedBy", "Granted by")}: {w.granted_by}
                   </span>
                 )}
@@ -873,7 +866,7 @@ export function AuditDashboard(): JSX.Element {
         <div
           role="status"
           data-testid="audit-truncated-banner"
-          style={truncatedBannerStyle}
+          className={styles.truncatedBanner}
         >
           {t(
             "audit.truncated",
@@ -888,7 +881,7 @@ export function AuditDashboard(): JSX.Element {
           inconsistency) — it is the two outcomes of the backend's remediation
           analysis. Stated once, here, instead of being folklore. */}
       {findings.length > 0 && (
-        <p data-testid="audit-action-legend" style={legendStyle}>
+        <p data-testid="audit-action-legend" className={styles.legend}>
           {t(
             "audit.actionLegend",
             "Adopt applies the correction the auditor derived automatically. Modify opens the affected artifact so you can correct it yourself — findings are recomputed from the trace graph, so they disappear once the artifact is fixed.",
@@ -897,13 +890,13 @@ export function AuditDashboard(): JSX.Element {
       )}
 
       {toast && (
-        <div role="status" data-testid="audit-toast" style={toastStyle}>
+        <div role="status" data-testid="audit-toast" className={styles.toast}>
           {toast}
         </div>
       )}
 
       {loadFailed && (
-        <div role="alert" data-testid="audit-load-error" style={errorBannerStyle}>
+        <div role="alert" data-testid="audit-load-error" className={styles.errorBanner}>
           {loadError}
         </div>
       )}
@@ -911,11 +904,11 @@ export function AuditDashboard(): JSX.Element {
       {isLoading && findings.length === 0 && !loadFailed ? (
         <p data-testid="audit-loading">{t("audit.loading", "Loading...")}</p>
       ) : !loadFailed && grouped.length === 0 ? (
-        <p data-testid="audit-empty" style={{ color: "var(--color-text-muted)" }}>
+        <p data-testid="audit-empty" className={styles.mutedText}>
           {t("audit.empty", "No findings — the trace graph is consistent for this scope.")}
         </p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+        <div className={styles.groupsColumn}>
           {grouped.map(([ruleId, groupFindings]) => (
             <FindingGroup
               key={ruleId}
@@ -937,7 +930,7 @@ export function AuditDashboard(): JSX.Element {
           retryable (Refresh would reset to page 1 and discard the loaded
           pages). */}
       {hasMore && (
-        <div style={loadMoreRowStyle}>
+        <div className={styles.loadMoreRow}>
           <button
             type="button"
             data-testid="audit-load-more-btn"
@@ -1001,8 +994,8 @@ export function AuditDashboard(): JSX.Element {
             </>
           }
         >
-          <div style={waiveFieldStyle}>
-            <label style={waiveLabelStyle} htmlFor="audit-waive-reason-input">
+          <div className={styles.waiveField}>
+            <label className={styles.waiveLabel} htmlFor="audit-waive-reason-input">
               {t("audit.waiveReasonLabel", "Justification (required)")}
             </label>
             <textarea
@@ -1015,12 +1008,12 @@ export function AuditDashboard(): JSX.Element {
                 "Why is this blocker finding an accepted deviation?",
               )}
               rows={4}
-              style={waiveTextareaStyle}
+              className={styles.waiveTextarea}
               disabled={isWaiving}
             />
           </div>
-          <div style={waiveFieldStyle}>
-            <label style={waiveLabelStyle} htmlFor="audit-waive-expires-input">
+          <div className={styles.waiveField}>
+            <label className={styles.waiveLabel} htmlFor="audit-waive-expires-input">
               {t("audit.waiveExpiresLabel", "Expiry date (optional)")}
             </label>
             <input
@@ -1029,10 +1022,10 @@ export function AuditDashboard(): JSX.Element {
               data-testid="audit-waive-expires"
               value={waiveExpiresAt}
               onChange={(e) => setWaiveExpiresAt(e.target.value)}
-              style={waiveInputStyle}
+              className={styles.waiveInput}
               disabled={isWaiving}
             />
-            <span style={waiveHintStyle}>
+            <span className={styles.waiveHint}>
               {t(
                 "audit.waiveExpiresHint",
                 "Leave empty for unbounded. An already-past timestamp is rejected.",
@@ -1040,7 +1033,7 @@ export function AuditDashboard(): JSX.Element {
             </span>
           </div>
           {waiveError && (
-            <p role="alert" data-testid="audit-waive-error" style={waiveErrorStyle}>
+            <p role="alert" data-testid="audit-waive-error" className={styles.waiveError}>
               {waiveError}
             </p>
           )}
@@ -1080,25 +1073,11 @@ function FindingGroup({
   return (
     <section
       data-testid={`audit-group-${ruleId}`}
-      style={{
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-lg)",
-        background: "var(--color-surface)",
-        overflow: "hidden",
-      }}
+      className={styles.groupSection}
     >
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "var(--space-3) var(--space-4)",
-          borderBottom: "1px solid var(--color-border)",
-          background: "var(--color-surface-raised)",
-        }}
-      >
-        <span style={{ fontFamily: "monospace", fontWeight: 700, color: "var(--color-text)" }}>{ruleId}</span>
-        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+      <header className={styles.groupHeader}>
+        <span className={styles.groupRuleId}>{ruleId}</span>
+        <div className={styles.groupBadges}>
           {blockers > 0 && (
             <Badge variant="danger">
               {t("audit.counts.blockers", "Blockers")}: {blockers}
@@ -1112,7 +1091,7 @@ function FindingGroup({
         </div>
       </header>
 
-      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+      <ul className={styles.findingsList}>
         {findings.map((finding) => (
           <FindingRow
             key={finding.index}
@@ -1162,30 +1141,24 @@ function FindingRow({
       // trigger unmounts, so the dialog's focus trap cannot restore it).
       // `-1` keeps the row out of the Tab cycle (getFocusableElements skips it).
       tabIndex={-1}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-2)",
-        padding: "var(--space-3) var(--space-4)",
-        borderBottom: "1px solid var(--color-border)",
-      }}
+      className={styles.findingRow}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+      <div className={styles.findingHeader}>
         <Badge
           variant={finding.severity === "blocker" ? "danger" : "warning"}
           testId={`audit-finding-severity-${finding.index}`}
         >
           {t(`audit.severity.${finding.severity}`, finding.severity)}
         </Badge>
-        <span style={{ color: "var(--color-text)", fontSize: "var(--font-size-sm)" }}>{finding.message}</span>
+        <span className={styles.findingMessage}>{finding.message}</span>
       </div>
 
       {finding.artifact_ids.length > 0 && (
         <div
           data-testid={`audit-finding-artifacts-${finding.index}`}
-          style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}
+          className={styles.findingArtifacts}
         >
-          <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
+          <span className={styles.findingArtifactsLabel}>
             {t("audit.artifacts", "Affected artifacts")}:
           </span>
           {finding.artifact_ids.map((id) => (
@@ -1194,7 +1167,7 @@ function FindingRow({
               variant="neutral"
               testId={`audit-finding-artifact-${finding.index}-${id}`}
               title={id}
-              style={ARTIFACT_ID_BADGE_STYLE}
+              className={styles.artifactBadge}
             >
               {id.slice(0, 8)}…
             </Badge>
@@ -1208,19 +1181,19 @@ function FindingRow({
       {isSuppressed && (
         <div
           data-testid={`audit-suppressed-badge-${finding.index}`}
-          style={suppressedBadgeStyle}
+          className={styles.suppressedBadge}
         >
           <Badge variant="neutral">{t("audit.suppressedBadge", "Suppressed")}</Badge>
           {finding.suppression_reason && (
             <span
               data-testid={`audit-suppression-reason-${finding.index}`}
-              style={suppressionTextStyle}
+              className={styles.suppressionText}
             >
               {t("audit.suppressionReasonPrefix", "Reason")}: {finding.suppression_reason}
             </span>
           )}
           {finding.suppressed_until && (
-            <span style={suppressionTextStyle}>
+            <span className={styles.suppressionText}>
               {t("audit.suppressedUntilPrefix", "Valid until")}:{" "}
               {formatExpiry(finding.suppressed_until)}
             </span>
@@ -1228,7 +1201,7 @@ function FindingRow({
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+      <div className={styles.findingHeader}>
         {finding.remediation.automatic ? (
           <button
             type="button"
@@ -1236,7 +1209,11 @@ function FindingRow({
             onClick={() => onAdopt(finding)}
             disabled={isPending || isSuppressed}
             title={finding.remediation.reason}
-            style={adoptButtonStyle(isPending || isSuppressed)}
+            className={`${styles.adoptButton} ${
+              isPending || isSuppressed
+                ? styles.adoptButtonDisabled
+                : styles.adoptButtonEnabled
+            }`}
           >
             {isPending ? t("audit.adopting", "Adopting...") : t("audit.adopt", "Adopt")}
           </button>
@@ -1258,7 +1235,7 @@ function FindingRow({
                   "audit.modifyHint",
                   "Open the affected artifact to correct it manually.",
                 )}
-                style={modifyButtonStyle}
+                className={styles.modifyButton}
               >
                 {t("audit.modify", "Modify")}
               </button>
@@ -1270,7 +1247,7 @@ function FindingRow({
                 common case, not an edge case (GitHub #451). */}
             <span
               data-testid={`audit-modify-reason-${finding.index}`}
-              style={modifyReasonStyle}
+              className={styles.modifyReason}
             >
               {t("audit.modifyReasonPrefix", "Not auto-fixable")}: {finding.remediation.reason}
               {!target &&
@@ -1290,13 +1267,13 @@ function FindingRow({
             data-testid={`audit-waive-${finding.index}`}
             onClick={() => onWaive(finding)}
             title={t("audit.waiveTitle", "Waive finding")}
-            style={waiveButtonStyle}
+            className={styles.waiveButton}
           >
             {t("audit.waive", "Waive")}
           </button>
         )}
         {action.status === "error" && (
-          <span data-testid={`audit-finding-error-${finding.index}`} role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-xs)" }}>
+          <span data-testid={`audit-finding-error-${finding.index}`} role="alert" className={styles.findingActionError}>
             {action.message}
           </span>
         )}
@@ -1304,264 +1281,3 @@ function FindingRow({
     </li>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const selectStyle: CSSProperties = {
-  padding: "var(--space-1) var(--space-2)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-border)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-  fontFamily: "inherit",
-};
-
-function refreshButtonStyle(isLoading: boolean): CSSProperties {
-  return {
-    padding: "var(--space-2) var(--space-4)",
-    background: "var(--color-primary)",
-    color: "var(--color-on-primary)",
-    border: "none",
-    borderRadius: "var(--radius-md)",
-    cursor: isLoading ? "not-allowed" : "pointer",
-    fontSize: "var(--font-size-sm)",
-    fontWeight: 600,
-    fontFamily: "inherit",
-    opacity: isLoading ? 0.6 : 1,
-  };
-}
-
-/**
- * Issue #675: the only thing the affected-artifact chips add to the shared
- * `neutral` badge is monospace, so short hex ids align while scanning.
- */
-const ARTIFACT_ID_BADGE_STYLE: CSSProperties = {
-  fontFamily: "var(--font-mono)",
-};
-
-const adoptButtonStyle = (isPending: boolean): CSSProperties => ({
-  padding: "var(--space-1) var(--space-3)",
-  background: "var(--color-success)",
-  color: "var(--color-on-success)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  cursor: isPending ? "not-allowed" : "pointer",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  fontFamily: "inherit",
-  opacity: isPending ? 0.6 : 1,
-});
-
-// #451: a real, enabled action now — secondary/outline styling keeps it visually
-// subordinate to the green "Adopt" (automatic) without reading as disabled.
-const modifyButtonStyle: CSSProperties = {
-  padding: "var(--space-1) var(--space-3)",
-  background: "transparent",
-  color: "var(--color-primary)",
-  border: "1px solid var(--color-primary)",
-  borderRadius: "var(--radius-md)",
-  cursor: "pointer",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  fontFamily: "inherit",
-  whiteSpace: "nowrap",
-};
-
-const legendStyle: CSSProperties = {
-  margin: "0 0 var(--space-4) 0",
-  color: "var(--color-text-muted)",
-  fontSize: "var(--font-size-xs)",
-  lineHeight: 1.5,
-};
-
-const modifyReasonStyle: CSSProperties = {
-  color: "var(--color-text-muted)",
-  fontSize: "var(--font-size-xs)",
-  fontStyle: "italic",
-};
-
-const toastStyle: CSSProperties = {
-  padding: "var(--space-2) var(--space-4)",
-  marginBottom: "var(--space-4)",
-  background: "var(--color-badge-success-bg)",
-  color: "var(--color-badge-success-text)",
-  border: "1px solid var(--color-success)",
-  borderRadius: "var(--radius-md)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const truncatedBannerStyle: CSSProperties = {
-  padding: "var(--space-3) var(--space-4)",
-  marginBottom: "var(--space-4)",
-  background: "var(--color-badge-warning-bg)",
-  border: "1px solid var(--color-warning)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-badge-warning-text)",
-  fontSize: "var(--font-size-sm)",
-};
-
-/** #596: centres the "Load more" affordance under the findings list. */
-const loadMoreRowStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "center",
-  marginTop: "var(--space-4)",
-};
-
-const errorBannerStyle: CSSProperties = {
-  padding: "var(--space-3) var(--space-4)",
-  marginBottom: "var(--space-4)",
-  background: "var(--color-badge-danger-bg)",
-  border: "1px solid var(--color-danger)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-badge-danger-text)",
-  fontSize: "var(--font-size-sm)",
-};
-
-/**
- * #569: shared label geometry for the toolbar controls. Hoisted (rather than
- * an inline object literal) so the new "show suppressed" checkbox adds
- * nothing to the ui-ratchet inline-style baseline.
- */
-const toolbarLabelStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-};
-
-/** #569: the suppressed marker row (badge + justification + expiry). */
-const suppressedBadgeStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  flexWrap: "wrap",
-};
-
-const suppressionTextStyle: CSSProperties = {
-  color: "var(--color-text-muted)",
-  fontSize: "var(--font-size-xs)",
-};
-
-/** #569: the third action — outline styling keeps it subordinate to Adopt/Modify. */
-const waiveButtonStyle: CSSProperties = {
-  padding: "var(--space-1) var(--space-3)",
-  background: "transparent",
-  color: "var(--color-text)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  cursor: "pointer",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  fontFamily: "inherit",
-  whiteSpace: "nowrap",
-};
-
-const waiveFieldStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-1)",
-  marginBottom: "var(--space-3)",
-};
-
-const waiveLabelStyle: CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-};
-
-const waiveTextareaStyle: CSSProperties = {
-  padding: "var(--space-2)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-border)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-  fontFamily: "inherit",
-  resize: "vertical",
-};
-
-const waiveInputStyle: CSSProperties = {
-  padding: "var(--space-1) var(--space-2)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-border)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-  fontFamily: "inherit",
-};
-
-const waiveHintStyle: CSSProperties = {
-  color: "var(--color-text-muted)",
-  fontSize: "var(--font-size-xs)",
-};
-
-const waiveErrorStyle: CSSProperties = {
-  margin: 0,
-  color: "var(--color-danger)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const waiversPanelStyle: CSSProperties = {
-  marginBottom: "var(--space-4)",
-  padding: "var(--space-3) var(--space-4)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  background: "var(--color-surface-raised)",
-};
-
-const waiversHeadingStyle: CSSProperties = {
-  margin: "0 0 var(--space-2) 0",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 700,
-  color: "var(--color-text)",
-};
-
-const waiversListStyle: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-2)",
-};
-
-/** UI-569-02: the suppression panel's loading/empty placeholder text. */
-const waiversStateStyle: CSSProperties = {
-  margin: 0,
-  color: "var(--color-text-muted)",
-  fontSize: "var(--font-size-sm)",
-};
-
-/** UI-569-02: the suppression panel's own read failure (distinct from empty). */
-const waiversErrorStyle: CSSProperties = {
-  margin: 0,
-  color: "var(--color-danger)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const waiverRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  flexWrap: "wrap",
-};
-
-const waiverRuleStyle: CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text)",
-};
-
-const waiverReasonStyle: CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-};
-
-const waiverMetaStyle: CSSProperties = {
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text-muted)",
-};

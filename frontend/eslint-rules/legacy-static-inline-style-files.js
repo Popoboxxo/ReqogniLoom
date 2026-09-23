@@ -17,7 +17,7 @@
  *     style in one of them is not caught by ESLint. Within `src/components/`
  *     that gap is covered by the `STYLE_BRACE_BASELINE` ratchet in
  *     `src/test/ui-ratchet.test.ts`, whose monotonic assertion is an exact
- *     equality (`toBe(504)`), so any net increase turns it red. The residual
+ *     equality (`toBe(408)`), so any net increase turns it red. The residual
  *     gap is a net-zero reshuffle (add here, delete there) in exempted files —
  *     accepted and documented in `no-static-inline-style.js`.
  *
@@ -49,6 +49,23 @@
  * list temporarily empty: 501 AST-visible occurrences in 62 files, matching
  * the arithmetic (593 - 92 literals; the 19 hoisted constants were identifier
  * references and were never AST-visible to this rule).
+ *
+ * Issue #876 Etappe 4 (2026-09-23, branch
+ * `refactor/876-css-module-migration-etappe-4`): five more carriers were
+ * migrated onto co-located CSS Modules and dropped here —
+ * `Audit/audit-dashboard.tsx` (20 literals + 30 hoisted constants/factories),
+ * `shared/TraceLinkPanel.tsx` (19 literals + 3 hoisted constants),
+ * `DiagramView/DiagramDetailView.tsx` (19 literals),
+ * `Reviews/ReviewsView.tsx` (19 literals + 3 hoisted constants) and
+ * `IcdView/IcdView.tsx` (19 literals). Re-measured with this list temporarily
+ * empty: 405 AST-visible occurrences in 57 files; the ratchet's raw-text count
+ * in the same scope is 408, and the difference of exactly 3 is explained by
+ * three `style={{` occurrences that exist only inside comments
+ * (RequirementTreeNode.tsx, ArchitectureEditors.tsx, WorkspaceSettings.tsx) —
+ * the ratchet counts raw text, this rule sees the AST. Only two of those three
+ * files are list entries. This matches the arithmetic (501 - 96 literals; the
+ * hoisted constants were identifier references and were never AST-visible to
+ * this rule).
  */
 export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/AdminDialog/SystemHealthDialog.tsx",
@@ -57,17 +74,14 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/ArchitectureDecompose/ArchitectureDecomposePanel.tsx",
   "src/components/ArchitectureEditors/ArchitectureEditors.tsx",
   "src/components/ArchitectureEditors/ArchitectureLegend.tsx",
-  "src/components/Audit/audit-dashboard.tsx",
   "src/components/BaselinesView/BaselinesPanels.tsx",
   "src/components/DashboardViews/DashboardViews.tsx",
   "src/components/DashboardViews/WorkspaceCard.tsx",
   "src/components/DiagramView/DiagramCreateForm.tsx",
-  "src/components/DiagramView/DiagramDetailView.tsx",
   "src/components/DiagramView/DiagramView.tsx",
   "src/components/Goals/GoalDetail.tsx",
   "src/components/Goals/MainGoalPanel.tsx",
   "src/components/IcdView/IcdDetailPane.tsx",
-  "src/components/IcdView/IcdView.tsx",
   "src/components/IcdView/SimilarIcdsPanel.tsx",
   "src/components/IssueEditors/IssueEditors.tsx",
   "src/components/MetricsDashboard/MetricsDashboard.tsx",
@@ -83,7 +97,6 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/RequirementEditors/SimilarRequirementsPanel.tsx",
   "src/components/RequirementEditors/TraceabilityPanel.tsx",
   "src/components/Reviews/ReviewHistoryPanel.tsx",
-  "src/components/Reviews/ReviewsView.tsx",
   "src/components/Reviews/SignatureDialog.tsx",
   "src/components/RiskEditors/RiskEditors.tsx",
   "src/components/SplitView/SplitView.tsx",
@@ -108,7 +121,6 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/shared/DeriveRequirementForm.tsx",
   "src/components/shared/ListToolbar.tsx",
   "src/components/shared/PageHeader.tsx",
-  "src/components/shared/TraceLinkPanel.tsx",
   "src/components/shared/VersionBadge.tsx",
   "src/components/shared/WorkspaceTree/workspace-tree.tsx",
   "src/components/shared/tag-input.tsx",

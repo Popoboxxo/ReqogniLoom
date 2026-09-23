@@ -40,12 +40,11 @@ import { IcdList } from "./IcdList";
 import { useIcdData } from "./useIcdData";
 import {
   extractErrorMessage,
-  inputStyle,
   joinListField,
-  labelStyle,
   parseListField,
   shortId,
 } from "./icd-view-shared";
+import styles from "./IcdView.module.css";
 
 export default function IcdView(): JSX.Element {
   const { t } = useTranslation();
@@ -263,11 +262,7 @@ export default function IcdView(): JSX.Element {
       <div data-testid="icd-view">
         <p
           role="status"
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-          }}
+          className={styles.viewLoading}
         >
           {t("loading")}
         </p>
@@ -280,27 +275,12 @@ export default function IcdView(): JSX.Element {
       <div
         data-testid="icd-view"
         role="alert"
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-danger)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-6)",
-          boxShadow: "var(--shadow-card)",
-          maxWidth: "480px",
-        }}
+        className={styles.errorPanel}
       >
-        <p style={{ color: "var(--color-danger)", margin: 0 }}>{error}</p>
+        <p className={styles.errorPanelText}>{error}</p>
         <button
           onClick={() => navigate(0)}
-          style={{
-            marginTop: "var(--space-4)",
-            background: "var(--color-primary)",
-            color: "var(--color-surface)",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
-            cursor: "pointer",
-          }}
+          className={styles.reloadButton}
         >
           {t("actions.reload")}
         </button>
@@ -313,14 +293,7 @@ export default function IcdView(): JSX.Element {
   return (
     <div
       data-testid="icd-view"
-      style={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-        fontFamily: "var(--font-sans)",
-        color: "var(--color-text)",
-      }}
+      className={styles.root}
     >
       {/* 12.1: exactly one <h1>, always-visible summary, one primary action
           — replaces the bare <h3>({count}) header that used to live inline
@@ -336,7 +309,7 @@ export default function IcdView(): JSX.Element {
         }}
       />
 
-      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+      <div className={styles.splitHost}>
       <SplitView
         moduleType="icds"
         leftMinWidth={280}
@@ -359,15 +332,9 @@ export default function IcdView(): JSX.Element {
             size="lg"
             testId="create-icd-dialog"
           >
-          <div data-testid="create-icd-form" style={{ maxWidth: "720px" }}>
+          <div data-testid="create-icd-form" className={styles.createForm}>
             <h3
-              style={{
-                fontSize: "var(--font-size-lg)",
-                fontWeight: 700,
-                marginTop: 0,
-                marginBottom: "var(--space-4)",
-                color: "var(--color-text)",
-              }}
+              className={styles.createHeading}
             >
               + {t("icds.create")}
             </h3>
@@ -375,21 +342,13 @@ export default function IcdView(): JSX.Element {
             {!isLoadingArch && architectureElements.length < 2 && (
               <p
                 data-testid="icd-needs-elements-hint"
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-muted)",
-                  background: "var(--color-surface-raised)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-3) var(--space-4)",
-                  marginBottom: "var(--space-4)",
-                }}
+                className={styles.needsElementsHint}
               >
                 {t("icds.needsElementsHint")}
               </p>
             )}
 
-            <label htmlFor="icd-name" style={labelStyle}>
+            <label htmlFor="icd-name" className={styles.fieldLabel}>
               {t("icds.nameLabel")}
             </label>
             <input
@@ -400,10 +359,10 @@ export default function IcdView(): JSX.Element {
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder={t("icds.namePlaceholder")}
-              style={inputStyle}
+              className={styles.fieldInput}
             />
 
-            <label htmlFor="icd-source" style={labelStyle}>
+            <label htmlFor="icd-source" className={styles.fieldLabel}>
               {t("icds.source")}
             </label>
             <select
@@ -412,7 +371,7 @@ export default function IcdView(): JSX.Element {
               value={formSource}
               onChange={(e) => setFormSource(e.target.value)}
               disabled={isLoadingArch && architectureElements.length === 0}
-              style={inputStyle}
+              className={styles.fieldInput}
             >
               <option value="">
                 {isLoadingArch && architectureElements.length === 0
@@ -426,7 +385,7 @@ export default function IcdView(): JSX.Element {
               ))}
             </select>
 
-            <label htmlFor="icd-target" style={labelStyle}>
+            <label htmlFor="icd-target" className={styles.fieldLabel}>
               {t("icds.target")}
             </label>
             <select
@@ -435,7 +394,7 @@ export default function IcdView(): JSX.Element {
               value={formTarget}
               onChange={(e) => setFormTarget(e.target.value)}
               disabled={isLoadingArch && architectureElements.length === 0}
-              style={inputStyle}
+              className={styles.fieldInput}
             >
               <option value="">
                 {isLoadingArch && architectureElements.length === 0
@@ -449,7 +408,7 @@ export default function IcdView(): JSX.Element {
               ))}
             </select>
 
-            <label htmlFor="icd-direction" style={labelStyle}>
+            <label htmlFor="icd-direction" className={styles.fieldLabel}>
               {t("icds.direction")}
             </label>
             <select
@@ -461,7 +420,7 @@ export default function IcdView(): JSX.Element {
                   e.target.value as "unidirectional" | "bidirectional",
                 )
               }
-              style={inputStyle}
+              className={styles.fieldInput}
             >
               <option value="unidirectional">
                 {t("icds.directionUnidirectional")}
@@ -471,7 +430,7 @@ export default function IcdView(): JSX.Element {
               </option>
             </select>
 
-            <label htmlFor="icd-interface-type" style={labelStyle}>
+            <label htmlFor="icd-interface-type" className={styles.fieldLabel}>
               {t("icds.interfaceType")}
             </label>
             <select
@@ -479,7 +438,7 @@ export default function IcdView(): JSX.Element {
               data-testid="icd-interface-type-select"
               value={formInterfaceType}
               onChange={(e) => setFormInterfaceType(e.target.value)}
-              style={inputStyle}
+              className={styles.fieldInput}
             >
               <option value="">{t("icds.selectInterfaceType")}</option>
               <option value="provides">Provides</option>
@@ -490,7 +449,7 @@ export default function IcdView(): JSX.Element {
               <option value="control">Control</option>
             </select>
 
-            <label htmlFor="icd-contract" style={labelStyle}>
+            <label htmlFor="icd-contract" className={styles.fieldLabel}>
               {t("icds.contract")}
             </label>
             <textarea
@@ -500,10 +459,10 @@ export default function IcdView(): JSX.Element {
               onChange={(e) => setFormContract(e.target.value)}
               placeholder={t("icds.contractPlaceholder")}
               rows={4}
-              style={{ ...inputStyle, fontFamily: "inherit" }}
+              className={styles.fieldTextarea}
             />
 
-            <label htmlFor="icd-preconditions" style={labelStyle}>
+            <label htmlFor="icd-preconditions" className={styles.fieldLabel}>
               {t("icds.preconditions")}
             </label>
             <textarea
@@ -512,11 +471,11 @@ export default function IcdView(): JSX.Element {
               value={formPre}
               onChange={(e) => setFormPre(e.target.value)}
               rows={2}
-              style={{ ...inputStyle, fontFamily: "inherit" }}
+              className={styles.fieldTextarea}
               placeholder={t("icds.onePerLinePlaceholder")}
             />
 
-            <label htmlFor="icd-postconditions" style={labelStyle}>
+            <label htmlFor="icd-postconditions" className={styles.fieldLabel}>
               {t("icds.postconditions")}
             </label>
             <textarea
@@ -525,11 +484,11 @@ export default function IcdView(): JSX.Element {
               value={formPost}
               onChange={(e) => setFormPost(e.target.value)}
               rows={2}
-              style={{ ...inputStyle, fontFamily: "inherit" }}
+              className={styles.fieldTextarea}
               placeholder={t("icds.onePerLinePlaceholder")}
             />
 
-            <label htmlFor="icd-invariants" style={labelStyle}>
+            <label htmlFor="icd-invariants" className={styles.fieldLabel}>
               {t("icds.invariants")}
             </label>
             <textarea
@@ -538,7 +497,7 @@ export default function IcdView(): JSX.Element {
               value={formInv}
               onChange={(e) => setFormInv(e.target.value)}
               rows={2}
-              style={{ ...inputStyle, fontFamily: "inherit" }}
+              className={styles.fieldTextarea}
               placeholder={t("icds.onePerLinePlaceholder")}
             />
 
@@ -546,22 +505,14 @@ export default function IcdView(): JSX.Element {
               <p
                 role="alert"
                 data-testid="create-icd-error"
-                style={{
-                  color: "var(--color-danger)",
-                  fontSize: "var(--font-size-sm)",
-                  margin: "var(--space-3) 0 0 0",
-                }}
+                className={styles.formError}
               >
                 {formError}
               </p>
             )}
 
             <div
-              style={{
-                display: "flex",
-                gap: "var(--space-3)",
-                marginTop: "var(--space-4)",
-              }}
+              className={styles.formActions}
             >
               <button
                 type="button"
@@ -570,31 +521,18 @@ export default function IcdView(): JSX.Element {
                 disabled={
                   isSaving || isLoadingArch || architectureElements.length < 2
                 }
-                style={{
-                  background: "var(--color-primary)",
-                  color: "var(--color-on-primary)",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-6)",
-                  fontSize: "var(--font-size-sm)",
-                  cursor: isSaving || isLoadingArch ? "not-allowed" : "pointer",
-                  opacity: isSaving || isLoadingArch ? 0.7 : 1,
-                }}
+                className={`${styles.submitButton} ${
+                  isSaving || isLoadingArch
+                    ? styles.submitButtonDisabled
+                    : styles.submitButtonEnabled
+                }`}
               >
                 {isSaving ? t("actions.saving") : t("actions.save")}
               </button>
               <button
                 type="button"
                 onClick={handleCancelCreate}
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-6)",
-                  fontSize: "var(--font-size-sm)",
-                  cursor: "pointer",
-                }}
+                className={styles.cancelButton}
               >
                 {t("actions.cancel")}
               </button>
@@ -604,10 +542,7 @@ export default function IcdView(): JSX.Element {
         ) : routeId && isLoadingDetail ? (
           <p
             role="status"
-            style={{
-              color: "var(--color-text-muted)",
-              padding: "var(--space-6)",
-            }}
+            className={styles.detailLoading}
           >
             {t("loading")}
           </p>
@@ -639,12 +574,7 @@ export default function IcdView(): JSX.Element {
           />
         ) : (
           <p
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-lg)",
-              padding: "var(--space-8)",
-              textAlign: "center",
-            }}
+            className={styles.selectPrompt}
           >
             {t("icds.selectIcd", "Select an ICD from the list to view details.")}
           </p>

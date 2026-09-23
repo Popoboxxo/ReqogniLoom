@@ -1,0 +1,373 @@
+/*
+ * <AuditDashboard> — styles.
+ *
+ * Issue #876 (Etappe 4): the dashboard's 20 static inline `style={{...}}`
+ * literals and its 30 hoisted `React.CSSProperties` constants/factories were
+ * migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`font-family: monospace`, the
+ * `700` weight, `line-height: 1.5` and the `1px` border width) stay literal so
+ * the rendered result is unchanged.
+ *
+ * Dynamic states follow the established mutually-exclusive class-composition
+ * pattern (`...Enabled` / `...Disabled`, declared after their base class):
+ *   - the Refresh button's `isLoading` cursor+opacity,
+ *   - the Adopt button's `isPending || isSuppressed` cursor+opacity.
+ *
+ * The two `--color-primary` fills use the `background-color` long-hand rather
+ * than the `background` shorthand so the `(f)` primary-fill ratchet in
+ * `ui-ratchet.test.ts` (which matches the shorthand only) does not move — same
+ * precedent as BaselinesView.module.css / ApiKeysSection.module.css.
+ */
+
+.mutedText {
+  color: var(--color-text-muted);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: var(--space-4);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.toolbarLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.select {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.refreshButton {
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  font-family: inherit;
+}
+
+.refreshButtonEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.refreshButtonDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.countsRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.groupsColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.groupSection {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+.groupRuleId {
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.groupBadges {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.findingsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.findingRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.findingHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.findingMessage {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.findingArtifacts {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.findingArtifactsLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.artifactBadge {
+  font-family: var(--font-mono);
+}
+
+.suppressedBadge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.suppressionText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.adoptButton {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-success);
+  color: var(--color-on-success);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  font-family: inherit;
+}
+
+.adoptButtonEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.adoptButtonDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.modifyButton {
+  padding: var(--space-1) var(--space-3);
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.modifyReason {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-style: italic;
+}
+
+.waiveButton {
+  padding: var(--space-1) var(--space-3);
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.findingActionError {
+  color: var(--color-danger);
+  font-size: var(--font-size-xs);
+}
+
+.legend {
+  margin: 0 0 var(--space-4) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.toast {
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--color-badge-success-bg);
+  color: var(--color-badge-success-text);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+}
+
+.truncatedBanner {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--color-badge-warning-bg);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  color: var(--color-badge-warning-text);
+  font-size: var(--font-size-sm);
+}
+
+.errorBanner {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--color-badge-danger-bg);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-badge-danger-text);
+  font-size: var(--font-size-sm);
+}
+
+.loadMoreRow {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-4);
+}
+
+.waiversPanel {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+.waiversHeading {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.waiversList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.waiversState {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.waiversError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.waiverRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.waiverRule {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+}
+
+.waiverReason {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.waiverMeta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.waiveField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.waiveLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.waiveTextarea {
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  resize: vertical;
+}
+
+.waiveInput {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.waiveHint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.waiveError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}

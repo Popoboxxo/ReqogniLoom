@@ -1,0 +1,139 @@
+/*
+ * <ReviewsView> — styles.
+ *
+ * Issue #876 (Etappe 4): the view's 19 static inline `style={{...}}`
+ * literals and its 3 hoisted `React.CSSProperties` constants were migrated
+ * here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`height: 32px` and the `1px`
+ * border width) stay literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the queue item's selection highlight uses `...Selected` / `...Unselected`
+ *     (mutually-exclusive background).
+ */
+
+.typeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.typeLabel {
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+}
+
+.typeSelect {
+  height: 32px;
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.mutedText {
+  color: var(--color-text-muted);
+}
+
+.errorText {
+  color: var(--color-danger);
+}
+
+.reviewList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.reviewRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.reviewItem {
+  width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-1);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.reviewItemSelected {
+  background: var(--color-card-active-bg);
+}
+
+.reviewItemUnselected {
+  background: var(--color-surface);
+}
+
+.reviewItemTitle {
+  font-weight: var(--weight-semibold);
+}
+
+.reviewItemUid {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.paginationRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.paginationIndicator {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.detailTabRow {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.detailTitle {
+  margin: 0;
+}
+
+.detailDescription {
+  white-space: pre-wrap;
+  color: var(--color-text);
+}
+
+.changeReasonSlot {
+  margin-top: var(--space-4);
+}
+
+.changeReasonLabel {
+  display: block;
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-1);
+}
+
+.changeReasonInput {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.detailActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
