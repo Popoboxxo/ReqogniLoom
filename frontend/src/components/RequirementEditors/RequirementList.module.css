@@ -38,3 +38,35 @@
   color: var(--color-danger);
   font-size: var(--font-size-sm);
 }
+
+/*
+ * Issue #876 (Etappe 7): the tree row's layout and its per-row delete trigger
+ * were migrated off inline `style={{...}}` onto these classes (values carried
+ * over verbatim) so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`.
+ */
+.rowWrap {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--space-1);
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.deleteButton {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}

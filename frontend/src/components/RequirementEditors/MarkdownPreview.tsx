@@ -12,6 +12,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { glossaryApi } from "../../api/glossary";
 import { GlossaryTooltip } from "./GlossaryTooltip";
 import type { GlossaryTerm } from "../../types";
+import styles from "./MarkdownPreview.module.css";
 
 interface MarkdownPreviewProps {
   value: string;
@@ -85,14 +86,7 @@ export function MarkdownPreview({
 
   return (
     <div>
-      <div
-        role="tablist"
-        style={{
-          display: "inline-flex",
-          marginBottom: "var(--space-2)",
-          alignItems: "center",
-        }}
-      >
+      <div role="tablist" className={styles.tablist}>
         <button
           type="button"
           role="tab"
@@ -116,16 +110,7 @@ export function MarkdownPreview({
       </div>
 
       {isPreview ? (
-        <div
-          style={{
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-3)",
-            minHeight: "140px",
-            background: "var(--color-surface-raised)",
-            color: "var(--color-text)",
-          }}
-        >
+        <div className={styles.previewBox}>
           <ReactMarkdown components={components}>{processedValue}</ReactMarkdown>
         </div>
       ) : (
@@ -136,19 +121,7 @@ export function MarkdownPreview({
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
           rows={6}
-          style={{
-            width: "100%",
-            padding: "var(--space-3)",
-            fontSize: "0.95rem",
-            fontFamily: "var(--font-mono, monospace)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            boxSizing: "border-box",
-            resize: "vertical",
-            minHeight: "140px",
-            background: "var(--color-surface-raised)",
-            color: "var(--color-text)",
-          }}
+          className={styles.textarea}
           placeholder={t("editor.descriptionPlaceholder")}
         />
       )}

@@ -40,6 +40,7 @@ import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { isArchiveTransition } from "./goal-workflow";
 import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
 import type { Goal } from "../../types";
+import styles from "./Goals.module.css";
 
 export interface GoalDetailProps {
   goal: Goal;
@@ -132,15 +133,7 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
       />
 
       {/* 1. Identity — ch. 12.4, same order and representation as the tree. */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-3)",
-        }}
-      >
+      <div className={styles.goalIdentityRow}>
         <ArtifactId
           testId="goal-artifact-id"
           // A Goal has no semantic uid; the lineage prefix is the stable
@@ -153,45 +146,19 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
       </div>
 
       {/* 2. Title + description */}
-      <h2
-        data-testid="goal-detail-title"
-        style={{
-          margin: "0 0 var(--space-2)",
-          fontSize: "var(--font-size-xl)",
-          lineHeight: "var(--leading-tight)",
-          letterSpacing: "var(--tracking-tight)",
-          fontWeight: "var(--weight-semibold)",
-          color: "var(--color-text)",
-        }}
-      >
+      <h2 data-testid="goal-detail-title" className={styles.detailTitle}>
         {goal.title}
       </h2>
 
       <p
         data-testid="goal-detail-description"
-        style={{
-          margin: "0 0 var(--space-4)",
-          maxWidth: "var(--measure)",
-          fontSize: "var(--font-size-base)",
-          lineHeight: "var(--leading-relaxed)",
-          color: goal.description
-            ? "var(--color-text)"
-            : "var(--color-text-muted)",
-          whiteSpace: "pre-wrap",
-        }}
+        className={`${styles.detailDescription} ${goal.description ? "" : styles.detailDescriptionEmpty}`}
       >
         {goal.description || t("goals.noDescription", "Keine Beschreibung.")}
       </p>
 
       {/* 3. Actions */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-5)",
-        }}
-      >
+      <div className={styles.detailActions}>
         <button
           type="button"
           className="btn-secondary"

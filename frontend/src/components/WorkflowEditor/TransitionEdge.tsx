@@ -6,7 +6,7 @@
  * and a ``[sig]`` gate badge when a signature gate guards the transition.
  */
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BaseEdge,
@@ -53,24 +53,35 @@ export function TransitionEdge({
   const active = selected || hovered;
   const transition = data?.transition;
 
+  // Issue #876 (Etappe 7): the edge's `stroke`/`strokeWidth` are genuinely
+  // per-instance SVG runtime values (they depend on React Flow's `selected`
+  // prop and the local hover state), so they stay on the `style` prop as a
+  // hoisted identifier — the accepted pattern documented in
+  // `eslint-rules/no-static-inline-style.js` (gap 4: an identifier is never
+  // inspected). The static `cursor` moved to `.hitPath` in
+  // `WorkflowEditor.module.css`.
+  const edgeStyle: CSSProperties = {
+    stroke: active ? STROKE_ACTIVE : STROKE_DEFAULT,
+    strokeWidth: selected ? 3 : hovered ? 2.5 : 1.5,
+  };
+
+  // Same reasoning: the label pill's transform is computed from
+  // `getBezierPath`'s `labelX`/`labelY`, so it is a per-instance runtime value
+  // and stays a hoisted identifier.
+  const labelStyle: CSSProperties = {
+    transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+  };
+
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        markerEnd={markerEnd}
-        style={{
-          stroke: active ? STROKE_ACTIVE : STROKE_DEFAULT,
-          strokeWidth: selected ? 3 : hovered ? 2.5 : 1.5,
-        }}
-      />
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={edgeStyle} />
       {/* Wide transparent path to make the thin edge easy to hover/click. */}
       <path
         d={edgePath}
         fill="none"
         stroke="transparent"
         strokeWidth={16}
-        style={{ cursor: "pointer" }}
+        className={styles.hitPath}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       />
@@ -80,9 +91,7 @@ export function TransitionEdge({
             className={`${styles.edgeLabel} ${
               selected ? styles.edgeLabelSelected : ""
             }`}
-            style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            }}
+            style={labelStyle}
             role="button"
             // UI-27 (systemaudit 2026-08-27): this was tabIndex={-1} —
             // programmatically focusable only, never reachable via Tab, which

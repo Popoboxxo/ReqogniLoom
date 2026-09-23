@@ -1,5 +1,9 @@
 /* Dashboard workspace card grid (COMP-RF-002) — layout contract for #806.
-   Layout only: every colour and size comes from styles/tokens.css. */
+   Layout only: every colour and size comes from styles/tokens.css.
+   Issue #876 (Etappe 7) added the loading/error/empty/search-row classes below
+   (migrated from the container's static inline styles); values are carried
+   over verbatim. `360px` / `480px` have no token of identical value and stay
+   literal. */
 
 .workspaceGrid {
   display: grid;
@@ -24,4 +28,55 @@
      read as one bounded area. */
   padding-bottom: var(--space-6);
   border-bottom: 1px solid var(--color-border);
+}
+
+/* --- Issue #876 (Etappe 7): migrated inline styles ---------------------- */
+
+.searchRow {
+  max-width: 360px;
+  margin-bottom: var(--space-4);
+}
+
+.loading {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  padding: var(--space-6);
+}
+
+.errorBox {
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-card);
+  max-width: 480px;
+}
+
+.errorText {
+  color: var(--color-danger);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+  margin-bottom: var(--space-4);
+}
+
+.reloadBtn {
+  background-color: var(--color-primary);
+  color: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.emptyState {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  padding: var(--space-6);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--color-border);
 }

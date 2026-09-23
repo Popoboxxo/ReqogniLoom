@@ -17,7 +17,8 @@
  *     style in one of them is not caught by ESLint. Within `src/components/`
  *     that gap is covered by the `STYLE_BRACE_BASELINE` ratchet in
  *     `src/test/ui-ratchet.test.ts`, whose monotonic assertion is an exact
- *     equality (`toBe(163)`), so any net increase turns it red. The residual
+ *     equality against that constant (no literal is repeated here, so it
+ *     cannot re-rot), so any net increase turns it red. The residual
  *     gap is a net-zero reshuffle (add here, delete there) in exempted files —
  *     accepted and documented in `no-static-inline-style.js`.
  *
@@ -121,43 +122,120 @@
  * 5 and 6. This matches the arithmetic (293 - 133 literals; the 12 hoisted
  * constants were identifier references and were never AST-visible to this
  * rule).
+ *
+ * Issue #876 Etappe 7 (2026-09-23, branch
+ * `refactor/876-etappe7-inline-styles`, final stage): twelve more carriers
+ * were migrated onto co-located CSS Modules and dropped here —
+ * `RequirementEditors/RequirementTreeNode.tsx` (9 literals + 4 hoisted
+ * constants; new module), `RequirementEditors/RequirementList.tsx` (3
+ * literals; existing module extended),
+ * `RequirementEditors/MarkdownPreview.tsx` (3 literals; new module),
+ * `RequirementEditors/GlossaryTooltip.tsx` (1 literal; new module),
+ * `SystemSettings/EnforcementModePanel.tsx` (9 literals + 5 hoisted constants;
+ * new module), `SystemSettings/SystemSettings.tsx` (6 literals; new module),
+ * `SystemSettings/PermissionDefaultsTab.tsx` (3 literals + 3 hoisted
+ * constants; new module), `SystemSettings/EnforcementFlipDialog.tsx` (3
+ * literals; new module), `Reviews/ReviewHistoryPanel.tsx` (9 literals; new
+ * module), `Reviews/SignatureDialog.tsx` (4 literals + 4 hoisted constants;
+ * new module), `PermissionMatrix/PermissionMatrixEditor.tsx` (8 literals + 4
+ * hoisted constants; new module) and `WorkflowEditor/TransitionEdge.tsx` (1
+ * static literal migrated to the `.hitPath` class; its 2 remaining `style`
+ * props are hoisted identifiers carrying genuinely per-instance SVG runtime
+ * values — see that file and gap 4 of `no-static-inline-style.js`).
+ *
+ * `SplitView/SplitView.tsx` STAYED on this list through batch 2: its divider
+ * (`cursor: col-resize`) and its legacy left/right panels (the shared
+ * `overscroll-behavior`/`scrollbar-gutter`/`overflow` scroll model) are pinned
+ * by `toHaveStyle`/`getComputedStyle` assertions in `SplitView.test.tsx`,
+ * `RequirementEditors.test.tsx` and `ArchitectureEditors.test.tsx`. Because
+ * the vitest run does not process CSS Modules, moving those inline
+ * declarations onto classes would break the pinned assertions. Batch 3 (the
+ * final stage) resolved it with the hoisted-identifier pattern instead —
+ * see below.
+ *
+ * Issue #876 Etappe 7, batch 2 of 3 (2026-09-23, same branch
+ * `refactor/876-etappe7-inline-styles`): twelve more carriers were migrated
+ * onto co-located CSS Modules and dropped here — `shared/ListToolbar.tsx`
+ * (8 literals + 2 hoisted constants; new module),
+ * `shared/VersionBadge.tsx` (6 literals; new module — its
+ * `versionBadgeStyle(isCurrent)` stays a hoisted identifier because it is a
+ * per-instance current/superseded value and `Badge.test.tsx` pins its
+ * `fontFamily`), `shared/CustomFieldsEditor.tsx` (4 literals + 1 hoisted
+ * `useMemo` constant; new module), `shared/tag-input.tsx` (4 literals; new
+ * module), `shared/DeriveRequirementForm.tsx` (3 literals + 2 hoisted
+ * constants; new module), `shared/trace-link-display.tsx` (5 hoisted
+ * constants + the `{ ...containerStyle, ...style }` spread; new module — the
+ * public per-instance `style` prop stays a hoisted identifier),
+ * `DashboardViews/DashboardViews.tsx` (5 literals + 1 hoisted constant;
+ * existing module extended), `Goals/GoalDetail.tsx` (4 literals; existing
+ * `Goals.module.css` extended), `BaselinesView/BaselinesPanels.tsx` (2
+ * literals + 2 dynamic values; existing module extended — the summary badge's
+ * caller-supplied colour and the diff row's `statusColor(item.status)` stay
+ * hoisted identifiers), `DiagramView/DiagramCreateForm.tsx` (7 literals; new
+ * module — the spread shared constants from `diagram-view-shared.ts` are
+ * duplicated verbatim, that file is shared and untouched) and
+ * `DiagramView/DiagramView.tsx` (4 literals; new module). That is 11 entries
+ * removed (25 -> 14).
+ *
+ * `shared/PageHeader.tsx` was the one batch-2 file that stayed on this list
+ * (`PageHeader.test.tsx:29` pins the <h1>'s `fontSize` via
+ * `toHaveStyle`). Etappe 7 batch 3, the final stage, resolved it with the
+ * documented hoisted-identifier pattern: the density-dependent `fontSize` now
+ * lives in `const titleStyle: React.CSSProperties` applied as
+ * `style={titleStyle}`, which the rule does not flag (it only reports an
+ * object literal directly inside the attribute — see gap 4 of
+ * `no-static-inline-style.js`). The inline style is still rendered, so the
+ * `toHaveStyle` pin stays green.
+ *
+ * Issue #876 Etappe 7, batch 3 of 3 (2026-09-23, same branch
+ * `refactor/876-etappe7-inline-styles`, final batch): the last fourteen
+ * carriers were migrated and dropped here, leaving this list EMPTY —
+ * `AdminDialog/TriLabelOverviewDialog.tsx` (2 literals + 4 hoisted constants;
+ * new module), `ArchitectureDecompose/ArchitectureDecomposePanel.tsx` (2
+ * literals + the module-level `styles` Record migrated class-for-class onto a
+ * new module; the per-node recursion indent stays a hoisted identifier),
+ * `ArchitectureEditors/ArchitectureLegend.tsx` (7 literals; new module),
+ * `IcdView/IcdDetailPane.tsx` (4 literals; existing module extended — the
+ * `{ ...inputStyle, fontFamily: "inherit" }` pairs split into the map's own
+ * `.newVersionTextarea` class plus the shared `inputStyle` identifier, so
+ * `icd-view-shared.ts` stays untouched),
+ * `NeedsEditors/NeedArtifactForm.tsx` (3 literals + 1 hoisted constant; new
+ * module), `NeedsEditors/NeedList.tsx` (1 literal; new module),
+ * `TestCaseEditors/DeriveTestCasePanel.tsx` (2 literals + the module-level
+ * `styles` Record migrated class-for-class onto a new module),
+ * `UserProfileSettings/ProfileSection.tsx` (6 literals + 6 hoisted constants;
+ * new module), `WorkflowEditor/PresetSegmentedControl.tsx` (2 literals; new
+ * module), `WorkspaceSettings/DefaultStatusBadge.tsx` (1 literal; new module),
+ * `canvas/CanvasEditor.tsx` (1 literal; the per-instance swatch colour stays a
+ * hoisted `swatchStyle(c)` factory so the `canvas-color-<hex>` test-id
+ * contract is untouched), `mermaid/MermaidEditor.tsx` (2 literals; existing
+ * module under `styles/components/` extended),
+ * `SplitView/SplitView.tsx` (9 literals, all of them test-pinned dynamic
+ * values: hoisted to named identifiers — `MOBILE_*`, `DESKTOP_ROOT_STYLE`,
+ * `DIVIDER_STYLE`, `RIGHT_PANEL_STYLE`, `leftPanelStyle`) and finally
+ * `shared/PageHeader.tsx` (the `titleStyle` identifier described above).
+ *
+ * `SplitView.tsx`'s divider and legacy panels are pinned by
+ * `toHaveStyle`/`getComputedStyle` assertions in `SplitView.test.tsx` (its
+ * `getComputedStyle`/`toHaveStyle` assertions on `splitview-list`/`-detail`,
+ * with the divider as the locator for the legacy panels),
+ * `RequirementEditors.test.tsx:360` and `ArchitectureEditors.test.tsx:374`
+ * (both `toHaveStyle("cursor: col-resize")` on the divider). Because the
+ * vitest run does not process CSS Modules, those declarations must keep
+ * rendering as inline styles — the hoisted identifier satisfies both the pins
+ * and the rule.
+ *
+ * ---------------------------------------------------------------------------
+ * THIS LIST IS NOW EMPTY (0 entries, was 14 at the start of this batch; 68
+ * when the rule was introduced). `local/no-static-inline-style` therefore
+ * guards the WHOLE of `src` (all `.ts`/`.tsx` under it, tests excluded) with
+ * no per-file exemptions left. The conditional spread block in
+ * `frontend/eslint.config.js` deactivates automatically while the array is
+ * empty (ESLint 9 rejects an empty `files` array) and would reactivate by
+ * itself if a future legacy exemption ever had to be added back.
+ *
+ * The maintenance rule stands unchanged: never ADD an entry to make a build
+ * pass — fix the style (or hoist it to an identifier if it is genuinely
+ * per-instance) instead.
  */
-export const LEGACY_STATIC_INLINE_STYLE_FILES = [
-  "src/components/AdminDialog/TriLabelOverviewDialog.tsx",
-  "src/components/ArchitectureDecompose/ArchitectureDecomposePanel.tsx",
-  "src/components/ArchitectureEditors/ArchitectureLegend.tsx",
-  "src/components/BaselinesView/BaselinesPanels.tsx",
-  "src/components/DashboardViews/DashboardViews.tsx",
-  "src/components/DiagramView/DiagramCreateForm.tsx",
-  "src/components/DiagramView/DiagramView.tsx",
-  "src/components/Goals/GoalDetail.tsx",
-  "src/components/IcdView/IcdDetailPane.tsx",
-  "src/components/NeedsEditors/NeedArtifactForm.tsx",
-  "src/components/NeedsEditors/NeedList.tsx",
-  "src/components/PermissionMatrix/PermissionMatrixEditor.tsx",
-  "src/components/RequirementEditors/GlossaryTooltip.tsx",
-  "src/components/RequirementEditors/MarkdownPreview.tsx",
-  "src/components/RequirementEditors/RequirementList.tsx",
-  "src/components/RequirementEditors/RequirementTreeNode.tsx",
-  "src/components/Reviews/ReviewHistoryPanel.tsx",
-  "src/components/Reviews/SignatureDialog.tsx",
-  "src/components/SplitView/SplitView.tsx",
-  "src/components/SystemSettings/EnforcementFlipDialog.tsx",
-  "src/components/SystemSettings/EnforcementModePanel.tsx",
-  "src/components/SystemSettings/PermissionDefaultsTab.tsx",
-  "src/components/SystemSettings/SystemSettings.tsx",
-  "src/components/TestCaseEditors/DeriveTestCasePanel.tsx",
-  "src/components/UserProfileSettings/ProfileSection.tsx",
-  "src/components/WorkflowEditor/PresetSegmentedControl.tsx",
-  "src/components/WorkflowEditor/TransitionEdge.tsx",
-  "src/components/WorkspaceSettings/DefaultStatusBadge.tsx",
-  "src/components/canvas/CanvasEditor.tsx",
-  "src/components/mermaid/MermaidEditor.tsx",
-  "src/components/shared/CustomFieldsEditor.tsx",
-  "src/components/shared/DeriveRequirementForm.tsx",
-  "src/components/shared/ListToolbar.tsx",
-  "src/components/shared/PageHeader.tsx",
-  "src/components/shared/VersionBadge.tsx",
-  "src/components/shared/tag-input.tsx",
-  "src/components/shared/trace-link-display.tsx",
-];
+export const LEGACY_STATIC_INLINE_STYLE_FILES = [];

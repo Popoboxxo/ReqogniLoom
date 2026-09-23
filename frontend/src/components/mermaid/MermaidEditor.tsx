@@ -401,16 +401,7 @@ export function MermaidEditor({
               data-testid="mermaid-save-btn"
               onClick={handleManualSave}
               disabled={!isDirty || saveStatus === "saving"}
-              style={{
-                padding: "var(--space-1) var(--space-2)",
-                background: "var(--color-primary)",
-                color: "var(--color-on-primary)",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                cursor: isDirty ? "pointer" : "not-allowed",
-                fontSize: "var(--font-size-sm)",
-                opacity: isDirty ? 1 : 0.6,
-              }}
+              className={`${styles.saveButton} ${isDirty ? "" : styles.saveButtonDisabled}`}
             >
               {saveStatus === "saving"
                 ? t("actions.saving", "Saving...")
@@ -431,7 +422,7 @@ export function MermaidEditor({
           <div className={styles.editorHeader}>
             <span>{t("mermaid.preview.title", "Live Preview")}</span>
             {detectedType && (
-              <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+              <span className={styles.detectedType}>
                 {detectedType}
               </span>
             )}

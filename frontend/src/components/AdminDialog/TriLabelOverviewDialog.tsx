@@ -15,10 +15,10 @@
  * body/footer + backdrop-click-to-close).
  */
 
-import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { FALLBACK_TRI_LABELS } from "../../constants/traceLinkLabels";
 import { Dialog } from "../shared/Dialog";
+import styles from "./TriLabelOverviewDialog.module.css";
 
 const BUILTIN_LINK_TYPES = Object.keys(FALLBACK_TRI_LABELS);
 
@@ -28,44 +28,6 @@ export interface TriLabelOverviewDialogProps {
   /** Called when the user closes the dialog. */
   onClose: () => void;
 }
-
-// ---------------------------------------------------------------------------
-// Styles — the overlay/panel/header chrome now comes from <Dialog>; only the
-// content-specific styles remain here.
-// ---------------------------------------------------------------------------
-
-const hintStyle: CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const thStyle: CSSProperties = {
-  textAlign: "left",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  color: "var(--color-text-muted)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  borderBottom: "1px solid var(--color-border)",
-  whiteSpace: "nowrap",
-};
-
-const tdStyle: CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  borderBottom: "1px solid var(--color-border)",
-  verticalAlign: "middle",
-};
-
-const typeCellStyle: CSSProperties = {
-  ...tdStyle,
-  fontFamily: "monospace",
-  fontWeight: 600,
-  whiteSpace: "nowrap",
-};
 
 /**
  * Admin-only, read-only Tri-Label overview — full DE/EN
@@ -101,26 +63,26 @@ export function TriLabelOverviewDialog({
         </>
       }
     >
-      <p style={hintStyle}>
+      <p className={styles.hint}>
         {t(
           "triLabelOverview.hint",
           "Read-only overview of the eleven built-in TraceLink types with their German/English downstream, upstream and neutral labels. Per-workspace catalog customizations are not reflected here."
         )}
       </p>
 
-      <div style={{ overflowX: "auto" }}>
+      <div className={styles.tableScroll}>
         <table
           data-testid="tri-label-overview-table"
-          style={{ width: "100%", borderCollapse: "collapse" }}
+          className={styles.table}
         >
           <thead>
             <tr>
-              <th style={thStyle}>{t("triLabelOverview.columns.type", "Type")}</th>
-              <th style={thStyle}>{t("triLabelOverview.columns.deDownstream", "DE Downstream")}</th>
-              <th style={thStyle}>{t("triLabelOverview.columns.deUpstream", "DE Upstream")}</th>
-              <th style={thStyle}>{t("triLabelOverview.columns.enDownstream", "EN Downstream")}</th>
-              <th style={thStyle}>{t("triLabelOverview.columns.enUpstream", "EN Upstream")}</th>
-              <th style={thStyle}>{t("triLabelOverview.columns.neutral", "Neutral (DE / EN)")}</th>
+              <th className={styles.th}>{t("triLabelOverview.columns.type", "Type")}</th>
+              <th className={styles.th}>{t("triLabelOverview.columns.deDownstream", "DE Downstream")}</th>
+              <th className={styles.th}>{t("triLabelOverview.columns.deUpstream", "DE Upstream")}</th>
+              <th className={styles.th}>{t("triLabelOverview.columns.enDownstream", "EN Downstream")}</th>
+              <th className={styles.th}>{t("triLabelOverview.columns.enUpstream", "EN Upstream")}</th>
+              <th className={styles.th}>{t("triLabelOverview.columns.neutral", "Neutral (DE / EN)")}</th>
             </tr>
           </thead>
           <tbody>
@@ -128,22 +90,22 @@ export function TriLabelOverviewDialog({
               const entry = FALLBACK_TRI_LABELS[lt];
               return (
                 <tr key={lt} data-testid={`tri-label-row-${lt}`}>
-                  <td style={typeCellStyle} data-testid={`tri-label-row-${lt}-type`}>
+                  <td className={styles.typeCell} data-testid={`tri-label-row-${lt}-type`}>
                     {lt}
                   </td>
-                  <td style={tdStyle} data-testid={`tri-label-row-${lt}-de-downstream`}>
+                  <td className={styles.td} data-testid={`tri-label-row-${lt}-de-downstream`}>
                     {entry.de.downstream}
                   </td>
-                  <td style={tdStyle} data-testid={`tri-label-row-${lt}-de-upstream`}>
+                  <td className={styles.td} data-testid={`tri-label-row-${lt}-de-upstream`}>
                     {entry.de.upstream}
                   </td>
-                  <td style={tdStyle} data-testid={`tri-label-row-${lt}-en-downstream`}>
+                  <td className={styles.td} data-testid={`tri-label-row-${lt}-en-downstream`}>
                     {entry.en.downstream}
                   </td>
-                  <td style={tdStyle} data-testid={`tri-label-row-${lt}-en-upstream`}>
+                  <td className={styles.td} data-testid={`tri-label-row-${lt}-en-upstream`}>
                     {entry.en.upstream}
                   </td>
-                  <td style={tdStyle} data-testid={`tri-label-row-${lt}-neutral`}>
+                  <td className={styles.td} data-testid={`tri-label-row-${lt}-neutral`}>
                     {entry.de.neutral} / {entry.en.neutral}
                   </td>
                 </tr>

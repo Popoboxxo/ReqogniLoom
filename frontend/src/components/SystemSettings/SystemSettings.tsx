@@ -30,6 +30,7 @@ import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
 import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
 import { PageHeader } from "../shared/PageHeader";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
+import styles from "./SystemSettings.module.css";
 
 type SystemTabId =
   | "administration"
@@ -61,9 +62,9 @@ export default function SystemSettings(): JSX.Element {
 
   if (!isAdmin) {
     return (
-      <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
+      <div className={styles.adminOnly}>
         <PageHeader title={t("nav.systemSettings", "System Settings")} />
-        <p style={{ color: "var(--color-warning)" }}>
+        <p className={styles.adminOnlyText}>
           {t(
             "systemSettings.adminOnly",
             "You must be an admin to view or edit System Settings."
@@ -92,11 +93,11 @@ export default function SystemSettings(): JSX.Element {
   return (
     <div
       data-testid="system-settings"
-      style={{
-        maxWidth: isEditorTab ? "none" : "860px",
-        margin: isEditorTab ? undefined : "0 auto",
-        padding: "var(--space-6)",
-      }}
+      className={
+        styles.root +
+        " " +
+        (isEditorTab ? styles.rootEditor : styles.rootCentered)
+      }
     >
       <PageHeader
         title={t("nav.systemSettings", "System Settings")}
@@ -111,13 +112,7 @@ export default function SystemSettings(): JSX.Element {
         aria-label={t("nav.systemSettings", "System Settings")}
         data-testid="system-settings-tablist"
         onKeyDown={(e) => handleTablistKeyDown(e, TAB_IDS, activeTab, setTab)}
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "var(--space-1)",
-          borderBottom: "1px solid var(--color-border)",
-          marginBottom: "var(--space-5)",
-        }}
+        className={styles.tablist}
       >
         {TABS.map((tab) => {
           const isTabActive = activeTab === tab.id;
@@ -132,21 +127,11 @@ export default function SystemSettings(): JSX.Element {
               aria-controls={`system-settings-panel-${tab.id}`}
               tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setTab(tab.id)}
-              style={{
-                appearance: "none",
-                background: "transparent",
-                border: "none",
-                borderBottom: isTabActive
-                  ? "2px solid var(--color-primary)"
-                  : "2px solid transparent",
-                color: isTabActive ? "var(--color-text)" : "var(--color-text-muted)",
-                fontWeight: isTabActive ? 600 : 500,
-                fontSize: "var(--font-size-sm)",
-                padding: "var(--space-3) var(--space-4)",
-                marginBottom: "-1px",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
+              className={
+                styles.tab +
+                " " +
+                (isTabActive ? styles.tabActive : styles.tabInactive)
+              }
             >
               {tab.label}
             </button>
@@ -168,10 +153,7 @@ export default function SystemSettings(): JSX.Element {
           </>
         )}
         {activeTab === "workflow-defaults" && (
-          <div
-            data-testid="system-workflow-defaults"
-            style={{ height: "calc(100vh - 220px)", position: "relative" }}
-          >
+          <div data-testid="system-workflow-defaults" className={styles.editorHost}>
             <WorkflowEditorPage scope="global" />
           </div>
         )}

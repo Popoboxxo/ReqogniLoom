@@ -1,0 +1,47 @@
+/*
+ * <ReviewHistoryPanel> (COMP-RF-REV-003, REQ-144) — styles.
+ *
+ * Issue #876 (Etappe 7): the panel's 9 static inline `style={{...}}` literals
+ * were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ */
+.mutedText {
+  color: var(--color-text-muted);
+}
+
+.errorText {
+  color: var(--color-danger);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.entryTransition {
+  font-weight: 600;
+}
+
+.entryMeta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.entryReason {
+  font-size: var(--font-size-sm);
+}
+
+.sealIcon {
+  font-size: 1.1rem;
+}

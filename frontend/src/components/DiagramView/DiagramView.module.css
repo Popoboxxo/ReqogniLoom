@@ -1,0 +1,34 @@
+/*
+ * <DiagramView> (COMP-RF-005) container — styles.
+ *
+ * Issue #876 (Etappe 7): the container's 4 static inline `style={{...}}`
+ * literals were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ */
+.root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+}
+
+.deleteError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-4);
+}
+
+.splitHost {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.emptyHint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  padding: var(--space-8);
+  text-align: center;
+}

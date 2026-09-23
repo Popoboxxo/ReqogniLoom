@@ -506,8 +506,8 @@ export const RequirementList: React.FC<RequirementListProps> = ({
               },
             ];
             return (
-              <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 'var(--space-1)' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
+              <div className={styles.rowWrap}>
+                <div className={styles.rowMain}>
                   <ArtifactRow
                     id={req.uid}
                     idFallback={req.id.slice(0, 8)}
@@ -549,19 +549,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                       e.stopPropagation();
                       setConfirmDeleteId(req.id);
                     }}
-                    style={{
-                      flexShrink: 0,
-                      width: '22px',
-                      height: '22px',
-                      padding: 0,
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--color-text-muted)',
-                      cursor: 'pointer',
-                      fontSize: '0.85rem',
-                      lineHeight: 1,
-                      borderRadius: 'var(--radius-sm)',
-                    }}
+                    className={styles.deleteButton}
                   >
                     ✕
                   </button>

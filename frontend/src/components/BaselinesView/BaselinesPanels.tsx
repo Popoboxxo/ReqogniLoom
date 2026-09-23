@@ -10,7 +10,7 @@
  * the former monolithic BaselinesView; all state is driven by props.
  */
 
-import { memo } from "react";
+import { memo, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   Baseline,
@@ -101,8 +101,7 @@ export function BaselineEntriesSection({
             className={styles.entryItem}
           >
             <div
-              className={styles.entryHeaderRow}
-              style={{ marginBottom: entry.state ? "var(--space-2)" : 0 }}
+              className={`${styles.entryHeaderRow} ${entry.state ? styles.entryHeaderRowSpaced : ""}`}
             >
               <span
                 data-testid="baseline-entry-type"
@@ -333,13 +332,19 @@ const SummaryBadge = memo(function SummaryBadge({
   color,
   testid,
 }: SummaryBadgeProps): JSX.Element {
+  // Issue #876 (Etappe 7): `color` is a per-instance caller prop, so the two
+  // derived declarations stay on the `style` prop as hoisted identifiers
+  // (gap 4 of `eslint-rules/no-static-inline-style.js` — an identifier is
+  // never inspected).
+  const badgeStyle: CSSProperties = { border: `1px solid ${color}` };
+  const countStyle: CSSProperties = { color };
   return (
     <span
       data-testid={testid}
       className={styles.summaryBadge}
-      style={{ border: `1px solid ${color}` }}
+      style={badgeStyle}
     >
-      <span style={{ color }}>{count}</span>
+      <span style={countStyle}>{count}</span>
       {label}
     </span>
   );
@@ -364,12 +369,16 @@ export const DiffItemRow = memo(function DiffItemRow({
     item.field_changes != null &&
     item.field_changes.length > 0;
 
+  // Issue #876 (Etappe 7): per-item runtime colour — hoisted identifier, not
+  // a literal object (gap 4 of `eslint-rules/no-static-inline-style.js`).
+  const statusStyle: CSSProperties = { color: statusColor(item.status) };
+
   const header = (
     <>
       <span
         data-testid="diff-item-status"
         className={styles.diffStatus}
-        style={{ color: statusColor(item.status) }}
+        style={statusStyle}
       >
         {item.status}
       </span>

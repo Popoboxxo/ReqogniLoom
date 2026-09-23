@@ -51,7 +51,6 @@
  * handling; not solved here.
  */
 
-import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -60,6 +59,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { useEntityReset } from "../../hooks/use-entity-reset";
 import type { StakeholderNeed } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
+import styles from "./NeedArtifactForm.module.css";
 
 /**
  * Server-owned fields the form must never send back.
@@ -154,13 +154,6 @@ export function NeedArtifactForm({
     return () => onDirtyChange?.(false);
   }, [formDirty, hasPendingChangeReason, onDirtyChange]);
 
-  const labelStyle: CSSProperties = {
-    fontWeight: 500,
-    color: "var(--color-text)",
-    display: "block",
-    marginBottom: "var(--space-1)",
-  };
-
   return (
     <>
       <ArtifactForm
@@ -203,9 +196,9 @@ export function NeedArtifactForm({
         }}
       />
       {isExtendedPreset && (
-        <div style={{ marginTop: "var(--space-4)" }}>
-          <label htmlFor="need-change-reason" style={labelStyle}>
-            {t("req.changeReason")} <span style={{ color: "var(--color-danger)" }}>*</span>
+        <div className={styles.changeReasonSection}>
+          <label htmlFor="need-change-reason" className={styles.changeReasonLabel}>
+            {t("req.changeReason")} <span className={styles.changeReasonRequired}>*</span>
           </label>
           <textarea
             id="need-change-reason"
@@ -213,18 +206,7 @@ export function NeedArtifactForm({
             value={changeReason}
             onChange={(e) => setChangeReason(e.target.value)}
             rows={2}
-            style={{
-              width: "100%",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-3)",
-              fontFamily: "var(--font-sans)",
-              fontSize: "var(--font-size-base)",
-              color: "var(--color-text)",
-              background: "var(--color-surface)",
-              boxSizing: "border-box",
-              resize: "vertical",
-            }}
+            className={styles.changeReasonTextarea}
             placeholder={t("req.changeReasonPlaceholderNeed")}
           />
         </div>

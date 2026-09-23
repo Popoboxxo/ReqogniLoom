@@ -26,6 +26,7 @@ import {
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
 import fieldHints from '../shared/FieldHints.module.css';
+import styles from './NeedList.module.css';
 
 interface NeedListProps {
   needs: StakeholderNeed[];
@@ -281,7 +282,7 @@ export function NeedList({
                 via `form button[type="submit"]` (create-need-verification,
                 needs-cross-boundary), which the Dialog `footer` slot would
                 break by rendering the button outside the form element. */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-4)' }}>
+            <div className={styles.createActions}>
               <button
                 type="button"
                 data-testid="need-create-cancel-btn"

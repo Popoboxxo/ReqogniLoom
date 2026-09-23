@@ -24,6 +24,7 @@ import { LevelBadge } from "../shared/LevelBadge";
 import { ArtifactId } from "../shared/ArtifactId";
 import { VersionBadge } from "../shared/VersionBadge";
 import type { BadgeVariant } from "../../utils/statusBadge";
+import styles from "./ArchitectureLegend.module.css";
 
 interface LegendSectionProps {
   title: string;
@@ -33,40 +34,16 @@ interface LegendSectionProps {
 
 function LegendSection({ title, hint, children }: LegendSectionProps): JSX.Element {
   return (
-    <section style={{ marginBottom: "var(--space-5)" }}>
-      <h3
-        style={{
-          margin: "0 0 var(--space-2)",
-          fontSize: "var(--font-size-sm)",
-          fontWeight: "var(--weight-semibold)",
-          letterSpacing: "var(--tracking-wide)",
-          textTransform: "uppercase",
-          color: "var(--color-text-muted)",
-        }}
-      >
+    <section className={styles.section}>
+      <h3 className={styles.heading}>
         {title}
       </h3>
       {hint && (
-        <p
-          style={{
-            margin: "0 0 var(--space-3)",
-            fontSize: "var(--font-size-sm)",
-            lineHeight: "var(--leading-normal)",
-            color: "var(--color-text-muted)",
-          }}
-        >
+        <p className={styles.hint}>
           {hint}
         </p>
       )}
-      <dl
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(96px, max-content) 1fr",
-          gap: "var(--space-2) var(--space-4)",
-          margin: 0,
-          alignItems: "baseline",
-        }}
-      >
+      <dl className={styles.definitionList}>
         {children}
       </dl>
     </section>
@@ -82,17 +59,10 @@ interface LegendRowProps {
 function LegendRow({ sample, meaning, testId }: LegendRowProps): JSX.Element {
   return (
     <>
-      <dt style={{ margin: 0 }} data-testid={testId}>
+      <dt className={styles.term} data-testid={testId}>
         {sample}
       </dt>
-      <dd
-        style={{
-          margin: 0,
-          fontSize: "var(--font-size-sm)",
-          lineHeight: "var(--leading-normal)",
-          color: "var(--color-text)",
-        }}
-      >
+      <dd className={styles.definition}>
         {meaning}
       </dd>
     </>
@@ -155,14 +125,7 @@ export function ArchitectureLegend({
 
   return (
     <div data-testid={testId}>
-      <p
-        style={{
-          margin: "0 0 var(--space-5)",
-          fontSize: "var(--font-size-sm)",
-          lineHeight: "var(--leading-normal)",
-          color: "var(--color-text)",
-        }}
-      >
+      <p className={styles.intro}>
         {t(
           "archLegend.intro",
           "Farbe steht auf dieser Seite ausschließlich für den Status. Artefakttyp, Ebene und Version werden über Text und Position unterschieden — sie bleiben bewusst neutral.",

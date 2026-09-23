@@ -18,6 +18,7 @@ import {
 } from "../../api/permission-defaults";
 import { EnforcementFlipDialog } from "./EnforcementFlipDialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import styles from "./EnforcementModePanel.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -25,47 +26,6 @@ function extractErrorMessage(err: unknown): string {
 }
 
 const WINDOW_DAYS = 30;
-
-const cardStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const hintStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-  margin: "var(--space-2) 0",
-};
-
-const pillBase: React.CSSProperties = {
-  display: "inline-block",
-  padding: "1px var(--space-2)",
-  borderRadius: "var(--radius-full)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
 
 function fmtRelative(iso: string | null | undefined, neverLabel: string): string {
   if (!iso) return neverLabel;
@@ -127,46 +87,42 @@ export function EnforcementModePanel(): JSX.Element {
   const isAuthoritative = status?.enforcement_mode === "authoritative";
 
   return (
-    <section style={cardStyle} data-testid="enforcement-mode-section">
-      <h3 style={headingStyle}>{t("systemSettings.enforcementMode.title")}</h3>
+    <section className={styles.card} data-testid="enforcement-mode-section">
+      <h3 className={styles.heading}>{t("systemSettings.enforcementMode.title")}</h3>
 
       {loading ? (
-        <p style={{ color: "var(--color-text-muted)" }}>…</p>
+        <p className={styles.loadingText}>…</p>
       ) : error && !status ? (
-        <p role="alert" data-testid="enforcement-error" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" data-testid="enforcement-error" className={styles.errorText}>
           {error}
         </p>
       ) : (
         status && (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+            <div className={styles.modeRow}>
               <span
                 data-testid="enforcement-mode-badge"
                 data-mode={status.enforcement_mode}
-                style={{
-                  ...pillBase,
-                  background: isAuthoritative
-                    ? "rgba(var(--color-success-rgb), 0.12)"
-                    : "var(--color-surface-raised)",
-                  color: isAuthoritative
-                    ? "var(--color-success)"
-                    : "var(--color-text-muted)",
-                }}
+                className={
+                  styles.pill +
+                  " " +
+                  (isAuthoritative ? styles.pillAuthoritative : styles.pillShadow)
+                }
               >
                 {isAuthoritative ? t("systemSettings.enforcementMode.authoritative") : t("systemSettings.enforcementMode.shadow")}
               </span>
               {status.ready_for_authoritative ? (
-                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-success)" }}>
+                <span className={styles.successHint}>
                   {t("systemSettings.enforcementMode.zeroMismatches")}
                 </span>
               ) : (
-                <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-warning)" }}>
+                <span className={styles.warningHint}>
                   {t("systemSettings.enforcementMode.pendingMismatches", { count: status.pending_mismatch_count })}
                 </span>
               )}
             </div>
 
-            <p style={hintStyle} data-testid="enforcement-meta">
+            <p className={styles.hint} data-testid="enforcement-meta">
               {t("systemSettings.enforcementMode.meta", {
                 count: status.pending_mismatch_count,
                 days: status.mismatch_window_days,
@@ -174,35 +130,32 @@ export function EnforcementModePanel(): JSX.Element {
               })}
             </p>
             {status.advisory_note && (
-              <p style={hintStyle} data-testid="enforcement-advisory">
+              <p className={styles.hint} data-testid="enforcement-advisory">
                 {status.advisory_note}
               </p>
             )}
 
             {error && (
-              <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}>
+              <p
+                role="alert"
+                className={styles.errorText + " " + styles.textSm}
+              >
                 {error}
               </p>
             )}
 
-            <div style={{ marginTop: "var(--space-3)" }}>
+            <div className={styles.actions}>
               {isAuthoritative ? (
                 <button
                   type="button"
                   data-testid="enforcement-rollback-btn"
                   onClick={() => setShowRollbackConfirm(true)}
                   disabled={rollingBack}
-                  style={{
-                    background: "transparent",
-                    color: "var(--color-warning)",
-                    border: "1px solid var(--color-warning)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-2) var(--space-4)",
-                    fontSize: "var(--font-size-sm)",
-                    fontWeight: 600,
-                    cursor: rollingBack ? "not-allowed" : "pointer",
-                    opacity: rollingBack ? 0.5 : 1,
-                  }}
+                  className={
+                    styles.rollbackButton +
+                    " " +
+                    (rollingBack ? styles.rollbackDisabled : styles.rollbackEnabled)
+                  }
                 >
                   {rollingBack ? "…" : t("systemSettings.enforcementMode.rollbackButton")}
                 </button>
@@ -211,7 +164,7 @@ export function EnforcementModePanel(): JSX.Element {
                   type="button"
                   data-testid="enforcement-flip-btn"
                   onClick={() => setShowFlipDialog(true)}
-                  style={primaryButtonStyle}
+                  className={styles.primaryButton}
                 >
                   {t("systemSettings.enforcementMode.flipButton")}
                 </button>

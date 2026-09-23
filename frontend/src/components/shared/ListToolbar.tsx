@@ -13,6 +13,7 @@
  * useMemo) — this component only owns the controls.
  */
 
+import styles from "./ListToolbar.module.css";
 
 export interface ListToolbarFilterOption {
   value: string;
@@ -63,33 +64,6 @@ export interface ListToolbarProps {
   actions?: React.ReactNode;
 }
 
-const controlStyle: React.CSSProperties = {
-  height: "32px",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--color-border)",
-  padding: "0 var(--space-2)",
-  fontSize: "var(--font-size-sm)",
-  fontFamily: "inherit",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  boxSizing: "border-box",
-  outline: "none",
-};
-
-/*
- * GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: the native <select>'s caret
- * icon needs extra reserved space on the right beyond the symmetric
- * controlStyle padding, otherwise long option labels run underneath the
- * browser-drawn arrow once the select shrinks (flex: 1 1 0, minWidth: 0)
- * below its content width. Applied only to <select> elements (filters +
- * sort), not the free-text search input, which has no caret.
- */
-const selectStyle: React.CSSProperties = {
-  ...controlStyle,
-  paddingRight: "calc(var(--space-2) + 16px)",
-  textOverflow: "ellipsis",
-};
-
 export function ListToolbar({
   searchValue,
   onSearchChange,
@@ -108,15 +82,7 @@ export function ListToolbar({
     (sortOptions && sortOptions.length > 0 && onSortChange);
 
   return (
-    <div
-      data-testid={`${testIdPrefix}-toolbar`}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-2)",
-        marginBottom: "var(--space-2)",
-      }}
-    >
+    <div data-testid={`${testIdPrefix}-toolbar`} className={styles.toolbar}>
       <input
         type="search"
         data-testid={`${testIdPrefix}-search-input`}
@@ -124,20 +90,12 @@ export function ListToolbar({
         onChange={(e) => onSearchChange(e.target.value)}
         placeholder={searchPlaceholder}
         aria-label={searchPlaceholder}
-        style={{ ...controlStyle, width: "100%" }}
+        className={`${styles.control} ${styles.searchInput}`}
       />
 
       {hasFilterRow && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--space-2)",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", alignItems: "center", flex: "1 1 auto" }}>
+        <div className={styles.filterRow}>
+          <div className={styles.filtersGroup}>
             {(filters ?? []).map((filter) => (
               <select
                 key={filter.id}
@@ -145,7 +103,7 @@ export function ListToolbar({
                 value={filter.value}
                 onChange={(e) => filter.onChange(e.target.value)}
                 aria-label={filter.allLabel}
-                style={{ ...selectStyle, flex: "1 1 0", minWidth: 0 }}
+                className={`${styles.control} ${styles.select} ${styles.selectFlex}`}
               >
                 <option value="">{filter.allLabel}</option>
                 {filter.options.map((opt) => (
@@ -162,7 +120,7 @@ export function ListToolbar({
                 value={sortValue ?? ""}
                 onChange={(e) => onSortChange(e.target.value)}
                 aria-label={sortLabel ?? "Sort"}
-                style={{ ...selectStyle, flex: "1 1 0", minWidth: 0 }}
+                className={`${styles.control} ${styles.select} ${styles.selectFlex}`}
               >
                 {sortOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -174,21 +132,13 @@ export function ListToolbar({
           </div>
 
           {actions && (
-            <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexShrink: 0 }}>
-              {actions}
-            </div>
+            <div className={styles.actionsGroup}>{actions}</div>
           )}
         </div>
       )}
 
       {countLabel != null && (
-        <span
-          data-testid={`${testIdPrefix}-count`}
-          style={{
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text-muted)",
-          }}
-        >
+        <span data-testid={`${testIdPrefix}-count`} className={styles.count}>
           {countLabel}
         </span>
       )}

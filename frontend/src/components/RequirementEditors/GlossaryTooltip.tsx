@@ -1,4 +1,5 @@
 import type { GlossaryTerm } from "../../types";
+import styles from "./GlossaryTooltip.module.css";
 
 interface GlossaryTooltipProps {
   termText: string;
@@ -7,18 +8,7 @@ interface GlossaryTooltipProps {
 
 export function GlossaryTooltip({ termText, termData }: GlossaryTooltipProps): JSX.Element {
   return (
-    <span
-      title={termData.definition}
-      style={{
-        borderBottom: "1px dashed var(--color-primary)",
-        color: "var(--color-primary)",
-        cursor: "help",
-        fontWeight: "bold",
-        backgroundColor: "var(--color-surface)",
-        padding: "0 2px",
-        borderRadius: "2px",
-      }}
-    >
+    <span title={termData.definition} className={styles.term}>
       @{termText}
     </span>
   );

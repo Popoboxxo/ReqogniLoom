@@ -1,0 +1,29 @@
+/*
+ * <EnforcementFlipDialog> (REQ-187, SCR-206 Card 2) — styles.
+ *
+ * Issue #876 (Etappe 7): the dialog's 3 static inline `style={{...}}` literals
+ * were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ */
+.section {
+  margin: var(--space-3) 0;
+}
+
+.linkButton {
+  background: transparent;
+  color: var(--color-primary);
+  border: none;
+  padding: 0;
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ackLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}

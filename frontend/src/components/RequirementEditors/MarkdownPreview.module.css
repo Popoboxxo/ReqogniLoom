@@ -1,0 +1,35 @@
+/*
+ * <MarkdownPreview> (REQ-L3-RF003-001) — styles.
+ *
+ * Issue #876 (Etappe 7): the three static inline `style={{...}}` literals were
+ * migrated here (values carried over verbatim; colours and token-backed sizes
+ * come from `styles/tokens.css`).
+ */
+.tablist {
+  display: inline-flex;
+  margin-bottom: var(--space-2);
+  align-items: center;
+}
+
+.previewBox {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  min-height: 140px;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.textarea {
+  width: 100%;
+  padding: var(--space-3);
+  font-size: 0.95rem;
+  font-family: var(--font-mono, monospace);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 140px;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}

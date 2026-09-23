@@ -10,27 +10,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ArchitectureElement } from '../../types';
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  fontSize: 'var(--font-size-base)',
-  padding: 'var(--space-2) var(--space-3)',
-  marginBottom: 'var(--space-3)',
-  boxSizing: 'border-box',
-  background: 'var(--color-surface)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-md)',
-  color: 'var(--color-text)',
-  fontFamily: 'var(--font-sans)',
-};
-
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  display: 'block',
-  marginBottom: 'var(--space-1)',
-  color: 'var(--color-text)',
-  fontSize: 'var(--font-size-sm)',
-};
+import styles from './DeriveRequirementForm.module.css';
 
 export interface DeriveRequirementFormProps {
   isOpen: boolean;
@@ -95,14 +75,9 @@ export function DeriveRequirementForm({
     <form
       data-testid={`${testIdPrefix}-derive-form`}
       onSubmit={onSubmit}
-      style={{
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
-        padding: 'var(--space-4)',
-        background: 'var(--color-surface-raised)',
-      }}
+      className={styles.form}
     >
-      <label htmlFor={titleInputId} style={labelStyle}>{t('traceability.deriveTitle')} *</label>
+      <label htmlFor={titleInputId} className={styles.label}>{t('traceability.deriveTitle')} *</label>
       <input
         id={titleInputId}
         type="text"
@@ -111,12 +86,12 @@ export function DeriveRequirementForm({
         onChange={(e) => onTitleChange(e.target.value)}
         autoFocus
         disabled={isSubmitting}
-        style={inputStyle}
+        className={styles.input}
       />
 
       {showArchitectureField && (
         <>
-          <label htmlFor={archSelectId} style={labelStyle}>
+          <label htmlFor={archSelectId} className={styles.label}>
             {architectureRequired
               ? t('traceability.deriveArchitectureElement')
               : t('needs.deriveArchOptional')}
@@ -128,7 +103,7 @@ export function DeriveRequirementForm({
             value={architectureElementId}
             onChange={(e) => onArchitectureElementChange(e.target.value)}
             disabled={isSubmitting}
-            style={inputStyle}
+            className={styles.input}
           >
             <option value="">
               {architectureRequired ? t('editor.selectOption') : t('needs.priorityNone')}
@@ -143,7 +118,7 @@ export function DeriveRequirementForm({
       )}
 
       {error && (
-        <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-2) 0' }}>
+        <p role="alert" className={styles.error}>
           {error}
         </p>
       )}
@@ -155,15 +130,7 @@ export function DeriveRequirementForm({
           to the left of it (on the requirement route: the SplitView divider),
           making the submit button unclickable. Same reasoning as the actions
           group in PageHeader.tsx (issue #314). */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 'var(--space-2)',
-          justifyContent: 'flex-end',
-          minWidth: 0,
-        }}
-      >
+      <div className={styles.actions}>
         <button type="button" className="btn-ghost" onClick={onCancel} disabled={isSubmitting}>
           {t('actions.cancel')}
         </button>

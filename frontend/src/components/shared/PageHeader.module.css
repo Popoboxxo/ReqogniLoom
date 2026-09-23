@@ -1,8 +1,22 @@
 /*
  * <PageHeader> — UI concept ch. 12.1.
  *
- * Only the parts that need a media query live here; the rest stays inline
- * with the component. All values come from styles/tokens.css.
+ * The media query below lives here, and Issue #876 (Etappe 7) migrated the
+ * component's static inline `style={{...}}` literals onto the classes below.
+ * All values come from styles/tokens.css.
+ *
+ * The <h1>'s `fontSize` deliberately stays on the `style` prop, but since
+ * batch 3 as a *hoisted identifier* (`titleStyle`) rather than an object
+ * literal — it switches between `--font-size-3xl` and `--font-size-lg` from
+ * the `density` prop, and `PageHeader.test.tsx:29` pins it via
+ * `toHaveStyle({ fontSize: "var(--font-size-3xl)" })`. vitest's `css: false`
+ * (vite.config) means CSS Modules never load in the test run, so moving it
+ * onto a class would break that pinned assertion. This is the documented house
+ * pattern (the rule only reports an object literal directly inside the
+ * attribute; `style={identifier}` is not flagged) — same as
+ * `MetricsDashboard.helpToggleStyle` and `SplitView.tsx`, and it let
+ * `PageHeader.tsx` come off `eslint-rules/legacy-static-inline-style-files.js`.
+ * Its remaining static declarations live in `.title`.
  */
 
 .header {
@@ -40,4 +54,74 @@
   .header {
     padding-left: calc(var(--space-8) + var(--space-4));
   }
+}
+
+/* --- Issue #876 (Etappe 7): migrated inline styles ---------------------- */
+
+.titleBlock {
+  min-width: 0;
+}
+
+.title {
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+  color: var(--color-text);
+}
+
+.summary {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.overflow {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.menuItem {
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  opacity: 1;
+}
+
+/* Declared after `.menuItem` so the disabled overrides win (equal
+   specificity). */
+.menuItemDisabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
 }

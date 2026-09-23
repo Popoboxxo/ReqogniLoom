@@ -21,6 +21,7 @@ import {
   type RoleKey,
 } from "../../api/permission-defaults";
 import { Spinner } from "../shared/Spinner/Spinner";
+import styles from "./PermissionMatrixEditor.module.css";
 
 interface PermissionMatrixEditorProps {
   /** Current effective matrix (pre-fills the grid). */
@@ -34,47 +35,6 @@ interface PermissionMatrixEditorProps {
   /** Prefix for data-testids so multiple editors on one page stay distinct. */
   testIdPrefix?: string;
 }
-
-const thStyle: React.CSSProperties = {
-  textAlign: "center",
-  padding: "var(--space-2) var(--space-2)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  color: "var(--color-text-muted)",
-  textTransform: "uppercase",
-  letterSpacing: "0.03em",
-  borderBottom: "1px solid var(--color-border)",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-2)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  borderBottom: "1px solid var(--color-border)",
-  textAlign: "center",
-  verticalAlign: "middle",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const cancelButtonStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "var(--color-text-muted)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  cursor: "pointer",
-};
 
 function matricesEqual(a: PermissionMatrix, b: PermissionMatrix): boolean {
   return ROLE_KEYS.every((role) =>
@@ -131,18 +91,15 @@ export function PermissionMatrixEditor({
 
   return (
     <div data-testid={testIdPrefix}>
-      <div style={{ overflowX: "auto" }}>
-        <table
-          data-testid={`${testIdPrefix}-table`}
-          style={{ width: "100%", borderCollapse: "collapse", minWidth: "520px" }}
-        >
+      <div className={styles.scrollX}>
+        <table data-testid={`${testIdPrefix}-table`} className={styles.table}>
           <thead>
             <tr>
-              <th style={{ ...thStyle, textAlign: "left" }} scope="col">
+              <th className={styles.th + " " + styles.thLeft} scope="col">
                 {t("permissionMatrix.roleColumn")}
               </th>
               {CAPABILITY_KEYS.map((cap) => (
-                <th key={cap} style={thStyle} scope="col" title={cap}>
+                <th key={cap} className={styles.th} scope="col" title={cap}>
                   {t("permissionMatrix.capability." + cap)}
                 </th>
               ))}
@@ -151,19 +108,11 @@ export function PermissionMatrixEditor({
           <tbody>
             {ROLE_KEYS.map((role) => (
               <tr key={role} data-testid={`${testIdPrefix}-row-${role}`}>
-                <th
-                  scope="row"
-                  style={{
-                    ...tdStyle,
-                    textAlign: "left",
-                    fontWeight: 600,
-                    textTransform: "capitalize",
-                  }}
-                >
+                <th scope="row" className={styles.td + " " + styles.tdRole}>
                   {role}
                 </th>
                 {CAPABILITY_KEYS.map((cap) => (
-                  <td key={cap} style={tdStyle}>
+                  <td key={cap} className={styles.td}>
                     <input
                       type="checkbox"
                       checked={draft[role][cap]}
@@ -181,52 +130,27 @@ export function PermissionMatrixEditor({
       </div>
 
       {error && (
-        <p
-          role="alert"
-          data-testid={`${testIdPrefix}-error`}
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-            marginTop: "var(--space-2)",
-          }}
-        >
+        <p role="alert" data-testid={`${testIdPrefix}-error`} className={styles.errorText}>
           {error}
         </p>
       )}
       {savedOk && !dirty && (
-        <p
-          data-testid={`${testIdPrefix}-saved`}
-          style={{
-            // Theming phase 2, checkpoint 3: dropped the raw-hex var()
-            // fallback that used to sit here — --color-success is always
-            // defined in tokens.css, so the fallback was unreachable dead
-            // code, not a real color choice.
-            color: "var(--color-success)",
-            fontSize: "var(--font-size-sm)",
-            marginTop: "var(--space-2)",
-          }}
-        >
+        <p data-testid={`${testIdPrefix}-saved`} className={styles.savedText}>
           {t("actions.saved")}
         </p>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          marginTop: "var(--space-3)",
-        }}
-      >
+      <div className={styles.actions}>
         <button
           type="button"
           data-testid={`${testIdPrefix}-save`}
           onClick={() => void onSave(draft)}
           disabled={saving || !dirty}
-          style={{
-            ...primaryButtonStyle,
-            opacity: saving || !dirty ? 0.5 : 1,
-            cursor: saving || !dirty ? "not-allowed" : "pointer",
-          }}
+          className={
+            styles.primaryButton +
+            " " +
+            (saving || !dirty ? styles.primaryDisabled : styles.primaryEnabled)
+          }
         >
           {saving ? <Spinner label={t("actions.saving")} /> : t("actions.save")}
         </button>
@@ -236,7 +160,7 @@ export function PermissionMatrixEditor({
             data-testid={`${testIdPrefix}-cancel`}
             onClick={onCancel}
             disabled={saving}
-            style={cancelButtonStyle}
+            className={styles.cancelButton}
           >
             {t("actions.cancel")}
           </button>

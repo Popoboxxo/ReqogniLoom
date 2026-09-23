@@ -1,0 +1,44 @@
+/*
+ * <NeedArtifactForm> (REQ-162, StakeholderNeed editor) — styles.
+ *
+ * Issue #876 (Etappe 7, batch 3): the file's 3 static inline `style={{...}}`
+ * literals and its 1 hoisted `React.CSSProperties` constant (`labelStyle`)
+ * were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (the `500` weight, the `1px`
+ * border width and `resize: vertical`) stay literal so the rendered result is
+ * unchanged.
+ *
+ * `.changeReasonLabel` is `labelStyle` verbatim; the sibling
+ * `ArtifactForm` fields keep their own `FieldHints.module.css` chrome, so this
+ * module only owns the Extended-preset change-reason block.
+ */
+
+.changeReasonSection {
+  margin-top: var(--space-4);
+}
+
+.changeReasonLabel {
+  font-weight: 500;
+  color: var(--color-text);
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.changeReasonRequired {
+  color: var(--color-danger);
+}
+
+.changeReasonTextarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-sizing: border-box;
+  resize: vertical;
+}

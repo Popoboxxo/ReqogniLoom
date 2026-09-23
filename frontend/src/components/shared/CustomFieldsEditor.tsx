@@ -12,9 +12,10 @@
  * stay consistent with the surrounding editor forms.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CustomFields, CustomFieldValue } from '../../types';
+import styles from './CustomFieldsEditor.module.css';
 
 type FieldType = 'string' | 'number' | 'boolean';
 
@@ -124,20 +125,6 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
     setRows((prev) => prev.filter((r) => r.id !== id));
   }, []);
 
-  const inputStyle: React.CSSProperties = useMemo(
-    () => ({
-      border: '1px solid var(--color-border)',
-      borderRadius: 'var(--radius-md)',
-      padding: 'var(--space-2)',
-      fontFamily: 'var(--font-sans)',
-      fontSize: 'var(--font-size-sm)',
-      color: 'var(--color-text)',
-      background: 'var(--color-surface)',
-      boxSizing: 'border-box',
-    }),
-    []
-  );
-
   return (
     <div data-testid="custom-fields-editor">
       {rows.length === 0 && (
@@ -145,30 +132,13 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
         // names the real "+ Add field" affordance `custom-field-add` below
         // (see the updated `customFields.empty` copy), rather than a bare
         // "no fields" statement.
-        <p
-          data-testid="custom-fields-empty"
-          style={{
-            color: 'var(--color-text-muted)',
-            fontSize: 'var(--font-size-sm)',
-            margin: '0 0 var(--space-3) 0',
-          }}
-        >
+        <p data-testid="custom-fields-empty" className={styles.empty}>
           {t('customFields.empty')}
         </p>
       )}
 
       {rows.map((row) => (
-        <div
-          key={row.id}
-          data-testid="custom-field-row"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr 120px 32px',
-            gap: 'var(--space-2)',
-            marginBottom: 'var(--space-2)',
-            alignItems: 'center',
-          }}
-        >
+        <div key={row.id} data-testid="custom-field-row" className={styles.row}>
           <input
             data-testid="custom-field-key"
             aria-label={t('customFields.key')}
@@ -176,7 +146,7 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
             value={row.key}
             disabled={disabled}
             onChange={(e) => updateRow(row.id, { key: e.target.value })}
-            style={inputStyle}
+            className={styles.input}
           />
 
           {row.type === 'boolean' ? (
@@ -186,7 +156,7 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
               value={row.value === 'true' ? 'true' : 'false'}
               disabled={disabled}
               onChange={(e) => updateRow(row.id, { value: e.target.value })}
-              style={inputStyle}
+              className={styles.input}
             >
               <option value="true">true</option>
               <option value="false">false</option>
@@ -200,7 +170,7 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
               value={row.value}
               disabled={disabled}
               onChange={(e) => updateRow(row.id, { value: e.target.value })}
-              style={inputStyle}
+              className={styles.input}
             />
           )}
 
@@ -215,7 +185,7 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
               const value = type === 'boolean' && row.value !== 'true' ? 'false' : row.value;
               updateRow(row.id, { type, value });
             }}
-            style={inputStyle}
+            className={styles.input}
           >
             <option value="string">{t('customFields.typeString')}</option>
             <option value="number">{t('customFields.typeNumber')}</option>
@@ -229,16 +199,7 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
             title={t('customFields.remove')}
             disabled={disabled}
             onClick={() => removeRow(row.id)}
-            style={{
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--color-surface)',
-              color: 'var(--color-danger)',
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              height: '100%',
-              fontSize: 'var(--font-size-base)',
-              lineHeight: 1,
-            }}
+            className={`${styles.removeBtn} ${disabled ? styles.removeBtnDisabled : ''}`}
           >
             ×
           </button>
@@ -248,10 +209,9 @@ export const CustomFieldsEditor: React.FC<CustomFieldsEditorProps> = ({
       <button
         type="button"
         data-testid="custom-field-add"
-        className="btn-secondary"
+        className={`btn-secondary ${styles.addBtn}`}
         disabled={disabled}
         onClick={addRow}
-        style={{ marginTop: 'var(--space-2)' }}
       >
         + {t('customFields.addField')}
       </button>

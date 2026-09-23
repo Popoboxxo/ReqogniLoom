@@ -1,0 +1,50 @@
+/*
+ * <DeriveRequirementForm> — styles.
+ *
+ * Issue #876 (Etappe 7): the form's 3 static inline `style={{...}}` literals
+ * and its two hoisted `React.CSSProperties` constants (`inputStyle` /
+ * `labelStyle`) were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ */
+.form {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+}
+
+.label {
+  font-weight: var(--weight-semibold);
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.input {
+  width: 100%;
+  font-size: var(--font-size-base);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  box-sizing: border-box;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  min-width: 0;
+}

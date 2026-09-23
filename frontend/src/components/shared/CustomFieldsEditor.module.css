@@ -1,0 +1,56 @@
+/*
+ * <CustomFieldsEditor> (REQ-L2-AS-037) — styles.
+ *
+ * Issue #876 (Etappe 7): the editor's 4 static inline `style={{...}}`
+ * literals and its hoisted `inputStyle` (`React.CSSProperties` via useMemo)
+ * were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ *
+ * `120px` / `32px` (the value/remove columns of the row grid) have no token of
+ * identical value, so they stay literal to keep the rendered result unchanged.
+ */
+.input {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+
+.empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 120px 32px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  align-items: center;
+}
+
+.removeBtn {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-danger);
+  cursor: pointer;
+  height: 100%;
+  font-size: var(--font-size-base);
+  line-height: 1;
+}
+
+/* Declared after `.removeBtn` so the disabled cursor wins. */
+.removeBtnDisabled {
+  cursor: not-allowed;
+}
+
+.addBtn {
+  margin-top: var(--space-2);
+}

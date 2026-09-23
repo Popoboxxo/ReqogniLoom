@@ -1,0 +1,86 @@
+/*
+ * <ListToolbar> (REQ-003) — styles.
+ *
+ * Issue #876 (Etappe 7): the toolbar's 8 static inline `style={{...}}`
+ * literals and its two hoisted `React.CSSProperties` constants
+ * (`controlStyle` / `selectStyle`) were migrated here so the file could be
+ * removed from `eslint-rules/legacy-static-inline-style-files.js`. Values are
+ * carried over verbatim; colours and token-backed sizes come from
+ * `styles/tokens.css`.
+ *
+ * `.control` + `.select` compose the former `selectStyle` (`.control` plus the
+ * extra right padding reserved for the native caret and the ellipsis
+ * overflow); `.searchInput` / `.selectFlex` carry the per-use overrides. Class
+ * order matters: `.select` is declared after `.control` so its `padding-right`
+ * wins, and `.selectFlex` after `.searchInput` is irrelevant (different
+ * properties).
+ */
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.control {
+  height: var(--btn-h-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+  outline: none;
+}
+
+.searchInput {
+  width: 100%;
+}
+
+/*
+ * GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: the native <select>'s caret
+ * icon needs extra reserved space on the right beyond the symmetric
+ * `.control` padding, otherwise long option labels run underneath the
+ * browser-drawn arrow once the select shrinks (flex: 1 1 0, min-width: 0)
+ * below its content width. Applied only to <select> elements (filters +
+ * sort), not the free-text search input, which has no caret.
+ */
+.select {
+  padding-right: calc(var(--space-2) + var(--space-4));
+  text-overflow: ellipsis;
+}
+
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.filtersGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  flex: 1 1 auto;
+}
+
+.selectFlex {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.actionsGroup {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

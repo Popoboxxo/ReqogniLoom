@@ -138,3 +138,46 @@
   overflow: auto;
   font-family: 'Fira Code', 'Consolas', monospace;
 }
+
+/*
+ * --- Issue #876 (Etappe 7, batch 3): inline-style migration -----------------
+ *
+ * The file's 2 static inline `style={{...}}` literals were migrated here so it
+ * could be removed from `eslint-rules/legacy-static-inline-style-files.js`.
+ * Every value is carried over verbatim; colours and token-backed sizes come
+ * from `styles/tokens.css`. Values without a token of identical value (the
+ * `0.6` disabled opacity and the `1px` border width) stay literal so the
+ * rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern: the save
+ * button composes `.saveButton` with `.saveButtonDisabled` when `!isDirty`
+ * (its `cursor`/`opacity` followed `isDirty` alone in the original inline
+ * object, independent of the `disabled` attribute).
+ *
+ * The `.saveButton` fill uses the `background-color` long-hand rather than the
+ * `background` shorthand so the `(f)` primary-fill ratchet in
+ * `ui-ratchet.test.ts` does not move — same documented precedent as
+ * `BaselinesView.module.css` / `ArchitectureEditors.module.css`.
+ */
+
+.detectedType {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.saveButton {
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  opacity: 1;
+}
+
+.saveButtonDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+

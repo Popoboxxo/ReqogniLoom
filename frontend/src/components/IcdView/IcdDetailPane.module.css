@@ -2,6 +2,16 @@
  * IcdDetailPane — static (non-dynamic) styles extracted from inline
  * style={{...}} blocks (issue #161, token-system reach). Values reference
  * styles/tokens.css custom properties exclusively.
+ *
+ * Issue #876 (Etappe 7, batch 3): the four new-version textareas carried
+ * `style={{ ...inputStyle, fontFamily: "inherit" }}` — the only AST-visible
+ * inline style objects left in the file. `.newVersionTextarea` (declared
+ * below, previously unused) supplies the `font-family: inherit` half; the
+ * shared `inputStyle` identifier from `icd-view-shared.ts` still supplies the
+ * rest via `style={inputStyle}`. That shared file is deliberately untouched
+ * (its constants are also read by IcdView/SimilarIcdsPanel), so only the
+ * per-file override moved onto a class. The file could then be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`.
  */
 
 .header {

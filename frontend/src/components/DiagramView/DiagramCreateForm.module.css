@@ -1,0 +1,110 @@
+/*
+ * <DiagramCreateForm> (COMP-RF-005) — styles.
+ *
+ * Issue #876 (Etappe 7): the form's 7 static inline `style={{...}}` literals
+ * were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Several of them spread
+ * shared constants from `diagram-view-shared.ts` (`formLabelStyle`,
+ * `formInputStyle`, `formPrimaryButtonStyle`, `formCancelButtonStyle`); that
+ * file is shared with other DiagramView presenters and is deliberately left
+ * untouched, so the needed declarations are duplicated VERBATIM here
+ * (`.label` / `.input` / `.submitBtn` / `.cancelBtn`) and the spreads are
+ * expressed as class composition.
+ *
+ * Values are carried over verbatim; colours and token-backed sizes come from
+ * `styles/tokens.css`. `font-weight: 700` has no token of identical value and
+ * stays literal.
+ */
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+  color: var(--color-text);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+/* Duplicated VERBATIM from `diagram-view-shared.ts`'s `formLabelStyle`. */
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-weight: 500;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+/* Composed with `.label` — the former `{ ...formLabelStyle, gridColumn }`. */
+.labelFull {
+  grid-column: 1 / -1;
+}
+
+/* Duplicated VERBATIM from `diagram-view-shared.ts`'s `formInputStyle`. */
+.input {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+/* Composed with `.input` — declared after it so the overrides win. */
+.textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.error {
+  grid-column: 1 / -1;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.footer {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* Duplicated VERBATIM from `diagram-view-shared.ts`'s
+   `formCancelButtonStyle`. */
+.cancelBtn {
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+/* Duplicated VERBATIM from `diagram-view-shared.ts`'s
+   `formPrimaryButtonStyle`. */
+.submitBtn {
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+}
+
+/* Former `opacity`/`cursor` override on the submit button while saving or
+   with an empty name. Declared after `.submitBtn` so it wins. */
+.submitBtnDisabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
