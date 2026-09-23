@@ -1,0 +1,36 @@
+/*
+ * <DefaultStatusBadge> / <ResetToDefaultButton> (REQ-180/183, SCR-202) — styles.
+ *
+ * Issue #876 (Etappe 7, batch 3): the reset button's single static inline
+ * `style={{...}}` literal was migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (the `1px` border width and the
+ * `0.5` disabled opacity) stay literal so the rendered result is unchanged.
+ *
+ * The badge itself owns no styling here: it renders through the shared
+ * `<StatusBadge>`, which is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern via the
+ * element's own `:disabled` pseudo-class: the button's `disabled` attribute is
+ * exactly `isDisabled` (`disabled || busy`), and both the `cursor` and the
+ * `opacity` followed that same boolean in the original inline object — unlike
+ * `UserProfileSettings.module.css`'s reset button, whose two conditions
+ * differed and therefore needed separate classes.
+ */
+
+.resetButton {
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  opacity: 1;
+}
+
+.resetButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

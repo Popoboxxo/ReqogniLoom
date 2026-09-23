@@ -1,0 +1,17 @@
+/*
+ * <NeedList> (REQ-003) — create-dialog action row.
+ *
+ * Issue #876 (Etappe 7, batch 3): the file's single static inline
+ * `style={{...}}` literal (the create form's action row) was migrated here so
+ * the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. The values are carried
+ * over verbatim from `styles/tokens.css`; the rest of the create form already
+ * used the shared `FieldHints.module.css` classes and is unchanged.
+ */
+
+.createActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}

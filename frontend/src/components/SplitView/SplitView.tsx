@@ -149,6 +149,105 @@ const SCROLL_SURFACE_STYLE: React.CSSProperties = {
   scrollbarGutter: 'stable',
 };
 
+// ---------------------------------------------------------------------------
+// Issue #876 (Etappe 7, batch 3): the nine inline `style={{...}}` literals of
+// the legacy contract are hoisted to named `React.CSSProperties` identifiers
+// and applied as `style={identifier}`.
+//
+// This is the documented house pattern (not a workaround): the rule only
+// reports an *object literal* directly inside the attribute
+// (`no-static-inline-style.js`, gap 4), and every one of these surfaces is
+// pinned by a test that reads the rendered inline style rather than a CSS
+// class — vitest's `css: false` (vite.config) means CSS Modules never load in
+// the test run, so a class-based migration would break
+// `SplitView.test.tsx` (`getComputedStyle` on `overscrollBehavior`/
+// `scrollbarGutter`/`maxWidth`, `toHaveStyle` on the list/detail flex widths
+// and the divider's `cursor: col-resize`), `SplitPaneResize.test.tsx` and
+// `RequirementEditors.test.tsx:360` / `ArchitectureEditors.test.tsx:374`.
+// Same sanctioned precedent as `MetricsDashboard.helpToggleStyle` (Etappe 5).
+//
+// The legacy contract's *own* styles therefore stay inline by design; the
+// concept contract above (list/detail/spine/ratio) continues to use the
+// existing `listStyle`/`detailStyle`/`spineStyle`/`rootStyle`/`rowStyle`
+// identifiers.
+// ---------------------------------------------------------------------------
+
+/** Mobile collapsed root: stacked single-column shell. */
+const MOBILE_ROOT_STYLE: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  height: '100%',
+  overflow: 'hidden',
+  background: 'var(--color-surface)',
+};
+
+/** Mobile tab row that toggles between the list and the detail pane. */
+const MOBILE_TAB_ROW_STYLE: React.CSSProperties = {
+  display: 'flex',
+  gap: '1px',
+  borderBottom: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+  padding: 0,
+};
+
+/** Shared geometry of the two mobile tab buttons (font weight 600). */
+const MOBILE_TAB_BASE_STYLE: React.CSSProperties = {
+  flex: 1,
+  padding: 'var(--space-3)',
+  border: 'none',
+  background: 'transparent',
+  cursor: 'pointer',
+  fontSize: 'var(--font-size-sm)',
+  fontWeight: 600,
+};
+
+/** Active ("List") mobile tab: primary underline + full-contrast text. */
+const MOBILE_TAB_ACTIVE_STYLE: React.CSSProperties = {
+  ...MOBILE_TAB_BASE_STYLE,
+  color: 'var(--color-text)',
+  borderBottom: '2px solid var(--color-primary)',
+};
+
+/** Inactive ("Detail") mobile tab: muted text, no underline. */
+const MOBILE_TAB_INACTIVE_STYLE: React.CSSProperties = {
+  ...MOBILE_TAB_BASE_STYLE,
+  color: 'var(--color-text-muted)',
+};
+
+/** Mobile content area: the shared scroll surface, padded, full flex. */
+const MOBILE_PANEL_STYLE: React.CSSProperties = {
+  ...SCROLL_SURFACE_STYLE,
+  flex: 1,
+  padding: 'var(--space-4)',
+};
+
+/** Desktop root: side-by-side row shell. */
+const DESKTOP_ROOT_STYLE: React.CSSProperties = {
+  display: 'flex',
+  height: '100%',
+  overflow: 'hidden',
+  background: 'var(--color-surface)',
+  fontFamily: 'var(--font-sans)',
+  color: 'var(--color-text)',
+};
+
+/** Desktop divider: 12px hitbox, 2px visual center line via gradient. */
+const DIVIDER_STYLE: React.CSSProperties = {
+  flex: '0 0 12px',
+  background: 'linear-gradient(90deg, transparent 5px, var(--color-border) 5px, var(--color-border) 7px, transparent 7px)',
+  cursor: 'col-resize',
+  transition: 'background 0.2s ease',
+  userSelect: 'none',
+};
+
+/** Desktop right pane: the shared scroll surface, full flex, padded. */
+const RIGHT_PANEL_STYLE: React.CSSProperties = {
+  ...SCROLL_SURFACE_STYLE,
+  flex: '1 1 auto',
+  background: 'var(--color-surface)',
+  padding: 'var(--space-4)',
+};
+
 type ResponsiveZone = 'desktop' | 'narrow' | 'mobile';
 
 /**
@@ -430,65 +529,26 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
         <div
           ref={ref}
           className={containerClassName}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-            overflow: 'hidden',
-            background: 'var(--color-surface)',
-          }}
+          style={MOBILE_ROOT_STYLE}
         >
           {/* Mobile: tab-like toggle between left and right panels */}
-          <div
-            style={{
-              display: 'flex',
-              gap: '1px',
-              borderBottom: '1px solid var(--color-border)',
-              background: 'var(--color-surface)',
-              padding: 0,
-            }}
-          >
+          <div style={MOBILE_TAB_ROW_STYLE}>
             <button
               onClick={() => setIsResponsiveCollapsed(true)}
-              style={{
-                flex: 1,
-                padding: 'var(--space-3)',
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                fontSize: 'var(--font-size-sm)',
-                fontWeight: 600,
-                color: 'var(--color-text)',
-                borderBottom: '2px solid var(--color-primary)',
-              }}
+              style={MOBILE_TAB_ACTIVE_STYLE}
             >
               List
             </button>
             <button
               onClick={() => setIsResponsiveCollapsed(false)}
-              style={{
-                flex: 1,
-                padding: 'var(--space-3)',
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                fontSize: 'var(--font-size-sm)',
-                fontWeight: 600,
-                color: 'var(--color-text-muted)',
-              }}
+              style={MOBILE_TAB_INACTIVE_STYLE}
             >
               Detail
             </button>
           </div>
 
           {/* Show only left panel on mobile (collapsed state) */}
-          <div
-            style={{
-              ...SCROLL_SURFACE_STYLE,
-              flex: 1,
-              padding: 'var(--space-4)',
-            }}
-          >
+          <div style={MOBILE_PANEL_STYLE}>
             {leftPanel}
           </div>
         </div>
@@ -499,31 +559,28 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
     // Desktop render: side-by-side with resizable divider
     // -----------------------------------------------------------------------
 
+    // Left panel width is a genuine per-instance runtime value (drag state),
+    // so its flex/min/max geometry stays on the `style` prop as a hoisted
+    // identifier; the rest of the surface is the shared scroll model. See the
+    // hoisted-style note above.
+    const leftPanelStyle: React.CSSProperties = {
+      ...SCROLL_SURFACE_STYLE,
+      flex: `0 0 ${leftPanelWidth}px`,
+      minWidth: `${leftMinWidth}px`,
+      maxWidth: `${leftMaxWidthPercent}%`,
+      borderRight: '1px solid var(--color-border)',
+      background: 'var(--color-surface)',
+      padding: 'var(--space-4)',
+    };
+
     return (
       <div
         ref={ref}
         className={containerClassName}
-        style={{
-          display: 'flex',
-          height: '100%',
-          overflow: 'hidden',
-          background: 'var(--color-surface)',
-          fontFamily: 'var(--font-sans)',
-          color: 'var(--color-text)',
-        }}
+        style={DESKTOP_ROOT_STYLE}
       >
         {/* Left Panel */}
-        <div
-          style={{
-            ...SCROLL_SURFACE_STYLE,
-            flex: `0 0 ${leftPanelWidth}px`,
-            minWidth: `${leftMinWidth}px`,
-            maxWidth: `${leftMaxWidthPercent}%`,
-            borderRight: '1px solid var(--color-border)',
-            background: 'var(--color-surface)',
-            padding: 'var(--space-4)',
-          }}
-        >
+        <div style={leftPanelStyle}>
           {leftPanel}
         </div>
 
@@ -540,13 +597,7 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
           tabIndex={0}
           onMouseDown={handleDividerMouseDown}
           onKeyDown={handleDividerKeyDown}
-          style={{
-            flex: '0 0 12px',
-            background: 'linear-gradient(90deg, transparent 5px, var(--color-border) 5px, var(--color-border) 7px, transparent 7px)',
-            cursor: 'col-resize',
-            transition: isDraggingRef.current ? 'none' : 'background 0.2s ease',
-            userSelect: 'none',
-          }}
+          style={DIVIDER_STYLE}
           onMouseEnter={(e) => {
             if (!isDraggingRef.current) {
               e.currentTarget.style.background = 'linear-gradient(90deg, transparent 4px, var(--color-primary) 4px, var(--color-primary) 8px, transparent 8px)';
@@ -560,14 +611,7 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
         />
 
         {/* Right Panel */}
-        <div
-          style={{
-            ...SCROLL_SURFACE_STYLE,
-            flex: '1 1 auto',
-            background: 'var(--color-surface)',
-            padding: 'var(--space-4)',
-          }}
-        >
+        <div style={RIGHT_PANEL_STYLE}>
           {rightPanel}
         </div>
       </div>

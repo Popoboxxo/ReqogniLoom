@@ -1,0 +1,101 @@
+/*
+ * <DeriveTestCasePanel> (SysEng 2.0 N5, test.derive_from_requirement) — styles.
+ *
+ * Issue #876 (Etappe 7, batch 3): the file's 2 AST-visible inline
+ * `style={{...}}` literals (`{ ...styles.input, flex: 1 }` on the two step
+ * inputs) were migrated onto `.stepInput`, and the module-level
+ * `styles: Record<string, CSSProperties>` object that supplied every other
+ * declaration was migrated class-for-class onto this module at the same time
+ * so the file no longer carries a parallel JS style system. Every value is
+ * carried over verbatim; colours and token-backed sizes come from
+ * `styles/tokens.css`. Values without a token of identical value (`5rem`
+ * min-height, the `1px` border width and `resize: vertical`) stay literal so
+ * the rendered result is unchanged.
+ *
+ * `.stepInput` duplicates `.input`'s declarations verbatim plus `flex: 1`
+ * rather than using `composes` — the codebase has no `composes` precedent and
+ * duplicates such pairs per file by convention.
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.stepInput {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.textarea {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.stepRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.error {
+  background: var(--color-badge-danger-bg);
+  color: var(--color-badge-danger-text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.success {
+  background: var(--color-badge-success-bg);
+  color: var(--color-badge-success-text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+
+.notice {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}

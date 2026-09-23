@@ -1,0 +1,63 @@
+/*
+ * <TriLabelOverviewDialog> (admin-only, read-only) — styles.
+ *
+ * Issue #876 (Etappe 7, batch 3): the file's 2 inline `style={{...}}` literals
+ * and its 4 hoisted `React.CSSProperties` constants (`hintStyle`, `thStyle`,
+ * `tdStyle`, `typeCellStyle`) were migrated here so the file could be removed
+ * from `eslint-rules/legacy-static-inline-style-files.js`. The overlay/panel/
+ * header chrome already comes from the shared `<Dialog>`; only the
+ * content-specific styles live here. Every value is carried over verbatim;
+ * colours and token-backed sizes come from `styles/tokens.css`. Values without
+ * a token of identical value (`0.05em` letter-spacing, the `600` weight and
+ * the `1px` border width) stay literal so the rendered result is unchanged.
+ *
+ * `.typeCell` duplicates `.td`'s declarations verbatim plus the monospace
+ * override rather than using `composes` — the codebase has no `composes`
+ * precedent and duplicates such pairs per file by convention.
+ */
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.td {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.typeCell {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+  font-family: monospace;
+  font-weight: 600;
+  white-space: nowrap;
+}

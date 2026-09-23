@@ -1,0 +1,105 @@
+/*
+ * <ProfileSection> (REQ-006, COMP-RF-006) — styles.
+ *
+ * Issue #876 (Etappe 7, batch 3): the file's 6 inline `style={{...}}`
+ * literals and its 6 hoisted `React.CSSProperties` constants (`sectionStyle`,
+ * `headingStyle`, `inputStyle`, `labelStyle`, `primaryButtonStyle`,
+ * `secondaryButtonStyle`) were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * The only values without a token of identical value are the `600` font
+ * weights and the `1px` border width, kept literal so the rendered result is
+ * unchanged.
+ *
+ * No dynamic/per-instance value remains on the `style` prop: every declaration
+ * was static, so the whole style surface is class-based now.
+ */
+
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.input {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.label {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.primaryButton {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondaryButton {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.error {
+  color: var(--color-danger);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.saved {
+  color: var(--color-success);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.readRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.name {
+  color: var(--color-text);
+}
+
+.fieldStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+}

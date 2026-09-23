@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 
 import { Spinner } from "../shared/Spinner/Spinner";
 import { StatusBadge } from "../shared/StatusBadge";
+import styles from "./DefaultStatusBadge.module.css";
 
 interface DefaultStatusBadgeProps {
   isCustomized: boolean;
@@ -86,16 +87,7 @@ export function ResetToDefaultButton({
       aria-label={ariaLabel}
       title={title}
       data-testid={testId}
-      style={{
-        background: "transparent",
-        color: "var(--color-primary)",
-        border: "1px solid var(--color-primary)",
-        borderRadius: "var(--radius-md)",
-        padding: "var(--space-1) var(--space-3)",
-        fontSize: "var(--font-size-sm)",
-        cursor: isDisabled ? "not-allowed" : "pointer",
-        opacity: isDisabled ? 0.5 : 1,
-      }}
+      className={styles.resetButton}
     >
       {busy ? (
         <Spinner label={t("actions.saving")} />

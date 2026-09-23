@@ -31,6 +31,7 @@ import type {
 import { extractErrorMessage } from "../../api/client";
 import { UnprocessableEntityError } from "../../api/errors";
 import { promptVariablesApi } from "../../api/prompt-variables";
+import styles from "./ArchitectureDecomposePanel.module.css";
 
 /**
  * Used only when the variable catalog cannot be read (e.g. a non-admin user
@@ -105,74 +106,6 @@ export interface ArchitectureDecomposePanelProps {
 }
 
 type Phase = "idle" | "generating" | "review" | "committing" | "done";
-
-const styles: Record<string, CSSProperties> = {
-  panel: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "var(--space-4)",
-    padding: "var(--space-5)",
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-lg)",
-    color: "var(--color-text)",
-  },
-  controls: {
-    display: "flex",
-    gap: "var(--space-3)",
-    alignItems: "flex-end",
-    flexWrap: "wrap",
-  },
-  field: { display: "flex", flexDirection: "column", gap: "var(--space-1)" },
-  numberInput: { width: "5rem", padding: "var(--space-1) var(--space-2)" },
-  node: {
-    borderLeft: "3px solid var(--color-success)",
-    background: "var(--color-badge-success-bg)",
-    color: "var(--color-badge-success-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-2) var(--space-3)",
-  },
-  linkTag: {
-    display: "inline-block",
-    fontSize: "var(--font-size-xs)",
-    background: "var(--color-badge-info-bg)",
-    color: "var(--color-badge-info-text)",
-    borderRadius: "var(--radius-full)",
-    padding: "0 var(--space-2)",
-    marginRight: "var(--space-2)",
-  },
-  banner: {
-    background: "var(--color-badge-warning-bg)",
-    color: "var(--color-badge-warning-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-2) var(--space-3)",
-    fontSize: "var(--font-size-sm)",
-  },
-  error: {
-    background: "var(--color-badge-danger-bg)",
-    color: "var(--color-badge-danger-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-2) var(--space-3)",
-  },
-  success: {
-    background: "var(--color-badge-success-bg)",
-    color: "var(--color-badge-success-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-3)",
-  },
-  actions: { display: "flex", gap: "var(--space-3)", flexWrap: "wrap" },
-  muted: { color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" },
-  // UI-40: structured per-finding error list.
-  errorSummary: { margin: "0 0 var(--space-2)" },
-  errorFindingsList: {
-    listStyle: "none",
-    padding: 0,
-    margin: 0,
-    display: "flex",
-    flexDirection: "column",
-    gap: "var(--space-1)",
-  },
-};
 
 /** Indent a node by its recursion depth (derived from the dotted temp_id). */
 function nodeDepth(node: DraftNode): number {
@@ -295,10 +228,10 @@ export function ArchitectureDecomposePanel({
   const linkEstimate = useMemo(() => nodeCount * 3, [nodeCount]);
 
   return (
-    <section style={styles.panel} data-testid="arch-decompose-panel">
-      <div style={styles.controls}>
-        <label style={styles.field}>
-          <span style={styles.muted}>{t("archDecompose.maxBreadth")}</span>
+    <section className={styles.panel} data-testid="arch-decompose-panel">
+      <div className={styles.controls}>
+        <label className={styles.field}>
+          <span className={styles.muted}>{t("archDecompose.maxBreadth")}</span>
           <input
             type="number"
             min={ABSOLUTE_MIN}
@@ -307,12 +240,12 @@ export function ArchitectureDecomposePanel({
             disabled={busy}
             onChange={(e) => setMaxBreadth(clampWhileTyping(e.target.value, ABSOLUTE_MAX_BREADTH))}
             onBlur={() => setMaxBreadth((v) => clampFinal(v, ABSOLUTE_MAX_BREADTH))}
-            style={styles.numberInput}
+            className={styles.numberInput}
             data-testid="arch-decompose-breadth"
           />
         </label>
-        <label style={styles.field}>
-          <span style={styles.muted}>{t("archDecompose.maxDepth")}</span>
+        <label className={styles.field}>
+          <span className={styles.muted}>{t("archDecompose.maxDepth")}</span>
           <input
             type="number"
             min={ABSOLUTE_MIN}
@@ -321,7 +254,7 @@ export function ArchitectureDecomposePanel({
             disabled={busy}
             onChange={(e) => setMaxDepth(clampWhileTyping(e.target.value, ABSOLUTE_MAX_DEPTH))}
             onBlur={() => setMaxDepth((v) => clampFinal(v, ABSOLUTE_MAX_DEPTH))}
-            style={styles.numberInput}
+            className={styles.numberInput}
             data-testid="arch-decompose-depth"
           />
         </label>
@@ -337,12 +270,12 @@ export function ArchitectureDecomposePanel({
         </button>
       </div>
 
-      <p style={styles.muted} data-testid="arch-decompose-caps-hint">
+      <p className={styles.muted} data-testid="arch-decompose-caps-hint">
         {t("archDecompose.capsHint")}
       </p>
 
       {error && (
-        <div style={styles.error} role="alert" data-testid="arch-decompose-error">
+        <div className={styles.error} role="alert" data-testid="arch-decompose-error">
           {/* UI-40: previously always a single flat-text paragraph, even when
               the rollback carried multiple distinct I1-I5/SE-Auditor
               findings. Render each finding as its own list item when the
@@ -350,14 +283,14 @@ export function ArchitectureDecomposePanel({
               summary message alone. */}
           {findings && findings.length > 0 ? (
             <>
-              <p style={styles.errorSummary}>{error}</p>
+              <p className={styles.errorSummary}>{error}</p>
               <ul
                 data-testid="arch-decompose-error-findings"
-                style={styles.errorFindingsList}
+                className={styles.errorFindingsList}
               >
                 {findings.map((finding, i) => (
                   <li key={`${finding.rule_id}-${i}`} data-testid={`arch-decompose-error-finding-${finding.rule_id}`}>
-                    <span style={styles.linkTag}>{finding.rule_id}</span>
+                    <span className={styles.linkTag}>{finding.rule_id}</span>
                     {finding.message}
                   </li>
                 ))}
@@ -372,44 +305,51 @@ export function ArchitectureDecomposePanel({
       {draft && (
         <div data-testid="arch-decompose-draft">
           {draft.degraded && (
-            <div style={styles.banner} data-testid="arch-decompose-degraded">
+            <div className={styles.banner} data-testid="arch-decompose-degraded">
               {t("archDecompose.degraded")}
             </div>
           )}
-          <p style={styles.muted} data-testid="arch-decompose-summary">
+          <p className={styles.muted} data-testid="arch-decompose-summary">
             {t("archDecompose.summary", {
               elements: nodeCount,
               requirements: nodeCount,
               links: linkEstimate,
             })}
           </p>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-            {draft.nodes.map((node) => (
-              <li
-                key={node.temp_id}
-                style={{
-                  ...styles.node,
-                  marginLeft: `calc(${nodeDepth(node)} * var(--space-4))`,
-                }}
-                data-testid={`arch-decompose-node-${node.temp_id}`}
-              >
-                <div>
-                  <span style={styles.linkTag}>+ {node.element_type}</span>
-                  <strong>{node.title}</strong>
-                </div>
-                {node.description && <div>{node.description}</div>}
-                <div style={styles.muted}>
-                  {t("archDecompose.derivedRequirement")}: {node.requirement.title}
-                </div>
-                <div>
-                  <span style={styles.linkTag}>allocated-to</span>
-                  <span style={styles.linkTag}>decomposes</span>
-                  <span style={styles.linkTag}>derives-from</span>
-                </div>
-              </li>
-            ))}
+          <ul className={styles.nodesList}>
+            {draft.nodes.map((node) => {
+              // Genuine per-instance runtime value: the recursion depth is
+              // derived from the dotted `temp_id`, so the indent stays on the
+              // `style` prop as a hoisted identifier (the rule does not flag
+              // `style={identifier}`) instead of a class. See the module header.
+              const nodeIndentStyle: CSSProperties = {
+                marginLeft: `calc(${nodeDepth(node)} * var(--space-4))`,
+              };
+              return (
+                <li
+                  key={node.temp_id}
+                  className={styles.node}
+                  style={nodeIndentStyle}
+                  data-testid={`arch-decompose-node-${node.temp_id}`}
+                >
+                  <div>
+                    <span className={styles.linkTag}>+ {node.element_type}</span>
+                    <strong>{node.title}</strong>
+                  </div>
+                  {node.description && <div>{node.description}</div>}
+                  <div className={styles.muted}>
+                    {t("archDecompose.derivedRequirement")}: {node.requirement.title}
+                  </div>
+                  <div>
+                    <span className={styles.linkTag}>allocated-to</span>
+                    <span className={styles.linkTag}>decomposes</span>
+                    <span className={styles.linkTag}>derives-from</span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
-          <div style={styles.actions}>
+          <div className={styles.actions}>
             <button
               type="button"
               onClick={handleCommit}
@@ -433,7 +373,7 @@ export function ArchitectureDecomposePanel({
       )}
 
       {result && (
-        <div style={styles.success} data-testid="arch-decompose-result">
+        <div className={styles.success} data-testid="arch-decompose-result">
           <div>
             {t("archDecompose.committed", {
               elements: result.counts.elements,
@@ -441,7 +381,7 @@ export function ArchitectureDecomposePanel({
               links: result.counts.links,
             })}
           </div>
-          <div style={styles.muted}>
+          <div className={styles.muted}>
             {t("archDecompose.verified")}: {result.verified_rules.join(", ")}
           </div>
         </div>

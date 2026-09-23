@@ -17,7 +17,6 @@
  *
  * data-testid is set on every interactive element (E2E convention).
  */
-import type { CSSProperties } from "react";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -25,6 +24,7 @@ import { extractErrorMessage } from "../../api/client";
 import { requirementsApi } from "../../api/requirements";
 import { testcasesApi } from "../../api/testcases";
 import type { TestCase, TestCaseStep } from "../../api/testcases";
+import styles from "./DeriveTestCasePanel.module.css";
 
 export interface DeriveTestCasePanelProps {
   workspaceId: string;
@@ -40,62 +40,6 @@ interface DraftState {
   description: string;
   steps: TestCaseStep[];
 }
-
-const styles: Record<string, CSSProperties> = {
-  panel: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "var(--space-4)",
-    padding: "var(--space-5)",
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-lg)",
-    color: "var(--color-text)",
-  },
-  field: { display: "flex", flexDirection: "column", gap: "var(--space-1)" },
-  input: {
-    padding: "var(--space-2) var(--space-3)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-sm)",
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text)",
-  },
-  textarea: {
-    padding: "var(--space-2) var(--space-3)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-sm)",
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text)",
-    minHeight: "5rem",
-    resize: "vertical",
-  },
-  stepRow: {
-    display: "flex",
-    gap: "var(--space-2)",
-    alignItems: "flex-start",
-  },
-  error: {
-    background: "var(--color-badge-danger-bg)",
-    color: "var(--color-badge-danger-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-2) var(--space-3)",
-  },
-  success: {
-    background: "var(--color-badge-success-bg)",
-    color: "var(--color-badge-success-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-3)",
-  },
-  notice: {
-    background: "var(--color-surface-muted)",
-    color: "var(--color-text-muted)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-2) var(--space-3)",
-    fontSize: "var(--font-size-sm)",
-  },
-  actions: { display: "flex", gap: "var(--space-3)", flexWrap: "wrap" },
-  muted: { color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" },
-};
 
 export function DeriveTestCasePanel({
   workspaceId,
@@ -194,9 +138,9 @@ export function DeriveTestCasePanel({
   }, []);
 
   return (
-    <section style={styles.panel} data-testid="derive-testcase-panel">
+    <section className={styles.panel} data-testid="derive-testcase-panel">
       {error && (
-        <div style={styles.error} role="alert" data-testid="derive-testcase-error">
+        <div className={styles.error} role="alert" data-testid="derive-testcase-error">
           {error}
         </div>
       )}
@@ -205,13 +149,13 @@ export function DeriveTestCasePanel({
           plainly wherever a draft or a result is on screen, so the human
           review step is discoverable (reviewed only via the TestCase editor). */}
       {(draft || created) && (
-        <p style={styles.notice} data-testid="derive-testcase-ai-notice">
+        <p className={styles.notice} data-testid="derive-testcase-ai-notice">
           {t("deriveTestcase.aiNotice")}
         </p>
       )}
 
       {phase === "idle" && (
-        <div style={styles.actions}>
+        <div className={styles.actions}>
           <button
             type="button"
             onClick={handleGenerate}
@@ -224,46 +168,46 @@ export function DeriveTestCasePanel({
       )}
 
       {phase === "generating" && (
-        <p style={styles.muted} data-testid="derive-testcase-generating">
+        <p className={styles.muted} data-testid="derive-testcase-generating">
           {t("deriveTestcase.generating")}
         </p>
       )}
 
       {draft && (phase === "review" || phase === "creating") && (
         <div data-testid="derive-testcase-draft">
-          <label style={styles.field}>
-            <span style={styles.muted}>{t("deriveTestcase.fieldTitle")}</span>
+          <label className={styles.field}>
+            <span className={styles.muted}>{t("deriveTestcase.fieldTitle")}</span>
             <input
               type="text"
               value={draft.title}
               disabled={busy}
               onChange={(e) => updateDraft({ title: e.target.value })}
-              style={styles.input}
+              className={styles.input}
               data-testid="derive-testcase-title-input"
             />
           </label>
-          <label style={styles.field}>
-            <span style={styles.muted}>{t("deriveTestcase.fieldDescription")}</span>
+          <label className={styles.field}>
+            <span className={styles.muted}>{t("deriveTestcase.fieldDescription")}</span>
             <textarea
               value={draft.description}
               disabled={busy}
               onChange={(e) => updateDraft({ description: e.target.value })}
-              style={styles.textarea}
+              className={styles.textarea}
               data-testid="derive-testcase-description-input"
             />
           </label>
 
-          <div style={styles.field}>
-            <span style={styles.muted}>{t("deriveTestcase.fieldSteps")}</span>
+          <div className={styles.field}>
+            <span className={styles.muted}>{t("deriveTestcase.fieldSteps")}</span>
             {draft.steps.map((s, i) => (
-              <div key={i} style={styles.stepRow} data-testid={`derive-testcase-step-${i}`}>
+              <div key={i} className={styles.stepRow} data-testid={`derive-testcase-step-${i}`}>
                 <input
                   type="text"
                   value={s.step}
                   disabled={busy}
                   placeholder={t("deriveTestcase.stepPlaceholder")}
                   onChange={(e) => updateStep(i, { step: e.target.value })}
-                  style={{ ...styles.input, flex: 1 }}
+                  className={styles.stepInput}
                   data-testid={`derive-testcase-step-action-${i}`}
                 />
                 <input
@@ -272,7 +216,7 @@ export function DeriveTestCasePanel({
                   disabled={busy}
                   placeholder={t("deriveTestcase.expectedResultPlaceholder")}
                   onChange={(e) => updateStep(i, { expected_result: e.target.value })}
-                  style={{ ...styles.input, flex: 1 }}
+                  className={styles.stepInput}
                   data-testid={`derive-testcase-step-expected-${i}`}
                 />
                 <button
@@ -295,7 +239,7 @@ export function DeriveTestCasePanel({
             </button>
           </div>
 
-          <div style={styles.actions}>
+          <div className={styles.actions}>
             <button
               type="button"
               onClick={handleCreate}
@@ -319,7 +263,7 @@ export function DeriveTestCasePanel({
       )}
 
       {created && (
-        <div style={styles.success} data-testid="derive-testcase-result">
+        <div className={styles.success} data-testid="derive-testcase-result">
           {t("deriveTestcase.created", { title: created.title })}
         </div>
       )}

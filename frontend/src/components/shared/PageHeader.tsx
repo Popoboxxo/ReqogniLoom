@@ -124,6 +124,18 @@ export function PageHeader({
   }, [menuOpen, closeMenu]);
 
   const isCompact = density === "compact";
+  // The <h1>'s `fontSize` stays on the `style` prop as a hoisted identifier:
+  // it switches between `--font-size-3xl` and `--font-size-lg` from `density`
+  // (a genuine per-instance runtime value, not a static declaration), and
+  // `PageHeader.test.tsx:29` pins it via
+  // `toHaveStyle({ fontSize: "var(--font-size-3xl)" })`. vitest's `css: false`
+  // means CSS Modules never load in the test run, so moving it onto a class
+  // would break that pinned assertion — the documented house pattern, same as
+  // `MetricsDashboard.helpToggleStyle` (Etappe 5) and `SplitView.tsx`. See the
+  // module header.
+  const titleStyle: React.CSSProperties = {
+    fontSize: isCompact ? "var(--font-size-lg)" : "var(--font-size-3xl)",
+  };
   // Issue #718: this container used to render unconditionally, even with zero
   // actions (e.g. AuditDashboard, CsvImport — title+summary only). An empty
   // flex item still participates in `.header`'s `flex-wrap` + `gap`: in a
@@ -147,16 +159,7 @@ export function PageHeader({
   return (
     <div ref={containerRef} data-testid={testId} className={styles.header}>
       <div className={styles.titleBlock}>
-        {/*
-          The `fontSize` stays inline on purpose: it switches with `density`
-          and is pinned by `PageHeader.test.tsx:29` via `toHaveStyle`, which
-          would break if it moved onto a CSS-Module class (vitest does not
-          process CSS Modules). See the module header.
-        */}
-        <h1
-          className={styles.title}
-          style={{ fontSize: isCompact ? "var(--font-size-lg)" : "var(--font-size-3xl)" }}
-        >
+        <h1 className={styles.title} style={titleStyle}>
           {title}
         </h1>
         {summaryText != null && (

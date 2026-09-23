@@ -1,0 +1,56 @@
+/*
+ * <ArchitectureLegend> (ARCH-L1-001) — legend chrome.
+ *
+ * Issue #876 (Etappe 7, batch 3): the file's 7 static inline `style={{...}}`
+ * literals were migrated here so it could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * The only value without a token of identical value is the `minmax(96px, …)`
+ * column floor, kept literal so the rendered result is unchanged.
+ */
+
+.section {
+  margin-bottom: var(--space-5);
+}
+
+.heading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.hint {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-muted);
+}
+
+.definitionList {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  align-items: baseline;
+}
+
+.term {
+  margin: 0;
+}
+
+.definition {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}
+
+.intro {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}

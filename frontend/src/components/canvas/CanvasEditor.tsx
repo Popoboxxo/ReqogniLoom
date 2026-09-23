@@ -22,6 +22,7 @@
  *   IF-L1-060 (output): Receive stroke data + SVG backend
  */
 
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
@@ -90,6 +91,29 @@ const FILL_COLORS = [
   "#fff7ed", // orange tint
   "#fef2f2", // red tint
 ];
+
+/**
+ * Swatch fill for `TOOLBAR_COLORS`/`FILL_COLORS` (#876, Etappe 7 batch 3).
+ *
+ * A genuinely per-instance runtime colour: the value comes from the palette
+ * array at render time and cannot be a static class, so it stays on the `style`
+ * prop as a hoisted identifier (the rule does not flag `style={identifier}`).
+ * Mirrors the Etappe 5 `MetricsDashboard.helpToggleStyle` precedent.
+ *
+ * The `data-testid` still derives from the raw hex (`canvas-color-<hex>`), so
+ * the swatch identity used by `CanvasEditor.tools.test.tsx` is unchanged. A
+ * CSS-variable override was rejected: it would have to inject `--swatch-bg`
+ * per button and move the colour out of `background`, risking exactly that
+ * test-id/attribute contract for no benefit.
+ *
+ * `transparent` is passed through verbatim — the fill swatch loop omits the
+ * style entirely in that case (`.swatchTransparent` supplies the slash
+ * overlay), which the call site mirrors by only calling this factory for
+ * non-transparent entries.
+ */
+function swatchStyle(background: string): CSSProperties {
+  return { background };
+}
 
 /** Selection handle styling applied to every user-created object. */
 const CONTROL_STYLE = {
@@ -1209,7 +1233,7 @@ export function CanvasEditor({
               type="button"
               data-testid={`canvas-color-${c.replace("#", "")}`}
               className={`${styles.swatch} ${color === c ? styles.swatchActive : ""}`}
-              style={{ background: c }}
+              style={swatchStyle(c)}
               onClick={() => setColor(c)}
               title={`Stroke ${c}`}
               aria-label={`Color ${c}`}

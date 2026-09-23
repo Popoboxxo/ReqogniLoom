@@ -13,67 +13,12 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
+import styles from "./ProfileSection.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
   return e?.error?.message ?? e?.message ?? String(err);
 }
-
-const sectionStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const inputStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-3)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-base)",
-  boxSizing: "border-box",
-  width: "100%",
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-  marginBottom: "var(--space-1)",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "var(--color-text-muted)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
 
 export function ProfileSection(): JSX.Element {
   const { t } = useTranslation();
@@ -117,18 +62,14 @@ export function ProfileSection(): JSX.Element {
   const displayName = [user?.first_name, user?.last_name].filter(Boolean).join(" ");
 
   return (
-    <section style={sectionStyle} data-testid="profile-section">
-      <h3 style={headingStyle}>{t("profile.nameHeading", "Name")}</h3>
+    <section className={styles.section} data-testid="profile-section">
+      <h3 className={styles.heading}>{t("profile.nameHeading", "Name")}</h3>
 
       {error && (
         <div
           role="alert"
           data-testid="profile-error"
-          style={{
-            color: "var(--color-danger)",
-            marginBottom: "var(--space-3)",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.error}
         >
           {error}
         </div>
@@ -137,34 +78,30 @@ export function ProfileSection(): JSX.Element {
       {saved && !isEditing && (
         <div
           data-testid="profile-saved"
-          style={{
-            color: "var(--color-success)",
-            marginBottom: "var(--space-3)",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.saved}
         >
           {t("profile.saved", "Profil gespeichert")}
         </div>
       )}
 
       {!isEditing ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span data-testid="profile-display-name" style={{ color: "var(--color-text)" }}>
+        <div className={styles.readRow}>
+          <span data-testid="profile-display-name" className={styles.name}>
             {displayName || t("profile.noName", "Kein Name hinterlegt")}
           </span>
           <button
             type="button"
             data-testid="profile-edit-button"
             onClick={startEdit}
-            style={secondaryButtonStyle}
+            className={styles.secondaryButton}
           >
             {t("profile.edit", "Bearbeiten")}
           </button>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+        <div className={styles.fieldStack}>
           <div>
-            <label htmlFor="profile-first-name" style={labelStyle}>
+            <label htmlFor="profile-first-name" className={styles.label}>
               {t("profile.firstName", "Vorname")}
             </label>
             <input
@@ -175,11 +112,11 @@ export function ProfileSection(): JSX.Element {
               maxLength={150}
               disabled={isSaving}
               onChange={(e) => setFirstName(e.target.value)}
-              style={inputStyle}
+              className={styles.input}
             />
           </div>
           <div>
-            <label htmlFor="profile-last-name" style={labelStyle}>
+            <label htmlFor="profile-last-name" className={styles.label}>
               {t("profile.lastName", "Nachname")}
             </label>
             <input
@@ -190,16 +127,16 @@ export function ProfileSection(): JSX.Element {
               maxLength={150}
               disabled={isSaving}
               onChange={(e) => setLastName(e.target.value)}
-              style={inputStyle}
+              className={styles.input}
             />
           </div>
-          <div style={{ display: "flex", gap: "var(--space-3)" }}>
+          <div className={styles.actions}>
             <button
               type="button"
               data-testid="profile-save-button"
               onClick={() => void handleSave()}
               disabled={isSaving}
-              style={primaryButtonStyle}
+              className={styles.primaryButton}
             >
               {isSaving ? t("profile.saving", "Speichern…") : t("profile.save", "Speichern")}
             </button>
@@ -208,7 +145,7 @@ export function ProfileSection(): JSX.Element {
               data-testid="profile-cancel-button"
               onClick={cancelEdit}
               disabled={isSaving}
-              style={secondaryButtonStyle}
+              className={styles.secondaryButton}
             >
               {t("profile.cancel", "Abbrechen")}
             </button>

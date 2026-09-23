@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import type { WorkspacePreset } from "../../types";
 import { WORKFLOW_PRESETS } from "./constants";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
+import styles from "./PresetSegmentedControl.module.css";
 
 interface PresetSegmentedControlProps {
   value: WorkspacePreset;
@@ -30,11 +31,7 @@ export function PresetSegmentedControl({
       aria-label={t("workflow.preset.ariaLabel")}
       data-testid="workflow-preset-selector"
       onKeyDown={(e) => handleTablistKeyDown(e, WORKFLOW_PRESETS, value, onChange)}
-      style={{
-        display: "inline-flex",
-        gap: "var(--space-1)",
-        borderBottom: "1px solid var(--color-border)",
-      }}
+      className={styles.tablist}
     >
       {WORKFLOW_PRESETS.map((preset) => {
         const isActive = preset === value;
@@ -47,21 +44,7 @@ export function PresetSegmentedControl({
             tabIndex={tabRovingTabIndex(preset, value)}
             data-testid={`workflow-preset-option-${preset}`}
             onClick={() => onChange(preset)}
-            style={{
-              appearance: "none",
-              background: "transparent",
-              border: "none",
-              borderBottom: isActive
-                ? "2px solid var(--color-primary)"
-                : "2px solid transparent",
-              color: isActive ? "var(--color-text)" : "var(--color-text-muted)",
-              fontWeight: isActive ? 600 : 500,
-              fontSize: "var(--font-size-xs)",
-              padding: "var(--space-1) var(--space-3)",
-              marginBottom: "-1px",
-              cursor: "pointer",
-              textTransform: "capitalize",
-            }}
+            className={styles.tab}
           >
             {preset}
           </button>

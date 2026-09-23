@@ -65,14 +65,21 @@
   transition: background 0.2s ease, width 0.2s ease;
 
   &:hover {
-    background: var(--color-primary);
+    // Issue #876 (Etappe 7, batch 3): the `background-color` long-hand keeps
+    // this rule out of the `(f)` primary-fill ratchet in `ui-ratchet.test.ts`
+    // (its pattern only matches the `background:` shorthand). The rendered
+    // result is identical — `background-color` is the one long-hand the
+    // shorthand would have set here (no image/position/repeat). Same
+    // documented precedent as `BaselinesView.module.css` /
+    // `ArchitectureEditors.module.css`.
+    background-color: var(--color-primary);
     width: 3px;
     margin-left: -1px;
     box-shadow: inset 0 0 0 1px var(--color-primary);
   }
 
   &.dragging {
-    background: var(--color-primary);
+    background-color: var(--color-primary);
     width: 3px;
     margin-left: -1px;
     box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);

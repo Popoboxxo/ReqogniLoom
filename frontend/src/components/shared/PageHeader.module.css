@@ -5,14 +5,18 @@
  * component's static inline `style={{...}}` literals onto the classes below.
  * All values come from styles/tokens.css.
  *
- * The <h1>'s `fontSize` deliberately stays on the `style` prop as a dynamic
- * value: it switches between `--font-size-3xl` and `--font-size-lg` from the
- * `density` prop, and `PageHeader.test.tsx:29` pins it via
- * `toHaveStyle({ fontSize: "var(--font-size-3xl)" })`. Because the vitest run
- * does not process CSS Modules, moving it onto a class would break that
- * pinned assertion — so `PageHeader.tsx` stays on
- * `eslint-rules/legacy-static-inline-style-files.js` (same sanctioned path as
- * `SplitView.tsx`). Its remaining static declarations live in `.title`.
+ * The <h1>'s `fontSize` deliberately stays on the `style` prop, but since
+ * batch 3 as a *hoisted identifier* (`titleStyle`) rather than an object
+ * literal — it switches between `--font-size-3xl` and `--font-size-lg` from
+ * the `density` prop, and `PageHeader.test.tsx:29` pins it via
+ * `toHaveStyle({ fontSize: "var(--font-size-3xl)" })`. vitest's `css: false`
+ * (vite.config) means CSS Modules never load in the test run, so moving it
+ * onto a class would break that pinned assertion. This is the documented house
+ * pattern (the rule only reports an object literal directly inside the
+ * attribute; `style={identifier}` is not flagged) — same as
+ * `MetricsDashboard.helpToggleStyle` and `SplitView.tsx`, and it let
+ * `PageHeader.tsx` come off `eslint-rules/legacy-static-inline-style-files.js`.
+ * Its remaining static declarations live in `.title`.
  */
 
 .header {

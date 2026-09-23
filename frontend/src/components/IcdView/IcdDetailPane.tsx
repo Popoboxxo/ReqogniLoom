@@ -376,7 +376,8 @@ function renderVersionFields(
         value={contract}
         onChange={(e) => setContract(e.target.value)}
         rows={4}
-        style={{ ...inputStyle, fontFamily: "inherit" }}
+        className={styles.newVersionTextarea}
+        style={inputStyle}
       />
 
       <label htmlFor="icd-nv-pre" style={labelStyle}>
@@ -388,7 +389,8 @@ function renderVersionFields(
         value={pre}
         onChange={(e) => setPre(e.target.value)}
         rows={2}
-        style={{ ...inputStyle, fontFamily: "inherit" }}
+        className={styles.newVersionTextarea}
+        style={inputStyle}
       />
 
       <label htmlFor="icd-nv-post" style={labelStyle}>
@@ -400,7 +402,8 @@ function renderVersionFields(
         value={post}
         onChange={(e) => setPost(e.target.value)}
         rows={2}
-        style={{ ...inputStyle, fontFamily: "inherit" }}
+        className={styles.newVersionTextarea}
+        style={inputStyle}
       />
 
       <label htmlFor="icd-nv-inv" style={labelStyle}>
@@ -412,7 +415,8 @@ function renderVersionFields(
         value={inv}
         onChange={(e) => setInv(e.target.value)}
         rows={2}
-        style={{ ...inputStyle, fontFamily: "inherit" }}
+        className={styles.newVersionTextarea}
+        style={inputStyle}
       />
     </div>
   );
