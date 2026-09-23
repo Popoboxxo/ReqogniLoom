@@ -408,7 +408,7 @@ export default function RequirementEditors(): JSX.Element {
   if (error) {
     return (
       <div role="alert">
-        <p style={{ color: 'var(--color-danger)' }}>{error}</p>
+        <p className={styles.errorText}>{error}</p>
         <button data-testid="requirements-reload-btn" onClick={refresh}>
           {t('actions.reload')}
         </button>
@@ -520,24 +520,11 @@ export default function RequirementEditors(): JSX.Element {
             e.preventDefault();
             void handleCreate();
           }}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
-            padding: 'var(--space-3)',
-            marginBottom: 'var(--space-3)',
-            background: 'var(--color-surface-raised)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-          }}
+          className={styles.createForm}
         >
           <label
             htmlFor="new-req-title"
-            style={{
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 600,
-              color: 'var(--color-text)',
-            }}
+            className={styles.createLabel}
           >
             {t('editor.title')}
           </label>
@@ -555,16 +542,7 @@ export default function RequirementEditors(): JSX.Element {
             }}
             disabled={isCreating}
             placeholder={t('editor.newRequirementTitle')}
-            style={{
-              padding: 'var(--space-2) var(--space-3)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-sm)',
-              background: 'var(--color-surface)',
-              color: 'var(--color-text)',
-              fontFamily: 'var(--font-sans)',
-              boxSizing: 'border-box',
-            }}
+            className={styles.createInput}
           />
 
           {/* BUG-11: description/category — ordinary create() fields the
@@ -610,7 +588,7 @@ export default function RequirementEditors(): JSX.Element {
               {createError}
             </p>
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+          <div className={styles.formActions}>
             {/* issue #719: the create dialog now uses the same shared
                 btn-secondary/btn-primary pair and the same "Erstellen"
                 (not "Speichern") verb as the Adr/Risk/Issue/TestCase create
@@ -682,8 +660,8 @@ export default function RequirementEditors(): JSX.Element {
    * Right panel: Requirement detail form
    */
   const rightPanel = requirement ? (
-    <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
-      <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+    <div className={styles.rightPane}>
+      <div className={styles.detailScroll}>
       <TraceSpine
         stations={derivationChain.stations}
         isLoading={derivationChain.isLoading}
@@ -748,11 +726,10 @@ export default function RequirementEditors(): JSX.Element {
         <div
           role={aiDeriveIsError ? 'alert' : 'status'}
           data-testid="req-ai-derive-status"
-          style={{
-            marginTop: 'var(--space-2)',
-            fontSize: 'var(--font-size-sm)',
-            color: aiDeriveIsError ? 'var(--color-danger)' : 'var(--color-text)',
-          }}
+          className={
+            styles.deriveStatus +
+            (aiDeriveIsError ? ' ' + styles.deriveStatusError : '')
+          }
         >
           {aiDeriveStatus}
         </div>
@@ -762,7 +739,7 @@ export default function RequirementEditors(): JSX.Element {
           R2/T1: rendered conditionally, not just disabled — a viewer must
           not find this trigger in the DOM at all. */}
       {hasRole('editor') && (
-        <div style={{ marginTop: 'var(--space-2)' }}>
+        <div className={styles.deriveTestcaseSection}>
           {/* Issue #927: distinct "KI-Testfall" label, a real `btn-primary`
               (was an unstyled browser-default button), decorative icon out of
               the accessible name and its own hint. */}
@@ -810,14 +787,7 @@ export default function RequirementEditors(): JSX.Element {
       )}
     </div>
   ) : (
-    <p
-      style={{
-        color: 'var(--color-text-muted)',
-        fontSize: 'var(--font-size-lg)',
-        textAlign: 'center',
-        padding: 'var(--space-8)',
-      }}
-    >
+    <p className={styles.selectPlaceholder}>
       {t('editor.selectRequirement')}
     </p>
   );
@@ -853,11 +823,11 @@ export default function RequirementEditors(): JSX.Element {
           page level, SplitView filling the rest. */}
       <div
         data-testid="requirements-page"
-        style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
+        className={styles.page}
       >
         {pageHeader}
 
-        <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
+        <div className={styles.splitWrapper}>
           <SplitView
             leftPanel={leftPanel}
             rightPanel={rightPanel}

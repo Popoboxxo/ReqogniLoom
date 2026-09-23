@@ -19,62 +19,7 @@ import { SystemHealthDialog } from "../AdminDialog/SystemHealthDialog";
 import { TriLabelOverviewDialog } from "../AdminDialog/TriLabelOverviewDialog";
 import { Dialog } from "../shared/Dialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-
-const cardStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-/*
- * Solid semantic-colour buttons (close = warning, reactivate = success,
- * delete = danger). The canonical `.btn-*` set only ships a solid primary
- * (`btn-primary`), a neutral outline (`btn-secondary`) and an *outline*
- * danger (`btn-danger`) — none of which preserve these buttons' solid
- * warning/success/danger emphasis, so their colours stay local. Their
- * geometry, however, now comes from the shared button tokens (issue #954)
- * so they are the same 36px tall / 6px radius as every `.btn-*` button
- * instead of the former one-off padding per button.
- */
-const solidActionStyle: React.CSSProperties = {
-  border: "none",
-  borderRadius: "var(--radius-btn)",
-  padding: "var(--space-2) var(--space-4)",
-  minHeight: "var(--btn-h-md)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const closeWorkspaceButtonStyle: React.CSSProperties = {
-  ...solidActionStyle,
-  background: "var(--color-warning)",
-  color: "var(--color-on-warning)",
-  marginRight: "var(--space-2)",
-};
-
-const reactivateWorkspaceButtonStyle: React.CSSProperties = {
-  ...solidActionStyle,
-  background: "var(--color-success)",
-  color: "var(--color-on-success)",
-  marginRight: "var(--space-2)",
-};
-
-const deleteWorkspaceButtonStyle: React.CSSProperties = {
-  ...solidActionStyle,
-  background: "var(--color-danger)",
-  color: "var(--color-on-danger)",
-};
+import styles from "./WorkspaceAdminSection.module.css";
 
 export function WorkspaceAdminSection(): JSX.Element {
   const { t } = useTranslation();
@@ -161,21 +106,16 @@ export function WorkspaceAdminSection(): JSX.Element {
   }, [activeWorkspace, cloneName, navigate, reloadWorkspaces]);
 
   if (!activeWorkspace) {
-    return <p style={{ padding: "var(--space-4)" }}>{t("errors.generic")}</p>;
+    return <p className={styles.emptyMessage}>{t("errors.generic")}</p>;
   }
 
   return (
     <>
       {/* System Health dashboard — infra status + recent audit log */}
-      <section style={cardStyle} data-testid="system-health-section">
-        <h3 style={headingStyle}>{t("systemHealth.title", "System Health")}</h3>
+      <section className={styles.card} data-testid="system-health-section">
+        <h3 className={styles.heading}>{t("systemHealth.title", "System Health")}</h3>
         <p
-          style={{
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text-muted)",
-            marginTop: 0,
-            marginBottom: "var(--space-3)",
-          }}
+          className={styles.sectionHint}
         >
           {t(
             "systemHealth.sectionHint",
@@ -198,15 +138,10 @@ export function WorkspaceAdminSection(): JSX.Element {
       />
 
       {/* Tri-Label Overview — read-only DE/EN TraceLink-type reference (UMSETZUNGSPLAN_SYSENG_2.0.md §1.3) */}
-      <section style={cardStyle} data-testid="tri-label-overview-section">
-        <h3 style={headingStyle}>{t("triLabelOverview.title", "Tri-Label Overview")}</h3>
+      <section className={styles.card} data-testid="tri-label-overview-section">
+        <h3 className={styles.heading}>{t("triLabelOverview.title", "Tri-Label Overview")}</h3>
         <p
-          style={{
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text-muted)",
-            marginTop: 0,
-            marginBottom: "var(--space-3)",
-          }}
+          className={styles.sectionHint}
         >
           {t(
             "triLabelOverview.sectionHint",
@@ -232,8 +167,8 @@ export function WorkspaceAdminSection(): JSX.Element {
       {isFeatureVisible("baselines") && <BackupRestoreSection />}
 
       {/* Workspace Administration (REQ-L1-042) */}
-      <section style={cardStyle} data-testid="lifecycle-section">
-        <h3 style={headingStyle}>{t("settings.lifecycleSection", "Workspace Administration")}</h3>
+      <section className={styles.card} data-testid="lifecycle-section">
+        <h3 className={styles.heading}>{t("settings.lifecycleSection", "Workspace Administration")}</h3>
 
         {activeWorkspace.is_active !== false && (
           <button
@@ -241,26 +176,20 @@ export function WorkspaceAdminSection(): JSX.Element {
             data-testid="close-workspace-btn"
             onClick={() => setShowCloseConfirm(true)}
             disabled={isClosing}
-            style={{ ...closeWorkspaceButtonStyle, opacity: isClosing ? 0.5 : 1 }}
+            className={styles.solidAction + " " + styles.closeWorkspaceButton}
           >
             {isClosing ? "…" : t("settings.closeWorkspace", "Close Workspace")}
           </button>
         )}
 
         {activeWorkspace.is_active !== false && (
-          <div style={{ marginTop: "var(--space-4)", marginBottom: "var(--space-4)", display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+          <div className={styles.cloneRow}>
             <input
               type="text"
               placeholder="Sandbox Name"
               value={cloneName}
               onChange={(e) => setCloneName(e.target.value)}
-              style={{
-                padding: "var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface-raised)",
-                color: "var(--color-text)",
-              }}
+              className={styles.cloneInput}
             />
             <button
               type="button"
@@ -279,7 +208,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             type="button"
             data-testid="reactivate-workspace-btn"
             onClick={() => void handleReactivateWorkspace()}
-            style={reactivateWorkspaceButtonStyle}
+            className={styles.solidAction + " " + styles.reactivateWorkspaceButton}
           >
             {t("settings.reactivateWorkspace", "Reactivate Workspace")}
           </button>
@@ -289,7 +218,7 @@ export function WorkspaceAdminSection(): JSX.Element {
           type="button"
           data-testid="delete-workspace-btn"
           onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeleteConfirmation(""); }}
-          style={deleteWorkspaceButtonStyle}
+          className={styles.solidAction + " " + styles.deleteWorkspaceButton}
         >
           {t("settings.deleteWorkspace", "Delete Workspace")}
         </button>
@@ -315,14 +244,14 @@ export function WorkspaceAdminSection(): JSX.Element {
                   data-testid="delete-confirm-btn"
                   onClick={() => void handleDeleteWorkspace()}
                   disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
-                  style={{ ...deleteWorkspaceButtonStyle, opacity: (isDeleting || deleteConfirmation !== activeWorkspace.name) ? 0.5 : 1 }}
+                  className={styles.solidAction + " " + styles.deleteWorkspaceButton}
                 >
                   {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
                 </button>
               </>
             }
           >
-            <p style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)", marginTop: 0 }}>
+            <p className={styles.deletePrompt}>
               {t("settings.deleteCaptchaPrompt", { name: activeWorkspace.name })}
             </p>
             <input
@@ -331,20 +260,10 @@ export function WorkspaceAdminSection(): JSX.Element {
               value={deleteConfirmation}
               onChange={(e) => { setDeleteConfirmation(e.target.value); setDeleteError(null); }}
               placeholder={activeWorkspace.name}
-              style={{
-                width: "100%",
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-3)",
-                color: "var(--color-text)",
-                fontSize: "var(--font-size-base)",
-                marginBottom: "var(--space-2)",
-                boxSizing: "border-box",
-              }}
+              className={styles.deleteInput}
             />
             {deleteError && (
-              <div role="alert" data-testid="delete-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
+              <div role="alert" data-testid="delete-error" className={styles.deleteError}>
                 {deleteError}
               </div>
             )}
@@ -353,12 +272,12 @@ export function WorkspaceAdminSection(): JSX.Element {
       </section>
 
       {saveError && (
-        <div role="alert" style={{ color: "var(--color-danger)", padding: "var(--space-3)", background: "var(--color-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-danger)" }}>
+        <div role="alert" className={styles.saveError}>
           {saveError}
         </div>
       )}
       {savedOk && (
-        <div data-testid="settings-saved-ok" style={{ color: "var(--color-success)", padding: "var(--space-3)" }}>
+        <div data-testid="settings-saved-ok" className={styles.savedOk}>
           {t("settings.saved")}
         </div>
       )}

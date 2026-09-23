@@ -15,6 +15,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { icdsApi } from "../../api/icds";
 import type { ApiError, SimilarIcd, UUID } from "../../types";
+import styles from "./SimilarIcdsPanel.module.css";
 
 interface SimilarIcdsPanelProps {
   icdId: UUID;
@@ -60,51 +61,17 @@ export function SimilarIcdsPanel({
   }, [icdId]);
 
   return (
-    <section
-      data-testid="similar-icds-panel"
-      style={{
-        marginTop: "var(--space-4)",
-        padding: "var(--space-3)",
-        background: "var(--color-surface-raised)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-md)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-2)",
-        }}
-      >
-        <h4
-          style={{
-            fontSize: "var(--font-size-md)",
-            fontWeight: 600,
-            margin: 0,
-            color: "var(--color-text)",
-          }}
-        >
+    <section data-testid="similar-icds-panel" className={styles.panel}>
+      <div className={styles.header}>
+        <h4 className={styles.heading}>
           {t("icds.similar.heading", "Similar ICDs")}
         </h4>
         <button
           type="button"
+          className={styles.findButton}
           data-testid="find-similar-icds-btn"
           onClick={() => void handleFindSimilar()}
           disabled={state.status === "loading"}
-          style={{
-            background: "var(--color-primary)",
-            color: "var(--color-on-primary)",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
-            fontSize: "var(--font-size-sm)",
-            cursor: state.status === "loading" ? "not-allowed" : "pointer",
-            opacity: state.status === "loading" ? 0.6 : 1,
-            fontWeight: 600,
-          }}
         >
           {state.status === "loading"
             ? t("loading", "Loading…")
@@ -115,11 +82,7 @@ export function SimilarIcdsPanel({
       {state.status === "no-embedding" && (
         <p
           data-testid="similar-icds-no-embedding"
-          style={{
-            color: "var(--color-text-muted)",
-            fontSize: "var(--font-size-sm)",
-            margin: 0,
-          }}
+          className={styles.mutedText}
         >
           {t(
             "icds.similar.noEmbedding",
@@ -131,11 +94,7 @@ export function SimilarIcdsPanel({
       {state.status === "unavailable" && (
         <p
           data-testid="similar-icds-unavailable"
-          style={{
-            color: "var(--color-text-muted)",
-            fontSize: "var(--font-size-sm)",
-            margin: 0,
-          }}
+          className={styles.mutedText}
         >
           {t(
             "icds.similar.unavailable",
@@ -148,11 +107,7 @@ export function SimilarIcdsPanel({
         <p
           role="alert"
           data-testid="similar-icds-error"
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-            margin: 0,
-          }}
+          className={styles.errorText}
         >
           {state.message}
         </p>
@@ -161,11 +116,7 @@ export function SimilarIcdsPanel({
       {state.status === "ready" && state.results.length === 0 && (
         <p
           data-testid="similar-icds-empty"
-          style={{
-            color: "var(--color-text-muted)",
-            fontSize: "var(--font-size-sm)",
-            margin: 0,
-          }}
+          className={styles.mutedText}
         >
           {t("icds.similar.empty", "No similar ICDs found.")}
         </p>
@@ -174,14 +125,7 @@ export function SimilarIcdsPanel({
       {state.status === "ready" && state.results.length > 0 && (
         <ul
           data-testid="similar-icds-results"
-          style={{
-            listStyle: "none",
-            margin: 0,
-            padding: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-1)",
-          }}
+          className={styles.results}
         >
           {state.results.map((hit) => (
             <li key={hit.icd_id}>
@@ -189,39 +133,13 @@ export function SimilarIcdsPanel({
                 type="button"
                 data-testid={`similar-icd-result-${hit.icd_id}`}
                 onClick={() => onSelect(hit.icd_id)}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "var(--space-2)",
-                  width: "100%",
-                  textAlign: "left",
-                  background: "var(--color-surface)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-3)",
-                  fontSize: "var(--font-size-sm)",
-                  cursor: "pointer",
-                }}
+                className={styles.resultButton}
               >
-                <span
-                  style={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
+                <span className={styles.resultName}>
                   {hit.name}
                   {hit.interface_type ? ` · ${hit.interface_type}` : ""}
                 </span>
-                <span
-                  style={{
-                    flexShrink: 0,
-                    color: "var(--color-text-muted)",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
+                <span className={styles.resultMeta}>
                   {`${Math.round(hit.similarity_score * 100)}%`}
                   {` · v${hit.version_number}`}
                 </span>

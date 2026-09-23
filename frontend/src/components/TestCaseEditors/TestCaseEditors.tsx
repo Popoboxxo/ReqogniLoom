@@ -224,7 +224,7 @@ export default function TestCaseEditors(): JSX.Element {
   // initial load (no data yet), keeping the list visible on detail reloads.
   if (isLoading && items.length === 0) {
     return (
-      <p role="status" style={{ padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+      <p role="status" className={styles.loadingStatus}>
         {t('loading', 'Laden...')}
       </p>
     );
@@ -232,8 +232,8 @@ export default function TestCaseEditors(): JSX.Element {
 
   if (error && items.length === 0) {
     return (
-      <div role="alert" style={{ padding: 'var(--space-8)' }}>
-        <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
+      <div role="alert" className={styles.errorContainer}>
+        <p className={styles.errorText}>
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="testcase-reload-btn">
@@ -244,7 +244,7 @@ export default function TestCaseEditors(): JSX.Element {
   }
 
   return (
-    <div data-testid="testcases-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div data-testid="testcases-page" className={styles.page}>
       {pendingSelectId && (
         <ConfirmDialog
           title={t('editor.unsavedChangesTitle')}
@@ -277,7 +277,7 @@ export default function TestCaseEditors(): JSX.Element {
         overflowActions={[interviewCta]}
       />
 
-      <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
+      <div className={styles.splitWrapper}>
         <SplitView
           leftPanel={
             <TestCaseList
@@ -288,8 +288,8 @@ export default function TestCaseEditors(): JSX.Element {
             />
           }
           rightPanel={
-            <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
-              <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+            <div className={styles.rightPane}>
+              <div className={styles.detailScroll}>
                 {item && (
                   <TraceSpine
                     stations={derivationChain.stations}
@@ -398,7 +398,7 @@ export default function TestCaseEditors(): JSX.Element {
           >
             <label
               htmlFor="tc-new-title"
-              style={{ display: 'block', fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)', marginBottom: 'var(--space-1)' }}
+              className={styles.createLabel}
             >
               {t('editor.title', 'Title')}
             </label>
@@ -410,11 +410,7 @@ export default function TestCaseEditors(): JSX.Element {
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder={t('testcases.titlePlaceholder')}
-              style={{
-                width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
-                borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-sm)', background: 'var(--color-surface)', color: 'var(--color-text)',
-              }}
+              className={styles.createInput}
             />
 
             {/* BUG-11: description — an ordinary testcasesApi.create() field
@@ -454,7 +450,7 @@ export default function TestCaseEditors(): JSX.Element {
             </select>
 
             {createError && (
-              <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-2)' }}>
+              <p role="alert" className={styles.createError}>
                 {createError}
               </p>
             )}

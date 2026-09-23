@@ -1,0 +1,89 @@
+/*
+ * <SimilarRequirementsPanel> (REQ-L2-VS-004, COMP-RF-003) — styles.
+ *
+ * Issue #876 (Etappe 6): the file's 11 static inline `style={{...}}` literals
+ * (all static) and its 0 hoisted `React.CSSProperties` constants were migrated
+ * here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (the `1px` border width) stay
+ * literal so the rendered result is unchanged.
+ *
+ * The panel deliberately mirrors `IcdView/SimilarIcdsPanel.module.css` without
+ * importing it — the two panels are separate components and the established
+ * convention is a co-located module per file, not a shared one. The "Find
+ * Similar" action itself is already the canonical `btn-primary` class (issue
+ * #926 part 2), so it carries no rule here.
+ */
+
+.panel {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.heading {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.mutedText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.errorText {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.resultButton {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.resultName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultMeta {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}

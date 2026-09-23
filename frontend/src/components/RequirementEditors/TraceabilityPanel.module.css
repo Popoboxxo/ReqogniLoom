@@ -1,0 +1,82 @@
+/*
+ * <TraceabilityPanel> (REQ-L3-RF003-003, REQ-L2-RF-006, COMP-RF-003) — styles.
+ *
+ * Issue #876 (Etappe 6): the file's 11 static inline `style={{...}}` literals
+ * (10 static + 1 dynamic) and its 0 hoisted `React.CSSProperties` constants
+ * were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`0.3rem`, `0.5rem`, `0.8rem`,
+ * `0.75rem`, `0.1rem 0.4rem`, `1rem`, `200px`, the `4px` radius and the `1px`
+ * border width) stay literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the open-link button's navigable/unresolved cursor and opacity use the
+ *     `:disabled` pseudo-class (the element already carries
+ *     `disabled={!isNavigable}`), on a base class whose enabled state is the
+ *     pointer cursor.
+ */
+
+.aside {
+  border-left: 1px solid var(--color-border);
+  padding-left: 1rem;
+  min-width: 200px;
+}
+
+.item {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.title {
+  font-size: 0.8rem;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.linkTypeBadge {
+  font-size: 0.75rem;
+  background: var(--color-badge-draft);
+  color: var(--color-badge-draft-text);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.openButton {
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 1;
+  flex-shrink: 0;
+}
+
+.openButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.headingUpstream {
+  margin: 0 0 0.5rem;
+}
+
+.headingDownstream {
+  margin: 1rem 0 0.5rem;
+}
+
+.emptyText {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}

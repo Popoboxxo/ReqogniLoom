@@ -20,6 +20,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 import { useState, useCallback } from "react";
 import { PageHeader } from "../shared/PageHeader";
+import styles from "./UserProfileSettings.module.css";
 
 const VISIBILITY_LABELS: Record<OptionalArtifactFeature, string> = {
   adr: "ADR (Architecture Decision Records)",
@@ -73,17 +74,8 @@ export default function UserProfileSettings(): JSX.Element {
     [resetFeatureOverride]
   );
 
-  const labelStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--space-3)",
-    padding: "var(--space-2) 0",
-    cursor: "pointer",
-    fontSize: "var(--font-size-base)",
-  };
-
   return (
-    <div data-testid="user-profile-settings" style={{ maxWidth: "640px" }}>
+    <div data-testid="user-profile-settings" className={styles.container}>
       <PageHeader
         title={t("nav.profile")}
         summary={t(
@@ -103,26 +95,10 @@ export default function UserProfileSettings(): JSX.Element {
       <NotificationsSection />
 
       {activeWorkspace && (
-        <section style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-5)",
-          marginTop: "var(--space-5)",
-          boxShadow: "var(--shadow-card)",
-        }} data-testid="visibility-section">
-          <h3 style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            margin: "0 0 var(--space-4) 0",
-          }}>{t("settings.visibility", "Sichtbarkeit")} (Workspace: {activeWorkspace.name})</h3>
+        <section className={styles.visibilitySection} data-testid="visibility-section">
+          <h3 className={styles.visibilityHeading}>{t("settings.visibility", "Sichtbarkeit")} (Workspace: {activeWorkspace.name})</h3>
           <p
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-              marginBottom: "var(--space-3)",
-            }}
+            className={styles.visibilityHint}
           >
             {t(
               "settings.visibilityHint",
@@ -133,7 +109,7 @@ export default function UserProfileSettings(): JSX.Element {
           {saveError && (
             <div
               role="alert"
-              style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)", fontSize: "var(--font-size-sm)" }}
+              className={styles.saveError}
             >
               {saveError}
             </div>
@@ -146,22 +122,14 @@ export default function UserProfileSettings(): JSX.Element {
             return (
               <div
                 key={feature}
-                style={{
-                  ...labelStyle,
-                  justifyContent: "space-between",
-                  padding: "var(--space-2) 0",
-                  borderTop: "1px solid var(--color-border)",
-                }}
+                className={styles.visibilityRow}
                 data-testid={`visibility-row-${feature}`}
               >
                 <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--space-3)",
-                    cursor: isPending ? "wait" : "pointer",
-                    flex: 1,
-                  }}
+                  className={
+                    styles.featureLabel +
+                    (isPending ? " " + styles.featureLabelPending : "")
+                  }
                 >
                   <input
                     type="checkbox"
@@ -171,13 +139,9 @@ export default function UserProfileSettings(): JSX.Element {
                     data-testid={`visibility-checkbox-${feature}`}
                   />
                   <span>
-                    <span style={{ fontWeight: 500 }}>{VISIBILITY_LABELS[feature]}</span>
+                    <span className={styles.featureName}>{VISIBILITY_LABELS[feature]}</span>
                     <span
-                      style={{
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text-muted)",
-                        marginLeft: "var(--space-2)",
-                      }}
+                      className={styles.featureSource}
                     >
                       {overridden
                         ? t("settings.visibilityOverridden", "(überschrieben)")
@@ -198,16 +162,10 @@ export default function UserProfileSettings(): JSX.Element {
                   data-testid={`visibility-reset-${feature}`}
                   onClick={() => void handleResetFeature(feature)}
                   disabled={isPending || !overridden}
-                  style={{
-                    background: "transparent",
-                    color: "var(--color-text-muted)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "var(--space-1) var(--space-3)",
-                    fontSize: "var(--font-size-sm)",
-                    cursor: isPending || !overridden ? "not-allowed" : "pointer",
-                    opacity: overridden ? 1 : 0.5,
-                  }}
+                  className={
+                    styles.resetButton +
+                    (overridden ? "" : " " + styles.resetButtonInactive)
+                  }
                 >
                   {t("settings.visibilityReset", "Auf Preset zurücksetzen")}
                 </button>

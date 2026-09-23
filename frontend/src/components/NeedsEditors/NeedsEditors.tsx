@@ -48,6 +48,7 @@ import { requirementsApi } from '../../api/requirements';
 import { architectureApi } from '../../api/architecture';
 import { tracelinksApi } from '../../api/tracelinks';
 import type { ArchitectureElement, Requirement } from '../../types';
+import styles from './NeedsEditors.module.css';
 
 export default function NeedsEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -358,7 +359,7 @@ export default function NeedsEditors(): JSX.Element {
   // while the detail pane reloads (UI standards §1.4).
   if (isLoading && needs.length === 0) {
     return (
-      <p role="status" style={{ padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+      <p role="status" className={styles.loadingStatus}>
         {t('loading', 'Laden...')}
       </p>
     );
@@ -366,8 +367,8 @@ export default function NeedsEditors(): JSX.Element {
 
   if (error && needs.length === 0) {
     return (
-      <div role="alert" style={{ padding: 'var(--space-8)' }}>
-        <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
+      <div role="alert" className={styles.errorContainer}>
+        <p className={styles.errorText}>
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="need-reload-btn">
@@ -441,15 +442,8 @@ export default function NeedsEditors(): JSX.Element {
         />
       }
       rightPanel={
-        <div
-          style={{
-            display: 'flex',
-            height: '100%',
-            minHeight: 0,
-            gap: 'var(--space-3)',
-          }}
-        >
-          <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+        <div className={styles.rightPane}>
+          <div className={styles.detailScroll}>
             {need && (
               <TraceSpine
                 stations={derivationChain.stations}
@@ -470,8 +464,8 @@ export default function NeedsEditors(): JSX.Element {
                 />
                 {/* R-1: sibling of the definition-driven form, not inside it
                     — see NeedArtifactForm's docstring for why. */}
-                <div style={{ marginTop: 'var(--space-4)' }}>
-                  <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+                <div className={styles.customFieldsSection}>
+                  <h3 className={styles.customFieldsSectionHeading}>
                     {t('customFields.section')}
                   </h3>
                   <CustomFieldsEditor
@@ -482,7 +476,7 @@ export default function NeedsEditors(): JSX.Element {
                 </div>
               </>
             ) : (
-              <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+              <p className={styles.selectPlaceholder}>
                 {t('needs.selectNeed')}
               </p>
             )}
@@ -499,17 +493,16 @@ export default function NeedsEditors(): JSX.Element {
               <div
                 role={derivationIsError ? 'alert' : 'status'}
                 data-testid="need-derive-status"
-                style={{
-                  marginTop: 'var(--space-2)',
-                  fontSize: 'var(--font-size-sm)',
-                  color: derivationIsError ? 'var(--color-danger)' : 'var(--color-text)',
-                }}
+                className={
+                  styles.deriveStatus +
+                  (derivationIsError ? ' ' + styles.deriveStatusError : '')
+                }
               >
                 {derivationStatus}
               </div>
             )}
             {need && derivedDrafts && (
-              <div style={{ marginTop: 'var(--space-3)' }}>
+              <div className={styles.deriveDraftsSection}>
                 <DeriveRequirementsPanel
                   workspaceId={need.workspace_id}
                   needArtifactId={need.artifact_id}
@@ -524,7 +517,7 @@ export default function NeedsEditors(): JSX.Element {
                 architecture allocation — same flow as in the requirements
                 mask. */}
             {need && (
-              <div style={{ marginTop: 'var(--space-4)' }}>
+              <div className={styles.deriveFormSection}>
                 <DeriveRequirementForm
                   isOpen={showDeriveForm}
                   onOpen={() => setShowDeriveForm(true)}

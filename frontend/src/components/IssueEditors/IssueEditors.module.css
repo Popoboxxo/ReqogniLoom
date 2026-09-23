@@ -1,49 +1,7 @@
 /*
- * S-3 (attribute-definitions Task 22 review round 1): the sibling
- * CustomFieldsEditor section and the "select a test case" placeholder were
- * added as inline `style={{...}}` literals (frontend/src/test/ui-ratchet.test.ts
- * freezes the total count) instead of CSS classes — `TestCaseForm.module.css`
- * (deleted in this same wave) used to supply the equivalent chrome for the
- * hand-written form this replaces. Minimal, TestCaseEditors-local module
- * (no matching classes existed in `shared/FieldHints.module.css` to reuse).
- */
-
-.customFieldsSection {
-  margin-top: var(--space-4);
-}
-
-.customFieldsSectionHeading {
-  font-size: var(--font-size-md);
-  margin-bottom: var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: var(--space-2);
-}
-
-.selectPlaceholder {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-lg);
-  text-align: center;
-  padding: var(--space-8);
-}
-
-/* #424/#402: list row wrapper + provenance badge line below the ArtifactRow.
-   Layout only; the badges themselves own their colours via <Badge>. */
-.rowWrapper {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding-bottom: var(--space-1);
-}
-
-.rowBadges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  padding-left: var(--space-2);
-}
-
-/*
- * Issue #876 (Etappe 6): the file's 10 static inline `style={{...}}` literals
+ * <IssueEditors> (COMP-RF-003) — styles.
+ *
+ * Issue #876 (Etappe 6): the file's 11 static inline `style={{...}}` literals
  * (all static) and its 0 hoisted `React.CSSProperties` constants were migrated
  * here so the file could be removed from
  * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
@@ -96,6 +54,13 @@
   flex: 1 1 auto;
   min-width: 0;
   overflow: auto;
+}
+
+.selectPlaceholder {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  text-align: center;
+  padding: var(--space-8);
 }
 
 .createLabel {
