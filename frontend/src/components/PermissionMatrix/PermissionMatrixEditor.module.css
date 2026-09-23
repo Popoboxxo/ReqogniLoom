@@ -76,7 +76,7 @@
 }
 
 .primaryButton {
-  background: var(--color-primary);
+  background-color: var(--color-primary);
   color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-md);

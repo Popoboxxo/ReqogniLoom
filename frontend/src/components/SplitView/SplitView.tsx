@@ -150,7 +150,7 @@ const SCROLL_SURFACE_STYLE: React.CSSProperties = {
 };
 
 // ---------------------------------------------------------------------------
-// Issue #876 (Etappe 7, batch 3): the nine inline `style={{...}}` literals of
+// Issue #876 (Etappe 7, batch 3): the nine inline style-object literals of
 // the legacy contract are hoisted to named `React.CSSProperties` identifiers
 // and applied as `style={identifier}`.
 //

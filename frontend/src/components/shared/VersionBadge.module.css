@@ -44,7 +44,7 @@
 
 /* Declared after `.dot` (different property, order is only for readability). */
 .dotCurrent {
-  background: var(--color-primary);
+  background-color: var(--color-primary);
 }
 
 .dotPast {

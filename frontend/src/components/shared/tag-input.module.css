@@ -29,7 +29,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  background: var(--color-primary);
+  background-color: var(--color-primary);
   color: var(--color-on-primary);
   border-radius: var(--radius-sm);
   padding: 2px var(--space-2);

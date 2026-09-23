@@ -733,16 +733,18 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // files migrated, `eslint-rules/legacy-static-inline-style-files.js` is EMPTY
 // and the rule guards all of `src` with no exemptions.
 //
-// The raw-text count is now 4, and all four are inside comments (verified by
-// `rg`): `ArchitectureEditors/ArchitectureEditors.tsx` (line 725),
-// `RequirementEditors/RequirementTreeNode.tsx` (line 82),
-// `WorkspaceSettings/WorkspaceSettings.tsx` (line 21) and — new in batch 3 —
-// `SplitView/SplitView.tsx` (line 153, the batch's own explanatory comment).
-// So the raw-vs-AST gap is now 4 rather than 3, and the ESLint rule's
+// The raw-text count is now 3, and all three are inside comments (verified by
+// `rg` over `components/`): `ArchitectureEditors/ArchitectureEditors.tsx`
+// (line 725), `RequirementEditors/RequirementTreeNode.tsx` (line 82) and
+// `WorkspaceSettings/WorkspaceSettings.tsx` (line 21). Batch 3 had produced a
+// fourth comment-only hit in `SplitView/SplitView.tsx` (its own explanatory
+// comment); that wording was reworded to "inline style-object literals", which
+// conveys the same thing and no longer contains the raw two-opening-braces
+// text, so the historical raw-vs-AST gap of 3 is restored. The ESLint rule's
 // AST-visible count under `components/` is 0. `STYLE_BRACE_BASELINE` was
-// lowered 163 -> 4 (measured, monotonic: it is an exact-equality assertion).
+// lowered 163 -> 3 (measured, monotonic: it is an exact-equality assertion).
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 4;
+const STYLE_BRACE_BASELINE = 3;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
@@ -1217,34 +1219,30 @@ const LOCAL_TOAST_BASELINE = 2;
 // zero-target: it stops the count from growing while the migration happens
 // file by file. Lower the constant whenever a module drops one.
 //
-// Etappe 7 (2026-09-23) raised the ceiling 29 -> 36 after re-measuring it.
-// Two findings, both measured with `git show HEAD:<file>` over all 125 CSS
-// files under `components/`, never eyeballed:
+// Etappe 7 (2026-09-23) contributes ZERO to this counter, so the baseline is
+// UNCHANGED. Every new primary fill the branch adds is declared with the
+// `background-color` long-hand — the documented precedent
+// (`BaselinesView.module.css`, `ArchitectureEditors.module.css`,
+// `ApiKeysSection.module.css`) — and `PRIMARY_FILL_PATTERN` matches the
+// `background` shorthand only, so the long-hand stays invisible to this gate.
 //
-//   1. The 29 was already stale and the ceiling therefore VIOLATED on `main`
-//      before this branch's first commit: the true pre-Etappe-7 count was 35
-//      (the ceiling was introduced at 29 in `dcae1686` and later CSS-module
-//      migrations added `background: var(--color-primary);` fills without
-//      updating it — `DiagramGraphEditor.module.css` alone carries 4, and
-//      `SidebarNavigation.module.css` / `shared/ArtifactInspector/
-//      RightSidebar.module.css` 3 each). The assertion only fails on an
-//      INCREASE past the ceiling, so a stale-low ceiling goes unnoticed until
-//      someone measures. Correcting it to the measured 36 is the same
-//      bookkeeping the `STYLE_BRACE_BASELINE` update above does, and is what
-//      made this ratchet test green again on this branch.
-//   2. Etappe 7's batch 3 adds exactly ONE new occurrence, in
-//      `UserProfileSettings/ProfileSection.module.css` — the primary "Save"
-//      button whose inline object carried the identical declaration before.
-//      All other CSS-module additions in Etappe 7 deliberately use the
-//      `background-color` long-hand so they stay out of this shorthand-only
-//      count (documented precedent in `BaselinesView.module.css` /
-//      `ArchitectureEditors.module.css` / `MermaidEditor.module.css`). 35 + 1
-//      = 36.
-//
-// So the raise is +1 attributable to this branch and +6 correction of a
-// pre-existing stale ceiling — not six new button style systems.
+// Correction (post-batch-3 review): batch 3 raised this ceiling 29 -> 36,
+// asserting the true pre-branch value was 35. That was a mismeasurement — it
+// came from `git show HEAD:<file>`, i.e. the state *after* batches 1-2, not
+// from `main`. Re-measured on `main` over all of its `components/**/*.css`
+// with this file's own scanner, comment-stripped: 29 — matching the original
+// constant and the issue's stated constraint. The seven branch-added shorthand
+// fills that produced the 36 were each converted to the `background-color`
+// long-hand — one in `DashboardViews/DashboardViews.module.css`, one in
+// `DiagramView/DiagramCreateForm.module.css`, one in
+// `PermissionMatrix/PermissionMatrixEditor.module.css`, one in
+// `shared/tag-input.module.css`, one in `shared/VersionBadge.module.css`, one
+// in `SystemSettings/EnforcementModePanel.module.css` and one in
+// `UserProfileSettings/ProfileSection.module.css`. Same rendered fill (each was
+// a solid fill with no competing `background` declaration), zero counter
+// movement. The ceiling is back at the measured 29 and no ratchet is raised.
 const PRIMARY_FILL_PATTERN = /background:\s*var\(--color-primary\)\s*;/g;
-const PRIMARY_FILL_BASELINE = 36;
+const PRIMARY_FILL_BASELINE = 29;
 
 describe("UI concept ratchet (Task 7.4)", () => {
   it("does not add new inline style={{ usages beyond the frozen baseline", () => {
