@@ -13,7 +13,6 @@
  * (overlay/dialog/header/body/footer + backdrop-click-to-close).
  */
 
-import type { CSSProperties } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -46,45 +45,21 @@ function formatDate(iso: string | null): string {
   }
 }
 
-const STATUS_COLORS: Record<SystemHealthStatus, string> = {
-  ok: "var(--color-success)",
-  degraded: "var(--color-warning)",
-  down: "var(--color-danger)",
-  unknown: "var(--color-text-muted)",
+// Issue #876 (Etappe 5): the per-status fg colour moved onto one CSS class per
+// status (composed at the call site) for both the dot and the status label —
+// see SystemHealthDialog.module.css.
+const STATUS_DOT_CLASS: Record<SystemHealthStatus, string> = {
+  ok: styles.statusDotOk,
+  degraded: styles.statusDotDegraded,
+  down: styles.statusDotDown,
+  unknown: styles.statusDotUnknown,
 };
 
-// ---------------------------------------------------------------------------
-// Styles — the overlay/panel/header chrome now comes from <Dialog>; only the
-// body/footer/content styles specific to this dialog remain here.
-// ---------------------------------------------------------------------------
-
-const bodyStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-4)",
-};
-
-const versionLineStyle: CSSProperties = {
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text-muted)",
-};
-
-const sectionHeadingStyle: CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  color: "var(--color-text-muted)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  margin: "0 0 var(--space-2) 0",
-};
-
-const componentRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  padding: "var(--space-2) var(--space-3)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
+const STATUS_TEXT_CLASS: Record<SystemHealthStatus, string> = {
+  ok: styles.statusTextOk,
+  degraded: styles.statusTextDegraded,
+  down: styles.statusTextDown,
+  unknown: styles.statusTextUnknown,
 };
 
 /**
@@ -199,9 +174,9 @@ export function SystemHealthDialog({
         </>
       }
     >
-      <div style={bodyStyle}>
+      <div className={styles.body}>
         {(versionInfo || versionFailed) && (
-          <span data-testid="system-health-version" style={versionLineStyle}>
+          <span data-testid="system-health-version" className={styles.versionLine}>
             {versionInfo
               ? (versionInfo.app_version && versionInfo.app_version !== "unknown"
                   ? `${t("systemHealth.appVersion", {
@@ -218,7 +193,7 @@ export function SystemHealthDialog({
         )}
 
         {isLoading && !snapshot && (
-            <p role="status" style={{ color: "var(--color-text-muted)", margin: 0 }}>
+            <p role="status" className={styles.loadingText}>
               {t("loading", "Loading...")}
             </p>
           )}
@@ -227,7 +202,7 @@ export function SystemHealthDialog({
             <p
               role="alert"
               data-testid="system-health-error"
-              style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: 0 }}
+              className={styles.errorText}
             >
               {error}
             </p>
@@ -236,60 +211,35 @@ export function SystemHealthDialog({
           {snapshot && (
             <>
               <section>
-                <h3 style={sectionHeadingStyle}>
+                <h3 className={styles.sectionHeading}>
                   {t("systemHealth.components", "Components")}
                 </h3>
                 <ul
                   data-testid="system-health-components"
-                  style={{
-                    listStyle: "none",
-                    padding: 0,
-                    margin: 0,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "var(--space-2)",
-                  }}
+                  className={styles.componentList}
                 >
                   {snapshot.components.map((component) => (
                     <li
                       key={component.name}
                       data-testid={`system-health-component-${component.name}`}
-                      style={componentRowStyle}
+                      className={styles.componentRow}
                     >
-                      <span style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                      <span className={styles.componentMain}>
                         <span
                           aria-hidden="true"
-                          style={{
-                            width: "0.6rem",
-                            height: "0.6rem",
-                            borderRadius: "50%",
-                            background: STATUS_COLORS[component.status],
-                            display: "inline-block",
-                            flexShrink: 0,
-                          }}
+                          className={styles.statusDot + ' ' + STATUS_DOT_CLASS[component.status]}
                         />
-                        <span style={{ fontWeight: 600, color: "var(--color-text)" }}>
+                        <span className={styles.componentName}>
                           {t(`systemHealth.componentNames.${component.name}`, component.name)}
                         </span>
-                        <span
-                          style={{
-                            fontSize: "var(--font-size-xs)",
-                            color: "var(--color-text-muted)",
-                          }}
-                        >
+                        <span className={styles.componentDetail}>
                           {component.detail}
                         </span>
                       </span>
                       <span className={styles.statusCluster}>
                         <span
                           data-testid={`system-health-status-${component.name}`}
-                          style={{
-                            fontSize: "var(--font-size-xs)",
-                            fontWeight: 700,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em",
-                            color: STATUS_COLORS[component.status],
-                          }}
+                          className={styles.statusText + ' ' + STATUS_TEXT_CLASS[component.status]}
                         >
                           {t(`systemHealth.status.${component.status}`, component.status)}
                         </span>
@@ -317,48 +267,33 @@ export function SystemHealthDialog({
               </section>
 
               <section>
-                <h3 style={sectionHeadingStyle}>
+                <h3 className={styles.sectionHeading}>
                   {t("systemHealth.recentEvents", "Recent Audit Events")}
                 </h3>
                 {snapshot.recent_events.length === 0 ? (
                   <p
                     data-testid="system-health-events-empty"
-                    style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", margin: 0 }}
+                    className={styles.eventsEmpty}
                   >
                     {t("systemHealth.noEvents", "No recent events.")}
                   </p>
                 ) : (
                   <ul
                     data-testid="system-health-events"
-                    style={{
-                      listStyle: "none",
-                      padding: 0,
-                      margin: 0,
-                      maxHeight: "240px",
-                      overflowY: "auto",
-                      display: "flex",
-                      flexDirection: "column",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: "var(--radius-md)",
-                    }}
+                    className={styles.eventsList}
                   >
                     {snapshot.recent_events.map((event) => (
                       <li
                         key={event.id}
                         data-testid={`system-health-event-${event.id}`}
-                        style={{
-                          fontSize: "var(--font-size-xs)",
-                          padding: "var(--space-2) var(--space-3)",
-                          borderBottom: "1px solid var(--color-border)",
-                          color: "var(--color-text)",
-                        }}
+                        className={styles.eventItem}
                       >
-                        <span style={{ fontFamily: "monospace", color: "var(--color-text-muted)" }}>
+                        <span className={styles.eventTimestamp}>
                           {formatDate(event.timestamp)}
                         </span>
                         {" — "}
                         <strong>{event.actor}</strong>{" "}
-                        <span style={{ color: "var(--color-text-muted)" }}>[{event.source}]</span>{" "}
+                        <span className={styles.eventSource}>[{event.source}]</span>{" "}
                         {event.op} {event.entity_type}
                       </li>
                     ))}

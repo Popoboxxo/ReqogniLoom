@@ -833,10 +833,17 @@ export function WorkspaceTree({
       }
     : undefined;
 
+  // Issue #876 (Etappe 5): the virtualized list's height is a measured pixel
+  // value (`getTotalSize()`), so it stays on the `style` prop as a computed
+  // identifier rather than a class — see the module header.
+  const virtualListStyle = {
+    height: `${rowVirtualizer.getTotalSize()}px`,
+  } as CSSProperties;
+
   return (
     <div
       data-testid={testId}
-      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}
+      className={styles.treeRoot}
     >
       {showSearch && (
         <input
@@ -846,19 +853,7 @@ export function WorkspaceTree({
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder={searchPlaceholderLabel}
           aria-label={searchPlaceholderLabel}
-          style={{
-            height: '32px',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--color-border)',
-            padding: '0 var(--space-2)',
-            fontSize: 'var(--font-size-sm)',
-            fontFamily: 'inherit',
-            background: 'var(--color-surface)',
-            color: 'var(--color-text)',
-            boxSizing: 'border-box',
-            width: '100%',
-            outline: 'none',
-          }}
+          className={styles.searchInput}
         />
       )}
 
@@ -891,22 +886,14 @@ export function WorkspaceTree({
       {nodes.length === 0 ? (
         <p
           data-testid={`${testId}-empty`}
-          style={{
-            color: 'var(--color-text-muted)',
-            fontSize: 'var(--font-size-sm)',
-            margin: 0,
-          }}
+          className={styles.emptyText}
         >
           {emptyStateLabel}
         </p>
       ) : visibleRows.length === 0 ? (
         <p
           data-testid={`${testId}-no-matches`}
-          style={{
-            color: 'var(--color-text-muted)',
-            fontSize: 'var(--font-size-sm)',
-            margin: 0,
-          }}
+          className={styles.emptyText}
         >
           {noMatchesStateLabel}
         </p>
@@ -915,19 +902,14 @@ export function WorkspaceTree({
         <div
           ref={parentRef}
           data-testid={`${testId}-scroll`}
-          style={{ overflowY: 'auto', maxHeight: '70vh' }}
+          className={styles.scrollHost}
         >
           <ul
             role="tree"
             data-testid={`${testId}-list`}
             onKeyDown={handleTreeKeyDown}
-            style={{
-              listStyle: 'none',
-              padding: 0,
-              margin: 0,
-              position: 'relative',
-              height: `${rowVirtualizer.getTotalSize()}px`,
-            }}
+            className={styles.treeListVirtual}
+            style={virtualListStyle}
           >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const { internal, hasChildren, isExpanded } =
@@ -971,14 +953,7 @@ export function WorkspaceTree({
           role="tree"
           data-testid={`${testId}-list`}
           onKeyDown={handleTreeKeyDown}
-          style={{
-            listStyle: 'none',
-            padding: 0,
-            margin: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '2px',
-          }}
+          className={styles.treeList}
         >
           {visibleRows.map(({ internal, hasChildren, isExpanded }) => (
             <TreeRow
@@ -1117,6 +1092,7 @@ function TreeRow({
   const rowClassName =
     [
       styles.treeRow,
+      hasCustomRow ? styles.treeRowCustom : '',
       depth > 0 ? styles.treeLine : '',
       !hasCustomRow && !isSelected && !containsSelection
         ? styles.treeRowHoverable
@@ -1128,6 +1104,17 @@ function TreeRow({
     ]
       .filter(Boolean)
       .join(' ');
+
+  // Issue #876 (Etappe 5): the row's base chrome lives in
+  // `workspace-tree.module.css`. Two values stay genuinely per-instance and
+  // cannot be frozen into a class — the depth (`--tree-depth`, consumed by the
+  // indent and the connector lines) and the virtualizer's per-row `transform`,
+  // which arrives via `rowStyle`. They are composed into one computed style
+  // object (an identifier, never an inline object literal).
+  const dynamicRowStyle = {
+    ['--tree-depth' as string]: depth,
+    ...rowStyle,
+  } as CSSProperties;
 
   return (
     <li
@@ -1172,21 +1159,7 @@ function TreeRow({
         onSelect(node.id);
         onFocusRow(node.id);
       }}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-1)',
-        minHeight: '32px',
-        padding: hasCustomRow ? '0 8px' : '4px 8px',
-        paddingLeft: `${8 + depth * 16}px`,
-        ['--tree-depth' as string]: depth,
-        borderRadius: 'var(--radius-sm)',
-        cursor: 'pointer',
-        userSelect: 'none',
-        color: 'var(--color-text)',
-        boxSizing: 'border-box',
-        ...rowStyle,
-      }}
+      style={dynamicRowStyle}
     >
       {/* Expand / collapse toggle — rotate 90° when expanded (design doc §6) */}
       {hasChildren ? (
@@ -1200,30 +1173,18 @@ function TreeRow({
             e.stopPropagation();
             onToggle(node.id);
           }}
-          style={{
-            width: '16px',
-            height: '16px',
-            padding: 0,
-            border: 'none',
-            background: 'transparent',
-            // Issue #668: second, redundant cue on the one control that can
-            // bring the hidden selection back — colour alone on the border
-            // would be a single-channel signal.
-            color: containsSelection
-              ? 'var(--color-primary)'
-              : 'var(--color-text-muted)',
-            cursor: 'pointer',
-            fontSize: '0.65rem',
-            lineHeight: 1,
-            flexShrink: 0,
-            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-            transition: `transform var(--transition-fast)`,
-          }}
+          className={
+            styles.toggle +
+            ' ' +
+            (containsSelection ? styles.toggleActive : styles.toggleInactive) +
+            ' ' +
+            (isExpanded ? styles.toggleExpanded : styles.toggleCollapsed)
+          }
         >
           ▶
         </button>
       ) : (
-        <span aria-hidden="true" style={{ width: '16px', flexShrink: 0 }} />
+        <span aria-hidden="true" className={styles.toggleSpacer} />
       )}
 
       {hasCustomRow ? (
@@ -1249,15 +1210,11 @@ function TreeRow({
 
           {/* Node name */}
           <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: isSelected ? 600 : 400,
-            }}
+            className={
+              styles.nodeName +
+              ' ' +
+              (isSelected ? styles.nodeNameSelected : styles.nodeNameUnselected)
+            }
             title={node.name}
           >
             {node.name}
@@ -1305,19 +1262,7 @@ function TreeRow({
             e.stopPropagation();
             onAddChild(node.id);
           }}
-          style={{
-            width: '18px',
-            height: '18px',
-            padding: 0,
-            border: 'none',
-            background: 'transparent',
-            color: 'var(--color-text-muted)',
-            cursor: 'pointer',
-            fontSize: '0.9rem',
-            lineHeight: 1,
-            flexShrink: 0,
-            borderRadius: 'var(--radius-sm)',
-          }}
+          className={styles.addChildButton}
         >
           +
         </button>

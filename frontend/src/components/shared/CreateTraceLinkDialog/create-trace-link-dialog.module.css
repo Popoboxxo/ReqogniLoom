@@ -1,0 +1,188 @@
+/*
+ * <CreateTraceLinkDialog> (REQ-005) — styles.
+ *
+ * Issue #876 (Etappe 5): the dialog's 13 static inline `style={{...}}`
+ * literals and its 8 hoisted `React.CSSProperties` constants were migrated
+ * here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`max-height: 200px`, the `2px`/
+ * `1px`/`6px` paddings, the `0.7rem` badge size and the `1px` border width)
+ * stay literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the type-filter tab's active/inactive look uses `...Active` / `...Inactive`
+ *     (mutually-exclusive fill/weight),
+ *   - the element row's selection uses `...Selected` / `...Unselected`,
+ *   - the row's type chip uses `...Selected` / `...Unselected` too.
+ *
+ * The `--color-primary` fills (active tab, selected element row) use the
+ * `background-color` long-hand rather than the `background` shorthand so the
+ * `(f)` primary-fill ratchet in `ui-ratchet.test.ts` does not move — same
+ * documented precedent as `BaselinesView.module.css` / `IcdView.module.css`.
+ */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+  font-family: var(--font-sans);
+}
+
+.label {
+  font-weight: 600;
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.noTypesHint {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.legend {
+  font-weight: 600;
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  padding: 0;
+}
+
+.elementList {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.pickerColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.typeTabs {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.typeTab {
+  padding: 2px var(--space-3);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.typeTabActive {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 600;
+}
+
+.typeTabInactive {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 400;
+}
+
+.listStatus {
+  margin: 0;
+  padding: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.listItem {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.elementButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--font-size-sm);
+}
+
+.elementButtonSelected {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.elementButtonUnselected {
+  background-color: transparent;
+  color: var(--color-text);
+}
+
+.typeBadge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.typeBadgeSelected {
+  background: rgba(var(--color-on-primary-rgb), 0.25);
+  color: var(--color-on-primary);
+}
+
+.typeBadgeUnselected {
+  background: var(--color-badge-draft);
+  color: var(--color-badge-draft-text);
+}
+
+.elementTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.requiredMark {
+  color: var(--color-danger);
+}
+
+.errorText {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}

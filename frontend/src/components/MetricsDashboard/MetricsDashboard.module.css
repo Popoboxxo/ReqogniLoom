@@ -1,5 +1,36 @@
-/* SE-process metric tiles (COMP-RF-006) — layout contract for issues #809/#806.
-   Layout only: every colour and size comes from styles/tokens.css. */
+/* SE-process metric tiles (COMP-RF-006) — layout contract for issues #809/#806
+   plus the tile/control chrome migrated off inline `style={{...}}` literals.
+
+   Issue #876 (Etappe 5): the dashboard's 18 static inline `style={{...}}`
+   literals were migrated here so the file could be removed from
+   `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+   over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+   Values without a token of identical value (`12px`/`28px` dot+button boxes,
+   the `0.05em`/`1.4`/`1.3` rhythm numbers and the `1px` border width) stay
+   literal so the rendered result is unchanged. Token fallbacks that the source
+   carried (`var(--font-size-lg, 1.125rem)` etc.) are dropped: the token is
+   guaranteed defined and enforced by `src/test/design-tokens.test.ts`.
+
+   Dynamic states follow the established class-composition pattern:
+     - the tile's stale opacity uses `...Stale` (mutually exclusive with the
+       default),
+     - the refresh button's busy look uses `...Enabled` / `...Disabled`,
+     - the per-status dot (fg + translucent halo) uses one class per `Status`
+       (`statusDotHealthy`/`Warning`/`Critical`/`Neutral`), composed at the
+       call site rather than computed inline.
+
+   Deliberately NOT migrated: the help toggle's on/off fill stays on the
+   component's `style` prop as a computed identifier (`helpToggleStyle`). A
+   pre-existing test pins the exact inline contract
+   (`MetricsDashboard.test.tsx`: `toHaveStyle("background: transparent")` /
+   `toHaveStyle("background: var(--color-primary)")`), and jsdom does not load
+   CSS modules, so a class-based fill cannot satisfy it — reported as a finding
+   instead of silently rewriting the test.
+
+   The `--color-primary` fill (refresh button) uses the `background-color`
+   long-hand rather than the `background` shorthand so the `(f)` primary-fill
+   ratchet in `ui-ratchet.test.ts` does not move — same documented precedent as
+   `BaselinesView.module.css` / `IcdView.module.css`. */
 
 .tileGrid {
   display: grid;
@@ -29,4 +60,229 @@
   .tileGrid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
+}
+
+/* --- Tile chrome (UI-35) ------------------------------------------------- */
+
+.sparkline {
+  display: block;
+}
+
+.tile {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  box-shadow: 0 1px 2px var(--palette-black-a04);
+  transition: var(--transition-fast);
+}
+
+.tileStale {
+  opacity: 0.6;
+}
+
+.tileHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.tileTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.statusDot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.statusDotHealthy {
+  background: var(--color-metric-healthy);
+  box-shadow: 0 0 0 4px rgba(var(--color-success-rgb), 0.12);
+}
+
+.statusDotWarning {
+  background: var(--color-metric-warning);
+  box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb), 0.14);
+}
+
+.statusDotCritical {
+  background: var(--color-metric-critical);
+  box-shadow: 0 0 0 4px rgba(var(--color-danger-rgb), 0.14);
+}
+
+.statusDotNeutral {
+  background: var(--color-metric-neutral);
+  box-shadow: 0 0 0 4px rgba(var(--color-metric-neutral-bg-rgb), 0.12);
+}
+
+.valueRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.notComputedValue {
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.currentValue {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.unit {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.thresholds {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.helpText {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+  margin-bottom: 0;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.tileFooter {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.lastUpdate {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  text-align: right;
+  line-height: 1.3;
+  max-width: 55%;
+}
+
+/* --- Page controls -------------------------------------------------------- */
+
+.controlsRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: var(--space-6);
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.filterLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.filterSelect {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.helpToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  padding: 0;
+  transition: var(--transition-fast);
+}
+
+.refreshButton {
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+}
+
+.refreshEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.refreshDisabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* --- Banners / footer ----------------------------------------------------- */
+
+.errorBanner {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: rgba(var(--color-danger-rgb), 0.10);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.warningsList {
+  list-style: none;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: rgba(var(--color-warning-rgb), 0.10);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.5);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.mutedText {
+  color: var(--color-text-muted);
+}
+
+.scopeFooter {
+  margin-top: var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }

@@ -32,7 +32,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, AlertCircle, Loader2 } from "lucide-react";
 import {
@@ -43,18 +43,7 @@ import {
 } from "../../api/workflow-transitions";
 import { extractErrorMessage } from "../../api/client";
 import { getStatusBadgeStyle } from "../../utils/statusBadge";
-
-const proposalHintStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--space-1)",
-  marginRight: "var(--space-2)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-badge-info-text)",
-  background: "var(--color-badge-info-bg)",
-  borderRadius: "var(--radius-sm)",
-  padding: "var(--space-1) var(--space-2)",
-};
+import styles from "./WorkflowStatusEditor.module.css";
 
 export interface WorkflowStatusEditorProps {
   /** Artifact type — selects the backend transitions endpoint. */
@@ -241,6 +230,11 @@ export function WorkflowStatusEditor({
   );
 
   // --- Styles (token-based, theme-safe) ---
+  // Issue #876 (Etappe 5): the badge colour is a function of the (arbitrary)
+  // workflow state, so it stays a computed identifier from the shared
+  // `getStatusBadgeStyle()` — see `utils/badgeBase.ts` for why that returns a
+  // `CSSProperties` object spread onto a `style` prop by design. Everything
+  // else on this control now lives in `WorkflowStatusEditor.module.css`.
   const badgeStyle = {
     ...getStatusBadgeStyle(currentState || "draft"),
     display: "inline-flex",
@@ -249,37 +243,17 @@ export function WorkflowStatusEditor({
     fontWeight: 600,
   } as const;
 
-  const triggerStyle = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "var(--space-2)",
-    padding: "var(--space-1) var(--space-3)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-md)",
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text)",
-    fontSize: "var(--font-size-sm)",
-    fontFamily: "var(--font-sans)",
-    cursor: interactive ? "pointer" : "default",
-    transition: "border-color var(--transition-fast), box-shadow var(--transition-fast)",
-  } as const;
-
   return (
     <div
-      className={className}
+      className={styles.root + (className ? ' ' + className : '')}
       data-testid="workflow-status-editor"
-      style={{ display: "inline-flex", flexDirection: "column", gap: "var(--space-2)" }}
     >
-      {/* Scoped keyframe for the loading spinner (no global `spin` exists). */}
-      <style>{"@keyframes wf-spin{to{transform:rotate(360deg)}}"}</style>
-      <div
-        style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", position: "relative" }}
-      >
+      <div className={styles.triggerRow}>
         {isProposal && (
           <span
             data-testid="workflow-proposal-hint"
             role="note"
-            style={proposalHintStyle}
+            className={styles.proposalHint}
           >
             {proposedBy
               ? t("workflow.proposal.hint", { agent: proposedBy })
@@ -298,7 +272,7 @@ export function WorkflowStatusEditor({
             <Loader2
               size={12}
               aria-hidden="true"
-              style={{ animation: "wf-spin 1s linear infinite" }}
+              className={styles.spinner}
             />
           )}
           {currentState || "—"}
@@ -310,7 +284,7 @@ export function WorkflowStatusEditor({
             type="button"
             ref={triggerRef}
             data-testid="workflow-transition-trigger"
-            className="btn-secondary"
+            className={"btn-secondary " + styles.trigger}
             onClick={() => {
               setActiveIndex(0);
               setMenuOpen((o) => !o);
@@ -323,7 +297,6 @@ export function WorkflowStatusEditor({
               from: currentState,
               defaultValue: `Change status (current: ${currentState})`,
             })}
-            style={triggerStyle}
           >
             {t("workflowEditor.changeStatus", "Change status")}
             <ChevronDown size={14} aria-hidden="true" />
@@ -338,18 +311,7 @@ export function WorkflowStatusEditor({
             data-testid="workflow-transition-menu"
             tabIndex={-1}
             onKeyDown={onMenuKeyDown}
-            style={{
-              position: "absolute",
-              top: "calc(100% + 4px)",
-              left: 0,
-              zIndex: 20,
-              minWidth: "200px",
-              padding: "var(--space-1)",
-              background: "var(--color-surface-raised)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              boxShadow: "var(--shadow-card)",
-            }}
+            className={styles.menu}
           >
             {allowed.map((tr, idx) => (
               <button
@@ -364,29 +326,20 @@ export function WorkflowStatusEditor({
                   to: tr.target_state,
                   defaultValue: `Change status from ${currentState} to ${tr.target_state}`,
                 })}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  width: "100%",
-                  padding: "var(--space-2) var(--space-3)",
-                  border: "none",
-                  borderRadius: "var(--radius-sm)",
-                  background:
-                    idx === activeIndex ? "var(--color-card-active-bg)" : "transparent",
-                  color: "var(--color-text)",
-                  fontSize: "var(--font-size-sm)",
-                  fontFamily: "var(--font-sans)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
+                className={
+                  styles.menuItem +
+                  ' ' +
+                  (idx === activeIndex
+                    ? styles.menuItemActive
+                    : styles.menuItemInactive)
+                }
               >
                 <span>{`→ ${tr.target_state}`}</span>
                 {tr.requires_change_reason && (
                   <span
                     aria-hidden="true"
                     title={t("workflowEditor.reasonRequired", "Reason required")}
-                    style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-xs)" }}
+                    className={styles.reasonMark}
                   >
                     *
                   </span>
@@ -401,7 +354,7 @@ export function WorkflowStatusEditor({
       {notInitialized && !loading && (
         <span
           data-testid="workflow-not-initialized"
-          style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}
+          className={styles.hint}
         >
           {t("workflowEditor.notInitialized", "Workflow not initialized")}
         </span>
@@ -411,7 +364,7 @@ export function WorkflowStatusEditor({
       {!interactive && !notInitialized && !loading && !disabled && (
         <span
           data-testid="workflow-no-transitions"
-          style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}
+          className={styles.hint}
         >
           {t("workflowEditor.noTransitions", "No transitions available")}
         </span>
@@ -421,19 +374,11 @@ export function WorkflowStatusEditor({
       {pendingReason && (
         <div
           data-testid="workflow-reason-prompt"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-2)",
-            padding: "var(--space-3)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            background: "var(--color-surface-raised)",
-          }}
+          className={styles.reasonPrompt}
         >
           <label
             htmlFor="workflow-reason-input"
-            style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text)" }}
+            className={styles.reasonLabel}
           >
             {t("workflowEditor.reasonFor", {
               to: pendingReason.target_state,
@@ -447,20 +392,9 @@ export function WorkflowStatusEditor({
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={2}
-            style={{
-              width: "100%",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2)",
-              fontFamily: "var(--font-sans)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text)",
-              background: "var(--color-surface)",
-              resize: "vertical",
-              boxSizing: "border-box",
-            }}
+            className={styles.reasonInput}
           />
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <div className={styles.reasonActions}>
             <button
               type="button"
               data-testid="workflow-reason-confirm"
@@ -492,13 +426,7 @@ export function WorkflowStatusEditor({
         <span
           role="alert"
           data-testid="workflow-error"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "var(--space-1)",
-            fontSize: "var(--font-size-xs)",
-            color: "var(--color-danger)",
-          }}
+          className={styles.errorText}
         >
           <AlertCircle size={12} aria-hidden="true" />
           {error}
