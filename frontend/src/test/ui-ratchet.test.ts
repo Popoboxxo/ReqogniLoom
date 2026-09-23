@@ -539,6 +539,30 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // dropping both entries from the ESLint exemption list. Re-measured with this
 // file's own scanner: 596, matching the arithmetic (653 - 57).
 //
+// Issue #876 Etappe 3 (2026-09-23, branch `refactor/876-etappe3-inline-styles`):
+// four more carriers were migrated onto co-located CSS Modules and dropped from
+// the ESLint exemption list — `TraceabilityView/TraceabilityView.tsx` (25
+// literals; `TraceabilityView.module.css` extended) and
+// `ImpactView/ImpactView.tsx` (21 literals; `ImpactView.module.css` extended),
+// plus `RequirementEditors/ReqTraceLinkPanel.tsx` (23 literals + 13 hoisted
+// constants) and `UserProfileSettings/ApiKeysSection.tsx` (23 literals + 6
+// hoisted constants) onto new co-located modules. This pass also finally
+// covers `ReqTraceLinkPanel.tsx`, which the earlier pass had skipped because of
+// the concurrent #318 work in the same tree. Re-measured with this file's own
+// scanner: 504, matching the arithmetic (596 - 92).
+//
+// Etappe 3 bookkeeping (2026-09-23), all measured before/after with this file's
+// own scanner: `(b)` hex in `.tsx` unchanged at 3 files / 17 occurrences (none
+// of the four migrated files carried a raw hex literal — the earlier #568 pass
+// had already moved `ReqTraceLinkPanel.tsx`'s AI-derive gradient onto the
+// `--color-gradient-ai-*` tokens, so its remaining inline styles were
+// token-only); `(b.1)` hex in CSS unchanged at 1 file / 203 occurrences; `(f)`
+// primary fill unchanged at 29 — the new `--color-primary` fills in
+// `TraceabilityView.module.css`, `ImpactView.module.css` and
+// `ApiKeysSection.module.css` all use the `background-color` long-hand (same
+// documented precedent as `LoginPage.module.css`/`BaselinesView.module.css`
+// above), so the shorthand-only `PRIMARY_FILL_PATTERN` stays at 29.
+//
 // Deliberately NOT part of this pass — the issue's other named hotspots
 // (`RequirementEditors/*`) are still open; the issue calls its 1.015 inline
 // styles a ratchet target, not a big-bang, so this is one bounded slice.
@@ -576,7 +600,7 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // (same documented precedent as `LoginPage.module.css`/`TestRunsList.module.css`
 // above), and `ArtifactDiff.module.css` declares none.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 596;
+const STYLE_BRACE_BASELINE = 504;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

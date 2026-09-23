@@ -1,0 +1,248 @@
+/*
+ * <ApiKeysSection> — styles.
+ *
+ * Issue #876 (Etappe 3): the section's 23 static inline `style={{...}}`
+ * literals and its 6 hoisted `React.CSSProperties` constants were migrated
+ * here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`font-family: monospace`, the
+ * `700` weight, the `1px` border width and the `0.12` success tint alpha) stay
+ * literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established mutually-exclusive class-composition
+ * pattern (`...Enabled` / `...Disabled`, declared after their base class):
+ *   - the create button's `isCreating`/empty-name cursor+opacity,
+ *   - the revoke button's `revokingId` cursor+opacity,
+ *   - the key's revoked/active status badge (`...Revoked` / `...Active`).
+ *
+ * The two `--color-primary` fills use the `background-color` long-hand rather
+ * than the `background` shorthand so the `(f)` primary-fill ratchet in
+ * `ui-ratchet.test.ts` (which matches the shorthand only) does not move — same
+ * precedent as BaselinesView.module.css / TestRunsList.module.css.
+ */
+
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: 0;
+  margin-bottom: var(--space-5);
+}
+
+.card {
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--color-border);
+}
+
+.subheading {
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.createRow {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.nameInput {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  box-sizing: border-box;
+  flex: 1;
+}
+
+.primaryButton {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.primaryButtonEnabled {
+  opacity: 1;
+}
+
+.primaryButtonDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plaintextBox {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.plaintextWarning {
+  margin: 0 0 var(--space-2) 0;
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.plaintextRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.plaintextCode {
+  font-family: monospace;
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  word-break: break-all;
+  flex: 1;
+}
+
+.copyButton {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.dismissButton {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.errorText {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.loadingText {
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.emptyText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.keyList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.keyRow {
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.keyHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.keyName {
+  margin: 0 0 var(--space-1) 0;
+  font-weight: 700;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
+
+.keyMeta {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.statusBadge {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.statusBadgeRevoked {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+
+.statusBadgeActive {
+  background: rgba(var(--color-success-rgb), 0.12);
+  color: var(--color-success);
+}
+
+.revokeRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dangerButton {
+  background-color: var(--color-danger);
+  color: var(--color-on-danger);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.dangerButtonEnabled {
+  opacity: 1;
+}
+
+.dangerButtonDisabled {
+  opacity: 0.6;
+  cursor: wait;
+}

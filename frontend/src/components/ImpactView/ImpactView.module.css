@@ -1,9 +1,23 @@
 /**
- * ImpactView — styles for elements added by issue #415 (cycle detection).
+ * ImpactView — styles.
  *
- * The rest of this component still uses inline styles (frozen by the
- * `ui-ratchet` baseline); new markup goes through CSS Modules per the UI
- * concept, using design tokens from `styles/tokens.css` only.
+ * Originally only the elements added by issue #415 (cycle detection); new
+ * markup goes through CSS Modules per the UI concept, using design tokens from
+ * `styles/tokens.css` only.
+ *
+ * Issue #876 (Etappe 3): the remaining 21 static inline `style={{...}}`
+ * literals of ImpactView.tsx were migrated here so the file could be removed
+ * from `eslint-rules/legacy-static-inline-style-files.js`. Every value is
+ * carried over verbatim; colours and token-backed sizes come from
+ * `styles/tokens.css`. Values without a token of identical value
+ * (`padding: 2px 8px`, `width: 1.25em`, `flex: 1 1 320px`, `letter-spacing:
+ * 0.03em` and the `1px` border width) stay literal so the rendered result is
+ * unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the tree item's depth-dependent indent uses `...Root`/`...Nested`,
+ *   - the node toggle's and the search button's disabled-dependent cursor use
+ *     the mutually-exclusive `...Enabled`/`...Disabled` pair.
  */
 
 .cycleBadge {
@@ -35,4 +49,172 @@
   display: flex;
   gap: var(--space-3);
   flex-wrap: wrap;
+}
+
+.treeItemRoot {
+  margin-left: 0;
+}
+
+.treeItemNested {
+  margin-left: var(--space-5);
+}
+
+.nodeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.nodeToggle {
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  width: 1.25em;
+  padding: 0;
+}
+
+.nodeToggleEnabled {
+  cursor: pointer;
+}
+
+.nodeToggleDisabled {
+  cursor: not-allowed;
+}
+
+.typeBadge {
+  font-size: var(--font-size-xs);
+  background: var(--color-surface-raised);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.nodeTitle {
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.nodeMessage {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-2) 0 var(--space-2) var(--space-5);
+}
+
+.nodeError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: var(--space-2) 0 var(--space-2) var(--space-5);
+}
+
+.linkGroup {
+  margin-left: var(--space-5);
+}
+
+.groupHeading {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: var(--space-2) 0 var(--space-1);
+}
+
+.mutedText {
+  color: var(--color-text-muted);
+}
+
+.searchPanel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-6);
+  box-shadow: var(--shadow-card);
+}
+
+.searchInput {
+  flex: 1 1 320px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-base);
+}
+
+/* `background-color` long-hand (not the `background` shorthand) so the `(f)`
+   primary-fill ratchet in ui-ratchet.test.ts does not move — same precedent
+   as BaselinesView.module.css / TestRunsList.module.css. */
+.searchButton {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+}
+
+.searchButtonEnabled {
+  cursor: pointer;
+}
+
+.searchButtonDisabled {
+  cursor: not-allowed;
+}
+
+.searchError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-3);
+}
+
+.searchResults {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.searchResult {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.searchEmpty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-3);
+}
+
+.treePanel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.onlyActiveLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  margin-bottom: var(--space-4);
+  cursor: pointer;
 }

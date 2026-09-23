@@ -17,7 +17,7 @@
  *     style in one of them is not caught by ESLint. Within `src/components/`
  *     that gap is covered by the `STYLE_BRACE_BASELINE` ratchet in
  *     `src/test/ui-ratchet.test.ts`, whose monotonic assertion is an exact
- *     equality (`toBe(596)`), so any net increase turns it red. The residual
+ *     equality (`toBe(504)`), so any net increase turns it red. The residual
  *     gap is a net-zero reshuffle (add here, delete there) in exempted files —
  *     accepted and documented in `no-static-inline-style.js`.
  *
@@ -39,6 +39,16 @@
  * here too, leaving 67 entries and 621 AST-visible occurrences. The same
  * etappe's `ArtifactDiff/ArtifactDiff.tsx` (28 literals + 4 hoisted constants)
  * followed it, leaving 66 entries and 621 - 28 = 593 AST-visible occurrences.
+ * Issue #876 Etappe 3 (2026-09-23, branch `refactor/876-etappe3-inline-styles`):
+ * four more carriers were migrated onto CSS Modules and dropped here —
+ * `TraceabilityView/TraceabilityView.tsx` (25 literals) and
+ * `ImpactView/ImpactView.tsx` (21 literals) onto their existing co-located
+ * modules, and `RequirementEditors/ReqTraceLinkPanel.tsx` (23 literals + 13
+ * hoisted constants) and `UserProfileSettings/ApiKeysSection.tsx` (23 literals
+ * + 6 hoisted constants) onto new co-located modules. Re-measured with this
+ * list temporarily empty: 501 AST-visible occurrences in 62 files, matching
+ * the arithmetic (593 - 92 literals; the 19 hoisted constants were identifier
+ * references and were never AST-visible to this rule).
  */
 export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/AdminDialog/SystemHealthDialog.tsx",
@@ -59,7 +69,6 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/IcdView/IcdDetailPane.tsx",
   "src/components/IcdView/IcdView.tsx",
   "src/components/IcdView/SimilarIcdsPanel.tsx",
-  "src/components/ImpactView/ImpactView.tsx",
   "src/components/IssueEditors/IssueEditors.tsx",
   "src/components/MetricsDashboard/MetricsDashboard.tsx",
   "src/components/NeedsEditors/NeedArtifactForm.tsx",
@@ -68,7 +77,6 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/PermissionMatrix/PermissionMatrixEditor.tsx",
   "src/components/RequirementEditors/GlossaryTooltip.tsx",
   "src/components/RequirementEditors/MarkdownPreview.tsx",
-  "src/components/RequirementEditors/ReqTraceLinkPanel.tsx",
   "src/components/RequirementEditors/RequirementEditors.tsx",
   "src/components/RequirementEditors/RequirementList.tsx",
   "src/components/RequirementEditors/RequirementTreeNode.tsx",
@@ -87,8 +95,6 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/SystemSettings/WorkspaceAdminSection.tsx",
   "src/components/TestCaseEditors/DeriveTestCasePanel.tsx",
   "src/components/TestCaseEditors/TestCaseEditors.tsx",
-  "src/components/TraceabilityView/TraceabilityView.tsx",
-  "src/components/UserProfileSettings/ApiKeysSection.tsx",
   "src/components/UserProfileSettings/ProfileSection.tsx",
   "src/components/UserProfileSettings/UserProfileSettings.tsx",
   "src/components/WorkflowEditor/PresetSegmentedControl.tsx",

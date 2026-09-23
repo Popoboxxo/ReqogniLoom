@@ -46,6 +46,7 @@ import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { RequirementTreeNode, type HierarchyNode } from './RequirementTreeNode';
 import { useHasRole } from '../../hooks/useHasRole';
 import { getLinkTypeLabel } from '../../constants/traceLinkLabels';
+import styles from './ReqTraceLinkPanel.module.css';
 import type {
   Requirement,
   TraceLink,
@@ -53,123 +54,6 @@ import type {
   TestCase,
   ArchitectureElement,
 } from '../../types';
-
-/** #416: sub-heading of a hierarchy direction group (hoisted — see ui-ratchet). */
-const hierarchyGroupHeadingStyle: React.CSSProperties = {
-  fontSize: 'var(--font-size-xs)',
-  color: 'var(--color-text-muted)',
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.03em',
-  padding: 'var(--space-2) 0 var(--space-1)',
-};
-
-/** Issue #927: AI-derive gradient, hoisted out of the `style=` prop. */
-const aiGradientButtonStyle: React.CSSProperties = {
-  background: 'linear-gradient(135deg, var(--color-gradient-ai-start), var(--color-gradient-ai-end))',
-};
-
-/** Issue #928: heading + status line of the "Systemelement-Zuordnung" block. */
-const allocationHeadingStyle: React.CSSProperties = {
-  margin: '0 0 var(--space-2) 0',
-  fontSize: 'var(--font-size-sm)',
-  fontWeight: 700,
-  color: 'var(--color-text)',
-};
-
-const allocationEmptyStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--font-size-sm)',
-  color: 'var(--color-text-muted)',
-};
-
-/** Issue #928: allocation block chrome (hoisted — inline-style ratchet). */
-const allocationSectionStyle: React.CSSProperties = {
-  marginBottom: 'var(--space-5)',
-};
-
-const allocationHeaderRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  marginBottom: 'var(--space-2)',
-};
-
-const allocationListStyle: React.CSSProperties = {
-  listStyle: 'none',
-  padding: 0,
-  margin: 0,
-};
-
-const allocationItemStyle: React.CSSProperties = {
-  padding: 'var(--space-2) var(--space-3)',
-  marginBottom: 'var(--space-2)',
-  background: 'var(--color-surface-raised)',
-  borderRadius: 'var(--radius-md)',
-  fontSize: 'var(--font-size-sm)',
-  color: 'var(--color-text)',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--space-2)',
-};
-
-const allocationBadgeStyle: React.CSSProperties = {
-  background: 'var(--color-badge-draft)',
-  color: 'var(--color-badge-draft-text)',
-  padding: '2px 6px',
-  borderRadius: 'var(--radius-full)',
-  fontSize: 'var(--font-size-sm)',
-};
-
-const allocationTitleButtonStyle: React.CSSProperties = {
-  background: 'none',
-  border: 'none',
-  padding: 0,
-  color: 'var(--color-primary)',
-  cursor: 'pointer',
-  textDecoration: 'underline',
-  fontSize: 'var(--font-size-sm)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-  fontFamily: 'inherit',
-};
-
-const allocationRemoveButtonStyle: React.CSSProperties = {
-  marginLeft: 'auto',
-  background: 'none',
-  border: 'none',
-  color: 'var(--color-danger)',
-  cursor: 'pointer',
-  fontSize: 'var(--font-size-sm)',
-  fontWeight: 600,
-};
-
-/**
- * UI-P3: a link whose far endpoint was soft-deleted. The backend keeps such
- * links on purpose (audit trail), so they keep arriving from
- * `GET /tracelinks/` — without this treatment they render exactly like a link
- * to a live artifact. Hoisted out of JSX for the inline-style ratchet.
- */
-const outdatedTitleStyle: React.CSSProperties = {
-  fontSize: 'var(--font-size-sm)',
-  color: 'var(--color-text-muted)',
-  textDecoration: 'line-through',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-};
-
-const outdatedBadgeStyle: React.CSSProperties = {
-  background: 'var(--color-badge-neutral-bg)',
-  color: 'var(--color-badge-neutral-text)',
-  padding: '2px 6px',
-  borderRadius: 'var(--radius-full)',
-  fontSize: 'var(--font-size-xs)',
-  fontWeight: 600,
-  marginLeft: 'var(--space-2)',
-  whiteSpace: 'nowrap',
-};
 
 /**
  * UI-P3: renders the far endpoint of a link whose artifact was soft-deleted.
@@ -190,12 +74,12 @@ function OutdatedEndpointLabel({
   const { t } = useTranslation();
   return (
     <>
-      <span data-testid={testId} style={outdatedTitleStyle} title={displayTitle}>
+      <span data-testid={testId} className={styles.outdatedTitle} title={displayTitle}>
         {displayTitle}
       </span>
       <span
         data-testid={`${testId}-badge`}
-        style={outdatedBadgeStyle}
+        className={styles.outdatedBadge}
         title={t(
           'tracelinks.outdatedHint',
           'Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten.'
@@ -524,46 +408,22 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
   };
 
   return (
-    <div
-      data-testid="req-tracelink-panel"
-      style={{
-        marginTop: 'var(--space-6)',
-        background: 'var(--color-surface)',
-        borderRadius: 'var(--radius-lg)',
-        boxShadow: 'var(--shadow-card)',
-        padding: 'var(--space-4)',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 'var(--space-3)',
-        }}
-      >
-        <h4
-          style={{
-            margin: 0,
-            fontSize: 'var(--font-size-base)',
-            fontWeight: 700,
-            color: 'var(--color-text)',
-          }}
-        >
+    <div data-testid="req-tracelink-panel" className={styles.panel}>
+      <div className={styles.panelHeader}>
+        <h4 className={styles.panelTitle}>
           {t('arch.tracelinkPanelTitle')}
         </h4>
         {!showDeriveForm && (
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          <div className={styles.actionRow}>
             {onAiDerive && (
               // Issue #927: distinct "KI-Ableitung" label, decorative icon
               // outside the accessible name, own hint.
               <button
                 type="button"
                 data-testid="req-ai-derive-btn"
-                className="btn-primary"
+                className={`btn-primary ${styles.aiGradientButton}`}
                 onClick={onAiDerive}
                 disabled={isAiDeriving}
-                style={aiGradientButtonStyle}
                 aria-label={t('actions.deriveAi', 'KI-Ableitung')}
                 title={t(
                   'actions.deriveAiHint',
@@ -609,10 +469,10 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
       <section
         data-testid="req-allocation-section"
         aria-label={t('allocation.heading', 'Systemelement-Zuordnung')}
-        style={allocationSectionStyle}
+        className={styles.allocationSection}
       >
-        <div style={allocationHeaderRowStyle}>
-          <h5 style={allocationHeadingStyle}>{t('allocation.heading', 'Systemelement-Zuordnung')}</h5>
+        <div className={styles.allocationHeaderRow}>
+          <h5 className={styles.allocationHeading}>{t('allocation.heading', 'Systemelement-Zuordnung')}</h5>
           {canEdit && (
             <button
               type="button"
@@ -629,15 +489,15 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           )}
         </div>
         {allocations.length === 0 ? (
-          <p data-testid="req-allocation-empty" style={allocationEmptyStyle}>
+          <p data-testid="req-allocation-empty" className={styles.allocationEmpty}>
             {t('allocation.none', 'Kein Systemelement zugeordnet.')}
           </p>
         ) : (
-          <ul data-testid="req-allocation-list" style={allocationListStyle}>
+          <ul data-testid="req-allocation-list" className={styles.allocationList}>
             {allocations.map(({ link, node }) =>
               node ? (
-                <li key={link.id} data-testid="req-allocation-item" style={allocationItemStyle}>
-                  <span style={allocationBadgeStyle}>
+                <li key={link.id} data-testid="req-allocation-item" className={styles.allocationItem}>
+                  <span className={styles.allocationBadge}>
                     {getLinkTypeLabel(link.link_type)}
                   </span>
                   {node.isOutdated ? (
@@ -651,7 +511,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                       data-testid="req-allocation-title"
                       onClick={() => navigate(node.route)}
                       title={node.displayTitle}
-                      style={allocationTitleButtonStyle}
+                      className={styles.titleButton}
                     >
                       {node.displayTitle}
                     </button>
@@ -660,7 +520,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                     <button
                       data-testid="req-allocation-remove-btn"
                       onClick={() => setPendingDeleteLinkId(link.id)}
-                      style={allocationRemoveButtonStyle}
+                      className={styles.removeButton}
                       title={t('allocation.remove', 'Zuordnung entfernen')}
                       aria-label={t('allocation.remove', 'Zuordnung entfernen')}
                     >
@@ -703,39 +563,19 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
       />
 
       {isLoading && (
-        <p
-          role="status"
-          style={{
-            color: 'var(--color-text-muted)',
-            fontSize: 'var(--font-size-sm)',
-            margin: 0,
-          }}
-        >
+        <p role="status" className={styles.loadingText}>
           {t('loading')}
         </p>
       )}
 
       {error && !isLoading && (
-        <p
-          role="alert"
-          style={{
-            color: 'var(--color-danger)',
-            fontSize: 'var(--font-size-sm)',
-            margin: 0,
-          }}
-        >
+        <p role="alert" className={styles.errorText}>
           {error}
         </p>
       )}
 
       {!isLoading && !error && links.length === 0 && (
-        <p
-          style={{
-            fontSize: 'var(--font-size-sm)',
-            color: 'var(--color-text-muted)',
-            margin: 0,
-          }}
-        >
+        <p className={styles.emptyText}>
           {t('traceability.none')}
         </p>
       )}
@@ -748,25 +588,14 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           {hierarchyGroups.length > 0 && (
             <div
               data-testid="req-tracelink-requirements-section"
-              style={{
-                marginBottom: 'var(--space-6)',
-                paddingBottom: 'var(--space-4)',
-                borderBottom: '1px solid var(--color-border)',
-              }}
+              className={styles.sectionBlock}
             >
-              <h5
-                style={{
-                  margin: '0 0 var(--space-2) 0',
-                  fontSize: 'var(--font-size-sm)',
-                  fontWeight: 700,
-                  color: 'var(--color-text)',
-                }}
-              >
+              <h5 className={styles.sectionHeading}>
                 {t('traceability.requirementsGroup')} (hierarchical view)
               </h5>
               {hierarchyGroups.map(([relation, nodes]) => (
                 <div key={relation} data-testid={`req-hierarchy-group-${relation}`}>
-                  <div style={hierarchyGroupHeadingStyle}>
+                  <div className={styles.hierarchyGroupHeading}>
                     {relation === 'parent'
                       ? `↑ ${t('traceability.upstream')}`
                       : `↓ ${t('traceability.downstream')}`}
@@ -791,25 +620,14 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           {archLinks.length > 0 && (
             <div
               data-testid="req-tracelink-architecture-section"
-              style={{
-                marginBottom: 'var(--space-6)',
-                paddingBottom: 'var(--space-4)',
-                borderBottom: '1px solid var(--color-border)',
-              }}
+              className={styles.sectionBlock}
             >
-              <h5
-                style={{
-                  margin: '0 0 var(--space-2) 0',
-                  fontSize: 'var(--font-size-sm)',
-                  fontWeight: 700,
-                  color: 'var(--color-text)',
-                }}
-              >
+              <h5 className={styles.sectionHeading}>
                 {t('traceability.architectureGroup')}
               </h5>
               <ul
                 data-testid="req-tracelink-architecture-list"
-                style={{ margin: '0', padding: '0' }}
+                className={styles.linkList}
               >
                 {archLinks
                   .map((link) => {
@@ -823,27 +641,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                       <li
                         key={link.id}
                         data-testid="req-tracelink-arch-item"
-                        style={{
-                          padding: 'var(--space-2) var(--space-3)',
-                          marginBottom: 'var(--space-2)',
-                          background: 'var(--color-surface-raised)',
-                          borderRadius: 'var(--radius-md)',
-                          fontSize: 'var(--font-size-sm)',
-                          color: 'var(--color-text)',
-                          display: 'flex',
-                          alignItems: 'center',
-                        }}
+                        className={styles.linkItem}
                       >
-                        <span
-                          style={{
-                            background: 'var(--color-badge-draft)',
-                            color: 'var(--color-badge-draft-text)',
-                            padding: '2px 6px',
-                            borderRadius: 'var(--radius-full)',
-                            fontSize: 'var(--font-size-sm)',
-                            marginRight: 'var(--space-2)',
-                          }}
-                        >
+                        <span className={styles.linkTypeBadge}>
                           {getLinkTypeLabel(link.link_type)}
                         </span>
                         {isOutdated ? (
@@ -856,19 +656,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                             type="button"
                             data-testid="req-tracelink-arch-title"
                             onClick={() => navigate(route)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              padding: 0,
-                              color: 'var(--color-primary)',
-                              cursor: 'pointer',
-                              textDecoration: 'underline',
-                              fontSize: 'var(--font-size-sm)',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              fontFamily: 'inherit',
-                            }}
+                            className={styles.titleButton}
                             title={displayTitle}
                           >
                             {displayTitle}
@@ -878,15 +666,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                           <button
                             data-testid="req-tracelink-delete-btn"
                             onClick={() => setPendingDeleteLinkId(link.id)}
-                            style={{
-                              marginLeft: 'auto',
-                              background: 'none',
-                              border: 'none',
-                              color: 'var(--color-danger)',
-                              cursor: 'pointer',
-                              fontSize: 'var(--font-size-sm)',
-                              fontWeight: 600,
-                            }}
+                            className={styles.removeButton}
                             title={t('actions.delete')}
                             // #741: title alone is only the last-resort fallback in
                             // the accessible-name computation and is never surfaced on
@@ -907,19 +687,12 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
               TestCase<->Requirement links, which used to match no section). */}
           {otherLinks.length > 0 && (
             <div data-testid="req-tracelink-other-section">
-              <h5
-                style={{
-                  margin: '0 0 var(--space-2) 0',
-                  fontSize: 'var(--font-size-sm)',
-                  fontWeight: 700,
-                  color: 'var(--color-text)',
-                }}
-              >
+              <h5 className={styles.sectionHeading}>
                 {t('traceability.other', 'Other Links')}
               </h5>
               <ul
                 data-testid="req-tracelink-other-list"
-                style={{ margin: '0', padding: '0' }}
+                className={styles.linkList}
               >
                 {otherLinks
                   .map((link) => {
@@ -932,27 +705,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                       <li
                         key={link.id}
                         data-testid="req-tracelink-item"
-                        style={{
-                          padding: 'var(--space-2) var(--space-3)',
-                          marginBottom: 'var(--space-2)',
-                          background: 'var(--color-surface-raised)',
-                          borderRadius: 'var(--radius-md)',
-                          fontSize: 'var(--font-size-sm)',
-                          color: 'var(--color-text)',
-                          display: 'flex',
-                          alignItems: 'center',
-                        }}
+                        className={styles.linkItem}
                       >
-                        <span
-                          style={{
-                            background: 'var(--color-badge-draft)',
-                            color: 'var(--color-badge-draft-text)',
-                            padding: '2px 6px',
-                            borderRadius: 'var(--radius-full)',
-                            fontSize: 'var(--font-size-sm)',
-                            marginRight: 'var(--space-2)',
-                          }}
-                        >
+                        <span className={styles.linkTypeBadge}>
                           {getLinkTypeLabel(link.link_type)}
                         </span>
                         {isOutdated ? (
@@ -965,19 +720,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                             type="button"
                             data-testid="req-tracelink-title"
                             onClick={() => navigate(route)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              padding: 0,
-                              color: 'var(--color-primary)',
-                              cursor: 'pointer',
-                              textDecoration: 'underline',
-                              fontSize: 'var(--font-size-sm)',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              fontFamily: 'inherit',
-                            }}
+                            className={styles.titleButton}
                             title={displayTitle}
                           >
                             {displayTitle}
@@ -987,15 +730,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                           <button
                             data-testid="req-tracelink-delete-btn"
                             onClick={() => setPendingDeleteLinkId(link.id)}
-                            style={{
-                              marginLeft: 'auto',
-                              background: 'none',
-                              border: 'none',
-                              color: 'var(--color-danger)',
-                              cursor: 'pointer',
-                              fontSize: 'var(--font-size-sm)',
-                              fontWeight: 600,
-                            }}
+                            className={styles.removeButton}
                             title={t('actions.delete')}
                             // #741: title alone is only the last-resort fallback in
                             // the accessible-name computation and is never surfaced on
@@ -1016,7 +751,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
 
       {/* Derive a new Requirement from this one, allocated to an architecture
           element — same trigger/form shell as Needs and Architecture. */}
-      <div style={{ marginTop: 'var(--space-4)' }}>
+      <div className={styles.deriveHost}>
         {canEdit && (
         <DeriveRequirementForm
           isOpen={showDeriveForm}

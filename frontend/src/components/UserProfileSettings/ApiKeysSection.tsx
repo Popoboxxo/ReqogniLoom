@@ -20,6 +20,7 @@ import {
   type ApiKeyMetadata,
 } from "../../api/api-keys";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import styles from "./ApiKeysSection.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -34,63 +35,6 @@ function formatDate(iso: string | null): string {
     return iso;
   }
 }
-
-const sectionStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const inputStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-3)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-base)",
-  boxSizing: "border-box",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "var(--color-on-primary)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const cardStyle: React.CSSProperties = {
-  boxShadow: "var(--shadow-card)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-4)",
-  background: "var(--color-surface-raised)",
-  marginBottom: "var(--space-4)",
-  border: "1px solid var(--color-border)",
-};
-
-const dangerButtonStyle: React.CSSProperties = {
-  background: "var(--color-danger)",
-  color: "var(--color-on-danger)",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-1) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
 
 export function ApiKeysSection(): JSX.Element {
   const { t } = useTranslation();
@@ -162,18 +106,11 @@ export function ApiKeysSection(): JSX.Element {
   }, [pendingRevokeId, handleRevoke]);
 
   return (
-    <section style={sectionStyle} data-testid="api-keys-section">
-      <h2 style={{ ...headingStyle, fontSize: "var(--font-size-xl)", marginBottom: "var(--space-2)" }}>
+    <section className={styles.section} data-testid="api-keys-section">
+      <h2 className={styles.title}>
         {t("apiKeys.title", "Persönliche API-Tokens")}
       </h2>
-      <p
-        style={{
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-text-muted)",
-          marginTop: 0,
-          marginBottom: "var(--space-5)",
-        }}
-      >
+      <p className={styles.hint}>
         {t(
           "apiKeys.hint",
           "API keys authenticate MCP and REST clients (X-API-Key header). The key value is shown exactly once after creation."
@@ -181,16 +118,11 @@ export function ApiKeysSection(): JSX.Element {
       </p>
 
       {/* Create form card */}
-      <div style={cardStyle}>
-        <h3 style={{ ...headingStyle, marginBottom: "var(--space-3)", fontSize: "var(--font-size-base)" }}>
+      <div className={styles.card}>
+        <h3 className={styles.subheading}>
           {t("apiKeys.createNew", "Neuen Token erstellen")}
         </h3>
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--space-3)",
-          }}
-        >
+        <div className={styles.createRow}>
           <input
             data-testid="api-key-name-input"
             type="text"
@@ -198,18 +130,18 @@ export function ApiKeysSection(): JSX.Element {
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder={t("apiKeys.namePlaceholder", "Key label (e.g. ci-pipeline)")}
             disabled={isCreating}
-            style={{ ...inputStyle, flex: 1 }}
+            className={styles.nameInput}
           />
           <button
             type="button"
             data-testid="api-key-create-btn"
             onClick={() => void handleCreate()}
             disabled={isCreating || !newKeyName.trim()}
-            style={{
-              ...primaryButtonStyle,
-              opacity: isCreating || !newKeyName.trim() ? 0.5 : 1,
-              cursor: isCreating || !newKeyName.trim() ? "not-allowed" : "pointer",
-            }}
+            className={`${styles.primaryButton} ${
+              isCreating || !newKeyName.trim()
+                ? styles.primaryButtonDisabled
+                : styles.primaryButtonEnabled
+            }`}
           >
             {isCreating ? "…" : `+ ${t("actions.new")} ${t("apiKeys.newKeyLabel")}`}
           </button>
@@ -221,39 +153,18 @@ export function ApiKeysSection(): JSX.Element {
         <div
           data-testid="api-key-plaintext-box"
           role="alert"
-          style={{
-            background: "var(--color-surface-raised)",
-            border: "1px solid var(--color-warning)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-3)",
-            marginBottom: "var(--space-4)",
-          }}
+          className={styles.plaintextBox}
         >
-          <p
-            style={{
-              margin: "0 0 var(--space-2) 0",
-              fontWeight: 600,
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text)",
-            }}
-          >
+          <p className={styles.plaintextWarning}>
             {t(
               "apiKeys.plaintextWarning",
               "Save this key now — it will not be shown again."
             )}
           </p>
-          <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+          <div className={styles.plaintextRow}>
             <code
               data-testid="api-key-plaintext"
-              style={{
-                fontFamily: "monospace",
-                fontSize: "var(--font-size-sm)",
-                background: "var(--color-surface)",
-                padding: "var(--space-1) var(--space-2)",
-                borderRadius: "var(--radius-sm)",
-                wordBreak: "break-all",
-                flex: 1,
-              }}
+              className={styles.plaintextCode}
             >
               {createdKey.plaintext}
             </code>
@@ -263,10 +174,7 @@ export function ApiKeysSection(): JSX.Element {
               onClick={() => {
                 void navigator.clipboard?.writeText(createdKey.plaintext);
               }}
-              style={{
-                ...primaryButtonStyle,
-                padding: "var(--space-1) var(--space-3)",
-              }}
+              className={styles.copyButton}
             >
               {t("actions.copy", "Copy")}
             </button>
@@ -274,15 +182,7 @@ export function ApiKeysSection(): JSX.Element {
               type="button"
               data-testid="api-key-dismiss"
               onClick={() => setCreatedKey(null)}
-              style={{
-                background: "transparent",
-                color: "var(--color-text-muted)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-1) var(--space-3)",
-                fontSize: "var(--font-size-sm)",
-                cursor: "pointer",
-              }}
+              className={styles.dismissButton}
             >
               {t("actions.dismiss", "Dismiss")}
             </button>
@@ -294,10 +194,7 @@ export function ApiKeysSection(): JSX.Element {
         <p
           role="alert"
           data-testid="api-keys-error"
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.errorText}
         >
           {error}
         </p>
@@ -305,20 +202,16 @@ export function ApiKeysSection(): JSX.Element {
 
       {/* Key list */}
       {isLoading ? (
-        <div style={cardStyle}>
-          <p role="status" style={{ color: "var(--color-text-muted)", margin: 0 }}>
+        <div className={styles.card}>
+          <p role="status" className={styles.loadingText}>
             {t("loading", "Loading...")}
           </p>
         </div>
       ) : keys.length === 0 ? (
-        <div style={cardStyle}>
+        <div className={styles.card}>
           <p
             data-testid="api-keys-empty"
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-sm)",
-              margin: 0,
-            }}
+            className={styles.emptyText}
           >
             {t("apiKeys.empty", "Noch keine API-Tokens vorhanden. Erstelle einen neuen Token oben, um Clients zu authentifizieren.")}
           </p>
@@ -326,30 +219,20 @@ export function ApiKeysSection(): JSX.Element {
       ) : (
         <div
           data-testid="api-keys-list"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-3)",
-          }}
+          className={styles.keyList}
         >
           {keys.map((key) => (
             <div
               key={key.id}
               data-testid={`api-key-row-${key.id}`}
-              style={{
-                ...cardStyle,
-                marginBottom: 0,
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-3)",
-              }}
+              className={styles.keyRow}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div className={styles.keyHeader}>
                 <div>
-                  <p style={{ margin: "0 0 var(--space-1) 0", fontWeight: 700, fontSize: "var(--font-size-base)", color: "var(--color-text)" }}>
+                  <p className={styles.keyName}>
                     {key.name}
                   </p>
-                  <div style={{ display: "flex", gap: "var(--space-4)", fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
+                  <div className={styles.keyMeta}>
                     <span>
                       {t("apiKeys.created", "Created")}: {formatDate(key.created_at)}
                     </span>
@@ -359,20 +242,9 @@ export function ApiKeysSection(): JSX.Element {
                   </div>
                 </div>
                 <span
-                  style={{
-                    display: "inline-block",
-                    padding: "var(--space-1) var(--space-2)",
-                    borderRadius: "var(--radius-full)",
-                    fontSize: "var(--font-size-xs)",
-                    fontWeight: 600,
-                    background: key.revoked
-                      ? "var(--color-surface-raised)"
-                      : "rgba(var(--color-success-rgb), 0.12)",
-                    color: key.revoked
-                      ? "var(--color-text-muted)"
-                      : "var(--color-success)",
-                    whiteSpace: "nowrap",
-                  }}
+                  className={`${styles.statusBadge} ${
+                    key.revoked ? styles.statusBadgeRevoked : styles.statusBadgeActive
+                  }`}
                 >
                   {key.revoked
                     ? t("apiKeys.revoked", "revoked")
@@ -380,17 +252,17 @@ export function ApiKeysSection(): JSX.Element {
                 </span>
               </div>
               {!key.revoked && (
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div className={styles.revokeRow}>
                   <button
                     type="button"
                     data-testid={`api-key-revoke-${key.id}`}
                     onClick={() => setPendingRevokeId(key.id)}
                     disabled={revokingId === key.id}
-                    style={{
-                      ...dangerButtonStyle,
-                      opacity: revokingId === key.id ? 0.6 : 1,
-                      cursor: revokingId === key.id ? "wait" : "pointer",
-                    }}
+                    className={`${styles.dangerButton} ${
+                      revokingId === key.id
+                        ? styles.dangerButtonDisabled
+                        : styles.dangerButtonEnabled
+                    }`}
                   >
                     {revokingId === key.id ? "…" : t("apiKeys.revoke", "Revoke")}
                   </button>
