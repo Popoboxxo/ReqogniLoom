@@ -1,7 +1,7 @@
 ---
 type: STRATEGY
 scope: Release v1.8.0-beta.15
-status: in-progress
+status: done
 date: 2026-09-23
 author_agent: release
 ---
@@ -14,8 +14,8 @@ Vorbereitung des Beta-Release `v1.8.0-beta.15` auf dem Branch
 `chore/release-v1.8.0-beta.15` (Basis: `main`). Dieser Bericht dokumentiert die
 Vorbereitung in diesem Branch: Versionierung in allen Carriern, CHANGELOG,
 Testplan und dieser Bericht. Auslieferung (Merge, Tag, GitHub-Pre-Release,
-GHCR-Publish) erfolgt durch den Release-Owner **nach** dem Merge und wird hier
-nachgetragen (Abschnitte 7–9, Status `in-progress`). Dominante Themen des Deltas
+GHCR-Publish) ist am 2026-09-23 erfolgt und hier nachgetragen
+(Abschnitte 7–9, Status `done`). Dominante Themen des Deltas
 sind SE-Vollständigkeit/Validation als gleichwertige Säule (#1035), Audit-Waivers
 (#1037) und die vollständige Inline-Style→CSS-Module-Migration (#876, PRs
 #1040–#1047).
@@ -181,40 +181,47 @@ keine Fehlschläge. Sie werden hier ehrlich als „nicht gelaufen" ausgewiesen u
 
 ## 7. CI-Gates
 
-> **Nach Merge nachzutragen.** Dieser Abschnitt wird vom Release-Owner mit den
-> realen Ergebnissen des Vorbereitungs-PR gefüllt; die Werte unten sind die zu
-> erwartenden Gates, nicht die gemessenen.
+**Gemessen am Vorbereitungs-PR #1048 (`chore/release-v1.8.0-beta.15`),
+Squash-Merge `6606b6f0` — 13/13 Checks `pass`, 0 `fail`, 0 `pending`.**
 
 | Gate | Ergebnis |
 |---|---|
-| Conventional-Commits-Check | nach Merge nachzutragen |
-| Backend pytest (`backend-test` set-1..4) | nach Merge nachzutragen |
-| Frontend vitest (`frontend-test`) | nach Merge nachzutragen |
-| E2E (`e2e` 1..4, Playwright/Chromium) | nach Merge nachzutragen |
-| Lint | nach Merge nachzutragen |
-| Agent-Templates / `dist` / Hermes-Plugin | nach Merge nachzutragen |
-| Docker-Build (`docker-publish`) | nach Merge nachzutragen |
-| Vorbereitungs-PR `chore/release-v1.8.0-beta.15` | nach Merge nachzutragen |
+| Lint | **pass** (26s) |
+| Frontend vitest (`frontend-test`) | **pass** (3m12s) |
+| Backend pytest (`backend-test` set-1..4) | **pass** (8m05s / 7m03s / 6m31s / 4m42s) |
+| E2E (`e2e` 1..4, Playwright/Chromium) | **pass** (11m03s / 11m40s / 10m59s / 13m36s) |
+| Agent-Templates / `dist` / Hermes-Plugin | **pass** (13s / 17s) |
+| Backend Requirements Drift Check | **pass** (8s) |
+| Docker-Build (`docker-publish`, tag-getriggert) | **pass** — Run `35915614548`, `completed success` (7m01s) |
+| Vorbereitungs-PR `chore/release-v1.8.0-beta.15` | **pass** — 13/13, `MERGEABLE` / `CLEAN` |
+
+Zum Vergleich liefen die beiden CI-Runs `35913847197` (pull_request) und
+`35913847220` (push) jeweils vollständig grün.
 
 ## 8. Tag & GitHub-Pre-Release
 
-> **Nach Merge nachzutragen.** In diesem Branch **nicht** ausgeführt (siehe
-> Abschnitt 9).
+**Ausgeliefert am 2026-09-23.**
 
 | Schritt | Ergebnis |
 |---|---|
-| Merge des Vorbereitungs-PR → `main` | nach Merge nachzutragen |
-| Annotierter Tag `v1.8.0-beta.15` | nach Merge nachzutragen |
-| GitHub **Pre-Release** (`prerelease=true`) | nach Merge nachzutragen |
-| `Docker Publish (GHCR)` — `…-backend:1.8.0-beta.15` + `…-frontend:1.8.0-beta.15` | nach Merge nachzutragen |
+| Merge des Vorbereitungs-PR → `main` | `6606b6f0` (`chore(release): prepare v1.8.0-beta.15 (#1048)`, Squash-Merge von PR #1048, 13/13 CI-Checks grün) |
+| Annotierter Tag `v1.8.0-beta.15` | gesetzt auf `6606b6f0`, Tag-Objekt `90f91063`, gepusht |
+| GitHub **Pre-Release** (`prerelease=true`) | [releases/tag/v1.8.0-beta.15](https://github.com/Popoboxxo/ReqogniLoom/releases/tag/v1.8.0-beta.15) — `isPrerelease: true`, `isDraft: false` |
+| `Docker Publish (GHCR)` — `…-backend:1.8.0-beta.15` + `…-frontend:1.8.0-beta.15` | Run `35915614548`, `completed success` (7m01s); beide Tags am Package verifiziert |
 
 ## 9. Nachtrag (Auslieferung)
 
-**In diesem Branch NICHT ausgeliefert.** Tag `v1.8.0-beta.15`, GitHub
+**Ausgeliefert.** Tag `v1.8.0-beta.15` (annotiert, auf `6606b6f0`), GitHub
 Pre-Release (`prerelease=true`) und der GHCR-Publish der Images
-`1.8.0-beta.15` (backend + frontend) werden vom Release-Owner **nach dem Merge**
-dieses Vorbereitungs-PR durchgeführt und anschließend in Abschnitt 7 und 8
-nachgetragen. Dieser Bericht steht daher auf `status: in-progress`.
+`1.8.0-beta.15` (backend + frontend) sind durchgeführt und oben in Abschnitt 8
+nachgetragen. Der tag-getriggerte `Docker Publish (GHCR)`-Workflow lief
+`completed success`; die Tags `1.8.0-beta.15` sind am Backend- **und**
+Frontend-Package der GHCR-Registry verifiziert. Dieser Bericht steht daher auf
+`status: done`.
+
+Der PR #1048 selbst hatte 13/13 grüne Checks (`mergeable: MERGEABLE`,
+`mergeStateStatus: CLEAN`); die `lint`-, `frontend-test`-, `backend-test`- und
+`e2e`-Jobs bestätigten den Carrier-Bump unverändert grün.
 
 Vorbereitet und verifiziert ist alles, was ohne Merge möglich ist: Carrier-Bump
 (12 Dateien / 22 Zeilen), CHANGELOG, Testplan, dieser Bericht, beide
