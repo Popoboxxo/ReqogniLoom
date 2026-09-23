@@ -14,7 +14,6 @@
  * as local state; a future pass can lift it into a useTestRunResults query hook.
  */
 
-import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { testRunsApi } from "../../api/test-runs";
@@ -43,14 +42,6 @@ import styles from "./TestRunDetailEditor.module.css";
  * re-derivation). Anyone needing a hard guarantee has to add it in
  * `TestRunService.add_result` / `add_results_bulk`.
  */
-// UI-56: named style object instead of an inline JSX style object literal
-// (ui-ratchet.test.ts style-brace ceiling).
-const closedTerminalHintStyle: CSSProperties = {
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text-muted)",
-  fontStyle: "italic",
-};
-
 function acceptsResultEntry(run: TestRun): boolean {
   return run.status !== "closed";
 }
@@ -175,33 +166,12 @@ export function TestRunDetailEditor({
   };
 
   return (
-    <div
-      style={{
-        background: "var(--color-surface)",
-        borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--shadow-card)",
-        padding: "var(--space-6)",
-      }}
-    >
-      <div style={{ marginBottom: "var(--space-6)" }}>
-        <h2
-          style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-            marginBottom: "var(--space-2)",
-          }}
-        >
+    <div className={styles.panel}>
+      <div className={styles.header}>
+        <h2 className={styles.title}>
           {testRun.name}
         </h2>
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--space-3)",
-            alignItems: "center",
-          }}
-        >
+        <div className={styles.badgeRow}>
           <StatusBadge status={testRun.status} label={getTestRunStatusLabel(testRun.status)} />
           {/* UI-56: "closed" is the one genuinely terminal status (see
               acceptsResultEntry() above) — make that explicit instead of
@@ -209,7 +179,7 @@ export function TestRunDetailEditor({
           {testRun.status === "closed" && (
             <span
               data-testid="testrun-closed-terminal-hint"
-              style={closedTerminalHintStyle}
+              className={styles.closedTerminalHint}
             >
               {t(
                 "testRuns.closedTerminalHint",
@@ -222,25 +192,14 @@ export function TestRunDetailEditor({
           )}
           {testRun.uid ? (
             <span
-              style={{
-                fontFamily: "monospace",
-                fontSize: "0.75rem",
-                color: "var(--color-text-muted)",
-                userSelect: "all",
-              }}
+              className={styles.uid}
               title="Unique Identifier"
             >
               {testRun.uid}
             </span>
           ) : (
             <span
-              style={{
-                fontFamily: "monospace",
-                fontSize: "0.75rem",
-                color: "var(--color-text-muted)",
-                userSelect: "all",
-                opacity: 0.6,
-              }}
+              className={styles.shortId}
               title="Short ID (UUID prefix, no semantic uid assigned yet)"
             >
               {testRun.id.slice(0, 8)}
@@ -248,10 +207,7 @@ export function TestRunDetailEditor({
           )}
           {testRun.ci_job_id && (
             <span
-              style={{
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-muted)",
-              }}
+              className={styles.ciBadge}
             >
               CI: {testRun.ci_job_id}
             </span>
@@ -266,108 +222,58 @@ export function TestRunDetailEditor({
           // locate this block via the bare text "Total", which the surrounding
           // page can contain for unrelated reasons.
           data-testid="testrun-result-summary"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: "var(--space-3)",
-            marginBottom: "var(--space-6)",
-          }}
+          className={styles.summaryGrid}
         >
           {[
             {
               label: "Total",
               value: testRun.result_summary.total,
-              color: "var(--color-text)",
+              colorClass: styles.summaryValueTotal,
             },
             {
               label: "Passed",
               value: testRun.result_summary.passed,
-              color: "var(--color-summary-passed)",
+              colorClass: styles.summaryValuePassed,
             },
             {
               label: "Failed",
               value: testRun.result_summary.failed,
-              color: "var(--color-summary-failed)",
+              colorClass: styles.summaryValueFailed,
             },
             {
               label: "Not Run",
               value: testRun.result_summary.not_run,
-              color: "var(--color-summary-notrun)",
+              colorClass: styles.summaryValueNotRun,
             },
           ].map((s) => (
-            <div
-              key={s.label}
-              style={{
-                padding: "var(--space-3)",
-                background: "var(--color-surface-raised)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                textAlign: "center",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "1.5rem",
-                  fontWeight: 700,
-                  color: s.color,
-                }}
-              >
+            <div key={s.label} className={styles.summaryItem}>
+              <div className={`${styles.summaryValue} ${s.colorClass}`}>
                 {s.value}
               </div>
-              <div
-                style={{
-                  fontSize: "0.75rem",
-                  color: "var(--color-text-muted)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                }}
-              >
-                {s.label}
-              </div>
+              <div className={styles.summaryLabel}>{s.label}</div>
             </div>
           ))}
         </div>
       )}
 
       {/* Metadata */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "var(--space-4)",
-          marginBottom: "var(--space-6)",
-        }}
-      >
+      <div className={styles.metaGrid}>
         {testRun.started_at && (
           <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                marginBottom: "var(--space-1)",
-              }}
-            >
+            <label className={styles.fieldLabel}>
               {t("testRuns.startedAt", "Started")}
             </label>
-            <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
+            <p className={styles.fieldValue}>
               {new Date(testRun.started_at).toLocaleString()}
             </p>
           </div>
         )}
         {testRun.finished_at && (
           <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                marginBottom: "var(--space-1)",
-              }}
-            >
+            <label className={styles.fieldLabel}>
               {t("testRuns.finishedAt", "Finished")}
             </label>
-            <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
+            <p className={styles.fieldValue}>
               {new Date(testRun.finished_at).toLocaleString()}
             </p>
           </div>
@@ -375,30 +281,22 @@ export function TestRunDetailEditor({
       </div>
 
       {/* Test cases (C5, REQ-012) */}
-      <div style={{ marginBottom: "var(--space-6)" }}>
-        <h3
-          style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-            marginBottom: "var(--space-3)",
-          }}
-        >
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>
           {t("testRuns.testCases", "Testfälle")}
         </h3>
         {resultsLoading && !hasLoadedResultsOnce ? (
-          <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+          <p className={styles.mutedSmall}>
             {t("testRuns.resultsLoading", "Lade Testfälle...")}
           </p>
         ) : resultsError ? (
-          <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}>
+          <p role="alert" className={styles.errorSmall}>
             {resultsError}
           </p>
         ) : results.length === 0 ? (
           <p
             data-testid="testrun-results-empty"
-            style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}
+            className={styles.mutedSmall}
           >
             {t("testRuns.resultsEmpty", "Diesem Testlauf sind keine Testfälle zugewiesen.")}
           </p>
@@ -426,11 +324,7 @@ export function TestRunDetailEditor({
         <p
           role="status"
           data-testid="testrun-close-success"
-          style={{
-            color: "var(--color-text)",
-            fontSize: "var(--font-size-sm)",
-            marginBottom: "var(--space-3)",
-          }}
+          className={styles.successNote}
         >
           {t("testRuns.closeSuccess", "Test-Run wurde abgeschlossen.")}
         </p>
@@ -441,44 +335,28 @@ export function TestRunDetailEditor({
         <p
           role="alert"
           data-testid="testrun-close-error"
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-sm)",
-            marginBottom: "var(--space-3)",
-          }}
+          className={styles.errorNote}
         >
           {closeError}
         </p>
       )}
 
       {/* Actions */}
-      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+      <div className={styles.actions}>
         {testRun.status === "in_progress" &&
           (!confirmClose ? (
             <button
               type="button"
               data-testid="testrun-close-btn"
               onClick={() => setConfirmClose(true)}
-              style={{
-                padding: "var(--space-2) var(--space-4)",
-                background: "var(--color-primary)",
-                color: "var(--color-on-primary)",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-              }}
+              className={styles.btnPrimary}
             >
               {t("testRuns.closeRun", "Close Run")}
             </button>
           ) : (
             <>
               <span
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-muted)",
-                }}
+                className={styles.confirmHint}
               >
                 {/* UI-56: previously "Close this test run?" alone gave no
                     indication that closing is a one-way, terminal action
@@ -494,17 +372,7 @@ export function TestRunDetailEditor({
                 data-testid="testrun-confirm-close-btn"
                 onClick={() => void handleClose()}
                 disabled={isClosing}
-                style={{
-                  padding: "var(--space-2) var(--space-4)",
-                  background: "var(--color-primary)",
-                  color: "var(--color-on-primary)",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  cursor: isClosing ? "not-allowed" : "pointer",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  opacity: isClosing ? 0.6 : 1,
-                }}
+                className={`${styles.btnPrimary} ${isClosing ? styles.btnPrimaryDisabled : styles.btnPrimaryEnabled}`}
               >
                 {isClosing
                   ? t("actions.closing", "Closing...")
@@ -515,15 +383,7 @@ export function TestRunDetailEditor({
                 data-testid="testrun-cancel-close-btn"
                 onClick={() => setConfirmClose(false)}
                 disabled={isClosing}
-                style={{
-                  padding: "var(--space-2) var(--space-4)",
-                  background: "transparent",
-                  color: "var(--color-text-muted)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  cursor: isClosing ? "not-allowed" : "pointer",
-                  fontSize: "var(--font-size-sm)",
-                }}
+                className={`${styles.btnSecondary} ${isClosing ? styles.btnSecondaryDisabled : styles.btnSecondaryEnabled}`}
               >
                 {t("actions.cancel")}
               </button>
@@ -533,15 +393,7 @@ export function TestRunDetailEditor({
           type="button"
           data-testid="testrun-detail-close-btn"
           onClick={onClose}
-          style={{
-            padding: "var(--space-2) var(--space-4)",
-            background: "transparent",
-            color: "var(--color-text-muted)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-            cursor: "pointer",
-            fontSize: "var(--font-size-sm)",
-          }}
+          className={styles.btnSecondary}
         >
           {t("actions.back", "Back")}
         </button>

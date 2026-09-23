@@ -105,7 +105,7 @@ export default [
     ignores: ['**/*.test.tsx', '**/*.test.ts'],
     rules: {
       // 'error' project-wide, with a frozen per-file exemption list applied
-      // in the next config block for the 70 pre-existing carrier files.
+      // in the next config block for the 68 pre-existing carrier files.
       'local/no-static-inline-style': 'error',
     },
   },

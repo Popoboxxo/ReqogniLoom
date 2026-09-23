@@ -526,6 +526,12 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // `WorkspaceSettings/LlmSettingsSection.tsx` (-4). Re-measured with this
 // file's own scanner on the tree: 705, matching the arithmetic exactly.
 //
+// Issue #876 follow-up (2026-09-23): `TestRuns/TestRunDetailEditor.tsx`
+// (29 literals + 1 hoisted constant) and `TestRuns/TestRunsList.tsx`
+// (23 literals + 5 hoisted constants) migrated onto co-located CSS Modules,
+// dropping both entries from the ESLint exemption list. Re-measured with this
+// file's own scanner: 653, matching the arithmetic (705 - 52).
+//
 // Deliberately NOT part of this pass — the issue's other named hotspots
 // (`RequirementEditors/*`) are still open; the issue calls its 1.015 inline
 // styles a ratchet target, not a big-bang, so this is one bounded slice.
@@ -543,12 +549,17 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 //   - `(b.1)` hex in CSS: unchanged at 1 file / 203 occurrences — all of them
 //     the `tokens.css` primitive layer, which is the intentional bottom of the
 //     two-layer token architecture and never a migration target.
-//   - `(f)` primary fill: unchanged at 29. No migrated module re-declares the
-//     primary fill; `LoginPage.module.css`'s decorative `.brandDot` uses the
-//     `background-color` long-hand explicitly so it does not push this ceiling
-//     to 30 (see its own comment).
+//   - `(f)` primary fill: unchanged at 29. The #876 follow-up's migrated
+//     `TestRunDetailEditor.module.css` (`.btnPrimary`) and
+//     `TestRunsList.module.css` (`.submitBtn`) do keep their page-local primary
+//     buttons, but via the `background-color` long-hand — the same documented
+//     precedent as `LoginPage.module.css`'s decorative `.brandDot` (see its own
+//     comment). `PRIMARY_FILL_PATTERN` matches the `background:` shorthand
+//     only, so those two do not move this ceiling: the count stays 29 for regex
+//     reasons, not because the duplication is gone. "Normalising" their
+//     long-hands to `background:` would drive `(f)` to 31.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 705;
+const STYLE_BRACE_BASELINE = 653;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

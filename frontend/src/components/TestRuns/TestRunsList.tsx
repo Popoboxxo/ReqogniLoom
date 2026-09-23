@@ -13,7 +13,6 @@
  * Resizable divider between panels (REQ-002 Masken-Standardisierung).
  */
 
-import type { CSSProperties } from "react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -26,6 +25,7 @@ import { StatusBadge } from "../shared/StatusBadge";
 import { TestRunDetailEditor } from "./TestRunDetailEditor";
 import { getTestRunStatusLabel } from "./testRunStatusLabel";
 import { useTestRunsData } from "./useTestRunsData";
+import styles from "./TestRunsList.module.css";
 
 // REQ-175: TestRun.status choices — see persistence/models.py TestRun.status.
 const TEST_RUN_STATUSES = [
@@ -35,49 +35,6 @@ const TEST_RUN_STATUSES = [
   "partial",
   "closed",
 ] as const;
-
-// UI-56: named style objects for the test-case picker's search/select-all
-// row, named instead of inline JSX style object literals (ui-ratchet.test.ts
-// style-brace ceiling).
-const testCasePickerToolbarStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  marginBottom: "var(--space-1)",
-};
-const testCasePickerSearchStyle: CSSProperties = {
-  flex: "1 1 auto",
-  padding: "var(--space-1) var(--space-2)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-border)",
-  fontSize: "var(--font-size-sm)",
-  fontFamily: "inherit",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-};
-const testCasePickerSelectedCountStyle: CSSProperties = {
-  fontSize: "var(--font-size-xs)",
-  color: "var(--color-text-muted)",
-  margin: "0 0 var(--space-1)",
-};
-const testCasePickerNoMatchStyle: CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-  margin: 0,
-};
-
-/** UI-56: select-all label style — cursor depends on whether any row is selectable. */
-function selectAllLabelStyle(disabled: boolean): CSSProperties {
-  return {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--space-1)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-text)",
-    whiteSpace: "nowrap",
-    cursor: disabled ? "not-allowed" : "pointer",
-  };
-}
 
 export function TestRunsList(): JSX.Element {
   const { t } = useTranslation();
@@ -211,7 +168,7 @@ export function TestRunsList(): JSX.Element {
   }
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div className={styles.page}>
       {/* Test Runs are not a Spine artifact type (no derivation chain), but
           PageHeader/ListToolbar/EmptyState still apply (task 5.2). Unlike
           Baselines, creating a test run is the routine primary action, so it
@@ -235,7 +192,7 @@ export function TestRunsList(): JSX.Element {
         }}
       />
 
-      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+      <div className={styles.content}>
       <SplitView
         moduleType="testruns"
         leftMinWidth={260}
@@ -282,24 +239,11 @@ export function TestRunsList(): JSX.Element {
           <form
             data-testid="testrun-create-form"
             onSubmit={(e) => void handleCreate(e)}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-2)",
-              padding: "var(--space-3)",
-              marginBottom: "var(--space-3)",
-              background: "var(--color-surface-raised)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-            }}
+            className={styles.createForm}
           >
             <label
               htmlFor="testrun-name"
-              style={{
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                color: "var(--color-text)",
-              }}
+              className={styles.formLabel}
             >
               {t("editor.name", "Name")} *
             </label>
@@ -314,58 +258,31 @@ export function TestRunsList(): JSX.Element {
               autoFocus
               required
               disabled={isCreating}
-              style={{
-                padding: "var(--space-2) var(--space-3)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                fontSize: "var(--font-size-sm)",
-                fontFamily: "inherit",
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                boxSizing: "border-box",
-              }}
+              className={styles.nameInput}
             />
             <div>
               <label
-                style={{
-                  display: "block",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  color: "var(--color-text)",
-                  marginBottom: "var(--space-1)",
-                }}
+                className={styles.pickerLabel}
               >
                 {t("testRuns.selectTestCases", "Testfälle auswählen")}
               </label>
               {testCaseOptionsLoading ? (
                 <p
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--color-text-muted)",
-                    margin: 0,
-                  }}
+                  className={styles.pickerHint}
                 >
                   {t("testRuns.testCaseOptionsLoading", "Lade Testfälle...")}
                 </p>
               ) : testCaseOptionsError ? (
                 <p
                   role="alert"
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--color-danger)",
-                    margin: 0,
-                  }}
+                  className={styles.pickerError}
                 >
                   {testCaseOptionsError}
                 </p>
               ) : testCaseOptions.length === 0 ? (
                 <p
                   data-testid="testrun-create-testcases-empty"
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--color-text-muted)",
-                    margin: 0,
-                  }}
+                  className={styles.pickerHint}
                 >
                   {t("testRuns.noTestCases", "Keine Testfälle im Workspace vorhanden")}
                 </p>
@@ -374,7 +291,7 @@ export function TestRunsList(): JSX.Element {
                   {/* UI-56: search + select-all were missing, forcing manual
                       one-by-one scrolling/ticking through the full workspace
                       test-case catalog to build a run. */}
-                  <div style={testCasePickerToolbarStyle}>
+                  <div className={styles.pickerToolbar}>
                     <input
                       type="search"
                       data-testid="testrun-create-testcases-search"
@@ -382,11 +299,11 @@ export function TestRunsList(): JSX.Element {
                       onChange={(e) => setTestCaseSearch(e.target.value)}
                       placeholder={t("testRuns.testCaseSearchPlaceholder", "Testfälle filtern...")}
                       disabled={isCreating}
-                      style={testCasePickerSearchStyle}
+                      className={styles.pickerSearch}
                     />
                     <label
                       htmlFor="testrun-create-testcases-select-all"
-                      style={selectAllLabelStyle(visibleTestCaseOptions.length === 0)}
+                      className={`${styles.selectAllLabel} ${visibleTestCaseOptions.length === 0 ? styles.selectAllLabelDisabled : styles.selectAllLabelEnabled}`}
                     >
                       <input
                         id="testrun-create-testcases-select-all"
@@ -402,7 +319,7 @@ export function TestRunsList(): JSX.Element {
                   {selectedTestCaseIds.length > 0 && (
                     <p
                       data-testid="testrun-create-testcases-selected-count"
-                      style={testCasePickerSelectedCountStyle}
+                      className={styles.pickerSelectedCount}
                     >
                       {t("testRuns.selectedCount", "{{count}} ausgewählt", {
                         count: selectedTestCaseIds.length,
@@ -412,35 +329,20 @@ export function TestRunsList(): JSX.Element {
                   {visibleTestCaseOptions.length === 0 ? (
                     <p
                       data-testid="testrun-create-testcases-no-match"
-                      style={testCasePickerNoMatchStyle}
+                      className={styles.pickerNoMatch}
                     >
                       {t("testRuns.testCaseSearchNoResults", "Keine passenden Testfälle.")}
                     </p>
                   ) : (
                     <div
                       data-testid="testrun-create-testcases-list"
-                      style={{
-                        maxHeight: "160px",
-                        overflowY: "auto",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: "var(--radius-md)",
-                        padding: "var(--space-2)",
-                        background: "var(--color-surface)",
-                      }}
+                      className={styles.pickerList}
                     >
                       {visibleTestCaseOptions.map((tc) => (
                         <label
                           key={tc.id}
                           htmlFor={`testrun-create-testcase-${tc.id}`}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "var(--space-2)",
-                            padding: "var(--space-1) 0",
-                            fontSize: "var(--font-size-sm)",
-                            color: "var(--color-text)",
-                            cursor: "pointer",
-                          }}
+                          className={styles.pickerItem}
                         >
                           <input
                             id={`testrun-create-testcase-${tc.id}`}
@@ -461,36 +363,20 @@ export function TestRunsList(): JSX.Element {
             {formError && (
               <p
                 role="alert"
-                style={{
-                  color: "var(--color-danger)",
-                  fontSize: "var(--font-size-sm)",
-                  margin: 0,
-                }}
+                className={styles.pickerError}
               >
                 {formError}
               </p>
             )}
             <div
-              style={{
-                display: "flex",
-                gap: "var(--space-2)",
-                justifyContent: "flex-end",
-              }}
+              className={styles.formActions}
             >
               <button
                 type="button"
                 data-testid="testrun-create-cancel-btn"
                 onClick={handleCancelCreate}
                 disabled={isCreating}
-                style={{
-                  padding: "var(--space-2) var(--space-3)",
-                  background: "transparent",
-                  color: "var(--color-text-muted)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  cursor: isCreating ? "not-allowed" : "pointer",
-                  fontSize: "var(--font-size-sm)",
-                }}
+                className={`${styles.cancelBtn} ${isCreating ? styles.cancelBtnDisabled : styles.cancelBtnEnabled}`}
               >
                 {t("actions.cancel")}
               </button>
@@ -498,18 +384,7 @@ export function TestRunsList(): JSX.Element {
                 type="submit"
                 data-testid="testrun-create-submit-btn"
                 disabled={!newName.trim() || isCreating}
-                style={{
-                  padding: "var(--space-2) var(--space-3)",
-                  background: "var(--color-primary)",
-                  color: "var(--color-on-primary)",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  cursor:
-                    !newName.trim() || isCreating ? "not-allowed" : "pointer",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  opacity: !newName.trim() || isCreating ? 0.6 : 1,
-                }}
+                className={`${styles.submitBtn} ${!newName.trim() || isCreating ? styles.submitBtnDisabled : styles.submitBtnEnabled}`}
               >
                 {isCreating
                   ? t("actions.creating", "Creating...")
@@ -522,13 +397,9 @@ export function TestRunsList(): JSX.Element {
 
         {/* Load error */}
         {loadError && (
-          <div role="alert" style={{ marginBottom: "var(--space-3)" }}>
+          <div role="alert" className={styles.loadError}>
             <p
-              style={{
-                color: "var(--color-danger)",
-                fontSize: "var(--font-size-sm)",
-                marginBottom: "var(--space-2)",
-              }}
+              className={styles.loadErrorText}
             >
               {loadError}
             </p>
@@ -536,15 +407,7 @@ export function TestRunsList(): JSX.Element {
               type="button"
               data-testid="testrun-retry-btn"
               onClick={() => void refreshList()}
-              style={{
-                padding: "var(--space-2) var(--space-3)",
-                background: "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-              }}
+              className={styles.retryBtn}
             >
               {t("actions.retry")}
             </button>
@@ -582,7 +445,7 @@ export function TestRunsList(): JSX.Element {
             />
           )
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          <ul className={styles.list}>
             {visibleItems.map((item) => {
               const isSelected = selectedId === item.id;
               return (
@@ -599,52 +462,17 @@ export function TestRunsList(): JSX.Element {
                       setSelectedId(item.id);
                     }
                   }}
-                  style={{
-                    padding: "var(--space-3) var(--space-3)",
-                    marginBottom: "var(--space-2)",
-                    background: isSelected
-                      ? "var(--color-primary)"
-                      : "var(--color-surface)",
-                    color: isSelected ? "var(--color-on-primary)" : "var(--color-text)",
-                    borderRadius: "var(--radius-md)",
-                    border: isSelected
-                      ? `1px solid var(--color-primary)`
-                      : "1px solid var(--color-border)",
-                    cursor: "pointer",
-                    transition: "var(--transition-fast)",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected) {
-                      (e.currentTarget as HTMLLIElement).style.borderColor =
-                        "var(--color-border-hover)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) {
-                      (e.currentTarget as HTMLLIElement).style.borderColor =
-                        "var(--color-border)";
-                    }
-                  }}
+                  className={`${styles.item} ${isSelected ? styles.itemSelected : ""}`}
                 >
                   <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: "var(--space-2)",
-                    }}
+                    className={styles.itemHeader}
                   >
                     <strong>{item.name}</strong>
                     <StatusBadge status={item.status} label={getTestRunStatusLabel(item.status)} />
                   </div>
                   {item.ci_job_id && (
                     <p
-                      style={{
-                        margin: 0,
-                        marginTop: "var(--space-1)",
-                        fontSize: "var(--font-size-sm)",
-                        opacity: 0.7,
-                      }}
+                      className={styles.itemCi}
                     >
                       CI: {item.ci_job_id}
                     </p>
@@ -667,12 +495,7 @@ export function TestRunsList(): JSX.Element {
           />
         ) : (
           <p
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-lg)",
-              textAlign: "center",
-              padding: "var(--space-8)",
-            }}
+            className={styles.selectPrompt}
           >
             {t("testRuns.selectPrompt", "Select a test run from the list to view details.")}
           </p>

@@ -12,12 +12,12 @@
  *     `style={{ display: "flex", gap: 8 }}` contains no color at all, so the
  *     color rule has nothing to report.
  *   - The `STYLE_BRACE_BASELINE` ratchet in `src/test/ui-ratchet.test.ts`
- *     only freezes the *total sum* of `style={{` occurrences (705). It does
+ *     only freezes the *total sum* of `style={{` occurrences (653). It does
  *     not point at the file, and it cannot tell a legitimate new usage from a
  *     net-zero reshuffle.
  *
  * So today an unbounded number of new non-color inline styles can be added as
- * long as the sum stays at 705, and the color gate stays silent. This rule
+ * long as the sum stays at 653, and the color gate stays silent. This rule
  * closes the gap at the point of introduction: any *new* static inline style
  * object in a governed source file is an error, full stop.
  *
@@ -56,14 +56,14 @@
  * 1. Per-file exemption is all-or-nothing (`off`). Inside an already-exempted
  *    file, an *additional* static inline style is not seen by ESLint. Within
  *    the ratchet's scope it is still caught: the ratchet assertion at
- *    `src/test/ui-ratchet.test.ts:1047` is an exact equality (`toBe(705)`),
+ *    `src/test/ui-ratchet.test.ts:1053` is an exact equality (`toBe(653)`),
  *    so ANY net increase anywhere under `src/components` (every non-test
- *    `.tsx` file) turns the ratchet red — see also the ceiling at line 1035.
+ *    `.tsx` file) turns the ratchet red — see also the ceiling at line 1041.
  *    The residual gap is therefore only a *net-zero* reshuffle: add one style
  *    here and delete one there in exempted files, and both the ratchet (sum
  *    unchanged) and this rule (file exempted) stay silent. That gap is
  *    accepted; a per-file counting rule would duplicate the ratchet's job with
- *    70 extra baselines and a large instability surface, so it is deliberately
+ *    68 extra baselines and a large instability surface, so it is deliberately
  *    NOT built.
  * 2. The ratchet backstop only covers `src/components` (every non-test
  *    `.tsx`), while this rule's activation scope is all of `src`
@@ -89,6 +89,12 @@
  * is explained by three `style={{` occurrences that exist only inside
  * comments (RequirementTreeNode.tsx, ArchitectureEditors.tsx,
  * WorkspaceSettings.tsx) — the ratchet counts raw text, this rule sees the AST.
+ *
+ * Issue #876 follow-up (2026-09-23): `TestRuns/TestRunDetailEditor.tsx` and
+ * `TestRuns/TestRunsList.tsx` were migrated onto CSS Modules, dropping their
+ * entries from the exemption list. Re-measured with the list empty: 650
+ * AST-visible occurrences in 68 files (ratchet raw-text: 653 in 69 files, the
+ * same 3-comment gap).
  *
  * @type {import('eslint').Rule.RuleModule}
  */

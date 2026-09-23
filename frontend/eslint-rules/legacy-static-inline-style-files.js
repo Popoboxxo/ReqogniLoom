@@ -5,7 +5,7 @@
  * tests excluded) — EXCEPT for the files listed here, which already carried
  * static inline `style={{...}}` object literals when the rule was introduced.
  * Turning the rule on project-wide without this list would have broken the
- * build on 702 pre-existing AST-visible occurrences in 70 files, which are
+ * build on 650 pre-existing AST-visible occurrences in 68 files, which are
  * being reduced gradually (not eliminated in one go) — the same philosophy as
  * the numeric ratchet in `src/test/ui-ratchet.test.ts`.
  *
@@ -17,7 +17,7 @@
  *     style in one of them is not caught by ESLint. Within `src/components/`
  *     that gap is covered by the `STYLE_BRACE_BASELINE` ratchet in
  *     `src/test/ui-ratchet.test.ts`, whose monotonic assertion is an exact
- *     equality (`toBe(705)`), so any net increase turns it red. The residual
+ *     equality (`toBe(653)`), so any net increase turns it red. The residual
  *     gap is a net-zero reshuffle (add here, delete there) in exempted files —
  *     accepted and documented in `no-static-inline-style.js`.
  *
@@ -29,7 +29,11 @@
  * diffs.
  *
  * Baseline measured 2026-09-22 on branch main via `npx eslint src -f json`
- * with this list temporarily empty: 702 occurrences / 70 files.
+ * with this list temporarily empty: 702 occurrences / 70 files. Issue #876
+ * follow-up (2026-09-23): `TestRuns/TestRunDetailEditor.tsx` (29 literals + 1
+ * hoisted constant) and `TestRuns/TestRunsList.tsx` (23 literals + 5 hoisted
+ * constants) were migrated onto CSS Modules and dropped from this list;
+ * re-measured with the list empty: 650 occurrences / 68 files.
  */
 export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/AdminDialog/SystemHealthDialog.tsx",
@@ -80,8 +84,6 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/SystemSettings/WorkspaceAdminSection.tsx",
   "src/components/TestCaseEditors/DeriveTestCasePanel.tsx",
   "src/components/TestCaseEditors/TestCaseEditors.tsx",
-  "src/components/TestRuns/TestRunDetailEditor.tsx",
-  "src/components/TestRuns/TestRunsList.tsx",
   "src/components/TraceabilityView/TraceabilityView.tsx",
   "src/components/UserProfileSettings/ApiKeysSection.tsx",
   "src/components/UserProfileSettings/ProfileSection.tsx",
