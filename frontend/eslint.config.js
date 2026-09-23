@@ -10,6 +10,7 @@ import globals from 'globals';
 
 import { localRulesPlugin } from './eslint-rules/index.js';
 import { LEGACY_INLINE_STYLE_HEX_FILES } from './eslint-rules/legacy-inline-style-hex-files.js';
+import { LEGACY_STATIC_INLINE_STYLE_FILES } from './eslint-rules/legacy-static-inline-style-files.js';
 
 export default [
   js.configs.recommended,
@@ -90,6 +91,24 @@ export default [
       ],
     },
   },
+  // (3) No static inline style object literals in JSX (#876, Option C).
+  // Scope is the governed source tree (`src/**/*.{ts,tsx}`), tests excluded:
+  // the STYLE_BRACE_BASELINE ratchet also scans non-test `.tsx` only, and
+  // test files carry no design-token obligation (loose inline styles in test
+  // fixtures are legitimate). The color rule above only sees *values*
+  // (hex/named/functional color) inside `style={{...}}`; a new non-color
+  // static style such as `style={{ display: "flex" }}` passes it untouched,
+  // and the ratchet only freezes the project-wide *sum*, so it cannot flag a
+  // single new occurrence. This rule closes that gap.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.tsx', '**/*.test.ts'],
+    rules: {
+      // 'error' project-wide, with a frozen per-file exemption list applied
+      // in the next config block for the 70 pre-existing carrier files.
+      'local/no-static-inline-style': 'error',
+    },
+  },
   // Frozen exemption list for the hex-in-inline-style rule — see
   // `eslint-rules/legacy-inline-style-hex-files.js` for why these files are
   // exempt and how the list is meant to shrink. ESLint 9's flat config
@@ -106,6 +125,23 @@ export default [
           files: LEGACY_INLINE_STYLE_HEX_FILES,
           rules: {
             'local/no-literal-color-in-inline-style': 'off',
+          },
+        },
+      ]
+    : []),
+  // Frozen exemption list for `local/no-static-inline-style` (#876, Option C)
+  // — see `eslint-rules/legacy-static-inline-style-files.js` for why these
+  // files are exempt and how the list is meant to shrink. Same conditional
+  // spread as the hex block above: ESLint 9's flat config rejects an empty
+  // `files` array, so the block is only present while the list is non-empty.
+  // This block MUST stay after the activation block above; the later `files`
+  // match wins and turns the rule back `off` for the frozen carriers.
+  ...(LEGACY_STATIC_INLINE_STYLE_FILES.length > 0
+    ? [
+        {
+          files: LEGACY_STATIC_INLINE_STYLE_FILES,
+          rules: {
+            'local/no-static-inline-style': 'off',
           },
         },
       ]
