@@ -264,3 +264,50 @@
 .mainGoalApprove {
   margin-top: var(--space-3);
 }
+
+/* --- GoalDetail (REQ-L2-TE-020) ----------------------------------------- */
+/*
+ * Issue #876 (Etappe 7): GoalDetail's 4 static inline `style={{...}}`
+ * literals were migrated here (the folder already owns its shared chrome in
+ * this module) so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ */
+
+.goalIdentityRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.detailTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xl);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.detailDescription {
+  margin: 0 0 var(--space-4);
+  max-width: var(--measure);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-relaxed);
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+
+/* Declared after `.detailDescription` so the empty state's muted colour wins. */
+.detailDescriptionEmpty {
+  color: var(--color-text-muted);
+}
+
+.detailActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}

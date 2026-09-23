@@ -21,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
 import type { TraceLink, UUID } from "../../types";
+import styles from "./trace-link-display.module.css";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,66 +80,6 @@ function resolveOtherEndpoint(
 }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const containerStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  padding: "var(--space-2) var(--space-3)",
-  background: "var(--color-surface-raised)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  marginBottom: "var(--space-2)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  listStyle: "none",
-};
-
-const badgeStyle: CSSProperties = {
-  fontSize: "0.7rem",
-  background: "var(--color-badge-draft)",
-  color: "var(--color-badge-draft-text)",
-  padding: "2px 6px",
-  borderRadius: "var(--radius-full)",
-  flexShrink: 0,
-};
-
-const linkButtonStyle: CSSProperties = {
-  fontFamily: "monospace",
-  background: "none",
-  border: "none",
-  padding: 0,
-  color: "var(--color-primary)",
-  cursor: "pointer",
-  textDecoration: "underline",
-  fontSize: "0.85rem",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-};
-
-const titleSpanStyle: CSSProperties = {
-  fontSize: "0.85rem",
-  color: "var(--color-text)",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-};
-
-const deleteButtonStyle: CSSProperties = {
-  marginLeft: "auto",
-  background: "none",
-  border: "none",
-  color: "var(--color-danger)",
-  cursor: "pointer",
-  fontSize: "1rem",
-  lineHeight: 1,
-  flexShrink: 0,
-};
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -163,11 +104,15 @@ export function TraceLinkDisplay({
   return (
     <li
       data-testid={`${testIdPrefix}-item`}
-      style={{ ...containerStyle, ...style }}
+      className={styles.item}
+      // Public per-instance override from the caller — an inline style still
+      // wins over `.item`, so the original `{ ...containerStyle, ...style }`
+      // precedence is preserved (see the module header).
+      style={style}
     >
       <span
         data-testid={`${testIdPrefix}-badge`}
-        style={badgeStyle}
+        className={styles.badge}
       >
         {getLinkTypeLabel(link.link_type)}
       </span>
@@ -177,7 +122,7 @@ export function TraceLinkDisplay({
           type="button"
           data-testid={`${testIdPrefix}-title`}
           onClick={() => navigate(route)}
-          style={linkButtonStyle}
+          className={styles.linkButton}
           title={title}
         >
           {title}
@@ -185,7 +130,7 @@ export function TraceLinkDisplay({
       ) : (
         <span
           data-testid={`${testIdPrefix}-title`}
-          style={titleSpanStyle}
+          className={styles.titleSpan}
           title={title}
         >
           {title}
@@ -197,7 +142,7 @@ export function TraceLinkDisplay({
           type="button"
           data-testid={`${testIdPrefix}-delete`}
           onClick={() => onDelete(link.id)}
-          style={deleteButtonStyle}
+          className={styles.deleteButton}
           title={t("actions.delete")}
           aria-label={t("actions.delete")}
         >

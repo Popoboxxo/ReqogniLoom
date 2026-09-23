@@ -146,30 +146,21 @@ export function PageHeader({
 
   return (
     <div ref={containerRef} data-testid={testId} className={styles.header}>
-      <div style={{ minWidth: 0 }}>
+      <div className={styles.titleBlock}>
+        {/*
+          The `fontSize` stays inline on purpose: it switches with `density`
+          and is pinned by `PageHeader.test.tsx:29` via `toHaveStyle`, which
+          would break if it moved onto a CSS-Module class (vitest does not
+          process CSS Modules). See the module header.
+        */}
         <h1
-          style={{
-            fontSize: isCompact ? "var(--font-size-lg)" : "var(--font-size-3xl)",
-            lineHeight: "var(--leading-tight)",
-            letterSpacing: "var(--tracking-tight)",
-            fontWeight: "var(--weight-semibold)",
-            margin: 0,
-            color: "var(--color-text)",
-          }}
+          className={styles.title}
+          style={{ fontSize: isCompact ? "var(--font-size-lg)" : "var(--font-size-3xl)" }}
         >
           {title}
         </h1>
         {summaryText != null && (
-          <p
-            data-testid="page-header-count"
-            style={{
-              margin: "var(--space-1) 0 0",
-              fontSize: "var(--font-size-sm)",
-              lineHeight: "var(--leading-normal)",
-              color: "var(--color-text-muted)",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
+          <p data-testid="page-header-count" className={styles.summary}>
             {summaryText}
           </p>
         )}
@@ -185,16 +176,7 @@ export function PageHeader({
           already does. `flexWrap: "wrap"` + `minWidth: 0` let it reflow
           the same way. */}
       {hasActions && (
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: "flex-end",
-          gap: "var(--space-2)",
-          alignItems: "center",
-          minWidth: 0,
-        }}
-      >
+      <div className={styles.actions}>
         {secondaryActions.map((action) => (
           <button
             key={action.label}
@@ -225,7 +207,7 @@ export function PageHeader({
         )}
 
         {overflowActions.length > 0 && (
-          <div style={{ position: "relative" }}>
+          <div className={styles.overflow}>
             <button
               ref={triggerRef}
               type="button"
@@ -246,20 +228,7 @@ export function PageHeader({
                 role="menu"
                 data-testid="page-header-overflow-menu"
                 aria-label={t("pageHeader.more", "Weitere Aktionen")}
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + var(--space-1))",
-                  right: 0,
-                  zIndex: 20,
-                  minWidth: "200px",
-                  display: "flex",
-                  flexDirection: "column",
-                  padding: "var(--space-1)",
-                  background: "var(--color-surface-raised)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  boxShadow: "var(--shadow-card)",
-                }}
+                className={styles.menu}
               >
                 {overflowActions.map((action) => (
                   <button
@@ -272,19 +241,7 @@ export function PageHeader({
                       closeMenu(true);
                       action.onClick();
                     }}
-                    style={{
-                      background: "transparent",
-                      color: action.disabled
-                        ? "var(--color-text-muted)"
-                        : "var(--color-text)",
-                      textAlign: "left",
-                      padding: "var(--space-2) var(--space-3)",
-                      borderRadius: "var(--radius-sm)",
-                      fontSize: "var(--font-size-sm)",
-                      fontWeight: "var(--weight-medium)",
-                      cursor: action.disabled ? "not-allowed" : "pointer",
-                      opacity: action.disabled ? 0.55 : 1,
-                    }}
+                    className={`${styles.menuItem} ${action.disabled ? styles.menuItemDisabled : ""}`}
                   >
                     {action.label}
                   </button>

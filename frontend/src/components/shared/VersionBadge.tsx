@@ -15,6 +15,7 @@ import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "./Badge";
+import styles from "./VersionBadge.module.css";
 
 /**
  * Everything this badge adds on top of the shared `neutral` variant. Hoisted
@@ -24,6 +25,12 @@ import { Badge } from "./Badge";
  * `fontWeight` is semantic here, not decoration: current vs. superseded is
  * carried by weight and emphasis instead of hue (this file's header), which
  * is why it overrides the shared base's `--weight-semibold`.
+ *
+ * Issue #876 (Etappe 7): this stays a hoisted identifier rather than a CSS
+ * class because it is a genuinely per-instance value derived from
+ * `isCurrent`, and `Badge.test.tsx` pins its `fontFamily` via
+ * `version.style.fontFamily` — see `eslint-rules/no-static-inline-style.js`
+ * gap 4 (an identifier is never inspected).
  */
 const versionBadgeStyle = (isCurrent: boolean): CSSProperties => ({
   marginLeft: "var(--space-2)",
@@ -82,46 +89,24 @@ interface VersionTimelineProps {
 export function VersionTimeline({ timeline, formatDate = (iso) => iso ? new Date(iso).toLocaleString() : "—" }: VersionTimelineProps): JSX.Element {
   const { t } = useTranslation();
   if (!timeline || timeline.length === 0) {
-    return <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", margin: 0 }}>—</p>;
+    return <p className={styles.empty}>—</p>;
   }
   return (
-    <ol
-      style={{
-        listStyle: "none",
-        padding: 0,
-        margin: 0,
-        borderLeft: "2px solid var(--color-border)",
-        paddingLeft: "var(--space-4)",
-      }}
-    >
+    <ol className={styles.timeline}>
       {timeline
         .slice()
         .reverse()
         .map((entry) => (
-          <li
-            key={entry.version_number}
-            style={{
-              position: "relative",
-              paddingBottom: "var(--space-3)",
-            }}
-          >
+          <li key={entry.version_number} className={styles.entry}>
             <span
               aria-hidden="true"
-              style={{
-                position: "absolute",
-                left: "-22px",
-                top: "4px",
-                width: "10px",
-                height: "10px",
-                borderRadius: "var(--radius-full)",
-                background: entry.is_current ? "var(--color-primary)" : "var(--color-text-muted)",
-              }}
+              className={`${styles.dot} ${entry.is_current ? styles.dotCurrent : styles.dotPast}`}
             />
-            <div style={{ fontWeight: 600, color: "var(--color-text)", fontSize: "var(--font-size-sm)", display: "flex", alignItems: "center" }}>
+            <div className={styles.entryTitle}>
               {t("icds.versionBadge", { n: entry.version_number })}
               <VersionBadge version={entry.version_number} isCurrent={entry.is_current} />
             </div>
-            <div style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-xs)", marginTop: "4px" }}>
+            <div className={styles.entryDate}>
               {formatDate(entry.created_at)}
             </div>
           </li>

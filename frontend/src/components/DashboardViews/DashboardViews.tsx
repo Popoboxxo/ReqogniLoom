@@ -13,7 +13,7 @@
  *   IF-RF-EXT-OUT-001 → GET /api/v1/requirements/ (for metrics)
  */
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useDashboardData } from "./useDashboardData";
@@ -37,13 +37,9 @@ import styles from "./DashboardViews.module.css";
  * total, and a second, unmasked, environment-dependent count next to the
  * grid would make `visual-regression.spec.ts`'s dashboard screenshot
  * volatile (it masks `workspace-list` and `page-header-count` for exactly
- * that reason). Hoisted rather than an inline object literal — see the
- * frozen inline-style baseline in `src/test/ui-ratchet.test.ts`.
+ * that reason). The wrapper now uses `.searchRow` from the module (Issue
+ * #876, Etappe 7) instead of a hoisted inline-style constant.
  */
-const SEARCH_ROW_STYLE: CSSProperties = {
-  maxWidth: "360px",
-  marginBottom: "var(--space-4)",
-};
 
 /*
  * L-03: the card grid's closing rule (and the responsive column contract from
@@ -83,14 +79,7 @@ export default function DashboardViews(): JSX.Element {
 
   if (isLoading) {
     return (
-      <p
-        role="status"
-        style={{
-          fontSize: "var(--font-size-base)",
-          color: "var(--color-text-muted)",
-          padding: "var(--space-6)",
-        }}
-      >
+      <p role="status" className={styles.loading}>
         {t("loading")}
       </p>
     );
@@ -98,41 +87,13 @@ export default function DashboardViews(): JSX.Element {
 
   if (error) {
     return (
-      <div
-        role="alert"
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-danger)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-6)",
-          boxShadow: "var(--shadow-card)",
-          maxWidth: "480px",
-        }}
-      >
-        <p
-          style={{
-            color: "var(--color-danger)",
-            fontSize: "var(--font-size-base)",
-            fontWeight: 600,
-            margin: 0,
-            marginBottom: "var(--space-4)",
-          }}
-        >
+      <div role="alert" className={styles.errorBox}>
+        <p className={styles.errorText}>
           {error}
         </p>
         <button
           onClick={() => window.location.reload()}
-          style={{
-            background: "var(--color-primary)",
-            color: "var(--color-surface)",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
-            fontSize: "var(--font-size-base)",
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "var(--transition-fast)",
-          }}
+          className={styles.reloadBtn}
         >
           {t("actions.reload")}
         </button>
@@ -156,7 +117,7 @@ export default function DashboardViews(): JSX.Element {
         }
       />
       {workspaces.length > 0 && (
-        <div style={SEARCH_ROW_STYLE}>
+        <div className={styles.searchRow}>
           <ListToolbar
             testIdPrefix="workspace"
             searchValue={search}
@@ -167,17 +128,7 @@ export default function DashboardViews(): JSX.Element {
         </div>
       )}
       {visibleWorkspaces.length === 0 ? (
-        <p
-          data-testid="workspace-list-empty"
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-            background: "var(--color-surface-raised)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px dashed var(--color-border)",
-          }}
-        >
+        <p data-testid="workspace-list-empty" className={styles.emptyState}>
           {workspaces.length === 0
             ? t("dashboard.empty")
             : t("dashboard.noSearchMatch", { query: search.trim() })}

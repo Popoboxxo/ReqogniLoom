@@ -25,6 +25,7 @@ import { DiagramDetailView } from "./DiagramDetailView";
 import { DiagramList } from "./DiagramList";
 import { useDiagramList } from "./useDiagramData";
 import { extractErrorMessage } from "../../api/client";
+import styles from "./DiagramView.module.css";
 
 export default function DiagramView(): JSX.Element {
   const { t } = useTranslation();
@@ -67,16 +68,7 @@ export default function DiagramView(): JSX.Element {
   const openCreateForm = (): void => setShowCreate(true);
 
   return (
-    <div
-      style={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-        fontFamily: "var(--font-sans)",
-        color: "var(--color-text)",
-      }}
-    >
+    <div className={styles.root}>
       {/* 12.1: exactly one <h1>, always-visible summary, one primary action
           — replaces the bare <h3>({count}) header that used to live inline
           in the left panel. */}
@@ -95,13 +87,13 @@ export default function DiagramView(): JSX.Element {
         <p
           role="alert"
           data-testid="diagrams-delete-error"
-          style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: "0 0 var(--space-4)" }}
+          className={styles.deleteError}
         >
           {deleteError}
         </p>
       )}
 
-      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+      <div className={styles.splitHost}>
       <SplitView
         moduleType="diagrams"
         leftMinWidth={280}
@@ -145,14 +137,7 @@ export default function DiagramView(): JSX.Element {
             onChanged={refresh}
           />
         ) : (
-          <p
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-lg)",
-              padding: "var(--space-8)",
-              textAlign: "center",
-            }}
-          >
+          <p className={styles.emptyHint}>
             {t("diagrams.selectDiagram", "Select a diagram from the list to view details.")}
           </p>
           )

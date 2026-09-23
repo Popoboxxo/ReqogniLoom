@@ -1,0 +1,66 @@
+/*
+ * <VersionBadge> / <VersionTimeline> (UI concept ch. 12.4) — styles.
+ *
+ * Issue #876 (Etappe 7): the timeline's 6 static inline `style={{...}}`
+ * literals were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ *
+ * The badge itself keeps its `versionBadgeStyle(isCurrent)` hoisted
+ * identifier (a per-instance current/superseded value, and `Badge.test.tsx`
+ * pins its `fontFamily`) — see the component.
+ *
+ * `left: -22px` / `width: 10px` / `height: 10px` / the `2px` connector border
+ * have no token of identical value, so they stay literal to keep the rendered
+ * result unchanged.
+ */
+.empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-left: 2px solid var(--color-border);
+  padding-left: var(--space-4);
+}
+
+.entry {
+  position: relative;
+  padding-bottom: var(--space-3);
+}
+
+.dot {
+  position: absolute;
+  left: -22px;
+  top: var(--space-1);
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+
+/* Declared after `.dot` (different property, order is only for readability). */
+.dotCurrent {
+  background: var(--color-primary);
+}
+
+.dotPast {
+  background: var(--color-text-muted);
+}
+
+.entryTitle {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  display: flex;
+  align-items: center;
+}
+
+.entryDate {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-1);
+}

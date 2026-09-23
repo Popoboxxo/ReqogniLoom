@@ -151,16 +151,45 @@
  * Modules, moving those inline declarations onto classes would break the
  * pinned assertions; rewriting the tests is out of scope for this batch, so
  * the file stays exempt and the migration is left for a follow-up.
+ *
+ * Issue #876 Etappe 7, batch 2 of 3 (2026-09-23, same branch
+ * `refactor/876-etappe7-inline-styles`): twelve more carriers were migrated
+ * onto co-located CSS Modules and dropped here — `shared/ListToolbar.tsx`
+ * (8 literals + 2 hoisted constants; new module),
+ * `shared/VersionBadge.tsx` (6 literals; new module — its
+ * `versionBadgeStyle(isCurrent)` stays a hoisted identifier because it is a
+ * per-instance current/superseded value and `Badge.test.tsx` pins its
+ * `fontFamily`), `shared/CustomFieldsEditor.tsx` (4 literals + 1 hoisted
+ * `useMemo` constant; new module), `shared/tag-input.tsx` (4 literals; new
+ * module), `shared/DeriveRequirementForm.tsx` (3 literals + 2 hoisted
+ * constants; new module), `shared/trace-link-display.tsx` (5 hoisted
+ * constants + the `{ ...containerStyle, ...style }` spread; new module — the
+ * public per-instance `style` prop stays a hoisted identifier),
+ * `DashboardViews/DashboardViews.tsx` (5 literals + 1 hoisted constant;
+ * existing module extended), `Goals/GoalDetail.tsx` (4 literals; existing
+ * `Goals.module.css` extended), `BaselinesView/BaselinesPanels.tsx` (2
+ * literals + 2 dynamic values; existing module extended — the summary badge's
+ * caller-supplied colour and the diff row's `statusColor(item.status)` stay
+ * hoisted identifiers), `DiagramView/DiagramCreateForm.tsx` (7 literals; new
+ * module — the spread shared constants from `diagram-view-shared.ts` are
+ * duplicated verbatim, that file is shared and untouched) and
+ * `DiagramView/DiagramView.tsx` (4 literals; new module). That is 11 entries
+ * removed (25 -> 14).
+ *
+ * `shared/PageHeader.tsx` is the one batch-2 file that STAYS on this list:
+ * `PageHeader.test.tsx:29` pins the <h1>'s `fontSize` via
+ * `toHaveStyle({ fontSize: "var(--font-size-3xl)" })`. Its static
+ * declarations were migrated onto `.title` in `PageHeader.module.css`, but
+ * the density-dependent `fontSize` must remain an inline style — the vitest
+ * run does not process CSS Modules, so moving it onto a class would break the
+ * pinned assertion. Rewriting the test is out of scope, so the file stays
+ * exempt (same sanctioned path as `SplitView.tsx`) with the one inline
+ * `style={{ fontSize: ... }}` left in place.
  */
 export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/AdminDialog/TriLabelOverviewDialog.tsx",
   "src/components/ArchitectureDecompose/ArchitectureDecomposePanel.tsx",
   "src/components/ArchitectureEditors/ArchitectureLegend.tsx",
-  "src/components/BaselinesView/BaselinesPanels.tsx",
-  "src/components/DashboardViews/DashboardViews.tsx",
-  "src/components/DiagramView/DiagramCreateForm.tsx",
-  "src/components/DiagramView/DiagramView.tsx",
-  "src/components/Goals/GoalDetail.tsx",
   "src/components/IcdView/IcdDetailPane.tsx",
   "src/components/NeedsEditors/NeedArtifactForm.tsx",
   "src/components/NeedsEditors/NeedList.tsx",
@@ -171,11 +200,5 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/WorkspaceSettings/DefaultStatusBadge.tsx",
   "src/components/canvas/CanvasEditor.tsx",
   "src/components/mermaid/MermaidEditor.tsx",
-  "src/components/shared/CustomFieldsEditor.tsx",
-  "src/components/shared/DeriveRequirementForm.tsx",
-  "src/components/shared/ListToolbar.tsx",
   "src/components/shared/PageHeader.tsx",
-  "src/components/shared/VersionBadge.tsx",
-  "src/components/shared/tag-input.tsx",
-  "src/components/shared/trace-link-display.tsx",
 ];

@@ -1,0 +1,71 @@
+/*
+ * <TraceLinkDisplay> (REQ-002) — styles.
+ *
+ * Issue #876 (Etappe 7): the row's 5 hoisted `CSSProperties` constants
+ * (`containerStyle` / `badgeStyle` / `linkButtonStyle` / `titleSpanStyle` /
+ * `deleteButtonStyle`) and the `style={{ ...containerStyle, ...style }}`
+ * literal were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ *
+ * The component's public `style` prop (per-instance caller override) stays on
+ * the `style` attribute as an identifier — an inline style always beats a
+ * class, so the override order is unchanged. `font-family: monospace` and the
+ * `0.7rem`/`0.85rem`/`1rem`/`2px 6px` figures have no token of identical
+ * value and stay literal.
+ */
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  list-style: none;
+}
+
+.badge {
+  font-size: 0.7rem;
+  background: var(--color-badge-draft);
+  color: var(--color-badge-draft-text);
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.linkButton {
+  font-family: monospace;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titleSpan {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deleteButton {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-danger);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}

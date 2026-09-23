@@ -1,8 +1,14 @@
 /*
  * BaselinesPanels — static (non-dynamic) styles extracted from inline
  * style={{...}} blocks (issue #161, token-system reach). Values reference
- * styles/tokens.css custom properties exclusively; genuinely dynamic styles
- * (e.g. status colour, computed margins) stay inline.
+ * styles/tokens.css custom properties exclusively.
+ *
+ * Issue #876 (Etappe 7): the last two static shapes moved here so the file
+ * could be removed from `eslint-rules/legacy-static-inline-style-files.js`.
+ * The genuinely per-instance values that remain (the summary badge's
+ * caller-supplied `color`, the diff row's `statusColor(item.status)`) stay on
+ * the `style` prop as hoisted identifiers — see the component, and gap 4 of
+ * `eslint-rules/no-static-inline-style.js`.
  */
 
 .section {
@@ -44,6 +50,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* Applied only when the entry carries a full-state snapshot below it (the
+   former `marginBottom: entry.state ? var(--space-2) : 0`). */
+.entryHeaderRowSpaced {
+  margin-bottom: var(--space-2);
 }
 
 .entryType {

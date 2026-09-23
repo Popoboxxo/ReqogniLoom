@@ -1,0 +1,67 @@
+/*
+ * <TagInput> (REQ-010) — styles.
+ *
+ * Issue #876 (Etappe 7): the editor's 4 static inline `style={{...}}`
+ * literals were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ *
+ * `min-height: 38px`, the `2px` pill padding, `80px` input floor and the
+ * `2px`/`1em` remove-button figures have no token of identical value, so they
+ * stay literal to keep the rendered result unchanged.
+ */
+.container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  min-height: 38px;
+  align-items: center;
+  margin-bottom: var(--space-4);
+  cursor: text;
+  box-sizing: border-box;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  font-size: 1em;
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
+/* Declared after `.removeBtn` so the disabled cursor wins. */
+.removeBtnDisabled {
+  cursor: default;
+}
+
+.input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  min-width: 80px;
+  flex: 1;
+  padding: 0;
+}

@@ -18,13 +18,10 @@ import {
   DIAGRAM_TYPES,
   EMPTY_FORM,
   PAYLOAD_FORMATS,
-  formCancelButtonStyle,
-  formInputStyle,
-  formLabelStyle,
-  formPrimaryButtonStyle,
   type FormState,
 } from "./diagram-view-shared";
 import type { DiagramType, PayloadFormat } from "../../types";
+import styles from "./DiagramCreateForm.module.css";
 
 export interface DiagramCreateFormProps {
   onCreated: (diagramId: string) => Promise<void> | void;
@@ -76,27 +73,15 @@ export function DiagramCreateForm({
     }
   };
 
+  const submitDisabled = isSaving || !form.name.trim();
+
   return (
     <div data-testid="diagram-create-form">
-      <h3
-        style={{
-          fontSize: "var(--font-size-lg)",
-          fontWeight: 700,
-          marginTop: 0,
-          marginBottom: "var(--space-4)",
-          color: "var(--color-text)",
-        }}
-      >
+      <h3 className={styles.heading}>
         + {t("diagrams.create", "New Diagram")}
       </h3>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "var(--space-3)",
-        }}
-      >
-        <label style={formLabelStyle}>
+      <div className={styles.grid}>
+        <label className={styles.label}>
           {t("diagrams.name", "Name")}
           <input
             data-testid="diagram-name-input"
@@ -104,11 +89,11 @@ export function DiagramCreateForm({
             type="text"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            style={formInputStyle}
+            className={styles.input}
           />
         </label>
 
-        <label style={formLabelStyle}>
+        <label className={styles.label}>
           {t("diagrams.type", "Type")}
           <select
             data-testid="diagram-type-select"
@@ -116,7 +101,7 @@ export function DiagramCreateForm({
             onChange={(e) =>
               setForm({ ...form, diagram_type: e.target.value as DiagramType })
             }
-            style={formInputStyle}
+            className={styles.input}
           >
             {DIAGRAM_TYPES.map((tp) => (
               <option key={tp} value={tp}>
@@ -126,7 +111,7 @@ export function DiagramCreateForm({
           </select>
         </label>
 
-        <label style={formLabelStyle}>
+        <label className={styles.label}>
           {t("diagrams.source", "Source Format")}
           <select
             data-testid="diagram-format-select"
@@ -139,7 +124,7 @@ export function DiagramCreateForm({
                 content: DEFAULT_CONTENT[fmt],
               });
             }}
-            style={formInputStyle}
+            className={styles.input}
           >
             {/* GH-353 Task 9: Filter to offer node_graph (structured) instead of json,
                 keep canvas_stroke (freehand sketch) and mermaid/plantuml text formats. */}
@@ -160,30 +145,25 @@ export function DiagramCreateForm({
           </select>
         </label>
 
-        <label style={formLabelStyle}>
+        <label className={styles.label}>
           {t("diagrams.description", "Description")}
           <input
             data-testid="diagram-description-input"
             type="text"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
-            style={formInputStyle}
+            className={styles.input}
           />
         </label>
 
-        <label style={{ ...formLabelStyle, gridColumn: "1 / -1" }}>
+        <label className={`${styles.label} ${styles.labelFull}`}>
           {t("diagrams.source", "Source")}
           <textarea
             data-testid="diagram-source-textarea"
             value={form.content}
             onChange={(e) => setForm({ ...form, content: e.target.value })}
             rows={8}
-            style={{
-              ...formInputStyle,
-              fontFamily: "var(--font-mono)",
-              fontSize: "var(--font-size-sm)",
-              resize: "vertical",
-            }}
+            className={`${styles.input} ${styles.textarea}`}
           />
         </label>
 
@@ -191,24 +171,13 @@ export function DiagramCreateForm({
           <div
             data-testid="diagram-create-error"
             role="alert"
-            style={{
-              gridColumn: "1 / -1",
-              color: "var(--color-danger)",
-              fontSize: "var(--font-size-sm)",
-            }}
+            className={styles.error}
           >
             {error}
           </div>
         )}
 
-        <div
-          style={{
-            gridColumn: "1 / -1",
-            display: "flex",
-            gap: "var(--space-2)",
-            justifyContent: "flex-end",
-          }}
-        >
+        <div className={styles.footer}>
           <button
             type="button"
             onClick={() => {
@@ -216,7 +185,7 @@ export function DiagramCreateForm({
               setError(null);
               onCancel();
             }}
-            style={formCancelButtonStyle}
+            className={styles.cancelBtn}
           >
             {t("actions.cancel", "Cancel")}
           </button>
@@ -224,12 +193,8 @@ export function DiagramCreateForm({
             type="button"
             data-testid="diagram-save-btn"
             onClick={() => void handleCreate()}
-            disabled={isSaving || !form.name.trim()}
-            style={{
-              ...formPrimaryButtonStyle,
-              opacity: isSaving || !form.name.trim() ? 0.6 : 1,
-              cursor: isSaving || !form.name.trim() ? "not-allowed" : "pointer",
-            }}
+            disabled={submitDisabled}
+            className={`${styles.submitBtn} ${submitDisabled ? styles.submitBtnDisabled : ""}`}
           >
             {isSaving ? t("actions.saving", "Saving...") : t("actions.save", "Save")}
           </button>

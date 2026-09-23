@@ -13,6 +13,7 @@
 
 import { useState, KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import styles from './tag-input.module.css';
 
 interface TagInputProps {
   tags: string[];
@@ -70,20 +71,7 @@ export function TagInput({
   return (
     <div
       data-testid={testId}
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 'var(--space-1)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
-        padding: 'var(--space-2)',
-        background: 'var(--color-surface)',
-        minHeight: '38px',
-        alignItems: 'center',
-        marginBottom: 'var(--space-4)',
-        cursor: 'text',
-        boxSizing: 'border-box',
-      }}
+      className={styles.container}
       onClick={() => {
         if (disabled) return;
         // Forward click on container to inner input for usability
@@ -97,17 +85,7 @@ export function TagInput({
         <span
           key={`${tag}-${i}`}
           data-testid="tag-pill"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 'var(--space-1)',
-            background: 'var(--color-primary)',
-            color: 'var(--color-on-primary)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '2px var(--space-2)',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 500,
-          }}
+          className={styles.pill}
         >
           {tag}
           <button
@@ -118,17 +96,7 @@ export function TagInput({
               e.stopPropagation();
               removeTag(i);
             }}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'inherit',
-              cursor: disabled ? 'default' : 'pointer',
-              padding: 0,
-              lineHeight: 1,
-              fontSize: '1em',
-              opacity: 0.8,
-              marginLeft: '2px',
-            }}
+            className={`${styles.removeBtn} ${disabled ? styles.removeBtnDisabled : ''}`}
             aria-label={t('actions.removeTag', { tag })}
           >
             &times;
@@ -145,17 +113,7 @@ export function TagInput({
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         placeholder={tags.length === 0 ? placeholder : ''}
-        style={{
-          border: 'none',
-          outline: 'none',
-          background: 'transparent',
-          fontSize: 'var(--font-size-base)',
-          color: 'var(--color-text)',
-          fontFamily: 'var(--font-sans)',
-          minWidth: '80px',
-          flex: 1,
-          padding: 0,
-        }}
+        className={styles.input}
       />
     </div>
   );
