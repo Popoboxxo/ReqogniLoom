@@ -675,8 +675,53 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // fills in `BaselinesView.module.css` use the `background-color` long-hand
 // (same documented precedent as `LoginPage.module.css`/`TestRunsList.module.css`
 // above), and `ArtifactDiff.module.css` declares none.
+//
+// Issue #876 Etappe 6 (2026-09-23, branch
+// `refactor/css-modules-migration-etappe-6`): twelve more carriers were
+// migrated onto co-located CSS Modules and dropped from the ESLint exemption
+// list — the six editor routes
+// `RequirementEditors/RequirementEditors.tsx` (11 literals + 1 dynamic;
+// existing `RequirementEditors.module.css` extended),
+// `IssueEditors/IssueEditors.tsx` (11 literals; new `IssueEditors.module.css`),
+// `NeedsEditors/NeedsEditors.tsx` (10 literals + 1 dynamic; new
+// `NeedsEditors.module.css`), `RiskEditors/RiskEditors.tsx` (11 literals; new
+// `RiskEditors.module.css`), `AdrEditors/AdrEditors.tsx` (11 literals; new
+// `AdrEditors.module.css`) and `TestCaseEditors/TestCaseEditors.tsx` (10
+// literals; existing `TestCaseEditors.module.css` extended), plus
+// `IcdView/SimilarIcdsPanel.tsx` (11 literals + 1 dynamic; new
+// `SimilarIcdsPanel.module.css`),
+// `RequirementEditors/SimilarRequirementsPanel.tsx` (11 literals; new
+// `SimilarRequirementsPanel.module.css`),
+// `RequirementEditors/TraceabilityPanel.tsx` (10 literals + 1 dynamic; new
+// `TraceabilityPanel.module.css`), `DashboardViews/WorkspaceCard.tsx` (10
+// literals + 1 dynamic + 5 hoisted constants; new `WorkspaceCard.module.css`),
+// `SystemSettings/WorkspaceAdminSection.tsx` (10 literals + 2 dynamic + 6
+// hoisted constants; new `WorkspaceAdminSection.module.css`) and
+// `UserProfileSettings/UserProfileSettings.tsx` (8 literals + 2 dynamic + 1
+// hoisted constant; new `UserProfileSettings.module.css`). Re-measured with
+// this file's own scanner: 163, matching the arithmetic (296 - 133).
+//
+// Etappe 6 bookkeeping (2026-09-23), all measured before/after with this file's
+// own scanner: `(b)` hex in `.tsx` unchanged at 3 files / 17 occurrences (none
+// of the twelve migrated files carried a raw hex literal); `(b.1)` hex in CSS
+// unchanged at 1 file / 203 occurrences; `(f)` primary fill unchanged at 29 —
+// `SimilarIcdsPanel.module.css`'s "Find Similar" button is the only new
+// `--color-primary` fill and it uses the `background-color` long-hand (same
+// documented precedent as `BaselinesView.module.css` above), so the
+// shorthand-only `PRIMARY_FILL_PATTERN` stays at 29. The `--color-primary`
+// references in `WorkspaceCard.module.css` (border + stat value) and
+// `RequirementEditors.module.css` are `border`/`color` declarations, never a
+// `background:` fill, so they cannot move `(f)` either.
+//
+// Raw-vs-AST reconciliation (unchanged gap of 3): the ratchet counts raw
+// `style={{` text in every non-test `.tsx` under `components/` (163), while the
+// ESLint rule sees only AST object-literal `style` attributes (160 across 37
+// files). The difference is exactly the three `style={{` occurrences that exist
+// only inside comments — `RequirementEditors/RequirementTreeNode.tsx`,
+// `ArchitectureEditors/ArchitectureEditors.tsx` and
+// `WorkspaceSettings/WorkspaceSettings.tsx` — unchanged across Etappen 5 and 6.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 296;
+const STYLE_BRACE_BASELINE = 163;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

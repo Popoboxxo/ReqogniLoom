@@ -21,6 +21,7 @@ import { CATEGORY_OPTIONS } from './RiskArtifactForm';
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
 import fieldHints from '../shared/FieldHints.module.css';
+import styles from './RiskEditors.module.css';
 
 export default function RiskEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -110,7 +111,7 @@ export default function RiskEditors(): JSX.Element {
   // initial load (no data yet), keeping the list visible on detail reloads.
   if (isLoading && items.length === 0) {
     return (
-      <p role="status" style={{ padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+      <p role="status" className={styles.loadingStatus}>
         {t('loading', 'Laden...')}
       </p>
     );
@@ -118,8 +119,8 @@ export default function RiskEditors(): JSX.Element {
 
   if (error && items.length === 0) {
     return (
-      <div role="alert" style={{ padding: 'var(--space-8)' }}>
-        <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
+      <div role="alert" className={styles.errorContainer}>
+        <p className={styles.errorText}>
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="risk-reload-btn">
@@ -130,7 +131,7 @@ export default function RiskEditors(): JSX.Element {
   }
 
   return (
-    <div data-testid="risks-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div data-testid="risks-page" className={styles.page}>
       {/* 12.1: exactly one <h1>, always-visible summary, one primary action. */}
       <PageHeader
         title={t('nav.risks')}
@@ -150,7 +151,7 @@ export default function RiskEditors(): JSX.Element {
         overflowActions={[interviewCta]}
       />
 
-      <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
+      <div className={styles.splitWrapper}>
         <SplitView
           leftPanel={
             <RiskList
@@ -161,8 +162,8 @@ export default function RiskEditors(): JSX.Element {
             />
           }
           rightPanel={
-            <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
-              <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+            <div className={styles.rightPane}>
+              <div className={styles.detailScroll}>
                 {item && (
                   <TraceSpine
                     stations={derivationChain.stations}
@@ -181,7 +182,7 @@ export default function RiskEditors(): JSX.Element {
                 {item ? (
                   <RiskArtifactForm risk={item} onSaved={handleSaved} onDeleted={handleDeleted} />
                 ) : (
-                  <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+                  <p className={styles.selectPlaceholder}>
                     {t('risks.selectRisk')}
                   </p>
                 )}
@@ -243,7 +244,7 @@ export default function RiskEditors(): JSX.Element {
           >
             <label
               htmlFor="risk-new-title"
-              style={{ display: 'block', fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)', marginBottom: 'var(--space-1)' }}
+              className={styles.createLabel}
             >
               {t('editor.title', 'Title')}
             </label>
@@ -255,11 +256,7 @@ export default function RiskEditors(): JSX.Element {
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder={t('risks.titlePlaceholder', 'z. B. Ausfall der Datenbank im Peak-Load')}
-              style={{
-                width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
-                borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-sm)', background: 'var(--color-surface)', color: 'var(--color-text)',
-              }}
+              className={styles.createInput}
             />
 
             {/* BUG-11: description/category — ordinary risksApi.create()
@@ -294,7 +291,7 @@ export default function RiskEditors(): JSX.Element {
             </select>
 
             {createError && (
-              <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-2)' }}>
+              <p role="alert" className={styles.createError}>
                 {createError}
               </p>
             )}

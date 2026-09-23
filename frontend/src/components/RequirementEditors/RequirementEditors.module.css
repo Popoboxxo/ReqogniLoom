@@ -75,10 +75,120 @@
 
 /*
  * F-04 (code review, 2026-08-19): the BUG-08 field-error styles
- * (`.inputError`/`.fieldError`) and the BUG-11 create-form field styles
- * (`.createLabel`/`.createInput`) belong in the shared
- * `frontend/src/components/shared/FieldHints.module.css` instead — this
- * component imports it as `fieldHints`, keeping the declarations in one
- * place rather than duplicating them here. (Task 25: the deleted
- * `RequirementForm.tsx` used to be the other importer.)
+ * (`.inputError`/`.fieldError`) live in the shared
+ * `frontend/src/components/shared/FieldHints.module.css` — this component
+ * imports it as `fieldHints`, keeping the declarations in one place.
+ * (Task 25: the deleted `RequirementForm.tsx` used to be the other importer.)
+ *
+ * The BUG-11 create-form field styles are split (Etappe 6, #876): the sibling
+ * description/category fields still use `fieldHints.createLabelInline`/
+ * `fieldHints.createInput`, while the migrated title field uses the local
+ * `.createLabel`/`.createInput` below — the shared `.createInput` would
+ * introduce `width: 100%`/`resize`, a visual change the title input never had.
  */
+
+/*
+ * Issue #876 (Etappe 6): the file's 12 inline `style={{...}}` literals (11
+ * static + 1 dynamic) and its 0 hoisted `React.CSSProperties` constants were
+ * migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`60vh`, `100%`, the `1px` border
+ * width and the `600` weight) stay literal so the rendered result is unchanged.
+ *
+ * The fallback create form's `.createLabel`/`.createInput` pair is local and
+ * does NOT reuse the already-imported `fieldHints`: the shared `.createInput`
+ * adds `width: 100%` and `resize: vertical` — the only two deltas (its
+ * `font-family` matches the original inline input) — which this form's input
+ * never had (its parent flex column already stretches it), so reusing it would
+ * be a visual change, not a pure refactor.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the AI-derive status line's colour is driven by the `aiDeriveIsError`
+ *     boolean, so it composes `.deriveStatus` with the `.deriveStatusError`
+ *     modifier instead of freezing the value.
+ */
+
+.errorText {
+  color: var(--color-danger);
+}
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.createLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.createInput {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  box-sizing: border-box;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.rightPane {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  gap: var(--space-3);
+}
+
+.detailScroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+}
+
+.deriveStatus {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.deriveStatusError {
+  color: var(--color-danger);
+}
+
+.deriveTestcaseSection {
+  margin-top: var(--space-2);
+}
+
+.selectPlaceholder {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  text-align: center;
+  padding: var(--space-8);
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.splitWrapper {
+  flex: 1 1 auto;
+  min-height: 60vh;
+}

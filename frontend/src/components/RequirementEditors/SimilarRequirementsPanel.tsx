@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import { requirementsApi } from '../../api/requirements';
 import { extractErrorMessage } from '../../api/client';
 import type { ApiError, SimilarRequirement, UUID } from '../../types';
+import styles from './SimilarRequirementsPanel.module.css';
 
 interface SimilarRequirementsPanelProps {
   requirementId: UUID;
@@ -64,31 +65,10 @@ export function SimilarRequirementsPanel({
   return (
     <section
       data-testid="similar-requirements-panel"
-      style={{
-        marginTop: 'var(--space-4)',
-        padding: 'var(--space-3)',
-        background: 'var(--color-surface-raised)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
-      }}
+      className={styles.panel}
     >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 'var(--space-2)',
-          marginBottom: 'var(--space-2)',
-        }}
-      >
-        <h4
-          style={{
-            fontSize: 'var(--font-size-md)',
-            fontWeight: 600,
-            margin: 0,
-            color: 'var(--color-text)',
-          }}
-        >
+      <div className={styles.header}>
+        <h4 className={styles.heading}>
           {t('requirements.similar.heading', 'Similar Requirements')}
         </h4>
         {/* Issue #926 (part 2): the hand-rolled inline-styled primary button
@@ -114,7 +94,7 @@ export function SimilarRequirementsPanel({
       {state.status === 'no-embedding' && (
         <p
           data-testid="similar-no-embedding"
-          style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)', margin: 0 }}
+          className={styles.mutedText}
         >
           {t(
             'requirements.similar.noEmbedding',
@@ -126,7 +106,7 @@ export function SimilarRequirementsPanel({
       {state.status === 'unavailable' && (
         <p
           data-testid="similar-unavailable"
-          style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)', margin: 0 }}
+          className={styles.mutedText}
         >
           {t(
             'requirements.similar.unavailable',
@@ -139,7 +119,7 @@ export function SimilarRequirementsPanel({
         <p
           role="alert"
           data-testid="similar-error"
-          style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}
+          className={styles.errorText}
         >
           {state.message}
         </p>
@@ -148,7 +128,7 @@ export function SimilarRequirementsPanel({
       {state.status === 'ready' && state.results.length === 0 && (
         <p
           data-testid="similar-empty"
-          style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)', margin: 0 }}
+          className={styles.mutedText}
         >
           {t('requirements.similar.empty', 'No similar requirements found.')}
         </p>
@@ -157,40 +137,20 @@ export function SimilarRequirementsPanel({
       {state.status === 'ready' && state.results.length > 0 && (
         <ul
           data-testid="similar-results"
-          style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}
+          className={styles.results}
         >
           {state.results.map((hit) => (
             <li key={hit.id}>
               <button
                 data-testid={`similar-result-${hit.id}`}
                 onClick={() => onSelect(hit.id)}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 'var(--space-2)',
-                  width: '100%',
-                  textAlign: 'left',
-                  background: 'var(--color-surface)',
-                  color: 'var(--color-text)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: 'var(--space-2) var(--space-3)',
-                  fontSize: 'var(--font-size-sm)',
-                  cursor: 'pointer',
-                }}
+                className={styles.resultButton}
               >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span className={styles.resultName}>
                   {hit.uid ? `${hit.uid} · ` : ''}
                   {hit.title}
                 </span>
-                <span
-                  style={{
-                    flexShrink: 0,
-                    color: 'var(--color-text-muted)',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                >
+                <span className={styles.resultMeta}>
                   {`${Math.round(hit.similarity_score * 100)}%`}
                   {hit.status ? ` · ${hit.status}` : ''}
                 </span>

@@ -9,6 +9,7 @@
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { TraceLink } from "../../types";
+import styles from "./TraceabilityPanel.module.css";
 
 interface TraceabilityPanelProps {
   upstreamLinks: TraceLink[];
@@ -41,39 +42,14 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
   };
 
   return (
-    <li
-      style={{
-        padding: "0.3rem 0",
-        borderBottom: "1px solid var(--color-border)",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        gap: "0.5rem",
-      }}
-    >
+    <li className={styles.item}>
       <span
-        style={{
-          fontSize: "0.8rem",
-          flex: 1,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          color: "var(--color-text)",
-        }}
+        className={styles.title}
         title={`${title} (${linkedId.slice(0, 8)}…)`}
       >
         {title}
       </span>
-      <span
-        style={{
-          fontSize: "0.75rem",
-          background: "var(--color-badge-draft)",
-          color: "var(--color-badge-draft-text)",
-          padding: "0.1rem 0.4rem",
-          borderRadius: "4px",
-          flexShrink: 0,
-        }}
-      >
+      <span className={styles.linkTypeBadge}>
         {link.link_type}
       </span>
       <button
@@ -84,12 +60,7 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
         // aria-label the accessible name is literally "→". Names the target,
         // not the glyph, so a screen-reader user can tell the rows apart.
         aria-label={`${t("traceability.openLinked", "Verknüpftes Artefakt öffnen")}: ${title}`}
-        style={{
-          fontSize: "0.75rem",
-          cursor: isNavigable ? "pointer" : "not-allowed",
-          opacity: isNavigable ? 1 : 0.4,
-          flexShrink: 0,
-        }}
+        className={styles.openButton}
       >
         <span aria-hidden="true">→</span>
       </button>
@@ -108,19 +79,15 @@ export function TraceabilityPanel({
   return (
     <aside
       data-testid="traceability-panel"
-      style={{
-        borderLeft: "1px solid var(--color-border)",
-        paddingLeft: "1rem",
-        minWidth: "200px",
-      }}
+      className={styles.aside}
     >
-      <h4 style={{ margin: "0 0 0.5rem" }}>{t("traceability.upstream")}</h4>
+      <h4 className={styles.headingUpstream}>{t("traceability.upstream")}</h4>
       {upstreamLinks.length === 0 ? (
-        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+        <p className={styles.emptyText}>
           {t("traceability.none")}
         </p>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul className={styles.list}>
           {upstreamLinks.map((l) => (
             <LinkItem
               key={l.id}
@@ -133,13 +100,13 @@ export function TraceabilityPanel({
         </ul>
       )}
 
-      <h4 style={{ margin: "1rem 0 0.5rem" }}>{t("traceability.downstream")}</h4>
+      <h4 className={styles.headingDownstream}>{t("traceability.downstream")}</h4>
       {downstreamLinks.length === 0 ? (
-        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+        <p className={styles.emptyText}>
           {t("traceability.none")}
         </p>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul className={styles.list}>
           {downstreamLinks.map((l) => (
             <LinkItem
               key={l.id}

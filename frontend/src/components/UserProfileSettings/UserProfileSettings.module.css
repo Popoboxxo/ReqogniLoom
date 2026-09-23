@@ -1,0 +1,109 @@
+/*
+ * <UserProfileSettings> (REQ-L2-RF-027, REQ-L3-RF006-001, COMP-RF-006) — styles.
+ *
+ * Issue #876 (Etappe 6): the file's 10 inline `style={{...}}` literals (8
+ * static + 2 dynamic) and its 1 hoisted `React.CSSProperties` constant
+ * (`labelStyle`) were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`640px`, the `500` weight and the
+ * `1px` border width) stay literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the per-feature `<label>` has no `disabled` attribute, so its pending
+ *     cursor uses the dedicated `.featureLabelPending` modifier (base cursor
+ *     `pointer`);
+ *   - the reset button composes `.resetButton` with the `:disabled` pseudo-
+ *     class for its cursor (the element's `disabled` matches
+ *     `isPending || !overridden`) and with `.resetButtonInactive` for its
+ *     opacity (which follows `!overridden` alone) — kept separate because the
+ *     two conditions are not identical: a pending save on an *overridden*
+ *     feature is disabled but was never dimmed.
+ */
+
+.container {
+  max-width: 640px;
+}
+
+.visibilitySection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-top: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.visibilityHeading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.visibilityHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.saveError {
+  color: var(--color-danger);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+/* Former `labelStyle` (the shared flex base) merged with the row-level
+   overrides it was spread with: `justifyContent: space-between`,
+   `padding: var(--space-2) 0` and the `borderTop` separator. */
+.visibilityRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  justify-content: space-between;
+  border-top: 1px solid var(--color-border);
+}
+
+.featureLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+  flex: 1;
+}
+
+.featureLabelPending {
+  cursor: wait;
+}
+
+.featureName {
+  font-weight: 500;
+}
+
+.featureSource {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-left: var(--space-2);
+}
+
+.resetButton {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  opacity: 1;
+}
+
+.resetButton:disabled {
+  cursor: not-allowed;
+}
+
+.resetButtonInactive {
+  opacity: 0.5;
+}

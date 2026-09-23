@@ -1,0 +1,146 @@
+/*
+ * <WorkspaceAdminSection> (REQ-184, SCR-204) — styles.
+ *
+ * Issue #876 (Etappe 6): the file's 12 inline `style={{...}}` literals (10
+ * static + 2 dynamic) and its 6 hoisted `React.CSSProperties` constants
+ * (`cardStyle`, `headingStyle`, `solidActionStyle`, `closeWorkspaceButtonStyle`,
+ * `reactivateWorkspaceButtonStyle`, `deleteWorkspaceButtonStyle`) were migrated
+ * here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`100%`, `640px`-free layout and
+ * the `1px` border width) stay literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the close/delete buttons' pending opacity uses the `:disabled`
+ *     pseudo-class (both elements already carry the matching `disabled`
+ *     condition), so the value is not frozen;
+ *   - the solid semantic buttons compose `.solidAction` (shared geometry, the
+ *     former `solidActionStyle`) with their own colour modifier class, exactly
+ *     like the editor family composes base + modifier.
+ */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.emptyMessage {
+  padding: var(--space-4);
+}
+
+.sectionHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: 0;
+  margin-bottom: var(--space-3);
+}
+
+/*
+ * Solid semantic-colour buttons (close = warning, reactivate = success,
+ * delete = danger). The canonical `.btn-*` set only ships a solid primary
+ * (`btn-primary`), a neutral outline (`btn-secondary`) and an *outline*
+ * danger (`btn-danger`) — none of which preserve these buttons' solid
+ * warning/success/danger emphasis, so their colours stay local. Their
+ * geometry, however, now comes from the shared button tokens (issue #954)
+ * so they are the same 36px tall / 6px radius as every `.btn-*` button
+ * instead of the former one-off padding per button.
+ */
+.solidAction {
+  border: none;
+  border-radius: var(--radius-btn);
+  padding: var(--space-2) var(--space-4);
+  min-height: var(--btn-h-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.closeWorkspaceButton {
+  background: var(--color-warning);
+  color: var(--color-on-warning);
+  margin-right: var(--space-2);
+}
+
+.closeWorkspaceButton:disabled {
+  opacity: 0.5;
+}
+
+.reactivateWorkspaceButton {
+  background: var(--color-success);
+  color: var(--color-on-success);
+  margin-right: var(--space-2);
+}
+
+.deleteWorkspaceButton {
+  background: var(--color-danger);
+  color: var(--color-on-danger);
+}
+
+.deleteWorkspaceButton:disabled {
+  opacity: 0.5;
+}
+
+.cloneRow {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-4);
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.cloneInput {
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.deletePrompt {
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-3);
+  margin-top: 0;
+}
+
+.deleteInput {
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  margin-bottom: var(--space-2);
+  box-sizing: border-box;
+}
+
+.deleteError {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-2);
+}
+
+.saveError {
+  color: var(--color-danger);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-danger);
+}
+
+.savedOk {
+  color: var(--color-success);
+  padding: var(--space-3);
+}

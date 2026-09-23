@@ -17,7 +17,7 @@
  *     style in one of them is not caught by ESLint. Within `src/components/`
  *     that gap is covered by the `STYLE_BRACE_BASELINE` ratchet in
  *     `src/test/ui-ratchet.test.ts`, whose monotonic assertion is an exact
- *     equality (`toBe(408)`), so any net increase turns it red. The residual
+ *     equality (`toBe(163)`), so any net increase turns it red. The residual
  *     gap is a net-zero reshuffle (add here, delete there) in exempted files —
  *     accepted and documented in `no-static-inline-style.js`.
  *
@@ -95,45 +95,59 @@
  * comment hit survived its file's migration, so the gap is unchanged. This
  * matches the arithmetic (405 - 112 literals; the 26 hoisted constants were
  * identifier references and were never AST-visible to this rule).
+ *
+ * Issue #876 Etappe 6 (2026-09-23, branch
+ * `refactor/css-modules-migration-etappe-6`): twelve more carriers were
+ * migrated onto co-located CSS Modules and dropped here — the six editor
+ * routes `RequirementEditors/RequirementEditors.tsx` (11 literals; existing
+ * module extended), `IssueEditors/IssueEditors.tsx` (11 literals; new
+ * module), `NeedsEditors/NeedsEditors.tsx` (10 literals + 1 dynamic; new
+ * module), `RiskEditors/RiskEditors.tsx` (11 literals; new module),
+ * `AdrEditors/AdrEditors.tsx` (11 literals; new module) and
+ * `TestCaseEditors/TestCaseEditors.tsx` (10 literals; existing module
+ * extended), plus `IcdView/SimilarIcdsPanel.tsx` (11 literals + 1 dynamic;
+ * new module), `RequirementEditors/SimilarRequirementsPanel.tsx` (11
+ * literals; new module), `RequirementEditors/TraceabilityPanel.tsx` (10
+ * literals + 1 dynamic; new module),
+ * `DashboardViews/WorkspaceCard.tsx` (10 literals + 1 dynamic + 5 hoisted
+ * constants; new module), `SystemSettings/WorkspaceAdminSection.tsx` (10
+ * literals + 2 dynamic + 6 hoisted constants; new module) and
+ * `UserProfileSettings/UserProfileSettings.tsx` (8 literals + 2 dynamic + 1
+ * hoisted constant; new module). Re-measured with this list temporarily
+ * empty: 160 AST-visible occurrences in 37 files. The ratchet's raw-text count
+ * in the same scope is 163, and the difference of exactly 3 is still the three
+ * comment-only `style={{` occurrences (RequirementTreeNode.tsx,
+ * ArchitectureEditors.tsx, WorkspaceSettings.tsx) — unchanged across Etappen
+ * 5 and 6. This matches the arithmetic (293 - 133 literals; the 12 hoisted
+ * constants were identifier references and were never AST-visible to this
+ * rule).
  */
 export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/AdminDialog/TriLabelOverviewDialog.tsx",
-  "src/components/AdrEditors/AdrEditors.tsx",
   "src/components/ArchitectureDecompose/ArchitectureDecomposePanel.tsx",
   "src/components/ArchitectureEditors/ArchitectureLegend.tsx",
   "src/components/BaselinesView/BaselinesPanels.tsx",
   "src/components/DashboardViews/DashboardViews.tsx",
-  "src/components/DashboardViews/WorkspaceCard.tsx",
   "src/components/DiagramView/DiagramCreateForm.tsx",
   "src/components/DiagramView/DiagramView.tsx",
   "src/components/Goals/GoalDetail.tsx",
   "src/components/IcdView/IcdDetailPane.tsx",
-  "src/components/IcdView/SimilarIcdsPanel.tsx",
-  "src/components/IssueEditors/IssueEditors.tsx",
   "src/components/NeedsEditors/NeedArtifactForm.tsx",
   "src/components/NeedsEditors/NeedList.tsx",
-  "src/components/NeedsEditors/NeedsEditors.tsx",
   "src/components/PermissionMatrix/PermissionMatrixEditor.tsx",
   "src/components/RequirementEditors/GlossaryTooltip.tsx",
   "src/components/RequirementEditors/MarkdownPreview.tsx",
-  "src/components/RequirementEditors/RequirementEditors.tsx",
   "src/components/RequirementEditors/RequirementList.tsx",
   "src/components/RequirementEditors/RequirementTreeNode.tsx",
-  "src/components/RequirementEditors/SimilarRequirementsPanel.tsx",
-  "src/components/RequirementEditors/TraceabilityPanel.tsx",
   "src/components/Reviews/ReviewHistoryPanel.tsx",
   "src/components/Reviews/SignatureDialog.tsx",
-  "src/components/RiskEditors/RiskEditors.tsx",
   "src/components/SplitView/SplitView.tsx",
   "src/components/SystemSettings/EnforcementFlipDialog.tsx",
   "src/components/SystemSettings/EnforcementModePanel.tsx",
   "src/components/SystemSettings/PermissionDefaultsTab.tsx",
   "src/components/SystemSettings/SystemSettings.tsx",
-  "src/components/SystemSettings/WorkspaceAdminSection.tsx",
   "src/components/TestCaseEditors/DeriveTestCasePanel.tsx",
-  "src/components/TestCaseEditors/TestCaseEditors.tsx",
   "src/components/UserProfileSettings/ProfileSection.tsx",
-  "src/components/UserProfileSettings/UserProfileSettings.tsx",
   "src/components/WorkflowEditor/PresetSegmentedControl.tsx",
   "src/components/WorkflowEditor/TransitionEdge.tsx",
   "src/components/WorkspaceSettings/DefaultStatusBadge.tsx",

@@ -1,0 +1,189 @@
+/*
+ * <WorkspaceCard> (REQ-L3-RF002-001/-002/-003, COMP-RF-002) — styles.
+ *
+ * Issue #876 (Etappe 6): the file's 11 inline `style={{...}}` literals (10
+ * static + 1 dynamic) and its 5 hoisted `React.CSSProperties` constants
+ * (`ACTIVE_BADGE_STYLE`, `META_ROW_STYLE`, `NAME_TRUNCATE_STYLE`,
+ * `CARD_WRAPPER_STYLE`, `PRESET_BADGE_POSITION_STYLE`) were migrated here so
+ * the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`1px 8px`, `2px 10px`,
+ * `translateY(-2px)`, `2px`, the `1.6`/`1.3`/`1.1` line-heights, the `700`
+ * weight and the `1px`/`2px` border widths) stay literal so the rendered result
+ * is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the clickable region's hover/active appearance is driven by React state
+ *     (`isHovered`/`isActive`, set by onMouseEnter/Leave), NOT the CSS
+ *     `:hover` pseudo-class, so it composes `.card` with the mutually
+ *     independent `.cardHovered` and `.cardActive` modifiers. `.cardHovered`
+ *     and `.cardActive` are declared after `.card` so their single-class
+ *     specificity wins by source order.
+ */
+
+/*
+ * GESAMTTEST_BERICHT_2026-08-21.md §5 finding 6: the mode/preset badge used to
+ * be a real <button> nested inside this card's outer `role="button"` div — an
+ * invalid, screen-reader-confusing nested-interactive-element pattern. Fixed by
+ * rendering the button as a *sibling* of the card (not a descendant) and
+ * absolutely positioning it over the card's top-right corner via this
+ * positioning-context wrapper, so the visual layout is unchanged while the
+ * accessibility tree no longer nests the two interactive elements.
+ *
+ * #806: the wrapper used to carry its own `minWidth: 260px` / `maxWidth:
+ * 320px` / `flex: 1 1 260px` sizing, left over from the wrapping flex row the
+ * grid replaced. A grid item's width is the track's, so those three were
+ * either inert (`flex`) or actively wrong: the 320px cap kept a card from ever
+ * using a wider track. `min-width: 0` is all that is left — grid item sizing
+ * (and the 300px floor) is owned by `DashboardViews.module.css`'s
+ * `.workspaceGrid`.
+ */
+.cardWrapper {
+  position: relative;
+  min-width: 0;
+}
+
+.card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-6);
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  transition: var(--transition-normal);
+  transform: translateY(0);
+  border: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  box-sizing: border-box;
+}
+
+.cardHovered {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+/* BUG-18: the active card gets a distinct accent border/ring so it stands out
+   from the rest of the grid at a glance, in addition to the explicit text
+   badge below (border colour alone is not sufficient for a11y — WCAG SC
+   1.4.1 Use of Color). */
+.cardActive {
+  border: 2px solid var(--color-primary);
+}
+
+.titleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  /* Room for the sibling preset/mode badge button absolutely positioned over
+     this corner (see .presetBadge) so the title text doesn't run underneath
+     it. */
+  padding-right: calc(3 * var(--space-8));
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6 item 2 / systemaudit 2026-08-29
+     Bug 2: minWidth: 0 alone lets the name span shrink, but with the default
+     flex-grow: 0 this flex item only ever sizes to its *content* — nothing
+     forces it to actually become narrower than the row, so the ellipsis
+     truncation on the name span below never triggered in practice.
+     `flex: 1 1 0%` forces this item to always take exactly the row's
+     available width (row width minus the reserved paddingRight above), making
+     the truncation deterministic regardless of name length. */
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+/* GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: truncates a long workspace name
+   with an ellipsis instead of letting the title row's flex children overflow
+   past the padding-right reserved for the preset badge above. */
+.nameTruncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* UI-consistency P2 (dashboard title truncation): full-card-width meta row
+   shared by the terminology label and the "currently active" pill. */
+.metaRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  min-width: 0;
+}
+
+.activeBadge {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-badge-info-text);
+  background: var(--color-badge-info-bg);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  white-space: nowrap;
+  line-height: 1.6;
+  /* GESAMTTEST_BERICHT_2026-08-21.md §6 item 2: never let the flex row shrink
+     this pill — the workspace-name span is the one that truncates instead. */
+  flex-shrink: 0;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.statColumn {
+  display: flex;
+  flex-direction: column;
+}
+
+.statValue {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1.1;
+}
+
+.statLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+/* Sibling positioning for the preset/mode badge button — see .cardWrapper for
+   why this is no longer nested inside the card's role="button" div. */
+.presetBadge {
+  position: absolute;
+  top: var(--space-6);
+  right: var(--space-6);
+  background: var(--color-badge-draft);
+  color: var(--color-badge-draft-text);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  padding: 2px 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}

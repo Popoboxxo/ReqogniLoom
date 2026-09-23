@@ -21,6 +21,7 @@ import { CATEGORY_OPTIONS } from './IssueArtifactForm';
 // frontend/src/components/shared/FieldHints.module.css header comment) —
 // keeping them in one shared place instead of duplicating them per component.
 import fieldHints from '../shared/FieldHints.module.css';
+import styles from './IssueEditors.module.css';
 
 export default function IssueEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -110,7 +111,7 @@ export default function IssueEditors(): JSX.Element {
   // initial load (no data yet), keeping the list visible on detail reloads.
   if (isLoading && items.length === 0) {
     return (
-      <p role="status" style={{ padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+      <p role="status" className={styles.loadingStatus}>
         {t('loading', 'Laden...')}
       </p>
     );
@@ -118,8 +119,8 @@ export default function IssueEditors(): JSX.Element {
 
   if (error && items.length === 0) {
     return (
-      <div role="alert" style={{ padding: 'var(--space-8)' }}>
-        <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
+      <div role="alert" className={styles.errorContainer}>
+        <p className={styles.errorText}>
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="issue-reload-btn">
@@ -130,7 +131,7 @@ export default function IssueEditors(): JSX.Element {
   }
 
   return (
-    <div data-testid="issues-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div data-testid="issues-page" className={styles.page}>
       {/* 12.1: exactly one <h1>, always-visible summary, one primary action. */}
       <PageHeader
         title={t('nav.issues')}
@@ -150,7 +151,7 @@ export default function IssueEditors(): JSX.Element {
         overflowActions={[interviewCta]}
       />
 
-      <div style={{ flex: '1 1 auto', minHeight: '60vh' }}>
+      <div className={styles.splitWrapper}>
         <SplitView
           leftPanel={
             <IssueList
@@ -161,8 +162,8 @@ export default function IssueEditors(): JSX.Element {
             />
           }
           rightPanel={
-            <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
-              <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+            <div className={styles.rightPane}>
+              <div className={styles.detailScroll}>
                 {item && (
                   <TraceSpine
                     stations={derivationChain.stations}
@@ -182,7 +183,7 @@ export default function IssueEditors(): JSX.Element {
                 {item ? (
                   <IssueArtifactForm issue={item} onSaved={handleSaved} onDeleted={handleDeleted} />
                 ) : (
-                  <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+                  <p className={styles.selectPlaceholder}>
                     {t('issues.selectIssue')}
                   </p>
                 )}
@@ -245,7 +246,7 @@ export default function IssueEditors(): JSX.Element {
           >
             <label
               htmlFor="issue-new-title"
-              style={{ display: 'block', fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)', marginBottom: 'var(--space-1)' }}
+              className={styles.createLabel}
             >
               {t('editor.title', 'Title')}
             </label>
@@ -257,11 +258,7 @@ export default function IssueEditors(): JSX.Element {
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder={t('issues.titlePlaceholder', 'z. B. Login schlägt bei aktivem SSO fehl')}
-              style={{
-                width: '100%', boxSizing: 'border-box', padding: 'var(--space-2) var(--space-3)',
-                borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-sm)', background: 'var(--color-surface)', color: 'var(--color-text)',
-              }}
+              className={styles.createInput}
             />
 
             {/* BUG-11: description/category — ordinary issuesApi.create()
@@ -296,7 +293,7 @@ export default function IssueEditors(): JSX.Element {
             </select>
 
             {createError && (
-              <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-2)' }}>
+              <p role="alert" className={styles.createError}>
                 {createError}
               </p>
             )}

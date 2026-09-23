@@ -1,0 +1,84 @@
+/*
+ * <NeedsEditors> (REQ-L1-095, REQ-L2-RF-034, COMP-RF-003) — styles.
+ *
+ * Issue #876 (Etappe 6): the file's 11 inline `style={{...}}` literals (10
+ * static + 1 dynamic) and its 0 hoisted `React.CSSProperties` constants were
+ * migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ * Values without a token of identical value (`100%`, the `1px` border width)
+ * stay literal so the rendered result is unchanged.
+ *
+ * Dynamic states follow the established class-composition pattern:
+ *   - the AI-derive status line's colour is driven by the `derivationIsError`
+ *     boolean, so it composes `.deriveStatus` with the `.deriveStatusError`
+ *     modifier instead of freezing the value.
+ *
+ * `.customFieldsSection`/`.customFieldsSectionHeading` are the sibling
+ * CustomFieldsEditor wrapper, byte-identical to the same pair in
+ * `TestCaseEditors.module.css`/`RequirementEditors.module.css` (no shared
+ * editor module exists — the family duplicates these objects per file).
+ */
+
+.loadingStatus {
+  padding: var(--space-8);
+  color: var(--color-text-muted);
+}
+
+.errorContainer {
+  padding: var(--space-8);
+}
+
+.errorText {
+  color: var(--color-danger);
+  margin-bottom: var(--space-4);
+}
+
+.rightPane {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  gap: var(--space-3);
+}
+
+.detailScroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+}
+
+.customFieldsSection {
+  margin-top: var(--space-4);
+}
+
+.customFieldsSectionHeading {
+  font-size: var(--font-size-md);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-2);
+}
+
+.selectPlaceholder {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  text-align: center;
+  padding: var(--space-8);
+}
+
+.deriveStatus {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.deriveStatusError {
+  color: var(--color-danger);
+}
+
+.deriveDraftsSection {
+  margin-top: var(--space-3);
+}
+
+.deriveFormSection {
+  margin-top: var(--space-4);
+}
