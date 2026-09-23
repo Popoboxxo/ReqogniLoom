@@ -14,6 +14,7 @@
 
 import { useTranslation } from "react-i18next";
 import type { WorkflowHistoryEntry } from "../../api/requirements";
+import styles from "./ReviewHistoryPanel.module.css";
 
 export interface ReviewHistoryPanelProps {
   entries: WorkflowHistoryEntry[];
@@ -38,7 +39,7 @@ export function ReviewHistoryPanel({
 
   if (isLoading) {
     return (
-      <p role="status" data-testid="review-history-loading" style={{ color: "var(--color-text-muted)" }}>
+      <p role="status" data-testid="review-history-loading" className={styles.mutedText}>
         {t("loading")}
       </p>
     );
@@ -46,7 +47,7 @@ export function ReviewHistoryPanel({
 
   if (error) {
     return (
-      <p role="alert" data-testid="review-history-error" style={{ color: "var(--color-danger)" }}>
+      <p role="alert" data-testid="review-history-error" className={styles.errorText}>
         {t("reviews.historyLoadError", "Failed to load workflow history.")} ({error})
       </p>
     );
@@ -54,36 +55,29 @@ export function ReviewHistoryPanel({
 
   if (entries.length === 0) {
     return (
-      <p data-testid="review-history-empty" style={{ color: "var(--color-text-muted)" }}>
+      <p data-testid="review-history-empty" className={styles.mutedText}>
         {t("reviews.historyEmpty", "No transitions recorded yet.")}
       </p>
     );
   }
 
   return (
-    <ul data-testid="review-history-list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+    <ul data-testid="review-history-list" className={styles.list}>
       {entries.map((entry) => (
         <li
           key={entry.id}
           data-testid={`review-history-entry-${entry.id}`}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "var(--space-3)",
-            padding: "var(--space-2) 0",
-            borderBottom: "1px solid var(--color-border)",
-          }}
+          className={styles.entry}
         >
           <div>
-            <div style={{ fontWeight: 600 }}>
+            <div className={styles.entryTransition}>
               {entry.from_state ?? "—"} → {entry.to_state}
             </div>
-            <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+            <div className={styles.entryMeta}>
               {entry.actor} · {formatTimestamp(entry.transitioned_at)}
             </div>
             {entry.change_reason && (
-              <div style={{ fontSize: "var(--font-size-sm)" }}>{entry.change_reason}</div>
+              <div className={styles.entryReason}>{entry.change_reason}</div>
             )}
           </div>
           <span
@@ -98,7 +92,7 @@ export function ReviewHistoryPanel({
                 ? t("reviews.historySealed", "Signed")
                 : t("reviews.historyUnsealed", "Unsigned")
             }
-            style={{ fontSize: "1.1rem" }}
+            className={styles.sealIcon}
           >
             {entry.sealed ? "🔒" : "—"}
           </span>

@@ -121,6 +121,36 @@
  * 5 and 6. This matches the arithmetic (293 - 133 literals; the 12 hoisted
  * constants were identifier references and were never AST-visible to this
  * rule).
+ *
+ * Issue #876 Etappe 7 (2026-09-23, branch
+ * `refactor/876-etappe7-inline-styles`, final stage): twelve more carriers
+ * were migrated onto co-located CSS Modules and dropped here —
+ * `RequirementEditors/RequirementTreeNode.tsx` (9 literals + 4 hoisted
+ * constants; new module), `RequirementEditors/RequirementList.tsx` (3
+ * literals; existing module extended),
+ * `RequirementEditors/MarkdownPreview.tsx` (3 literals; new module),
+ * `RequirementEditors/GlossaryTooltip.tsx` (1 literal; new module),
+ * `SystemSettings/EnforcementModePanel.tsx` (9 literals + 5 hoisted constants;
+ * new module), `SystemSettings/SystemSettings.tsx` (6 literals; new module),
+ * `SystemSettings/PermissionDefaultsTab.tsx` (3 literals + 3 hoisted
+ * constants; new module), `SystemSettings/EnforcementFlipDialog.tsx` (3
+ * literals; new module), `Reviews/ReviewHistoryPanel.tsx` (9 literals; new
+ * module), `Reviews/SignatureDialog.tsx` (4 literals + 4 hoisted constants;
+ * new module), `PermissionMatrix/PermissionMatrixEditor.tsx` (8 literals + 4
+ * hoisted constants; new module) and `WorkflowEditor/TransitionEdge.tsx` (1
+ * static literal migrated to the `.hitPath` class; its 2 remaining `style`
+ * props are hoisted identifiers carrying genuinely per-instance SVG runtime
+ * values — see that file and gap 4 of `no-static-inline-style.js`).
+ *
+ * `SplitView/SplitView.tsx` deliberately STAYS on this list: its divider
+ * (`cursor: col-resize`) and its legacy left/right panels (the shared
+ * `overscroll-behavior`/`scrollbar-gutter`/`overflow` scroll model) are pinned
+ * by `toHaveStyle`/`getComputedStyle` assertions in
+ * `SplitView.test.tsx`, `RequirementEditors.test.tsx` and
+ * `ArchitectureEditors.test.tsx`. Because the vitest run does not process CSS
+ * Modules, moving those inline declarations onto classes would break the
+ * pinned assertions; rewriting the tests is out of scope for this batch, so
+ * the file stays exempt and the migration is left for a follow-up.
  */
 export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/AdminDialog/TriLabelOverviewDialog.tsx",
@@ -134,22 +164,10 @@ export const LEGACY_STATIC_INLINE_STYLE_FILES = [
   "src/components/IcdView/IcdDetailPane.tsx",
   "src/components/NeedsEditors/NeedArtifactForm.tsx",
   "src/components/NeedsEditors/NeedList.tsx",
-  "src/components/PermissionMatrix/PermissionMatrixEditor.tsx",
-  "src/components/RequirementEditors/GlossaryTooltip.tsx",
-  "src/components/RequirementEditors/MarkdownPreview.tsx",
-  "src/components/RequirementEditors/RequirementList.tsx",
-  "src/components/RequirementEditors/RequirementTreeNode.tsx",
-  "src/components/Reviews/ReviewHistoryPanel.tsx",
-  "src/components/Reviews/SignatureDialog.tsx",
   "src/components/SplitView/SplitView.tsx",
-  "src/components/SystemSettings/EnforcementFlipDialog.tsx",
-  "src/components/SystemSettings/EnforcementModePanel.tsx",
-  "src/components/SystemSettings/PermissionDefaultsTab.tsx",
-  "src/components/SystemSettings/SystemSettings.tsx",
   "src/components/TestCaseEditors/DeriveTestCasePanel.tsx",
   "src/components/UserProfileSettings/ProfileSection.tsx",
   "src/components/WorkflowEditor/PresetSegmentedControl.tsx",
-  "src/components/WorkflowEditor/TransitionEdge.tsx",
   "src/components/WorkspaceSettings/DefaultStatusBadge.tsx",
   "src/components/canvas/CanvasEditor.tsx",
   "src/components/mermaid/MermaidEditor.tsx",

@@ -1,0 +1,116 @@
+/*
+ * <EnforcementModePanel> (REQ-186/187, SCR-206 Card 2) — styles.
+ *
+ * Issue #876 (Etappe 7): the panel's 9 static inline `style={{...}}` literals
+ * and its 5 hoisted `React.CSSProperties` constants (cardStyle/headingStyle/
+ * hintStyle/pillBase/primaryButtonStyle) were migrated here so the file could
+ * be removed from `eslint-rules/legacy-static-inline-style-files.js`. Values
+ * are carried over verbatim; colours and token-backed sizes come from
+ * `styles/tokens.css`.
+ *
+ * The mode pill's conditional colours use class composition
+ * (`.pill` + `.pillAuthoritative` / `.pillShadow`), matching the established
+ * pattern from the earlier migration etappen.
+ */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-2) 0;
+}
+
+.loadingText {
+  color: var(--color-text-muted);
+}
+
+.errorText {
+  color: var(--color-danger);
+}
+
+.textSm {
+  font-size: var(--font-size-sm);
+}
+
+.modeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pill {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.pillAuthoritative {
+  background: rgba(var(--color-success-rgb), 0.12);
+  color: var(--color-success);
+}
+
+.pillShadow {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+
+.successHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-success);
+}
+
+.warningHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-warning);
+}
+
+.actions {
+  margin-top: var(--space-3);
+}
+
+.rollbackButton {
+  background: transparent;
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.rollbackEnabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.rollbackDisabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.primaryButton {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}

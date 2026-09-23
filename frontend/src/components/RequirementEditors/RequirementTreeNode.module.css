@@ -1,0 +1,127 @@
+/*
+ * <RequirementTreeNode> (issue #416) — styles.
+ *
+ * Issue #876 (Etappe 7): the node's 9 static inline `style={{...}}` literals
+ * and its 4 hoisted `React.CSSProperties` constants (TREE_*_STYLE) were
+ * migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Every value is carried
+ * over verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ *
+ * The per-node depth indent is expressed as class composition
+ * (`.node` / `.nodeIndented`) instead of the former inline conditional.
+ */
+
+.node {
+  margin-left: 0;
+}
+
+.nodeIndented {
+  margin-left: var(--space-5);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.toggle {
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  width: 1.25em;
+  padding: 0;
+}
+
+.toggleEnabled {
+  cursor: pointer;
+}
+
+.toggleDisabled {
+  cursor: not-allowed;
+}
+
+.typeBadge {
+  font-size: var(--font-size-xs);
+  background: var(--color-surface-raised);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.outdatedTitle {
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.outdatedBadge {
+  font-size: var(--font-size-xs);
+  background: var(--color-badge-neutral-bg);
+  color: var(--color-badge-neutral-text);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.titleButton {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.statusText {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-2) 0 var(--space-2) var(--space-5);
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin: var(--space-2) 0 var(--space-2) var(--space-5);
+}
+
+.retryButton {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.group {
+  margin-left: var(--space-5);
+}
+
+.groupLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: var(--space-2) 0 var(--space-1);
+}

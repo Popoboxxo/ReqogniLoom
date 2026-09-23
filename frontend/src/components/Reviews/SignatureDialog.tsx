@@ -24,6 +24,7 @@ import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError } from "../../api/errors";
 import { Dialog } from "../shared/Dialog";
+import styles from "./SignatureDialog.module.css";
 
 export interface SignatureDialogProps {
   isOpen: boolean;
@@ -37,37 +38,6 @@ export interface SignatureDialogProps {
   /** POSTs the transition; rejects on validation/permission failure. */
   onSubmit: (credential: string, changeReason: string) => Promise<void>;
 }
-
-const bodyStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-3)",
-};
-
-const footerStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "var(--space-2)",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-border)",
-  fontSize: "var(--font-size-sm)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  boxSizing: "border-box",
-};
-
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  display: "block",
-  marginBottom: "var(--space-1)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-};
 
 export function SignatureDialog({
   isOpen,
@@ -124,7 +94,7 @@ export function SignatureDialog({
       size="sm"
       testId="signature-dialog"
       footer={
-        <div style={footerStyle}>
+        <div className={styles.footer}>
           <button
             type="button"
             data-testid="signature-dialog-cancel"
@@ -148,8 +118,8 @@ export function SignatureDialog({
         </div>
       }
     >
-      <form id={formId} onSubmit={(e) => void handleSubmit(e)} style={bodyStyle}>
-        <p style={{ margin: 0, color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+      <form id={formId} onSubmit={(e) => void handleSubmit(e)} className={styles.body}>
+        <p className={styles.description}>
           {t(
             "reviews.signatureDialog.description",
             "This transition requires a signature. Enter your password or a 6-digit TOTP code to continue."
@@ -157,7 +127,7 @@ export function SignatureDialog({
         </p>
 
         <div>
-          <label htmlFor="signature-dialog-credential" style={labelStyle}>
+          <label htmlFor="signature-dialog-credential" className={styles.label}>
             {t("reviews.signatureDialog.credentialLabel", "Password or TOTP code")}
           </label>
           <input
@@ -172,14 +142,14 @@ export function SignatureDialog({
               "Enter your password or TOTP code"
             )}
             disabled={isSubmitting}
-            style={inputStyle}
+            className={styles.input}
           />
         </div>
 
         <div>
-          <label htmlFor="signature-dialog-reason" style={labelStyle}>
+          <label htmlFor="signature-dialog-reason" className={styles.label}>
             {t("reviews.signatureDialog.reasonLabel", "Reason")}
-            {requiresChangeReason && <span style={{ color: "var(--color-danger)" }}> *</span>}
+            {requiresChangeReason && <span className={styles.required}> *</span>}
           </label>
           <textarea
             id="signature-dialog-reason"
@@ -189,7 +159,7 @@ export function SignatureDialog({
             placeholder={t("reviews.signatureDialog.reasonPlaceholder", "Reason for this decision")}
             rows={3}
             disabled={isSubmitting}
-            style={{ ...inputStyle, fontFamily: "inherit" }}
+            className={styles.input + " " + styles.reasonInput}
           />
         </div>
 
@@ -197,7 +167,7 @@ export function SignatureDialog({
           <p
             role="alert"
             data-testid="signature-dialog-error"
-            style={{ margin: 0, color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}
+            className={styles.errorText}
           >
             {submitError}
           </p>

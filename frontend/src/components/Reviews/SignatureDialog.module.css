@@ -1,0 +1,62 @@
+/*
+ * <SignatureDialog> (COMP-RF-REV-002, REQ-144) — styles.
+ *
+ * Issue #876 (Etappe 7): the dialog's 4 static inline `style={{...}}` literals
+ * and its 4 hoisted `React.CSSProperties` constants (bodyStyle/footerStyle/
+ * inputStyle/labelStyle) were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ *
+ * The reason textarea previously composed `{ ...inputStyle, fontFamily:
+ * "inherit" }` — expressed here as `.input` + `.reasonInput`.
+ */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.reasonInput {
+  font-family: inherit;
+}
+
+.label {
+  font-weight: 600;
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.required {
+  color: var(--color-danger);
+}
+
+.errorText {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}

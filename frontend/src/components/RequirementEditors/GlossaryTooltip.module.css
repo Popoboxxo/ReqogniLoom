@@ -1,0 +1,16 @@
+/*
+ * <GlossaryTooltip> (REQ-L3-RF003-001) — styles.
+ *
+ * Issue #876 (Etappe 7): the single inline `style={{...}}` literal was
+ * migrated here (values carried over verbatim; colours come from
+ * `styles/tokens.css`).
+ */
+.term {
+  border-bottom: 1px dashed var(--color-primary);
+  color: var(--color-primary);
+  cursor: help;
+  font-weight: bold;
+  background-color: var(--color-surface);
+  padding: 0 2px;
+  border-radius: 2px;
+}

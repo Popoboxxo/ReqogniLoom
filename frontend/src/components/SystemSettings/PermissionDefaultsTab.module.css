@@ -1,0 +1,44 @@
+/*
+ * <PermissionDefaultsTab> (REQ-181/186/187, SCR-206) — styles.
+ *
+ * Issue #876 (Etappe 7): the tab's 3 static inline `style={{...}}` literals
+ * and its 3 hoisted `React.CSSProperties` constants (cardStyle/headingStyle/
+ * hintStyle) were migrated here so the file could be removed from
+ * `eslint-rules/legacy-static-inline-style-files.js`. Values are carried over
+ * verbatim; colours and token-backed sizes come from `styles/tokens.css`.
+ */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.loadingText {
+  color: var(--color-text-muted);
+}
+
+.errorText {
+  color: var(--color-danger);
+}
+
+.toast {
+  color: var(--color-success);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-2);
+}

@@ -1,0 +1,106 @@
+/*
+ * <PermissionMatrixEditor> (REQ-181/182, SCR-206 Card 1 / SCR-202 Card 2) —
+ * styles.
+ *
+ * Issue #876 (Etappe 7): the editor's 8 static inline `style={{...}}` literals
+ * and its 4 hoisted `React.CSSProperties` constants (thStyle/tdStyle/
+ * primaryButtonStyle/cancelButtonStyle) were migrated here so the file could
+ * be removed from `eslint-rules/legacy-static-inline-style-files.js`. Values
+ * are carried over verbatim; colours and token-backed sizes come from
+ * `styles/tokens.css`.
+ *
+ * The role header cell (`{ ...tdStyle, textAlign, fontWeight, textTransform }`)
+ * and the save button's disabled geometry use class composition
+ * (`.td` + `.tdRole`, `.primaryButton` + `.primaryEnabled` / `.primaryDisabled`).
+ */
+.scrollX {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+}
+
+.th {
+  text-align: center;
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.thLeft {
+  text-align: left;
+}
+
+.td {
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  text-align: center;
+  vertical-align: middle;
+}
+
+.tdRole {
+  text-align: left;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.errorText {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-2);
+}
+
+/* Theming phase 2, checkpoint 3: the raw-hex var() fallback that used to sit
+   on this colour was dropped — --color-success is always defined in
+   tokens.css, so the fallback was unreachable dead code, not a real colour
+   choice. */
+.savedText {
+  color: var(--color-success);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-2);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.primaryButton {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.primaryEnabled {
+  opacity: 1;
+  cursor: pointer;
+}
+
+.primaryDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cancelButton {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}

@@ -18,6 +18,7 @@ import {
   permissionDefaultsApi,
   extractStaleMismatchCount,
 } from "../../api/permission-defaults";
+import styles from "./EnforcementFlipDialog.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
@@ -110,33 +111,17 @@ export function EnforcementFlipDialog({
       onClose={onClose}
       onConfirm={handleConfirm}
     >
-      <div style={{ margin: "var(--space-3) 0" }}>
+      <div className={styles.section}>
         <button
           type="button"
           data-testid="flip-view-mismatches"
           onClick={handleViewMismatches}
-          style={{
-            background: "transparent",
-            color: "var(--color-primary)",
-            border: "none",
-            padding: 0,
-            fontSize: "var(--font-size-sm)",
-            textDecoration: "underline",
-            cursor: "pointer",
-          }}
+          className={styles.linkButton}
         >
           {t("systemSettings.enforcementFlip.viewMismatches", { count: count ?? 0 })}
         </button>
       </div>
-      <label
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: "var(--space-2)",
-          fontSize: "var(--font-size-sm)",
-          cursor: "pointer",
-        }}
-      >
+      <label className={styles.ackLabel}>
         <input
           type="checkbox"
           data-testid="flip-acknowledge"

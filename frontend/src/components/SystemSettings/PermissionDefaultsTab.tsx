@@ -22,33 +22,12 @@ import { PermissionMatrixEditor } from "../PermissionMatrix/PermissionMatrixEdit
 import { useToast } from "../shared/Toast/useToast";
 import { EnforcementModePanel } from "./EnforcementModePanel";
 import { MismatchReviewTable } from "./MismatchReviewTable";
+import styles from "./PermissionDefaultsTab.module.css";
 
 function extractErrorMessage(err: unknown): string {
   const e = err as { error?: { message?: string }; message?: string };
   return e?.error?.message ?? e?.message ?? String(err);
 }
-
-const cardStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-lg)",
-  padding: "var(--space-5)",
-  marginBottom: "var(--space-5)",
-  boxShadow: "var(--shadow-card)",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-lg)",
-  fontWeight: 600,
-  color: "var(--color-text)",
-  margin: "0 0 var(--space-4) 0",
-};
-
-const hintStyle: React.CSSProperties = {
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text-muted)",
-  margin: "0 0 var(--space-4) 0",
-};
 
 function GlobalPermissionMatrixCard(): JSX.Element {
   const { t } = useTranslation();
@@ -102,15 +81,15 @@ function GlobalPermissionMatrixCard(): JSX.Element {
   );
 
   return (
-    <section style={cardStyle} data-testid="global-permission-matrix-section">
-      <h3 style={headingStyle}>{t("systemSettings.permissionDefaults.globalMatrixTitle")}</h3>
-      <p style={hintStyle}>
+    <section className={styles.card} data-testid="global-permission-matrix-section">
+      <h3 className={styles.heading}>{t("systemSettings.permissionDefaults.globalMatrixTitle")}</h3>
+      <p className={styles.hint}>
         {t("systemSettings.permissionDefaults.globalMatrixHint")}
       </p>
       {loading ? (
-        <p style={{ color: "var(--color-text-muted)" }}>…</p>
+        <p className={styles.loadingText}>…</p>
       ) : error && !def ? (
-        <p role="alert" data-testid="global-matrix-error" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" data-testid="global-matrix-error" className={styles.errorText}>
           {error}
         </p>
       ) : (
@@ -120,11 +99,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
               <p
                 data-testid="global-matrix-propagated-toast"
                 role="status"
-                style={{
-                  color: "var(--color-success)",
-                  fontSize: "var(--font-size-sm)",
-                  marginBottom: "var(--space-2)",
-                }}
+                className={styles.toast}
               >
                 {toast.message}
               </p>

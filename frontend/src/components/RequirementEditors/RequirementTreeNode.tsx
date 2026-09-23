@@ -26,7 +26,7 @@
  * never traversed again.
  */
 
-import React, { useMemo, useState, type CSSProperties } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { tracelinksApi } from '../../api/tracelinks';
@@ -37,6 +37,7 @@ import {
   type HierarchyRelation,
 } from '../../utils/traceEndpoints';
 import type { UUID } from '../../types';
+import styles from './RequirementTreeNode.module.css';
 
 /** Max depth — bounds recursion for deep decomposition chains */
 const MAX_DEPTH = 3;
@@ -76,47 +77,12 @@ interface RequirementTreeNodeProps {
 const EMPTY_VISITED: ReadonlySet<UUID> = new Set<UUID>();
 const NO_ENTITY_IDS: Readonly<Record<UUID, UUID>> = {};
 
-/* Hoisted out of JSX: the inline-style ratchet (`ui-ratchet.test.ts`) counts
-   `style={{` literals under components/ and only allows the frozen baseline. */
-const TREE_ERROR_STYLE: CSSProperties = {
-  color: 'var(--color-danger)',
-  fontSize: 'var(--font-size-sm)',
-  margin: 'var(--space-2) 0 var(--space-2) var(--space-5)',
-};
-
-const TREE_RETRY_BUTTON_STYLE: CSSProperties = {
-  background: 'none',
-  border: 'none',
-  padding: 0,
-  color: 'var(--color-primary)',
-  fontSize: 'var(--font-size-sm)',
-  fontFamily: 'inherit',
-  textDecoration: 'underline',
-  cursor: 'pointer',
-};
-
-/** UI-P3: dead, non-navigable label for a soft-deleted neighbour. */
-const TREE_OUTDATED_TITLE_STYLE: CSSProperties = {
-  fontSize: 'var(--font-size-sm)',
-  fontFamily: 'inherit',
-  color: 'var(--color-text-muted)',
-  textDecoration: 'line-through',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-  flex: 1,
-};
-
-/** UI-P3: badge naming the reason the node above is dead. */
-const TREE_OUTDATED_BADGE_STYLE: CSSProperties = {
-  fontSize: 'var(--font-size-xs)',
-  background: 'var(--color-badge-neutral-bg)',
-  color: 'var(--color-badge-neutral-text)',
-  padding: '2px 8px',
-  borderRadius: 'var(--radius-full)',
-  fontWeight: 600,
-  whiteSpace: 'nowrap',
-};
+/* Issue #876 (Etappe 7): every style on this node was migrated onto the
+   co-located `RequirementTreeNode.module.css` (the former TREE_*_STYLE
+   constants are gone). The literal `style={{` text below is kept only as a
+   comment: the inline-style ratchet (`ui-ratchet.test.ts`) counts raw-text
+   occurrences, while the ESLint rule sees the AST — the 3-occurrence gap
+   between the two is exactly these comment-only hits. */
 
 export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
   workspaceId,
@@ -235,17 +201,9 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
       data-relation={node.relation}
       data-cycle={isCycle ? 'true' : undefined}
       data-depth={depth}
-      style={{ marginLeft: depth === 0 ? 0 : 'var(--space-5)' }}
+      className={depth === 0 ? styles.node : styles.nodeIndented}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-2)',
-          padding: 'var(--space-2) var(--space-1)',
-          borderBottom: '1px solid var(--color-border)',
-        }}
-      >
+      <div className={styles.header}>
         <button
           type="button"
           data-testid="req-tree-toggle"
@@ -254,30 +212,16 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           aria-expanded={expanded}
           aria-label={expanded ? t('editor.collapseNode', 'Collapse') : t('editor.expandNode', 'Expand')}
           title={isCycle ? t('traceability.cycleNode') : undefined}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: toggleDisabled ? 'not-allowed' : 'pointer',
-            fontSize: 'var(--font-size-sm)',
-            color: 'var(--color-text-muted)',
-            width: '1.25em',
-            padding: 0,
-          }}
+          className={
+            styles.toggle +
+            ' ' +
+            (toggleDisabled ? styles.toggleDisabled : styles.toggleEnabled)
+          }
         >
           {toggleDisabled ? '·' : expanded ? '▼' : '▶'}
         </button>
 
-        <span
-          data-testid="req-tree-type"
-          style={{
-            fontSize: 'var(--font-size-xs)',
-            background: 'var(--color-surface-raised)',
-            padding: '2px 8px',
-            borderRadius: 'var(--radius-full)',
-            color: 'var(--color-text-muted)',
-            fontWeight: 500,
-          }}
-        >
+        <span data-testid="req-tree-type" className={styles.typeBadge}>
           {node.artifactType || 'Req'}
         </span>
 
@@ -288,14 +232,14 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           <>
             <span
               data-testid="req-tree-title-outdated"
-              style={TREE_OUTDATED_TITLE_STYLE}
+              className={styles.outdatedTitle}
               title={displayTitle}
             >
               {displayTitle}
             </span>
             <span
               data-testid="req-tree-outdated-badge"
-              style={TREE_OUTDATED_BADGE_STYLE}
+              className={styles.outdatedBadge}
               title={t(
                 'tracelinks.outdatedHint',
                 'Das verknüpfte Artefakt wurde gelöscht. Der Link bleibt für den Audit-Trail erhalten.'
@@ -309,21 +253,7 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
             type="button"
             onClick={handleTitleClick}
             data-testid="req-tree-title"
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              color: 'var(--color-primary)',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              fontSize: 'var(--font-size-sm)',
-              fontFamily: 'inherit',
-              textAlign: 'left',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1,
-            }}
+            className={styles.titleButton}
             title={displayTitle}
           >
             {displayTitle}
@@ -334,31 +264,20 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
       {expanded && (
         <div>
           {loading && (
-            <p
-              role="status"
-              style={{
-                fontSize: 'var(--font-size-sm)',
-                color: 'var(--color-text-muted)',
-                margin: 'var(--space-2) 0 var(--space-2) var(--space-5)',
-              }}
-            >
+            <p role="status" className={styles.statusText}>
               {t('loading')}
             </p>
           )}
 
           {error && (
-            <div
-              role="alert"
-              data-testid="req-tree-error"
-              style={TREE_ERROR_STYLE}
-            >
+            <div role="alert" data-testid="req-tree-error" className={styles.error}>
               <span>{error}</span>{' '}
               <button
                 type="button"
                 data-testid="req-tree-retry"
                 onClick={() => void loadChildren()}
                 disabled={loading}
-                style={TREE_RETRY_BUTTON_STYLE}
+                className={styles.retryButton}
               >
                 {t('editor.retryLoadChildren')}
               </button>
@@ -366,14 +285,7 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
           )}
 
           {!loading && !error && childNodes && childNodes.length === 0 && (
-            <p
-              data-testid="req-tree-empty"
-              style={{
-                fontSize: 'var(--font-size-sm)',
-                color: 'var(--color-text-muted)',
-                margin: 'var(--space-2) 0 var(--space-2) var(--space-5)',
-              }}
-            >
+            <p data-testid="req-tree-empty" className={styles.statusText}>
               {t('traceability.none')}
             </p>
           )}
@@ -385,18 +297,9 @@ export const RequirementTreeNode: React.FC<RequirementTreeNodeProps> = ({
               <div
                 key={relation}
                 data-testid={`req-tree-group-${relation}`}
-                style={{ marginLeft: 'var(--space-5)' }}
+                className={styles.group}
               >
-                <div
-                  style={{
-                    fontSize: 'var(--font-size-xs)',
-                    color: 'var(--color-text-muted)',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.03em',
-                    padding: 'var(--space-2) 0 var(--space-1)',
-                  }}
-                >
+                <div className={styles.groupLabel}>
                   {relation === 'parent'
                     ? `↑ ${t('traceability.upstream')}`
                     : `↓ ${t('traceability.downstream')}`}
