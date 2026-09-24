@@ -168,4 +168,4 @@ numpy>=2.5.3,<3.0
 # that still exposes `ConclusionScope`; this backend's honcho_backend.py is
 # written against that surface (create/query/list/delete). Bump deliberately
 # and re-verify the import + the memory test suite, do not widen the range.
-honcho-ai==2.3.0
+honcho-ai==2.5.0
