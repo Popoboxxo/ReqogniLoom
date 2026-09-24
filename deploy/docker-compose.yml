@@ -816,12 +816,12 @@ services:
   #
   # DEBUG/QS ONLY — NOT A PRODUCTION STORE. This profile is a *debugging* aid
   # for the in-app annotation layer (see/measure it in the real app), not a
-  # product feature; production uses the DRF review_notes app. The sidecar has NO user auth and NO
-  # tenant isolation: one JSON file holds the review notes of EVERY workspace,
-  # with no RLS/TenantContext scoping. The production path is Option A, the DRF
-  # implementation in docs/bluepencil-integration.md §0/§3 (per-tenant ReviewNote
-  # behind JWT + RLS). Do not treat this profile as a pilot; it is a way to see
-  # and measure the layer in the real app. See deploy/bluepencil/README.md.
+  # product feature; a future production path would use a DRF review_notes app.
+  # The sidecar has NO user auth and NO tenant isolation: one JSON file holds the
+  # review notes of EVERY workspace, with no RLS/TenantContext scoping. A
+  # production store must enforce JWT/RBAC, CSRF, and tenant isolation server-side.
+  # Do not treat this profile as a pilot; it is a way to see and measure the layer
+  # in the real app. See docs/bluepencil-integration.md and deploy/bluepencil/README.md.
   #
   # Image: node:22-slim (the vendored server.js imports ONLY Node builtins, no
   # npm deps, so no build step and no package install are needed). The frontend

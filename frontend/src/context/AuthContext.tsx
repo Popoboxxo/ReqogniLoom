@@ -16,20 +16,33 @@
  * - On 401/403 the API client clears state and the caller redirects to /login.
  */
 
-import { createContext,
-  useContext,
-  useState,
-  useEffect,
+import {
+  createContext,
   useCallback,
+  useContext,
+  useEffect,
   useMemo,
+  useRef,
+  useState,
   type ReactNode,
 } from "react";
 import {
+  advanceAuthSessionGeneration,
   apiClient,
   resetUnauthorizedGuard,
   setUnauthorizedHandler,
 } from "../api/client";
-import { teardownBluepencilReviewLayer } from "../bluepencil/loader";
+import {
+  installBluepencilReviewLayer,
+  teardownBluepencilReviewLayer,
+} from "../bluepencil/loader";
+import {
+  bluepencilIdentityFromUser,
+  installBluepencilHost,
+  setBluepencilIdentitySource,
+} from "../bluepencil/host";
+
+const AUTH_TRANSITION_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,6 +148,10 @@ export function AuthProvider({
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
   const [isTenantAdmin, setIsTenantAdmin] = useState<boolean>(false);
+  const authGeneration = useRef(0);
+  const cookieTransitionInFlight = useRef(0);
+  const cookieTransitionTail = useRef<Promise<void>>(Promise.resolve());
+  const loginAbortController = useRef<AbortController | null>(null);
 
   const clearAuth = useCallback(() => {
     setUser(null);
@@ -142,17 +159,42 @@ export function AuthProvider({
     setRoles([]);
     setIsTenantAdmin(false);
     setStatus("anonymous");
+    setBluepencilIdentitySource(null);
   }, []);
 
-  const applyIdentity = useCallback((data: IdentityPayload) => {
+  const invalidateAuth = useCallback(
+    (teardownLayer = true) => {
+      authGeneration.current += 1;
+      if (teardownLayer) teardownBluepencilReviewLayer();
+      clearAuth();
+    },
+    [clearAuth],
+  );
+
+  const enqueueCookieTransition = useCallback((operation: () => Promise<void>): Promise<void> => {
+    const transition = cookieTransitionTail.current.then(async () => {
+      cookieTransitionInFlight.current += 1;
+      try {
+        await operation();
+      } finally {
+        cookieTransitionInFlight.current = Math.max(0, cookieTransitionInFlight.current - 1);
+      }
+    });
+    cookieTransitionTail.current = transition.catch(() => undefined);
+    return transition;
+  }, []);
+
+  const applyIdentity = useCallback((data: IdentityPayload, generation: number) => {
+    if (generation !== authGeneration.current) return;
+    advanceAuthSessionGeneration();
     setUser(data.user);
     setTenantId(data.tenant_id ?? null);
     setRoles(data.roles ?? []);
     setIsTenantAdmin(data.is_tenant_admin ?? false);
     setStatus("authenticated");
-    // Re-arm the 401 notification guard (GitHub #135): a fresh/restored
-    // session must be able to trigger the unauthorized handler again the
-    // next time its access token actually expires and the refresh fails.
+    installBluepencilHost();
+    setBluepencilIdentitySource(() => bluepencilIdentityFromUser(data.user));
+    void installBluepencilReviewLayer();
     resetUnauthorizedGuard();
   }, []);
 
@@ -160,14 +202,18 @@ export function AuthProvider({
   // A 401 (no/expired cookie) simply resolves to the anonymous state.
   useEffect(() => {
     let cancelled = false;
+    const generation = authGeneration.current;
     (async () => {
       try {
-        const data = await apiClient.get<IdentityPayload>("/auth/me/");
+        const data = await apiClient.get<IdentityPayload>("/auth/me/", {
+          suppressUnauthorizedNotification: true,
+        });
         if (cancelled) return;
-        if (data?.user) applyIdentity(data);
+        if (generation !== authGeneration.current) return;
+        if (data?.user) applyIdentity(data, generation);
         else clearAuth();
       } catch {
-        if (!cancelled) clearAuth();
+        if (!cancelled && generation === authGeneration.current) clearAuth();
       }
     })();
     return () => {
@@ -178,77 +224,112 @@ export function AuthProvider({
   // Wire 401/403 handler (REQ-L2-RF-010)
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      clearAuth();
+      if (cookieTransitionInFlight.current > 0) return;
+      advanceAuthSessionGeneration();
+      invalidateAuth();
       onUnauthorized?.();
     });
-  }, [onUnauthorized, clearAuth]);
+  }, [onUnauthorized, invalidateAuth]);
 
-  /** Performs credential-based login via POST /api/v1/auth/login/ */
   const login = useCallback(
-    async (credentials: LoginCredentials): Promise<void> => {
-      const response = await fetch("/api/v1/auth/login/", {
-        method: "POST",
-        // Persist the Set-Cookie the server returns on success (REQ-052).
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(credentials),
-      });
-
-      if (!response.ok) {
-        let message = "Invalid credentials";
+    (credentials: LoginCredentials): Promise<void> => {
+      advanceAuthSessionGeneration();
+      loginAbortController.current?.abort();
+      const controller = new AbortController();
+      loginAbortController.current = controller;
+      const generation = authGeneration.current + 1;
+      authGeneration.current = generation;
+      return enqueueCookieTransition(async () => {
+        let timedOut = false;
+        const timeout = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, AUTH_TRANSITION_TIMEOUT_MS);
         try {
-          const body = await response.json();
-          // The login endpoint answers with the project-wide error envelope
-          // `{"error": {"code", "message", "details"}}` (backend
-          // auth_tenancy/errors.py::build_error_body). Before the 2026-08-27
-          // system audit it used a flat `{"error": "<code>", "message": ...}`,
-          // so both are read here: the nested form first, then the flat one.
-          // Without the nested branch `body.error` is an *object* and the
-          // alert renders "[object Object]".
-          if (typeof body?.error?.message === "string") message = body.error.message;
-          else if (typeof body?.message === "string") message = body.message;
-          else if (typeof body?.error === "string") message = body.error;
-        } catch {
-          // use default
-        }
-        throw new Error(message);
-      }
+          const response = await fetch("/api/v1/auth/login/", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(credentials),
+            signal: controller.signal,
+          });
 
-      const data: LoginResponse = await response.json();
-      // The token is delivered as an httpOnly cookie by the server; the body
-      // token is DEPRECATED (#696) and deliberately not declared on
-      // `LoginResponse` — identity is all this flow needs.
-      applyIdentity({
-        user: data.user,
-        tenant_id: data.tenant_id ?? null,
-        roles: data.roles ?? [],
-        is_tenant_admin: data.is_tenant_admin ?? false,
+          if (!response.ok) {
+            let message = "Invalid credentials";
+            try {
+              const body = await response.json();
+              if (typeof body?.error?.message === "string") message = body.error.message;
+              else if (typeof body?.message === "string") message = body.message;
+              else if (typeof body?.error === "string") message = body.error;
+            } catch {
+              message = "Invalid credentials";
+            }
+            throw new Error(message);
+          }
+
+          const data: LoginResponse = await response.json();
+          if (generation !== authGeneration.current) return;
+          applyIdentity(
+            {
+              user: data.user,
+              tenant_id: data.tenant_id ?? null,
+              roles: data.roles ?? [],
+              is_tenant_admin: data.is_tenant_admin ?? false,
+            },
+            generation,
+          );
+        } catch (error) {
+          if (timedOut) {
+            if (generation === authGeneration.current) {
+              try {
+                await apiClient.post("/auth/logout/", {});
+              } catch {
+                void 0;
+              }
+            }
+            const timeoutError = new Error("Login request timed out");
+            (timeoutError as Error & { cause?: unknown }).cause = error;
+            throw timeoutError;
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+          if (loginAbortController.current === controller) loginAbortController.current = null;
+        }
       });
     },
-    [applyIdentity]
+    [applyIdentity, enqueueCookieTransition]
   );
 
   /** Updates the current user's profile via PATCH /api/v1/auth/me/ (REQ-006). */
   const updateProfile = useCallback(
     async (update: ProfileUpdate): Promise<void> => {
+      const generation = authGeneration.current;
       const data = await apiClient.patch<{ user: AuthUser }>("/auth/me/", update);
+      if (generation !== authGeneration.current) return;
       setUser(data.user);
+      installBluepencilHost();
+      setBluepencilIdentitySource(() => bluepencilIdentityFromUser(data.user));
     },
     []
   );
 
   const logout = useCallback(() => {
-    // Tear the bluepencil review layer down with the session (issue #972):
-    // otherwise a logged-out user's markers would stay on screen.
-    teardownBluepencilReviewLayer();
-    // Best-effort server-side cookie clear (REQ-052); local state is cleared
-    // regardless so the UI logs out even if the request fails.
-    void apiClient.post("/auth/logout/", {}).catch(() => undefined);
-    clearAuth();
-  }, [clearAuth]);
+    advanceAuthSessionGeneration();
+    loginAbortController.current?.abort();
+    loginAbortController.current = null;
+    invalidateAuth();
+    void enqueueCookieTransition(async () => {
+      try {
+        await apiClient.post("/auth/logout/", {});
+      } catch {
+        return;
+      }
+    });
+  }, [enqueueCookieTransition, invalidateAuth]);
 
   const value = useMemo<AuthState>(
     () => ({

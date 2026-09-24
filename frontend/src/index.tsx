@@ -28,6 +28,7 @@ import "./styles/bluepencil.css";
 import "./i18n/index";
 import { App } from "./App";
 import { APP_NAME } from "./config/app-name";
+import { installBluepencilHost } from "./bluepencil/host";
 import { installBluepencilReviewLayer } from "./bluepencil/loader";
 
 // Force React to be globally available to prevent esbuild from stripping the import
@@ -37,9 +38,7 @@ import { installBluepencilReviewLayer } from "./bluepencil/loader";
 // Override the static fallback title (index.html) with the configured product name.
 document.title = APP_NAME;
 
-// bluepencil review layer (issue #972): fire-and-forget so the health probe and
-// injection never delay the first render. No-ops when the build guard or the
-// sidecar probe says no.
+installBluepencilHost();
 void installBluepencilReviewLayer();
 
 const rootElement = document.getElementById("root");

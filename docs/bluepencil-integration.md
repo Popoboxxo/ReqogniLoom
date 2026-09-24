@@ -1,242 +1,182 @@
-# bluepencil in ReqogniLoom integrieren
+# Bluepencil-Integration in ReqogniLoom
 
-> **Status: Vorschlag.** Dieses Dokument ist ein Integrationsplan zur Review — es ändert **keinen**
-> Code. Die Stufen sind so geschnitten, dass jede einzeln entschieden und einzeln gemessen werden
-> kann. Anker-Strategie, Auth-Transport und Store-Entscheidung sind an diesem Repo geprüft, nicht
-> angenommen.
+> **Status: implementierter Host-/Loader-Pfad für dieQS- und Debug-Umgebung.** Dieses Dokument
+> beschreibt den aktuellen Stand im Frontend, nicht einen Plugin- oder MCP-Mechanismus. Hermes,
+> MCP und die Bluepencil-Host-Bridge sind getrennte Integrationspunkte.
 
-Stand: geprüft gegen `Popoboxxo/ReqogniLoom` (Django 4.2 + DRF, React 18 + Vite, PostgreSQL, Redis,
-Celery, docker-compose mit 5 Services, Woodpecker CI, Playwright-E2E) und bluepencil `main`
-(`47f24f1` + die offenen PRs #8/#9).
+Stand der geprüften Browser-Assets: bluepencil `0.1.0-alpha.2` unter
+`frontend/public/bluepencil/latest/`. Der Sidecar ist der vendorisierte alpha.1-Stand unter
+`deploy/bluepencil/server.js`.
 
-**Grundsatz:** bluepencil ist eine *Schicht*, kein Service. Es braucht keinen eigenen Auth, keine
-eigene Datenbank und keinen Build-Schritt im Wirt — es braucht **einen Script-Slot** und **einen
-Store**, der den dokumentierten HTTP-Vertrag spricht.
+## 1. Zweck und Betriebsgrenzen
 
----
+Bluepencil ist eine optionale Review-Notiz-Schicht über der SPA. Sie ist **kein Service der
+Produkt-Domäne**, keine eigene Benutzerverwaltung und keine Plugin-Registrierung. Im aktuellen
+Setup ist der Store ein debug-only Sidecar mit einer JSON-Datei.
 
-## 0. Die eine Entscheidung, die alles andere bestimmt: welcher Store?
+Die Schicht ist standardmäßig aus. Für den Betrieb müssen zwei Schalter passen:
 
-| | Option A — **DRF-Implementierung** (Produktpfad) | Option B — **Sidecar** (QS/Demo) |
+| Umgebung | Schalter | Wirkung |
 |---|---|---|
-| Was | neues Django-App `backend/review_notes/` mit ~6 Endpunkten | `node dist/server.js` als 6. Compose-Service |
-| Mandantentrennung | **ja** — über eure RLS/TenantContext | **nein** — eine JSON-Datei, alle Workspaces teilen sie |
-| Auth | euer JWT + Rollen + Audit | keine (der Sidecar kennt keine Nutzer) |
-| Notizen im MCP-Server | **ja** — als eigene Tool-Gruppe für Agenten | nein |
-| Aufwand | ~1–2 Tage inkl. Tests | ~1 Stunde |
-| Wofür | das Produkt | „ich will es einmal in unserer App sehen" und Messungen (Stufe 2) |
+| Compose-Entwicklung | `COMPOSE_PROFILES=bluepencil` | startet `bluepencil:8787` |
+| Compose-Entwicklung | `BLUEPENCIL_ENABLED=1` in der Root-`.env` | setzt im Dev-Override `VITE_BLUEPENCIL_ENABLED=1` |
+| Produktions-Image | Build-Arg `VITE_BLUEPENCIL_ENABLED=1` | kompiliert den Loader mit aktivem Build-Guard |
+| Sidecar/Loader | `BLUEPENCIL_ENVIRONMENT=dev\|staging\|live` bzw. `VITE_BLUEPENCIL_ENVIRONMENT` | muss auf beiden Seiten übereinstimmen; Default `dev` |
 
-**Empfehlung:** mit **B** anfangen, um die Schicht in der echten App zu sehen und zu messen (wie bei
-der Vortragsseite: Stufe 2 = Parallelbetrieb), und **A** als den Weg bauen, der ausgeliefert wird.
-Der Sidecar ist in einem Multi-Tenant-Produkt **keine** Dauerlösung: keine Nutzerprüfung, kein
-Mandantenbezug, und ein einziger JSON-Store für alle. Das offen sagen, statt es „Pilot" zu nennen.
+`VITE_BLUEPENCIL_ENABLED` wird nur als exakter String `1` akzeptiert. `BLUEPENCIL_ENABLED` ist
+nur die Dev-Override-Variable; ein laufendes Vite-Dev-Server-Prozess liest sie erst beim Start.
+Ein Produktions-Image liest den Guard beim Build und nicht über eine spätere Laufzeitumgebung.
+`BLUEPENCIL_URL` kann in der lokalen Vite-Konfiguration den Proxy-Zielhost überschreiben; der
+Frontend-Endpunkt bleibt `/bluepencil/api`.
 
----
+Der Sidecar ist absichtlich **DEBUG/QS-only**. Er hat keine Benutzer-Authentifizierung, keine
+Mandantentrennung und keine Audit- oder Rollenprüfung. Alle Nutzer, die den Sidecar erreichen,
+können den gemeinsamen JSON-Store lesen und schreiben. Ein produktiver Store muss die normale
+DRF-Authentifizierung, TenantContext/RLS, RBAC und serverseitige Validierung durchsetzen; diese
+Backend-Implementierung ist nicht Teil dieses Pfades.
 
-## 1. Der Script-Slot (einmalig, unvermeidbar)
+## 2. Loader- und Host-Bridge-Vertrag
 
-`frontend/index.html` ist heute:
+Der Frontend-Bootstrap installiert `window.rfBluepencil` vor dem Loader-Script. Der Loader hängt
+das Script nur nach erfolgreichem same-origin Health-Probe an. `attach.js` liest die folgenden
+Pfade, wenn der Vendored Custom Element connected:
 
-```html
-<body>
-  <div id="root"></div>
-  <script type="module" src="/src/index.tsx"></script>
-</body>
-```
-
-Dort darf **genau einmal** ein Slot hin — danach ist alles Weitere per Attribut/URL änderbar. Drei
-Wege, in aufsteigender Sauberkeit:
-
-1. **Build-Zeit (QS, heute):** `frontend/src/index.tsx` hängt den Tag nur an, wenn
-   `import.meta.env.VITE_BLUEPENCIL === "1"`. Kostet drei Zeilen, gilt aber pro Build.
-2. **nginx (`frontend/` Production-Target):** `sub_filter` fügt den Tag im `index.html` ein, sobald
-   `auth_request` gegen Django „ist Reviewer" sagt. Laufzeit-Änderung ohne Rebuild, ohne dass der
-   Tag je bei Endnutzern im HTML steht.
-3. **Django liefert die SPA-Hülle** (Template statt statischem `index.html`) — der sauberste Ort für
-   die Entscheidung, aber ein größerer Umbau.
-
-Der Tag selbst (Element-Build + Loader liegen unter einem versionierten Pfad, `latest.json` daneben):
-
-```html
-<bluepencil-notes
-    endpoint="/api/v1/bluepencil"
-    headers-from="rfBluepencil.headers"
-    gate="rfBluepencil.gate"
-    route-from="rfBluepencil.routeFor"
-    identity="rfBluepencil.identity"
-    build-ref="rfBluepencil.buildRef"></bluepencil-notes>
-<script src="/bluepencil/latest/attach.js"></script>
-```
-
-> **Stand nach dem Bugfix-PR [bluepencil#15](https://github.com/Popoboxxo/bluepencil/pull/15):** Dieses
-> Snippet ist **wortgleich** das, was vorher stumm blieb. Der Loader-Tag ohne ein einziges `data-*`
-> Attribut hing nicht an (Issue #11: die Erkennung verlangte mindestens einen bekannten Schlüssel),
-> und `identity` als *globaler Pfad* war nicht vorgesehen (Issue #12). Beides ist behoben; die
-> Gegenprobe lief in genau eurem Frontend: Tag zur Laufzeit nach `DOMContentLoaded` eingefügt →
-> Element definiert, 1 Attach-Instanz, 3 API-Aufrufe alle 200, 2 Notizen im Round-Trip, 0 Long Tasks.
-> Ein **später** ergänzter Tag wird außerdem von `bluepencilAttach.check()` aufgenommen — ohne Reload.
-
-`endpoint` **root-relativ** lassen: dann ist es derselbe Origin wie die SPA, `fetch` schickt eure
-Cookies automatisch mit (`credentials: "same-origin"` ist der Default) — und CORS entfällt komplett.
-
----
-
-## 2. Die Host-Globale (das eigentliche Stück Arbeit, ~30 Zeilen)
-
-```ts
-// frontend/src/bluepencil/host.ts
-import { readCookie } from "../api/client"; // existiert bereits und ist exportiert
-
-export function installBluepencilHost(opts: {
-  getToken: () => string | null;          // euer TokenManager hält es im Speicher
-  isReviewer: () => boolean;              // Rolle/Feature-Flag im Wirt
-  getIdentity: () => { id?: string; name: string };
-  buildRef: () => string;
-}): void {
-  (window as any).rfBluepencil = {
-    /**
-     * Header als FUNKTION, nicht als Konstante: euer Token rotiert zur Laufzeit, und der
-     * CSRF-Token ist ein Cookie. bluepencil ruft das pro Request auf.
-     */
-    headers: () => {
-      const token = opts.getToken();
-      const csrf = readCookie("csrftoken");
-      return {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(csrf ? { "X-CSRFToken": csrf } : {}),   // Pflicht: POST/PATCH haben eure REQ-052-Prüfung
-      };
-    },
-    /** Client-seitige Vorprüfung. Der echte Riegel muss serverseitig sein (siehe §3). */
-    gate: () => opts.isReviewer(),
-    /**
-     * ReqogniLoom ist eine SPA: die Route ist die Location. Das Element wird genutzt, wenn der Wirt
-     * präziser sein kann (Detail-Ansicht, die das Artefakt besitzt).
-     */
-    routeFor: (element?: Element) => {
-      const scoped = element?.closest?.("[data-rf-view]") as HTMLElement | null;
-      return scoped?.dataset.rfView ?? window.location.pathname;
-    },
-    identity: { getUser: opts.getIdentity },
-    buildRef: () => opts.buildRef(),
-  };
-}
-```
-
-Aufruf in `App.tsx`/`AuthContext` **nach** dem Login (`setAuthToken`), Abbau beim Logout:
-`delete (window as any).rfBluepencil` plus `document.querySelector("bluepencil-notes")?.remove()` —
-sonst bleiben Marker eines abgemeldeten Nutzers stehen.
-
-**Anker-Strategie:** ihr habt `data-testid` auf allen interaktiven Elementen (eure Konvention,
-E2E-Pflicht) — und das ist **ab Werk** der Anker, den bluepencil bevorzugt: die Standard-Hooks sind
-`["data-bluepencil", "data-testid"]` (geprüft in `src/core/anchor.ts`). Ihr müsst dafür **nichts**
-konfigurieren. Ein Attribut `anchor-hooks` (inzwischen nachgereicht) existiert nur, wenn ein Wirt
-*andere* stabile Haken hat oder die Priorität drehen will, z. B. `anchor-hooks="id,data-testid"`.
-
-> Korrektur zu einer früheren Fassung dieses Dokuments: dort stand, `data-testid` sei über den Tag
-> nicht nutzbar und das Attribut sei „der einzige echte Blocker". Das war falsch — es hätte genügt,
-> die Standard-Hooks nachzusehen. Der Tag kann die Haken jetzt zusätzlich setzen, gebraucht wird es
-> für euch aber nicht.
-
-**Aussehen:** bluepencil stylt ausschließlich über CSS-Custom-Properties (`--bp-*`). Eine
-`frontend/src/styles/bluepencil.css` mappt eure Tokens aus `styles/tokens.css` auf `--bp-accent`,
-`--bp-surface`, `--bp-ink`, `--bp-muted`, `--bp-line` — damit sieht die Ebene aus wie euer Produkt,
-ohne dass bluepencil etwas über euer Design-System wissen muss.
-
----
-
-## 3. Der Store: der Vertrag, den Django erfüllen muss
-
-Basis `/api/v1/bluepencil` (Default des http-Adapters). Diese Endpunkte erwartet der Layer:
-
-| Methode | Pfad | Nutzlast / Antwort |
+| Script-Attribut | Globaler Pfad | Verhalten |
 |---|---|---|
-| GET | `/health` | `{ ok, status, version }` |
-| GET | `/notes` | Filter: `route, intent, type, session, source, environment, includeDone, since, status` → `{ notes }` |
-| POST | `/notes` | NoteDraft-JSON → `{ note }` |
-| PATCH | `/notes/{id}` | nur Notizfelder → `{ note }` |
-| POST | `/notes/{id}/messages` | `{ id, ts, text, author, author_type, kind }` → `{ note }` |
-| POST | `/notes/bulk-delete` | `{ ids?, filter?, confirm: true }` → `{ removed }` |
-| GET | `/sessions` | `{ sessions }` |
-| GET | `/bundle` | kanonisches Bundle (Export/Agenten) |
-| GET | `/journal` | Historie — **optional**, nur für Betrieb/Agenten |
+| `data-identity` | `rfBluepencil.identity` | `identity.getUser()` liefert `{ name, id? }` oder `null` |
+| `data-headers-from` | `rfBluepencil.headers` | synchrones `Record<string,string>` pro Sidecar-Anfrage |
+| `data-gate` | `rfBluepencil.gate` | boolescher UI-Schalter |
+| `data-route-from` | `rfBluepencil.routeFor` | synchroner Routing-Schlüssel |
+| `data-endpoint` | — | `/bluepencil/api` |
+| `data-route` | — | `url` als Fallback, falls `route-from` nicht geliefert wird |
 
-Fehlerformat: `{"error":{"code","message"}}`; `400` unparsbare Nutzlast, `404` unbekannte ID, `415`
-kein `application/json`, `405` falsche Methode. DRFs Default-Format weicht ab → eigener
-Exception-Handler (`EXCEPTION_HANDLER`) ist Pflicht, sonst zeigt die Ebene generische Fehler.
+`routeFor` bevorzugt den nächsten `[data-rf-view]`-Vorfahren und fällt auf
+`window.location.pathname` zurück. Das ist nur Metadatenbildung für die Notizroute. Es ist keine
+Autorisierung, kein Tenant-Kontext und keine Zugriffskontrolle.
 
-Modellseitig: eine `ReviewNote` mit **eurem** Tenant-FK (RLS greift wie überall), den kanonischen
-Feldern und `environment` (`dev|staging|live`). Service-Layer-Regel eures Repos gilt: keine
-Model-Queries im View, sondern Service + Serializer.
+Die Brücke verwendet stabile Wrapper-Funktionen. Dadurch können Login, Session-Restore und ein
+Profil-Update die Identity-Quelle ändern, obwohl das Custom Element seine Referenzen beim
+Verbinden eingefroren hat. `buildRef` bleibt als Host-Feld für einen zukünftigen Bundle-Vertrag
+vorhanden, ist im aktuellen `attach.js` aber nicht über `data-build-ref` erreichbar. Der Loader
+setzt deshalb bewusst kein `data-build-ref`.
 
-**Serverseitiger Riegel:** die Endpunkte dürfen nur Reviewer-Rollen schreiben. Der `gate` im Client
-ist Bequemlichkeit, nicht Sicherheit.
+### Lebenszyklus und Race-Invarianten
 
----
+1. `index.tsx` installiert die Host-Globale synchron und startet den Installationsversuch ohne
+   Render-Blockierung.
+2. Ein laufender Health-Probe-Vorgang wird als einzelner In-flight-Vorgang geteilt. Ein zweiter
+   Aufruf wartet auf denselben Vorgang und erzeugt höchstens ein Loader-Script.
+3. Logout oder ein anderer Teardown erhöht die Loader-Lifecycle-Generation und markiert einen
+   ausstehenden Attach-Auftrag als zurückgezogen. Ein frischer Installationsversuch wartet auf den
+   Abschluss des zurückgezogenen Attach-Auftrags.
+4. Der vendorte Loader sendet keine Instanz-ID. Falls der Fünf-Sekunden-Timeout vor dem
+   Abschluss des Vendor-Vorgangs greift, bleibt ein Reattach für dieses Dokument deaktiviert und ein
+   später nachlaufendes Element oder ein später gesetzter Attach-Handle wird entfernt. Nach diesem
+   Timeout ist ein Page-Reload erforderlich; es wird keine nicht deterministische Session-Isolierung
+   behauptet.
+5. Logout entfernt Script und `<bluepencil-notes>`, ruft `bluepencilAttach.destroy()` auf, löscht
+   den Attach-Handle und setzt `window.rfBluepencil` sowie die Identity-Quelle zurück. Ein
+   anschließender Login oder Session-Restore setzt die Identity und startet die Layer-Installation
+   erneut, sofern kein Attach-Timeout den Reattach für dieses Dokument gesperrt hat.
 
-## 4. Verifikation (nach euren Regeln, nicht daneben)
+Die Auth-Race-Grenze ist damit: ein Restore-, Login- oder Profilcallback darf Identity nur
+veröffentlichen, wenn seine Auth-Generation noch aktuell ist. Ein verspäteter Callback kann nach
+Logout keine alte Session wiederherstellen.
 
-1. **Playwright-Spec** (`e2e/bluepencil.spec.ts`): einloggen, `<bluepencil-notes>` muss montiert sein,
-   `data-bp-version` gesetzt, `window.bluepencilAttach.version` = erwartete Version; Notiz auf einem
-   `data-testid`-Element anlegen; danach **außerhalb der Seite** prüfen, dass sie in der API **und** in
-   der DB steht (Assertion im Test, nicht in der App).
-2. **Zwei Läufe pro Notiz prüfen:** einmal mit, einmal ohne Reviewer-Rolle — der Layer darf für
-   Nicht-Reviewer gar nicht laden (und die API muss 403 liefern, auch wenn jemand den Tag von Hand setzt).
-3. **Fehlerpfad mit echter Serverantwort:** `endpoint` auf einen Pfad zeigen, der HTML liefert — die
-   Ebene muss den Fehler melden (`bp-error` + `element.issues`), nicht stumm bleiben.
-4. **CI-Pflicht:** fehlt der Browser, muss der Job rot werden statt still zu skippen (in bluepencil
-   heißt das `BP_REQUIRE_BROWSER=1`).
+## 3. Auth, Cookies und CSRF
 
----
+ReqogniLoom verwendet für die SPA-Session das httpOnly-Cookie `reqogniloom_access` (REQ-052). Der
+Frontend-Bundle-Code hat keinen JS-lesbaren Bearer-Token. Der Root-relative Endpoint läuft über
+denselben Origin; der Browser sendet das Session-Cookie bei Same-Origin-Anfragen automatisch.
+Login- und Logout-Anfragen werden pro Auth-Provider in Aufrufreihenfolge serialisiert, damit ein
+verspätetes `Set-Cookie` nicht den abschließenden Cookie-Zustand überschreibt. Ein neuer Login oder
+Logout bricht einen ausstehenden Login ab; ein Login-Timeout versucht zusätzlich, eine bereits
+serverseitig gesetzte Session-Cookie per Logout zu kompensieren. API-401-Refresh und -Retry sind an
+eine Session-Generation gebunden, damit eine alte Antwort nicht die neu angemeldete Session zerstört.
 
-## 5. Der Agenten-Teil (euer eigentlicher Gewinn)
+Die Host-Bridge setzt **keinen** `Authorization`-Header. Sie liest stattdessen bei jedem Aufruf das
+lesbare `csrftoken`-Cookie und übergibt es als `X-CSRFToken`, sofern vorhanden. Das entspricht dem
+Cookie/CSRF-Verhalten des zentralen API-Clients und ist eine Vorwärtskompatibilität für einen
+DRF-Store mit CSRF-Schutz.
 
-Nach Option A liegen die Review-Notizen in eurer Domäne — dann sind sie in wenigen Zeilen eine
-**MCP-Tool-Gruppe** neben den bestehenden 11 (z. B. `review.notes.list`, `review.notes.reply`,
-`review.notes.bundle`). Damit kann der LLM Anmerkungen aus der Oberfläche direkt als Anforderungs-,
-Risiko- oder Testkandidaten weiterverarbeiten — das ist der Punkt, an dem bluepencil in eurem
-Produkt mehr ist als ein Overlay.
+Der aktuelle Sidecar validiert weder `reqogniloom_access` noch `X-CSRFToken`; die Übergabe des
+CSRF-Headers ist dort daher keine Autorisierungsfunktion. Ein Cookie-Transport allein macht den
+Sidecar nicht sicher. Die UI-Schicht und die Root-relative Proxy-Konfiguration ersetzen keine
+serverseitige Authentifizierung.
 
-Ohne Django-Anbindung geht es auch, aber umständlicher: `bluepencil inspect|export` gegen den
-Store, oder der `/bundle`-Endpunkt des Sidecars.
+## 4. UI-Gate und Sicherheitsgrenze
 
----
+`gate()` liefert in diesem Repository bewusst `true`. Es gibt keine separate Reviewer-Rolle, und
+eine erfundene Rolle wäre eine falsche Berechtigungsannahme. Das Gate steuert nur, ob die
+Annotations affordance in der Oberfläche erscheint; anonyme Besucher werden dadurch nicht
+zuverlässig autorisiert.
 
-## 6. Risiken und offene Punkte (ehrlich)
+Die hostseitige Identity und `routeFor` sind ausschließlich Autor-/Routing-Metadaten. Sie sind
+**keine** Authentifizierung, **keine** Rollenprüfung und **keine** Mandantentrennung. Der Sidecar
+besitzt keine Benutzer- oder Tenant-Isolation. Diese Grenze darf bei einer späteren Umstellung auf
+einen Produktionsspeicher nicht in einen UI-Gate- oder Header-Check verlagert werden.
 
-- **Sechs Endpunkte sind echte Arbeit**, inklusive Schema-Validierung (Notiz-Kanonik) und Tests. Kein
-  Nachmittag, wenn ihr eure Qualitätsregeln einhaltet.
-- **Multi-Tenancy ist die Gefahrenstelle:** jede Notiz braucht den Tenant-Kontext. Eine Implementierung
-  ohne RLS-Prüfung wäre ein Datenleck zwischen Workspaces — das ist der teuerste Fehler dieses Vorhabens.
-- **Datenpolitik:** Review-Notizen enthalten Formulierungen aus dem Inneren des Systems („das ist
-  unfertig", Kundenmeinungen). Aufbewahrung und Purge gehören in die Doku, nicht in eine Fußnote.
-- **Cross-Origin wäre Aufwand:** bluepencil setzt im HTTP-Adapter kein `credentials` (Default
-  `same-origin`, geprüft). Root-relative `endpoint` ist deshalb die Empfehlung; ein anderer Origin
-  bräuchte `credentials: "include"` im Adapter plus CORS-mit-Credentials.
-- **`anchor-hooks`** ist seit `0.1.0-alpha.1` als Attribut vorhanden (bluepencil#10) — **erledigt**, und
-  ehrlich: der Befund war ursprünglich falsch zugespitzt. `data-testid` ist bereits der Standard-Anker;
-  das Attribut ist nur für andere Haken oder eine andere Reihenfolge nötig.
-- **Freigabe-Pfade für den Host (neu, `bluepencil#15`):** `identity="rfBluepencil.identity"` und
-  `can-annotate="rfBluepencil.canAnnotate"` erlauben jetzt echte Host-Entscheidungen aus dem Markup —
-  `can-annotate` ist der Haken für eure eigene Komponentensprache: `fn(element) → false` lehnt ein
-  Element ab (FR-1.10), die Ebene fragt es bei jedem Klick. Damit muss *kein* Element „annotierbar
-  aussehen", ihr entscheidet es.
-- **Die zwei QS-Befunde sind fix (Issues #11, #12).** Was bleibt, ist Arbeit bei euch, nicht in
-  bluepencil: eure sechs Endpunkte, `host.ts`, und der Durchstich durch die Anmeldemaske (dort gibt es
-  keine `data-testid`-Haken — der Authentifizierungs-Smoke muss also über Titel/Aria laufen).
-- **Versionierung:** bluepencil läuft unter versioniertem Pfad mit `latest.json`; ein Upgrade ist ein
-  Attributwechsel, ein Teardown (`destroy()`) gehört dazu — sonst bleibt beim Versionswechsel ein Rest.
+## 5. Build-Pin und Asset-Integrität
 
----
+`latest.json` und die beiden Dateien unter `frontend/public/bluepencil/latest/` werden als
+versionierter Vendored-Satz ausgeliefert:
 
-## Kurzfassung in fünf Schritten
+- Manifest-Version: `0.1.0-alpha.2`
+- Element: `bluepencil.element.min.js`
+- SHA-256: `bb159b42d441abed7721c38ef76ba0c575315843adcf952f0e18b6706f60accf`
 
-1. Sidecar auf eine **Kopie** des gebauten Frontends zeigen (`--root`), einen Tag injizieren, Notiz
-   anlegen, Round-Trip messen. → siehst es heute, ändert noch nichts am Produkt.
-2. `frontend/src/bluepencil/host.ts` schreiben (Header-Funktion **mit** `X-CSRFToken`, gate,
-   routeFor, identity) und in `App.tsx` verankern.
-3. ~~`anchor-hooks` in bluepencil nachreichen~~ — **erledigt** in `0.1.0-alpha.1` (plus die Fixes aus
-   PR #15: Default-Tag, `check()`, `identity`-Pfad, `can-annotate`). Dieser Schritt ist abgehakt; an
-   seiner Stelle steht jetzt: `build-ref`/`identity` an euren Build binden und den Sidecar-Upgrade-Pfad
-   über `latest.json` einmal durchspielen.
-4. Django-App `review_notes` mit dem Vertrag aus §3 (RLS!), Exception-Handler in den DRF-Settings.
-5. Playwright-Spec + CI-Pflicht aus §4, dann MCP-Tool-Gruppe aus §5.
+`attach.js` lädt das Manifest und setzt bei verfügbarem `crypto.subtle` den
+Integritätsvergleich. In einem sicheren Browser-Kontext wird deshalb `data-integrity="true"` gesetzt.
+Auf einem unsicheren LAN-Origin ohne WebCrypto lässt der Loader den Integritätsvergleich bewusst
+aus und warnt einmal sichtbar; ein fehlgeschlagener Integritätscheck darf nicht den gesamten Layer
+stillschweigend verhindern.
+
+Der Produktions-Build muss Bluepencil ausdrücklich mit
+`--build-arg VITE_BLUEPENCIL_ENABLED=1` bauen. `BLUEPENCIL_ENABLED` im laufenden Container
+reaktiviert einen bereits gebauten Production-Bundle nicht. Ein Upgrade von Browser-Assets,
+Manifest und Hash muss gemeinsam erfolgen.
+
+## 6. HTTP-Vertrag des Sidecars
+
+Der Sidecar läuft mit `--base /bluepencil/api` und stellt folgende relative Endpunkte bereit:
+
+| Methode | Pfad | Verwendung |
+|---|---|---|
+| GET | `/bluepencil/api/health` | `{ ok, status, version }` |
+| GET | `/bluepencil/api/notes` | Notizen mit Route-, Intent-, Typ-, Session-, Source-, Environment-, Status- und Zeitfiltern |
+| POST | `/bluepencil/api/notes` | Notiz anlegen |
+| PATCH | `/bluepencil/api/notes/{id}` | Notizfelder ändern |
+| POST | `/bluepencil/api/notes/{id}/messages` | Antwort/Review-Nachricht anhängen |
+| POST | `/bluepencil/api/notes/bulk-delete` | Löschen mit `{ ids?, filter?, confirm: true }` |
+| GET | `/bluepencil/api/sessions` | Sessions |
+| GET | `/bluepencil/api/bundle` | kanonischer Export |
+| GET | `/bluepencil/api/journal` | optionale Historie |
+
+Der Sidecar schreibt in `/data/notes.json` im Compose-Volume `bluepencil_data`. Die
+Compose-Umgebung setzt Store, Port, Base-Path und Environment; der Sidecar veröffentlicht keinen
+Host-Port. `make bluepencil` startet nur den optionalen Sidecar. `make bluepencil-down` stoppt nur
+diesen Sidecar und lässt die übrigen Dienste laufen.
+
+## 7. Verifikation
+
+Die fokussierten Regressionstests prüfen Bridge-Header, Identity-Mapping, Gate, Routepfade,
+In-flight-Install-Invalidierung, doppelte Probe-Vermeidung sowie Logout→Login:
+
+```text
+cd frontend
+npx vitest run src/api/client.test.ts src/test/bluepencil-loader.test.ts src/test/bluepencil-loader-timeout.test.ts src/test/bluepencil-host.test.ts src/test/AuthContext.bluepencil.test.tsx src/test/AuthContext.login-timeout.test.tsx
+npm run lint
+npx tsc --noEmit -p tsconfig.json
+```
+
+Der optionale Playwright-Spec `e2e/tests/bluepencil.spec.ts` prüft den realen Sidecar-Roundtrip nur,
+wenn Sidecar und Frontend-Build explizit aktiviert sind. Ohne Sidecar wird jeder Test sichtbar mit
+einer konkreten Begründung übersprungen; ein fehlender Browser darf den CI-Lauf nicht stillschweigend
+als Erfolg behandeln.
+
+## 8. Nicht-Ziele und Ausbau
+
+Der Sidecar ist kein Produktionspfad. Ein späterer DRF-Service benötigt
+Tenant-FK, RLS, Authentifizierung, Rollenprüfung, CSRF- und Fehlerverträgen. Der Frontend-Host-
+Vertrag kann dafür weiterverwendet werden, aber Identity, Route-Metadaten und das UI-Gate dürfen
+nicht als Ersatz für diese Server-Regeln behandelt werden.

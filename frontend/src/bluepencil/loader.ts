@@ -1,89 +1,67 @@
-/**
- * ARCH-L1-001 ReactFrontend — bluepencil review-layer runtime gate (issue #972).
- *
- * Option B of `docs/bluepencil-integration.md`: bluepencil runs as a
- * self-hosted sidecar and is mounted as a layer over the SPA. It is globally
- * activatable/deactivatable on two independent levels:
- *
- *   1. build guard   — only an explicit `VITE_BLUEPENCIL_ENABLED="1"` arms the
- *                      layer; unset means it never probes and never loads;
- *   2. runtime probe — with the guard armed, the layer is injected only when the
- *                      sidecar answers its `/health` endpoint, so a down sidecar
- *                      degrades to "no review layer" instead of broken UI.
- *
- * Everything here is best-effort: a review layer must never break or delay the
- * host app, so every failure degrades to `false` plus a single debug line.
- */
+import { installBluepencilHost, resetBluepencilHost } from "./host";
 
-/** Vendored loader and manifest (see `frontend/public/bluepencil/latest/`). */
+/** Vendored loader URL. */
 export const LOADER_SRC = "/bluepencil/latest/attach.js";
+/** Vendored manifest URL. */
 export const MANIFEST_URL = "/bluepencil/latest/latest.json";
-/** Sidecar base path; the Vite dev proxy forwards it same-origin (vite.config.ts). */
+/** Same-origin sidecar health endpoint. */
 export const HEALTH_URL = "/bluepencil/api/health";
-/** Root-relative on purpose: same origin, so no CORS and cookies ride along. */
+
 const ENDPOINT = "/bluepencil/api";
-/** Marker attribute identifying our injected loader (idempotency + teardown). */
 const LOADER_MARKER = "data-bluepencil-loader";
+const ATTACH_READY_EVENT = "bp-attach-ready";
+const ATTACH_ERROR_EVENT = "bp-attach-error";
+const ATTACH_SETTLE_TIMEOUT_MS = 5_000;
+const RETIRED_HANDLE_GUARD_MS = 30_000;
 
 declare global {
   interface Window {
-    /**
-     * Exposed by the vendored `attach.js`. Typed loosely on purpose — the host
-     * only reads `version` and calls `check()`/`destroy()`.
-     */
     bluepencilAttach?: {
       version?: string;
-      check?: () => void;
+      check?: () => void | Promise<boolean>;
       destroy?: () => void;
+      element?: Element | null;
+      instances?: Element[];
     };
-    /** Reserved for the host bridge; teardown clears it. */
-    rfBluepencil?: unknown;
   }
 }
 
-/**
- * Build-time guard. The layer is strictly **opt-in**: only an explicit
- * `VITE_BLUEPENCIL_ENABLED="1"` arms the runtime probe, in every environment.
- *
- * Opt-in rather than auto-detect on purpose: the probe is a real `fetch` to
- * `/bluepencil/api/health`. Where no sidecar runs, that path answers 404/502 and
- * the browser logs it as a console error — and this repo's E2E suite asserts a
- * clean console, so an unconfigured deployment must never probe at all.
- */
+let warnedMissingWebCrypto = false;
+let lifecycleGeneration = 0;
+let installPromise: Promise<boolean> | null = null;
+let activeAttachRecord: AttachRecord | null = null;
+let retirementBarrier: Promise<void> | null = null;
+let attachReattachBlocked = false;
+let retiredLayerObserver: MutationObserver | null = null;
+let retiredHandleDescriptor: PropertyDescriptor | null = null;
+let retiredHandleTimer: ReturnType<typeof setTimeout> | null = null;
+let retiredHandleGuardActive = false;
+const suppressedAttachHandles = new WeakSet<object>();
+
+interface AttachRecord {
+  readonly generation: number;
+  readonly script: HTMLScriptElement;
+  readonly done: Promise<void>;
+  retired: boolean;
+  settled: boolean;
+  completionScheduled: boolean;
+  completionTimer: ReturnType<typeof setTimeout> | null;
+  fallbackTimer: ReturnType<typeof setTimeout> | null;
+  resolveDone: () => void;
+  onReady: () => void;
+  onError: () => void;
+  onScriptError: () => void;
+}
+
+/** Returns whether the build-time Bluepencil guard is enabled. */
 export function isBluepencilEnabledByBuild(): boolean {
   return import.meta.env.VITE_BLUEPENCIL_ENABLED === "1";
 }
 
-/** Warned once per session; see {@link hasWebCrypto} / issue #981. */
-let warnedMissingWebCrypto = false;
-
-/**
- * Whether the browser exposes `crypto.subtle` (WebCrypto).
- *
- * The vendored loader verifies the element bundle against `latest.json`'s
- * SHA256 through `crypto.subtle`, which browsers only expose in a **secure
- * context** — HTTPS, `localhost`, `127.0.0.1`, `file:`. On a plain-HTTP origin
- * with an IP/hostname (every normal LAN/QS deployment, e.g.
- * `http://172.20.5.120:5173`) the integrity step throws and, with
- * `data-integrity="true"`, aborts the *whole* attach: the layer silently never
- * mounts and the only trace is a `console.debug` (issue #981).
- *
- * We therefore arm the integrity check only where it can run and otherwise load
- * the layer without it — the documented, visible-once trade-off — instead of
- * leaving a correctly-configured deployment looking unconfigured.
- */
 function hasWebCrypto(): boolean {
   return typeof crypto !== "undefined" && crypto.subtle !== undefined;
 }
 
-/**
- * Map the app's current i18next language onto bluepencil's `de`/`en`.
- *
- * Imported lazily on purpose: a static import of `../i18n` would make importing
- * this module (e.g. via `AuthContext` for teardown) initialize i18n — which
- * breaks unit tests that mock `react-i18next` without its full surface. The
- * language is only needed at injection time anyway.
- */
 async function currentLanguage(): Promise<"de" | "en"> {
   try {
     const { i18n } = await import("../i18n/index");
@@ -94,19 +72,12 @@ async function currentLanguage(): Promise<"de" | "en"> {
   }
 }
 
-/**
- * The sidecar is bound to ONE environment and refuses mismatching writes, so
- * the deployment must keep this in sync with its `BLUEPENCIL_ENVIRONMENT`.
- */
 function sidecarEnvironment(): string {
   const value: unknown = import.meta.env.VITE_BLUEPENCIL_ENVIRONMENT;
   return typeof value === "string" && value !== "" ? value : "dev";
 }
 
-/**
- * Asks the sidecar whether it is alive. Never throws: a timeout, a network
- * error, a non-2xx status or a body without `ok: true` all mean "not there".
- */
+/** Probes the optional sidecar without throwing. */
 export async function probeSidecar(timeoutMs = 1500): Promise<boolean> {
   try {
     if (typeof fetch !== "function") return false;
@@ -126,76 +97,255 @@ export async function probeSidecar(timeoutMs = 1500): Promise<boolean> {
   }
 }
 
-/**
- * The single entry point. Fire-and-forget from bootstrap — never awaited before
- * render. Returns `true` only when a loader script was actually injected.
- */
-export async function installBluepencilReviewLayer(): Promise<boolean> {
+function removeLayerNodes(): void {
+  if (typeof document === "undefined") return;
+  document.querySelectorAll(`script[${LOADER_MARKER}]`).forEach((node) => node.remove());
+  document.querySelectorAll("bluepencil-notes").forEach((node) => node.remove());
+}
+
+function destroyAttachValue(attach: unknown): void {
+  if ((typeof attach !== "object" && typeof attach !== "function") || attach === null) return;
+  if (suppressedAttachHandles.has(attach)) return;
+  suppressedAttachHandles.add(attach);
+  const destroy = (attach as { destroy?: () => void }).destroy;
+  if (typeof destroy !== "function") return;
   try {
+    destroy.call(attach);
+  } catch (error) {
+    void error;
+  }
+}
+
+function destroyAttachHandle(): void {
+  if (typeof window === "undefined") return;
+  destroyAttachValue(window.bluepencilAttach);
+  try {
+    delete window.bluepencilAttach;
+  } catch (error) {
+    void error;
+  }
+}
+
+function resetHostSafely(): void {
+  try {
+    resetBluepencilHost();
+  } catch (error) {
+    void error;
+  }
+}
+
+function endRetiredHandleGuard(): void {
+  if (typeof window === "undefined") return;
+  if (retiredHandleTimer !== null) clearTimeout(retiredHandleTimer);
+  retiredHandleTimer = null;
+  const descriptor = retiredHandleDescriptor;
+  retiredHandleDescriptor = null;
+  retiredHandleGuardActive = false;
+  try {
+    if (descriptor === null) delete window.bluepencilAttach;
+    else Object.defineProperty(window, "bluepencilAttach", descriptor);
+  } catch (error) {
+    void error;
+  }
+}
+
+function guardRetiredHandleAssignments(): void {
+  if (typeof window === "undefined" || retiredHandleGuardActive) return;
+  retiredHandleDescriptor = Object.getOwnPropertyDescriptor(window, "bluepencilAttach") ?? null;
+  retiredHandleGuardActive = true;
+  try {
+    Object.defineProperty(window, "bluepencilAttach", {
+      configurable: true,
+      get: () => undefined,
+      set: (value: unknown) => {
+        destroyAttachValue(value);
+      },
+    });
+  } catch (error) {
+    void error;
+    retiredHandleDescriptor = null;
+    retiredHandleGuardActive = false;
+    return;
+  }
+  retiredHandleTimer = setTimeout(endRetiredHandleGuard, RETIRED_HANDLE_GUARD_MS);
+}
+
+function observeRetiredLayer(): void {
+  if (retiredLayerObserver !== null || typeof MutationObserver === "undefined") return;
+  retiredLayerObserver = new MutationObserver(() => {
+    if (document.querySelector("bluepencil-notes") === null) return;
+    removeLayerNodes();
+    destroyAttachHandle();
+  });
+  retiredLayerObserver.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+function blockReattachAfterTimeout(): void {
+  attachReattachBlocked = true;
+  guardRetiredHandleAssignments();
+  observeRetiredLayer();
+}
+
+function finishAttachRecord(record: AttachRecord): void {
+  if (record.settled) return;
+  record.settled = true;
+  if (record.completionTimer !== null) clearTimeout(record.completionTimer);
+  if (record.fallbackTimer !== null) clearTimeout(record.fallbackTimer);
+  document.removeEventListener(ATTACH_READY_EVENT, record.onReady);
+  document.removeEventListener(ATTACH_ERROR_EVENT, record.onError);
+  record.script.removeEventListener("error", record.onScriptError);
+  if (activeAttachRecord === record) activeAttachRecord = null;
+  if (record.retired) {
+    removeLayerNodes();
+    destroyAttachHandle();
+  }
+  if (retirementBarrier === record.done) retirementBarrier = null;
+  record.resolveDone();
+}
+
+function scheduleAttachCompletion(record: AttachRecord): void {
+  if (record.generation !== lifecycleGeneration) record.retired = true;
+  if (record.settled || record.completionScheduled) return;
+  record.completionScheduled = true;
+  record.completionTimer = setTimeout(() => finishAttachRecord(record), 0);
+}
+
+function createAttachRecord(script: HTMLScriptElement, generation: number): AttachRecord {
+  let resolveDone!: () => void;
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
+  const record: AttachRecord = {
+    generation,
+    script,
+    done,
+    retired: false,
+    settled: false,
+    completionScheduled: false,
+    completionTimer: null,
+    fallbackTimer: null,
+    resolveDone,
+    onReady: () => undefined,
+    onError: () => undefined,
+    onScriptError: () => undefined,
+  };
+  record.onReady = () => scheduleAttachCompletion(record);
+  record.onError = () => {
+    record.retired = true;
+    scheduleAttachCompletion(record);
+  };
+  record.onScriptError = record.onError;
+  document.addEventListener(ATTACH_READY_EVENT, record.onReady);
+  document.addEventListener(ATTACH_ERROR_EVENT, record.onError);
+  script.addEventListener("error", record.onScriptError);
+  activeAttachRecord = record;
+  record.fallbackTimer = setTimeout(() => {
+    if (record.settled) return;
+    record.retired = true;
+    finishAttachRecord(record);
+    blockReattachAfterTimeout();
+  }, ATTACH_SETTLE_TIMEOUT_MS);
+  return record;
+}
+
+function appendLoaderScript(script: HTMLScriptElement, generation: number): void {
+  const record = createAttachRecord(script, generation);
+  try {
+    (document.head ?? document.documentElement).append(script);
+  } catch (error) {
+    record.retired = true;
+    finishAttachRecord(record);
+    throw error;
+  }
+}
+
+async function installBluepencilReviewLayerAt(generation: number): Promise<boolean> {
+  try {
+    if (attachReattachBlocked) return false;
+    if (generation !== lifecycleGeneration) return false;
     if (!isBluepencilEnabledByBuild()) return false;
     if (typeof document === "undefined") return false;
     if (document.querySelector(`script[${LOADER_MARKER}]`) !== null) return false;
     if (!(await probeSidecar())) return false;
-    // The probe is async: a concurrent caller may have injected while we waited.
-    if (document.querySelector(`script[${LOADER_MARKER}]`) !== null) return false;
+    if (
+      generation !== lifecycleGeneration ||
+      document.querySelector(`script[${LOADER_MARKER}]`) !== null
+    ) {
+      return false;
+    }
 
-    // Issue #981: on an insecure origin the vendored loader's SHA256 check
-    // cannot run, and requesting it anyway aborts the whole attach. Load
-    // without integrity there and say so once, visibly.
     const integrity = hasWebCrypto();
     if (!integrity && !warnedMissingWebCrypto) {
       warnedMissingWebCrypto = true;
       console.warn(
-        "[bluepencil] crypto.subtle is unavailable (insecure context, e.g. " +
-          "plain-HTTP LAN origin). Loading the review layer WITHOUT the " +
-          "bundle integrity check. Serve the app over HTTPS or localhost to " +
-          "re-enable verification.",
+        "[bluepencil] crypto.subtle is unavailable; loading without the bundle integrity check.",
       );
     }
+
+    const language = await currentLanguage();
+    if (generation !== lifecycleGeneration) return false;
+    if (document.querySelector(`script[${LOADER_MARKER}]`) !== null) return false;
+
+    installBluepencilHost();
 
     const script = document.createElement("script");
     script.src = LOADER_SRC;
     script.async = true;
     script.setAttribute(LOADER_MARKER, "1");
     script.setAttribute("data-endpoint", ENDPOINT);
-    // `route="url"` is the SPA-correct store key: pathname + search.
     script.setAttribute("data-route", "url");
     script.setAttribute("data-manifest", MANIFEST_URL);
     if (integrity) script.setAttribute("data-integrity", "true");
-    script.setAttribute("data-language", await currentLanguage());
+    script.setAttribute("data-language", language);
     script.setAttribute("data-environment", sidecarEnvironment());
-    // Deliberately NOT set (bluepencil defaults are already correct for this
-    // repo): `data-anchor-hooks` (`data-bluepencil,data-testid`) and
-    // `data-version` (the manifest is the single source of the version).
-    document.head.append(script);
+    script.setAttribute("data-identity", "rfBluepencil.identity");
+    script.setAttribute("data-headers-from", "rfBluepencil.headers");
+    script.setAttribute("data-gate", "rfBluepencil.gate");
+    script.setAttribute("data-route-from", "rfBluepencil.routeFor");
+    appendLoaderScript(script, generation);
     return true;
   } catch (error) {
-    // Never surface into the host app; a missing layer is the safe default.
     console.debug("[bluepencil] review layer not installed:", error);
     return false;
   }
 }
 
-/**
- * Removes the layer again — used on logout (and safe to call any time). The
- * injected script, the mounted `<bluepencil-notes>` element and the attach
- * handle are torn down; `window.bluepencilAttach` is dropped so no stale handle
- * outlives the session. Idempotent and silent by contract.
- */
+/** Installs the optional review layer, sharing one in-flight attempt. */
+export function installBluepencilReviewLayer(): Promise<boolean> {
+  if (attachReattachBlocked) return Promise.resolve(false);
+  if (installPromise !== null) return installPromise;
+  const generation = lifecycleGeneration;
+  const barrier = retirementBarrier;
+  const promise =
+    barrier === null
+      ? installBluepencilReviewLayerAt(generation)
+      : barrier.then(() => {
+          if (attachReattachBlocked) return false;
+          if (generation !== lifecycleGeneration) return false;
+          return installBluepencilReviewLayerAt(generation);
+        });
+  installPromise = promise;
+  void promise.then(
+    () => {
+      if (installPromise === promise) installPromise = null;
+    },
+    () => {
+      if (installPromise === promise) installPromise = null;
+    },
+  );
+  return promise;
+}
+
+/** Removes the layer and invalidates pending attach/install work. */
 export function teardownBluepencilReviewLayer(): void {
-  try {
-    if (typeof document !== "undefined") {
-      document.querySelectorAll(`script[${LOADER_MARKER}]`).forEach((node) => node.remove());
-      document.querySelectorAll("bluepencil-notes").forEach((node) => node.remove());
-    }
-    if (typeof window === "undefined") return;
-    const attach = window.bluepencilAttach;
-    if (attach && typeof attach.destroy === "function") {
-      attach.destroy();
-    }
-    delete window.bluepencilAttach;
-    delete window.rfBluepencil;
-  } catch {
-    // Idempotent and silent by contract — teardown must never throw.
+  lifecycleGeneration += 1;
+  installPromise = null;
+  const record = activeAttachRecord;
+  if (record !== null && !record.settled) {
+    record.retired = true;
+    retirementBarrier = record.done;
   }
+  removeLayerNodes();
+  destroyAttachHandle();
+  resetHostSafely();
 }
