@@ -23,7 +23,7 @@ Die wichtigsten belegten Barrieren sind:
 3. **Legacy-SplitView liefert auf Mobilgeräten keinen funktionierenden Detailzustand:** „Detail“ beendet nur den mobilen Collapsed-Zustand und rendert anschließend wieder beide Panels nebeneinander.
 4. **Die ausgelieferten Themes enthalten berechnete WCAG-AA-Verstöße:** Statusfarben als Text, Link-Hover, Fokusringe und hart auf `white` gesetzte Textfarben fallen je nach Theme unter 4,5:1 beziehungsweise 3:1.
 5. **Traceability behandelt fehlgeschlagene Teildaten als gültige Leerheit:** Fehlgeschlagene Enrichment- oder Zyklusabfragen werden zu leeren Arrays; die UI kann damit eine nicht geprüfte Hierarchie als sauber darstellen.
-6. **Die Dokument-Sprache ist nicht zuverlässig synchronisiert:** `index.html` startet mit `lang="en"`; die deutsche i18next-Sprache kann aktiv sein, ohne dass `document.documentElement.lang` aktualisiert wird.
+6. **Die Dokument-Sprache ist nicht zuverlässig synchronisiert:** `frontend/index.html` startet mit `lang="en"`; die deutsche i18next-Sprache kann aktiv sein, ohne dass `document.documentElement.lang` aktualisiert wird.
 
 **Gesamtbewertung:** Das Frontend besitzt bereits starke Grundlagen — insbesondere den gemeinsamen Dialog mit Fokusfalle, native Formularelemente, `prefers-reduced-motion`, Rollen- und Statusmeldungen in vielen Flows sowie Theme- und Token-Ratchets. Die aktuelle AA-Nachweiskette ist dennoch nicht vollständig: zentrale Navigations-, Dirty-State-, Responsive-, Kontrast- und Semantiklücken müssen vor einer belastbaren WCAG-2.2-AA-Erklärung geschlossen oder mit Restrisiko akzeptiert werden.
 
@@ -68,7 +68,7 @@ Die wichtigsten belegten Barrieren sind:
 
 ### 3.1 Authentifizierte Shell
 
-`NavigationShell.tsx:119-228` bildet jede authentifizierte Route als folgende Struktur:
+`frontend/src/components/NavigationShell/NavigationShell.tsx:119-228` bildet jede authentifizierte Route als folgende Struktur:
 
 ```text
 AuthGate
@@ -84,25 +84,25 @@ AuthGate
 ```
 
 - Die Sidebar wird vor `<main>` gerendert (`frontend/src/components/NavigationShell/NavigationShell.tsx:123-128`).
-- Die globale Suche steht vor den Links (`SidebarNavigation.tsx:510-555`).
-- `NAV_ITEMS` enthält 24 Einträge, die abhängig von Preset, Rolle und Workspace sichtbar sind (`SidebarNavigation.tsx:75-139`).
+- Die globale Suche steht vor den Links (`frontend/src/components/NavigationShell/SidebarNavigation.tsx:510-555`).
+- `NAV_ITEMS` enthält 24 Einträge, die abhängig von Preset, Rolle und Workspace sichtbar sind (`frontend/src/components/NavigationShell/SidebarNavigation.tsx:75-139`).
 - Ein sichtbarer/fokussierbarer Skip-Link existiert im gesamten `frontend/src` nicht.
 
 ### 3.2 List/Detail-System
 
-`SplitView.tsx` enthält zwei Verträge:
+`frontend/src/components/SplitView/SplitView.tsx` enthält zwei Verträge:
 
 - **Legacy:** `leftPanel`/`rightPanel` mit Drag-Divider; 16 Produktionsaufrufer.
-- **Concept:** `list`/`detail`/`spine`; mobil wird ein offenes Detail als exklusiver Full-Width-Inhalt dargestellt (`SplitView.tsx:718-823`).
+- **Concept:** `list`/`detail`/`spine`; mobil wird ein offenes Detail als exklusiver Full-Width-Inhalt dargestellt (`frontend/src/components/SplitView/SplitView.tsx:718-823`).
 
-Alle 16 aktuellen Produktionsaufrufer verwenden noch den Legacy-Vertrag. Die vorhandenen Concept-Tests schützen den neuen Vertrag, nicht den mobilen Legacy-Pfad (`SplitView.test.tsx:17-210`).
+Alle 16 aktuellen Produktionsaufrufer verwenden noch den Legacy-Vertrag. Die vorhandenen Concept-Tests schützen den neuen Vertrag, nicht den mobilen Legacy-Pfad (`frontend/src/components/SplitView/SplitView.test.tsx:17-210`).
 
 ### 3.3 Design-System und Themes
 
-- Primitive und semantische Tokens sind getrennt (`tokens.css:1-24,26-380`).
-- Fünf registrierte Themes existieren: `dark`, `light`, `bauhaus`, `nordic`, `sepia` (`ThemeContext.tsx:42-47`).
-- `theme-contrast.test.ts` prüft eine begrenzte Positivmatrix (`theme-contrast.test.ts:52-107`).
-- DB-Paletten für die Light-Modi der drei benannten Themes werden inline angewendet (`ThemeContext.tsx:91-105`).
+- Primitive und semantische Tokens sind getrennt (`frontend/src/styles/tokens.css:1-24,26-380`).
+- Fünf registrierte Themes existieren: `dark`, `light`, `bauhaus`, `nordic`, `sepia` (`frontend/src/context/ThemeContext.tsx:42-47`).
+- `frontend/src/test/theme-contrast.test.ts` prüft eine begrenzte Positivmatrix (`frontend/src/test/theme-contrast.test.ts:52-107`).
+- DB-Paletten für die Light-Modi der drei benannten Themes werden inline angewendet (`frontend/src/context/ThemeContext.tsx:91-105`).
 - Der Importpfad prüft nur die Vollständigkeit des Token-Schlüsselsatzes (`backend/admin_ops/theme_rest.py:62-79`), nicht Farbformat oder Kontrast.
 
 ## 4. Flow-Matrix
@@ -152,7 +152,7 @@ Die Berechnung erfolgte reproduzierbar über die im Repository festgelegten sRGB
 | `warning / surface` | **4,42** | 4,74 | 4,72 | 4,5 |
 | `link-hover / surface` | **3,83** | **3,66** | **3,87** | 4,5 |
 
-Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie sind keine Schätzung und wurden gegen die aktuellen Zuordnungen in `tokens.css` beziehungsweise `backend/admin_ops/fixtures/themePalettes.light.json` berechnet.
+Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie sind keine Schätzung und wurden gegen die aktuellen Zuordnungen in `frontend/src/styles/tokens.css` beziehungsweise `backend/admin_ops/fixtures/themePalettes.light.json` berechnet.
 
 ## 6. Detailbefunde
 
@@ -169,9 +169,9 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 **Fakt:** Die Sidebar wird vor `<main>` gerendert; ein Mechanismus wie `href="#main-content"` fehlt in `frontend/src`.
 
 **Evidenz:**
-- `NavigationShell.tsx:123-128` — `SidebarNavigation` steht vor `main`.
-- `SidebarNavigation.tsx:75-139` — bis zu 24 Navigationseinträge.
-- `SidebarNavigation.tsx:510-555` — globale Suche als erster fokussierbarer Sidebar-Inhalt.
+- `frontend/src/components/NavigationShell/NavigationShell.tsx:123-128` — `SidebarNavigation` steht vor `main`.
+- `frontend/src/components/NavigationShell/SidebarNavigation.tsx:75-139` — bis zu 24 Navigationseinträge.
+- `frontend/src/components/NavigationShell/SidebarNavigation.tsx:510-555` — globale Suche als erster fokussierbarer Sidebar-Inhalt.
 - Kein Treffer für Skip-Link/`main-content` in `frontend/src`.
 
 **Auswirkung:** Tastatur- und Switch-Benutzer müssen auf jeder Route denselben langen Navigationsblock durchlaufen, bevor sie den auftragsbezogenen Inhalt erreichen. Landmarken helfen Screenreadern, ersetzen aber keinen direkten Tastatur-Bypass.
@@ -208,14 +208,14 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 - `pendingSelectId` wird ausschließlich von den lokalen `select*`-Callbacks gesetzt.
 - `NavigationShell` rendert die Sidebar unabhängig vom lokalen Editor-Guard.
 - `TestRunResultEntryGrid` speichert Entwürfe nur in lokalem State und verwirft sie beim Result-Reset bzw. Unmount.
-- `PermissionMatrixEditor.tsx:65-83` zeigt, dass das Projekt bereits einen selektiven `beforeunload`-Guard für eigenständige Settings-Editoren etabliert hat.
+- `frontend/src/components/PermissionMatrix/PermissionMatrixEditor.tsx:65-83` zeigt, dass das Projekt bereits einen selektiven `beforeunload`-Guard für eigenständige Settings-Editoren etabliert hat.
 
 **Evidenz:**
-- Requirement: `selectRequirement()` schützt nur `id !== selectedId` (`RequirementEditors.tsx:254-276`).
-- Need: `selectNeed()` schützt nur den lokalen Baumwechsel (`NeedsEditors.tsx:318-339`).
-- Architecture: `selectElement()` schützt nur den lokalen Baumwechsel (`ArchitectureEditors.tsx:292-309`).
-- TestCase: `selectTestCase()` schützt nur den lokalen Baumwechsel (`TestCaseEditors.tsx:177-198`).
-- TestRun: `drafts` leben nur in `useState`; `results` resetten den State (`TestRunResultEntryGrid.tsx:118-136`).
+- Requirement: `selectRequirement()` schützt nur `id !== selectedId` (`frontend/src/components/RequirementEditors/RequirementEditors.tsx:254-276`).
+- Need: `selectNeed()` schützt nur den lokalen Baumwechsel (`frontend/src/components/NeedsEditors/NeedsEditors.tsx:318-339`).
+- Architecture: `selectElement()` schützt nur den lokalen Baumwechsel (`frontend/src/components/ArchitectureEditors/ArchitectureEditors.tsx:292-309`).
+- TestCase: `selectTestCase()` schützt nur den lokalen Baumwechsel (`frontend/src/components/TestCaseEditors/TestCaseEditors.tsx:177-198`).
+- TestRun: `drafts` leben nur in `useState`; `results` resetten den State (`frontend/src/components/TestRuns/TestRunResultEntryGrid.tsx:118-136`).
 
 **Auswirkung:** Bearbeitete Anforderungen, Needs, Architekturelemente, Testfälle oder Testresultate können beim Wechsel zu einer anderen Route oder beim Schließen/Neuladen ohne Rückfrage verloren gehen. Besonders betroffen sind lange Testlauf-Notizen und ungespeicherte Custom-Field-Entwürfe.
 
@@ -243,7 +243,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 **WCAG criterion:** 1.4.10 Reflow; 4.1.2 Name, Role, Value; 3.1.2 Language of Parts  
 **Conformance level:** AA  
 **Severity:** major (P1)  
-**Location:** `frontend/src/components/SplitView/SplitView.tsx:525-569,718-823`; 16 Produktionsaufrufer, unter anderem `RequirementEditors.tsx:830-838`, `TestRunsList.tsx:195-504`, `TraceabilityView.tsx:836-842`, `BaselinesView.tsx:351`  
+**Location:** `frontend/src/components/SplitView/SplitView.tsx:525-569,718-823`; 16 Produktionsaufrufer, unter anderem `frontend/src/components/RequirementEditors/RequirementEditors.tsx:830-838`, `frontend/src/components/TestRuns/TestRunsList.tsx:195-504`, `frontend/src/components/TraceabilityView/TraceabilityView.tsx:836-842`, `frontend/src/components/BaselinesView/BaselinesView.tsx:351`  
 **Problem:** Unterhalb 768 px ist zunächst nur die Liste sichtbar. „Detail“ setzt `isResponsiveCollapsed` lediglich auf `false`; dadurch endet der mobile Zweig und die Desktop-Zweispaltenansicht rendert beide Panels. Ein „Zurück/List“-Zustand existiert danach nicht.
 
 **Assistive tech:** Tastatur; Screenreader; Reflow bei Zoom und kleinen Viewports.
@@ -251,10 +251,10 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 **Fakt:** Die beiden Buttons sind hartcodiert „List“ und „Detail“, tragen keinen programmatischen Auswahlzustand und sind nicht übersetzt.
 
 **Evidenz:**
-- Mobil: `SplitView.tsx:541-569`.
-- Klick „Detail“: nur `setIsResponsiveCollapsed(false)` (`SplitView.tsx:556-561`).
-- Danach rendert der Desktop-Zweig Liste und Detail gleichzeitig (`SplitView.tsx:572-631`).
-- Der bereits vorhandene Concept-Vertrag liefert den korrekten Mobile-Replace (`SplitView.tsx:718-823`).
+- Mobil: `frontend/src/components/SplitView/SplitView.tsx:541-569`.
+- Klick „Detail“: nur `setIsResponsiveCollapsed(false)` (`frontend/src/components/SplitView/SplitView.tsx:556-561`).
+- Danach rendert der Desktop-Zweig Liste und Detail gleichzeitig (`frontend/src/components/SplitView/SplitView.tsx:572-631`).
+- Der bereits vorhandene Concept-Vertrag liefert den korrekten Mobile-Replace (`frontend/src/components/SplitView/SplitView.tsx:718-823`).
 - 16 Produktionsdateien rufen den Legacy-Vertrag auf.
 
 **Auswirkung:** Auf schmalen Viewports kann die gewählte Detailseite zweigeteilt, horizontal gequetscht oder außerhalb des sichtbaren Bereichs dargestellt werden. Rücknavigation zur Liste und eindeutige Ansichtsauswahl fehlen.
@@ -288,16 +288,16 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** Die berechnete Matrix in Abschnitt 5 zeigt aktuelle Verstöße. Beispiele:
 
-- Diff-Erfolgstext: `success/surface` in light **3,60**, bauhaus **4,31**, sepia **4,29** (`ArtifactDiff.module.css:163-165,238-240`).
-- Link-Hover: `link-hover/surface` in light **2,85**, bauhaus **2,71**, sepia **2,65** (`global.css:48-50`).
-- Workspace-Erfolg: `success/surface` in light **3,60** (`WorkspaceSettings.module.css:175-177`).
-- Fokus: bauhaus **2,47** auf Surface und **2,72** auf Raised (`tokens.css:1148`, `global.css:63-67`).
-- Create-Workspace-Button: weiß auf bauhaus-Primary **1,87** (`SidebarNavigation.module.css:453-465`).
-- Trace-Fehlerbanner: weiß auf danger **3,76** in dark und **4,09** in nordic (`TracePanel.module.css:166-184`).
-- Sidebar-Sprachfehler: `danger/nav-bg` liegt in allen fünf Theme-Hintergründen unter 4,5:1; tatsächlich 4,36/3,40/3,25/4,01/2,48 (`SidebarNavigation.module.css:664-666`).
+- Diff-Erfolgstext: `success/surface` in light **3,60**, bauhaus **4,31**, sepia **4,29** (`frontend/src/components/ArtifactDiff/ArtifactDiff.module.css:163-165,238-240`).
+- Link-Hover: `link-hover/surface` in light **2,85**, bauhaus **2,71**, sepia **2,65** (`frontend/src/styles/global.css:48-50`).
+- Workspace-Erfolg: `success/surface` in light **3,60** (`frontend/src/components/WorkspaceSettings/WorkspaceSettings.module.css:175-177`).
+- Fokus: bauhaus **2,47** auf Surface und **2,72** auf Raised (`frontend/src/styles/tokens.css:1148`, `frontend/src/styles/global.css:63-67`).
+- Create-Workspace-Button: weiß auf bauhaus-Primary **1,87** (`frontend/src/components/NavigationShell/SidebarNavigation.module.css:453-465`).
+- Trace-Fehlerbanner: weiß auf danger **3,76** in dark und **4,09** in nordic (`frontend/src/components/shared/ArtifactInspector/TracePanel.module.css:166-184`).
+- Sidebar-Sprachfehler: `danger/nav-bg` liegt in allen fünf Theme-Hintergründen unter 4,5:1; tatsächlich 4,36/3,40/3,25/4,01/2,48 (`frontend/src/components/NavigationShell/SidebarNavigation.module.css:664-666`).
 - DB-Light-Paletten haben zusätzliche `success/surface`-Werte von 3,27–3,63.
 
-**Evidenz:** Der vorhandene Kontrasttest nennt seine Paare absichtlich „not an exhaustive sweep“ und enthält weder `primary/surface`, `success/surface`, `warning/surface`, `danger/surface`, `link-hover/surface` noch Fokus gegen Raised (`theme-contrast.test.ts:52-107`).
+**Evidenz:** Der vorhandene Kontrasttest nennt seine Paare absichtlich „not an exhaustive sweep“ und enthält weder `primary/surface`, `success/surface`, `warning/surface`, `danger/surface`, `link-hover/surface` noch Fokus gegen Raised (`frontend/src/test/theme-contrast.test.ts:52-107`).
 
 **Auswirkung:** Links, Statusmeldungen, Diff-Werte, Warnhinweise und Fokusindikatoren können für Nutzer mit Sehbeeinträchtigung unlesbar oder nicht erkennbar sein. Ein absichtlich importiertes Custom Theme kann dieselben Verstöße tenantweit aktivieren.
 
@@ -333,13 +333,13 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 **Fakt:** Auf einem deutschen Browser/Workspace kann i18next bereits `de` sein, während `document.documentElement.lang` weiterhin `en` ist. Der Sprachwechsel im Sidebar setzt das Attribut manuell; es gibt keinen zentralen `languageChanged`-Vertrag.
 
 **Evidenz:**
-- `index.html:2` — `lang="en"`.
-- `i18n/index.ts:22` — wählt nur die i18next-Sprache.
-- `WorkspaceContext.tsx:341-346` — `html.lang` wird nur im Change-Zweig aktualisiert.
-- `SplitView.tsx:554,560` — „List“/„Detail“.
-- `ArtifactDiff.tsx:431,441,461,495,501,529-542` — „Close“, „From“, „To“, „Loading diff...“, „Error“, „Raw JSON“.
-- `i18n-parity.test.ts:186-203` — erlaubt bis zu 116 im Source referenzierte, in beiden Bundles fehlende Schlüssel.
-- `InterviewArtifactPane.tsx:33-51` — englische Labels/Resultatprosa.
+- `frontend/index.html:2` — `lang="en"`.
+- `frontend/src/i18n/index.ts:22` — wählt nur die i18next-Sprache.
+- `frontend/src/context/WorkspaceContext.tsx:341-346` — `html.lang` wird nur im Change-Zweig aktualisiert.
+- `frontend/src/components/SplitView/SplitView.tsx:554,560` — „List“/„Detail“.
+- `frontend/src/components/ArtifactDiff/ArtifactDiff.tsx:431,441,461,495,501,529-542` — „Close“, „From“, „To“, „Loading diff...“, „Error“, „Raw JSON“.
+- `frontend/src/test/i18n-parity.test.ts:186-203` — erlaubt bis zu 116 im Source referenzierte, in beiden Bundles fehlende Schlüssel.
+- `frontend/src/components/InterviewWidget/InterviewArtifactPane.tsx:33-51` — englische Labels/Resultatprosa.
 
 **Auswirkung:** Screenreader verwenden die falsche Aussprache und Braille-Sprache; gemischtsprachige Parts sind für Sprachlern und Nutzer mit Sprachbarrieren schwer verständlich. Fehlende Schlüssel können je nach Default zwischen DE und EN springen.
 
@@ -355,7 +355,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 **Aufwand:** M.
 
 **Alternativen:**
-- Nur `index.html` auf `lang="de"` ändern: verschiebt die Fehlermeldung ins Englische und bricht englische Workspaces.
+- Nur `frontend/index.html` auf `lang="de"` ändern: verschiebt die Fehlermeldung ins Englische und bricht englische Workspaces.
 - Nur `i18next.language` beobachten: die Eigenschaft kann Regionalvarianten enthalten; `resolvedLanguage` ist hier die robustere Quelle.
 
 **Confidence:** Hoch.
@@ -375,8 +375,8 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 **Fakt:** `msg.role` steuert ausschließlich `styles.userMessage` oder `styles.assistantMessage`; im Accessibility-Baum sind beide Nachrichten nur neutrale `<p>`-Elemente.
 
 **Evidenz:**
-- Rollen im API-Modell: `interviews.ts:29-37`.
-- Rendering ohne Speaker: `InterviewChatPane.tsx:143-150`.
+- Rollen im API-Modell: `frontend/src/api/interviews.ts:29-37`.
+- Rendering ohne Speaker: `frontend/src/components/InterviewWidget/InterviewChatPane.tsx:143-150`.
 - `role="log"` allein kennzeichnet den Container, nicht die einzelnen Sprecher.
 
 **Auswirkung:** Screenreader-Nutzer hören eine Folge gleichartiger Absätze und verlieren die zentrale semantische Information, wer die Aussage gemacht hat. NVDA/JAWS können im Browse-Modus den visuellen CSS-Unterschied nicht zuverlässig vorlesen; VoiceOver verhält sich beim Rotor für Log-Inhalte abweichend.
@@ -410,10 +410,10 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 **Fakt:** `Promise.all` verwendet pro Endpoint `.catch(() => emptyList)` beziehungsweise `.catch(() => emptyCycles)`. Diese Teilausfall-Zustände werden nicht in State oder UI modelliert.
 
 **Evidenz:**
-- Risk/Issue/ADR/Need/ICD/Cycle-Fallbacks: `TraceabilityView.tsx:308-337`.
-- Zustand wird anschließend als normaler Erfolg gesetzt: `TraceabilityView.tsx:396-406`.
-- Cycle-Warnung erscheint nur bei `state.cycles.length > 0`: `TraceabilityView.tsx:642-662`.
-- Der Gesamt-Error-State hat keinen Retry-Button: `TraceabilityView.tsx:522-531`.
+- Risk/Issue/ADR/Need/ICD/Cycle-Fallbacks: `frontend/src/components/TraceabilityView/TraceabilityView.tsx:308-337`.
+- Zustand wird anschließend als normaler Erfolg gesetzt: `frontend/src/components/TraceabilityView/TraceabilityView.tsx:396-406`.
+- Cycle-Warnung erscheint nur bei `state.cycles.length > 0`: `frontend/src/components/TraceabilityView/TraceabilityView.tsx:642-662`.
+- Der Gesamt-Error-State hat keinen Retry-Button: `frontend/src/components/TraceabilityView/TraceabilityView.tsx:522-531`.
 
 **Auswirkung:** Nutzer können eine unvollständige Trace-Matrix, fehlende Endpoint-Titel oder eine ungeprüfte Hierarchie als gültiges Analyseergebnis interpretieren. Das ist besonders kritisch, wenn die Ansicht für Review-, Impact- oder Baseline-Entscheidungen verwendet wird.
 
@@ -446,7 +446,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** Enter startet nur die Suche erneut. Nach der Antwort bleiben die Tastaturoptionen nicht mit dem Eingabefeld verknüpft; VoiceOver kann die Liste je nach Rotor als statische Liste behandeln.
 
-**Evidenz:** `SidebarNavigation.tsx:512-529` — Input/Listbox; `:535-551` — Buttons als Optionen; `:297-307` — nur Enter/Escape; `:267-275` — Fehler werden still verworfen.
+**Evidenz:** `frontend/src/components/NavigationShell/SidebarNavigation.tsx:512-529` — Input/Listbox; `frontend/src/components/NavigationShell/SidebarNavigation.tsx:535-551` — Buttons als Optionen; `frontend/src/components/NavigationShell/SidebarNavigation.tsx:297-307` — nur Enter/Escape; `frontend/src/components/NavigationShell/SidebarNavigation.tsx:267-275` — Fehler werden still verworfen.
 
 **Auswirkung:** Screenreader- und Tastaturbenutzer erhalten kein zuverlässiges Search-Combobox-Verhalten. NVDA/JAWS können den Fokus/aktiven Treeitem unterschiedlich ankündigen; VoiceOver kann die Liste nur über Rotor oder Tabfindings erreichen.
 
@@ -477,7 +477,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** `WorkspaceSettings.savedOk` und `tenantDefaultSaved` rendern Text ohne `role="status"`/`aria-live`. ThemeContext kommentiert das Schweigen ausdrücklich. Der Export-Button zeigt nur während des laufenden Exports „Exporting…“, aber keinen Fehlerstatus.
 
-**Evidenz:** Siehe Locations; `ThemeManagementSection.tsx:151-155` besitzt zwar einen sichtbaren Fehlerbereich, der für die verschluckten Teilpfade aber nicht gesetzt wird.
+**Evidenz:** Siehe Locations; `frontend/src/components/SystemSettings/ThemeManagementSection.tsx:151-155` besitzt zwar einen sichtbaren Fehlerbereich, der für die verschluckten Teilpfade aber nicht gesetzt wird.
 
 **Auswirkung:** Nutzer von Screenreadern erhalten nach erfolgreichen Auto-Saves oder fehlgeschlagener Theme-/PDF-Persistenz keine zuverlässige Rückmeldung. Der UI-Zustand kann von einem serverseitig nicht gespeicherten Zustand abweichen.
 
@@ -510,7 +510,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** `role="switch"` und `aria-pressed` sind zwei verschiedene Rollenverträge. NVDA, JAWS und VoiceOver interpretieren den fehlenden Checked-State nicht einheitlich.
 
-**Evidenz:** `TracePanel.tsx:301-312`; ESLint: `jsx-a11y/role-has-required-aria-props` bei `TracePanel.tsx:304`.
+**Evidenz:** `frontend/src/components/shared/ArtifactInspector/TracePanel.tsx:301-312`; ESLint: `jsx-a11y/role-has-required-aria-props` bei `frontend/src/components/shared/ArtifactInspector/TracePanel.tsx:304`.
 
 **Auswirkung:** Nutzer erkennen, dass ein Filter optisch aktiv ist, können seinen On-/Off-Status aber nicht zuverlässig aus dem Screenreader-Baum ableiten.
 
@@ -538,7 +538,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** Native `label.htmlFor` kann die `div`-Gruppe nicht beschriften. Die Option-Buttons sind zwar fokussierbar, die Gruppenbedeutung und der erforderliche Zustand werden aber nicht zuverlässig aus dem Feldkontext abgeleitet.
 
-**Evidenz:** `FieldShell.tsx:68-94`; `MultiEnum.tsx:23-30,34-48`.
+**Evidenz:** `frontend/src/components/shared/ArtifactForm/fields/FieldShell.tsx:68-94`; `frontend/src/components/shared/ArtifactForm/fields/MultiEnum.tsx:23-30,34-48`.
 
 **Auswirkung:** Screenreader können die Optionen als unbenannte Gruppe bzw. als Buttons ohne Feldkontext melden. Die Fehler- und Help-Beziehung des wiederverwendbaren Formularfelds fehlt.
 
@@ -566,7 +566,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** Die Komponente behandelt den Selection-Zustand als Rolle „button“ statt als `aria-pressed` oder `aria-current`. Die Tree-Aufrufer ohne eigenes `onClick` bleiben vom Problem unberührt, weil `WorkspaceTree` den Treeitem-Kontext besitzt.
 
-**Evidenz:** `ArtifactRow.tsx:129-145`; `ArtifactRow.test.tsx:106-117`; Direktnutzung in ICD/Diagram.
+**Evidenz:** `frontend/src/components/shared/ArtifactRow/ArtifactRow.tsx:129-145`; `frontend/src/components/shared/ArtifactRow/ArtifactRow.test.tsx:106-117`; Direktnutzung in ICD/Diagram.
 
 **Auswirkung:** NVDA/JAWS können „button“ ohne verlässbaren Selected-State melden; VoiceOver kann die Auswahl nur visuell bzw. aus dem Layout ableiten.
 
@@ -594,7 +594,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** `InterviewArtifactPane.formalize()` ruft direkt `await interviewsApi.formalize()` auf; es gibt keinen `try/catch`, keinen `creating`-State und kein `disabled={creating}`.
 
-**Evidenz:** `InterviewArtifactPane.tsx:22-28,39-51`; der bestehende Positivpfad `InterviewChatPane.tsx:100-118,156-164`.
+**Evidenz:** `frontend/src/components/InterviewWidget/InterviewArtifactPane.tsx:22-28,39-51`; der bestehende Positivpfad `frontend/src/components/InterviewWidget/InterviewChatPane.tsx:100-118,156-164`.
 
 **Auswirkung:** Ein Formalize-Fehler erscheint für Screenreader und Sehende Nutzer nicht zuverlässig; wiederholte Klicks können mehrfach schreiben, bevor der erste Request abgeschlossen ist.
 
@@ -622,7 +622,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** Das Overlay ist visuell modal, der Code kommentiert es aber ausdrücklich als nicht fokussierbare, nicht modale Fläche. Der Hintergrund bleibt interaktiv und sichtbar verdeckt.
 
-**Evidenz:** `SidebarNavigation.tsx:445-456` — Escape; `:470-490` — Burger/Backdrop; `:492-495` — offene Nav ohne Fokusübernahme; `SidebarNavigation.module.css:45-69` — Drawer plus Backdrop.
+**Evidenz:** `frontend/src/components/NavigationShell/SidebarNavigation.tsx:445-456` — Escape; `frontend/src/components/NavigationShell/SidebarNavigation.tsx:470-490` — Burger/Backdrop; `frontend/src/components/NavigationShell/SidebarNavigation.tsx:492-495` — offene Nav ohne Fokusübernahme; `frontend/src/components/NavigationShell/SidebarNavigation.module.css:45-69` — Drawer plus Backdrop.
 
 **Auswirkung:** Tastatur- und Screenreaderbenutzer können den sichtbaren Kontext verlassen, ohne den Hintergrund bewusst zu aktivieren. NVDA/JAWS melden den Fokussprung, VoiceOver kann beim Touch Exploration den verdeckten Hintergrund trotzdem erreichen.
 
@@ -648,9 +648,9 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Assistive tech:** Tastatur; Screenreader-Navigation zu den Ergebnissen.
 
-**Fakt:** `IcdDetailPane` verwendet die lokale Funktion; die native Button-Variante in `SimilarIcdsPanel.tsx` ist zwar barriereärmer, wird aber nicht importiert.
+**Fakt:** `IcdDetailPane` verwendet die lokale Funktion; die native Button-Variante in `frontend/src/components/IcdView/SimilarIcdsPanel.tsx` ist zwar barriereärmer, wird aber nicht importiert.
 
-**Evidenz:** `IcdDetailPane.tsx:465-481` — klickbares `li`; `SimilarIcdsPanel.tsx:130-147` — native Buttons mit derselben fachlichen Aktion.
+**Evidenz:** `frontend/src/components/IcdView/IcdDetailPane.tsx:465-481` — klickbares `li`; `frontend/src/components/IcdView/SimilarIcdsPanel.tsx:130-147` — native Buttons mit derselben fachlichen Aktion.
 
 **Auswirkung:** Tastaturbenutzer können die Ähnlichkeitsnavigation nicht bedienen; die Funktion bleibt für diese Nutzergruppe unentdeckbar.
 
@@ -678,7 +678,7 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 **Fakt:** Andere Create-Dialoge im Projekt haben den doppelten Mechanismus bereits entfernt und dokumentieren genau diese Race-Bedingung.
 
-**Evidenz:** `TestRunsList.tsx:233-260`; `RequirementEditors.tsx:228-240` erklärt die bereits etablierte Korrektur.
+**Evidenz:** `frontend/src/components/TestRuns/TestRunsList.tsx:233-260`; `frontend/src/components/RequirementEditors/RequirementEditors.tsx:228-240` erklärt die bereits etablierte Korrektur.
 
 **Auswirkung:** In einzelnen Browsern kann der Fokus nach Dialogöffnung oder nach einem Refetch auf dem falsigen Feld landen. Der Effekt ist begrenzt und vom restlichen Dialog-Fallback abhängig.
 
@@ -697,9 +697,9 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 ## 7. Nicht als eigenständige WCAG-Verstöße gewertete Beobachtungen
 
 - `frontend/src/queries/queryClient.ts:5-25` behauptet, 401/403 nicht zu retryen, erkennt aber nur `AUTHENTICATION_REQUIRED`; `ForbiddenError.status === 403` wird daher bis zu dreimal erneut versucht. Das ist ein deterministischer Effizienz-/Unauthorized-Feedback-Bug, aber kein eigener WCAG-Nachweis; die Fehleridentifikation kann nach Abschluss der Retries erfolgen. Technisch sollte `ForbiddenError.status` oder ein stabiler 403-Code zusätzlich geprüft werden.
-- `ArtifactRow.tsx:170` und einige DnD-Container werden von ESLint als non-native Interaktion gemeldet. Nicht jeder Linter-Hinweis ist ein WCAG-Fehler; die konkreten Barrieren wurden nur für ArtifactRow, TracePanel und die ICD-Liste als Befunde aufgenommen.
-- `Dialog.tsx:148-152` erhält einen Linter-Hinweis für den Backdrop. Backdrop-Klick ist eine zusätzliche Zeigerfunktion; Dialog, Escape, Fokusfalle und Fokus-Rückgabe sind separat getestet.
-- `AttributeCatalogDialog.tsx:212-246`, `UserProfileSettings.tsx:128-151` und `WorkspaceSettings.tsx:343-369` enthalten Linter-Hinweise zu Labels, obwohl Inputs verschachtelt beziehungsweise über `htmlFor` verbunden sind. Diese Hinweise wurden nicht als Barrieren behauptet.
+- `frontend/src/components/shared/ArtifactRow/ArtifactRow.tsx:170` und einige DnD-Container werden von ESLint als non-native Interaktion gemeldet. Nicht jeder Linter-Hinweis ist ein WCAG-Fehler; die konkreten Barrieren wurden nur für ArtifactRow, TracePanel und die ICD-Liste als Befunde aufgenommen.
+- `frontend/src/components/shared/Dialog/Dialog.tsx:148-152` erhält einen Linter-Hinweis für den Backdrop. Backdrop-Klick ist eine zusätzliche Zeigerfunktion; Dialog, Escape, Fokusfalle und Fokus-Rückgabe sind separat getestet.
+- `frontend/src/components/AttributeEditor/AttributeCatalogDialog.tsx:212-246`, `frontend/src/components/UserProfileSettings/UserProfileSettings.tsx:128-151` und `frontend/src/components/WorkspaceSettings/WorkspaceSettings.tsx:343-369` enthalten Linter-Hinweise zu Labels, obwohl Inputs verschachtelt beziehungsweise über `htmlFor` verbunden sind. Diese Hinweise wurden nicht als Barrieren behauptet.
 - Der mobile Drawer besitzt bereits Escape-Dismissal; der Befund betrifft Fokus- und Overlay-Semantik, nicht fehlende Tastaturbedienung.
 
 ## 8. Maßnahmenreihenfolge
@@ -760,8 +760,8 @@ Die hervorgehobenen Werte unterschreiten die jeweilige WCAG-2.1-AA-Schwelle. Sie
 
 - **Statische Prüfung:** Quelltext, CSS, Locale-Dateien, Theme-Fixtures, Tests und relevante Backend-Theme-Regeln wurden repo-relativ geprüft.
 - **Kontrastprüfung:** Werte in Abschnitt 5 wurden reproduzierbar aus den aktuellen Theme-Hexwerten berechnet; keine geschätzten WCAG-Werte.
-- **Gezielte Vitest-Läufe:** 24 relevante Testdateien mit 277 Tests gestartet; 272 Tests bestanden. 5 Tests in `RightSidebar.test.tsx` schlugen in der lokalen Node-26.7.0-Umgebung fehl, weil `window.localStorage` dort nicht verfügbar ist (`Cannot read properties of undefined (reading 'clear')`). Das ist eine Testumgebungs-/Fixture-Infrastrukturabweichung, kein grüner Lauf und kein Produktbefund.
-- **Lint:** `npm run lint` endete mit 0 Fehlern und 290 Warnungen. Die konkrete ARIA-Warnung für `TracePanel.tsx:304` wurde übernommen; triviale oder gleichwertig native Linter-Hinweise wurden nicht automatisch als WCAG-Verstöße klassifiziert.
+- **Gezielte Vitest-Läufe:** 24 relevante Testdateien mit 277 Tests gestartet; 272 Tests bestanden. 5 Tests in `frontend/src/components/shared/ArtifactInspector/RightSidebar.test.tsx` schlugen in der lokalen Node-26.7.0-Umgebung fehl, weil `window.localStorage` dort nicht verfügbar ist (`Cannot read properties of undefined (reading 'clear')`). Das ist eine Testumgebungs-/Fixture-Infrastrukturabweichung, kein grüner Lauf und kein Produktbefund.
+- **Lint:** `npm run lint` endete mit 0 Fehlern und 290 Warnungen. Die konkrete ARIA-Warnung für `frontend/src/components/shared/ArtifactInspector/TracePanel.tsx:304` wurde übernommen; triviale oder gleichwertig native Linter-Hinweise wurden nicht automatisch als WCAG-Verstöße klassifiziert.
 - **Docker:** `rtk docker compose -f deploy/docker-compose.yml ps --format json` lieferte am 2026-09-24 keine laufenden Dienste. Deshalb wurden keine Live-UI-, Axe-, Browser- oder Screenreader-Ergebnisse behauptet.
 - **Nicht ausgeführt:** vollständige Frontend-Suite, vollständige Playwright-Suite, NVDA/JAWS/VoiceOver-Sitzung und manueller Reflow-Test. Diese bleiben nach dem Fix erforderlich.
 - **Arbeitsbaum:** Vor Berichtserstellung bestanden bereits untracked `.serena/memories/*` und die Berichte 02–04; diese wurden nicht verändert.

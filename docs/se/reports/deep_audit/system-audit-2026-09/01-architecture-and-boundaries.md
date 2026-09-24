@@ -162,7 +162,7 @@ Die Compose-Dateien haben zwei konkurrierende Migrationsverträge: ein dediziert
 
 - `ContextGraphProjector.handle_event()` ruft zuerst `_get_settings_cached()` auf und erst danach `_resolve_tenant_id()` und `set_request_tenant()` (`backend/context_graph/projector.py:75-109`).
 - `_load_settings()` verwendet vor dem Tenant-Arming `WorkspaceContextSettings.unscoped` (`backend/context_graph/projector.py:163-185`).
-- `Workspace.unscoped` entfernt nur den Django-Manager-Filter; der Kommentar und `persistence/tenancy.py:161-170` bestätigen, dass PostgreSQL-RLS trotzdem gilt.
+- `Workspace.unscoped` entfernt nur den Django-Manager-Filter; der Kommentar und `backend/persistence/tenancy.py:161-170` bestätigen, dass PostgreSQL-RLS trotzdem gilt.
 - `cg_workspace_context_settings` und `cg_context_edge` verwenden `ENABLE ROW LEVEL SECURITY` und `FORCE ROW LEVEL SECURITY` (`backend/context_graph/migrations/0001_initial.py:27-45,134-135`).
 - Der Outbox-Poller startet ohne Request-Kontext (`backend/application/event_bus.py:458-547`), genau die Produktionsbedingung, die der Memory-Regressionstest als fehlerhaft dokumentiert (`backend/memory/tests/test_projector_rls_tenant_resolution.py:4-19`).
 - `rebuild_workspace_graph()` verwendet dieselbe problematische Reihenfolge (`backend/context_graph/admin_ops.py:45-57`).
@@ -201,9 +201,9 @@ Im Test-Datenbestand zwei Tenants anlegen, unter dem App-Role ohne `app.current_
 
 **Tatsache**
 
-- Das Architecture-Ratchet erfasst laut Implementierung `rest_api/*_views.py`, `rest_api/views.py`, `rest_api/serializers.py`, MCP-Tools und Top-Level-MCP-Module (`backend/rest_api/tests/test_architecture.py:99-181`).
-- Shared Mixins werden nicht rekursiv erfasst. `rest_api/mixins/workflow_transitions.py:100-112` greift direkt auf `WorkflowItemState.objects` und `WorkflowHistoryEntry.objects` zu.
-- `admin_ops/theme_rest.py:31-45,104-155,173-204,225-323` ist ein weiterer REST-Adapter mit direkten Model-Imports und direkten `.objects`-/`.unscoped`-Zugriffen.
+- Das Architecture-Ratchet erfasst laut Implementierung `backend/rest_api/*_views.py`, `backend/rest_api/views.py`, `backend/rest_api/serializers.py`, MCP-Tools und Top-Level-MCP-Module (`backend/rest_api/tests/test_architecture.py:99-181`).
+- Shared Mixins werden nicht rekursiv erfasst. `backend/rest_api/mixins/workflow_transitions.py:100-112` greift direkt auf `WorkflowItemState.objects` und `WorkflowHistoryEntry.objects` zu.
+- `backend/admin_ops/theme_rest.py:31-45,104-155,173-204,225-323` ist ein weiterer REST-Adapter mit direkten Model-Imports und direkten `.objects`-/`.unscoped`-Zugriffen.
 - Die Architekturvorgabe in `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Architecture.md:106-164` und `backend/README.md:43-56` verlangt, dass Adapter Use-Case-Service-Aufrufe translateieren und keinen eigenen Persistenzweg eröffnen.
 
 **Hypothese/Auswirkung**
@@ -237,7 +237,7 @@ Den erweiterten Guard lokal und in CI ausführen und mit Test-Fixtures belegen, 
 
 **Tatsache**
 
-- `application/event_bus.py:25-31` dokumentiert bis zu fünf HTTP-POSTs, 10-Sekunden-Timeouts und 15 Sekunden Backoff-Sleeps pro Subscription.
+- `backend/application/event_bus.py:25-31` dokumentiert bis zu fünf HTTP-POSTs, 10-Sekunden-Timeouts und 15 Sekunden Backoff-Sleeps pro Subscription.
 - `WebhookDispatcher` führt die Aufrufe synchron im Subscriber-Callback aus (`backend/application/webhook_dispatcher.py:12-15,75-79,106-133,201-301`).
 - Der Celery-Service konsumiert alle Queues in einem gemeinsamen Pool (`deploy/docker-compose.yml:431-458`).
 - Nach erfolgreicher interner Retry-/Dead-letter-Logik kehrt `_dispatch_with_retry()` ohne Exception zurück. `dispatch_to_subscribers()` wertet nur Exceptions als Fehler (`backend/application/webhook_dispatcher.py:253-275,295-301`; `backend/application/event_bus.py:232-275`).
@@ -384,9 +384,9 @@ Unter dem App-Role mit leerem `app.current_tenant` und mit einem Tenant-A-Parent
 
 **Tatsache**
 
-- `validate_outbound_url()` wird in `application/settings_service.py:198-220` und `rest_api/settings_views.py:70-83` aufgerufen.
+- `validate_outbound_url()` wird in `backend/application/settings_service.py:198-220` und `backend/rest_api/settings_views.py:70-83` aufgerufen.
 - `llm_adapter.providers.get_provider()` liest die Konfiguration und konstruiert den Provider ohne erneute URL-Prüfung (`backend/llm_adapter/providers.py:2037-2068`).
-- `url_guard.py:39-50` dokumentiert DNS-Rebinding als bekanntes Restrisiko, weil Validierung und HTTP-Verbindung getrennt auflösen.
+- `backend/llm_adapter/url_guard.py:39-50` dokumentiert DNS-Rebinding als bekanntes Restrisiko, weil Validierung und HTTP-Verbindung getrennt auflösen.
 - Die globale Memory-Konfiguration speichert `ollama_base_url` und `honcho_base_url` als freie Textfelder (`backend/memory/models.py:156-188`); der Memory-Service schreibt sie ohne den LLM-Guard (`backend/application/memory_settings_service.py:117-160`).
 - Der Memory-Service ist absichtlich global und schreibgeschützt für normale Tenant-Admin-Rollen; der REST-Pfad verlangt für das Schreiben Django-Superuser (`backend/memory/memory_rest.py:176-197,366-393`).
 
@@ -497,7 +497,7 @@ Ein Tool hinzufügen/entfernen und den Dokumentations-/Manifest-Check laufen las
 
 - `backend/audit/events.py:90-176` definiert einen synchronen, prozesslokalen Audit-Bus.
 - `backend/audit/apps.py:30-38` registriert den `AuditLogWriter` auf diesem Bus.
-- `backend/application/event_bus.py:137-275` definiert den Transactional-Outbox-Bus; `context_graph/apps.py:23-34` weist ausdrücklich darauf hin, dass dies ein anderer Bus ist.
+- `backend/application/event_bus.py:137-275` definiert den Transactional-Outbox-Bus; `backend/context_graph/apps.py:23-34` weist ausdrücklich darauf hin, dass dies ein anderer Bus ist.
 - `ServiceBase._emit_event()` und `ServiceBase._audit()` verwenden getrennte Wege (`backend/application/base.py:202-269,325-348`).
 - Im aktuellen Produktionspfad wird der Legacy-Audit-Bus nicht als Publisher der Application-Schreibvorgänge verwendet; `log_write()` schreibt direkt (`backend/audit/services.py:126-190`).
 
@@ -569,7 +569,7 @@ Positiv ist die klare Defense-in-Depth-Kette:
 - `TenantManager` setzt den ORM-Filter und wirft bei fehlendem Kontext vor SQL-Erzeugung (`backend/persistence/tenancy.py:117-158`).
 - `set_request_tenant()` setzt Thread-Kontext und `app.current_tenant` gemeinsam (`backend/persistence/middleware.py:34-67`).
 - Die RLS-Migrationen verwenden `ENABLE + FORCE` und eine leere Session-Variable als geschlossenen Zustand.
-- `persistence/tests/test_rls_coverage.py` prüft sowohl statische Policy-Deklarationen als auch das Live-Schema.
+- `backend/persistence/tests/test_rls_coverage.py` prüft sowohl statische Policy-Deklarationen als auch das Live-Schema.
 
 Die wichtigste Grenze ist daher nicht das Fehlen von RLS, sondern die kontextlose Ausführung von Hintergrundpfaden. AB-002 ist ein konkretes Beispiel dafür, wie ein korrekt konfiguriertes RLS-System durch einen vorgelagerten unscoped-Lookup zur Laufzeitnoop-Falle wird.
 
@@ -591,10 +591,10 @@ Diese Prüfungen sind positiv, aber direkte künftige Queries auf den Plain Mode
 ## 6. Stärken und bewahrte Entscheidungen
 
 1. **Dual-Interface-Konzept:** REST und MCP sind als gleichrangige Adapter modelliert; die dokumentierte Zielrichtung ist konsistent.
-2. **Transaktionale Outbox:** Der Inline-INSERT und die dreiphasige Claim/Dispatch/Write-back-Logik schützen die Mutation/Event-Bindung; `event_bus.py:7-31,164-214,458-555` enthält nachvollziehbare Invarianten.
+2. **Transaktionale Outbox:** Der Inline-INSERT und die dreiphasige Claim/Dispatch/Write-back-Logik schützen die Mutation/Event-Bindung; `backend/application/event_bus.py:7-31,164-214,458-555` enthält nachvollziehbare Invarianten.
 3. **RLS-Grundlage:** FORCE-RLS, App-Role und statische/live Coverage-Tests sind eine belastbare Basis.
 4. **Auth-Kontext:** `TenantContextService.activate()` setzt beide Isolationsschichten, und die Workspace-Rollenauflösung berücksichtigt den tatsächlich angefragten Workspace (`backend/auth_tenancy/rest.py:169-212`).
-5. **Async-Task-Regressionen:** `llm_adapter/tasks.py:117-198` und `memory/tasks.py:36-59` dokumentieren und umsetzen die korrekte RLS-Aktivierung in Celery; AB-002 zeigt, dass diese Lösung nicht überall übernommen wurde.
+5. **Async-Task-Regressionen:** `backend/llm_adapter/tasks.py:117-198` und `backend/memory/tasks.py:36-59` dokumentieren und umsetzen die korrekte RLS-Aktivierung in Celery; AB-002 zeigt, dass diese Lösung nicht überall übernommen wurde.
 6. **DLQ-Replay-Schutz:** `DlqService` prüft Workspace-Zugehörigkeit vor dem Replay und atomarisiert Outbox-Reinsert/DLQ-Löschung.
 7. **CI-Grundlage:** `.github/workflows/ci.yml:32-153` führt getrennte Backend-Sets mit PostgreSQL/Redis und `settings_test` aus; Playwright nutzt vier Shards (`.github/workflows/playwright.yml:19-47`).
 
@@ -623,7 +623,7 @@ Diese Prüfungen sind positiv, aber direkte künftige Queries auf den Plain Mode
 
 - Ein Compose-Startup mit ausstehenden Migrationen startet den Backend-Dienst erfolgreich; DDL läuft ausschließlich als Migrationsrolle.
 - Ein Context-Graph-Event unter `SET ROLE reqogniloom_app` ohne `app.current_tenant` projiziert nach Einführung des Payload-Tenant-Felds korrekt und sichtbar.
-- Ein Architecture-Test schlägt bei direkten ORM-Zugriffen in `rest_api/mixins/` und `admin_ops/*_rest.py` fehl.
+- Ein Architecture-Test schlägt bei direkten ORM-Zugriffen in `backend/rest_api/mixins/` und `backend/admin_ops/*_rest.py` fehl.
 - Ein absichtlich langsamer Webhook blockiert nicht den Events-Poller; Queue-Backlog und Zustellstatus sind getrennt messbar.
 - Private/loopback Webhook-URLs werden abgewiesen; erlaubte Self-hosted-Ausnahmen sind explizit und minimal.
 - Ein absichtlich fehlerhaftes zweites Interview-Feld hinterlässt keine teilweise aktualisierte Session.
@@ -632,8 +632,8 @@ Diese Prüfungen sind positiv, aber direkte künftige Queries auf den Plain Mode
 
 ## 9. Nicht als aktueller Befund bewertet
 
-- Die historischen Aussagen in `docs/se/DEEP_SYSTEM_ANALYSIS.md` zu Async-LLM, Outbox-Verdrahtung, SSE, Providern und CI wurden nicht ungeprüft übernommen. Mehrere davon sind im aktuellen Code bereits behoben (Beispiele: `llm_adapter/tasks.py`, Celery-Beat-Schedule, aktuelle CI-Dateien).
-- Die RLS-Lücken bei `at_api_key`, `at_user_role` und `audit_entry` sind in `persistence/tests/test_rls_coverage.py` ausdrücklich als geprüfte Ausnahmen dokumentiert. Sie bleiben eine getrennte Auth-/Architekturentscheidung und werden in diesem Bericht nicht als neue, unbestätigte P1-Lücke behauptet.
+- Die historischen Aussagen in `docs/se/DEEP_SYSTEM_ANALYSIS.md` zu Async-LLM, Outbox-Verdrahtung, SSE, Providern und CI wurden nicht ungeprüft übernommen. Mehrere davon sind im aktuellen Code bereits behoben (Beispiele: `backend/llm_adapter/tasks.py`, Celery-Beat-Schedule, aktuelle CI-Dateien).
+- Die RLS-Lücken bei `at_api_key`, `at_user_role` und `audit_entry` sind in `backend/persistence/tests/test_rls_coverage.py` ausdrücklich als geprüfte Ausnahmen dokumentiert. Sie bleiben eine getrennte Auth-/Architekturentscheidung und werden in diesem Bericht nicht als neue, unbestätigte P1-Lücke behauptet.
 - `DomainEventOutbox`- und `Webhook`-Plain-Models sind nicht per se ein Tenant-Leak; die aktuellen Servicepfade enthalten Workspace-Prüfungen. Offen bleibt die fehlende DB-seitige Defense-in-Depth und ein Contract-Test für künftige Direktzugriffe.
 
 ## 10. Verifikationsstatus und Grenzen
