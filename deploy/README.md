@@ -18,7 +18,7 @@ Both are Compose **profiles**: they cost nothing — no pull, no start — until
 | Profile | What | Status |
 |---|---|---|
 | `honcho` | Optional Honcho memory backend (`honcho-postgres`, `honcho-redis`, `honcho-migrate`, `honcho`). | Optional feature — fine to enable in production if you want it. |
-| `bluepencil` | Sidecar for the in-app annotation/review layer. | **DEBUG/QS ONLY — never enable it in production.** It is a *debugging* aid for seeing and measuring the layer in the real app, not a product feature: the sidecar has **no user auth and no tenant isolation** — one JSON file is shared by every workspace. The production path is Option A, the DRF `review_notes` implementation (`docs/bluepencil-integration.md`). See `deploy/bluepencil/README.md`. |
+| `bluepencil` | Sidecar for the in-app annotation/review layer. | **DEBUG/QS ONLY — never enable it in production.** It is a *debugging* aid for seeing and measuring the layer in the real app, not a product feature: the sidecar has **no user auth and no tenant isolation** — one JSON file is shared by every workspace. A future production path would be a DRF `review_notes` store with server-side auth, RBAC, CSRF, and tenant isolation (`docs/bluepencil-integration.md`). See `deploy/bluepencil/README.md`. |
 
 ## First Stumbling Block: CSRF Cookie Requires Matching Security Settings
 

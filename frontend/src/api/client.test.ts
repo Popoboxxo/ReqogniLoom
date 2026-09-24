@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  advanceAuthSessionGeneration,
   apiClient,
   extractApiErrorMessage,
   extractErrorMessage,
@@ -29,6 +30,7 @@ describe("apiClient — 401 vs 403 handling (REQ-051)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    advanceAuthSessionGeneration();
     setUnauthorizedHandler(unauthorizedHandler);
     resetUnauthorizedGuard();
     document.documentElement.lang = "en";
@@ -43,6 +45,15 @@ describe("apiClient — 401 vs 403 handling (REQ-051)", () => {
 
     await expect(apiClient.get("/requirements")).rejects.toBeDefined();
     expect(unauthorizedHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("can suppress the global handler for a session-restore request", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockResponse(401));
+
+    await expect(
+      apiClient.get("/auth/me/", { suppressUnauthorizedNotification: true }),
+    ).rejects.toBeDefined();
+    expect(unauthorizedHandler).not.toHaveBeenCalled();
   });
 
   it("on 403 throws ForbiddenError and does NOT log the user out", async () => {
@@ -97,6 +108,7 @@ describe("apiClient — silent token refresh on 401 (GitHub #135)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    advanceAuthSessionGeneration();
     setUnauthorizedHandler(unauthorizedHandler);
     resetUnauthorizedGuard();
     document.documentElement.lang = "en";
@@ -122,6 +134,37 @@ describe("apiClient — silent token refresh on 401 (GitHub #135)", () => {
 
     expect(result).toEqual({ id: "1" });
     expect(originalCalls).toBe(2); // 401 then a successful retry
+    expect(unauthorizedHandler).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale 401 after the auth session generation changes", async () => {
+    let resolveOriginal!: (response: Response) => void;
+    let markStarted!: () => void;
+    const originalResponse = new Promise<Response>((resolve) => {
+      resolveOriginal = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let refreshCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (isRefreshUrl(url)) {
+        refreshCalls += 1;
+        return mockResponse(200, {});
+      }
+      markStarted();
+      return originalResponse;
+    });
+
+    const pending = apiClient.get("/requirements/1");
+    await started;
+    advanceAuthSessionGeneration();
+    resolveOriginal(mockResponse(401));
+
+    await expect(pending).rejects.toMatchObject({
+      error: { code: "AUTHENTICATION_REQUIRED" },
+    });
+    expect(refreshCalls).toBe(0);
     expect(unauthorizedHandler).not.toHaveBeenCalled();
   });
 

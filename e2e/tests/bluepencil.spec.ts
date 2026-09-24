@@ -1,17 +1,4 @@
-// Issue #972 / docs/bluepencil-integration.md §4 — bluepencil review layer (Option B: sidecar).
-//
-// Proves the review layer end-to-end against the *real* stack: the layer mounts only
-// when the sidecar's health probe succeeds, a text note created on a `data-testid`
-// anchor lands in the sidecar's store (asserted outside the page, §4.1), and the note
-// is cleaned up again.
-//
-// The sidecar is OPTIONAL and is NOT started in CI (`make bluepencil`). This spec must
-// therefore skip visibly — with an actionable reason — when it is unavailable, and must
-// never fail spuriously. A missing *browser* may still turn the job red (§4.4); a missing
-// optional sidecar may not.
-//
-// Run (dev stack up + sidecar healthy):
-//   cd e2e && npx playwright test tests/bluepencil.spec.ts
+// Optional end-to-end coverage for the self-hosted Bluepencil sidecar.
 import { test, expect, request as playwrightRequest, type Page } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
@@ -111,6 +98,15 @@ test.describe('[issue #972] bluepencil review layer', () => {
 
     await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
     await loginAsAdmin(page);
+    const meResponse = await page.request.get('/api/v1/auth/me/');
+    expect(meResponse.ok()).toBeTruthy();
+    const meBody = (await meResponse.json()) as {
+      user?: { username?: string; first_name?: string; last_name?: string };
+    };
+    const fullName = `${meBody.user?.first_name ?? ""} ${meBody.user?.last_name ?? ""}`
+      .trim()
+      .replace(/\s+/g, ' ');
+    const expectedAuthor = fullName || meBody.user?.username || 'anonymous';
     // Deterministic authenticated route that renders the sidebar with the anchor below.
     await page.goto(`${FRONTEND_URL}/requirements`);
     await requireReviewLayerArmed(page);
@@ -141,9 +137,7 @@ test.describe('[issue #972] bluepencil review layer', () => {
     // stays open and reports inline. So a closed composer is the in-page confirmation.
     await expect(page.locator('[data-bp-part="composer"]')).toBeHidden();
 
-    // (d) The assertion that matters is outside the page (§4.1): poll the sidecar's own
-    // store over the same origin and prove the marker — and the `data-testid` anchor —
-    // actually landed. `expect.poll` auto-waits; no arbitrary sleep.
+    // Poll the sidecar store over the same origin.
     let storedId: string | null = null;
     await expect
       .poll(
@@ -151,7 +145,12 @@ test.describe('[issue #972] bluepencil review layer', () => {
           const response = await page.request.get(NOTES_URL);
           if (!response.ok()) return null;
           const body = (await response.json()) as {
-            notes?: Array<{ id?: string; body?: string; anchor?: { hook?: string } }>;
+            notes?: Array<{
+              id?: string;
+              body?: string;
+              author?: string;
+              anchor?: { hook?: string; route?: string };
+            }>;
           };
           const match = (body.notes ?? []).find((note) => (note.body ?? '').includes(NOTE_MARKER));
           storedId = match?.id ?? null;
@@ -165,10 +164,19 @@ test.describe('[issue #972] bluepencil review layer', () => {
     // The anchor must be the hook taken from `data-testid` (not a brittle CSS path).
     const stored = await (
       await page.request.get(NOTES_URL)
-    ).json() as { notes?: Array<{ id?: string; body?: string; anchor?: { hook?: string } }> };
+    ).json() as {
+      notes?: Array<{
+        id?: string;
+        body?: string;
+        author?: string;
+        anchor?: { hook?: string; route?: string };
+      }>;
+    };
     const persisted = (stored.notes ?? []).find((note) => note.id === storedId);
     expect(persisted?.body).toContain(NOTE_MARKER);
+    expect(persisted?.author).toBe(expectedAuthor);
     expect(persisted?.anchor?.hook).toBe('build-version-indicator');
+    expect(persisted?.anchor?.route).toBe('/requirements');
   });
 
   test('mounts the layer exactly when the health probe succeeds', async ({ page }) => {

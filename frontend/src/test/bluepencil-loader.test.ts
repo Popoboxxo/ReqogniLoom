@@ -17,6 +17,7 @@ import {
   probeSidecar,
   teardownBluepencilReviewLayer,
 } from "../bluepencil/loader";
+import { installBluepencilHost } from "../bluepencil/host";
 import { i18n } from "../i18n/index";
 
 /** Stubs the loader env as on, optionally pinning the sidecar environment. */
@@ -46,11 +47,16 @@ function loaderScripts(): HTMLScriptElement[] {
   return Array.from(document.querySelectorAll<HTMLScriptElement>("script[data-bluepencil-loader]"));
 }
 
-/** Full env/global/DOM reset between tests. */
-function resetLayer(): void {
+function completeAttach(): void {
+  document.dispatchEvent(new Event("bp-attach-ready"));
+}
+
+async function resetLayer(): Promise<void> {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  completeAttach();
   teardownBluepencilReviewLayer();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
 describe("bluepencil loader — build guard", () => {
@@ -126,8 +132,8 @@ describe("bluepencil loader — injection", () => {
     void i18n.changeLanguage("de");
     stubHealth({ ok: true });
   });
-  afterEach(() => {
-    resetLayer();
+  afterEach(async () => {
+    await resetLayer();
     void i18n.changeLanguage("en");
   });
 
@@ -144,8 +150,12 @@ describe("bluepencil loader — injection", () => {
     expect(script.getAttribute("data-integrity")).toBe("true");
     expect(script.getAttribute("data-language")).toBe("de");
     expect(script.getAttribute("data-environment")).toBe("staging");
-    // This repo's default anchor hooks already are data-bluepencil/data-testid.
+    expect(script.getAttribute("data-identity")).toBe("rfBluepencil.identity");
+    expect(script.getAttribute("data-headers-from")).toBe("rfBluepencil.headers");
+    expect(script.getAttribute("data-gate")).toBe("rfBluepencil.gate");
+    expect(script.getAttribute("data-route-from")).toBe("rfBluepencil.routeFor");
     expect(script.hasAttribute("data-anchor-hooks")).toBe(false);
+    expect(script.hasAttribute("data-build-ref")).toBe(false);
   });
 
   it("skips the integrity attribute and warns once when WebCrypto is unavailable (#981)", async () => {
@@ -167,6 +177,7 @@ describe("bluepencil loader — injection", () => {
   it("defaults the sidecar environment to dev", async () => {
     vi.unstubAllEnvs();
     enableLayer();
+    completeAttach();
     teardownBluepencilReviewLayer();
 
     await installBluepencilReviewLayer();
@@ -176,6 +187,24 @@ describe("bluepencil loader — injection", () => {
   it("is idempotent — a second call adds nothing", async () => {
     await expect(installBluepencilReviewLayer()).resolves.toBe(true);
     await expect(installBluepencilReviewLayer()).resolves.toBe(false);
+    expect(loaderScripts()).toHaveLength(1);
+  });
+
+  it("shares one in-flight probe and binds one loader", async () => {
+    let resolveHealth!: (response: Response) => void;
+    const healthResponse = new Promise<Response>((resolve) => {
+      resolveHealth = resolve;
+    });
+    const fetchMock = vi.fn(() => healthResponse);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = installBluepencilReviewLayer();
+    const second = installBluepencilReviewLayer();
+
+    expect(second).toBe(first);
+    resolveHealth({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response);
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(loaderScripts()).toHaveLength(1);
   });
 
@@ -191,10 +220,7 @@ describe("bluepencil loader — teardown", () => {
     enableLayer();
     stubHealth({ ok: true });
   });
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
-  });
+  afterEach(resetLayer);
 
   it("removes the script and element, destroys the handle and clears globals", async () => {
     await installBluepencilReviewLayer();
@@ -202,8 +228,9 @@ describe("bluepencil loader — teardown", () => {
     document.body.append(element);
     const destroy = vi.fn();
     window.bluepencilAttach = { destroy, version: "0.1.0-alpha.1" };
-    window.rfBluepencil = {};
+    installBluepencilHost({ getUser: () => ({ name: "Ada Lovelace" }) });
 
+    completeAttach();
     teardownBluepencilReviewLayer();
 
     expect(loaderScripts()).toHaveLength(0);
@@ -211,6 +238,100 @@ describe("bluepencil loader — teardown", () => {
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(window.bluepencilAttach).toBeUndefined();
     expect(window.rfBluepencil).toBeUndefined();
+  });
+
+  it("invalidates an in-flight install when teardown happens", async () => {
+    let resolveHealth!: (response: Response) => void;
+    const healthResponse = new Promise<Response>((resolve) => {
+      resolveHealth = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(() => healthResponse));
+
+    const installing = installBluepencilReviewLayer();
+    teardownBluepencilReviewLayer();
+    resolveHealth({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response);
+
+    await expect(installing).resolves.toBe(false);
+    expect(loaderScripts()).toHaveLength(0);
+    expect(window.rfBluepencil).toBeUndefined();
+  });
+
+  it("starts a fresh install after invalidating an older one", async () => {
+    let firstResolve!: (response: Response) => void;
+    let secondResolve!: (response: Response) => void;
+    const firstHealth = new Promise<Response>((resolve) => {
+      firstResolve = resolve;
+    });
+    const secondHealth = new Promise<Response>((resolve) => {
+      secondResolve = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => firstHealth)
+      .mockImplementationOnce(() => secondHealth);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const stale = installBluepencilReviewLayer();
+    teardownBluepencilReviewLayer();
+    const fresh = installBluepencilReviewLayer();
+    firstResolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response);
+    secondResolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response);
+
+    await expect(stale).resolves.toBe(false);
+    await expect(fresh).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(loaderScripts()).toHaveLength(1);
+  });
+
+  it("cleans a late handle and element after teardown", async () => {
+    await installBluepencilReviewLayer();
+    teardownBluepencilReviewLayer();
+
+    const lateElement = document.createElement("bluepencil-notes");
+    document.body.append(lateElement);
+    const destroy = vi.fn();
+    window.bluepencilAttach = { destroy };
+
+    completeAttach();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(window.bluepencilAttach).toBeUndefined();
+    expect(document.querySelector("bluepencil-notes")).toBeNull();
+  });
+
+  it("removes the script after an attach error", async () => {
+    await installBluepencilReviewLayer();
+    document.dispatchEvent(new Event("bp-attach-error"));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(loaderScripts()).toHaveLength(0);
+    expect(window.rfBluepencil).toBeDefined();
+  });
+
+  it("waits for a retired attach before starting a fresh install", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true }),
+        }) as Response,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(installBluepencilReviewLayer()).resolves.toBe(true);
+    teardownBluepencilReviewLayer();
+    const fresh = installBluepencilReviewLayer();
+
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(loaderScripts()).toHaveLength(0);
+
+    completeAttach();
+    await expect(fresh).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(loaderScripts()).toHaveLength(1);
   });
 
   it("is idempotent and never throws without any injected nodes", () => {

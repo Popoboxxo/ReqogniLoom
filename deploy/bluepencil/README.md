@@ -1,7 +1,7 @@
 # bluepencil sidecar (debug/QS only — never production)
 
-This directory vendors the **self-hosted bluepencil sidecar** — the Option B store from the
-integration plan (`docs/bluepencil-integration.md`, PR #972). It is a small Node HTTP server that
+This directory vendors the **self-hosted bluepencil sidecar** — the debug/QS store documented in
+`docs/bluepencil-integration.md` (PR #972). It is a small Node HTTP server that
 holds the bluepencil review layer's notes in **one JSON file**. ReqogniLoom's frontend talks to it
 over the Compose network. The sidecar is gated behind the `bluepencil` Compose profile and the
 frontend probe behind the `BLUEPENCIL_ENABLED` flag — enabling it takes both, and both are off by
@@ -14,11 +14,29 @@ default (see Enable).
 - has **no user authentication** — anyone who can reach it can read and write notes;
 - has **no tenant isolation** — one JSON file is shared by **every workspace**; there is no RLS /
   TenantContext scoping, so notes from one workspace are visible to all;
-- is therefore **not** the production path. The production path is **Option A**, the DRF
-  implementation (`backend/review_notes/`, `docs/bluepencil-integration.md` §0/§3): per-tenant
-  `ReviewNote` rows behind JWT + RLS, writing only for reviewer roles.
+- is therefore **not** the production path. A future production path would be a DRF store
+  (`backend/review_notes/`) with per-tenant rows behind JWT, RBAC, RLS, and CSRF enforcement.
 
 Use it to *see and measure* the layer in the real app (plan stage 2), not as a "pilot" deployment.
+
+## Host bridge and security boundary
+
+The frontend installs `window.rfBluepencil` before the vendored loader and passes
+`data-identity="rfBluepencil.identity"`, `data-headers-from="rfBluepencil.headers"`,
+`data-gate="rfBluepencil.gate"`, and `data-route-from="rfBluepencil.routeFor"` to the element. Identity and route values are attribution/routing
+metadata only; they are not authorization, role checks, or tenant isolation. The current UI gate is
+permissive and anonymous visitors can use the sidecar.
+
+ReqogniLoom authenticates the SPA with the httpOnly `reqogniloom_access` cookie. The bridge mirrors the
+readable `csrftoken` cookie as `X-CSRFToken` when present and does not invent an `Authorization`
+header. The current debug sidecar validates neither cookie nor CSRF, so a same-origin request is not
+made safe by those transport details. A production store must enforce authentication, RBAC,
+TenantContext/RLS, and CSRF server-side.
+
+Logout invalidates pending Bluepencil installs, removes the script and element, destroys the attach
+handle, and clears the host identity. Login or session restore starts one fresh install without a page
+reload unless the vendored attach exceeded its five-second timeout; that failure disables reattach for
+the current document and requires a reload.
 
 ## Enable
 
@@ -144,7 +162,8 @@ The service is started with `--base /bluepencil/api`, so all routes are prefixed
 | GET | `/bluepencil/api/bundle` | Canonical export bundle |
 | GET | `/bluepencil/api/journal` | Operation history (optional) |
 
-The sidecar's own CLI (for running it outside Compose):
+The sidecar's own CLI (for running it outside Compose; its standalone default is
+`/api/v1/bluepencil`, while this Compose stack uses `/bluepencil/api`):
 
 ```
 node server.js --store <path> [--port 8787] [--host 127.0.0.1] [--base /api/v1/bluepencil]

@@ -5,7 +5,7 @@
  * req_id:  REQ-L2-RF-010 (Bearer-Token auth), REQ-L2-RF-011 (Error rendering)
  *
  * All REST calls go through this module.
- * - Auth travels as the httpOnly ``reqflow_access`` cookie (REQ-052); requests
+ * - Auth travels as the httpOnly ``reqogniloom_access`` cookie (REQ-052); requests
  *   are sent with credentials so the browser attaches it automatically.
  * - Sends X-CSRFToken (from the ``csrftoken`` cookie) on unsafe methods, as the
  *   cookie auth path is CSRF-protected server-side.
@@ -40,6 +40,7 @@ export function readCookie(name: string): string | null {
 // ---------------------------------------------------------------------------
 
 let _onUnauthorized: (() => void) | null = null;
+let _authSessionGeneration = 0;
 // Guards against firing the unauthorized handler more than once for a burst
 // of parallel requests that all 401 around the same time (GitHub #135).
 let _unauthorizedNotified = false;
@@ -57,8 +58,17 @@ export function resetUnauthorizedGuard(): void {
   _unauthorizedNotified = false;
 }
 
-function notifyUnauthorized(): void {
-  if (_unauthorizedNotified) return;
+export function advanceAuthSessionGeneration(): void {
+  _authSessionGeneration += 1;
+  _refreshController?.abort();
+  _refreshController = null;
+  _refreshPromise = null;
+  _refreshGeneration = -1;
+  resetUnauthorizedGuard();
+}
+
+function notifyUnauthorized(generation: number): void {
+  if (generation !== _authSessionGeneration || _unauthorizedNotified) return;
   _unauthorizedNotified = true;
   _onUnauthorized?.();
 }
@@ -70,8 +80,10 @@ function notifyUnauthorized(): void {
 // Single-flight guard: concurrent 401s share one in-flight refresh instead of
 // each firing its own POST /auth/refresh/ (and each risking its own logout).
 let _refreshPromise: Promise<boolean> | null = null;
+let _refreshController: AbortController | null = null;
+let _refreshGeneration = -1;
 
-async function doRefresh(): Promise<boolean> {
+async function doRefresh(generation: number, signal: AbortSignal): Promise<boolean> {
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -84,8 +96,9 @@ async function doRefresh(): Promise<boolean> {
       method: "POST",
       credentials: "same-origin",
       headers,
+      signal,
     });
-    if (response.ok) {
+    if (response.ok && generation === _authSessionGeneration) {
       // A successful refresh re-establishes the session; allow a future
       // 401 (e.g. after the new access token itself expires) to notify again.
       resetUnauthorizedGuard();
@@ -99,11 +112,23 @@ async function doRefresh(): Promise<boolean> {
   }
 }
 
-function attemptRefresh(): Promise<boolean> {
+function attemptRefresh(generation: number): Promise<boolean> {
+  if (_refreshGeneration !== generation) {
+    _refreshController?.abort();
+    _refreshController = null;
+    _refreshPromise = null;
+    _refreshGeneration = generation;
+  }
   if (!_refreshPromise) {
-    _refreshPromise = doRefresh().finally(() => {
-      _refreshPromise = null;
+    const controller = new AbortController();
+    const promise = doRefresh(generation, controller.signal).finally(() => {
+      if (_refreshPromise === promise) {
+        _refreshPromise = null;
+        _refreshController = null;
+      }
     });
+    _refreshController = controller;
+    _refreshPromise = promise;
   }
   return _refreshPromise;
 }
@@ -187,6 +212,17 @@ export class RequestTimeoutError extends Error {
 export interface ApiFetchOptions extends RequestInit {
   /** Overrides both the default 30s and the long-running-path 180s. */
   timeoutMs?: number;
+  suppressUnauthorizedNotification?: boolean;
+}
+
+function authenticationRequiredError(): ApiError {
+  return {
+    error: {
+      code: "AUTHENTICATION_REQUIRED",
+      message: "Authentication required",
+      details: [],
+    },
+  };
 }
 
 async function apiFetch<T>(
@@ -194,6 +230,7 @@ async function apiFetch<T>(
   options: ApiFetchOptions = {},
   _isRetryAfterRefresh = false
 ): Promise<T> {
+  const authSessionGeneration = _authSessionGeneration;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -234,7 +271,11 @@ async function apiFetch<T>(
 
   // `timeoutMs` is our own option, not a `RequestInit` field — strip it
   // before spreading into fetch()'s init object.
-  const { timeoutMs: _timeoutMsOverride, ...fetchOptions } = options;
+  const {
+    timeoutMs: _timeoutMsOverride,
+    suppressUnauthorizedNotification: _suppressUnauthorizedNotification,
+    ...fetchOptions
+  } = options;
 
   let response: Response;
   try {
@@ -261,25 +302,26 @@ async function apiFetch<T>(
   // the caller if the refresh also fails, or if this call already IS a retry
   // or an auth endpoint (avoids infinite loops / retrying login).
   if (response.status === 401) {
+    if (authSessionGeneration !== _authSessionGeneration) {
+      throw authenticationRequiredError();
+    }
     const canTryRefresh =
       !_isRetryAfterRefresh && !_NO_REFRESH_PATHS.includes(path);
     if (canTryRefresh) {
-      const refreshed = await attemptRefresh();
-      if (refreshed) {
+      const refreshed = await attemptRefresh(authSessionGeneration);
+      if (refreshed && authSessionGeneration === _authSessionGeneration) {
         return apiFetch<T>(path, options, true);
       }
     }
+    if (authSessionGeneration !== _authSessionGeneration) {
+      throw authenticationRequiredError();
+    }
     // Refresh unavailable/failed (or not attempted) → clear auth state and
     // let the caller redirect to /login (REQ-L2-RF-010).
-    notifyUnauthorized();
-    const err: ApiError = {
-      error: {
-        code: "AUTHENTICATION_REQUIRED",
-        message: "Authentication required",
-        details: [],
-      },
-    };
-    throw err;
+    if (!options.suppressUnauthorizedNotification) {
+      notifyUnauthorized(authSessionGeneration);
+    }
+    throw authenticationRequiredError();
   }
 
   // 403 → authenticated but lacking permission: surface the error without
@@ -370,8 +412,10 @@ export const apiClient = {
   // both the 30s default and the 180s long-running-path default (see
   // `defaultTimeoutMsFor` above). Most callers never need it; it exists for
   // the rare one-off call that doesn't fit the path-based resolution.
-  get<T>(path: string, timeoutMs?: number): Promise<T> {
-    return apiFetch<T>(path, { timeoutMs });
+  get<T>(path: string, timeoutOrOptions?: number | Omit<ApiFetchOptions, "method">): Promise<T> {
+    const options =
+      typeof timeoutOrOptions === "number" ? { timeoutMs: timeoutOrOptions } : timeoutOrOptions;
+    return apiFetch<T>(path, options);
   },
 
   post<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
