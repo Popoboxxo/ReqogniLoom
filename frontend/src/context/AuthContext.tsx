@@ -290,7 +290,7 @@ export function AuthProvider({
                 void 0;
               }
             }
-            throw new Error("Login request timed out");
+            throw new Error("Login request timed out", { cause: error });
           }
           throw error;
         } finally {
