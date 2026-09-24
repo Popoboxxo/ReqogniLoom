@@ -290,7 +290,9 @@ export function AuthProvider({
                 void 0;
               }
             }
-            throw new Error("Login request timed out", { cause: error });
+            const timeoutError = new Error("Login request timed out");
+            (timeoutError as Error & { cause?: unknown }).cause = error;
+            throw timeoutError;
           }
           throw error;
         } finally {
