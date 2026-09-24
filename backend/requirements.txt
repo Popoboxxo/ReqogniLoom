@@ -39,7 +39,7 @@
 Django>=6.1.1,<6.2
 # 3.17.2+ declares Django 5.2 support; the existing range already resolves
 # there, so no floor change is required.
-djangorestframework>=3.18.0,<4.0
+djangorestframework>=3.18.1,<4.0
 drf-spectacular>=0.30.0,<1.0
 
 # Database
