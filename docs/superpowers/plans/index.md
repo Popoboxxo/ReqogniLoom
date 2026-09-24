@@ -9,6 +9,9 @@ proven against the source code (not against the plan's own claims).
 
 ## Top level — open work
 
+## [2026-09-24-motivated-improvement-plan.md](2026-09-24-motivated-improvement-plan.md)
+**Open — audit-based improvement plan; not implemented and not a release approval.** Derived from the 2026-09 system audit, it prioritizes P1 validation, QS-first evidence, a central Django core with a versioned contract/tool registry, and Bluepencil as QS-only/default-off. The plan records open measurements and implementation waves; it contains no application-code changes.
+
 ## [2026-09-21-open-issues-bundle.md](2026-09-21-open-issues-bundle.md)
 Cluster/sequencing plan for the open GitHub issues as of `main` @ `e11140d6` (v1.8.0-beta.14). 40 open issues reviewed, 27 actionable grouped into 7 clusters (C1 deploy/embedding, C2 SE-audit correctness, C3 frontend integrity, C4 E2E hardening, C5 SE completeness, C6 data-model identity, C7 attribute-v3 epic), 13 deliberately dispositioned out. Execution order C1→C2→C3→C4→C5→C6→C7; C1/C2 are the immediate start. Not yet implemented — no source claim verified beyond the `file:line` references quoted from the issue bodies.
 
