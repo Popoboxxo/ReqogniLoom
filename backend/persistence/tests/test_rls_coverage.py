@@ -48,6 +48,18 @@ _pg_only = pytest.mark.skipif(not _IS_POSTGRES, reason="PostgreSQL-only assertio
 # break it rather than harden it. Each value names the exact code path. These
 # are debt, not design: removing an entry requires reworking that path (see the
 # Systemaudit follow-ups), not relaxing this test.
+#
+# Two kinds of debt share this mapping. Most entries are ``TenantScopedModel``
+# tables, which are covered by this guard and only skipped here. The four
+# worker-owned ``application`` tables are plain ``models.Model`` classes with a
+# bare ``workspace_id`` UUID and no ``tenant_id`` column at all - see
+# ``persistence/tests/test_rls_plain_child_models.py``, which owns their CR-17
+# evidence. A GUC-keyed policy is not merely unimplemented on those four, it is
+# inexpressible: there is no column to compare. They are listed here so the
+# cross-tenant readability of those four tables stays a named, reviewed
+# exemption instead of an unnoticed gap, and so CR-17
+# (docs/se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md) can
+# be reported as PARTIALLY closed with them as open residual risk.
 RLS_EXEMPT_TABLES: dict[str, str] = {
     "at_api_key": (
         "AuthenticationService.validate_api_key looks the key hash up via "
@@ -84,7 +96,93 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "stamps the tenant onto the outbox payload (the fix shape already used "
         "for memory.projector) before RLS can be turned on here."
     ),
+    "as_domain_event_outbox": (
+        "Transactional outbox, claimed and written back by the Celery "
+        "OutboxPoller with no tenant context armed: "
+        "application.event_bus.poll_and_dispatch (application/event_bus.py:458) "
+        "lists unpublished rows of EVERY tenant (:490-496), _claim_event (:322) "
+        "takes each under SELECT FOR UPDATE, _finalize_success (:374) flips it "
+        "to published, _move_to_dlq (:412) deletes it, and the backlog count at "
+        ":551 aggregates across tenants. The poller cannot know which tenant a "
+        "row belongs to before it has read it - the same chicken-and-egg as "
+        "audit_entry. A WITH CHECK policy would reject the poller's write-backs, "
+        "so a claimed row would never be marked published and would be "
+        "redelivered on every claim-timeout reclaim forever; a USING policy "
+        "would reduce the candidate set to zero rows and stop the event bus "
+        "outright. publish() stores only a bare workspace_id (:208) and the "
+        "table has no tenant_id column, so there is nothing a policy could "
+        "compare. Needs the fix audit_entry names: stamp tenant_id onto the "
+        "outbox payload at emission time (the shape already used for "
+        "memory.projector) so the poller can arm app.current_tenant per row "
+        "before writing back. CR-17 residual risk, still OPEN."
+    ),
+    "as_domain_event_dlq": (
+        "Dead-letter queue written from that same tenant-context-free poller "
+        "(app.current_tenant never armed): application.event_bus._move_to_dlq "
+        "inserts here "
+        "(application/event_bus.py:401) with the workspace_id copied off the "
+        "outbox record, so a WITH CHECK policy would reject the DLQ INSERT for "
+        "precisely the event that failed - the error path would lose its own "
+        "evidence - and the DLQ depth count at :552 is a cross-tenant "
+        "maintenance read that a USING policy would silently reduce to zero. "
+        "The one user-facing reader, application.dlq_service.DlqService."
+        "list_dlq / replay_dlq_event (application/dlq_service.py:112 and :160), "
+        "is NOT a database control: it resolves ownership through the "
+        "tenant-scoped Workspace.objects and then filters on the bare "
+        "workspace_id, which makes a foreign workspace_id indistinguishable "
+        "from an unknown one but leaves the row itself unguarded. No tenant_id "
+        "column exists to key a policy on. Needs tenant_id stamped onto the "
+        "outbox payload at emission time (the shape already used for "
+        "memory.projector) before RLS can be turned on here. CR-17 residual "
+        "risk, still OPEN."
+    ),
+    "as_webhook_subscription": (
+        "Read only by the webhook subscriber, which the OutboxPoller invokes "
+        "with app.current_tenant unset: application.webhook_dispatcher."
+        "_load_webhook_configs filters on the event's workspace_id "
+        "(application/webhook_dispatcher.py:145) from process_event, i.e. from "
+        "application.event_bus.poll_and_dispatch, so a USING policy would "
+        "return no subscriptions at all and silently disable every outbound "
+        "webhook. The isolation that exists here is an application filter on a "
+        "caller-supplied workspace_id, not a database fence, and the Django "
+        "admin change list (application/admin.py:117) lists every tenant's "
+        "subscriptions to a staff superuser. No tenant_id column exists to key "
+        "a policy on. Needs tenant_id stamped onto the outbox payload at "
+        "emission time (the shape already used for memory.projector) so the "
+        "subscriber can arm app.current_tenant before it reads. CR-17 residual "
+        "risk, still OPEN."
+    ),
+    "as_webhook_delivery_log": (
+        "Webhook attempt log, read and written only from that same "
+        "poller-driven subscriber: _already_delivered reads it by "
+        "subscription+event_id (application/webhook_dispatcher.py:195) and "
+        "_dispatch_with_retry INSERTs one row per attempt (:243), both with "
+        "app.current_tenant unset. A WITH CHECK policy would reject every "
+        "delivery-log INSERT, and a USING policy would make _already_delivered "
+        "answer False for every event, which at-least-once outbox delivery "
+        "(REQ-072) reads as never-delivered and answers by redelivering. The "
+        "rows hang off WebhookSubscription by FK, but that table's workspace_id "
+        "is a bare UUID with no tenant identity behind it, so there is still "
+        "nothing a policy could compare. Needs tenant_id stamped onto the "
+        "outbox payload at emission time (the shape already used for "
+        "memory.projector) before RLS can be turned on here. CR-17 residual "
+        "risk, still OPEN."
+    ),
 }
+
+#: Which of the :data:`RLS_EXEMPT_TABLES` entries are plain child tables rather
+#: than ``TenantScopedModel`` tables. The coverage guard skips an exempt table
+#: either way, so this set exists only to pin the *kind* of debt each entry is:
+#: without it, converting an exempt ``TenantScopedModel`` into a plain model
+#: (or the reverse) would silently pass the staleness guard below.
+RLS_EXEMPT_PLAIN_TABLES: frozenset[str] = frozenset(
+    {
+        "as_domain_event_outbox",
+        "as_domain_event_dlq",
+        "as_webhook_subscription",
+        "as_webhook_delivery_log",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +237,23 @@ def _tenant_scoped_tables() -> dict[str, str]:
     }
 
 
+def _plain_model_tables() -> set[str]:
+    """Every ``db_table`` of a concrete model that is NOT a ``TenantScopedModel``.
+
+    These are invisible to :func:`_tenant_scoped_tables` by construction, so an
+    exemption for one cannot be validated against that inventory - the four
+    worker-owned ``application`` tables are plain ``models.Model`` classes with
+    a bare ``workspace_id`` UUID and no ``tenant_id`` column. The exemption
+    staleness guard needs them to tell "the model was renamed or dropped" from
+    "the exemption is filed under the wrong kind of debt".
+    """
+    return {
+        model._meta.db_table
+        for model in apps.get_models()
+        if not issubclass(model, TenantScopedModel) and not model._meta.abstract
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -171,12 +286,26 @@ def test_rls_exemptions_are_still_tenant_scoped_tables():
     gaps can hide unnoticed.
     """
     tenant_tables = set(_tenant_scoped_tables())
+    plain_tables = _plain_model_tables() - tenant_tables
     declared = _tables_with_policy_in_migrations()
 
-    unknown = sorted(set(RLS_EXEMPT_TABLES) - tenant_tables)
+    unknown = sorted(set(RLS_EXEMPT_TABLES) - (tenant_tables | plain_tables))
     assert not unknown, (
-        f"RLS_EXEMPT_TABLES lists table(s) that are no longer tenant-scoped "
-        f"models: {unknown}. Remove the stale entr(y/ies)."
+        f"RLS_EXEMPT_TABLES lists table(s) that are no longer concrete models: "
+        f"{unknown}. Remove the stale entr(y/ies)."
+    )
+
+    # Symmetric difference: catches an entry filed under the wrong kind of debt
+    # in both directions (a plain model declared as tenant-scoped, and an
+    # exempt tenant-scoped model that quietly became a plain model).
+    wrong_kind = sorted(
+        RLS_EXEMPT_PLAIN_TABLES ^ (plain_tables & set(RLS_EXEMPT_TABLES))
+    )
+    assert not wrong_kind, (
+        "RLS_EXEMPT_TABLES / RLS_EXEMPT_PLAIN_TABLES disagree about which "
+        f"exemptions are plain child tables: {wrong_kind}. A plain child table "
+        "carries no tenant_id column at all, so its exemption is a different "
+        "debt than a TenantScopedModel's - keep the two lists in step."
     )
 
     now_covered = sorted(set(RLS_EXEMPT_TABLES) & declared)

@@ -317,3 +317,28 @@ jobs:
       - name: Build and verify plugin bundle
         working-directory: integrations/hermes-plugin/reqogniloom
         run: npm run build
+
+  # W1: actionlint gate over the workflow files. The image is pinned by digest
+  # (not a floating tag) so the CI verdict cannot drift from the local
+  # `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:... -color`
+  # command. Digest resolved with `docker pull` + `docker image inspect`; bump
+  # version and digest together when upgrading. No rule is ignored here on
+  # purpose -- see docs/se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md.
+  workflow-lint:
+    name: "Workflow Lint (actionlint)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Lint GitHub Actions workflows with actionlint
+        uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          args: >-
+            -color
+            .github/workflows/ci.yml
+            .github/workflows/version-drift-check.yml
+            .github/workflows/docker-publish.yml
+            .github/workflows/playwright.yml
+            .github/workflows/pages.yml

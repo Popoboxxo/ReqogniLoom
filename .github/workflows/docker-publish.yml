@@ -87,9 +87,11 @@ jobs:
             exit 1
           fi
 
-          echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "git_commit_sha=$GIT_COMMIT_SHA" >> "$GITHUB_OUTPUT"
-          echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
+          {
+            echo "app_version=$VERSION"
+            echo "git_commit_sha=$GIT_COMMIT_SHA"
+            echo "build_time=$BUILD_TIME"
+          } >> "$GITHUB_OUTPUT"
 
           echo "[build-meta] app_version=$VERSION"
           echo "[build-meta] git_commit_sha=$GIT_COMMIT_SHA"
