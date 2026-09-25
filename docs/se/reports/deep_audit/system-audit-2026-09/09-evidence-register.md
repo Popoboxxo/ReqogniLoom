@@ -151,6 +151,121 @@ Die folgenden Punkte sind ausdrücklich **keine erledigten Verifikationen**:
 
 Ein Track wird erst `VERIFIZIERT`, wenn der jeweilige Plan ein ausführbares Test-/CI-Artefakt, Commit/Revision, Umgebung, Ergebnis und gegebenenfalls Abweichung enthält. Ein historischer Report, ein bestehender Unit-Test oder eine unabhängige Reviewer-Aussage ersetzt diese Evidenz nicht. Bei neuem Codefund muss der Track entweder einem bestehenden `CR` zugeordnet oder mit einer neuen ID, vollständiger Primärquelle und Reconciliation-Entscheidung ergänzt werden.
 
+## 7. W0-Slice-Nachweis (2026-09-25, uncommitted)
+
+Dieses Addendum dokumentiert ausschließlich die tatsächlich ausgeführten Prüfungen des bounded W0/W1-Slices. Historische Revision, Branch und Frontmatter oben bleiben unverändert; die Slice-Arbeit ist absichtlich uncommitted.
+
+| Feld | Festgehaltener Stand |
+|---|---|
+| Ziel-HEAD | `37b4343c5b74536451bba08625cd43e0095ed22b` |
+| Branch | `feat/audit-w0-w1-security` |
+| Working Tree | 19 tracked geänderte Slice-Pfade + 1 untracked Slice-Test; zusätzlich 1 untracked, leeres Nicht-Slice-Artefakt `backend/.github/workflows/version-drift-check.yml`; kein Commit erstellt |
+| Host/Runner | Windows NT 10.0.26200.0; finale DB-/Workflow-Läufe im Compose-Projekt `reqlo-audit-w0-w1-security-test` (`backend-test`, Python 3.12.14, pytest 9.1.1) |
+| Python | 3.14.7 unter Windows; 3.14.4 im WSL-Test-Runner; finaler Container-Lauf Python 3.12.14 |
+| Frontend-Laufzeit | Node 26.7.0 / npm 11.19.0; Frontend nicht betroffen, daher nicht ausgeführt |
+| PostgreSQL/Redis/Image | `reqlo-audit-w0-w1-security-test-postgres-1` und `-redis-1` healthy; finaler DB-Lauf via `backend-test`; kein App-Image-Run behauptet |
+
+### 7.0 Pfadinventar (uncommitted)
+
+**19 tracked geänderte Slice-Pfade:**
+- `.github/workflows/version-drift-check.yml`
+- `backend/application/comment_service.py`
+- `backend/application/tests/test_comment_service.py`
+- `backend/application/workspace_lookup.py`
+- `backend/auth_tenancy/rest.py`
+- `backend/auth_tenancy/services/authentication.py`
+- `backend/auth_tenancy/tests/test_api_key_agent_identity.py`
+- `backend/auth_tenancy/tests/test_authentication.py`
+- `backend/mcp_server/tests/test_comment_tool_group.py`
+- `backend/mcp_server/tests/test_mcp_workspace_scope.py`
+- `backend/mcp_server/tools/comment.py`
+- `backend/mcp_server/workspace_scope.py`
+- `backend/rest_api/api_key_views.py`
+- `backend/rest_api/tests/test_agent_self_approval_913.py`
+- `backend/rest_api/tests/test_api_key_agent_fields.py`
+- `backend/rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py`
+- `backend/rest_api/tests/test_trace_link_proposal_rest.py`
+- `backend/rest_api/tests/test_workspace_scoped_roles.py`
+- `docs/se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md`
+
+**2 untracked Pfade:**
+- `backend/rest_api/tests/test_version_drift_workflow_security.py` — untracked Slice-Test, nicht gestaged.
+- `backend/.github/workflows/version-drift-check.yml` — untracked, leeres Nicht-Slice-Artefakt, nicht gestaged, nicht verändert und nicht Teil des Slices.
+
+### 7.1 Preliminary-Prüfungen (vor dem finalen Stack-Lauf)
+
+Die Preliminary-pytest-Kommandos wurden mit `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` und `DJANGO_SETTINGS_MODULE=reqogniloom.settings_test` ausgeführt; die `manage.py`-Kommandos mit `DJANGO_SETTINGS_MODULE=reqogniloom.settings_test`. Die finalen DB- und Workflow-Läufe verwenden den Compose-Test-Runner aus Abschnitt 7.2.
+
+| Kommando | Ergebnis |
+|---|---|
+| `python manage.py check` | PASS, 0 Systemcheck-Fehler |
+| `python manage.py makemigrations --check --dry-run` | Exit 0, `No changes detected`; Warnung: Host `postgres` nicht auflösbar, daher keine DB-Verbindungsprüfung |
+| `python -m pytest -p pytest_django.plugin --collect-only -q rest_api/tests/test_api_key_agent_fields.py rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py application/tests/test_comment_service.py mcp_server/tests/test_comment_tool_group.py mcp_server/tests/test_mcp_workspace_scope.py rest_api/tests/test_workspace_scoped_roles.py rest_api/tests/test_version_drift_workflow_security.py` | 135 Tests gesammelt |
+| `python -m pytest -p pytest_django.plugin -q rest_api/tests/test_version_drift_workflow_security.py` | 22 passed |
+| `python -m pytest -p pytest_django.plugin -q rest_api/tests/test_api_key_agent_fields.py -k "validation_precedes_lifecycle"` | 7 passed, 10 nicht ausgeführt |
+| `python -m pytest -p pytest_django.plugin -q rest_api/tests/test_version_drift_workflow_security.py rest_api/tests/test_api_key_agent_fields.py mcp_server/tests/test_comment_tool_group.py -k "valid_https_url or invalid_deployed_url or secret_ or dispatch_input or empty_configuration or validation_precedes_lifecycle or maps or exactly or delete"` | 32 passed, 16 nicht ausgeführt |
+| `python -m pytest -p pytest_django.plugin -q auth_tenancy/tests/test_api_key_granular_scopes_865.py -k "scope_tier or normalize or missing_scope or non_string or unknown_scope"` | 21 passed, 19 nicht ausgeführt |
+| `python -m pytest -p pytest_django.plugin -q mcp_server/tests/test_mcp_workspace_scope.py -k "every_read_tool_is_classified or classification_sets_are_disjoint or tool_enforced_scope_tools_are_real_read_tools or registry_targets_reference_known_tools or registry_targets_reference_declared_params or every_entity_key_is_declared or tenant_scoped_read_tools_are_real_read_tools"` | 7 passed, 22 nicht ausgeführt |
+| **PRELIMINARY** `python -m pytest -p pytest_django.plugin --tb=no -q rest_api/tests/test_api_key_agent_fields.py rest_api/tests/test_version_drift_workflow_security.py rest_api/tests/test_workspace_scoped_roles.py rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py application/tests/test_comment_service.py mcp_server/tests/test_comment_tool_group.py mcp_server/tests/test_mcp_workspace_scope.py` | 135 gesammelt, 40 passed, 95 Errors; **blockiert**, alle DB-Setup-Fehler: `could not translate host name "postgres"`; keine DB-Assertions verifiziert |
+| `ruff check . --select=F821,F822` | PASS |
+| `ruff check --select=I,F,E auth_tenancy/services/authentication.py auth_tenancy/rest.py rest_api/api_key_views.py application/comment_service.py application/workspace_lookup.py mcp_server/workspace_scope.py mcp_server/tools/comment.py rest_api/tests/test_version_drift_workflow_security.py rest_api/tests/test_api_key_agent_fields.py rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py application/tests/test_comment_service.py auth_tenancy/tests/test_api_key_agent_identity.py auth_tenancy/tests/test_authentication.py mcp_server/tests/test_comment_tool_group.py mcp_server/tests/test_mcp_workspace_scope.py rest_api/tests/test_agent_self_approval_913.py rest_api/tests/test_trace_link_proposal_rest.py rest_api/tests/test_workspace_scoped_roles.py` | PASS |
+| `python -m compileall -q auth_tenancy/services/authentication.py auth_tenancy/rest.py rest_api/api_key_views.py application/comment_service.py application/workspace_lookup.py mcp_server/workspace_scope.py mcp_server/tools/comment.py rest_api/tests/test_version_drift_workflow_security.py rest_api/tests/test_api_key_agent_fields.py rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py application/tests/test_comment_service.py auth_tenancy/tests/test_api_key_agent_identity.py auth_tenancy/tests/test_authentication.py mcp_server/tests/test_comment_tool_group.py mcp_server/tests/test_mcp_workspace_scope.py rest_api/tests/test_agent_self_approval_913.py rest_api/tests/test_trace_link_proposal_rest.py rest_api/tests/test_workspace_scoped_roles.py` | PASS |
+| `git diff --check` plus untracked-file check | PASS |
+| `scan_for_secrets` diff-only (Added Lines plus untracked Slice-Datei) | PASS, keine Findings |
+
+Der Diff-Scan wurde ausschließlich auf Added Lines (`git diff --unified=0`) plus die untracked Testdatei angewendet; unveränderte Kontextzeilen mit bestehenden Test-Platzhaltern wurden nicht als Slice-Secret-Finding gewertet.
+
+### 7.2 Finale Verifikation nach Remediation
+
+Finaler DB-Runner: Compose-Projekt `reqlo-audit-w0-w1-security-test`, `--project-directory .`, `backend-test`, `DJANGO_SETTINGS_MODULE=reqogniloom.settings_test`, PostgreSQL-Service `postgres`, Redis-Service `redis`, pytest 9.1.1/Django 6.1.1/Python 3.12.14.
+
+**Neue Negativtests zuerst:**
+
+```powershell
+docker compose -p reqlo-audit-w0-w1-security-test --project-directory . -f deploy/docker-compose.yml -f testing/docker-compose.test.yml run --rm backend-test pytest -q --create-db rest_api/tests/test_api_key_agent_fields.py rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py mcp_server/tests/test_comment_tool_group.py mcp_server/tests/test_mcp_workspace_scope.py rest_api/tests/test_workspace_scoped_roles.py -k "principal_type_is_validated_before_lifecycle or validation_precedes_lifecycle or principal_type_variants_are_rejected or api_key_agent_lifecycle_rejects_incomplete_security_fields or api_key_user_explicit_null_scope_is_rejected or resolve_rejects_workspace_id_before_service or fenced_agent_key_rejects_workspace_b_before_comment_handler or explicit_workspace_cannot_bypass_fenced_comment_target or fenced_agent_key_cannot_resolve_same_tenant_workspace_b_comment"
+```
+
+Ergebnis: **29 passed, 79 deselected**, 39.21 s.
+
+**Fokussierte finale DB-Suite:**
+
+```powershell
+docker compose -p reqlo-audit-w0-w1-security-test --project-directory . -f deploy/docker-compose.yml -f testing/docker-compose.test.yml run --rm backend-test pytest -q --create-db auth_tenancy/tests/test_api_key_agent_identity.py auth_tenancy/tests/test_api_key_granular_scopes_865.py auth_tenancy/tests/test_authentication.py rest_api/tests/test_agent_self_approval_913.py rest_api/tests/test_api_key_agent_fields.py rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py rest_api/tests/test_trace_link_proposal_rest.py rest_api/tests/test_bearer_token_role_resolution.py rest_api/tests/test_workspace_scoped_roles.py application/tests/test_comment_service.py mcp_server/tests/test_comment_tool_group.py mcp_server/tests/test_mcp_workspace_scope.py
+```
+
+Ergebnis: **224 passed**, 56 Warnungen, 54.13 s. Die Suite erfasst importierte Testfälle mehrfach; alle 224 Läufe waren erfolgreich.
+
+**Separater Workflow-Test mit korrektem Root-Workflow-Mount:**
+
+```powershell
+docker compose -p reqlo-audit-w0-w1-security-test --project-directory . -f deploy/docker-compose.yml -f testing/docker-compose.test.yml run --rm -v "${PWD}/.github:/repo/.github:ro" -e REQLO_REPO_ROOT=/repo backend-test pytest -q rest_api/tests/test_version_drift_workflow_security.py
+```
+
+Ergebnis: **29 passed**; der Test las `.github/workflows/version-drift-check.yml` aus dem Root-Mount `/repo/.github`.
+
+**Fehlerhafte Vorversuche und Korrekturen:** Der erste Workflow-Aufruf ohne `--project-directory .` scheiterte beim Container-Start mit `ImportError: No module named 'reqogniloom'`; der korrigierte Root-Mount-Lauf ist der oben dokumentierte grüne Lauf. Der erste neue Negativtest-Lauf ergab 28 passed/1 failed, weil der REST-Vertrag für diesen Fall `403`/`"403"` statt `PERMISSION_DENIED` liefert; die Test-Erwartung wurde an den bestehenden Vertrag angepasst, danach liefen 29/29 Tests grün.
+
+**Finale statische und Umgebungs-Checks:**
+
+| Kommando | Ergebnis |
+|---|---|
+| `docker compose -p reqlo-audit-w0-w1-security-test --project-directory . -f deploy/docker-compose.yml -f testing/docker-compose.test.yml run --rm backend-test sh -c "python manage.py check && python manage.py makemigrations --check --dry-run"` | PASS; Systemcheck 0 Fehler; `No changes detected` |
+| `ruff check . --select=F821,F822` | PASS |
+| `ruff check --select=I,F,E ...` über alle Slice-Pythonpfade | PASS |
+| `python -m compileall -q ...` über alle Slice-Pythonpfade | PASS |
+| `git diff --check` plus untracked-file check | PASS |
+| Scope-/Status-Check mit `git status --porcelain=v1 -uall` | PASS: 19 tracked Slice-Pfade + 1 untracked Slice-Test; das untracked leere `backend/.github/workflows/version-drift-check.yml` wurde separat als Nicht-Slice-Artefakt bestätigt |
+| Diff-only `scan_for_secrets` über Added Lines plus untracked Slice-Datei | PASS, keine Findings; keine Secret-Inhalte ausgegeben |
+
+### 7.3 Abweichungen und offene W0-/W1-Evidenz
+
+- **PRELIMINARY/BLOCKIERT:** Der frühere 135/40+95-Lauf bleibt als Vorlauf dokumentiert; der finale DB-Lauf in Abschnitt 7.2 ist grün.
+- **OFFEN:** `actionlint` ist auf dem Host nicht installiert. YAML-Struktur und der tatsächliche Step-`run`-Block wurden stattdessen durch den separaten Bash-Test mit korrektem Root-Mount verifiziert.
+- **NICHT AUSGEFÜHRT:** Frontend-Tests und Typecheck, da keine Frontend-Datei betroffen ist; Release-/Image-Nachweis und vollständige W0-Exit-Kriterien wurden nicht behauptet.
+- **Lint-Abweichung:** der optionale Default-Ruff-Lauf über die Slice-Dateien meldete 37 Bestands-/Regelbefunde außerhalb des CI-Pyflakes-Gates; der im CI konfigurierte `F821,F822`-Lauf ist grün.
+
+Status dieses Addendums: **TEILWEISE VERIFIZIERT / ACTIONLINT- UND RELEASE-GATES OFFEN**. Der W0-Slice ist nur für die in Abschnitt 7.2 tatsächlich ausgeführten DB- und Workflow-Prüfungen freigegeben; historische Provenienz und der frühere preliminary DB-Fehlerlauf bleiben unverändert dokumentiert.
+
 ```text
 STATUS: done
 RESULT: Alle 47 kanonischen Reconciliation-Tracks sind mit Quellenbericht, Primärbeleg, Test-/CI-Beleg, Severity, Confidence, Tatsache/Hypothese, Verifikationsplan und Status auffindbar. Historische Runtime- und externe CVE-Aussagen bleiben ausdrücklich als historisch, E oder O markiert.

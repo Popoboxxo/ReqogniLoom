@@ -13,12 +13,14 @@ names, mocks and assertions but use the real one:
 """
 import json
 import uuid
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from mcp_server.tools.comment import CommentToolGroup
+from persistence.errors import NotFoundError, PermissionDeniedError
 
 
 def _comment_stub():
@@ -118,6 +120,95 @@ def test_resolve_returns_the_full_object(ctx):
 
     assert result.data["resolved"] is True
     assert result.data["text"] == "needs a rationale"
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "params", "method_name"),
+    [
+        (
+            "comment.create",
+            {
+                "artifact_id": str(uuid.uuid4()),
+                "text": "hello",
+                "workspace_id": str(uuid.uuid4()),
+            },
+            "create_comment",
+        ),
+        (
+            "comment.list",
+            {
+                "artifact_id": str(uuid.uuid4()),
+                "workspace_id": str(uuid.uuid4()),
+            },
+            "list_for_artifact",
+        ),
+        (
+            "comment.resolve",
+            {"id": str(uuid.uuid4()), "workspace_id": str(uuid.uuid4())},
+            "resolve_comment",
+        ),
+    ],
+)
+def test_comment_tools_reject_workspace_id_before_service(
+    ctx, tool_name, params, method_name
+):
+    group = CommentToolGroup()
+    with patch("mcp_server.tools.comment.CommentService") as svc:
+        result = group.execute_tool(tool_name, params, ctx, None)
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    getattr(svc.return_value, method_name).assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (NotFoundError("missing"), "NOT_FOUND"),
+        (PermissionDeniedError("denied"), "PERMISSION_DENIED"),
+    ],
+)
+def test_resolve_maps_domain_errors_without_changing_other_tools(ctx, error, code):
+    group = CommentToolGroup()
+    with patch("mcp_server.tools.comment.CommentService") as svc:
+        svc.return_value.resolve_comment.side_effect = error
+        result = group.execute_tool(
+            "comment.resolve", {"id": str(uuid.uuid4())}, ctx, None
+        )
+
+    assert result.success is False
+    assert result.error_code == code
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "params", "method_name", "error", "code"),
+    [
+        (
+            "comment.create",
+            {"artifact_id": str(uuid.uuid4()), "text": "hello"},
+            "create_comment",
+            PermissionDeniedError("denied"),
+            "PERMISSION_DENIED",
+        ),
+        (
+            "comment.list",
+            {"artifact_id": str(uuid.uuid4())},
+            "list_for_artifact",
+            NotFoundError("missing"),
+            "NOT_FOUND",
+        ),
+    ],
+)
+def test_comment_create_and_list_map_domain_errors(
+    ctx, tool_name, params, method_name, error, code
+):
+    group = CommentToolGroup()
+    with patch("mcp_server.tools.comment.CommentService") as svc:
+        getattr(svc.return_value, method_name).side_effect = error
+        result = group.execute_tool(tool_name, params, ctx, None)
+
+    assert result.success is False
+    assert result.error_code == code
 
 
 def test_exactly_three_tools_are_declared():

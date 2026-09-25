@@ -52,21 +52,113 @@ jobs:
 
       - name: Determine deployed URL
         id: url
+        env:
+          DISPATCH_DEPLOYED_URL: ${{ github.event.inputs.deployed_url }}
+          DEPLOYED_VERSION_URL_SECRET: ${{ secrets.DEPLOYED_VERSION_URL }}
         run: |
-          # Priority: workflow_dispatch input > secret > empty (skip)
-          URL="${{ github.event.inputs.deployed_url }}"
+          set -euo pipefail
+          URL="$DISPATCH_DEPLOYED_URL"
           if [[ -z "$URL" ]]; then
-            URL="${{ secrets.DEPLOYED_VERSION_URL }}"
+            URL="$DEPLOYED_VERSION_URL_SECRET"
           fi
 
           if [[ -z "$URL" ]]; then
-            echo "DEPLOYED_VERSION_URL not configured. Skipping check."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            printf '%s\n' 'DEPLOYED_VERSION_URL not configured. Skipping check.'
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "skip=false" >> "$GITHUB_OUTPUT"
+          if ! python3 - "$URL" <<'PY'
+          import ipaddress
+          import re
+          import sys
+          import unicodedata
+          from urllib.parse import unquote, urlsplit
+
+          def has_control(value):
+              return any(
+                  char.isspace() or unicodedata.category(char).startswith("C")
+                  for char in value
+              )
+
+          def validate_ip(value):
+              address = ipaddress.ip_address(value)
+              mapped = getattr(address, "ipv4_mapped", None)
+              if mapped is not None:
+                  address = mapped
+              if not address.is_global:
+                  raise SystemExit(1)
+
+          value = sys.argv[1]
+          if not value or has_control(value):
+              raise SystemExit(1)
+          try:
+              decoded = unquote(value, errors="strict")
+          except UnicodeError:
+              raise SystemExit(1)
+          if has_control(decoded):
+              raise SystemExit(1)
+          if any(char in "\"'`;|&<>$()\\{}^" for char in decoded):
+              raise SystemExit(1)
+          try:
+              parts = urlsplit(value)
+              host = parts.hostname
+              port = parts.port
+          except (UnicodeError, ValueError):
+              raise SystemExit(1)
+          if parts.scheme != "https" or not parts.netloc or not host:
+              raise SystemExit(1)
+          if "@" in parts.netloc or parts.username is not None or parts.password is not None:
+              raise SystemExit(1)
+          authority = parts.netloc.rsplit("@", 1)[-1]
+          if authority.endswith(":"):
+              raise SystemExit(1)
+          if port is not None and not 1 <= port <= 65535:
+              raise SystemExit(1)
+          normalized_host = host.rstrip(".").lower()
+          if (
+              normalized_host
+              in {
+                  "localhost",
+                  "localhost.localdomain",
+                  "ip6-localhost",
+                  "ip6-loopback",
+              }
+              or normalized_host.endswith(".localhost")
+          ):
+              raise SystemExit(1)
+          if ":" in host:
+              try:
+                  validate_ip(host)
+              except ValueError:
+                  raise SystemExit(1)
+          elif re.fullmatch(r"[0-9.]+", host):
+              try:
+                  validate_ip(host)
+              except ValueError:
+                  raise SystemExit(1)
+          else:
+              if len(host) > 253 or not re.fullmatch(
+                  r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", host
+              ):
+                  raise SystemExit(1)
+              labels = host.rstrip(".").split(".")
+              if any(
+                  not label
+                  or len(label) > 63
+                  or label.startswith("-")
+                  or label.endswith("-")
+                  for label in labels
+              ):
+                  raise SystemExit(1)
+          PY
+          then
+            printf '%s\n' 'Invalid deployed URL.' >&2
+            exit 1
+          fi
+
+          printf 'url=%s\n' "$URL" >> "$GITHUB_OUTPUT"
+          printf 'skip=false\n' >> "$GITHUB_OUTPUT"
 
       - name: Check version drift
         if: steps.url.outputs.skip == 'false'

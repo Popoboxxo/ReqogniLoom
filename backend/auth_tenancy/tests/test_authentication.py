@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import hmac
 import time
+from datetime import timedelta
 from unittest import mock
 
 import pytest
+from django.utils import timezone
 
 from auth_tenancy.context import AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
@@ -349,6 +351,25 @@ def test_max_active_keys_does_not_count_revoked_keys(user_a, settings):
     svc.revoke_api_key(user_id=user_a.id, api_key_id=result.api_key_id)
     # Revoking freed the one active slot — a new key can be created.
     svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k2")
+
+
+@pytest.mark.django_db
+def test_expired_keys_do_not_consume_creation_slots(user_a, settings):
+    settings.MAX_ACTIVE_API_KEYS_PER_USER = 1
+    plaintext = generate_api_key_plaintext()
+    ApiKey.unscoped.create(
+        tenant_id=user_a.tenant_id,
+        user=user_a,
+        name="expired",
+        key_hash=hash_api_key(plaintext),
+        expires_at=timezone.now() - timedelta(seconds=1),
+    )
+
+    result = _service().create_api_key(
+        user_id=user_a.id, tenant_id=user_a.tenant_id, name="replacement"
+    )
+
+    assert result.plaintext.startswith("reqlo_")
 
 
 @pytest.mark.django_db

@@ -26,11 +26,16 @@ import logging
 from typing import Any, Dict
 from uuid import UUID
 
-from auth_tenancy.context import AuthContext
-
 from application.comment_service import CommentService
+from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
+from mcp_server.tools.base import (
+    BaseToolGroup,
+    reject_unknown_params,
+    require_param,
+    require_uuid,
+)
+from persistence.errors import NotFoundError, PermissionDeniedError
 
 logger = logging.getLogger(__name__)
 
@@ -108,33 +113,53 @@ class CommentToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Handle ``comment.create``."""
+        reject_unknown_params(params, ["artifact_id", "text"], "comment.create")
         artifact_id: UUID = require_uuid(params, "artifact_id")
         # Issue #982: name the missing field instead of letting an empty body
         # fall through to the service and surface as a generic internal error.
         text: str = require_param(params, "text")
-        comment = self._get_service().create_comment(
-            artifact_id=artifact_id, text=text, ctx=auth_context
-        )
+        try:
+            comment = self._get_service().create_comment(
+                artifact_id=artifact_id, text=text, ctx=auth_context
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok(_comment_to_dict(comment))
 
     def _handle_list(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Handle ``comment.list``."""
-        artifact_id: UUID = require_uuid(params, "artifact_id")
-        rows = self._get_service().list_for_artifact(
-            artifact_id,
-            auth_context,
-            include_resolved=bool(params.get("include_resolved", True)),
+        reject_unknown_params(
+            params, ["artifact_id", "include_resolved"], "comment.list"
         )
+        artifact_id: UUID = require_uuid(params, "artifact_id")
+        try:
+            rows = self._get_service().list_for_artifact(
+                artifact_id,
+                auth_context,
+                include_resolved=bool(params.get("include_resolved", True)),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok({"comments": [_comment_to_dict(row) for row in rows]})
 
     def _handle_resolve(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """Handle ``comment.resolve``."""
+        reject_unknown_params(params, ["id"], "comment.resolve")
         comment_id: UUID = require_uuid(params, "id")
-        comment = self._get_service().resolve_comment(comment_id, auth_context)
+        try:
+            comment = self._get_service().resolve_comment(comment_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok(_comment_to_dict(comment))
 
 

@@ -28,12 +28,19 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 
 from ..context import AuthMethod, IdentityClaims
 from ..errors import AuthenticationFailed
 from ..jwt_tokens import decode_jwt
 from ..models import MAX_ACTIVE_API_KEYS_PER_USER as _DEFAULT_MAX_ACTIVE_API_KEYS_PER_USER
-from ..models import ApiKey, RefreshToken
+from ..models import (
+    PRINCIPAL_TYPE_AGENT,
+    PRINCIPAL_TYPE_USER,
+    ApiKey,
+    RefreshToken,
+    normalize_api_key_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -542,6 +549,14 @@ class AuthenticationService:
             # them undo their own deactivation via MCP.
             raise AuthenticationFailed("invalid_api_key")
 
+        if api_key.principal_type == PRINCIPAL_TYPE_AGENT and (
+            normalize_api_key_scope(api_key.scope) is None
+            or not isinstance(api_key.workspace_ids, list)
+            or not api_key.workspace_ids
+            or api_key.expires_at is None
+        ):
+            raise AuthenticationFailed("invalid_api_key")
+
         return IdentityClaims(
             user_id=api_key.user_id,
             tenant_id=api_key.user.tenant_id,
@@ -564,9 +579,9 @@ class AuthenticationService:
         user_id: UUID,
         tenant_id: UUID,
         name: str,
-        principal_type: str = "user",
+        principal_type: str = PRINCIPAL_TYPE_USER,
         agent_label: str = "",
-        scope: str = "write",
+        scope: str | None = None,
         workspace_ids: list[str] | None = None,
         expires_at: "datetime | None" = None,
     ) -> ApiKeyCreationResult:
@@ -581,7 +596,8 @@ class AuthenticationService:
             :class:`ApiKeyCreationResult` containing the one-time plaintext.
 
         Raises:
-            ValueError: If the user already has ``MAX_ACTIVE_API_KEYS_PER_USER``
+            ValueError: If an agent key has an invalid lifecycle configuration,
+                or if the user already has ``MAX_ACTIVE_API_KEYS_PER_USER``
                 active keys.
 
         SA-39 (Systemaudit 2026-08-27 §4.1 #11): count-then-create is a
@@ -594,6 +610,43 @@ class AuthenticationService:
         two requests could both create the first key. The lock is held only for
         two statements and is per user, so it serialises nothing else.
         """
+        if principal_type not in (PRINCIPAL_TYPE_USER, PRINCIPAL_TYPE_AGENT):
+            raise ValueError("API key principal_type must be 'user' or 'agent'.")
+
+        effective_scope = "write" if scope is None else scope
+        effective_workspace_ids: list[str] = []
+
+        if principal_type == PRINCIPAL_TYPE_AGENT:
+            normalized_scope = normalize_api_key_scope(scope)
+            if normalized_scope is None:
+                raise ValueError("Agent API keys require an explicit valid scope.")
+            effective_scope = normalized_scope
+
+            if not isinstance(workspace_ids, (list, tuple)) or not workspace_ids:
+                raise ValueError(
+                    "Agent API keys require at least one canonical workspace UUID."
+                )
+            try:
+                effective_workspace_ids = [
+                    str(UUID(str(workspace_id))) for workspace_id in workspace_ids
+                ]
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ValueError(
+                    "Agent API keys require at least one canonical workspace UUID."
+                ) from exc
+
+            if (
+                not isinstance(expires_at, datetime)
+                or expires_at.tzinfo is None
+                or expires_at.utcoffset() is None
+                or expires_at <= datetime.now(timezone.utc)
+            ):
+                raise ValueError(
+                    "Agent API keys require a strictly future timezone-aware expires_at."
+                )
+        else:
+            effective_workspace_ids = list(workspace_ids or [])
+
         # #606: configurable via settings (env var) so CI/CD environments that
         # provision a key per agent/QA-run aren't stuck with the fixed default.
         max_active = getattr(
@@ -613,9 +666,14 @@ class AuthenticationService:
             # is the authenticated caller's own user id.
             User.objects.select_for_update().filter(pk=user_id).first()
 
-            active_count = ApiKey.unscoped.filter(
-                user_id=user_id, revoked_at__isnull=True
-            ).count()
+            now = datetime.now(timezone.utc)
+            active_count = (
+                ApiKey.unscoped.filter(
+                    user_id=user_id, revoked_at__isnull=True
+                )
+                .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+                .count()
+            )
             if active_count >= max_active:
                 raise ValueError(
                     f"User already has the maximum of {max_active} active API keys."
@@ -629,8 +687,8 @@ class AuthenticationService:
                 key_hash=hash_api_key(plaintext),
                 principal_type=principal_type,
                 agent_label=agent_label,
-                scope=scope,
-                workspace_ids=list(workspace_ids or []),
+                scope=effective_scope,
+                workspace_ids=effective_workspace_ids,
                 expires_at=expires_at,
             )
         return ApiKeyCreationResult(

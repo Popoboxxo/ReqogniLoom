@@ -6,12 +6,18 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
+from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.models import (
     API_KEY_SCOPE_READ,
     API_KEY_SCOPE_WRITE,
     PRINCIPAL_TYPE_AGENT,
     PRINCIPAL_TYPE_USER,
     ApiKey,
+)
+from auth_tenancy.services.authentication import (
+    AuthenticationService,
+    generate_api_key_plaintext,
+    hash_api_key,
 )
 from persistence.models import Tenant, User
 
@@ -80,14 +86,6 @@ def test_is_expired_flips_after_expires_at(tenant, user):
     assert future.is_expired is False
 
 
-from auth_tenancy.errors import AuthenticationFailed
-from auth_tenancy.services.authentication import (
-    AuthenticationService,
-    generate_api_key_plaintext,
-    hash_api_key,
-)
-
-
 def _issue(tenant, user, **fields) -> str:
     plaintext = generate_api_key_plaintext()
     ApiKey.unscoped.create(
@@ -119,6 +117,7 @@ def test_agent_key_claims_actor_type_agent(tenant, user):
         agent_label="Claude Code",
         scope=API_KEY_SCOPE_READ,
         workspace_ids=["11111111-1111-1111-1111-111111111111"],
+        expires_at=timezone.now() + timedelta(days=1),
     )
     claims = AuthenticationService().validate_api_key(plaintext)
     assert claims.actor_type == "agent"
@@ -138,12 +137,39 @@ def test_expired_key_is_rejected(tenant, user):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("missing", ["fence", "expiry", "both"])
+def test_legacy_agent_key_without_complete_security_fields_is_rejected(
+    tenant, user, missing
+):
+    fields = {
+        "principal_type": PRINCIPAL_TYPE_AGENT,
+        "workspace_ids": ["11111111-1111-1111-1111-111111111111"],
+        "expires_at": timezone.now() + timedelta(days=1),
+    }
+    if missing in {"fence", "both"}:
+        fields["workspace_ids"] = []
+    if missing in {"expiry", "both"}:
+        fields["expires_at"] = None
+
+    plaintext = _issue(tenant, user, **fields)
+
+    with pytest.raises(AuthenticationFailed) as exc:
+        AuthenticationService().validate_api_key(plaintext)
+    assert exc.value.code == "invalid_api_key"
+
+
+@pytest.mark.django_db
 def test_auth_context_exposes_is_agent(tenant, user):
     from auth_tenancy.context import TenantContext as TenantContextValue
     from auth_tenancy.services.tenant_context import TenantContextService
 
     plaintext = _issue(
-        tenant, user, principal_type=PRINCIPAL_TYPE_AGENT, agent_label="Bot"
+        tenant,
+        user,
+        principal_type=PRINCIPAL_TYPE_AGENT,
+        agent_label="Bot",
+        workspace_ids=["11111111-1111-1111-1111-111111111111"],
+        expires_at=timezone.now() + timedelta(days=1),
     )
     claims = AuthenticationService().validate_api_key(plaintext)
     ctx = TenantContextService().build_auth_context(
