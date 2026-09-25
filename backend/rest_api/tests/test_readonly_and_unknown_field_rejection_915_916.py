@@ -38,13 +38,15 @@ names it.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 import pytest
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.models import ROLE_ADMIN, ApiKey, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 
@@ -273,6 +275,8 @@ def test_api_key_create_with_supported_payload_still_returns_201(strict_env):
             "principal_type": "agent",
             "agent_label": "qa-agent",
             "scope": "read",
+            "workspace_ids": [str(strict_env["workspace"].id)],
+            "expires_at": (timezone.now() + timedelta(days=1)).isoformat(),
         },
         format="json",
     )
@@ -280,3 +284,110 @@ def test_api_key_create_with_supported_payload_still_returns_201(strict_env):
     assert resp.status_code == 201, resp.content
     assert resp.json()["principal_type"] == "agent"
     assert resp.json()["agent_label"] == "qa-agent"
+
+
+@pytest.mark.parametrize(
+    "principal_type", ["USER", " agent ", "service", None]
+)
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_api_key_principal_type_variants_are_rejected(strict_env, principal_type):
+    client = _client(strict_env)
+    before = ApiKey.unscoped.filter(tenant_id=strict_env["tenant"].id).count()
+
+    resp = client.post(
+        "/api/v1/api-keys/",
+        {"name": "invalid-principal", "principal_type": principal_type},
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert ApiKey.unscoped.filter(tenant_id=strict_env["tenant"].id).count() == before
+
+
+@pytest.mark.parametrize(
+    "invalid_kind",
+    [
+        "missing_scope",
+        "null_scope",
+        "invalid_scope",
+        "empty_fence",
+        "invalid_fence",
+        "missing_expiry",
+        "naive_expiry",
+        "past_expiry",
+    ],
+)
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_api_key_agent_lifecycle_rejects_incomplete_security_fields(strict_env, invalid_kind):
+    client = _client(strict_env)
+    payload = {
+        "name": f"qa-{invalid_kind}",
+        "principal_type": "agent",
+        "agent_label": "qa-agent",
+        "scope": "read",
+        "workspace_ids": [str(strict_env["workspace"].id)],
+        "expires_at": (timezone.now() + timedelta(days=1)).isoformat(),
+    }
+    if invalid_kind == "missing_scope":
+        payload.pop("scope")
+    elif invalid_kind == "null_scope":
+        payload["scope"] = None
+    elif invalid_kind == "invalid_scope":
+        payload["scope"] = "godmode"
+    elif invalid_kind == "empty_fence":
+        payload["workspace_ids"] = []
+    elif invalid_kind == "invalid_fence":
+        payload["workspace_ids"] = ["not-a-uuid"]
+    elif invalid_kind == "missing_expiry":
+        payload.pop("expires_at")
+    elif invalid_kind == "naive_expiry":
+        payload["expires_at"] = (
+            timezone.now() + timedelta(days=1)
+        ).replace(tzinfo=None).isoformat()
+    else:
+        payload["expires_at"] = (timezone.now() - timedelta(seconds=1)).isoformat()
+
+    before = ApiKey.unscoped.filter(tenant_id=strict_env["tenant"].id).count()
+    resp = client.post("/api/v1/api-keys/", payload, format="json")
+
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert ApiKey.unscoped.filter(tenant_id=strict_env["tenant"].id).count() == before
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_api_key_user_may_omit_scope_and_keeps_write_default(strict_env):
+    client = _client(strict_env)
+
+    resp = client.post(
+        "/api/v1/api-keys/", {"name": "ordinary-user-key"}, format="json"
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["scope"] == "write"
+    key = ApiKey.unscoped.get(id=resp.json()["id"])
+    assert key.principal_type == "user"
+    assert key.scope == "write"
+    assert key.workspace_ids == []
+    assert key.expires_at is None
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_api_key_user_explicit_null_scope_is_rejected(strict_env):
+    client = _client(strict_env)
+    before = ApiKey.unscoped.filter(tenant_id=strict_env["tenant"].id).count()
+
+    resp = client.post(
+        "/api/v1/api-keys/",
+        {"name": "null-scope-user", "principal_type": "user", "scope": None},
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert ApiKey.unscoped.filter(tenant_id=strict_env["tenant"].id).count() == before

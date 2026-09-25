@@ -10,10 +10,13 @@ import uuid
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from application.comment_service import CommentService, notify_user_ids_for_artifact
 from application.models import Comment, Notification
+from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, UserRole
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from persistence.models import Actor, Artifact, Tenant, User, Workspace
 
@@ -55,6 +58,9 @@ def artifact(db, tenant, workspace):
 
 @pytest.fixture
 def ctx(alice, tenant, workspace):
+    UserRole.unscoped.create(
+        tenant=tenant, user=alice, workspace=workspace, role=ROLE_EDITOR
+    )
     return AuthContext(
         user_id=alice.pk,
         tenant_id=tenant.pk,
@@ -222,6 +228,10 @@ def test_admin_may_delete_any_comment(ctx, artifact, bob, tenant, workspace):
     with patch("application.comment_service.create_notifications"):
         comment = svc.create_comment(artifact_id=artifact.pk, text="x", ctx=ctx)
 
+    UserRole.unscoped.create(
+        tenant=tenant, user=bob, workspace=workspace, role=ROLE_ADMIN
+    )
+
     admin_ctx = AuthContext(
         user_id=bob.pk,
         tenant_id=tenant.pk,
@@ -231,6 +241,79 @@ def test_admin_may_delete_any_comment(ctx, artifact, bob, tenant, workspace):
     )
     svc.delete_comment(comment.pk, admin_ctx)
     assert not Comment.unscoped.filter(pk=comment.pk).exists()
+
+
+@pytest.mark.django_db
+def test_list_rejects_target_workspace_without_role(ctx, tenant):
+    target_workspace = Workspace.unscoped.create(
+        tenant=tenant, name=f"foreign-list-{uuid.uuid4().hex[:8]}"
+    )
+    artifact = Artifact.unscoped.create(
+        tenant=tenant, workspace=target_workspace, artifact_type="Requirement"
+    )
+    Comment.unscoped.create(
+        tenant=tenant,
+        artifact=artifact,
+        author_id=ctx.user_id,
+        text="foreign",
+    )
+    target_ctx = AuthContext(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        active_roles=ctx.active_roles,
+        auth_method=ctx.auth_method,
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        CommentService().list_for_artifact(artifact.pk, target_ctx)
+
+
+@pytest.mark.django_db
+def test_create_rejects_target_workspace_without_role(ctx, tenant):
+    target_workspace = Workspace.unscoped.create(
+        tenant=tenant, name=f"foreign-create-{uuid.uuid4().hex[:8]}"
+    )
+    artifact = Artifact.unscoped.create(
+        tenant=tenant, workspace=target_workspace, artifact_type="Requirement"
+    )
+    target_ctx = AuthContext(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        active_roles=ctx.active_roles,
+        auth_method=ctx.auth_method,
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        CommentService().create_comment(
+            artifact_id=artifact.pk, text="foreign", ctx=target_ctx
+        )
+    assert not Comment.unscoped.filter(artifact=artifact).exists()
+
+
+@pytest.mark.django_db
+def test_delete_does_not_use_role_from_another_workspace(ctx, tenant, bob):
+    target_workspace = Workspace.unscoped.create(
+        tenant=tenant, name=f"foreign-delete-{uuid.uuid4().hex[:8]}"
+    )
+    artifact = Artifact.unscoped.create(
+        tenant=tenant, workspace=target_workspace, artifact_type="Requirement"
+    )
+    comment = Comment.unscoped.create(
+        tenant=tenant,
+        artifact=artifact,
+        author_id=bob.pk,
+        text="foreign",
+    )
+    target_ctx = AuthContext(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        active_roles=("admin",),
+        auth_method=ctx.auth_method,
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        CommentService().delete_comment(comment.pk, target_ctx)
+    assert Comment.unscoped.filter(pk=comment.pk).exists()
 
 
 @pytest.mark.django_db
@@ -276,3 +359,118 @@ def test_replaces_probe_b_the_author_with_owner_equals_reporter_gets_nothing(
     CommentService().create_comment(artifact_id=artifact.pk, text="hi", ctx=ctx)
     assert Comment.unscoped.filter(artifact=artifact).count() == 1
     assert Notification.unscoped.count() == 0
+
+
+@pytest.mark.django_db
+def test_resolve_rejects_inactive_user_without_mutation(ctx, artifact):
+    with patch("application.comment_service.create_notifications"):
+        comment = CommentService().create_comment(
+            artifact_id=artifact.pk, text="inactive", ctx=ctx
+        )
+    User.objects.filter(pk=ctx.user_id).update(is_active=False)
+    audits_before = AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment.pk
+    ).count()
+
+    with pytest.raises(PermissionDeniedError):
+        CommentService().resolve_comment(comment.pk, ctx)
+
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment.pk
+    ).count() == audits_before
+
+
+@pytest.mark.django_db
+def test_resolve_rejects_suspended_target_role_without_mutation(ctx, artifact):
+    with patch("application.comment_service.create_notifications"):
+        comment = CommentService().create_comment(
+            artifact_id=artifact.pk, text="suspended", ctx=ctx
+        )
+    UserRole.unscoped.filter(user_id=ctx.user_id).update(
+        suspended_at=timezone.now()
+    )
+    audits_before = AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment.pk
+    ).count()
+
+    with pytest.raises(PermissionDeniedError):
+        CommentService().resolve_comment(comment.pk, ctx)
+
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment.pk
+    ).count() == audits_before
+
+
+@pytest.mark.django_db
+def test_resolve_rejects_workspace_fence_without_mutation(ctx, artifact):
+    with patch("application.comment_service.create_notifications"):
+        comment = CommentService().create_comment(
+            artifact_id=artifact.pk, text="fenced", ctx=ctx
+        )
+    fenced_ctx = AuthContext(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        active_roles=ctx.active_roles,
+        auth_method=ctx.auth_method,
+        api_key_workspace_ids=(str(uuid.uuid4()),),
+    )
+    audits_before = AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment.pk
+    ).count()
+
+    with pytest.raises(PermissionDeniedError):
+        CommentService().resolve_comment(comment.pk, fenced_ctx)
+
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment.pk
+    ).count() == audits_before
+
+
+@pytest.mark.django_db
+def test_resolve_hides_cross_tenant_comment(ctx):
+    foreign_tenant = Tenant.objects.create(name="foreign", is_active=True)
+    foreign_workspace = Workspace.unscoped.create(
+        tenant=foreign_tenant, name="foreign-workspace"
+    )
+    foreign_artifact = Artifact.unscoped.create(
+        tenant=foreign_tenant,
+        workspace=foreign_workspace,
+        artifact_type="Requirement",
+    )
+    foreign_comment = Comment.unscoped.create(
+        tenant=foreign_tenant,
+        artifact=foreign_artifact,
+        author_id=ctx.user_id,
+        text="foreign",
+    )
+
+    with pytest.raises(NotFoundError):
+        CommentService().resolve_comment(foreign_comment.pk, ctx)
+
+
+@pytest.mark.django_db
+def test_resolve_hides_inconsistent_comment_tenant_links(ctx, tenant):
+    foreign_tenant = Tenant.objects.create(name="foreign-links", is_active=True)
+    foreign_workspace = Workspace.unscoped.create(
+        tenant=foreign_tenant, name="foreign-links-workspace"
+    )
+    foreign_artifact = Artifact.unscoped.create(
+        tenant=foreign_tenant,
+        workspace=foreign_workspace,
+        artifact_type="Requirement",
+    )
+    inconsistent_comment = Comment.unscoped.create(
+        tenant=tenant,
+        artifact=foreign_artifact,
+        author_id=ctx.user_id,
+        text="inconsistent",
+    )
+
+    with pytest.raises(NotFoundError):
+        CommentService().resolve_comment(inconsistent_comment.pk, ctx)

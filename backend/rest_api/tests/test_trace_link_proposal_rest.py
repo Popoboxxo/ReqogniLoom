@@ -9,6 +9,7 @@ between the view layer and an otherwise working service.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -59,6 +60,8 @@ def tl_env(db):
             key_hash=hash_api_key(plaintext),
             principal_type="agent",
             agent_label="Claude Code",
+            workspace_ids=[str(workspace.id)],
+            expires_at=timezone.now() + timedelta(days=1),
         )
         # GH-914: the plaintext is what lets a test authenticate AS the agent
         # (``Authorization: Bearer reqlo_...``) instead of only impersonating
@@ -102,11 +105,19 @@ def _create(client: APIClient, path: str, payload: dict[str, Any]) -> dict:
 def _proposed_link(client: APIClient, tl_env: dict) -> dict:
     """A trace link marked as an agent proposal, as create_trace_link would."""
     ws = str(tl_env["workspace"].id)
-    source = _create(client, "/api/v1/requirements/", {"workspace_id": ws, "title": "M2 src"})
-    target = _create(client, "/api/v1/requirements/", {"workspace_id": ws, "title": "M2 tgt"})
+    source = _create(
+        client,
+        f"/api/v1/requirements/?workspace_id={ws}",
+        {"workspace_id": ws, "title": "M2 src"},
+    )
+    target = _create(
+        client,
+        f"/api/v1/requirements/?workspace_id={ws}",
+        {"workspace_id": ws, "title": "M2 tgt"},
+    )
     link = _create(
         client,
-        "/api/v1/trace-links/",
+        f"/api/v1/trace-links/?workspace_id={ws}",
         {
             "source_id": source["id"],
             "target_id": target["id"],
@@ -181,7 +192,7 @@ def test_discard_refuses_a_confirmed_link(tl_env):
     target = _create(client, "/api/v1/requirements/", {"workspace_id": ws, "title": "M2 t2"})
     link = _create(
         client,
-        "/api/v1/trace-links/",
+        f"/api/v1/trace-links/?workspace_id={ws}",
         {
             "source_id": source["id"],
             "target_id": target["id"],
@@ -217,7 +228,10 @@ def test_agent_confirm_is_403_not_500(tl_env):
     client = _agent_client(tl_env)
     link = _proposed_link(client, tl_env)
 
-    resp = client.post(f"/api/v1/trace-links/{link['id']}/confirm/")
+    resp = client.post(
+        f"/api/v1/trace-links/{link['id']}/confirm/"
+        f"?workspace_id={tl_env['workspace'].id}"
+    )
     assert resp.status_code == 403, resp.content
     body = resp.json()["error"]
     assert body["code"] == "PERMISSION_DENIED"
@@ -239,7 +253,10 @@ def test_agent_discard_is_403_not_500(tl_env):
     client = _agent_client(tl_env)
     link = _proposed_link(client, tl_env)
 
-    resp = client.post(f"/api/v1/trace-links/{link['id']}/discard/")
+    resp = client.post(
+        f"/api/v1/trace-links/{link['id']}/discard/"
+        f"?workspace_id={tl_env['workspace'].id}"
+    )
     assert resp.status_code == 403, resp.content
     body = resp.json()["error"]
     assert body["code"] == "PERMISSION_DENIED"

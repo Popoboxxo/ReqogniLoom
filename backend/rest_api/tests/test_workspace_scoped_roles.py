@@ -36,17 +36,21 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import timedelta
 
 import pytest
 from django.test import override_settings
-from rest_framework.test import APIClient
+from django.utils import timezone
+from rest_framework.test import APIClient, APIRequestFactory
 
+from application.models import Comment
+from audit.models import AuditEntry
 from auth_tenancy.jwt_tokens import encode_hs256
 from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER, UserRole
-from auth_tenancy.rest import ACCESS_COOKIE_NAME
+from auth_tenancy.rest import ACCESS_COOKIE_NAME, AuthTenancyAuthentication
 from auth_tenancy.services.authentication import AuthenticationService
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Tenant, User, Workspace
+from persistence.models import Artifact, Tenant, User, Workspace
 
 _SECRET = "workspace-scope-test-secret-not-a-real-key"
 _JWT_OVERRIDES = dict(
@@ -306,3 +310,165 @@ def test_suspended_role_in_target_workspace_denies_access(auth_method: str) -> N
         f"[{auth_method}] suspended role must not grant write, got "
         f"{resp.status_code}: {resp.content!r}"
     )
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_workspaceless_bearer_uses_live_user_and_roles_only() -> None:
+    tenant, user, workspace_a, workspace_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, workspace_a, ROLE_ADMIN)
+    token = _mint_bearer(user, tenant, [ROLE_ADMIN, ROLE_VIEWER])
+
+    request = APIRequestFactory().get(
+        "/api/v1/prompt-templates/",
+        HTTP_AUTHORIZATION=f"Bearer {token}",
+    )
+    try:
+        _principal, context = AuthTenancyAuthentication().authenticate(request)
+    finally:
+        clear_request_tenant()
+    assert context.active_roles == (ROLE_ADMIN,)
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    response = client.get(
+        "/api/v1/prompt-templates/", HTTP_X_WORKSPACE_ID=str(workspace_b.id)
+    )
+
+    assert response.status_code == 200, response.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role_state", ["suspended", "removed"])
+@override_settings(**_JWT_OVERRIDES)
+def test_workspaceless_bearer_drops_suspended_or_removed_role_before_endpoint(
+    role_state,
+) -> None:
+    tenant, user, workspace_a, _workspace_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, workspace_a, ROLE_ADMIN)
+    token = _mint_bearer(user, tenant, [ROLE_ADMIN])
+    set_request_tenant(tenant.id)
+    try:
+        roles = UserRole.objects.filter(
+            user_id=user.id, workspace_id=workspace_a.id
+        )
+        if role_state == "suspended":
+            roles.update(suspended_at=timezone.now())
+        else:
+            roles.delete()
+    finally:
+        clear_request_tenant()
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    response = client.get("/api/v1/prompt-templates/")
+
+    assert response.status_code == 403, response.content
+    assert response.json()["error"]["code"] == "403"
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_workspaceless_bearer_rejects_deactivated_user() -> None:
+    tenant, user, workspace_a, _workspace_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, workspace_a, ROLE_ADMIN)
+    token = _mint_bearer(user, tenant, [ROLE_ADMIN])
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    response = client.get("/api/v1/prompt-templates/")
+
+    assert response.status_code == 401, response.content
+    assert response.json()["error"]["code"] == "invalid_token"
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES)
+def test_workspaceless_bearer_hides_cross_tenant_comment() -> None:
+    tenant, user, workspace_a, _workspace_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, workspace_a, ROLE_ADMIN)
+    token = _mint_bearer(user, tenant, [ROLE_ADMIN])
+    foreign_tenant = Tenant.objects.create(
+        name="foreign-comment-tenant", is_active=True
+    )
+    set_request_tenant(foreign_tenant.id)
+    try:
+        foreign_workspace = Workspace.objects.create(
+            tenant=foreign_tenant, name="foreign-comment-workspace"
+        )
+        foreign_user = User.objects.create(
+            username="foreign-comment-user",
+            email="foreign-comment@example.com",
+            tenant=foreign_tenant,
+        )
+        foreign_artifact = Artifact.objects.create(
+            tenant=foreign_tenant,
+            workspace=foreign_workspace,
+            artifact_type="Requirement",
+        )
+        foreign_comment = Comment.unscoped.create(
+            tenant=foreign_tenant,
+            artifact=foreign_artifact,
+            author=foreign_user,
+            text="foreign",
+        )
+    finally:
+        clear_request_tenant()
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    response = client.post(f"/api/v1/comments/{foreign_comment.id}/resolve/")
+
+    assert response.status_code == 404, response.content
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+    foreign_comment.refresh_from_db()
+    assert foreign_comment.resolved is False
+
+
+@pytest.mark.django_db
+def test_fenced_agent_key_cannot_resolve_same_tenant_workspace_b_comment():
+    tenant, user, workspace_a, workspace_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, workspace_a, ROLE_EDITOR)
+
+    set_request_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace_b,
+            artifact_type="Requirement",
+        )
+        comment = Comment.unscoped.create(
+            tenant=tenant,
+            artifact=artifact,
+            author=user,
+            text="same tenant foreign workspace",
+        )
+    finally:
+        clear_request_tenant()
+
+    key = AuthenticationService().create_api_key(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        name="rest-fenced-agent",
+        principal_type="agent",
+        scope="write",
+        workspace_ids=[str(workspace_a.id)],
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    audits_before = AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment.id
+    ).count()
+    client = APIClient()
+    client.credentials(HTTP_X_API_KEY=key.plaintext)
+
+    response = client.post(f"/api/v1/comments/{comment.id}/resolve/")
+
+    assert response.status_code == 403, response.content
+    assert response.json()["error"]["code"] == "403"
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment.id
+    ).count() == audits_before

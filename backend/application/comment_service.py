@@ -16,15 +16,15 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from auth_tenancy.context import AuthContext
-from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
-from persistence.free_text import find_free_text_violation
-from persistence.models import Artifact, Tenant
-from persistence.transactions import atomic_transaction
-
 from application.base import ServiceBase
 from application.models import Comment, Notification
 from application.notification_service import create_notifications
+from auth_tenancy.context import AuthContext
+from auth_tenancy.services.authorization import AuthorizationService, Operation
+from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
+from persistence.free_text import find_free_text_violation
+from persistence.models import Artifact, Tenant, User, Workspace
+from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,43 @@ def notify_user_ids_for_artifact(artifact: Any) -> list[UUID]:
 class CommentService(ServiceBase):
     """Comment CRUD over the generic Artifact (COMP-AS-Comment)."""
 
+    def _authorize_workspace(
+        self, *, ctx: AuthContext, workspace_id: UUID, operation: Operation
+    ) -> tuple[Workspace, tuple[str, ...]]:
+        if ctx.workspace_id is not None and ctx.workspace_id != workspace_id:
+            raise PermissionDeniedError(
+                "The target workspace does not match the request scope."
+            )
+
+        allowed_workspaces = tuple(ctx.api_key_workspace_ids or ())
+        if allowed_workspaces and str(workspace_id) not in allowed_workspaces:
+            raise PermissionDeniedError(
+                "This API key is not allowed to access the target workspace."
+            )
+
+        active_workspace = Workspace.objects.filter(
+            id=workspace_id, tenant_id=ctx.tenant_id, is_active=True
+        ).first()
+        if active_workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+        active_user = User.objects.filter(
+            id=ctx.user_id, tenant_id=ctx.tenant_id, is_active=True
+        ).first()
+        if active_user is None:
+            raise PermissionDeniedError("The authenticated user is not active.")
+
+        authz = AuthorizationService()
+        active_roles = authz.active_roles_for(
+            user_id=ctx.user_id, workspace_id=active_workspace.id
+        )
+        decision = authz.decide_access(active_roles, operation)
+        if not decision.allow:
+            raise PermissionDeniedError(
+                f"An active {operation.value} role in the target workspace is required."
+            )
+        return active_workspace, active_roles
+
     def list_for_artifact(
         self,
         artifact_id: UUID,
@@ -66,8 +103,19 @@ class CommentService(ServiceBase):
         ``artifact_id``) read "no comments" instead of "artifact not found".
         """
         self._set_tenant_context(ctx)
-        if not Artifact.objects.filter(pk=artifact_id).exists():
+        artifact = (
+            Artifact.objects.select_related("workspace")
+            .filter(pk=artifact_id)
+            .first()
+        )
+        if artifact is None or artifact.tenant_id != ctx.tenant_id:
             raise NotFoundError(f"Artifact {artifact_id} not found")
+        workspace = getattr(artifact, "workspace", None)
+        if workspace is None or workspace.tenant_id != ctx.tenant_id:
+            raise NotFoundError(f"Artifact {artifact_id} not found")
+        self._authorize_workspace(
+            ctx=ctx, workspace_id=workspace.id, operation=Operation.READ
+        )
         qs = Comment.objects.filter(artifact_id=artifact_id).select_related(
             "author", "resolved_by"
         )
@@ -94,7 +142,6 @@ class CommentService(ServiceBase):
         comment tool calls this service directly (#269 finding 4 pattern).
         """
         self._set_tenant_context(ctx)
-        self._assert_write_permission(ctx)
 
         cleaned = (text or "").strip()
         if not cleaned:
@@ -104,9 +151,19 @@ class CommentService(ServiceBase):
         if violation is not None:
             raise ValidationError(f"text {violation}")
 
-        artifact = Artifact.objects.filter(pk=artifact_id).first()
-        if artifact is None:
+        artifact = (
+            Artifact.objects.select_related("workspace")
+            .filter(pk=artifact_id)
+            .first()
+        )
+        if artifact is None or artifact.tenant_id != ctx.tenant_id:
             raise NotFoundError(f"Artifact {artifact_id} not found")
+        workspace = getattr(artifact, "workspace", None)
+        if workspace is None or workspace.tenant_id != ctx.tenant_id:
+            raise NotFoundError(f"Artifact {artifact_id} not found")
+        self._authorize_workspace(
+            ctx=ctx, workspace_id=workspace.id, operation=Operation.WRITE
+        )
 
         tenant = Tenant.objects.filter(pk=ctx.tenant_id).first()
         if tenant is None:
@@ -152,11 +209,29 @@ class CommentService(ServiceBase):
     def resolve_comment(self, comment_id: UUID, ctx: AuthContext) -> Comment:
         """Mark a comment resolved. Idempotent — re-resolving keeps the first stamp."""
         self._set_tenant_context(ctx)
-        self._assert_write_permission(ctx)
 
-        comment = Comment.objects.filter(pk=comment_id).first()
+        comment = (
+            Comment.objects.select_related("artifact__workspace")
+            .filter(pk=comment_id, tenant_id=ctx.tenant_id)
+            .first()
+        )
         if comment is None:
             raise NotFoundError(f"Comment {comment_id} not found")
+
+        artifact = comment.artifact
+        workspace = getattr(artifact, "workspace", None)
+        if (
+            comment.tenant_id != ctx.tenant_id
+            or artifact is None
+            or artifact.tenant_id != ctx.tenant_id
+            or workspace is None
+            or workspace.tenant_id != ctx.tenant_id
+        ):
+            raise NotFoundError(f"Comment {comment_id} not found")
+
+        self._authorize_workspace(
+            ctx=ctx, workspace_id=workspace.id, operation=Operation.WRITE
+        )
 
         if not comment.resolved:
             comment.resolved = True
@@ -177,12 +252,28 @@ class CommentService(ServiceBase):
         """Delete a comment. Author or admin only (spec §4)."""
         self._set_tenant_context(ctx)
 
-        comment = Comment.objects.filter(pk=comment_id).first()
+        comment = (
+            Comment.objects.select_related("artifact__workspace")
+            .filter(pk=comment_id, tenant_id=ctx.tenant_id)
+            .first()
+        )
         if comment is None:
             raise NotFoundError(f"Comment {comment_id} not found")
+        artifact = comment.artifact
+        workspace = getattr(artifact, "workspace", None)
+        if (
+            artifact is None
+            or artifact.tenant_id != ctx.tenant_id
+            or workspace is None
+            or workspace.tenant_id != ctx.tenant_id
+        ):
+            raise NotFoundError(f"Comment {comment_id} not found")
 
+        _workspace, active_roles = self._authorize_workspace(
+            ctx=ctx, workspace_id=workspace.id, operation=Operation.READ
+        )
         is_author = comment.author_id == ctx.user_id
-        is_admin = "admin" in (ctx.active_roles or [])
+        is_admin = any(role.lower() == "admin" for role in active_roles)
         if not (is_author or is_admin):
             raise PermissionDeniedError("Only the comment author or an admin may delete it")
 

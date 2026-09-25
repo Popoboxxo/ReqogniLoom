@@ -19,22 +19,26 @@ pass and would have kept this file green against the unfixed code.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Dict, Tuple
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
+from django.utils import timezone
 
+from application.models import Comment
+from audit.models import AuditEntry
 from auth_tenancy.models import UserRole
-from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Artifact, Requirement, Tenant, Workspace
-from presets.models import WorkspacePresetConfig
-
+from auth_tenancy.services.authentication import AuthenticationService
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.workspace_scope import (
     TENANT_SCOPED_READ_TOOLS,
     resolve_target_workspace_id,
 )
-
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Artifact, Requirement, Tenant, User, Workspace
+from presets.models import WorkspacePresetConfig
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -76,6 +80,21 @@ def _make_requirement(workspace: Workspace, title: str) -> Requirement:
         )
     finally:
         clear_request_tenant()
+
+
+def _make_comment(requirement: Requirement, author: User, text: str) -> Comment:
+    return Comment.unscoped.create(
+        tenant=requirement.tenant,
+        artifact=requirement.artifact,
+        author=author,
+        text=text,
+    )
+
+
+def _comment_audits(comment_id: UUID) -> int:
+    return AuditEntry.unscoped.filter(
+        entity_type="Comment", entity_id=comment_id
+    ).count()
 
 
 @pytest.fixture
@@ -247,9 +266,263 @@ class TestWriteToolsWithoutWorkspaceParamAreScoped:
         assert home_requirement.title == "renamed by owner"
 
 
-# ---------------------------------------------------------------------------
-# Reads with an OPTIONAL workspace_id — the second finding
-# ---------------------------------------------------------------------------
+@pytest.mark.django_db
+def test_comment_resolve_uses_the_comments_workspace(
+    e2e_userrole_member: UserRole,
+    e2e_api_key_member: str,
+    e2e_user_member: User,
+    home_requirement: Requirement,
+):
+    comment = _make_comment(home_requirement, e2e_user_member, "own comment")
+
+    result = _dispatch("comment.resolve", {"id": str(comment.id)}, e2e_api_key_member)
+
+    assert result.success is True, result.message
+    comment.refresh_from_db()
+    assert comment.resolved is True
+    assert _comment_audits(comment.id) == 1
+
+
+@pytest.mark.django_db
+def test_comment_resolve_rejects_cross_workspace_before_mutation(
+    e2e_userrole_member: UserRole,
+    e2e_api_key_member: str,
+    e2e_user_member: User,
+    foreign_requirement: Requirement,
+):
+    comment = _make_comment(foreign_requirement, e2e_user_member, "foreign comment")
+    audits_before = _comment_audits(comment.id)
+
+    result = _dispatch("comment.resolve", {"id": str(comment.id)}, e2e_api_key_member)
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert _comment_audits(comment.id) == audits_before
+
+
+@pytest.mark.django_db
+def test_fenced_agent_key_rejects_workspace_b_before_comment_handler(
+    e2e_tenant: Tenant,
+    e2e_workspace: Workspace,
+    e2e_userrole_member: UserRole,
+    e2e_user_member: User,
+    foreign_requirement: Requirement,
+):
+    comment = _make_comment(foreign_requirement, e2e_user_member, "fenced agent")
+    key = AuthenticationService().create_api_key(
+        user_id=e2e_user_member.id,
+        tenant_id=e2e_tenant.id,
+        name="fenced-agent-key",
+        principal_type="agent",
+        agent_label="audit-agent",
+        scope="write",
+        workspace_ids=[str(e2e_workspace.id)],
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    audits_before = _comment_audits(comment.id)
+
+    with patch("mcp_server.tools.comment.CommentService.resolve_comment") as handler:
+        result = _dispatch("comment.resolve", {"id": str(comment.id)}, key.plaintext)
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    handler.assert_not_called()
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert _comment_audits(comment.id) == audits_before
+
+
+@pytest.mark.django_db
+def test_explicit_workspace_cannot_bypass_fenced_comment_target(
+    e2e_tenant: Tenant,
+    e2e_workspace: Workspace,
+    e2e_userrole_member: UserRole,
+    e2e_user_member: User,
+    foreign_requirement: Requirement,
+):
+    comment = _make_comment(foreign_requirement, e2e_user_member, "explicit scope")
+    key = AuthenticationService().create_api_key(
+        user_id=e2e_user_member.id,
+        tenant_id=e2e_tenant.id,
+        name="explicit-scope-agent-key",
+        principal_type="agent",
+        scope="write",
+        workspace_ids=[str(e2e_workspace.id)],
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    audits_before = _comment_audits(comment.id)
+
+    with patch("mcp_server.tools.comment.CommentService.resolve_comment") as handler:
+        result = _dispatch(
+            "comment.resolve",
+            {"id": str(comment.id), "workspace_id": str(e2e_workspace.id)},
+            key.plaintext,
+        )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    handler.assert_not_called()
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert _comment_audits(comment.id) == audits_before
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("tool_name", ["comment.create", "comment.list"])
+def test_comment_create_and_list_reject_explicit_workspace_bypass(
+    e2e_tenant: Tenant,
+    e2e_workspace: Workspace,
+    e2e_userrole_member: UserRole,
+    e2e_user_member: User,
+    foreign_requirement: Requirement,
+    tool_name: str,
+):
+    key = AuthenticationService().create_api_key(
+        user_id=e2e_user_member.id,
+        tenant_id=e2e_tenant.id,
+        name=f"explicit-{tool_name}",
+        principal_type="agent",
+        agent_label="audit-agent",
+        scope="write",
+        workspace_ids=[str(e2e_workspace.id)],
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    params = {
+        "artifact_id": str(foreign_requirement.artifact_id),
+        "workspace_id": str(e2e_workspace.id),
+    }
+    method_name = (
+        "create_comment" if tool_name == "comment.create" else "list_for_artifact"
+    )
+    if tool_name == "comment.create":
+        params["text"] = "blocked"
+
+    with patch(f"mcp_server.tools.comment.CommentService.{method_name}") as handler:
+        result = _dispatch(tool_name, params, key.plaintext)
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    handler.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_comment_resolve_rejects_suspended_target_role_without_mutation(
+    e2e_userrole_member: UserRole,
+    e2e_api_key_member: str,
+    e2e_user_member: User,
+    home_requirement: Requirement,
+):
+    e2e_userrole_member.suspended_at = timezone.now()
+    e2e_userrole_member.save(update_fields=["suspended_at"])
+    comment = _make_comment(home_requirement, e2e_user_member, "suspended role")
+    audits_before = _comment_audits(comment.id)
+
+    result = _dispatch("comment.resolve", {"id": str(comment.id)}, e2e_api_key_member)
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert _comment_audits(comment.id) == audits_before
+
+
+@pytest.mark.django_db
+def test_comment_resolve_rejects_removed_target_role_without_mutation(
+    e2e_userrole_member: UserRole,
+    e2e_api_key_member: str,
+    e2e_user_member: User,
+    home_requirement: Requirement,
+):
+    e2e_userrole_member.delete()
+    comment = _make_comment(home_requirement, e2e_user_member, "removed role")
+    audits_before = _comment_audits(comment.id)
+
+    result = _dispatch("comment.resolve", {"id": str(comment.id)}, e2e_api_key_member)
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert _comment_audits(comment.id) == audits_before
+
+
+@pytest.mark.django_db
+def test_comment_resolve_rejects_inactive_user_without_mutation(
+    e2e_user_member: User,
+    e2e_api_key_member: str,
+    home_requirement: Requirement,
+):
+    comment = _make_comment(home_requirement, e2e_user_member, "inactive user")
+    audits_before = _comment_audits(comment.id)
+    e2e_user_member.is_active = False
+    e2e_user_member.save(update_fields=["is_active"])
+
+    result = _dispatch("comment.resolve", {"id": str(comment.id)}, e2e_api_key_member)
+
+    assert result.success is False
+    assert result.error_code == "AUTH_FAILED"
+    comment.refresh_from_db()
+    assert comment.resolved is False
+    assert _comment_audits(comment.id) == audits_before
+
+
+@pytest.mark.django_db
+def test_fenced_key_fails_closed_for_cross_tenant_comment_before_handler(
+    e2e_tenant: Tenant,
+    e2e_workspace: Workspace,
+    e2e_user_member: User,
+):
+    foreign_tenant = Tenant.objects.create(
+        name="foreign-comment-tenant", is_active=True
+    )
+    set_request_tenant(foreign_tenant.id)
+    try:
+        foreign_workspace = Workspace.objects.create(
+            tenant=foreign_tenant, name="foreign-comment-workspace"
+        )
+        foreign_user = User.objects.create(
+            username="foreign-comment-user",
+            email="foreign-comment@example.com",
+            tenant=foreign_tenant,
+            is_active=True,
+        )
+        foreign_artifact = Artifact.objects.create(
+            tenant=foreign_tenant,
+            workspace=foreign_workspace,
+            artifact_type="Requirement",
+        )
+        foreign_comment = Comment.unscoped.create(
+            tenant=foreign_tenant,
+            artifact=foreign_artifact,
+            author=foreign_user,
+            text="cross tenant",
+        )
+    finally:
+        clear_request_tenant()
+
+    key = AuthenticationService().create_api_key(
+        user_id=e2e_user_member.id,
+        tenant_id=e2e_tenant.id,
+        name="fenced-comment-key",
+        scope="write",
+        workspace_ids=[str(e2e_workspace.id)],
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    audits_before = _comment_audits(foreign_comment.id)
+
+    with patch("mcp_server.tools.comment.CommentService.resolve_comment") as handler:
+        result = _dispatch(
+            "comment.resolve", {"id": str(foreign_comment.id)}, key.plaintext
+        )
+
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    handler.assert_not_called()
+    foreign_comment.refresh_from_db()
+    assert foreign_comment.resolved is False
+    assert _comment_audits(foreign_comment.id) == audits_before
 
 
 @pytest.mark.django_db
@@ -372,6 +645,19 @@ class TestResolveTargetWorkspaceId:
             clear_request_tenant()
         assert resolved == str(foreign_workspace.id)
 
+    def test_resolves_comment_id_to_artifact_workspace(
+        self, e2e_user_member: User, home_requirement: Requirement
+    ) -> None:
+        comment = _make_comment(home_requirement, e2e_user_member, "resolver comment")
+        set_request_tenant(home_requirement.tenant_id)
+        try:
+            resolved = resolve_target_workspace_id(
+                "comment.resolve", {"id": str(comment.id)}
+            )
+        finally:
+            clear_request_tenant()
+        assert resolved == str(home_requirement.workspace_id)
+
     def test_unregistered_tool_resolves_to_none(self) -> None:
         assert resolve_target_workspace_id("workspace.list", {"id": str(uuid4())}) is None
 
@@ -432,8 +718,8 @@ class TestWorkspaceScopeCoverage:
         workspace to gate on".
         """
         from mcp_server.workspace_scope import (
-            TOOL_ENFORCED_WORKSPACE_SCOPE,
             _TOOL_TARGETS,
+            TOOL_ENFORCED_WORKSPACE_SCOPE,
         )
 
         unclassified = []
@@ -462,8 +748,8 @@ class TestWorkspaceScopeCoverage:
     def test_classification_sets_are_disjoint(self) -> None:
         """A tool in two buckets means two contradictory claims about it."""
         from mcp_server.workspace_scope import (
-            TOOL_ENFORCED_WORKSPACE_SCOPE,
             _TOOL_TARGETS,
+            TOOL_ENFORCED_WORKSPACE_SCOPE,
         )
 
         buckets = {

@@ -28,7 +28,7 @@ from rest_framework import authentication, exceptions, permissions
 from rest_framework.authentication import CSRFCheck
 
 from .context import AuthContext, AuthMethod
-from .errors import AuthError, build_error_body
+from .errors import AuthenticationFailed, AuthError, build_error_body
 from .services import (
     AuthenticationService,
     AuthorizationService,
@@ -68,10 +68,8 @@ def _resolve_roles_from_db(
     that workspace (GitHub #103). Without it the tenant-wide union is returned,
     which is only correct for requests that target no specific workspace.
 
-    Used by :class:`AuthTenancyAuthentication` as a role fallback when:
-    * Auth method is ``API_KEY`` (claims always carry ``roles=()``)
-    * Auth method is ``BEARER_TOKEN`` but claims carry no roles (new user /
-      role assigned after token issuance — stale JWT).
+    Used by :class:`AuthTenancyAuthentication` for every request that has no
+    resolved workspace and for workspace-scoped role resolution.
     """
     from auth_tenancy.models import UserRole  # local import avoids circular dep
 
@@ -179,13 +177,6 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
             # it would let a role held in workspace A authorise workspace B
             # (cross-workspace privilege escalation, GitHub #103).
             #
-            # Without a resolvable workspace (login, workspace list, admin-ops,
-            # ...) the previous behaviour is kept:
-            # * API_KEY claims always carry roles=() — resolve from UserRole.
-            # * BEARER_TOKEN claims carry roles at token-issuance time; if empty
-            #   (new user, or role assigned after token was minted), fall back to
-            #   a DB lookup for symmetric behaviour with the API_KEY path.
-            # * A non-empty JWT roles claim is used as-is (fast path).
             workspace_id = resolve_request_workspace_id(request)
             if workspace_id is not None:
                 active_roles = _resolve_roles_from_db(claims.user_id, workspace_id)
@@ -198,15 +189,24 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
                     # for an *existing* workspace stay a deny — that is the
                     # non-member case this fix is about.
                     workspace_id = None
-                    active_roles = claims.roles or _resolve_roles_from_db(
-                        claims.user_id
-                    )
+                    active_roles = _resolve_roles_from_db(claims.user_id)
             else:
-                active_roles = claims.roles
-                if claims.auth_method == AuthMethod.API_KEY or (
-                    claims.auth_method == AuthMethod.BEARER_TOKEN and not active_roles
+                if claims.auth_method in (
+                    AuthMethod.BEARER_TOKEN,
+                    AuthMethod.API_KEY,
                 ):
                     active_roles = _resolve_roles_from_db(claims.user_id)
+                else:
+                    raise AuthenticationFailed("invalid_token")
+            if (
+                workspace_id is None
+                and claims.auth_method == AuthMethod.BEARER_TOKEN
+                and self._authn.resolve_active_user(
+                    claims.user_id, claims.tenant_id
+                )
+                is None
+            ):
+                raise AuthenticationFailed("invalid_token")
             auth_context = self._tenancy.build_auth_context(
                 claims, tenant_context, active_roles, workspace_id=workspace_id
             )

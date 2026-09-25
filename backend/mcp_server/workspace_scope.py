@@ -84,7 +84,6 @@ from application.workspace_lookup import (
     resolve_owning_workspace_id,
 )
 
-
 # ---------------------------------------------------------------------------
 # Tool → target registry
 # ---------------------------------------------------------------------------
@@ -170,11 +169,8 @@ _TOOL_TARGETS: Dict[str, Tuple[Tuple[str, str], ...]] = {
     "change_request.outdate": (("id", "change_request"),),
     "change_request.reactivate": (("id", "change_request"),),
     "change_request.update": (("id", "change_request"),),
-    # Menschen-im-System spec §4: comment.create names the artifact it comments
-    # on, so the same seam scopes it. comment.resolve takes a *comment* id, for
-    # which application.workspace_lookup has no ENTITY_SPECS key yet — it stays
-    # gated by the caller's role union as before.
     "comment.create": (("artifact_id", "artifact"),),
+    "comment.resolve": (("id", "comment"),),
     "context.related": _artifact_or_domain("artifact_id"),
     "diagram.outdate": (("id", "diagram"),),
     "diagram.reactivate": (("id", "diagram"),),

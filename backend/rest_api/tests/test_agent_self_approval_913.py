@@ -16,10 +16,12 @@ from the issue — and pin the two halves of the contract:
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 import pytest
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, ApiKey, UserRole
@@ -82,6 +84,8 @@ def approval_env(db):
             key_hash=hash_api_key(plaintext),
             principal_type="agent",
             agent_label=_AGENT_LABEL,
+            workspace_ids=[str(workspace.id)],
+            expires_at=timezone.now() + timedelta(days=1),
         )
     finally:
         clear_request_tenant()
@@ -124,9 +128,11 @@ def _propose(client: APIClient, env: dict, title: str) -> dict[str, Any]:
     return resp.json()
 
 
-def _transition(client: APIClient, req_id: str, target: str) -> Any:
+def _transition(
+    client: APIClient, req_id: str, target: str, workspace_id: str
+) -> Any:
     return client.post(
-        f"/api/v1/requirements/{req_id}/transitions/",
+        f"/api/v1/requirements/{req_id}/transitions/?workspace_id={workspace_id}",
         {"target_state": target, "change_reason": f"move to {target} (GH-913)"},
         format="json",
     )
@@ -138,11 +144,13 @@ def _state(client: APIClient, req_id: str) -> str:
     return resp.json()["current_state"]
 
 
-def _confirm_and_review(human: APIClient, req_id: str) -> None:
+def _confirm_and_review(
+    human: APIClient, req_id: str, workspace_id: str
+) -> None:
     """The human half of the flow: leave ``proposed``, then submit for review."""
-    resp = _transition(human, req_id, "draft")
+    resp = _transition(human, req_id, "draft", workspace_id)
     assert resp.status_code == 200, resp.content
-    resp = _transition(human, req_id, "in_review")
+    resp = _transition(human, req_id, "in_review", workspace_id)
     assert resp.status_code == 200, resp.content
 
 
@@ -155,16 +163,16 @@ def test_agent_cannot_self_approve_after_human_confirmation(approval_env):
     req_id = _propose(agent, approval_env, "GH913 self-approval")["id"]
 
     # (2) the agent's own proposal is already protected in the proposed state
-    resp = _transition(agent, req_id, "draft")
+    resp = _transition(agent, req_id, "draft", str(approval_env["workspace"].id))
     assert resp.status_code == 403, resp.content
     assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
 
     # (3) a human confirms and submits it for review
-    _confirm_and_review(human, req_id)
+    _confirm_and_review(human, req_id, str(approval_env["workspace"].id))
 
     # (4) the agent may still do ordinary work on the artifact
     resp = agent.patch(
-        f"/api/v1/requirements/{req_id}/",
+        f"/api/v1/requirements/{req_id}/?workspace_id={approval_env['workspace'].id}",
         {
             "description": "Extended tier needs a description to approve.",
             "acceptance_criteria": "Given a confirmed proposal, when the agent "
@@ -176,7 +184,7 @@ def test_agent_cannot_self_approve_after_human_confirmation(approval_env):
     assert resp.status_code == 200, resp.content
 
     # (5) ... but it must never be the one to approve it
-    resp = _transition(agent, req_id, "approved")
+    resp = _transition(agent, req_id, "approved", str(approval_env["workspace"].id))
     assert resp.status_code == 403, resp.content
     body = resp.json()["error"]
     assert body["code"] == "PERMISSION_DENIED"
@@ -195,10 +203,10 @@ def test_human_can_still_approve_an_agent_proposal(approval_env):
     human = _human_client(approval_env)
     req_id = _propose(agent, approval_env, "GH913 human approval")["id"]
 
-    _confirm_and_review(human, req_id)
+    _confirm_and_review(human, req_id, str(approval_env["workspace"].id))
 
     resp = agent.patch(
-        f"/api/v1/requirements/{req_id}/",
+        f"/api/v1/requirements/{req_id}/?workspace_id={approval_env['workspace'].id}",
         {
             "description": "Extended tier needs a description to approve.",
             "acceptance_criteria": "Human approval is the intended path.",
@@ -212,6 +220,6 @@ def test_human_can_still_approve_an_agent_proposal(approval_env):
     )
     assert resp.status_code == 200, resp.content
 
-    resp = _transition(human, req_id, "approved")
+    resp = _transition(human, req_id, "approved", str(approval_env["workspace"].id))
     assert resp.status_code == 200, resp.content
     assert resp.json()["new_state"] == "approved"

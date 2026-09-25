@@ -285,9 +285,10 @@ class ApiKeyViewSet(ViewSet):
         # #865: accept the canonical tiers (read_only/author/admin) plus the two
         # legacy aliases (read/write), case-insensitively. Anything else is a
         # typo, and a typo must not silently become the default scope.
-        raw_scope = request.data.get("scope", "write")
+        scope_present = "scope" in request.data
+        raw_scope = request.data.get("scope")
         scope = normalize_api_key_scope(raw_scope)
-        if scope is None:
+        if scope_present and scope is None:
             return Response(
                 build_error_response(
                     code="VALIDATION_ERROR",
@@ -360,7 +361,7 @@ class ApiKeyViewSet(ViewSet):
                 "warning": "Save this key now — it will not be shown again.",
                 "principal_type": principal_type,
                 "agent_label": agent_label,
-                "scope": scope,
+                "scope": "write" if scope is None else scope,
             },
             status=status.HTTP_201_CREATED,
         )

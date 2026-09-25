@@ -78,6 +78,9 @@ ENTITY_SPECS: Dict[str, EntityWorkspaceSpec] = {
         "persistence.models.StakeholderNeed",
         workspace_field="artifact__workspace_id",
     ),
+    "comment": EntityWorkspaceSpec(
+        "application.models.Comment", workspace_field="artifact__workspace_id"
+    ),
     "artifact": EntityWorkspaceSpec("persistence.models.Artifact"),
     "glossary": EntityWorkspaceSpec("persistence.models.GlossaryTerm"),
     # "custom_field" retired with CustomFieldDefinition (Task 9, spec section
