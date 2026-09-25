@@ -155,17 +155,21 @@ Ein Track wird erst `VERIFIZIERT`, wenn der jeweilige Plan ein ausführbares Tes
 
 Dieses Addendum dokumentiert ausschließlich die tatsächlich ausgeführten Prüfungen des bounded W0/W1-Slices. Historische Revision, Branch und Frontmatter oben bleiben unverändert; die Slice-Arbeit ist absichtlich uncommitted.
 
+> **W1-Statusannotation (2026-09-25, datiert):** Der vorstehende Satz zur *uncommitted* Slice-Arbeit war zum Zeitpunkt der W0-Ausführung korrekt und beschreibt den damaligen Working Tree. Er ist seit 2026-09-25 **aufgehoben**: Die Slice-Arbeit wurde committet und gemergt. Die vollständige Auflösung mit Commit-/PR-Provenienz steht in [Abschnitt 7.4](#74-auflösung-der-provenienz-2026-09-25); die Close-out-Evidenz des Nachfolgeslices folgt in [Abschnitt 8](#8-w1-close-out-nachweis-2026-09-25). Der historische Wortlaut oben bleibt bewusst unverändert stehen.
+
 | Feld | Festgehaltener Stand |
 |---|---|
 | Ziel-HEAD | `37b4343c5b74536451bba08625cd43e0095ed22b` |
 | Branch | `feat/audit-w0-w1-security` |
-| Working Tree | 19 tracked geänderte Slice-Pfade + 1 untracked Slice-Test; zusätzlich 1 untracked, leeres Nicht-Slice-Artefakt `backend/.github/workflows/version-drift-check.yml`; kein Commit erstellt |
+| Working Tree | 19 tracked geänderte Slice-Pfade + 1 untracked Slice-Test; zusätzlich 1 untracked, leeres Nicht-Slice-Artefakt `backend/.github/workflows/version-drift-check.yml`; kein Commit erstellt **[W1-Anmerkung 2026-09-25: dieser Working-Tree-Stand ist der Vor-Commit-Zustand; die Zeile beschreibt den Slice vor Commit `82f13395`, siehe 7.4]** |
 | Host/Runner | Windows NT 10.0.26200.0; finale DB-/Workflow-Läufe im Compose-Projekt `reqlo-audit-w0-w1-security-test` (`backend-test`, Python 3.12.14, pytest 9.1.1) |
 | Python | 3.14.7 unter Windows; 3.14.4 im WSL-Test-Runner; finaler Container-Lauf Python 3.12.14 |
 | Frontend-Laufzeit | Node 26.7.0 / npm 11.19.0; Frontend nicht betroffen, daher nicht ausgeführt |
 | PostgreSQL/Redis/Image | `reqlo-audit-w0-w1-security-test-postgres-1` und `-redis-1` healthy; finaler DB-Lauf via `backend-test`; kein App-Image-Run behauptet |
 
 ### 7.0 Pfadinventar (uncommitted)
+
+> **W1-Anmerkung (2026-09-25, datiert):** „uncommitted" in dieser Überschrift ist der historische W0-Wortlaut für den Zustand *vor* Commit `82f13395`. Das Inventar selbst (19 tracked geänderte Slice-Pfade + 2 untracked Pfade, davon 1 Nicht-Slice-Artefakt) bleibt gültige Audit-Record-Information und wird nicht angetastet; die Provenienz-Auflösung steht in [7.4](#74-auflösung-der-provenienz-2026-09-25).
 
 **19 tracked geänderte Slice-Pfade:**
 - `.github/workflows/version-drift-check.yml`
@@ -260,11 +264,412 @@ Ergebnis: **29 passed**; der Test las `.github/workflows/version-drift-check.yml
 ### 7.3 Abweichungen und offene W0-/W1-Evidenz
 
 - **PRELIMINARY/BLOCKIERT:** Der frühere 135/40+95-Lauf bleibt als Vorlauf dokumentiert; der finale DB-Lauf in Abschnitt 7.2 ist grün.
-- **OFFEN:** `actionlint` ist auf dem Host nicht installiert. YAML-Struktur und der tatsächliche Step-`run`-Block wurden stattdessen durch den separaten Bash-Test mit korrektem Root-Mount verifiziert.
+- **ACTIONLINT-ERGEBNIS ROT (Stand dieses Addendums; W1-Stand: GESCHLOSSEN — siehe [8.2](#82-actionlint-gate-w0-schlussung)): `actionlint` ist auf dem Host weiterhin nicht nativ installiert, wurde jetzt aber real über das digest-gepinnte Image `rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` ausgeführt (Digest per `docker pull` + `docker image inspect` aufgelöst, Version via `actionlint -version` = 1.7.12). Kommando: `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:b193... -color`. Echter Exit-Code **1**. Befund (einziger, unverändert offen **[W0-Stand — zum Zeitpunkt dieses Laufs zutreffend; der Befund wurde am 2026-09-25 behoben, siehe 8.2]**): `.github/workflows/docker-publish.yml:66:9` — `SC2129:style` (drei aufeinanderfolgende `>> "$GITHUB_OUTPUT"`-Redirects). `ci.yml`, `version-drift-check.yml`, `playwright.yml` und `pages.yml` sind sauber (Exit 0); die actionlint-eigenen Checks sind mit `-shellcheck=` grün.
+  - **W0-Entscheidung (historischer Wortlaut, ausdrücklich überholt):** Der Befund ist ein `style`-, kein Korrektheitsfehler und liegt außerhalb des W1-Slices, daher bewusst **nicht** behoben und **nicht** per `-ignore` wegkonfiguriert.
+  - **W1-Korrektur (2026-09-25, datiert):** Die vorstehende W0-Entscheidung ist widerrufen. Der Befund wurde im W1-Close-out-Slice **behoben** — nicht per Ausnahme, sondern auf der Sache: Die drei aufeinanderfolgenden `>> "$GITHUB_OUTPUT"`-Redirects wurden zu einer einzigen `{ … } >> "$GITHUB_OUTPUT"`-Gruppe zusammengefasst. Die Ausgabeäquivalenz wurde empirisch unter GNU bash 5.2 nachgewiesen (byte-identisch, 110 Bytes, 3 newline-terminierte Records, übereinstimmendes sha256 `02d3d10dc64edc7667b6ad56a92af5afe3e426caee1472e1dd05191446859bb5`). Der vollständige Re-Run liefert Exit-Code **0** ohne Ausgabe; `docker-publish.yml` isoliert ebenfalls Exit 0. Eine Negativkontrolle auf einer Scratch-Kopie außerhalb des Repos reproduzierte den ursprünglichen Exit-1-Befund und belegt damit ein echtes Negativ statt eines übersprungenen Checkers. Es wurde **kein** `-ignore` und **kein** `shellcheck: ""` ergänzt. Damit gilt das W0-Actionlint-Gate seit 2026-09-25 als **GESCHLOSSEN**; Belege in [8.2](#82-actionlint-gate-w0-schlussung).
 - **NICHT AUSGEFÜHRT:** Frontend-Tests und Typecheck, da keine Frontend-Datei betroffen ist; Release-/Image-Nachweis und vollständige W0-Exit-Kriterien wurden nicht behauptet.
 - **Lint-Abweichung:** der optionale Default-Ruff-Lauf über die Slice-Dateien meldete 37 Bestands-/Regelbefunde außerhalb des CI-Pyflakes-Gates; der im CI konfigurierte `F821,F822`-Lauf ist grün.
 
-Status dieses Addendums: **TEILWEISE VERIFIZIERT / ACTIONLINT- UND RELEASE-GATES OFFEN**. Der W0-Slice ist nur für die in Abschnitt 7.2 tatsächlich ausgeführten DB- und Workflow-Prüfungen freigegeben; historische Provenienz und der frühere preliminary DB-Fehlerlauf bleiben unverändert dokumentiert.
+Status dieses Addendums: **TEILWEISE VERIFIZIERT / ACTIONLINT-GATE ROT (1 `style`-Befund) / RELEASE-GATE OFFEN**. Der actionlint-Lauf ist real ausgeführt und der Befund offen dokumentiert; der neue CI-Job `workflow-lint` in `.github/workflows/ci.yml` führt dasselbe gepinnte Image aus und ist deshalb **noch rot**, bis der SC2129-Befund entschieden ist (Fix oder explizite Akzeptanz) — das Gate wurde nicht abgeschwächt. Der W0-Slice ist nur für die in Abschnitt 7.2 tatsächlich ausgeführten DB- und Workflow-Prüfungen freigegeben; historische Provenienz und der frühere preliminary DB-Fehlerlauf bleiben unverändert dokumentiert.
+
+> **W1-Korrektur der Statuszeile (2026-09-25, datiert):** Der vorstehende Absatz ist der **W0-Abschlussstatus** und bleibt als historischer Wortlaut unverändert stehen. Zwei Aussagen darin sind seit 2026-09-25 nicht mehr wahr und werden hiermit korrigiert, ohne den Wortlaut zu überschreiben:
+> 1. **`ACTIONLINT-GATE ROT` → GESCHLOSSEN.** Der einzige Befund (`SC2129:style`, `.github/workflows/docker-publish.yml:66`) wurde behoben, nicht wegkonfiguriert; der Re-Run ist Exit 0. Siehe [7.3](#73-abweichungen-und-offene-w0-w1-evidenz) und [8.2](#82-actionlint-gate-w0-schlussung).
+> 2. **`workflow-lint` ist nicht mehr „noch rot".** Mit dem Fix liefert der Job dasselbe grüne Ergebnis wie der lokale Lauf; es wurde weder `-ignore` noch `shellcheck: ""` ergänzt. Der Job ist bislang jedoch **nicht auf einem echten CI-Runner gelaufen** — Evidenz ist ausschließlich der lokale gepinnte Container-Lauf (Restrisiko, siehe [8.6](#86-verbleibendes-restrisiko-bewusst-offen-geführt)).
+>
+> **RELEASE-GATE bleibt OFFEN.** Die Statusüberschrift dieses Addendums gilt nur für den W0-Slice; der Gesamt-W1-Abschluss mit allen nicht abgearbeiteten Punkten steht in [Abschnitt 8](#8-w1-close-out-nachweis-2026-09-25).
+
+### 7.4 Auflösung der Provenienz (2026-09-25)
+
+Dieser Abschnitt ist ein **datierter W1-Nachtrag** zu [7](#7-w0-slice-nachweis-2026-09-25-uncommitted). Er verändert keine Evidenzzeile der Abschnitte 7.0–7.3, sondern hebt deren Provenienzstatus auf und verweist auf den Nachfolgeslice.
+
+**Betroffene historische Aussagen (unverändert erhalten, hiermit aufgehoben):**
+
+| Ort im Dokument | Historischer Wortlaut (W0) | Status seit 2026-09-25 |
+|---|---|---|
+| Überschrift von §7 | `## 7. W0-Slice-Nachweis (2026-09-25, uncommitted)` — der Klammerzusatz `uncommitted` ist der historische W0-Wortlaut | aufgehoben; die Slice-Arbeit ist committet und gemergt |
+| Einleitungssatz von §7 | „die Slice-Arbeit ist absichtlich uncommitted" | aufgehoben (W1-Statusannotation dort belassen) |
+| Tabelle „Working Tree" in §7 | „kein Commit erstellt" | aufgehoben; beschreibt den Vor-Commit-Zustand |
+| Überschrift 7.0 | `### 7.0 Pfadinventar (uncommitted)` | aufgehoben; das Inventar selbst (19 tracked geänderte Slice-Pfade + 2 untracked Pfade) bleibt gültige Record-Information |
+
+**Tatsächliche Commit-/PR-Provenienz (verifiziert):**
+
+| Feld | Festgehaltener Stand |
+|---|---|
+| Slice-Commit | `82f1339595485e4706702bff5ebe8a5760d22be4` — „fix: harden W0/W1 security boundaries" |
+| Merge-Commit | `59bcb7a91e17b13cfedd1476073a2d1b6e8d040d` — „Merge pull request #1070 from Popoboxxo/feat/audit-w0-w1-security" |
+| Ziel-Branch | `origin/main` |
+| Nachweis der Zugehörigkeit | `git merge-base --is-ancestor 82f13395 origin/main` → **true** (Exit 0) |
+| Slice-Branch (Quelle) | `feat/audit-w0-w1-security` |
+| Parent des Slice-Commits | `37b4343c5b74536451bba08625cd43e0095ed22b` — identisch mit der Zeile „Ziel-HEAD" in §7 |
+
+**Was aus dieser Auflösung folgt und was ausdrücklich nicht folgt:**
+
+- Der Slice ist **nicht mehr uncommitted.** `git show --stat 82f13395` umfasst genau 20 Dateien: die 19 tracked Slice-Pfade aus 7.0 **plus** den zuvor untracked Slice-Test `backend/rest_api/tests/test_version_drift_workflow_security.py` (174 Zeilen), der damit versioniert ist. Das in 7.0 genannte Nicht-Slice-Artefakt `backend/.github/workflows/version-drift-check.yml` ist **nicht** Teil des Commits — die Trennung aus 7.0 ist also bestätigt.
+- Die Evidenz der Abschnitte 7.0–7.3 bleibt gültig: Sie beschreibt die Prüfungen, die auf dem W0-Working Tree **vor** dem Commit ausgeführt wurden. Der PRELIMINARY/BLOCKIERT-Lauf (135 gesammelt / 40 passed / 95 Errors, `could not translate host name "postgres"`) und die dokumentierten Fehlversuche (fehlender `--project-directory`, 28/1 beim ersten Negativtest) werden **nicht** entfernt und **nicht** umformuliert — sie sind Audit-Trail-Wert.
+- Kein Rückschluss auf `main` vor dem Merge: `e3df119e52c0cbcc18df02f708567207c0374826` im Frontmatter oben bleibt die Provenienz des **Audits vom 2026-09-24** und wird von dieser Nachtragsarbeit nicht angetastet.
+- **Weiterverweis:** Die Close-out-Arbeit des Nachfolgeslices `feat/audit-w1-closeout` (Basis `origin/main` = `59bcb7a9`, enthaltend PR #1070 / `82f13395`) ist in [Abschnitt 8](#8-w1-close-out-nachweis-2026-09-25) dokumentiert. Sie ist zum Zeitpunkt dieses Nachtrags noch nicht committet.
+
+### 7.5 Weiterführung der Provenienz-Auflösung (2026-09-25, PR #1071)
+
+Dieser Abschnitt ist ein **zweiter datierter Nachtrag** zu [7.4](#74-auflösung-der-provenienz-2026-09-25). Er hebt die letzte in 7.4 verbliebene offene Provenienzaussage auf und verändert keine Evidenzzeile der Abschnitte 7.0–7.4.
+
+**Die in 7.4 offene Aussage (unverändert erhalten, hiermit aufgehoben):** der letzte Bullet von 7.4 — „Sie ist zum Zeitpunkt dieses Nachtrags noch nicht committet." Das war der Stand des ersten Nachtrags und ist seit 2026-09-25 überholt.
+
+**Vollständige Provenienzkette (Stand 2026-09-25):**
+
+| Stufe | Feld | Festgehaltener Stand |
+|---|---|---|
+| W0/W1-Slice | Commit | `82f1339595485e4706702bff5ebe8a5760d22be4` — „fix: harden W0/W1 security boundaries" |
+| W0/W1-Slice | PR / Merge | PR **#1070**, gemergt als `59bcb7a91e17b13cfedd1476073a2d1b6e8d040d` — „Merge pull request #1070 from Popoboxxo/feat/audit-w0-w1-security" |
+| W1-Close-out | Commit | `f85407f7b9684426dec989ade265d1bc4eb70217` — „fix: close W1 security audit gaps" |
+| W1-Close-out | PR | **#1071** — dort und nur dort sind die **ursprünglichen** Zahlen aus [8.3](#83-ausgeführte-kommandos-und-ergebnisse) und [8.4](#84-was-je-audit-track-tatsächlich-geschlossen-wurde) entstanden |
+| Review-Runde zu PR #1071 | Commit | **noch nicht committet** — zum Zeitpunkt dieses Eintrags existiert dafür bewusst **keine** SHA; siehe die commit-gebundene Fortschreibung in [8.0](#80-revision-branch-und-commitbindung) |
+| Review-Runde zu PR #1071 | Branch | `feat/audit-w1-closeout` (auf `f85407f7b9684426dec989ade265d1bc4eb70217`) |
+
+**Was daraus folgt:**
+
+- **Der Close-out ist committet.** Die gesamte Evidence-Produktion der Abschnitte 8.1–8.6 ist damit reproduzierbar an `f85407f7` gebunden und nicht mehr an einen flüchtigen Working Tree.
+- **Der committete-slice-Teil bleibt unberührt.** `82f13395`/PR #1070 und `59bcb7a9` sind unverändert die in 7.4 verifizierte Provenienz; dieser Nachtrag fügt eine Stufe hinzu und überschreibt keine.
+- **Die Überarbeitung ist streng additiv.** Die Zahlen der ursprünglichen Close-out-Runde in 8.3 bleiben als historischer Messstand stehen. Wo die Review-Runde zu **anderen** Werten kommt, stehen die neuen Werte datiert in [8.7](#87-review-follow-up-zu-pr-1071-2026-09-25) und benennen die superseded Größe ausdrücklich.
+- **Kein Rückschluss.** `e3df119e52c0cbcc18df02f708567207c0374826` im Frontmatter oben bleibt die Provenienz des **Audits vom 2026-09-24**; die Commits dieser Kette sind Nachtrags-Arbeit und ändern daran nichts.
+
+## 8. W1-Close-out-Nachweis (2026-09-25)
+
+Dieser Abschnitt ist ein **eigenständiger, datierter W1-Close-out-Record**. Er ist nicht Teil des Audits vom 2026-09-24 und ändert die Abschnitte 1–7 nicht; insbesondere bleiben die Track-Status der Abschnitte 2, die Widerspruchstabelle in 4 und die Abschlussregel in 6 unverändert stehen. Statusänderungen gegenüber Abschnitt 2 werden ausschließlich hier als datierte W1-Annotation geführt.
+
+> **Lesehinweis:** Der Statusblock am Dateiende ist der historische Abschlussvermerk des Audits vom 2026-09-24 und beschreibt die 47 kanonischen Tracks der Abschnitte 1–6. Er wird hier weder ergänzt noch umformuliert; der W1-Abschlussstatus steht ausschließlich in den Abschnitten 8.4–8.6.
+
+### 8.0 Revision, Branch und Commitbindung
+
+| Feld | Festgehaltener Stand |
+|---|---|
+| Basis | `origin/main` = `59bcb7a91e17b13cfedd1476073a2d1b6e8d040d` (Merge von PR #1070, enthält `82f13395`) |
+| Arbeitsbranch | `feat/audit-w1-closeout`, von `origin/main` bei `59bcb7a9` abgezweigt |
+| Commitbindung des Close-outs | `f85407f7b9684426dec989ade265d1bc4eb70217` — „fix: close W1 security audit gaps", PR **#1071**. Dies ist der Commit, in dem die Zahlen der Abschnitte 8.1–8.6 entstanden sind. **[Datierte Fortschreibung 2026-09-25: diese Zele lautete ursprünglich „noch nicht committet … die gesamte W1-Close-out-Arbeit liegt uncommitted im Working Tree. Es wird bewusst keine SHA für den Close-out genannt." Das ist seit dem Commit überholt und wird hier nicht mehr behauptet; die Auflösung der W0-Provenienz steht in 7.4/7.5.]** |
+| Commitbindung der Review-Runde | **noch nicht committet** — die in [8.7](#87-review-follow-up-zu-pr-1071-2026-09-25) dokumentierte Review-Runde liegt zum Zeitpunkt dieses Eintrags **uncommitted auf dem Branch `feat/audit-w1-closeout`, auf `f85407f7` aufsetzend.** Dafür wird bewusst **keine** SHA genannt: sie existiert noch nicht. |
+| Bindung der Ergebnisse | §8.1–8.6: an Commit `f85407f7` (PR #1071) + die nachfolgend aufgeführten 13 Pfade. §8.7: an `f85407f7` + die in 8.7 genannten 5 geänderten Pfade, **noch uncommitted**. |
+| Nachweis des Working Trees | `git status --porcelain=v1 -uall` |
+
+**Working-Tree-Inventar des Close-outs (4 geändert, 9 neu):**
+
+- geändert: `.github/workflows/ci.yml`, `.github/workflows/docker-publish.yml`, `backend/persistence/tests/test_rls_coverage.py`, `docs/se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md`
+- neu: `backend/auth_tenancy/management/commands/inventory_api_keys.py`, `backend/auth_tenancy/tests/test_inventory_api_keys_command.py`, `backend/baseline/migrations/0010_baseline_delta_index_entry_rls.py`, `backend/context_graph/tests/test_projector_rls_tenant_arm.py`, `backend/mcp_server/tests/test_mcp_workspace_id_header_decorative.py`, `backend/mcp_server/tests/test_mcp_workspaceless_revocation.py`, `backend/persistence/tests/test_rls_plain_child_models.py`, `backend/rest_api/tests/test_workspace_id_header_decorative.py`, `docs/api-key-inventory.md`
+
+### 8.1 Verifizierte Umgebung
+
+| Feld | Festgehaltener Stand |
+|---|---|
+| Host | Windows NT 10.0.26200.0 |
+| Host-Python | 3.14.7 **[datierte Korrektur 2026-09-25: diese Zele wurde in der ursprünglichen Close-out-Runde als `3.13.14` notiert. Das ist sachlich falsch — der Host ist 3.14.7. Die earlier notierte Angabe ist hiermit superseded und bleibt nur als Audit-Trail sichtbar. Das für das Gate maßgebliche Runtime bleibt der Container in der Zeile „Test-Runner" (Python 3.12.14); die falsche Host-Angabe hat die Gate-Aussage nicht getragen, da kein pytest-Lauf auf dem Host stattfand.]** |
+| Host-ruff | 0.16.9 — **Abweichung:** CI pinnt `ruff==0.16.5` (`.github/workflows/ci.yml`). Der lokale `I,F,E`-Lauf ist damit eine **Superset-Prüfung**, keine byte-identische CI-Reproduktion. |
+| Docker / Compose | Docker 29.8.0, Docker Compose v5.5.1, Compose-Projekt `reqlo-audit-w1-test` |
+| Test-Runner | Service `backend-test`, `DJANGO_SETTINGS_MODULE=reqogniloom.settings_test`, Container-Python 3.12.14 |
+| Datenbank | **echtes PostgreSQL**; Serverstring `PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2) on x86_64-pc`; `ENGINE=django.db.backends.postgresql`; 68 live RLS-Policies in `pg_policies`; 97 Tabellen in `information_schema` **[datierte Anmerkung 2026-09-25: die Policy-Zahl dieser Zeile stammt aus der ursprünglichen Close-out-Runde. Die Review-Runde zu PR #1071 misst `pg_policies` = **67**. Beide Werte werden hier unglättiert nebeneinander geführt; dieses Register erklärt die Differenz von einer Policy **nicht** und leitet daraus ausdrücklich keinen Befund ab. Beide Messungen stehen gegen dasselbe PostgreSQL 16.15.]** |
+| actionlint | 1.7.12, digest-gepinnt auf `rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` |
+
+**Kein SQLite-Fallback — ausdrücklich festgehalten:** `backend/reqogniloom/settings_test.py:67` setzt `ENGINE` fest auf `django.db.backends.postgresql`; es existiert **keine** SQLite-Verzweigung. In diesem Slice ist **kein** SQLite-Fallback aufgetreten. Die grünen Tests fragen `pg_policies` und `information_schema` ab und setzen `SET ROLE reqogniloom_app` mit der GUC `app.current_tenant` — ein Verhalten, das auf SQLite prinzipiell nicht reproduzierbar wäre und daher die RLS-Aussagen in 8.4 trägt.
+
+### 8.2 Actionlint-Gate (W0-Schlussung)
+
+**Ausführung (unverändert digest-gepinnt):** `actionlint` wurde real über den Container ausgeführt, nicht nur strukturell substituiert. Der Digest wurde mit `docker pull` + `docker image inspect` aufgelöst, die Version mit `actionlint -version` als 1.7.12 bestätigt.
+
+```text
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
+```
+
+**Befund und Behebung auf der Sache:** Der einzige Befund des W0-Laufs, `SC2129:style` in `.github/workflows/docker-publish.yml:66` (drei aufeinanderfolgende `>> "$GITHUB_OUTPUT"`-Redirects), wurde **behoben**, indem die drei Redirects zu einer einzigen `{ … } >> "$GITHUB_OUTPUT"`-Gruppe zusammengefasst wurden (nachweisbar in `.github/workflows/docker-publish.yml:90–94`).
+
+**Äquivalenznachweis (empirisch, GNU bash 5.2):** Die Ausgabe vor und nach dem Fix ist byte-identisch — 110 Bytes, 3 newline-terminierte Records, übereinstimmendes sha256 `02d3d10dc64edc7667b6ad56a92af5afe3e426caee1472e1dd05191446859bb5`.
+
+**Ergebnis nach dem Fix:**
+
+| Kommando | Exit-Code | Ausgabe |
+|---|---|---|
+| Vollständiger Lauf (alle Workflows) | **0** | keine |
+| `docker run --rm -v "$PWD:/repo" -w /repo <gepinntes Image> -color .github/workflows/docker-publish.yml` | **0** | keine |
+
+**Negativkontrolle:** Eine Scratch-Kopie **außerhalb** des Repos reproduzierte den ursprünglichen Exit-1-Befund. Das grüne Ergebnis ist damit ein echtes Negativ und nicht das eines übersprungenen Checkers.
+
+**Keine Abschwächung:** Es wurde **kein** `-ignore` und **kein** `shellcheck: ""` irgendwo ergänzt.
+
+**CI-Gate:** In `.github/workflows/ci.yml` wurde der Job `workflow-lint` („Workflow Lint (actionlint)") ergänzt, der dasselbe gepinnte Image mit demselben Digest gegen dieselbe Workflow-Liste ausführt. Lokal und CI sind damit deckungsgleich **in der Konfiguration**; ein realer CI-Lauf steht aus (siehe [8.6](#86-verbleibendes-restrisiko-bewusst-offen-geführt)).
+
+**Gate-Status: W0-Actionlint-Gate GESCHLOSSEN (2026-09-25).**
+
+### 8.3 Ausgeführte Kommandos und Ergebnisse
+
+Alle Angaben sind **echte Exit-Codes** der ausgeführten Läufe, keine Sollwerte.
+
+| Lauf | Ergebnis | Exit |
+|---|---|---|
+| Fokussierte Suite (7 Module) | **108 passed**, 0 failed, 0 deselected, 0 skipped | **0** |
+| Regressionsset (18 Pfade: W0-Slice + RLS-Nachbarn) | **494 passed** | **0** |
+| Zwei reale RLS-Nachbarmodule, separat | **20 passed** | **0** |
+| `ruff check . --select=F821,F822` | keine Findings | **0** |
+| `ruff check --select=I,F,E` über die 9 geänderten/neuen Python-Dateien | keine Findings | **0** |
+| `python -m compileall -q` | keine Findings | **0** |
+| `python manage.py check` | „System check identified no issues (0 silenced)" | **0** |
+| `python manage.py makemigrations --check --dry-run` | „No changes detected" | **0** |
+| `git diff --check` | keine Findings | **0** |
+| Trailing-Whitespace-/Tab-/Final-Newline-Scan über die untracked Dateien | 0 Findings | **0** |
+| Diff-only Secret-Scan | **0 Findings** | nicht berichtet |
+| actionlint Voll-Lauf | grün | **0** |
+| actionlint `docker-publish.yml` isoliert | grün | **0** |
+| Nach-Aufräum-Re-Verifikation, vier berührte Testmodule | **83/83** | **0** |
+| Nach-Aufräum-Re-Verifikation, sieben fokussierte Module | **108/108** | **0** |
+
+**Offen gelegte Fehl- und Korrekturversuche (nicht verdeckt):**
+
+- **Erster abgebrochener Regressionslauf: Exit 4** (Usage-Fehler). Der Lauf wurde abgebrochen und auf die real existierenden Pfade korrigiert.
+- **Pfadkorrektur:** Der ursprünglich beauftragte Pfad `backend/persistence/tests/test_rls_policies.py` **existiert in diesem Repository nicht** (bestätigt über `git ls-files backend/persistence/tests/`). Der Lauf wurde auf die 18 real existierenden Pfade korrigiert; die zwei realen RLS-Nachbarmodule wurden **zusätzlich separat** mit 20 passed / Exit 0 gefahren.
+- **Ruff-Drift:** Der `I,F,E`-Lauf stand zunächst bei **Exit 1 mit 5 Findings** — 2× `I001`, 1× `F541`, 2× `E501`. Alle fünf lagen in den **neuen** Dateien dieses Slices, **keines** in vorbestehendem Code; nach Korrektur Exit 0.
+- **Migrations-Drift:** Die handgeschriebene RunSQL-Migration `backend/baseline/migrations/0010_baseline_delta_index_entry_rls.py` ist **kein** Model-Drift — `makemigrations --check --dry-run` meldet „No changes detected".
+- **Secret-Scan — Erstbefunde und ihre Auflösung:** Der diff-only Scan meldete zunächst **2 Findings** in neuen Test-Fixtures: ein `Bearer`-Literal und eine generische `secret`-Zuweisung. Beide wurden aufgelöst, indem die Platzhalterwerte durch die **dokumentierte `_SAFE_PATTERNS`-Allowlist des Scanners selbst** geleitet wurden — nach dem bereits committeten Präzedenzfall in `backend/rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py:53`. Das Scanner-Muster matcht **weiterhin**; nur die Allowlist hebt den Befund auf. Der Wert wurde also **nicht** obfuskiert, um die Erkennung zu umgehen. Endstand: **0 Findings**.
+- **Ruff-Versionsabweichung:** lokal 0.16.9, CI-gepinnt 0.16.5 — die lokale `I,F,E`-Aussage ist eine Superset-Prüfung, siehe [8.6](#86-verbleibendes-restrisiko-bewusst-offen-geführt).
+
+### 8.4 Was je Audit-Track tatsächlich geschlossen wurde
+
+Die Statuszellen der Tracks in [Abschnitt 2](#2-kanonisches-finding-trackregister) bleiben unverändert; die folgenden Angaben sind datierte W1-Annotationen.
+
+#### CR-02 — GESCHLOSSEN
+
+Neuer Test `backend/context_graph/tests/test_projector_rls_tenant_arm.py`, **6/6 grün gegen echtes PostgreSQL**. Mit `SET ROLE reqogniloom_app` und bewusst **nicht** gesetzter GUC `app.current_tenant` schreibt das reale `ContextGraphProjector.poll_and_dispatch()` für **keinen** von zwei Tenants eine einzige `ContextEdge`-Zeile. Die Variante mit warmem Settings-Cache erzwingt die Ausführung **hinter** das Settings-Gate bis in den `Workspace.unscoped`-SELECT, der für sich allein fail-closed ist. Ein fremder Tenant projiziert nichts. Erst das Arming des richtigen Tenants lässt den Projector laufen.
+
+**Kein Produktionsdefekt gefunden; keine Codeänderung nötig.** Der Track gilt damit als auf HEAD-nahem Stand verifiziert — mit der in [8.1](#81-verifizierte-umgebung) dokumentierten Einschränkung, dass der Nachweis auf dem Arbeits Tree dieses Slices und nicht auf einem CI-Runner entstand.
+
+#### CR-17 — TEILGESCHLOSSEN, Restrisiko OFFEN
+
+**`bl_delta_index_entry` ist geschlossen (fail-closed).** `backend/baseline/migrations/0010_baseline_delta_index_entry_rls.py` ergänzt `ENABLE ROW LEVEL SECURITY` und `FORCE ROW LEVEL SECURITY` mit einer Policy, die über den Elternbezug `baseline_id → baseline.tenant_id` schlüsselt. Ein unbewaffneter Read der App-Rolle liefert 0 Zeilen, ein foreign-tenant `INSERT` wird abgelehnt — 2 grüne Tests.
+
+**Die vier Tabellen `as_domain_event_outbox`, `as_domain_event_dlq`, `as_webhook_subscription`, `as_webhook_delivery_log` bleiben OFFEN.** Jede lieferte im 2-Tenants-Seed der nicht-Superuser-App-Rolle bei nicht gesetzter `app.current_tenant` je 2 Zeilen zurück. Die Ursache ist **strukturell**: reine `models.Model`-Klassen, geschlüsselt über eine nackte `workspace_id`-UUID, ohne `tenant_id`-Spalte und ohne FK, der eine erreichen könnte. Eine GUC-basierte Policy ist damit nicht bloß nicht implementiert, sondern **nicht ausdrückbar**.
+
+**Umgang des Tests:** Die vier Tabellen sind in `RLS_EXEMPT_TABLES` (`backend/persistence/tests/test_rls_coverage.py`) mit je einer Begründung deklariert, die den tenant-kontextfreien Produktionspfad, die WITH CHECK- und die USING-Fehlerart sowie die erforderliche Korrektur benennt. Maschinelle Zusicherungen: (a) jede Begründung ist nichttrivial und nennt `app.current_tenant`; (b) `information_schema` bestätigt fehlende `tenant_id`-Spalte und fehlenden FK darauf — der Test **fällt also an dem Tag, an dem eine `tenant_id`-Spalte auftaucht**, und erzwingt die Neuaussinandersetzung; (c) ein AST-Scan belegt, dass für die Webhook-Tabellen kein REST-/Serializer-/MCP-Reader existiert.
+
+**Kompensationsmaßnahmen sind Service-/Codepfad-Ebene, KEINE Datenbankgarantie:** `DlqService.list_dlq` und `DlqService.replay_dlq_event` (`backend/application/dlq_service.py:75,129`) lösen `workspace_id` über das tenant-gefilterte `Workspace.objects` auf, **bevor** sie die Zeile berühren. Die Django-Admin-Changelists exponieren jedoch alle Tenants' Zeilen einem Staff-Superuser und bleiben ein **menschlich erreichbarer Cross-Tenant-Pfad**.
+
+**Erforderliche Korrektur (NICHT ausgeführt, Architekturänderung):** `tenant_id` bereits bei der Emission auf die Outbox-Payload stempeln — genau die Form, die `memory.projector` bereits verwendet.
+
+#### CR-03 — Legacy-Inventar geliefert; kein Schlüssel rotiert
+
+Neuer, **read-only** Management-Command `manage.py inventory_api_keys` (`backend/auth_tenancy/management/commands/inventory_api_keys.py`; App `auth_tenancy`, die das `ApiKey`-Modell besitzt). Er berichtet je Schlüssel: stabile nicht-geheime ID, Owner-Benutzer + Tenant, `last_used_at`, Scope, Principal-Typ, Workspace-Fence, Ablauf (mit Unterscheidung „kein Ablauf gesetzt" vs. „abgelaufen"), abgeleiteter Status sowie eine Flag-Spalte je Vertragsregel.
+
+**Datierte Rotationsregel** als einzelne benannte Konstante `CR-03-LEGACY-API-KEY-ROTATION/2026-09-25` mit Wirksamkeitsdatum 2026-09-25 — damit kann ein archivierter Report nie unter einer neueren Regel gelesen werden. Formate: `text`/`json`/`csv`, `--output`, `--tenant-id`. Es existiert **kein** `--fix`/`--apply`/`--rotate`/`--write`/`--revoke`.
+
+**Read-only ist vierfach unabhängig abgesichert:** Zeilen-Tupel vor/nach einschließlich `modified_at`/`version`; `CaptureQueriesContext` ohne INSERT/UPDATE/DELETE; Patchen der schlüssel-schreibenden Services mit Assert-not-called; Write-Flags lösen `CommandError` aus. Der Secret-Hash erscheint in **keinem** Format — bewiesen durch Scannen jedes 8-Zeichen-Fensters, mit Positivkontrolle, dass der Leak-Detektor tatsächlich auslöst. Auf **keinen** Schlüssel wird ein Capability-Verdikt (`invalid`/`broken`/`insecure`/`compromised`/`usab`) gestempelt. Der Row-Digest vor und nach einem echten Lauf war identisch (`7c8336bb2f26cf49c9602a169e98194c6b9c3481671a6f8602bdf6fd4b18c9fc`) und belegt echtes Read-only-Verhalten. 39 neue Tests, zusätzlich 413 grüne Regressionstests in `auth_tenancy/tests/`.
+
+> **Ausdrücklich festgehalten:** **Es wurde kein Schlüssel gelöscht, still verändert oder als nicht agent-fähig abgestempelt — das Inventar tut absichtlich nichts dergleichen.** Ein Kandidat erfordert eine Rotation über den bestehenden Key-Management-Pfad. Dokumentation: `docs/api-key-inventory.md`.
+
+#### CR-22 — nur die `X-Workspace-ID`-Sub-Assertion geschlossen; der Track ist NICHT geschlossen
+
+Neue Tests `backend/rest_api/tests/test_workspace_id_header_decorative.py` (20 Tests) und `backend/mcp_server/tests/test_mcp_workspace_id_header_decorative.py` (14 Tests) prüfen feldweise `AuthContext`-Identitätsgleichheit mit und ohne Header, Whole-Response-Gleichheit sowie alle vier geforderten Header-Wertvarianten (Cross-Tenant-UUID, Same-Tenant-ohne-Rolle-UUID, Nicht-UUID, leer).
+
+Der Header wird im gesamten Backend **nicht gelesen** — **null Produktionscode-Treffer**; jeder Treffer liegt in einem Test. **[Datenkorrektur 2026-09-25: der hier ersetzte Wortlaut lautete „(ein repo-weiter Treffer, in einem Test)". Die Trefferzahl dieser Klammer war falsch und ist hiermit superseded; sie bleibt nur als Audit-Trail lesbar. Neu gemessen und verifiziert: `git grep -i -c -e "X-Workspace-ID" -- backend/` → 2 Dateien / 9 Zeilen, davon `backend/mcp_server/tests/test_mcp_workspace_id_header_decorative.py` 5 und `backend/rest_api/tests/test_workspace_id_header_decorative.py` 4. `git grep -i -c -e "HTTP_X_WORKSPACE" -- backend/` (erfasst als Präfix auch `HTTP_X_WORKSPACE_ID`) → 3 Dateien / 13 Zeilen, davon dieselbe MCP-Datei 6, dieselbe REST-Datei 6 und `backend/rest_api/tests/test_workspace_scoped_roles.py` 1. Vereinigungsmenge beider Formen: **3 Dateien, 22 treffende Zeilen, 0 Dateien außerhalb von `*/tests/`.** Die Reviewer-Angabe „two test hits" entspricht der Dateizahl der gestrichelten Form (2), nicht einer Zeilenzahl; die Zeilenzahlen oben sind die belegten.]** Die load-bearing Aussage ist damit **präzise und verifizierbar**: Es gibt **null** Lesevorgänge des Headers in der Backend-Implementierung, und **jeder** repo-weite Treffer ist ein Test. REST löst die Zielworkspace ausschließlich aus URL-kwargs, dem Query-Parameter `workspace_id` oder dem JSON-Body auf (`backend/auth_tenancy/workspace_scope.py`; einziges Gate in `backend/auth_tenancy/rest.py:180`), MCP verwirft ihn bereits am Transport und leitet nur `X-API-Key`/`Authorization` weiter.
+
+**WEITER OFFEN auf derselben CR-22-Zeile:** der Batch-Fehlervertrag und der Hermes-TypeScript-Timeout-/Retry-Vertrag bleiben untestiert.
+
+##### Geschwister-Header `X-Project-ID` und `X-User-ID` — NICHT eigenständig getestet (Ergänzung 2026-09-25)
+
+**Ausdrücklich als Lücke festgehalten, nicht als sicher und nicht als unsicher.** Die CR-22-Arbeit hat ausschließlich `X-Workspace-ID` bewiesen. Für die beiden gleichartigen Header derselben Klasse gilt das **nicht**:
+
+| Header | Konfiguriert in | Test, der Identitätsgleichheit mit/ohne Header beweist | Test, der „wird nicht gelesen" beweist |
+|---|---|---|---|
+| `X-Workspace-ID` | `.agent-meta/config/plugin-catalog.yaml:280` | **ja** — `test_workspace_id_header_decorative.py`, `test_mcp_workspace_id_header_decorative.py` | **ja** (implizit, über die 0-Produktionscode-Treffer in [8.4](#84-was-je-audit-track-tatsächlich-geschlossen-wurde)) |
+| `X-Project-ID` | `.agent-meta/config/plugin-catalog.yaml:278` | **nein** | **nein** |
+| `X-User-ID` | `.agent-meta/config/plugin-catalog.yaml:279` | **nein** | **nein** |
+
+- **Kein Test belegt, dass sie die Identität nicht ändern.** Es existiert kein Äquivalent zu `test_workspace_id_header_decorative.py` für diese beiden Header — also kein Feld-für-Feld-`AuthContext`-Vergleich, kein Whole-Response-Vergleich, keine der vier Header-Wertvarianten.
+- **Kein dedizierter Test belegt, dass sie nicht gelesen werden.** Für `X-Workspace-ID` ist dieser zweite Nachweis nur ein Nebenprodukt der Test-Inventur; für `X-Project-ID`/`X-User-ID` existiert er nicht.
+- **Statische Beobachtung, ausdrücklich kein Testersatz:** `git grep -i -n -E "X-Project-ID|X-User-ID|HTTP_X_PROJECT|HTTP_X_USER" -- backend/` liefert **null Treffer** in `backend/`. Ein Negativ-Grep über einen Baum ist ein Hinweis, **kein** Verhaltensnachweis: er belegt weder, dass zur Laufzeit nichts gelesen wird, noch dass ein künftiger Pfad es nicht tut.
+- **Die Codepfad-Begründung überträgt sich nicht automatisch.** Das Argument für `X-Workspace-ID` war pfadspezifisch: REST löst die Zielworkspace aus URL-kwargs/`workspace_id`/JSON-Body, MCP verwirft den Header am Transport. Für `X-Project-ID` und `X-User-ID` wurde **kein** entsprechender Codepfad analysiert — weder ob ein Auflösungspfad existiert, der sie stillschweigend konsumiert, noch ob einer existieren *könnte*. Eine Verallgemeinerung „gleiche Klasse, also gleiches Verhalten" wäre eine Hypothese, keine Feststellung, und wird hier **nicht** erhoben.
+- **Konsequenz:** Das Schließen dieser Lücke ist **offene Arbeit** und in [8.6.1](#861-priorisierte-nacharbeiten-aus-der-review-runde-zu-pr-1071-2026-09-25) als eigenständiger Folgepunkt priorisiert. Diese Ergänzung ändert den Track-Status von CR-22 **nicht**: er bleibt wie in [8.4](#84-was-je-audit-track-tatsächlich-geschlossen-wurde) und [8.5](#85-w1-exit-kriterien-nur-tatsächlich-verifiziert-grün) **NICHT geschlossen**.
+
+#### CR-26 — zur Hälfte geschlossen; eine Hälfte muss offen bleiben
+
+Neuer Test `backend/mcp_server/tests/test_mcp_workspaceless_revocation.py` (10 Tests) deckt den MCP-Workpaceless-Fallback `ToolRegistry._resolve_global_roles` (`backend/mcp_server/tool_registry.py:1393`) ab, den die W0-Tests verfehlten, weil diese sämtlich über `comment.resolve` liefen und damit einen Zielworkspace auflösten. Die Fälle **suspendierter Principal**, **gelöschter Principal** und **deaktivierter Principal** werden alle mit `PERMISSION_DENIED`/`AUTH_FAILED` abgewiesen, **ohne** dass der Handler je erreicht wird; auch der Fail-soft-`except → ()`-Zweig ist abgesichert.
+
+**Nicht-Vakuizität** wurde über eine Wegwerf-Mutationsprobe bewiesen: `_resolve_global_roles` auf eine veraltete Rolle zu neutralisieren ließ den widerrufenen Write **gelingen** und den Handler erreichbar. **Gemessene Blast Radius:** 21 von 218 registrierten Tools sind WRITE-Tools **ohne** `workspace_id`-Parameter und ohne Target-Eintrag — dieser Branch ist also kein Randfall. Der REST-Workpaceless-Stale-Bearer-Pfad war bereits durch W0 abgedeckt.
+
+**WEITER OFFEN:** Es existiert **kein Passwort-Änderungs-Endpunkt** (`backend/rest_api/auth_views.py` nutzt `UserProfileSerializer`, dessen schreibbare Felder `first_name`/`last_name` sind und dessen geschützte Felder `password` einschließen — der Endpoint gibt also **by design** 400 zurück) und **keinerlei serverseitigen Revocation-Hook** (null Treffer für `authz_version`/`password_changed_at`/`tokens_valid_after`; `validate_bearer_token` ist ein zustandsloser Decode ohne DB-Konsult; Refresh-Familien-Revocation existiert nur für `reuse_detected` und `logout`). Das ist eine **fehlende Funktion**, keine Testabdeckungslücke. Die kleinste schließende Form ist in [8.6](#86-verbleibendes-restrisiko-bewusst-offen-geführt) benannt; bewusst **nicht** gebaut, weil es Architekturarbeit außerhalb dieses Scopes ist.
+
+#### Staleness-Markierung der Track-Zeilen CR-22 und CR-26
+
+Die älteren Texte in diesen beiden Tabellenzeilen sind **relativ zu HEAD stale**, ohne dass die Zellen hier stillschweigend umgeschrieben werden:
+
+| Track | Historischer Zellentext in Abschnitt 2 | Warum stale |
+|---|---|---|
+| CR-26 | `kein Workspaceless-Stale-Bearer-/Family-Revocation-Test` | Der Workspaceless-Stale-Bearer-Test wurde durch `82f13395` (PR #1070) und der Revocation-Branch erneut durch diesen W1-Slice (`test_mcp_workspaceless_revocation.py`) ergänzt. **Nur** der Family-Revocation-Teil dieser Zelle bleibt zutreffend offen. |
+| CR-22 | `kein Header-/Batch-/Hermes-Timeout-Kontrakttest` | Der Header-Teil wurde in diesem W1-Slice ergänzt (`test_workspace_id_header_decorative.py`, `test_mcp_workspace_id_header_decorative.py`). **Nur** der Batch-/Hermes-Timeout-Teil dieser Zelle bleibt zutreffend offen. |
+
+Die Formulierung `Deckt Read-Tools, nicht comment.resolve Write-Fence` steht nicht auf CR-22 oder CR-26, sondern auf der **CR-04**-Zeile in [Abschnitt 2](#2-kanonisches-finding-trackregister); sie wird hier nur der genauen Zuordnung wegen genannt und nicht bewertet. Die Track-Statuszellen selbst bleiben unangetastet.
+
+### 8.5 W1-Exit-Kriterien (nur tatsächlich verifiziert grün)
+
+**GRÜN — ausschließlich diese Punkte:**
+
+1. CR-02-Exit-Evidenz gegen echtes PostgreSQL (6/6, fail-closed ohne GUC).
+2. CR-17-Schließung für `bl_delta_index_entry` (fail-closed per `ENABLE`+`FORCE` RLS mit Eltern-Policy).
+3. Read-only-Legacy-API-Key-Inventar mit datierter Rotationsregel `CR-03-LEGACY-API-KEY-ROTATION/2026-09-25`.
+4. Gepinnte actionlint-Ausführung mit reproduzierbarem CI-Gate (`workflow-lint`) — **Konfiguration** grün, kein realer CI-Lauf.
+5. CR-22-Sub-Assertion `X-Workspace-ID`-Identität (REST 20 + MCP 14 Tests).
+6. CR-26-MCP-Branch `_resolve_global_roles` (10 Tests, Nicht-Vakuizität per Mutationsprobe).
+7. Das vollständige lokale Verifikationsgate aus [8.3](#83-ausgeführte-kommandos-und-ergebnisse) inklusive Secret-Scan 0 Findings.
+
+**NICHT als erfüllt beansprucht:** alle übrigen Punkte des W1-Plans. Insbesondere gilt der jeweilige Track-Status in [Abschnitt 2](#2-kanonisches-finding-trackregister) für CR-17 (Resthälfte), CR-22 (Batch-/Hermes-Verträge) und CR-26 (Revocation nach Passwortwechsel) **unverändert fort**.
+
+### 8.6 Verbleibendes Restrisiko (bewusst offen geführt)
+
+Jeder Punkt unten ist **nicht** geschlossen und wird hier sichtbar weitergereicht:
+
+1. **CR-17 — die vier worker-eigenen Plain-Tabellen** (`as_domain_event_outbox`, `as_domain_event_dlq`, `as_webhook_subscription`, `as_webhook_delivery_log`): keine RLS, keine `tenant_id`-Spalte, keine ausdrückbare Policy. Der Django-Admin-Superuser bleibt ein **menschlich erreichbarer Cross-Tenant-Pfad**. Die Kompensationsmaßnahmen sind **ausschließlich** Service-/Codepfad-Ebene.
+2. **CR-26 — Revocation der Refresh-Familie nach Passwortwechsel:** kein Endpunkt, kein Revocation-Hook, keine `authz_version`/`password_changed_at`/`tokens_valid_after`-Prüfung. **Architekturentscheidung erforderlich.** Kleinste schließende Form: ein Passwort-Änderungs-Endpunkt plus ein serverseitiger Revocation-Zustand, den `validate_bearer_token` und die Refresh-Familie auswerten — bewusst nicht gebaut (außerhalb des Scopes).
+3. **CR-22 — Batch-Fehlervertrag und Hermes-TypeScript-Timeout-/Retry-Verträge:** untestiert.
+4. **Cost-Seam (CR-20):** der LLM-/Provider-Budget-Default (`None`) und die read-only-, Hintergrund- und Health-Pfade, die eine zentrale Quota umgehen, sind in diesem Slice **nicht** bearbeitet.
+5. **Vollständige Trust-Dokumentation:** in diesem Slice **nicht** erstellt.
+6. **Release-/Supply-Chain-Gates:** kein Test-vor-Image-Gate, kein Image-Digest, keine SBOM/Provenance, kein isolierter Restore-Smoke (CR-30, CR-32, CR-37, CR-38, CR-39) — **nicht** bearbeitet.
+7. **Frontend-/Browser-/Accessibility-Matrix** (CR-40/CR-41) — **nicht** bearbeitet; es wurde keine einzige Frontend-Datei angefasst.
+8. **Der neue CI-Job `workflow-lint` ist noch nicht auf einem echten CI-Runner gelaufen.** Evidenz ist ausschließlich der lokale, digest-gepinnte Container-Lauf. Die Job-Konfiguration ist geschrieben, ihr Lauf in CI ist unbestätigt.
+9. **Ruff-Versionsabweichung:** lokal 0.16.9, CI pinnt 0.16.5. Das lokale `I,F,E`-Ergebnis ist eine **Superset-Prüfung** und keine byte-identische CI-Reproduktion.
+10. **`makemigrations --check`:** der Lauf gab einen `RuntimeWarning` aus, dass die Zieldatenbank nicht erreichbar war; der Teil-Check zur History-Konsistenz konnte daher nicht verbinden. Das Model-Drift-Verdict ist **filesystem-basiert** und davon unberührt.
+11. **Die vier CR-17-Assertions zu Webhook/Outbox sind ein Codepfad-/Kompensationsmaßnahmen-Argument, KEINE datenbankseitig erzwungene Garantie.**
+
+#### 8.6.1 Priorisierte Nacharbeiten aus der Review-Runde zu PR #1071 (2026-09-25)
+
+Dieser Block ist ein **datierter Nachtrag** zu [8.6](#86-verbleibendes-restrisiko-bewusst-offen-geführt). Die elf Punkte 1–11 oben bleiben unverändert stehen; die folgenden Punkte sind **neu** in der Review-Runde entstanden und sind untereinander nach Priorität geordnet. Keiner von ihnen wurde in PR #1071 behoben.
+
+##### P1 — `pl_user`: Pre-Authentication-Lookup auf einer Tabelle ohne RLS — bewusst NICHT in diesem PR behoben
+
+**Was `pl_user` ist — verifiziert durch Recherche, nicht angenommen:**
+
+`pl_user` ist eine **PostgreSQL-Tabelle**. Sie ist **keine** PostgreSQL-Rolle und **kein** Django-Permission-/Rollenlabel. Es ist der `db_table` des Django-`User`-Modells (das `AUTH_USER_MODEL`):
+
+| Beleg | Fundstelle |
+|---|---|
+| Modellklasse `class User(AuditableModel)` — ein **einfaches** Auditable-Modell, **nicht** `TenantScopedModel` (`backend/persistence/models.py:442`) | `backend/persistence/models.py:497` |
+| `db_table = "pl_user"` | `backend/persistence/models.py:550` |
+| Tabellenerzeugung | `backend/persistence/migrations/0001_initial.py:54` (`options={"db_table": "pl_user"}`) |
+| `tenant`-FK ist **nullable** (`null=True`, `blank=True`, `on_delete=PROTECT`) — Plattform-Admins ohne Tenant sind ein vorgesehener Zustand | `backend/persistence/models.py:541–547` |
+
+**RLS-Status — bewusster Ausschluss, keine Lücke im Sinne von CR-17:** `backend/persistence/migrations/0003_rls_policies.py:43–45` kommentiert die Tenant-Tabellenliste mit „Tenant and User are intentionally excluded: Tenant is the boundary itself and User may be tenant-less (platform admin)." `pl_user` steht damit **nicht** in `_TENANT_TABLES`, **nicht** in `backend/persistence/migrations/0067_rls_remaining_pl_tables.py` und **nicht** in `RLS_EXEMPT_TABLES` (`backend/persistence/tests/test_rls_coverage.py:75`). Die Tabelle hat damit **keine** Policy.
+
+**Der Pre-Authentication-Lookup — was er tut:**
+
+| Schritt | Fundstelle | Wirkung |
+|---|---|---|
+| `ApiKey.unscoped.select_related("user").filter(key_hash__in=candidates).first()` | `backend/auth_tenancy/services/authentication.py:511–515` | `select_related("user")` ist ein **JOIN auf `pl_user` in derselben Query** — ausgeführt, **bevor** die Anfrage authentifiziert ist. |
+| Begründung im Docstring: „Lookup uses the ``unscoped`` manager because no tenant context exists yet at authentication time." | `backend/auth_tenancy/services/authentication.py:494–495` | Der Codepfad benennt sich selbst als Pre-Authentication. |
+| `if api_key.user.tenant_id is None: raise AuthenticationFailed("invalid_api_key")` | `backend/auth_tenancy/services/authentication.py:537–539` | **Die Tenant-Identität wird aus der `pl_user`-Zeile abgeleitet, nicht aus der Key-Zeile.** |
+| `class UnscopedManager` — „Row-Level Security (COMP-PL-006) remains the backstop even when this manager is used through the application connection" | `backend/persistence/tenancy.py:161–171` | Für `at_api_key` trägt diese Zusage (Policy greift nicht beim Owner). Für **`pl_user` trägt sie nicht**: die Tabelle hat keine Policy, also *keinen* RLS-Backstop. |
+| Gleiche Form im neuen Inventar-Command: `ApiKey.unscoped.all()` mit `SET LOCAL row_security = off` und Ausgabe von `row["user__username"]` / `row["user_id"]` | `backend/auth_tenancy/management/commands/inventory_api_keys.py:357–363`, `:383–384` | Ein Management-Command hat **überhaupt keinen** authentifizierten Principal. |
+
+**Warum das eine eigene Entscheidung braucht und kein Inline-Fix ist:**
+
+1. **Der Zugriff ist tragend, nicht dekorativ.** Er ist die Quelle der Tenant-Identität, mit der nachgelagert `app.current_tenant` armiert wird. Man kann den Lookup nicht einfach „entfernen", „einschränken" oder „unter RLS stellen", ohne vorher zu entscheiden, was die autoritative Tenant-Quelle sein soll.
+2. **Eine Standard-Policy ist hier nicht ausdrückbar.** `tenant_id` ist nullable, und die GUC-gebundene Policy würde für genau die Pre-Auth-Query null Zeilen liefern, die erfolgreich sein **muss**. Das ist strukturell dasselbe Henne-Ei-Problem, das für die Schwester-Tabelle bereits in `RLS_EXEMPT_TABLES["at_api_key"]` (`backend/persistence/tests/test_rls_coverage.py:76–81`) dokumentiert ist.
+3. **Die reparierenden Formen sind architektonisch verschieden** und jede verändert den Authentifizierungsvertrag: Tenant auf der Key-Zeile denormalisieren · eine eigene `api_key_principal`-Tabelle einführen · einen Pre-Auth-Auflösungsdienst bauen · eine dokumentierte Plattform-Admin-Ausnahme akzeptieren. Die Wahl zwischen ihnen ist eine Entscheidung, kein Patch.
+4. **Konsequenz für dieses PR:** `pl_user` ist in PR #1071 **bewusst nicht angefasst**. Es wird weder gepatcht noch wegkonfiguriert noch als akzeptiert markiert.
+
+**Rangfolge — und warum genau hier:** `pl_user` ist der **höchstpriorisierte Punkt unter den in dieser Review-Runde neu entstandenen Nacharbeiten** (P1 in diesem Block, also über P2 und P3), weil er auf dem **Authentifizierungspfad** sitzt und — anders als die übrigen neuen Punkte — **keine kompensierende Kontrolle** besitzt: die P2-/P3-Punkte sind Testabdeckungslücken, die einen vorhandenen, wenn auch nicht datenbankseitig erzwungenen Codepfad betreffen; `pl_user` ist ein realer Tabellenzugriff ohne RLS-Backstop. Er ist gleichwohl **bewusst nicht** über die vorbestehenden Punkte 1–11 der [8.6](#86-verbleibendes-restrisiko-bewusst-offen-geführt) gehoben, weil seine Exposition **begrenzt** ist: gelesen wird ausschließlich die Owner-Zeile **eines** bereits über den Hash identifizierten Keys — keine Aufzählung, keine Massenabfrage über Tenants. Punkt 1 (die vier worker-eigenen Plain-Tabellen) ist nach Wirkung höher, weil ein Staff-Superuser dort alle Tenants' Outbox-Zeilen lesen kann; Punkt 2 (Revocation nach Passwortwechsel) ist eine fehlende Funktion. Diese Einordnung ist eine **Priorisierungsentscheidung dieses Registers**, keine aus dem Code abgeleitete Severity.
+
+##### P2 — `X-Project-ID` und `X-User-ID`: nicht eigenständig getestet
+
+Siehe die vollständige Lückendarstellung in [8.4](#84-was-je-audit-track-tatsächlich-geschlossen-wurde). Kurzfassung: Für die beiden Geschwister-Header derselben Klasse wie `X-Workspace-ID` existiert **kein** Test, der beweist, dass sie die Identität nicht ändern, und **kein** dedizierter Test, der beweist, dass sie nicht gelesen werden. Die Codepfad-Begründung für `X-Workspace-ID` wurde für sie **nicht** analysiert und wird **nicht** übertragen. Sie werden weder als sicher noch als unsicher geführt — die Lücke ist der Befund. **Offen.**
+
+##### P3 — drei Testverzeichnisse werden von keinem CI-Matrix-Set ausgeführt
+
+Bei der CI-Matrix-Änderung dieser Runde (Aufnahme von `context_graph/tests`) fiel auf, dass drei weitere Testverzeichnisse von **keinem** Set ausgeführt werden. Verifiziert gegen die Matrix in `.github/workflows/ci.yml:41–55` (vier Sets: `set-1-core` = `application/tests persistence/tests`; `set-2-api` = 5 Pfade; `set-3-mcp` = `mcp_server/tests`; `set-4-features` = 11 Pfade):
+
+| Verzeichnis | `test_*.py` (verifiziert via `git ls-files`) | In einem Matrix-Set? |
+|---|---|---|
+| `backend/link_types/tests/` | **14** | **nein** |
+| `backend/memory/tests/` | **13** | **nein** |
+| `backend/tests/` (Projektwurzel) | **4** — darunter `test_required_secrets.py` | **nein** |
+
+- Sie wurden in dieser Runde **bewusst nicht** aufgenommen. Der Aufnahme von `context_graph/tests` lag eine konkrete Begründung vor (siehe [8.7](#87-review-follow-up-zu-pr-1071-2026-09-25)); für diese drei Verzeichnisse ist eine solche Begründung **nicht** erhoben worden, und sie zu ergänzen, ohne sie zu untersuchen, wäre eine Ausweitung des Scopes.
+- **Gesondert zu entscheiden:** Dass `backend/tests/test_required_secrets.py` in CI nicht läuft, ist **nicht** nur eine Zahlenlücke. Ein Required-Secrets-Test, der im PR-Gate nicht ausgeführt wird, prüft die Secret-Konfiguration nicht gegen den einzigen Ort, an dem neue Änderungen auflaufen. Ob dieser Test laufen **muss**, in ein eigenes Set gehört oder bewusst anders behandelt wird (z. B. Host-Umgebung), ist eine **offene Entscheidung** und wird hier ausdrücklich als eine solche geführt, nicht als Detailpunkt.
+- **Sichtbare Wirkung:** Vor dieser Runde wäre der in `f85407f7` ergänzte CR-02-Projector-Test nie in CI gelaufen. Dieselbe Mechanik betrifft weiterhin diese drei Verzeichnisse.
+
+### 8.7 Review-Follow-up zu PR #1071 (2026-09-25)
+
+Dieser Abschnitt ist ein **datierter Nachtrag zur Review-Runde auf PR #1071** und ergänzt [8.3](#83-ausgeführte-kommandos-und-ergebnisse), ohne dessen Zahlen zu löschen. Wo die Review-Runde zu **anderen** Werten kommt, benennt die jeweilige Zeile die superseded Größe ausdrücklich. Commitbindung: `f85407f7b9684426dec989ade265d1bc4eb70217` + 5 geänderte Pfade, **noch nicht committet** (siehe [8.0](#80-revision-branch-und-commitbindung) und [7.5](#75-weiterführung-der-provenienz-auflösung-2026-09-25-pr-1071)).
+
+**Geänderte Pfade dieser Review-Runde (5, verifiziert über `git status --porcelain=v1 -uall`; `git diff --stat` = 5 files changed, 1172 insertions, 87 deletions):** `.github/workflows/ci.yml`, `backend/auth_tenancy/management/commands/inventory_api_keys.py`, `backend/auth_tenancy/tests/test_inventory_api_keys_command.py`, `backend/persistence/tests/test_rls_coverage.py`, `backend/persistence/tests/test_rls_plain_child_models.py`
+
+#### 8.7.1 Neue gemessene Testzahlen
+
+| Lauf | Ergebnis | Exit |
+|---|---|---|
+| Berührte Module zusammen | **90 passed**, 0 failed, **1 xfailed**, 0 deselected, 0 skipped | **0** |
+| `auth_tenancy/tests/ rest_api/tests/test_api_key_agent_fields.py` | **435 passed, 1 xfailed** | **0** |
+| `baseline/ context_graph/ persistence/ application/tests/test_event_bus.py application/tests/test_webhook_dispatcher.py mcp_server/tests/test_audit_tool_group.py memory/tests/test_projector_rls_tenant_resolution.py` | **637 passed** | **0** |
+| W1-Slice-Re-Run: `rest_api/tests/test_workspace_id_header_decorative.py rest_api/tests/test_workspace_scoped_roles.py rest_api/tests/test_bearer_token_role_resolution.py mcp_server/tests/test_mcp_workspace_id_header_decorative.py mcp_server/tests/test_mcp_workspaceless_revocation.py context_graph/tests/test_projector_rls_tenant_arm.py` | **76 passed** | **0** |
+| **Summe der vier Läufe** | **1238 passed**, 0 failed, **1 xfailed** | — |
+| `context_graph/tests` allein unter PostgreSQL (ganzes Verzeichnis) | **26 passed** | **0** |
+
+**Der einzelne `xfail` ist beabsichtigt und wird hier ausdrücklich offengelegt — er ist keine verdeckte Auslassung.** Test: `test_a_json_null_fence_column_would_be_reported_as_unset`, deklariert mit `xfail(strict=True)`. Grund: `ApiKey.workspace_ids` ist `NOT NULL` und hat weder ein `clean()` noch einen Validator, ein JSON-`null`-Fence ist also **nicht erreichbar**. Der Strict-Marker bewirkt, dass der Test zu einem **harten Fehlschlag** umschlägt, sobald die Spalte jemals nullable wird. Der Test dokumentiert damit einen bekannten, unerreichbaren Zustand, statt ein Ergebnis zu verstecken.
+
+**Drei Zählregeln, damit die Summe nicht falsch gelesen wird:**
+
+1. **Der xfail ist *ein* Test, kein Summand.** `1 xfailed` wird in **zwei** der vier Läufe gemeldet, weil dieselbe Deklaration von beiden Auswahlen erfasst wird. Die Aggregatzahl 1 ist die Zahl **distinkter** xfail-Testfälle, nicht die Summe über die Läufe.
+2. **Der 26er-Lauf ist ein fünfter Lauf außerhalb der Vierer-Summe.** Er deckt das **ganze** Verzeichnis `context_graph/tests` ab und ist nötig, weil dieses Verzeichnis jetzt in der CI-Matrix liegt. Er überlappt den `context_graph/`-Anteil des 637er-Laufs und wird deshalb **nicht** zur Summe addiert — eine Gesamtsumme über alle fünf Läufe würde doppelt zählen.
+3. **Das ist eine Abweichung von der vorigen Messlatte und wird benannt, nicht geglättet:** die vorherige Runde in [8.3](#83-ausgeführte-kommandos-und-ergebnisse) protokollierte „0 deselected/skipped". Der Balken dieser Runde lautet **0 deselected, 0 skipped, 1 xfailed** — die Null-Linie bei deselected/skipped bleibt also gehalten, und **neu** ist ausschließlich der eine, bewusst deklarierte `xfail`.
+
+#### 8.7.2 Übrige Gates dieser Runde
+
+| Gate | Ergebnis | Exit |
+|---|---|---|
+| `ruff check . --select=F821,F822` | keine Findings | **0** |
+| `ruff check --select=I,F,E` über die 4 geänderten Python-Dateien | keine Findings | **0** — **superseded: zuvor Exit 1 mit 5 Findings, jetzt bereinigt** |
+| `python -m compileall -q` (Host **und** Container) | keine Findings | **0** |
+| `python manage.py check` | „System check identified no issues (0 silenced)" | **0** |
+| `python manage.py makemigrations --check --dry-run` | „No changes detected" | **0** |
+| `git diff --check` | keine Findings | **0** |
+| Diff-only `scan_for_secrets` | **0 Findings** | — |
+| `actionlint` mit impliziter Discovery | grün | **0** |
+
+**Korrektur zu [8.1](#81-verifizierte-umgebung), datiert 2026-09-25:** Dort war der Host als **3.13.14** notiert. Der Host ist tatsächlich **3.14.7**. Das für das Gate maßgebliche Runtime ist der **Container** mit **3.12.14** — diese Angabe war und ist richtig. Die falsche Host-Version ist in 8.1 berichtigt; sie hat keine Gate-Aussage getragen, da kein pytest-Lauf auf dem Host stattfand.
+
+**Secret-Scanner — Validierung des Scanners selbst:** Der diff-only Lauf ergab **0 Findings**. Der Scanner wurde dabei mit einer **Positivkontrolle** geprüft: von 7 synthetischen Secrets hat er **6** erkannt; der eine Nicht-Treffer wurde korrekt durch die `example`-Platzhalterregel unterdrückt. „0 Findings" ist damit als echtes Negativ belegt und nicht als stilles Überspringen.
+
+**actionlint mit impliziter Discovery:** Exit **0**; `-verbose` meldet `Collected 5 YAML files` / `0 errors in 5 files` und listet `docker-publish.yml`, `pages.yml`, `playwright.yml`, `ci.yml`, `version-drift-check.yml` — exakt die fünf versionierten Dateien unter `.github/workflows/` (verifiziert via `git ls-files .github/workflows/`). Der Job-Parameter `args: -color` (`.github/workflows/ci.yml:345`) und die Argumente des lokalen Kommandos sind nun **identisch**, der lokale und der CI-Umfang decken sich also.
+
+**Nachweis, dass die Discovery echt ist (kein Überspringen und kein Null-Umfang):** Eine Wegwerf-Probe-Workflow mit einem bekannten Verstoß wurde **gemeldet** und hob die Coverage von 5 auf **6**. Eine Negativkontrolle auf einer Scratch-Kopie bestätigte, dass alle fünf bestehenden Workflows **weiterhin** gelintet werden. Der Job überspringt also keine Dateien und lintet nicht null.
+
+**Nicht-obvious Vorbedingung, entdeckt und im Job-Kommentar dokumentiert:** Implizite Discovery löst einen **Projekt-Root** auf und **schlägt fehl** mit `no project was found in any parent directories of "/repo"` (Exit **3**), wenn `.git` im Mount nicht sichtbar ist. `actions/checkout` stellt es bereit (`.github/workflows/ci.yml:340`); die Vorbedingung steht im Job-Kommentar (`.github/workflows/ci.yml:321–330`).
+
+**Last-bearing Property des CR-17-Justifications-Guards bewiesen:** Auf einer Scratch-Kopie wurde **ein** erforderlicher Claim-Marker gelöscht, während die Datei **länger** gemacht wurde — sodass die frühere Längenprüfung `> 200` nicht das sein konnte, was den Befund ausgelöst hat. Ergebnis: Guard **rot** mit `1 failed, 3 passed`, Exit **1**. Der Guard hängt also an den konkreten Claim-Markern, nicht an einer Längenschwelle.
+
+**Datenbank:** durchgehend echtes **PostgreSQL 16.15**; `pg_policies` = **67**; die Suiten verwenden `SET ROLE "reqogniloom_app"`. **Kein SQLite-Fallback.** Zu `pg_policies` = 67 gegenüber 68 in [8.1](#81-verifizierte-umgebung): beide Werte stehen ungeglättigt nebeneinander; dieses Register erklärt die Differenz nicht und leitet daraus keinen Befund ab.
+
+**Selbstkorrigierter Probe-Fehler, vom Ausführenden offengelegt:** Eine Engine-Proof-Probe schlug **zuerst an ihrer eigenen fehlenden Datenbank** fehl — **nicht** an einem Produktproblem.
+
+#### 8.7.3 Änderungen dieser Review-Runde und ihre Begründung
+
+**a) Actionlint-Job — Pfadliste durch Discovery ersetzt.** Die hart kodierte Fünf-Pfad-Liste wurde durch implizite Discovery ersetzt, damit eine neu hinzugefügte Workflow-Datei **nicht** an einer veralteten Liste vorbeirutschen kann. Ergänzt wurde job-scoped `permissions: contents: read` (`.github/workflows/ci.yml:336–337`) — Least Privilege, der Job liest nur die ausgecheckten Workflow-Dateien. **Kein** Workflow- oder Repository-Level-`permissions`-Block wurde ergänzt; die **anderen sechs Jobs** (`lint`, `backend-test`, `requirements-drift-check`, `agent-templates-test`, `frontend-test`, `hermes-plugin-test` — verifiziert über die Job-Definitionen in `.github/workflows/ci.yml:10, 32, 155, 236, 255, 284`) behalten damit die Repository-Voreinstellung; **je Job verifiziert**. Version und Digest unverändert, **kein** `-ignore`, **kein** `shellcheck: ""`.
+
+**b) CI-Matrix — `context_graph/tests` aufgenommen.** Aufnahme in `set-4-features`, das damit **11 Pfade** umfasst; der **Set-Name wurde mitgezogen**, damit er zutreffend bleibt. Begründung: `backend/context_graph/apps.py` deklariert die App als **ADR-01-Layer-1-App parallel zu `traceability`/`baseline`/`workflow`**, und alle drei liegen bereits in diesem Set. Der Name von `set-1-core` wurde **nicht** angetastet, weil dessen Inhalt unverändert blieb. Wirkung: Vor dieser Änderung wäre der in `f85407f7` ergänzte CR-02-Projector-Test **nie in CI gelaufen**.
+
+**c) Klassifikation des Inventar-Fences — ein echter Bug, nicht nur ein fehlender Test.** Die Fence-Regel lautete `if not workspace_ids`, sodass ein Fence **nicht-kanonischer** Einträge als „set" durchging. Empirisch **vor** dem Fix verifiziert: `missing=[] candidate=False` für `["not-a-uuid"]`. Kanonizität wird jetzt über **Round-Trip** entschieden: `str(UUID(value)) == value` — bewusst **strenger** als ein Parse-Test, weil `UUID()` bloße 32-stellige Hex-, Upper-Case-, `{}`-geklammerte und `urn:uuid:`-Formen akzeptiert und sie stillschweigend umschreibt. Drei Zustände: `unset` · `set` (jeder Eintrag kanonisch) · `defective` (≥1 nicht-kanonisch, einschließlich gemischter Fences). Die Regel ist eine **Konjunktion** — ein gemischter Fence ist daher `defective`, nicht `set`. `defective` fließt durch die text-/json-/csv-Renderer und wird in den Summen mitgezählt.
+
+**d) Klassifikation künftiger Rotationen — je Vertragsregel festgenagelt.** Ein Key, der **streng nach** dem Wirksamkeitsdatum 2026-09-25 erzeugt wurde und eine Regel verletzt, bleibt Rotationskandidat — mit dem **regelgeleiteten** Grund und **ausdrücklich nicht** dem Vor-Regel-Grund. Ein regelkonformer künftig datierter Key ist kein Kandidat. Vorher war **nur** der Vor-Regel-Auslöser abgedeckt.
+
+**e) RLS-Exemption-Begründungen — erweitert, und der Guard prüft jetzt Markern statt Länge.** Die Begründungen wurden um **verifizierte, tabellenweise Django-Admin-Exposition** erweitert. Der Guard (`backend/persistence/tests/test_rls_plain_child_models.py`) prüft nun **konkrete Claim-Marker** (`CR17_JUSTIFICATION_CLAIMS`) statt einer Längenschwelle, sodass die Admin-Expositions-Sätze **nicht mehr still** entfernt werden können. Der Guard trägt zusätzlich eine **Veraltungsprüfung**, die den Claim-Satz an das Exemption-Inventar bindet.
+
+**f) Outbox-Reader/Writer-Allowlist für `as_domain_event_outbox`.** Deklarierte **Reader**: `application/event_bus.py` und `application/admin.py` (die Allowlist-Namen im Guard sind `OUTBOX_READER_MODULES` und `OUTBOX_WRITER_MODULES`, `backend/persistence/tests/test_rls_plain_child_models.py:998,1003`). Deklarierte **Writer**: `application/dlq_service.py`. Nicht klassifizierte Zugriffsformen zählen als **READER** (fail-closed). Ein Writer, der zugleich liest, wird **abgelehnt**, damit sich ein Reader nicht hinter einem Writer-Label verstecken kann. Eine **Nicht-Vakuizitäts-Assertion** verhindert, dass die Allowlist durch classifying everything as reader grün wird. **Legitime Writer werden nicht blockiert:** Module, die ausschließlich `DomainEventOutbox.EventType.*` referenzieren, werden korrekt **nicht** als Tabellenzugriff gezählt — die Review-Runde nennt dafür **15** Module.
+
+> **Präzisierung (verifiziert 2026-09-25, `git grep -l -E "DomainEventOutbox\.EventType" -- backend/`):** Der Ausdruck trifft aktuell **15 Dateien**, aber **nicht** 15 Module, die *ausschließlich* das Enum referenzieren. Zwei der 15 sind gesondert zu behandeln: `backend/application/event_bus.py` ist selbst der **deklarierte Reader** und greift damit durchaus auf die Tabelle zu, und `backend/persistence/tests/test_rls_plain_child_models.py` ist der **Guard selbst**, nicht ein Kandidat. Die als „rein Enum-referenzierend" ausgeschlossenen Module sind damit die übrigen **13** der Trefferliste. Die Kennzahl 15 der Review-Runde bleibt als deren Messstand zitiert; dieses Register erhebt **keinen** Gegenwert, weil die Allowlist zur Laufzeit über Zugriffsformen und nicht über Dateinamen klassifiziert — die Dateiliste ist nur die Grundlage dieses Negativbefunds.
+
+**g) Docstring-Übertreibungen — an drei Stellen korrigiert.**
+1. Der Read-only-Test des Inventars benennt jetzt **nur die fünf Mutatoren**, die er tatsächlich patcht, und stellt **explizit** die ungepatchten Lücken dar sowie welche anderen Tests diese abdecken.
+2. Der RLS-Guard für `at_api_key` ist jetzt als **Anti-Regression-Tripwire** beschrieben, das für diese Tabelle **derzeit ein NO-OP** ist — weil `validate_api_key` den Tenant **aus der Zeile** auflösen muss, bevor ein Tenant-Kontext überhaupt existieren kann. Das entspricht der Korrektur am Docstring in `backend/persistence/tests/test_rls_coverage.py:372–399`.
+3. die **Plain-Child-Äquivalenz-Behauptung** trennt jetzt, was **belegt** ist (das RLS-geschützte Plain-Child wird demselben Maßstab unterworfen) von dem, was **nicht** belegt ist (die **vier** worker-eigenen Tabellen sind **nicht** äquivalent und werden nur vom Deklarations- und Kompensationskontroll-Check erfasst).
+
+#### 8.7.4 Was diese Review-Runde **nicht** geändert hat
+
+- **Kein Track-Status kehrt sich.** Alle Statuszellen in [Abschnitt 2](#2-kanonisches-finding-trackregister) bleiben unverändert; CR-22, CR-17 (Resthälfte) und CR-26 bleiben wie in [8.5](#85-w1-exit-kriterien-nur-tatsächlich-verifiziert-grün) offen fortgeführt.
+- **`pl_user` wurde nicht behoben** — bewusst, siehe [8.6.1 P1](#p1--pl_user-pre-authentication-lookup-auf-einer-tabelle-ohne-rls--bewusst-nicht-in-diesem-pr-behoben).
+- **`X-Project-ID`/`X-User-ID` wurden nicht getestet** — siehe [8.6.1 P2](#p2--x-project-id-und-x-user-id-nicht-eigenständig-getestet).
+- **Die drei ungelisteten Testverzeichnisse wurden nicht aufgenommen** — siehe [8.6.1 P3](#p3--drei-testverzeichnisse-werden-von-keinem-ci-matrix-set-ausgeführt).
+- **Kein Schreibvorgang an Anwendungs-, Test-, CI- oder bestehenden Auditdateien** außerhalb der in 8.7.3 genannten fünf Pfade; dieses Register ist die einzige Dokumentationsdatei dieser Runde.
 
 ```text
 STATUS: done
