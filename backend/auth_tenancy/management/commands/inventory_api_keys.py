@@ -26,6 +26,18 @@ usability: it never marks a key invalid, broken, unsafe or not agent-capable,
 because a row's attribute values do not earn such a verdict. The verdict
 belongs to whoever acts on the rotation-candidate list.
 
+A workspace fence counts as *set* only when **every** entry is a canonical,
+lower-case, hyphenated UUID string — the normal form
+``AuthenticationService.create_api_key`` writes for an agent key.
+``ApiKey.workspace_ids`` is a plain ``JSONField`` with no validator, no model
+``clean()`` and no DB constraint, and the write path normalises nothing for
+``user`` keys, so a fence holding a malformed token, a bare hex id, an
+upper-case UUID or an empty string is reported as ``defective`` and counted as
+unsatisfied instead of passing as a real fence. A *mixed* fence is
+``defective`` too: the rule is a conjunction over all entries, not an
+existential. This classifies stored values; it never rewrites them and never
+says whether the key works.
+
 Usage::
 
     python manage.py inventory_api_keys
@@ -95,6 +107,14 @@ REASON_PRE_RULE = "created-before-rule-effective-date"
 EXPIRY_STATE_NO_EXPIRY = "no_expiry_set"
 EXPIRY_STATE_EXPIRED = "expired"
 EXPIRY_STATE_FUTURE = "not_yet_expired"
+
+#: Workspace-fence states. ``set`` is reported only when *every* entry is a
+#: canonical UUID; a non-empty fence that does not clear that bar is
+#: ``defective``. Both ``unset`` and ``defective`` mean the new-key contract's
+#: ``workspace-fence-set`` clause is not satisfied.
+FENCE_STATE_UNSET = "unset"
+FENCE_STATE_SET = "set"
+FENCE_STATE_DEFECTIVE = "defective"
 
 
 @dataclass(frozen=True)
@@ -227,17 +247,73 @@ def classify_status(revoked_at: Optional[datetime], expiry_state: str) -> str:
     return "active"
 
 
+def is_canonical_workspace_id(value: Any) -> bool:
+    """Return whether *value* is a canonical, lower-case, hyphenated UUID string.
+
+    Canonicality is decided by round-trip: the entry must be a string *and*
+    identical to the ``str(UUID(value))`` normal form. That is deliberately the
+    same normal form ``AuthenticationService.create_api_key`` writes for an
+    agent key, so the writer and this check cannot disagree about what a fence
+    entry looks like.
+
+    It is not redundant with parsing. ``UUID(...)`` *accepts* a bare 32-char hex
+    id, an upper-case UUID, a ``{}``-braced and a ``urn:uuid:``-prefixed form,
+    and ``str(...)`` silently rewrites each of those into the canonical form —
+    so a parse test alone would pass values that are not stored canonically and
+    would then never match the workspace ids the row is actually compared
+    against. Comparing against the rewritten form is what rejects them. The
+    remaining entries (empty string, any non-UUID token, and any non-string
+    JSON value such as ``None``/int/bool/list/dict) raise instead, and are
+    reported non-canonical rather than crashing the read-only report.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(UUID(value)) == value
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def classify_workspace_fence(workspace_ids: Sequence[Any]) -> str:
+    """Return the observed workspace-fence classification.
+
+    Three states, one per way the stored fence can relate to the contract:
+
+    * ``unset``     — no fence recorded (empty list, or a null JSON column).
+    * ``set``       — a non-empty fence in which *every* entry is canonical.
+    * ``defective`` — a non-empty fence with at least one non-canonical entry.
+
+    The fence rule is a **conjunction, not an existential**, so a *mixed* fence
+    (some canonical entries, some not) is ``defective`` and not ``set``: one
+    entry that does not resolve to a workspace identity means the fence does not
+    fully bind the key, so it cannot serve as the key's authority boundary. A
+    fence counts towards the "no workspace fence" total unless it is ``set``.
+
+    This classifies the stored values and reports them verbatim; it never
+    rewrites, normalises or repairs a row. It is an observation about the shape
+    of a column, in the same class as "no expiry recorded" — not a judgement
+    about whether the key works.
+    """
+    if not workspace_ids:
+        return FENCE_STATE_UNSET
+    if all(is_canonical_workspace_id(value) for value in workspace_ids):
+        return FENCE_STATE_SET
+    return FENCE_STATE_DEFECTIVE
+
+
 def unsatisfied_rules(
     *, scope: str, workspace_ids: Sequence[Any], expires_at: Optional[datetime]
 ) -> List[str]:
     """Return the new-key contract rules this key's attributes do not satisfy.
 
     Pure attribute comparison — no capability judgement, no usability verdict.
+    The fence clause asks for a *canonical* fence, not merely a non-empty one:
+    see :func:`classify_workspace_fence` for why non-emptiness is not enough.
     """
     missing: List[str] = []
     if scope not in CANONICAL_SCOPES:
         missing.append("explicit-canonical-scope")
-    if not workspace_ids:
+    if classify_workspace_fence(workspace_ids) != FENCE_STATE_SET:
         missing.append("workspace-fence-set")
     if expires_at is None:
         missing.append("expiry-decision-recorded")
@@ -311,7 +387,7 @@ def collect_inventory(
                 "scope": row["scope"],
                 "scope_is_legacy_alias": row["scope"] in LEGACY_SCOPE_ALIASES,
                 "workspace_ids": workspace_ids,
-                "workspace_fence_state": "set" if workspace_ids else "unset",
+                "workspace_fence_state": classify_workspace_fence(workspace_ids),
                 "expires_at": _iso(expires_at),
                 "expiry_state": expiry_state,
                 "created_at": _iso(created_at),
@@ -364,13 +440,37 @@ def build_payload(
                 1 for e in inventory if e["expiry_state"] == EXPIRY_STATE_NO_EXPIRY
             ),
             "never_used": sum(1 for e in inventory if e["usage_state"] == "never_used"),
+            # Counts every state that is not a canonical fence, so a defective
+            # or mixed fence is not lost from the totals; the per-key
+            # ``workspace_fence_state`` column carries the unset/defective split.
             "no_workspace_fence": sum(
-                1 for e in inventory if e["workspace_fence_state"] == "unset"
+                1
+                for e in inventory
+                if e["workspace_fence_state"] != FENCE_STATE_SET
             ),
         },
         "rotation_candidate_key_ids": [e["key_id"] for e in candidates],
         "keys": list(inventory),
     }
+
+
+def _render_fence(entry: Dict[str, Any]) -> str:
+    """Render the observed fence values together with their classification.
+
+    A defective fence is called out as such rather than being printed like a
+    healthy one, so the text report cannot read as if every listed entry were a
+    workspace the key may act in.
+    """
+    workspace_ids = entry["workspace_ids"]
+    state = entry["workspace_fence_state"]
+    if state == FENCE_STATE_UNSET:
+        return "UNSET"
+    rendered = f"{len(workspace_ids)} ws [{', '.join(workspace_ids)}]"
+    if state != FENCE_STATE_DEFECTIVE:
+        return rendered
+    non_canonical = sum(1 for value in workspace_ids if not is_canonical_workspace_id(value))
+    noun = "entry" if non_canonical == 1 else "entries"
+    return f"{rendered} (DEFECTIVE: {non_canonical} non-canonical {noun})"
 
 
 def render_text(
@@ -411,11 +511,7 @@ def render_text(
     if not inventory:
         out.write("  (no API keys)\n")
     for index, entry in enumerate(inventory, start=1):
-        fence = (
-            f"{len(entry['workspace_ids'])} ws [{', '.join(entry['workspace_ids'])}]"
-            if entry["workspace_ids"]
-            else "UNSET"
-        )
+        fence = _render_fence(entry)
         label = f'  label="{entry["agent_label"]}"' if entry["agent_label"] else ""
         out.write(f"[{index}] {entry['name']}\n")
         out.write(

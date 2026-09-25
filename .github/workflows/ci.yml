@@ -51,8 +51,8 @@ jobs:
             name: "MCP Server (mcp_server)"
             paths: "mcp_server/tests"
           - id: set-4-features
-            name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, se_metrics, baseline, admin_ops, icd, resilience, audit)"
-            paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests"
+            name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, context_graph, se_metrics, baseline, admin_ops, icd, resilience, audit)"
+            paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests context_graph/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests"
 
     services:
       postgres:
@@ -318,16 +318,23 @@ jobs:
         working-directory: integrations/hermes-plugin/reqogniloom
         run: npm run build
 
-  # W1: actionlint gate over the workflow files. The image is pinned by digest
-  # (not a floating tag) so the CI verdict cannot drift from the local
+  # W1: actionlint gate over the workflow files. No path arguments: implicit
+  # discovery collects every file in .github/workflows, so a new workflow
+  # cannot slip past a stale hard-coded list. Discovery resolves the project
+  # root, which actions/checkout provides via .git. The image is pinned by
+  # digest (not a floating tag) so the CI verdict cannot drift from the local
   # `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:... -color`
-  # command. Digest resolved with `docker pull` + `docker image inspect`; bump
-  # version and digest together when upgrading. No rule is ignored here on
-  # purpose -- see docs/se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md.
+  # command -- the args below are exactly that command's arguments. Digest
+  # resolved with `docker pull` + `docker image inspect`; bump version and
+  # digest together when upgrading. No rule is ignored here on purpose --
+  # see docs/se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md.
   workflow-lint:
     name: "Workflow Lint (actionlint)"
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Least privilege: linting only reads the checked-out workflow files.
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v7
@@ -335,10 +342,4 @@ jobs:
       - name: Lint GitHub Actions workflows with actionlint
         uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
-          args: >-
-            -color
-            .github/workflows/ci.yml
-            .github/workflows/version-drift-check.yml
-            .github/workflows/docker-publish.yml
-            .github/workflows/playwright.yml
-            .github/workflows/pages.yml
+          args: -color

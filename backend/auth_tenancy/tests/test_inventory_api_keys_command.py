@@ -1,12 +1,17 @@
 """CR-03 — read-only API-key inventory command: safety and classification tests.
 
 The two properties that matter more than any classification detail are asserted
-here as properties, not as proxies:
+here as properties, not as proxies. Each is pinned by a *named* mechanism, and
+none of them claims more than the test underneath it actually checks:
 
-* **Read-only.** A full before/after snapshot of every ``ApiKey`` row (including
-  ``modified_at`` and ``version``, which any write would bump) plus a check that
-  the run issued no ``INSERT``/``UPDATE``/``DELETE``/DDL statement and never
-  reached a key-writing service method.
+* **Read-only**, from three independent angles, one per test:
+  ``test_command_does_not_change_any_key_row`` takes a full before/after
+  snapshot of every ``ApiKey`` row (including ``modified_at`` and ``version``,
+  which any write would bump); ``test_command_issues_no_write_statements``
+  captures the SQL and fails on any ``INSERT``/``UPDATE``/``DELETE``/DDL;
+  ``test_command_never_reaches_a_key_writing_service`` patches five
+  instance-level mutators and asserts none was reached — that last one covers
+  only those five, so it is deliberately not the sole read-only proof.
 * **No secret output.** Every fixture key is created with a synthetic
   ``key_hash`` sentinel, and the test asserts that the sentinel — and *every*
   8-character window of it, so not even a prefix, fragment or truncation can
@@ -30,16 +35,24 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from auth_tenancy.management.commands.inventory_api_keys import (
+    _REASON_BY_RULE as COMMAND_REASON_BY_RULE,
+)
+from auth_tenancy.management.commands.inventory_api_keys import (
     EXPIRY_STATE_EXPIRED,
     EXPIRY_STATE_FUTURE,
     EXPIRY_STATE_NO_EXPIRY,
+    FENCE_STATE_DEFECTIVE,
+    FENCE_STATE_SET,
+    FENCE_STATE_UNSET,
     INVENTORY_COLUMNS,
     LEGACY_KEY_ROTATION_RULE,
     NEW_KEY_CONTRACT_RULES,
     REASON_PRE_RULE,
     build_payload,
     classify_expiry,
+    classify_workspace_fence,
     collect_inventory,
+    is_canonical_workspace_id,
     render_csv,
     render_json,
     render_text,
@@ -70,9 +83,58 @@ SNAPSHOT_FIELDS = (
 #: version prefix ("sha256p1:") would also be caught. Not a real credential.
 FAKE_HASH_PREFIX = "sha256p1:SENTINEL-KEY-HASH-MUST-NOT-LEAK-"
 
+#: The command's rule-id -> rotation-reason mapping, written out here as a
+#: literal so the expectations below are pinned by this file rather than
+#: imported from the implementation they check.
+REASON_BY_RULE = {
+    "explicit-canonical-scope": "no-canonical-scope",
+    "workspace-fence-set": "no-workspace-fence",
+    "expiry-decision-recorded": "no-expiry-decision",
+}
+
+#: One entry per way a stored ``workspace_ids`` value can fail to be a canonical
+#: lower-case hyphenated UUID. Every value is built inside the test from a fresh
+#: ``uuid4()``, so no literal UUID-shaped string is baked into this file.
+FENCE_ENTRY_KINDS = (
+    "canonical",
+    "non-uuid-token",
+    "empty-string",
+    "bare-hex-without-hyphens",
+    "upper-case-uuid",
+    "whitespace-padded",
+)
+
+#: ``(case id, rule id, attributes breaking exactly that rule)`` for the
+#: future-facing classification. ``workspace-fence-set`` appears twice on
+#: purpose — once with the fence missing, once with it present but defective —
+#: so both future-facing fence shapes are pinned.
+FUTURE_FACING_CASES = (
+    ("missing-canonical-scope", "explicit-canonical-scope", {"scope": "write"}),
+    ("missing-fence", "workspace-fence-set", {"workspace_ids": []}),
+    (
+        "defective-fence",
+        "workspace-fence-set",
+        {"workspace_ids": ["workspace-alpha"]},
+    ),
+    ("no-expiry-decision", "expiry-decision-recorded", {"expires_at": None}),
+)
+
 
 def _fake_hash(tag: str) -> str:
     return f"{FAKE_HASH_PREFIX}{tag}"
+
+
+def _fence_entry(kind: str) -> str:
+    """Return one fence entry of the given non-canonicality *kind*."""
+    canonical = str(uuid4())
+    return {
+        "canonical": canonical,
+        "non-uuid-token": "workspace-alpha",
+        "empty-string": "",
+        "bare-hex-without-hyphens": canonical.replace("-", ""),
+        "upper-case-uuid": canonical.upper(),
+        "whitespace-padded": f" {canonical} ",
+    }[kind]
 
 
 def _make_key(
@@ -123,6 +185,25 @@ def _snapshot() -> dict[str, tuple]:
 
 def _utc(year: int, month: int, day: int, hour: int = 12) -> datetime:
     return datetime(year, month, day, hour, tzinfo=dt_timezone.utc)
+
+
+def _day_after_the_rule(hour: int = 9) -> datetime:
+    """A UTC timestamp strictly after the rule's effective calendar day.
+
+    Derived from the rule constant rather than hard-coded, so these tests keep
+    meaning "after the effective date" if the dated rule name ever moves.
+    """
+    day = LEGACY_KEY_ROTATION_RULE.effective_date + timedelta(days=1)
+    return datetime(day.year, day.month, day.day, hour, tzinfo=dt_timezone.utc)
+
+
+def _compliant_attributes(fence: list[str] | None = None) -> dict:
+    """Attributes satisfying every new-key contract rule, fenced by default."""
+    return {
+        "scope": "read_only",
+        "workspace_ids": [str(uuid4())] if fence is None else fence,
+        "expires_at": timezone.now() + timedelta(days=30),
+    }
 
 
 def _run(*args: str) -> str:
@@ -255,6 +336,35 @@ def test_command_issues_no_write_statements(keys):
 
 @pytest.mark.django_db
 def test_command_never_reaches_a_key_writing_service(keys):
+    """Assert that none of the patched instance-level key mutators is reached.
+
+    Exactly five mutators are patched, and all five must go uncalled:
+    ``AuthenticationService.create_api_key`` and ``AuthenticationService
+    .revoke_api_key`` — the only two key-writing methods that exist on that
+    service — plus ``ApiKey.unscoped.create``, ``ApiKey.save`` and
+    ``ApiKey.delete``.
+
+    What this test does **not** cover, because nothing is patched for it:
+
+    * the queryset-level bulk write paths — ``QuerySet.update``,
+      ``QuerySet.delete``, ``bulk_update`` and ``bulk_create`` all bypass
+      ``Model.save`` and ``Model.delete`` entirely, so a call to one of them
+      would sail straight past the ``save``/``delete`` patches above;
+    * ``ApiKey.objects.create`` on the tenant-scoped default manager — only
+      the ``unscoped`` manager's ``create`` is patched;
+    * raw SQL issued through a connection cursor;
+    * any service method other than the two named above: the patches rule out
+      "these two writers", not "any writer anywhere".
+
+    None of those gaps is actually unaccounted for in this file — they are
+    closed by the neighbouring tests rather than by this one:
+    ``test_command_issues_no_write_statements`` captures the SQL and fails on
+    any ``INSERT``/``UPDATE``/``DELETE``/DDL, which is what a queryset bulk
+    write or a raw statement would produce; and
+    ``test_command_does_not_change_any_key_row`` compares a full before/after
+    snapshot of every row, so a write that slipped past both of the above would
+    still be caught by its effect on the data.
+    """
     with (
         patch.object(
             AuthenticationService, "create_api_key", autospec=True
@@ -484,6 +594,296 @@ def _rules_for_only(rule_id: str) -> list[str]:
     else:  # pragma: no cover - guards a typo in NEW_KEY_CONTRACT_RULES
         raise AssertionError(rule_id)
     return unsatisfied_rules(**kw)
+
+
+# --------------------------------------------------------------------------
+# 3b. Future-facing classification: the rule has two independent triggers
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_the_future_facing_helper_agrees_with_the_boundary_date_it_claims():
+    """Keep ``_day_after_the_rule`` on the far side of the pinned boundary.
+
+    ``test_a_key_created_one_second_before_the_rule_date_is_a_candidate`` pins
+    the boundary with hard-coded timestamps; this stops the derived helper the
+    future-facing tests use from quietly drifting onto the effective day itself
+    or before it.
+    """
+    created = _day_after_the_rule()
+
+    assert created.date() > LEGACY_KEY_ROTATION_RULE.effective_date
+    assert created.date() == _utc(2026, 9, 26, 9).date()
+
+
+@pytest.mark.django_db
+def test_a_future_dated_compliant_key_is_not_a_rotation_candidate(owner):
+    """The pre-date trigger must not fire for a key that satisfies every rule."""
+    tenant, user = owner
+    key = _make_key(
+        tenant,
+        user,
+        "future-compliant",
+        tag="J",
+        created_at=_day_after_the_rule(),
+        **_compliant_attributes(),
+    )
+    entry = {e["key_id"]: e for e in collect_inventory()}[str(key.pk)]
+
+    assert entry["created_at"][:10] > (
+        LEGACY_KEY_ROTATION_RULE.effective_date.isoformat()
+    )
+    assert entry["unsatisfied_rules"] == []
+    assert entry["workspace_fence_state"] == FENCE_STATE_SET
+    assert entry["rotation_candidate"] is False
+    assert entry["rotation_reasons"] == []
+    assert REASON_PRE_RULE not in entry["rotation_reasons"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("case_id", "rule_id", "broken"),
+    FUTURE_FACING_CASES,
+    ids=[case[0] for case in FUTURE_FACING_CASES],
+)
+def test_a_future_dated_key_failing_exactly_one_rule_is_a_candidate(
+    owner, case_id, rule_id, broken
+):
+    """The contract trigger alone makes a future-dated key a candidate.
+
+    The reason must be the one derived from the rule that failed, and must
+    explicitly *not* be the pre-rule reason: a key created after the effective
+    date is not pre-dated, so attributing it to the date would misstate why it
+    landed on the list.
+    """
+    tenant, user = owner
+    key = _make_key(
+        tenant,
+        user,
+        f"future-{case_id}",
+        tag="L",
+        created_at=_day_after_the_rule(),
+        **{**_compliant_attributes(), **broken},
+    )
+    entry = {e["key_id"]: e for e in collect_inventory()}[str(key.pk)]
+
+    assert entry["unsatisfied_rules"] == [rule_id]
+    assert entry["rotation_candidate"] is True
+    assert entry["rotation_reasons"] == [REASON_BY_RULE[rule_id]]
+    assert REASON_PRE_RULE not in entry["rotation_reasons"]
+
+
+@pytest.mark.django_db
+def test_the_two_rotation_triggers_are_independent(owner):
+    """Both triggers at once still reports both, neither masking the other."""
+    tenant, user = owner
+    key = _make_key(
+        tenant,
+        user,
+        "before-the-day-and-no-expiry",
+        tag="M",
+        created_at=_utc(2026, 9, 20, 9),
+        scope="write",
+        workspace_ids=[],
+        expires_at=None,
+    )
+    entry = {e["key_id"]: e for e in collect_inventory()}[str(key.pk)]
+
+    assert entry["rotation_reasons"][0] == REASON_PRE_RULE
+    assert set(entry["rotation_reasons"]) == {
+        REASON_PRE_RULE,
+        "no-canonical-scope",
+        "no-workspace-fence",
+        "no-expiry-decision",
+    }
+
+
+# --------------------------------------------------------------------------
+# 3c. Workspace fence: canonicality, not just non-emptiness
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", FENCE_ENTRY_KINDS)
+def test_only_a_canonical_entry_is_reported_canonical(kind):
+    assert is_canonical_workspace_id(_fence_entry(kind)) is (kind == "canonical")
+
+
+@pytest.mark.parametrize("value", [None, 7, True, ["nested"], {"a": "b"}, "  "])
+def test_a_fence_entry_that_is_not_a_uuid_string_is_never_canonical(value):
+    assert is_canonical_workspace_id(value) is False
+
+
+def test_the_fence_classification_has_exactly_three_states():
+    canonical = str(uuid4())
+    mixed = [canonical, "workspace-alpha"]
+
+    assert classify_workspace_fence([]) == FENCE_STATE_UNSET
+    assert classify_workspace_fence([canonical]) == FENCE_STATE_SET
+    assert classify_workspace_fence([canonical, str(uuid4())]) == FENCE_STATE_SET
+    assert classify_workspace_fence(["workspace-alpha"]) == FENCE_STATE_DEFECTIVE
+    # A mixed fence is defective, not set: the rule is a conjunction over all
+    # entries, so one entry that is not a workspace id sinks the whole fence.
+    assert classify_workspace_fence(mixed) == FENCE_STATE_DEFECTIVE
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind", FENCE_ENTRY_KINDS)
+def test_a_fence_is_only_set_when_every_entry_is_a_canonical_uuid(owner, kind):
+    tenant, user = owner
+    key = _make_key(
+        tenant,
+        user,
+        f"fence-{kind}",
+        tag="O",
+        created_at=_day_after_the_rule(),
+        **{**_compliant_attributes(), "workspace_ids": [_fence_entry(kind)]},
+    )
+    entry = {e["key_id"]: e for e in collect_inventory()}[str(key.pk)]
+    is_canonical = kind == "canonical"
+
+    assert entry["workspace_fence_state"] == (
+        FENCE_STATE_SET if is_canonical else FENCE_STATE_DEFECTIVE
+    )
+    assert ("workspace-fence-set" in entry["unsatisfied_rules"]) is not is_canonical
+    assert entry["rotation_candidate"] is not is_canonical
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("fence", [[], None])
+def test_an_unset_or_empty_fence_is_unsatisfied(owner, fence):
+    """Both spellings of "no fence" are reported as ``unset`` and unsatisfied.
+
+    ``ApiKey.workspace_ids`` is ``NOT NULL``, so ``None`` and ``[]`` are the
+    same stored value: an empty list. The field's own default is ``list``, so
+    "unset" and "empty" are not two different stored states here — they are two
+    ways of asking for the one state that exists, and both must be unsatisfied.
+    """
+    tenant, user = owner
+    key = _make_key(
+        tenant,
+        user,
+        "fence-empty",
+        tag="P",
+        created_at=_day_after_the_rule(),
+        **{**_compliant_attributes(), "workspace_ids": fence},
+    )
+    entry = {e["key_id"]: e for e in collect_inventory()}[str(key.pk)]
+
+    assert entry["workspace_ids"] == []
+    assert entry["workspace_fence_state"] == FENCE_STATE_UNSET
+    assert entry["unsatisfied_rules"] == ["workspace-fence-set"]
+    assert entry["rotation_reasons"] == ["no-workspace-fence"]
+
+
+@pytest.mark.django_db
+@pytest.mark.xfail(
+    reason=(
+        "ApiKey.workspace_ids is NOT NULL, so a JSON null in the column is not "
+        "reachable - documented here so nobody re-adds a test for it."
+    ),
+    strict=True,
+)
+def test_a_json_null_fence_column_would_be_reported_as_unset(owner):
+    tenant, user = owner
+    key = _make_key(
+        tenant,
+        user,
+        "fence-null",
+        tag="Q",
+        created_at=_day_after_the_rule(),
+        **_compliant_attributes(),
+    )
+    ApiKey.unscoped.filter(pk=key.pk).update(workspace_ids=None)
+    entry = {e["key_id"]: e for e in collect_inventory()}[str(key.pk)]
+
+    assert entry["workspace_fence_state"] == FENCE_STATE_UNSET
+    assert entry["unsatisfied_rules"] == ["workspace-fence-set"]
+
+
+@pytest.mark.django_db
+def test_a_mixed_fence_is_defective_and_still_a_candidate(owner):
+    tenant, user = owner
+    mixed = [str(uuid4()), _fence_entry("non-uuid-token")]
+    key = _make_key(
+        tenant,
+        user,
+        "fence-mixed",
+        tag="R",
+        created_at=_day_after_the_rule(),
+        **{**_compliant_attributes(), "workspace_ids": mixed},
+    )
+    entry = {e["key_id"]: e for e in collect_inventory()}[str(key.pk)]
+
+    # The observed values are reported verbatim; only the classification moves.
+    assert entry["workspace_ids"] == mixed
+    assert entry["workspace_fence_state"] == FENCE_STATE_DEFECTIVE
+    assert entry["unsatisfied_rules"] == ["workspace-fence-set"]
+    assert entry["rotation_candidate"] is True
+    assert entry["rotation_reasons"] == ["no-workspace-fence"]
+    assert REASON_PRE_RULE not in entry["rotation_reasons"]
+
+
+@pytest.mark.django_db
+def test_a_defective_fence_reaches_every_renderer_and_the_totals(owner):
+    tenant, user = owner
+    _make_key(
+        tenant,
+        user,
+        "fence-canonical-only",
+        tag="S",
+        created_at=_day_after_the_rule(),
+        **_compliant_attributes(),
+    )
+    _make_key(
+        tenant,
+        user,
+        "fence-defective",
+        tag="T",
+        created_at=_day_after_the_rule(),
+        **{**_compliant_attributes(), "workspace_ids": [_fence_entry("upper-case-uuid")]},
+    )
+    inventory = collect_inventory()
+
+    assert {e["name"]: e["workspace_fence_state"] for e in inventory} == {
+        "fence-canonical-only": FENCE_STATE_SET,
+        "fence-defective": FENCE_STATE_DEFECTIVE,
+    }
+
+    # A defective fence must not be dropped from the totals: it is counted as
+    # having no usable workspace fence, same as an unset one.
+    assert build_payload(inventory)["totals"]["no_workspace_fence"] == 1
+
+    json_output = render_json(inventory)
+    assert json.loads(json_output)["totals"]["no_workspace_fence"] == 1
+    assert f'"workspace_fence_state": "{FENCE_STATE_DEFECTIVE}"' in json_output
+
+    text_output = render_text(inventory)
+    assert "DEFECTIVE: 1 non-canonical entry" in text_output
+    assert "1 without workspace fence" in text_output
+
+    csv_rows = [
+        row
+        for row in _csv_lines(render_csv(inventory))
+        if row and not row[0].startswith("#")
+    ]
+    header, body = csv_rows[0], csv_rows[1:]
+    assert {row[header.index("workspace_fence_state")] for row in body} == {
+        FENCE_STATE_SET,
+        FENCE_STATE_DEFECTIVE,
+    }
+
+
+def test_the_rotation_rule_name_date_and_reason_mapping_are_unchanged():
+    assert LEGACY_KEY_ROTATION_RULE.name == "CR-03-LEGACY-API-KEY-ROTATION/2026-09-25"
+    assert LEGACY_KEY_ROTATION_RULE.effective_date == datetime(2026, 9, 25).date()
+    assert list(NEW_KEY_CONTRACT_RULES) == [
+        "explicit-canonical-scope",
+        "workspace-fence-set",
+        "expiry-decision-recorded",
+    ]
+    # Pinning the command's own mapping against the literal above: the
+    # fence-canonicality fix must not have renamed or re-derived a reason.
+    assert dict(COMMAND_REASON_BY_RULE) == REASON_BY_RULE
 
 
 # --------------------------------------------------------------------------

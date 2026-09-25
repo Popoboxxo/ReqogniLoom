@@ -22,7 +22,13 @@ Adding a new ``TenantScopedModel``? Ship an RLS migration alongside it (copy the
 shape from ``persistence/0067_rls_remaining_pl_tables.py``). Only add a table to
 :data:`RLS_EXEMPT_TABLES` if it genuinely cannot carry the standard policy, and
 document the concrete blocking code path in the mapping's value — that string is
-the review artefact.
+the review artefact. For the four plain worker-owned tables the value is held to
+a sharper contract: ``persistence/tests/test_rls_plain_child_models.py``
+requires each of their justifications to state specific, individually named
+claims (the Django-admin exposure of that table, the compensating-control
+status, the required ``tenant_id`` stamp and the OPEN status) rather than
+merely being long, so a later edit cannot quietly shorten the record back to a
+generic paragraph.
 """
 from __future__ import annotations
 
@@ -60,6 +66,12 @@ _pg_only = pytest.mark.skipif(not _IS_POSTGRES, reason="PostgreSQL-only assertio
 # exemption instead of an unnoticed gap, and so CR-17
 # (docs/se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md) can
 # be reported as PARTIALLY closed with them as open residual risk.
+#
+# Honesty convention for the four plain entries: an entry states the exposure it
+# cannot close, including the Django-admin paths a staff superuser can still
+# reach, and says plainly which claims do NOT hold for that table instead of
+# copying one exposure across all four. Those claims are asserted verbatim by
+# ``CR17_JUSTIFICATION_CLAIMS`` in the plain-child module.
 RLS_EXEMPT_TABLES: dict[str, str] = {
     "at_api_key": (
         "AuthenticationService.validate_api_key looks the key hash up via "
@@ -101,18 +113,39 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "OutboxPoller with no tenant context armed: "
         "application.event_bus.poll_and_dispatch (application/event_bus.py:458) "
         "lists unpublished rows of EVERY tenant (:490-496), _claim_event (:322) "
-        "takes each under SELECT FOR UPDATE, _finalize_success (:374) flips it "
-        "to published, _move_to_dlq (:412) deletes it, and the backlog count at "
-        ":551 aggregates across tenants. The poller cannot know which tenant a "
-        "row belongs to before it has read it - the same chicken-and-egg as "
-        "audit_entry. A WITH CHECK policy would reject the poller's write-backs, "
-        "so a claimed row would never be marked published and would be "
-        "redelivered on every claim-timeout reclaim forever; a USING policy "
-        "would reduce the candidate set to zero rows and stop the event bus "
-        "outright. publish() stores only a bare workspace_id (:208) and the "
-        "table has no tenant_id column, so there is nothing a policy could "
-        "compare. Needs the fix audit_entry names: stamp tenant_id onto the "
-        "outbox payload at emission time (the shape already used for "
+        "takes each under SELECT FOR UPDATE (:335-339), _finalize_success (:365) "
+        "flips it to published, _move_to_dlq (:412) deletes it, and the backlog "
+        "count at :551 aggregates across tenants. The poller cannot know which "
+        "tenant a row belongs to before it has read it - the same "
+        "chicken-and-egg as audit_entry. A WITH CHECK policy would reject the "
+        "poller's write-backs, so a claimed row would never be marked published "
+        "and would be redelivered on every claim-timeout reclaim forever; a "
+        "USING policy would reduce the candidate set to zero rows and stop the "
+        "event bus outright. publish() stores only a bare workspace_id (:208) "
+        "and the table has no tenant_id column, so there is nothing a policy "
+        "could compare. "
+        "ADMIN EXPOSURE, verified against application/admin.py:44-70: the "
+        "DomainEventOutbox change list prints event_type, entity_id, published, "
+        "retry_count and workspace_id for EVERY tenant, because the ModelAdmin "
+        "overrides neither get_queryset nor anything else and a plain "
+        "models.Model has no tenant-scoped manager to filter on; the admin change "
+        "page renders payload and workspace_id, because both are in "
+        "readonly_fields, which Django displays instead of editing. That is "
+        "another tenant's event payload on a staff superuser's screen. On the "
+        "write side the honest claim is narrower than 'a row can be minted or "
+        "retargeted': no admin add/edit form can mint or retarget a foreign "
+        "workspace_id on this table, since every field except claimed_at is "
+        "readonly and both the add and the change form expose exactly "
+        "['claimed_at']. What the admin really permits is an editable claimed_at "
+        "plus the default has_add_permission and has_delete_permission (neither "
+        "is overridden, so both are True for a staff superuser), so a superuser "
+        "can force another tenant's row to be reclaimed or delete it outright. "
+        "COMPENSATING CONTROL STATUS: the control on this table is service-layer "
+        "and code-path only, NOT a database guarantee, and a staff superuser "
+        "with Django-admin access therefore remains a human-reachable "
+        "cross-tenant path over these rows. "
+        "Needs the fix audit_entry names: stamp tenant_id onto the outbox "
+        "payload at emission time (the shape already used for "
         "memory.projector) so the poller can arm app.current_tenant per row "
         "before writing back. CR-17 residual risk, still OPEN."
     ),
@@ -131,10 +164,28 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "tenant-scoped Workspace.objects and then filters on the bare "
         "workspace_id, which makes a foreign workspace_id indistinguishable "
         "from an unknown one but leaves the row itself unguarded. No tenant_id "
-        "column exists to key a policy on. Needs tenant_id stamped onto the "
-        "outbox payload at emission time (the shape already used for "
-        "memory.projector) before RLS can be turned on here. CR-17 residual "
-        "risk, still OPEN."
+        "column exists to key a policy on. "
+        "ADMIN EXPOSURE, verified against application/admin.py:73-109: the "
+        "change list prints event_type, event_id, retry_count, moved_at and "
+        "workspace_id for every tenant (no get_queryset override, unfiltered "
+        "default manager), and the admin change page renders payload and "
+        "workspace_id - plus error_message - all three of which are in "
+        "readonly_fields and therefore displayed rather than edited; "
+        "error_message is searchable as well (search_fields). Here the "
+        "mint/retarget claim is refuted rather than asserted: no admin add/edit "
+        "form can mint or retarget a foreign workspace_id on this table, "
+        "because has_add_permission, has_change_permission and "
+        "has_delete_permission all return False (admin.py:102-109) and both "
+        "forms are empty - the admin is strictly read-only here. "
+        "COMPENSATING CONTROL STATUS: the control on this table is service-layer "
+        "and code-path only, NOT a database guarantee. DlqService.list_dlq / "
+        "replay_dlq_event are the only user-facing entry points and they resolve "
+        "ownership through the tenant-scoped Workspace.objects, but nothing "
+        "fences the admin path, so a staff superuser with Django-admin access "
+        "remains a human-reachable cross-tenant path over these rows. "
+        "Needs the fix audit_entry names: stamp tenant_id onto the outbox "
+        "payload at emission time (the shape already used for memory.projector) "
+        "before RLS can be turned on here. CR-17 residual risk, still OPEN."
     ),
     "as_webhook_subscription": (
         "Read only by the webhook subscriber, which the OutboxPoller invokes "
@@ -147,10 +198,33 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "caller-supplied workspace_id, not a database fence, and the Django "
         "admin change list (application/admin.py:117) lists every tenant's "
         "subscriptions to a staff superuser. No tenant_id column exists to key "
-        "a policy on. Needs tenant_id stamped onto the outbox payload at "
-        "emission time (the shape already used for memory.projector) so the "
-        "subscriber can arm app.current_tenant before it reads. CR-17 residual "
-        "risk, still OPEN."
+        "a policy on. "
+        "ADMIN EXPOSURE - THIS IS THE SECRET-BEARING TABLE, verified against "
+        "application/models.py:177 and application/admin.py:117-131: secret is a "
+        "plain CharField, stored in the clear and never hashed, and while it is "
+        "deliberately NOT in list_display (so the change list does not print it) "
+        "it is an editable field on both the admin add form and the admin change "
+        "form, so opening the change page of any tenant's subscription shows that "
+        "tenant's HMAC secret in the clear and lets a staff superuser rewrite "
+        "it. Worse, the admin add form and the admin change form both accept a "
+        "foreign workspace_id: workspace_id is a bare db_index UUID "
+        "(models.py:172) rather than a foreign key, the ModelAdmin overrides "
+        "neither form nor save_model nor get_queryset, and has_add_permission / "
+        "has_change_permission / has_delete_permission are the Django defaults "
+        "(True), so no tenant-ownership validation runs on that path at all. A "
+        "staff superuser can therefore mint a subscription under another "
+        "tenant's workspace or retarget an existing one, which redirects that "
+        "tenant's events to a URL of the superuser's choosing and lets them mint "
+        "or replace its HMAC secret - the admin is a human-reachable cross-tenant "
+        "AND cross-secret path here, not merely a cross-tenant one. "
+        "COMPENSATING CONTROL STATUS: the control on this table is service-layer "
+        "and code-path only, NOT a database guarantee. The subscriber's "
+        "workspace_id filter is an application filter on a caller-supplied id "
+        "and it does not run on the admin path at all. Raw RLS stays OPEN. "
+        "Needs the fix audit_entry names: stamp tenant_id onto the outbox "
+        "payload at emission time (the shape already used for memory.projector) "
+        "so the subscriber can arm app.current_tenant before it reads. CR-17 "
+        "residual risk, still OPEN."
     ),
     "as_webhook_delivery_log": (
         "Webhook attempt log, read and written only from that same "
@@ -163,10 +237,27 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "(REQ-072) reads as never-delivered and answers by redelivering. The "
         "rows hang off WebhookSubscription by FK, but that table's workspace_id "
         "is a bare UUID with no tenant identity behind it, so there is still "
-        "nothing a policy could compare. Needs tenant_id stamped onto the "
-        "outbox payload at emission time (the shape already used for "
-        "memory.projector) before RLS can be turned on here. CR-17 residual "
-        "risk, still OPEN."
+        "nothing a policy could compare. "
+        "ADMIN EXPOSURE, verified against application/admin.py:134-174: the "
+        "mint/retarget claim is refuted here rather than asserted - no admin "
+        "add/edit form can mint or retarget a foreign workspace_id on this "
+        "table, because has_add_permission, has_change_permission and "
+        "has_delete_permission all return False and the table has no "
+        "workspace_id column at all (models.py:204-218) to set even if the form "
+        "were writable; the admin is read-only. The read exposure is one hop "
+        "away: the change page renders the owning subscription, and "
+        "WebhookSubscription.__str__ (models.py:194-195) prints "
+        "'WebhookSubscription:<workspace_id>:<url>', so the owning "
+        "workspace_id and the endpoint URL of every tenant are readable by a "
+        "staff superuser, and search_fields spans event_id, event_type and "
+        "error_message. "
+        "COMPENSATING CONTROL STATUS: the control on this table is service-layer "
+        "and code-path only, NOT a database guarantee, and a staff superuser "
+        "with Django-admin access remains a human-reachable cross-tenant path "
+        "over these rows. Raw RLS stays OPEN. "
+        "Needs the fix audit_entry names: stamp tenant_id onto the outbox "
+        "payload at emission time (the shape already used for memory.projector) "
+        "before RLS can be turned on here. CR-17 residual risk, still OPEN."
     ),
 }
 
@@ -279,11 +370,32 @@ def test_every_tenant_scoped_model_has_an_rls_policy_migration():
 
 
 def test_rls_exemptions_are_still_tenant_scoped_tables():
-    """A stale exemption must not silently keep hiding a real gap.
+    """ANTIREGRESSION CHECK ONLY — it enforces NO isolation, and for an exempt
+    table such as ``at_api_key`` it is CURRENTLY A NO-OP.
 
-    If an exempt model is renamed, dropped, or finally gets its policy, the
-    entry has to go — otherwise the allowlist grows into a place where future
-    gaps can hide unnoticed.
+    What it actually does, and nothing more: for every entry in
+    :data:`RLS_EXEMPT_TABLES` it asserts that the model still exists as a
+    concrete model, that the entry is still filed under the right *kind* of debt
+    (``RLS_EXEMPT_PLAIN_TABLES``), and that no ``CREATE POLICY`` for that table
+    has appeared in the migration graph. That is a defence-in-depth tripwire: it
+    can only ever fail when the exemption goes stale — the model was renamed or
+    dropped, the debt kind flipped, or the policy finally shipped.
+
+    What it does NOT do: it does not make any exempt table safer. ``at_api_key``
+    is the sharpest example — ``AuthenticationService.validate_api_key`` must
+    resolve the tenant from the row before any tenant context can exist, so the
+    table carries no policy by design and its rows stay readable by the
+    least-privilege application role with ``app.current_tenant`` unset. All three
+    assertions above are satisfied trivially for it today, i.e. this test is a
+    no-op with respect to that table's actual exposure and stays one until the
+    auth path is reworked. The same is true, with a different reason, of
+    ``at_refresh_token``, ``at_user_role`` and ``audit_entry``, and of the four
+    plain worker-owned tables, whose real evidence lives in
+    ``persistence/tests/test_rls_plain_child_models.py``.
+
+    So the original wording — "a stale exemption must not silently keep hiding a
+    real gap" — overclaimed: an exemption here does not hide a gap, it NAMES
+    one. What is prevented is the gap becoming *unreported*, not the gap itself.
     """
     tenant_tables = set(_tenant_scoped_tables())
     plain_tables = _plain_model_tables() - tenant_tables

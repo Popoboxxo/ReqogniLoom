@@ -27,6 +27,16 @@ database guarantees on those four tables is *nothing*; the compensating controls
 asserted here are service-layer and code-path arguments, and the tests that
 assert them say so explicitly.
 
+The admin is part of that exposure, and the exemption justifications now say so
+per table rather than in general terms (see :data:`CR17_JUSTIFICATION_CLAIMS`):
+``/admin/`` is mounted at ``reqogniloom/urls.py:33`` and every one of the four
+tables is registered in ``application/admin.py``, so a staff superuser reaches
+their rows outside any tenant-scoped code path — on ``as_webhook_subscription``
+down to the plaintext HMAC ``secret`` and an admin-writable foreign
+``workspace_id``, and on the outbox/DLQ down to the rendered event ``payload``.
+That is a human-reachable path, not a database-enforced one, and no test here
+can close it.
+
 Every assertion runs against the least-privilege, NOSUPERUSER application role
 (``persistence.db_roles.APP_DB_ROLE``, REQ-L2-PL-010) with
 ``app.current_tenant`` deliberately UNSET, via raw ``cursor.execute`` — the
@@ -63,14 +73,20 @@ PLAIN_CHILD_TABLES = {
     "as_webhook_delivery_log": "application.models.WebhookDeliveryLog",
 }
 
-#: Tables whose only production access path is the Celery outbox poller, which
-#: by design runs with no tenant context armed (``application.event_bus``
-#: ``poll_and_dispatch`` never calls ``set_request_tenant``). A GUC-keyed RLS
-#: policy is inexpressible on them — no ``tenant_id`` column — and a policy on
-#: the workspace id would make the worker blind and blind the poller to writes.
-#: They are declared in ``RLS_EXEMPT_TABLES`` and covered below by the
-#: declaration, the no-tenant-column and the compensating-control assertions
-#: instead of by a "must be empty without GUC" assertion they could never pass.
+#: Tables whose *primary* production access path is the Celery outbox poller,
+#: which by design runs with no tenant context armed
+#: (``application.event_bus`` ``poll_and_dispatch`` never calls
+#: ``set_request_tenant``). A GUC-keyed RLS policy is inexpressible on them — no
+#: ``tenant_id`` column — and a policy on the workspace id would make the worker
+#: blind and blind the poller to writes. They are declared in
+#: ``RLS_EXEMPT_TABLES`` and covered below by the declaration, the no-tenant-
+#: column and the compensating-control assertions instead of by a "must be
+#: empty without GUC" assertion they could never pass.
+#:
+#: "Primary", not "only": the Django admin is a second production access path on
+#: all four (``application/admin.py`` registers each of them) and it is not
+#: tenant-scoped, which is why every justification below has to name its admin
+#: exposure instead of claiming a closed set of readers.
 WORKER_OWNED_TABLES = frozenset(
     {
         "as_domain_event_outbox",
@@ -104,6 +120,196 @@ WEBHOOK_READER_ALLOWLIST = {
         "the poller-driven subscriber: process_event / _load_webhook_configs "
         "/ _already_delivered / _dispatch_with_retry"
     ),
+}
+
+# ---------------------------------------------------------------------------
+# CR-17 exemption-record contract
+# ---------------------------------------------------------------------------
+# The claims each ``RLS_EXEMPT_TABLES`` justification must carry *verbatim*, as
+# ``(marker, what the marker stands for)`` pairs, plus the ones every one of
+# the four entries has to state. This exists because a length check is not a
+# record: an earlier revision only required > 200 characters, so the
+# admin-exposure sentences could be deleted and the suite would stay green.
+# A marker is a phrase, not a length, so shortening or dropping the sentence
+# that carries it fails the test.
+#
+# The admin markers are attributed per table, deliberately. Verified against
+# ``application/admin.py`` and ``application/models.py``: the secret and the
+# writable foreign ``workspace_id`` belong to ``as_webhook_subscription``
+# alone, the rendered ``payload`` to the outbox and the DLQ, and the two
+# read-only admins are called out as such — including the three tables for
+# which the "admin can mint or retarget a foreign workspace_id" claim does NOT
+# hold.
+_ADMIN_DETAIL_PAYLOAD_CLAIM = (
+    "the admin change page renders payload and workspace_id",
+    "the admin detail page shows another tenant's row payload to a staff "
+    "superuser (verified: both fields are in readonly_fields, which Django "
+    "renders rather than edits)",
+)
+_ADMIN_NO_MINT_CLAIM = (
+    "no admin add/edit form can mint or retarget a foreign workspace_id",
+    "the claim that a superuser can mint or retarget a row into another tenant "
+    "through the admin form is explicitly REFUTED for this table (verified "
+    "form fields / permissions in application/admin.py)",
+)
+_ADMIN_READ_ONLY_CLAIM = (
+    "has_add_permission, has_change_permission and has_delete_permission all "
+    "return False",
+    "the registered admin for this table is read-only, which is what makes the "
+    "refuted mint/retarget claim refuted rather than merely unverified",
+)
+_ADMIN_CHANGEABLE_OUTBOX_CLAIM = (
+    "an editable claimed_at",
+    "the real admin write path on the outbox (default add/delete permissions "
+    "plus an editable claimed_at) instead of the mint/retarget claim",
+)
+
+#: Shared by all four entries: the fix shape and the status markers, plus the
+#: compensating-control statement. Every one of these four tables has a control
+#: that is service-layer and code-path only, and a staff superuser with
+#: Django-admin access, so none of the four may be documented as if the
+#: database backed it up.
+_CR17_SHARED_CLAIMS = (
+    (
+        "app.current_tenant",
+        "the session variable the standard policy is keyed on, and therefore why "
+        "it cannot simply be applied to this table",
+    ),
+    (
+        "stamp tenant_id onto the outbox payload at emission time",
+        "the required fix shape (the one memory.projector already uses) — the "
+        "entry is not complete without naming it",
+    ),
+    (
+        "service-layer and code-path only",
+        "the compensating control is a service-layer / code-path argument, NOT a "
+        "database-enforced guarantee",
+    ),
+    (
+        "human-reachable cross-tenant",
+        "a staff superuser with Django-admin access remains a human-reachable "
+        "cross-tenant path on this table",
+    ),
+    (
+        "still OPEN",
+        "the residual risk is still open, i.e. not closed by this entry",
+    ),
+)
+
+CR17_JUSTIFICATION_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
+    "as_domain_event_outbox": (
+        _ADMIN_DETAIL_PAYLOAD_CLAIM,
+        _ADMIN_NO_MINT_CLAIM,
+        _ADMIN_CHANGEABLE_OUTBOX_CLAIM,
+    ),
+    "as_domain_event_dlq": (
+        _ADMIN_DETAIL_PAYLOAD_CLAIM,
+        _ADMIN_NO_MINT_CLAIM,
+        _ADMIN_READ_ONLY_CLAIM,
+    ),
+    "as_webhook_subscription": (
+        (
+            "editable field on both the admin add form and the admin change form",
+            "the HMAC secret is stored in the clear and is rendered/rewritable "
+            "on the admin pages, so a staff superuser sees secret material "
+            "(verified: secret is a plain CharField and is absent only from "
+            "list_display)",
+        ),
+        (
+            "both accept a foreign workspace_id",
+            "the admin add/edit path for this table has no tenant-ownership "
+            "validation, so a superuser can mint or retarget a subscription into "
+            "another tenant",
+        ),
+        (
+            "cross-secret",
+            "the admin is a cross-secret path, not only a cross-tenant one",
+        ),
+    ),
+    "as_webhook_delivery_log": (
+        _ADMIN_READ_ONLY_CLAIM,
+        (
+            "the table has no workspace_id column at all",
+            "this table has nothing an admin form could set even if the form "
+            "were writable, which is part of why the mint/retarget claim is "
+            "refuted rather than merely unverified here",
+        ),
+        (
+            "WebhookSubscription.__str__",
+            "the admin change page renders the owning subscription, whose "
+            "__str__ prints the owning workspace_id and endpoint URL — how tenant "
+            "data reaches the admin on a table with no workspace_id of its own",
+        ),
+    ),
+}
+
+#: Every entry's full claim list: the shared markers plus the table-specific
+#: ones. Built once so the test and the failure message cannot drift apart.
+CR17_ALL_CLAIMS: dict[str, tuple[tuple[str, str], ...]] = {
+    table: _CR17_SHARED_CLAIMS + specific
+    for table, specific in CR17_JUSTIFICATION_CLAIMS.items()
+}
+
+# ---------------------------------------------------------------------------
+# as_domain_event_outbox reader / writer allowlist
+# ---------------------------------------------------------------------------
+#: Production modules allowed to READ ``as_domain_event_outbox`` rows, and why.
+#: A reader outside this set would falsify the compensating control: nothing at
+#: the database layer stops it reading another tenant's outbox row.
+#:
+#: Only two, and both are declared rather than assumed:
+#:
+#: * ``application/event_bus.py`` — the Celery poller. It has to read: the
+#:   candidate query (:490-496) is what tells it *which* tenant a row belongs to
+#:   (chicken-and-egg, see the exemption), ``_claim_event`` takes the row under
+#:   SELECT FOR UPDATE, ``_finalize_success`` / ``_finalize_failure`` write the
+#:   outcome back and the backlog count at :551 aggregates across tenants.
+#: * ``application/admin.py`` — the Django admin (registered at
+#:   ``application/admin.py:44``). Its reads happen inside Django, not in this
+#:   repository's source, so no AST can see them; the registration itself is
+#:   the detectable marker, and the change list renders ``workspace_id`` of
+#:   every tenant.
+OUTBOX_READER_MODULES = {
+    "application/event_bus.py": (
+        "the Celery OutboxPoller - candidate listing, SELECT FOR UPDATE claim, "
+        "write-back and the cross-tenant backlog count; it must read before it "
+        "can know the tenant"
+    ),
+    "application/admin.py": (
+        "Django admin change list and change page (registered at "
+        "application/admin.py:44) - a staff-superuser operator surface, not a "
+        "tenant-scoped one"
+    ),
+}
+
+#: Production modules allowed to WRITE ``as_domain_event_outbox`` rows *without*
+#: reading them. Writers are legitimate and numerous on this table (every
+#: emitter service publishes through ``DomainEventBus.publish``), which is why
+#: the guard polices readers and not writers: a new legitimate write must not
+#: have to fight this test. The set is still declared and still machine-checked,
+#: in the two directions that matter — every module listed here must really
+#: write, and none of them may read (otherwise it is a reader wearing a writer's
+#: label and would slip past the reader allowlist).
+OUTBOX_WRITER_MODULES = {
+    "application/dlq_service.py": (
+        "DlqService.replay_dlq_event re-queues a dead-lettered event "
+        "(application/dlq_service.py:184); it inserts a row whose workspace_id "
+        "it has already resolved through the tenant-scoped Workspace.objects, so "
+        "it writes without reading the outbox"
+    ),
+}
+
+#: The model module itself, and the emitter services, are neither: they name
+#: ``DomainEventOutbox.EventType`` (an enum of choice strings) or nothing more.
+#: Counting those as readers would flag every future event emitter, so the
+#: classifier below separates "names the model" from "queries the table", and
+#: the test pins that separation with a non-vacuity assertion.
+OUTBOX_NON_QUERYING_REFERENCE_SAMPLE = {
+    "application/requirement_service.py": (
+        "publishes through DomainEventBus.publish and only names "
+        "DomainEventOutbox.EventType.* as a kwarg"
+    ),
+    "application/models.py": "defines the model and its EventType enum",
 }
 
 
@@ -169,18 +375,17 @@ def _references(tree: ast.AST, name: str) -> bool:
     return False
 
 
-def _production_modules_referencing(model_name: str) -> set[str]:
-    """Every production module whose source names *model_name*, repo-relative.
+def _production_python_files() -> list[tuple[str, ast.AST]]:
+    """``(repo-relative posix path, parsed tree)`` for every production module.
 
-    A code-path argument rendered as an executable check. Static ``ast`` scan of
-    the backend tree, skipping tests and migrations: a reference from a
-    ``rest_api`` view, a serializer or an MCP tool would show up here and fail
-    the allowlist comparison in the caller.
+    Tests and migrations are skipped, because a code-path argument is about
+    production code only: a reference from a test, or from a migration that
+    merely names a table, is not a reachable reader.
     """
     from django.conf import settings
 
     root = Path(settings.BASE_DIR)
-    hits: set[str] = set()
+    files: list[tuple[str, ast.AST]] = []
     for path in root.rglob("*.py"):
         parts = path.relative_to(root).parts
         if "migrations" in parts or "tests" in parts:
@@ -191,9 +396,142 @@ def _production_modules_referencing(model_name: str) -> set[str]:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
-        if _references(tree, model_name):
-            hits.add(Path(*parts).as_posix())
-    return hits
+        files.append((Path(*parts).as_posix(), tree))
+    return files
+
+
+def _production_modules_referencing(model_name: str) -> set[str]:
+    """Every production module whose source names *model_name*, repo-relative.
+
+    A code-path argument rendered as an executable check. Static ``ast`` scan of
+    the backend tree, skipping tests and migrations: a reference from a
+    ``rest_api`` view, a serializer or an MCP tool would show up here and fail
+    the allowlist comparison in the caller.
+
+    Deliberately name-level and therefore deliberately blunt: it answers "which
+    modules mention this model", not "which modules read its rows". For the
+    webhook tables that is good enough (few modules mention them), but for
+    ``as_domain_event_outbox`` it would return every emitter service, so the
+    table-level classifier below is used there instead.
+    """
+    return {
+        relpath
+        for relpath, tree in _production_python_files()
+        if _references(tree, model_name)
+    }
+
+
+#: Manager attributes that root a queryset, i.e. the segment right below the
+#: model name in a chain like ``DomainEventOutbox.objects.filter(...)``.
+_MANAGER_ATTRS = frozenset({"objects", "_default_manager", "_base_manager", "unscoped"})
+
+#: QuerySet/Manager methods that mutate rows. Everything else that reaches a
+#: table is a read, including methods this map has never heard of.
+_WRITE_METHODS = frozenset(
+    {
+        "create",
+        "bulk_create",
+        "bulk_update",
+        "update",
+        "update_or_create",
+        "delete",
+        "save",
+        "remove",
+        "clear",
+        "set",
+        "add",
+    }
+)
+
+
+def _attribute_chain(node: ast.AST) -> list[str] | None:
+    """``a.b.c`` -> ``['a', 'b', 'c']``; ``None`` when the root is not a Name.
+
+    Only the plain ``Name -> Attribute*`` shape is recognised, so a manager
+    passed around as a local variable is not attributed to the model. That is a
+    real limit of the technique, stated in the test that relies on it.
+    """
+    segments: list[str] = []
+    current = node
+    while isinstance(current, ast.Attribute):
+        segments.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        segments.append(current.id)
+        return list(reversed(segments))
+    return None
+
+
+def _table_touch_kind(chain: list[str]) -> str | None:
+    """``"read"`` / ``"write"`` for a manager call chain, else ``None``.
+
+    ``None`` means "names the model without querying the table" — the
+    ``DomainEventOutbox.EventType.REQUIREMENT_CREATED`` shape every emitter
+    service uses, and the model class definition itself. Unknown manager
+    methods are counted as reads on purpose: this guard exists to notice a
+    reader, so an unrecognised access shape must fail the allowlist rather than
+    slip through it.
+    """
+    if len(chain) < 2 or chain[1] not in _MANAGER_ATTRS:
+        return None
+    terminal = chain[-1]
+    if terminal in _WRITE_METHODS:
+        return "write"
+    return "read"
+
+
+def _admin_registration_sites(tree: ast.AST, model_name: str) -> list[str]:
+    """``admin.register(Model)`` call sites, as display strings.
+
+    The Django admin reads and writes through its own machinery, not through
+    this repository's source, so no query chain exists to find. Registering the
+    model is the one marker that is in the source, and it is exactly the
+    surface a staff superuser reaches.
+    """
+    sites: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        chain = _attribute_chain(node.func)
+        if not chain or chain[-1] != "register":
+            continue
+        for arg in list(node.args) + [kw.value for kw in node.keywords]:
+            arg_chain = _attribute_chain(arg)
+            if arg_chain and arg_chain[0] == model_name:
+                sites.append(f"admin.register({model_name}) @L{node.lineno}")
+    return sites
+
+
+def _production_table_access(model_name: str) -> dict[str, dict[str, list[str]]]:
+    """Per production module, the reads and writes it performs on *model_name*.
+
+    ``{module: {"read": [site, ...], "write": [site, ...]}}`` where a site is
+    ``"<call chain> @L<lineno>"``. Modules that only name the model (an
+    ``EventType`` constant, a type annotation, the class definition) are absent
+    from the mapping, which is the whole point: the compensating control is a
+    "no unexpected reader" argument, and an emitter that publishes through
+    ``DomainEventBus.publish`` is not one.
+    """
+    access: dict[str, dict[str, list[str]]] = {}
+    for relpath, tree in _production_python_files():
+        reads: list[str] = []
+        writes: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            chain = _attribute_chain(node.func)
+            if not chain or chain[0] != model_name:
+                continue
+            kind = _table_touch_kind(chain)
+            if kind == "read":
+                reads.append(f"{'.'.join(chain)} @L{node.lineno}")
+            elif kind == "write":
+                writes.append(f"{'.'.join(chain)} @L{node.lineno}")
+        reads.extend(_admin_registration_sites(tree, model_name))
+        if reads or writes:
+            access[relpath] = {"read": sorted(reads), "write": sorted(writes)}
+    return access
+
 
 
 def _seed_two_tenants(label: str = "cr17") -> dict:
@@ -496,20 +834,41 @@ def test_module_inventory_matches_the_rls_exemption_registry():
         "test_empty_without_tenant_guc; a newly exempted one needs the "
         "compensating-control assertions instead."
     )
+    assert set(CR17_ALL_CLAIMS) == set(WORKER_OWNED_TABLES), (
+        "the CR-17 claim contract and the worker-owned inventory have drifted: "
+        f"{sorted(set(CR17_ALL_CLAIMS) ^ set(WORKER_OWNED_TABLES))}. A newly "
+        "exempted table has no required claims yet, so its justification could "
+        "be shortened back to a generic paragraph without any test noticing"
+    )
 
 
 @pytest.mark.parametrize("table", sorted(WORKER_OWNED_TABLES))
 def test_worker_owned_table_is_declared_rls_exempt_with_a_justification(table):
     """The four tables must stay *declared* as cross-tenant-readable, in
-    writing, and the declaration must name the session variable the standard
-    policy is keyed on.
+    writing, and the declaration must still carry every specific claim CR-17
+    records for that table.
 
     This is the replacement for asserting they return zero rows, which they
-    provably do not. The exemption is what makes that a reviewed decision
-    instead of a hole: delete the entry, empty the justification, or replace it
-    with a bare "TODO" and this test fails. The text is the review artefact —
-    the same contract ``test_rls_coverage`` imposes on the three pre-existing
-    ``TenantScopedModel`` exemptions.
+    provably do not. The exemption is what makes the gap a reviewed decision
+    rather than a hole: delete the entry, empty the justification, replace it
+    with a bare "TODO" or shorten it back to a generic paragraph, and this test
+    fails.
+
+    Precisely what the contract is, because the previous wording overstated it.
+    Equivalence that IS established: the RLS-guarded plain child
+    (``bl_delta_index_entry``) is held to the same database-enforced bar as the
+    other guarded tables — empty without the GUC, filtering to the owning tenant
+    once one is armed, and a WITH CHECK that rejects a foreign-tenant INSERT
+    (``TestPlainChildTablesUnderAppRole``). Equivalence that is NOT established
+    and must not be implied: the four worker-owned tables are *not* equivalent to
+    those tables and are not treated as if they were — they carry no policy, are
+    exempted, and are held only to the declaration, the no-tenant-column check
+    and the compensating-control checks below. The text contract asserted here
+    is imposed by THIS module and only on these four; ``test_rls_coverage``
+    imposes no text contract at all on its own ``TenantScopedModel`` exemptions
+    (``at_api_key``, ``at_refresh_token``, ``at_user_role``, ``audit_entry`` —
+    four, not three), only the staleness check that their model still exists,
+    is still of the same kind, and still has no policy.
     """
     assert table in RLS_EXEMPT_TABLES, (
         f"{table} ({PLAIN_CHILD_TABLES[table]}) is readable across tenants by "
@@ -523,10 +882,18 @@ def test_worker_owned_table_is_declared_rls_exempt_with_a_justification(table):
         "characters long; the convention is a justification that names the "
         "blocking code path, not a placeholder"
     )
-    assert "app.current_tenant" in justification, (
-        f"the RLS_EXEMPT_TABLES entry for {table} does not mention "
-        "app.current_tenant, so it no longer explains why the standard policy "
-        "cannot be applied there"
+
+    claims = CR17_ALL_CLAIMS[table]
+    missing = [claim for marker, claim in claims if marker not in justification]
+    assert not missing, (
+        f"the RLS_EXEMPT_TABLES entry for {table} no longer states "
+        + "; ".join(f"({i + 1}) {claim}" for i, claim in enumerate(missing))
+        + ". The exemption record is the only place CR-17's exposure for this "
+        "table is written down, so shortening it back to a generic paragraph "
+        "is a silent deletion of the finding: re-derive the claim against "
+        "application/admin.py and application/models.py and restore the exact "
+        "wording, or amend CR17_JUSTIFICATION_CLAIMS in this module if the "
+        "claim itself is no longer true."
     )
 
 
@@ -611,4 +978,113 @@ def test_webhook_table_has_no_reader_outside_the_worker_and_the_admin(table):
         f"{table} is no longer referenced from {vanished}. The allowlist above "
         "is a re-audit snapshot: the compensating-control argument has to be "
         "re-derived, not carried over unchanged"
+    )
+
+
+def test_outbox_table_has_no_reader_outside_the_poller_and_the_admin():
+    """COMPENSATING CONTROL, AND IT IS NOT A DATABASE GUARANTEE.
+
+    The same shape as the webhook guard above, but the outbox needs a
+    read/write split to be usable at all: a name-level scan of
+    ``DomainEventOutbox`` returns every emitter service as well (fifteen
+    production modules today), because each of them names
+    ``DomainEventOutbox.EventType.*`` when it publishes. A dozen of those are
+    not readers, and a reader allowlist that flagged them would block every
+    future event emitter — i.e. it would punish exactly the legitimate writers
+    this table is full of.
+
+    So the guard classifies each reference site first and polices readers only:
+
+    * declared READERS (:data:`OUTBOX_READER_MODULES`) — the Celery poller,
+      which must read the row before it can know which tenant the row belongs
+      to, and the Django admin, whose reads happen inside Django rather than in
+      this repository's source (the ``admin.register`` call is the detectable
+      marker).
+    * declared WRITERS (:data:`OUTBOX_WRITER_MODULES`) — modules that write
+      without reading. Writing is legitimate and common here, so the guard does
+      NOT fail on an undeclared write: a new emitter that publishes into the
+      outbox must not have to pass a test to be allowed to. What *is* asserted
+      about writers is soundness: every declared writer really does write, and no
+      declared writer also reads (a reader wearing a writer's label would walk
+      straight past the reader allowlist).
+    * everything else that only *names* the model — the ``EventType`` enum, a
+      type annotation, the class definition — is not a table touch at all.
+
+    What the AST can and cannot do, stated plainly. It separates read from write
+    reliably for the ORM call shapes actually used on this table, by method name
+    on a ``Model.objects.<method>(...)`` chain; an unrecognised manager method
+    is counted as a READ, so an unknown access shape fails the allowlist instead
+    of passing it. It cannot see a queryset or manager passed around as a local
+    variable, an instance saved that way (``record.save(...)`` in
+    ``_claim_event``), a ``getattr``-built chain, or raw SQL — those would be
+    invisible here and are the reason this argument is code-path-only. Note the
+    direction of the residual error: a shape it cannot classify is treated as a
+    reader (fails loudly, must be declared), never as a writer (would slip
+    through).
+
+    The claim being made is therefore narrow and is stated as a code-path
+    argument, not a database guarantee: no REST view, serializer, MCP tool or
+    management command reads ``as_domain_event_outbox`` outside the declared
+    set today, so the cross-tenant readability CR-17 confirmed is not reachable
+    by any tenant-scoped API. It would not survive a raw query, a second service
+    or a new poller written against a different table. Raw Row-Level-Security
+    enforcement on the outbox remains OPEN, pending the ``tenant_id``
+    outbox-payload stamp named in ``RLS_EXEMPT_TABLES``.
+    """
+    model = PLAIN_CHILD_TABLES["as_domain_event_outbox"].split(".")[-1]
+    access = _production_table_access(model)
+    readers = {module for module, sites in access.items() if sites["read"]}
+    writers = {
+        module
+        for module, sites in access.items()
+        if sites["write"] and not sites["read"]
+    }
+
+    unvetted = sorted(readers - set(OUTBOX_READER_MODULES))
+    assert not unvetted, (
+        f"{model} is now READ from {unvetted}. This test's compensating control "
+        "is 'no undeclared reader exists' — a new reader sees every tenant's "
+        "outbox row, because nothing at the database layer stops it, so it has "
+        "to be tenant-scoped and CR-17's outbox exemption justification updated "
+        f"with it rather than inherited from this allowlist. Details: "
+        + "; ".join(f"{module}: {access[module]['read']}" for module in unvetted)
+    )
+
+    vanished = sorted(set(OUTBOX_READER_MODULES) - readers)
+    assert not vanished, (
+        f"{model} is no longer read from {vanished}. OUTBOX_READER_MODULES is a "
+        "re-audit snapshot: the compensating-control argument has to be "
+        "re-derived from what the poller and the admin actually do, not carried "
+        "over unchanged"
+    )
+
+    laundered = sorted(set(OUTBOX_WRITER_MODULES) & readers)
+    assert not laundered, (
+        f"{laundered} are declared write-only but also READ {model}. A module "
+        "that reads must be in OUTBOX_READER_MODULES with its read justified; "
+        "declaring it a writer is how a reader would be hidden from the "
+        "allowlist above"
+    )
+
+    phantom_writers = sorted(set(OUTBOX_WRITER_MODULES) - writers)
+    assert not phantom_writers, (
+        f"{phantom_writers} are declared writers of {model} but no longer write "
+        "it without reading it. The declaration is a re-audit snapshot too: "
+        "re-derive it, or move the module to OUTBOX_READER_MODULES if it reads"
+    )
+
+    # Non-vacuity: the classifier has to be able to tell "names the model" from
+    # "queries the table", otherwise the guard above would be satisfied by any
+    # emitter service and would mean nothing.
+    wrongly_counted = sorted(
+        module
+        for module in OUTBOX_NON_QUERYING_REFERENCE_SAMPLE
+        if module in readers or module in writers
+    )
+    assert not wrongly_counted, (
+        f"{wrongly_counted} only name {model} (the class definition / the "
+        "EventType enum) and must not be classified as touching the table. If "
+        "this fails, the read/write classifier has stopped distinguishing ORM "
+        "calls from enum access, and the allowlists above no longer prove "
+        "anything"
     )
