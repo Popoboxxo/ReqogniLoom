@@ -72,11 +72,20 @@ def _validation(lang: str, message: str, *, code: str = "VALIDATION_ERROR") -> R
 def _map_workflow_error(exc: Exception, lang: str) -> Response:
     """Map a workflow-definition error to a precise HTTP status."""
     from workflow.services import (
+        OrphanedStateError,
         StateReferencedError,
         WorkflowDefinitionError,
     )
 
-    if isinstance(exc, StateReferencedError):
+    # CR-09b: a global delete that would strand live items in a non-customized
+    # inheriting workspace is a CONFLICT (the admin has to move the items
+    # first), not a plain validation error. OrphanedStateError is a subclass of
+    # WorkflowDefinitionError, so it MUST be matched here explicitly — without
+    # this line the base-class branch below would silently degrade it to a
+    # 400 and the client could not distinguish "retry after moving items" from
+    # "malformed request". Same mapping the per-workspace edit endpoints use
+    # (rest_api/views.py::_edit_error_response).
+    if isinstance(exc, (OrphanedStateError, StateReferencedError)):
         return Response(
             build_error_response("CONFLICT", lang, message=str(exc)),
             status=status.HTTP_409_CONFLICT,
