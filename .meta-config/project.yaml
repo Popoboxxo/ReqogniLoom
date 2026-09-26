@@ -73,11 +73,14 @@ systems-engineering:
     (Minimal/Standard/Extended)
   interface_registry: docs/se/interface-registry.md
   traceability_matrix: docs/se/traceability-matrix.md
-  test_strategy: docs/se/test-strategy.md
-  integration_strategy: docs/se/integration-strategy.md
+  test_strategy: docs/se/strategy/test-strategy.md
+  integration_strategy: docs/se/strategy/integration-strategy.md
   reports_dir: docs/se/reports
-  current_phase: SE-Phasen 1-6 abgeschlossen (v2-Backlog); Pipeline B (Leaf) implementiert,
-    Pipeline C (Continue) für v2.0 geplant
+  current_phase: SE-Artefakte materialisiert unter docs/se (L0 SN_Stakeholder_Needs.md,
+    L1/<System>/, VV/, ADR/, strategy/, reports/deep_audit/); Projektstand VERSION
+    1.8.0-beta.15, konsolidierter Audit-Stand docs/REAUDIT_2026-09-03.md
+    (13 Audit-Dokumente konsolidiert), seither CI-Release-Gates (ci.yml,
+    playwright.yml, version-drift-check.yml)
 project:
   name: ReqogniLoom
   prefix: ReqLo
@@ -97,24 +100,26 @@ context_file:
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
-    Artefakt-Zerlegung, REST API + nativem MCP Server (31 Tool-Gruppen-Präfixe, 215
-    Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation,
+    Artefakt-Zerlegung, REST API + nativem MCP Server (35 Tool-Gruppen-Präfixe, 218
+    Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/mock), Multi-Tenancy mit Row-Level-Isolation,
     11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes),
     3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
   PROJECT_GOAL: Anforderungen und Tests in Artefakten verwalten — von leichtgewichtigen
     Backlogs (Minimal-Rigor) bis zu formalen Systems-Engineering-Workflows (Extended-Rigor)
     mit V-Modell-Traceability (L0 Stakeholder Needs → L1 System Requirements → L2
     Subsystems → L3 Components → L4 Presentation). Eine Codebasis, drei Rigor-Presets.
-  PLATFORM: 'Django 5.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL
-    16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker
-    Compose (8 Services: postgres, postgres-backup, redis, backend, migrate, celery,
-    celery-beat, frontend)'
-  RUNTIME: 'Python 3.x (im Container: Django 5.2+, DRF 3.15+, drf-spectacular, psycopg2-binary,
-    celery, redis, reportlab) + Node.js >= 18 (nur für E2E mit Playwright; Vite-Dev-Server
-    läuft im Container) + Vite 5.4+ Dev-Server'
-  PROJECT_LANGUAGES: Python 3.x (Backend, Tests mit pytest) + TypeScript 5.5+ (Frontend,
+  PLATFORM: 'Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL
+    16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 7 (Cache/Celery-Broker)
+    + Celery 5.6+ (Async) + Docker Compose (8 Default-Services: postgres, postgres-backup,
+    redis, backend, migrate, celery, celery-beat, frontend; optionale Profile: honcho
+    (+4 Services), bluepencil (+1 Service))'
+  RUNTIME: 'Python 3.12 (Container python:3.12-slim; Django 6.1+, DRF 3.18+, drf-spectacular,
+    psycopg2-binary, pgvector, celery, redis, reportlab, gunicorn+uvicorn) + Node.js
+    22 (Container node:22.17.0-slim; Vite 8 Dev-Server bzw. nginx:1.27-alpine Prod-Image)
+    + TypeScript 5.5+ (strict) + Vitest 4 / Playwright 1.44'
+  PROJECT_LANGUAGES: Python 3.12 (Backend, Tests mit pytest 9) + TypeScript 5.5+ (Frontend,
     strict mode) + YAML (Config, Docker-Compose, OpenAPI) + Bash (Dev-Commands, Docker-Entrypoints)
-  LANGUAGE: Python 3.x + TypeScript 5.5+ (strict) + YAML + Bash
+  LANGUAGE: Python 3.12 + TypeScript 5.5+ (strict) + YAML + Bash
   COMMUNICATION_LANGUAGE: Deutsch
   USER_INPUT_LANGUAGE: Deutsch
   DOCS_LANGUAGE: Englisch
@@ -137,82 +142,105 @@ variables:
     `docker compose restart` liest .env NICHT neu) oder Hot-Reload automatisch je
     nach Service
   PROJECT_CONTEXT: 'ReqogniLoom ist ein AI-natives Requirements- und Test-Management-Tool
-    mit MBSE-Unterstützung. Tech-Stack: Django 5.2+ (Backend) + React 18 + TypeScript
-    (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen:
-    REST API unter /api/v1/ (DRF, 27 ViewSets + 67 APIViews, JWT-Auth mit vierstufiger
-    RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
-    MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; 31 Tool-Gruppen-Präfixe
-    mit 215 Tools; API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture
-    Elements (MBSE-kompatibel), Test-Management, 11 core/built-in Trace-Link-Typen
-    (tenant-extensible catalog), Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff
-    (feld-level), History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import,
-    API-Key-Management, Visual Artifact Diff, 3 Rigor-Presets (Minimal/Standard/Extended),
-    Terminology-Profile (dev_mode/se_mode), Audit-Log, Multi-Tenancy via Row-Level-Security.
-    LLM-Adapter: Anthropic, OpenAI, Ollama, mock (Default: mock).'
+    mit MBSE-Unterstützung. Tech-Stack: Django 6.1+ (Backend) + React 19 + TypeScript
+    5.5+ (Frontend) + PostgreSQL 16 (pgvector/pgvector:pg16) + Redis 7 + Celery 5.6+ + Docker
+    Compose (8 Default-Services, Host-Port Backend 8001). Schnittstellen: REST API unter
+    /api/v1/ (DRF, 28 ViewSets + 74 APIViews, JWT-Auth mit vierstufiger RBAC-Matrix +
+    Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer MCP Server unter
+    /mcp/ (JSON-RPC 2.0, auch /api/v1/mcp/; Transports: HTTP, SSE, stdio; 35 Tool-Gruppen-Präfixe
+    mit 218 Tools laut docs/agent-templates/tool-manifest.json; API-Key `reqlo_*`). Fähigkeiten:
+    Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management,
+    11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes) mit
+    Diff-Engine, Artifact-Diff (feld-level), History-Endpoint, PDF-Report-Export, ReqIF
+    1.2-Import/Export, Test-Run-Protokollierung, CSV-Bulk-Import, AI-Long-Term-Memory
+    (pgvector oder Honcho), API-Key-Management, Visual Artifact Diff, 3 Rigor-Presets
+    (Minimal/Standard/Extended), Terminology-Profile (dev_mode/se_mode), Audit-Log inkl.
+    Finding-Waivern, Multi-Tenancy via Row-Level-Security. LLM-Adapter: Anthropic, OpenAI,
+    Ollama, Azure, mock (Default: mock). Embeddings: sentence-transformers 6+ (Default),
+    optional Ollama/OpenAI. Stand VERSION 1.8.0-beta.15.'
   ARCHITECTURE: |
     backend/
       manage.py                              # Django Entry-Point
-      reqogniloom/settings.py                    # Konfiguration (DRF, Auth, Apps, Celery)
-      reqogniloom/urls.py                        # URL-Routing (/api/v1/, /mcp/, /admin/)
+      reqogniloom/settings.py                # Konfiguration (DRF, Auth, Apps, Celery)
+      reqogniloom/urls.py                    # URL-Routing (/health/, /api/v1/, /mcp/, /api/schema/, /admin/)
       persistence/                           # Layer 0 Foundation (TenantScopedModel, AuditableModel)
-      auth_tenancy/                          # Layer 0 (JWT-Auth, RBAC, TenantContext)
+      auth_tenancy/                          # Layer 0 (JWT-Auth, RBAC, TenantContext, API-Keys)
       presets/                               # Layer 0 (PresetRegistry, Terminology-Profile)
-      audit/                                 # Layer 0 (Operation-Level Audit-Log)
-      llm_adapter/                           # Layer 1 (LLM-Provider: Anthropic, OpenAI, Ollama, mock)
+      audit/                                 # Layer 0 (Operation-Level Audit-Log, Finding-Waiver)
+      llm_adapter/                           # Layer 1 (LLM-Provider: Anthropic, OpenAI, Ollama, Azure, mock; Embeddings)
       traceability/                          # Layer 1 (Trace-Query, Link-Management, PDF-Report)
       workflow/                              # Layer 1 (konfigurierbare State-Machines)
+      link_types/                            # LinkTypeCatalog (11 built-ins, tenant-extensible)
+      attribute_definitions/                 # Layer 1 (AttributeDefinition-Systemobjekt)
       baseline/                              # Layer 1 (Snapshot-Baselines, Diff-Engine)
-      application/                           # Layer 2 (19 Domain-Services, Single Entry Point)
+      context_graph/                         # abgeleiteter Soft-Edge-Layer (Issue #377)
+      memory/                                # AI Long-Term Memory (Workspace + Tenant-global)
+      application/                           # Layer 2 (47 *_service.py Domain-Services, Single Entry Point)
       rest_api/                              # Layer 3 (DRF ViewSets + drf-spectacular OpenAPI)
-      mcp_server/                            # Layer 3 (MCP-Tool-Registry: 215 Tools, 31 Gruppen)
-      diagram/                               # Ext (SVG/PNG/PlantUML Renderer)
+      mcp_server/                            # Layer 3 (MCP-Tool-Registry: 218 Tools, 35 Gruppen)
+      diagram/                               # Ext (SVG/PNG/Mermaid/PlantUML Renderer)
       icd/                                   # Ext (Interface Control Document Management)
       se_metrics/                            # Ext (KPI-Aggregation, Read-Model)
       resilience/                            # Ext (Retry, Circuit-Breaker, Timeout)
       admin_ops/                             # Ext (Disaster Recovery, Backup/Restore)
-      test_runs/                             # Ext (Test-Run-Protokollierung, v1.1)
     frontend/
       src/index.tsx                          # React Entry-Point
       src/App.tsx                            # Root-Component
-      src/api/                               # API-Wrapper (artifacts, requirements, ...)
-      src/components/                        # 41 Component-Bereiche (Dashboard, Editors, Diff)
+      src/api/                               # API-Wrapper (Axios-Client, auto-Bearer-Token-Injection)
+      src/components/                        # 42 Component-Bereiche (Dashboard, Editors, Diff)
       src/context/                           # React Context (Auth, Workspace)
+      src/queries/                           # TanStack Query Hooks
+      src/bluepencil/                        # optionale Review-Layer (VITE_BLUEPENCIL_ENABLED)
       src/i18n/locales/{de,en}.json          # i18next Uebersetzungen
       src/styles/{tokens,global}.css         # Design-System (CSS Custom Properties)
-      src/test/                              # Vitest Unit-Tests
-      package.json                           # React 18, Vite 5, react-i18next, vitest
-    external /
-      e2e/                                   # Playwright E2E-Tests (111 Tests, Chromium)
+      src/{__tests__,__mocks__}/             # Vitest 4 Unit-Tests
+      package.json                           # React 19, Vite 8, react-i18next, Vitest 4, ESLint 10
+    e2e/
+      tests/**/*.spec.ts                     # Playwright/Chromium E2E-Tests (54 Spec-Dateien)
+      playwright.config.ts                   # 4 Shards, globalTimeout 10 min
     deploy/
-      docker-compose.yml                    # Full-Stack (postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend + optional Honcho via profile)
-      docker-compose.minimal.yml           # Schlanke Variante (kein Celery/Backup/Honcho)
-      README.md                             # KI-Agenten-lesbare Deployment-Anleitung
+      docker-compose.yml                    # Full-Stack-Basis: 8 Default-Services (postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend) + honcho-Profil (4 Services) + bluepencil-Profil (1 Service); pinnt fertige GHCR-Images
+      docker-compose.override.yml           # Dev-Overlay (Hot-Reload, pull_policy: build, Vite 5173, uvicorn --reload)
+      docker-compose.minimal.yml            # Schlanke Variante (5 Services: postgres, redis, backend, migrate, frontend)
+      .env                                  # Beispiel-Env (DB, LLM, Ports, Secrets)
+      README.md                             # KI-Agenten-lesbare Deployment-Anleitung (Host-Port Backend 8001)
     testing/
-      docker-compose.test.yml               # CI-/lokaler Test-Overlay
+      docker-compose.test.yml               # Test-Overlay (backend-test, frontend-test; kein Deployment-File)
   PROJECT_STRUCTURE: |
-    backend/             # Django REST API (17 Apps) #   Layer 0: persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability, workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api, mcp_server #   Ext: diagram, icd, se_metrics, resilience, admin_ops, test_runs #   reqogniloom/  # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py)
-    frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/ #   src/styles/  src/test/  src/types/
-    e2e/                 # Playwright/Chromium E2E-Tests (111 Tests)
-    docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
-    deploy/              # Deployment-Beispiele: docker-compose.yml (full), docker-compose.minimal.yml, docker-compose.override.yml, README.md (KI-Agenten-lesbar)
+    backend/             # Django REST API (20 Apps in REQFLOW_APPS)
+                         #   Layer 0: persistence, auth_tenancy, presets, audit
+                         #   Layer 1: llm_adapter, traceability, workflow, link_types, attribute_definitions, baseline
+                         #   Layer 2: application (47 *_service.py)
+                         #   Layer 3: rest_api, mcp_server
+                         #   Ext: diagram, icd, context_graph, memory, se_metrics, resilience, admin_ops
+    backend/reqogniloom/ # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py, version.py, health.py)
+    frontend/            # React 19 + TS 5.5+ SPA (Vite 8, Vitest 4, ESLint 10)
+                         #   src/api/  src/components/  src/config/  src/constants/  src/context/
+                         #   src/hooks/  src/i18n/  src/queries/  src/styles/  src/types/  src/utils/
+    e2e/                 # Playwright/Chromium E2E-Tests (54 Spec-Dateien, 4 CI-Shards)
+    docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Release-Reports
+    deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
     testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
+    scripts/             # build.sh, backup.sh, restore.sh, check-version-drift.sh, enable_pgvector.sh
     .meta-config/        # agent-meta Konfiguration (project.yaml)
     .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
-  ENTRY_POINT_PATTERN: 'backend/manage.py            — Django Management (migrate,
-    seed_demo, runserver, shell, check) backend/reqogniloom/settings.py     — Settings-Entry
-    (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/api/v1/,
-    /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point
-    (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider,
+  ENTRY_POINT_PATTERN: 'backend/manage.py            — Django Management (migrate, seed_demo,
+    runserver, shell, check, self_init, export_tool_manifest) backend/reqogniloom/settings.py     — Settings-Entry
+    (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/health/, /api/v1/, /mcp/, /api/v1/mcp/, /api/schema/, /admin/)
+    backend/reqogniloom/version.py     — Build-/Version-Metadaten (GET /api/v1/version/) frontend/src/index.tsx          — React Entry-Point
+    (ReactDOM) frontend/src/App.tsx            — Root-Component (Provider,
     Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection)
-    e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) '
-  KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (27 ViewSets
-    + 67 APIViews) - MCP-Server (JSON-RPC 2.0) mit 31 Tool-Gruppen-Präfixen und 215
-    Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung
+    e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium, 4 Shards) scripts/build.sh              — Release-Build
+    mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME '
+  KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (28 ViewSets
+    + 74 APIViews) - MCP-Server (JSON-RPC 2.0) mit 35 Tool-Gruppen-Präfixen und 218
+    Tools für AI-Integration (kanonisches Manifest: docs/agent-templates/tool-manifest.json,
+    Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py) - drf-spectacular für OpenAPI 3.0 Schema-Generierung
     (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/
     ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security
     (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended)
     mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface
-    mit graceful degradation - 11 core/built-in Trace-Link-Typen (derives-from, decomposes,
+    mit graceful degradation (anthropic, openai, ollama, azure, mock) - 11 core/built-in Trace-Link-Typen (derives-from, decomposes,
     refines, allocated-to, verifies, mitigates, satisfies, realizes, decides, references,
     diagram-ref; tenant-extensible catalog, siehe backend/link_types/builtin.py) - 3 Baseline-Scopes (Document, Project,
     Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace
@@ -220,7 +248,7 @@ variables:
     - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components
     → Presentation) '
   CODE_CONVENTIONS: '- Python (PEP 8, Typings, Docstrings für public API) - TypeScript
-    (ESLint 9, Prettier, strict mode, functional Components + Hooks) - Django-Layer:
+    (ESLint 10, Prettier, strict mode, functional Components + Hooks) - Django-Layer:
     Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/)
     - React-Layer: api/ (Wrapper) ↔ context/ (State) ↔ components/ (UI) ↔ i18n/ (Labels)
     - Imports-Reihenfolge: Standard Library → Third-Party → Local (PEP 8) - Keine
@@ -274,10 +302,10 @@ variables:
   REQ_CATEGORIES_LIST: |
     - **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
     - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
-    - **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/, JSON-RPC 2.0, 31 Tool-Gruppen-Präfixe)
-    - **UI/UX** — Frontend (React 18 SPA), 41 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
+    - **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/ und /api/v1/mcp/, JSON-RPC 2.0, 35 Tool-Gruppen-Präfixe)
+    - **UI/UX** — Frontend (React 19 SPA), 42 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
     - **Data** — Generic Artifact Model, Multi-Tenancy via Row-Level-Security, Configurable Rigor
-    - **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, LLM-Provider (Anthropic/OpenAI/Ollama/mock)
+    - **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, ReqIF 1.2-Import/Export, LLM-Provider (Anthropic/OpenAI/Ollama/Azure/mock)
     - **Test** — Test-Management, Test-Run-Protokollierung (4-Phasen-Lifecycle), Coverage-Tracking
     - **Workflow** — Konfigurierbare State-Machines pro Workspace, Approval-Gates, Transition-Validierung
     - **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
@@ -289,69 +317,71 @@ variables:
   AGENT_META_REPO: Popoboxxo/agent-meta
   SYSTEM_DEPENDENCIES: |
     - Docker >= 24
-    - Docker Compose >= 2.x
-    - Node.js >= 18 (nur für E2E-Tests mit Playwright)
-    - Python 3.x (im Container)
+    - Docker Compose >= 2.24.4 (Pflicht: `ports: !override` im Dev-Overlay, siehe deploy/README.md INFRA-01)
+    - Node.js >= 22 (CI: actions/setup-python 3.12 / actions/setup-node 22)
+    - Python 3.12 (im Container; Django 6.1+ verlangt >= 3.12)
   SYSTEM_URLS: |
-    - Frontend: http://localhost:5173 (Vite Dev-Server)
-    - Backend API: http://localhost:8000/api/v1/ (DRF)
-    - MCP Server: http://localhost:8000/mcp/ (JSON-RPC 2.0, HTTP-Transport)
-    - MCP Server (SSE): http://localhost:8000/mcp/sse/ (Server-Sent-Events-Transport)
-    - Admin: http://localhost:8000/admin/ (Django Admin)
-    - OpenAPI Schema: http://localhost:8000/api/schema/ (drf-spectacular)
-    - Swagger UI: http://localhost:8000/api/schema/swagger-ui/
-    - ReDoc: http://localhost:8000/api/schema/redoc/
-    - Health Check: GET http://localhost:8000/mcp/ (kein Auth)
-    - Postgres: localhost:5432 (intern: postgres:5432)
-    - Redis: localhost:6379 (intern: redis:6379)
+    - Frontend: http://localhost:5173 (Vite Dev-Server; Prod-Image serviert nginx auf 8080 im Container)
+    - Backend Health: GET http://localhost:8001/health/ (kein Auth, Container-Readiness-Probe)
+    - Backend API: http://localhost:8001/api/v1/ (DRF, Host-Port 8001 → Container 8000)
+    - Build-Version: http://localhost:8001/api/v1/version/
+    - MCP Server: http://localhost:8001/mcp/ (JSON-RPC 2.0, HTTP-Transport; auch /api/v1/mcp/)
+    - MCP Server (SSE): http://localhost:8001/mcp/sse/ (Server-Sent-Events-Transport, Messages: /mcp/messages/)
+    - Admin: http://localhost:8001/admin/ (Django Admin)
+    - OpenAPI Schema: http://localhost:8001/api/schema/ (drf-spectacular)
+    - Swagger UI: http://localhost:8001/api/schema/swagger-ui/
+    - ReDoc: http://localhost:8001/api/schema/redoc/
+    - Postgres / Redis: nur im Compose-Netz erreichbar (postgres:5432, redis:6379) — im Dev-Stack NICHT auf dem Host publiziert
   SERVICE_NAME: reqogniloom-backend
   CONTAINER_NAME: ai-native-reqogniloom-poc-backend-1
-  PRIMARY_PORT: '8000'
+  PRIMARY_PORT: '8001'
   EXTRA_PORTS: |
-    - 5173 (frontend Vite)
-    - 5432 (postgres)
-    - 6379 (redis)
-  BUILD_OUTPUT: (kein Build-Artifact — Django served via gunicorn, React via Vite
-    Dev Server oder build/)
+    - 5173 (frontend Vite Dev-Server, Host)
+    - 8010 (honcho, nur im honcho-Profil, an 127.0.0.1 gebunden)
+  BUILD_OUTPUT: (kein Build-Artifact — Django served via gunicorn/uvicorn, React via Vite
+    Dev Server oder nginx-Prod-Image)
   ARTIFACT_ZIP_CMD: ''
   ARTIFACT_TAR_CMD: ''
-  GH_ASSETS: ''
+  GH_ASSETS: ghcr.io/popoboxxo/reqogniloom-backend, ghcr.io/popoboxxo/reqogniloom-frontend
   BUILD_SYSTEM_NOTES: |
-    `make build` (bzw. `docker compose -f deploy/docker-compose.yml --project-directory . build`) erstellt Images für backend, migrate, celery, celery-beat, frontend (postgres, postgres-backup und redis nutzen offizielle Images).
-    Backend + Migrate + Celery + Celery-Beat: Dockerfile in backend/ (Python 3.x, Django 5.2+, requirements.txt).
-    Frontend: Dockerfile in frontend/ (Node 18+, Vite 5, package.json, target: development).
-    Postgres: postgres:16-alpine (offiziell); Redis: redis:7-alpine (offiziell).
-    Volumes: ./backend:/app (Backend), ./frontend:/app + /app/node_modules (Frontend) — Hot-Reload-fähig.
-    Healthchecks: pg_isready (postgres), redis-cli ping (redis) — services_healthy als DependsOn-Bedingung.
-    Kein separates Build-Artifact — Deployment via Docker Compose (8 Services orchestriert).
+    Basis-Compose (deploy/docker-compose.yml) pinnt FERTIGE GHCR-Images (`ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.15}` bzw. `...-frontend:...`) und enthält KEINE `build:`-Sektionen — die Build-Definitionen liegen im Dev-Overlay deploy/docker-compose.override.yml (backend: ./backend, frontend: ./frontend target: development, jeweils `pull_policy: build`, damit ein veraltetes Image nie still genutzt wird).
+    Backend + Migrate + Celery + Celery-Beat: Multi-Stage-Dockerfile in backend/ (python:3.12-slim, Django 6.1+, requirements.txt; Runtime-Stufe mit libpq5/curl/procps, Non-Root-User `app`, CMD gunicorn + uvicorn.workers.UvicornWorker auf 0.0.0.0:8000). Builder-Stufe braucht zusätzlich `git` (VCS-Pin für django-celery-beat).
+    Frontend: Dockerfile in frontend/ (node:22.17.0-slim; Stage `development` = Vite 8 auf 5173, Stage `production` = nginx:1.27-alpine auf 8080, Non-Root-User `app`).
+    Postgres: pgvector/pgvector:pg16 (pgvector für VectorField/HnswIndex, REQ-L2-VS-004); Postgres-Backup: pgvector/pgvector:pg16; Redis: redis:7-alpine.
+    Volumes (Dev-Overlay): ./backend:/app + ./docs:/app/docs:ro, ./frontend:/app + /app/node_modules — Hot-Reload-fähig.
+    Healthchecks: pg_isready (postgres), redis-cli ping (redis), curl /health/ (backend), node-fetch (frontend) — services_healthy als DependsOn-Bedingung.
+    Kein separates Build-Artifact — Deployment via Docker Compose (8 Default-Services, optionale Profile honcho/bluepencil).
+    `scripts/build.sh` (Makefile-Target `build`) ruft `docker compose -f deploy/docker-compose.yml --project-directory . build` mit den Build-Args APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf; Build-Images werden in .github/workflows/docker-publish.yml nach GHCR publiziert.
     Seed: `docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py migrate && python manage.py seed_demo`.
-    Demo-Credentials: admin / admin12345 (Tenant "demo", Workspace "Demo Workspace").
+    Demo-Credentials: Username `admin`; Passwort gibt `seed_demo` am Laufzeit-Ende aus (Override per Env-Var `DEMO_ADMIN_PASSWORD`; Tenant "demo", Workspace "Demo Workspace").
   VERSION_DIST_BEHAVIOUR: |
-    1. VERSION-Datei erhöhen — SemVer-Schema X.Y.Z, KEIN "v"-Präfix in der Datei (Präfix nur im Git-Tag, siehe Schritt 5: vX.Y.Z). Root-VERSION-Datei ist Single Source of Truth für backend/reqogniloom/version.py (Fallback wenn APP_VERSION-ENV fehlt).
+    1. VERSION-Datei erhöhen — SemVer-Schema inkl. Prerelease-Suffix (aktuelles Format: 1.8.0-beta.15), KEIN "v"-Präfix in der Datei (Präfix nur im Git-Tag, siehe Schritt 5: v1.8.0-beta.15). Root-VERSION-Datei ist Single Source of Truth für backend/reqogniloom/version.py (Fallback wenn APP_VERSION-ENV fehlt); CI-Gate: .github/workflows/version-drift-check.yml + scripts/check-version-drift.sh.
     2. frontend/package.json "version"-Feld SYNCHRON auf denselben Wert wie VERSION setzen — beide Dateien müssen exakt übereinstimmen, keine getrennten Versionsstände.
-    3. CHANGELOG.md aktualisieren (Englisch, externe Doku)
-    4. docs/se/reports/ Session-Bericht schreiben (Deutsch, interne Doku)
-    5. git tag v<version> (z.B. v1.1.1)
-    6. Release-Build via scripts/build.sh (bzw. make build) — NICHT nacktes docker compose build. scripts/build.sh berechnet APP_VERSION=$(cat VERSION), GIT_COMMIT_SHA=$(git rev-parse HEAD) und BUILD_TIME=$(date -u ...) und übergibt sie als Build-Args an `docker compose -f deploy/docker-compose.yml --project-directory . build`. Ein nacktes docker compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown" — GET /api/v1/version/ liefert dann keine echten Werte.
+    3. CHANGELOG.md aktualisieren (Englisch, externe Doku) — Eintrag `## [<version>] — <YYYY-MM-DD>` mit Added/Fixed/Changed.
+    4. Release-/Testplan-Bericht unter docs/se/reports/ schreiben (Deutsch, interne Doku): RELEASE_<version>.md und TESTPLAN_<version>.md (Naming-Muster siehe docs/se/reports/).
+    5. git tag v<version> (z.B. v1.8.0-beta.15)
+    6. Release-Build via scripts/build.sh (bzw. make build) — NICHT nacktes docker compose build. scripts/build.sh berechnet APP_VERSION=$(cat VERSION), GIT_COMMIT_SHA=$(git rev-parse HEAD) und BUILD_TIME=$(date -u ...) und übergibt sie als Build-Args an `docker compose -f deploy/docker-compose.yml --project-directory . build`. Ein nacktes docker compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown" — GET /api/v1/version/ liefert dann keine echten Werte. Die eigentliche Image-Publikation nach GHCR läuft in .github/workflows/docker-publish.yml.
     7. `docker compose -f deploy/docker-compose.yml --project-directory . push` (optional, Self-Hosted-First)
-    Stand v1.1.1 (2026-06-28): 1,599 pytest-Tests + 111 E2E-Tests + 150+ MCP-E2E-Tests.
-    Roadmap v2.0: ReqIF-Import/Export, Comment-Threads mit @Mention, RAG-basierte Vektorsuche.
+    Stand VERSION 1.8.0-beta.15 (Release-Report docs/se/reports/RELEASE_v1.8.0-beta.15.md, alle Release-Gates bestanden): 620 Backend-Testdateien (`test_*.py` unter backend/), 54 E2E-Spec-Dateien unter e2e/tests/ (4 CI-Shards), MCP-Katalog 218 Tools in 35 Gruppen. Anzahl der pytest-/Playwright-Testfälle ist bewusst NICHT hier hinterlegt — sie nur per Testlauf ermitteln (`make test-backend`, `make test-frontend`, `npm run test:e2e` in e2e/), CI-Zahlen stehen im jeweiligen Release-Report.
   SE_MIN_DEPTH: 1
   SE_MAX_DEPTH: 4
   SE_MAX_CRITIC_ITERATIONS: 1
   SE_MAX_PARALLEL_CELLS: 3
   DOCKER_STACKS_OVERVIEW: |
-    ReqogniLoom hat zwei Referenz-Deployments unter deploy/ (nicht im Projekt-Root — jeder direkte `docker compose`-Aufruf braucht deshalb `--project-directory .`, siehe deploy/README.md): `docker-compose.yml` (full, 8 Services unten) und `docker-compose.minimal.yml` (schlank, kein Celery/Backup/Honcho). Full-Stack-Services:
-    - postgres (PostgreSQL 16-alpine, persistent via Volume `postgres_data`)
+    ReqogniLoom hat drei Referenz-Compose-Dateien unter deploy/ (nicht im Projekt-Root — jeder direkte `docker compose`-Aufruf braucht deshalb `--project-directory .`, siehe deploy/README.md): `docker-compose.yml` (Basis/Full, 8 Default-Services unten), `docker-compose.override.yml` (Dev-Overlay: Hot-Reload, `pull_policy: build`, uvicorn `--reload`, Vite auf 5173) und `docker-compose.minimal.yml` (schlank, 5 Services: postgres, redis, backend, migrate, frontend). Full-Stack-Services:
+    - postgres (pgvector/pgvector:pg16, persistent via Volume `postgres_data`; nicht auf dem Host publiziert)
     - postgres-backup (pgvector/pgvector:pg16, periodisches DB-Backup)
-    - redis (Redis 7-alpine, Cache + Celery-Broker)
-    - backend (Django 5.2+ / Python 3.12, Port 8000)
-    - migrate (gleiches Image wie backend, führt Django-Migrationen vor dem Start aus)
-    - celery (gleiches Image wie backend, Worker-Prozess)
-    - celery-beat (gleiches Image wie backend, Scheduler für periodische Tasks)
-    - frontend (React 18 / Node 22, Vite Dev-Server Port 5173)
+    - redis (redis:7-alpine, Cache + Celery-Broker; nicht auf dem Host publiziert)
+    - backend (Django 6.1+ / Python 3.12, Container-Port 8000, Host-Port 8001 via ${BACKEND_PORT:-8001})
+    - migrate (gleiches Image wie backend, führt Django-Migrationen + Self-Init vor dem Start aus)
+    - celery (gleiches Image wie backend, Worker-Prozess, Memory-Limit 768M im Dev-Overlay)
+    - celery-beat (gleiches Image wie backend, Scheduler für periodische Tasks, DatabaseScheduler)
+    - frontend (React 19 / Node 22.17, Prod: nginx:1.27-alpine auf 8080; Dev-Overlay: Vite 8 auf 5173, Host-Port 5173)
+    Optionale Compose-Profile (kein Pull/Start, solange das Profil nicht aktiviert wird):
+    - Profil `honcho`: honcho-postgres, honcho-redis, honcho-migrate, honcho (Host-Port 127.0.0.1:8010) — optionaler Memory-Backend (`MEMORY_BACKEND=honcho`)
+    - Profil `bluepencil`: bluepencil (node:22-slim, Port 8787 nur im Compose-Netz) — DEBUG/QS-only Review-Layer
     Test-Overlay unter testing/docker-compose.test.yml (dedizierte backend-test/frontend-test Services, source-gemountet, gegen das laufende Compose-Postgres/Redis; kein Deployment-File, siehe `make test`).
-    E2E-Tests (Playwright/Chromium) laufen lokal auf dem Host gegen den laufenden Stack.
+    E2E-Tests (Playwright/Chromium) laufen lokal auf dem Host gegen den laufenden Stack; CI (.github/workflows/playwright.yml) nutzt einen GitHub-hosted ubuntu-latest-Runner mit Postgres-/Redis-Service-Containern und 4 Shards.
     Binary-Strategie: B (Apt im Dockerfile) — keine init-container / externen Binaries.
   APP_URL: http://localhost:5173
   STARTUP_CREDENTIALS: |
@@ -372,21 +402,21 @@ variables:
   BINARY_NAME: ''
   BINARY_URL: ''
   BASE_IMAGE: python:3.12-slim
-  APT_PACKAGES: libpq-dev gcc
-  APP_USER: root
-  TEST_BASE_IMAGE: mcr.microsoft.com/playwright:v1.44.0-jammy
-  TEST_APT_PACKAGES: wget ca-certificates
+  APT_PACKAGES: libpq-dev gcc git (Builder) / libpq5 curl procps (Runtime)
+  APP_USER: app
+  TEST_BASE_IMAGE: ubuntu-latest (GitHub-hosted Runner; die E2E-CI nutzt KEIN Container-Image, siehe .github/workflows/playwright.yml)
+  TEST_APT_PACKAGES: (kein apt-Schritt — `npx playwright install --with-deps chromium` installiert die OS-Abhängigkeiten selbst)
   TEST_BINARY_INSTALL: npx playwright install --with-deps chromium
-  LOCKFILE: package-lock.json
-  INSTALL_COMMAND: npm ci
-  DEFAULT_TEST_COMMAND: npm run test:e2e
+  LOCKFILE: e2e/package-lock.json
+  INSTALL_COMMAND: npm install (CI in e2e/; der Frontend-Prod-Build nutzt `npm ci`)
+  DEFAULT_TEST_COMMAND: npm run test:e2e (aus dem Verzeichnis e2e/ ausführen)
   SMOKE_TEST_COMMAND: npx playwright test --grep @smoke
   E2E_ENV_VARS: |
-    - BACKEND_URL=http://localhost:8000
+    - BACKEND_URL=http://localhost:8001
     - FRONTEND_URL=http://localhost:5173
     - NODE_ENV=test
   E2E_TEST_COMMAND: npx playwright test
-  PORT: '8000'
+  PORT: '8001'
   VOLUME_NAME: postgres_data
 orchestrator:
   enabled: true
