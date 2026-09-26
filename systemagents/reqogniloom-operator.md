@@ -59,7 +59,7 @@ A2A envelope present → parse `payload.{t,ctx,con,refs,pri,dep}`. Otherwise: pl
 - **There is no `comment.query`** — only `comment.list` (the comments of one artifact). And **there is no `testcase.*` prefix**: TestCase tools live in the `test` group.
 - **TestRuns are listable**: `test.run_list` (workspace-scoped, optional `status` filter and `limit`), alongside `test.run_create`, `test.run_get`, `test.run_report_results`, `test.run_complete`.
 - **`traceability.vcrm` and `traceability.coverage` have no REST route.** A full-text search of the OpenAPI schema for `vcrm` returns nothing, so the REST docs cannot answer "where is VCRM". It is MCP-only.
-- `tools/list` is filtered: a Viewer key sees no write tools, and an AUTHOR-tier key additionally sees no governance tools (`admin.*`, `user.*`, `baseline.create`, `review.approve`). A tool missing from `tools/list` may be a scope decision, not an absence — check the key's `ApiKey.scope` before reporting a gap.
+- `tools/list` is filtered: a Viewer key sees no write tools, and an AUTHOR-tier key additionally sees no *governance* tools — the namespaces `admin`, `user`, `permissions`, `workspace`, `events`, `baseline`, `prompt_template`, `prompt_variable`, `link_type`, `attribute_definition`, `attribute_catalog`, `attribute_migration`, plus `audit.waive_finding`. A tool missing from `tools/list` may be a scope decision, not an absence — check the key's `ApiKey.scope` before reporting a gap.
 
 ## 4. API-key handling (`reqlo_*`)
 

@@ -25,8 +25,8 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 |--------|-------|
 | Tools | **219** |
 | Tool-group prefixes | **35** |
-| Version measured | `v1.8.0-beta.16` |
-| Commit measured | `9eb2fc58` (working tree of `fix/beta16-qa-sweep`, which adds `test.run_list` — see §2) |
+| Version | `v1.8.0-beta.16` (`VERSION`, `1.8.0-beta.16`) |
+| Measured at | `98b1c9a8` on `fix/beta16-qa-sweep` — i.e. the `v1.8.0-beta.16` tag commit `9eb2fc58` plus [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080) (`65c732b4`, adds `test.run_list`) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
 History of the number, so a future reader can tell an intentional change from a
@@ -45,7 +45,7 @@ stale copy:
 Do not copy a number from prose. Measure it, and record the version and the
 commit alongside the result.
 
-**Live, against a running instance** (needs an `reqlo_*` API key whose user has
+**Live, against a running instance** (needs a `reqlo_*` API key whose user has
 write + governance capability — a Viewer key legitimately sees fewer tools,
 because `tools/list` hides what the caller may not execute):
 
@@ -154,7 +154,6 @@ means a new tool, not a new namespace.
 
 | Absent | Why | What exists instead |
 |--------|-----|---------------------|
-| `memory.write` — **this one EXISTS**, see §4 | — | — |
 | `comment.query` | The comment tool group has one read shape: list the comments of one artifact. There is no free-text or filter query over comments. | `comment.list` (`artifact_id`) |
 | `testcase.*` | There is no `testcase` prefix. The TestCase entity lives in the `test` group. | `test.get`, `test.query`, `test.create`, `test.update`, `test.link`, `test.mark_reviewed`, `test.outdate`, `test.reactivate`, `test.derive_from_requirement` |
 | any API-key management tool | Key lifecycle is a REST-only governance path; MCP exposes no `api_key.*` / `permissions.key.*` group, so a compromised MCP client cannot mint itself a key. | REST `POST/GET/DELETE /api/v1/api-keys/` |
@@ -163,9 +162,13 @@ means a new tool, not a new namespace.
 | a workspace-wide TraceLink enumeration | `traceability.query` needs an `artifact_id`; there is no "list every link in this workspace" tool. | `traceability.coverage` (counts, does not enumerate) |
 
 The last two were found by the entity-surface parity ratchet
-(`backend/mcp_server/tests/test_entity_surface_matrix.py`) when it was written
-for [#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080), and are
+(`backend/mcp_server/tests/entity_surface_matrix.py`) when it was written for
+[#1080](https://github.com/Popoboxxo/ReqogniLoom/issues/1080), and are
 recorded there as ratcheted gaps rather than left unmentioned.
+
+One more absence worth stating explicitly, because the opposite claim is the one
+in circulation: **`memory.write` does exist.** See §4.
+
 
 ---
 
@@ -230,8 +233,8 @@ model stores rather than the prose:
 | Phase | `TestRun.status` | Written by |
 |-------|------------------|------------|
 | created / started | `in_progress` | `test.run_create` |
-| running | `in_progress` | `test.run_report_results` (while any result is still `not_run`) |
-| completed / failed | `passed` / `failed` / `partial` | derived by `test.run_report_results`; also settable via `test.run_complete` |
+| running | `in_progress` | `test.run_report_results`, while any result is still `not_run` |
+| completed / failed | `passed` / `failed` / `partial` | derived from the recorded results by `test.run_report_results`; `test.run_complete` re-derives the same aggregate when it closes a run that has results |
 | archived | `closed` | `test.run_complete` on a run with **no** results — a deliberate human verdict |
 
 There is deliberately no `created`, `completed` or `archived` value on
@@ -308,15 +311,40 @@ it may execute.
 | Key tier (`ApiKey.scope`) | Sees |
 |---------------------------|-------|
 | `read_only` | read tools only |
-| `author` | + content writes; governance namespaces (`admin.*`, `user.*`, `baseline.create`, `review.approve/reject/request_changes`, `interview.grounding_context`) hidden |
+| `author` | + content writes; the governance namespaces hidden |
 | `admin` (also the legacy `write` tier) | everything |
 
-`tools/list` also supports narrowing, never widening: `tools/filter` with
-`groups` (prefix list), `names` (exact tool names) or `search`, plus a named
-`toolset`. The named toolsets are `core`, `authoring`, `verification`,
-`auditing`, `admin` and `ai`. `tools/call` still works for any tool the key's
-scope and role permit, regardless of the filter — `ApiKey.tool_groups` is
-catalogue curation, not a security boundary.
+The **governance namespaces** (ADMIN tier) are `admin`, `user`, `permissions`,
+`workspace`, `events`, `baseline`, `prompt_template`, `prompt_variable`,
+`link_type`, `attribute_definition`, `attribute_catalog`,
+`attribute_migration` — plus one tool-level exception, `audit.waive_finding`.
+`audit` itself is *not* a governance namespace: `audit.se_audit` is a
+read-only SE-Auditor run that any workspace member may call, so only the waiver
+(the act that accepts a known deviation) is lifted to ADMIN. The authoritative
+set is `mcp_server.tool_registry._GOVERNANCE_TOOL_NAMESPACES` /
+`_GOVERNANCE_TOOL_NAMES`.
 
-Unknown tool names answer JSON-RPC `-32601`. Wrong-scope names answer the
-capability tier's error, not `-32601`.
+Note that `baseline.list` / `baseline.get` / `baseline.compare` stay READ-tier;
+only `baseline.create` (whose gate override/waiver is an approval-authority act)
+is governance. Similarly `review.*` and `interview.*` are ordinary content
+writes, not governance.
+
+`tools/list` also narrows, never widens: both `tools/list` and the custom
+`tools/filter` accept `toolset` (a named phase preset), `filter`
+(`{groups, names, search}`) and `compact`. The named toolsets are `core`,
+`authoring`, `verification`, `auditing`, `admin` and `ai`. `tools/filter`
+additionally returns `count`, `total` (the caller's full RBAC-gated catalogue
+size) and `toolsets`, so a client can see what a filter saved. The catalogue is
+always RBAC-gated *before* filtering, so a filter can only ever narrow it.
+
+`tools/call` still works for any tool the key's scope and role permit,
+regardless of the filter — `ApiKey.tool_groups` is catalogue curation, not a
+security boundary.
+
+Two error shapes worth distinguishing when diagnosing a `tools/call`:
+
+* an **unknown** tool name answers JSON-RPC `-32601` (`UNKNOWN_TOOL`);
+* a **known** tool the caller's key or role may not use answers
+  `PERMISSION_DENIED` with a message naming the role or the capability tier —
+  not `-32601`. A `-32601` therefore always means "no such tool", never "not
+  allowed".
