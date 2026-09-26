@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==unknown",
-  "tool_count": 218,
+  "generated_from": "reqogniloom==1.8.0-beta.16",
+  "tool_count": 219,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -5979,10 +5979,45 @@
       }
     },
     {
+      "name": "test.run_list",
+      "prefix": "test",
+      "is_write": false,
+      "description": "List the TestRuns of a workspace, most recent first (read). #1080: the TestRun entity used to be reachable over MCP only by an id the caller already held (test.run_get) — a run created by CI or by another agent was invisible, while GET /api/v1/test-runs/ listed it. Each row carries 'status' — in_progress|passed|failed|partial|closed, the four-phase lifecycle's observable axis — plus 'result_summary' (total/passed/failed/blocked/not_run) and 'finished_at' (null while the run is still in_progress). Use test.run_get for the per-result rows.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose runs to list."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "in_progress",
+              "passed",
+              "failed",
+              "partial",
+              "closed"
+            ],
+            "description": "Optional aggregate-status filter. Omit to return every run of the workspace."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Maximum number of runs to return (default 100, max 500). Applied in the query, so a large workspace is not materialised whole."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
       "name": "test.run_report_results",
       "prefix": "test",
       "is_write": true,
-      "description": "Add result(s) to a TestRun (write, audited).",
+      "description": "Add result(s) to a TestRun (write, audited). Honours the four-phase lifecycle: results are upserted per (run, test_case), and the run's aggregate 'status' is then re-derived — in_progress while any result is still not_run, then passed (all passed) / failed (any failed) / partial (any blocked). A run explicitly finalised as 'closed' by test.run_complete keeps that status; its result rows are still recorded. A single result object is accepted in place of a one-element array.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -409,6 +409,10 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "test.get",
         "test.query",
         "test.run_get",
+        # #1080: the workspace's TestRuns, so the run lifecycle is observable
+        # without holding an id. workspace_id is required in the schema, which
+        # is what scopes the dispatcher gate to that workspace.
+        "test.run_list",
         "traceability.query",
         "traceability.suggest_links",
         "artifact.search",
