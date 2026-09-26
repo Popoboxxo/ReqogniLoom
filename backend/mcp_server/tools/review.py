@@ -26,7 +26,7 @@ from typing import Any, Dict
 
 from auth_tenancy.context import AuthContext
 
-from application.base import PermissionDeniedError, ValidationError
+from application.base import OptimisticLockError, PermissionDeniedError, ValidationError
 from application.workflow_facade import WorkflowFacade
 
 from mcp_server.tools.base import (
@@ -84,6 +84,16 @@ class ReviewToolGroup(BaseToolGroup):
                     "item_type": {"type": "string"},
                     "workspace_id": {"type": "string"},
                     "change_reason": {"type": "string"},
+                    "expected_version": {
+                        "type": "integer",
+                        "description": (
+                            "Optional last-seen workflow revision of the item. "
+                            "When supplied and a concurrent transition has "
+                            "already moved the item on, the call is rejected "
+                            "with a version conflict instead of overwriting "
+                            "the winner (CR-08)."
+                        ),
+                    },
                 },
                 "required": ["item_id", "item_type", "workspace_id"],
             },
@@ -120,6 +130,14 @@ class ReviewToolGroup(BaseToolGroup):
                     "item_type": {"type": "string"},
                     "workspace_id": {"type": "string"},
                     "reason": {"type": "string"},
+                    "expected_version": {
+                        "type": "integer",
+                        "description": (
+                            "Optional last-seen workflow revision of the item "
+                            "(CR-08) — a stale value is rejected with a "
+                            "version conflict."
+                        ),
+                    },
                 },
                 "required": ["item_id", "item_type", "workspace_id"],
             },
@@ -245,6 +263,9 @@ class ReviewToolGroup(BaseToolGroup):
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
         reason = params.get("reason", "")
+        # CR-08: a caller that tracked the workflow revision may pin it; the
+        # compare itself runs inside the engine's row-locked transaction.
+        expected_version = params.get("expected_version")
 
         facade = WorkflowFacade()
         definition = facade.get_definition(auth_context, item_type=item_type, workspace_id=workspace_id)
@@ -265,9 +286,14 @@ class ReviewToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     item_type=item_type,
                     workspace_id=workspace_id,
+                    expected_version=expected_version,
                 )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except OptimisticLockError as exc:
+            # Same mapping as the generic *.update tools: a lost race is a
+            # caller-retryable conflict, not an internal error.
+            return ToolResult.error("VALIDATION_ERROR", f"Version conflict: {exc}")
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
@@ -296,6 +322,8 @@ class ReviewToolGroup(BaseToolGroup):
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
         reason = params.get(reason_param, "")
+        # CR-08: see review.request_changes.
+        expected_version = params.get("expected_version")
 
         facade = WorkflowFacade()
         available = facade.get_available_transitions(
@@ -357,9 +385,12 @@ class ReviewToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     item_type=item_type,
                     workspace_id=workspace_id,
+                    expected_version=expected_version,
                 )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except OptimisticLockError as exc:
+            return ToolResult.error("VALIDATION_ERROR", f"Version conflict: {exc}")
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 

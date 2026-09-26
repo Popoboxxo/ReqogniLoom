@@ -243,6 +243,50 @@ class StateLifecycleManager:
 
     # -- State mutation (REQ-L2-WE-003, REQ-L3-WE003-002) ---------------------
 
+    def lock_item_state(
+        self, item_id: UUID, item_type: str, workspace_id: UUID
+    ) -> WorkflowItemState:
+        """SELECT ... FOR UPDATE the item's state row and return it (CR-08).
+
+        The row-level lock is held until the end of the surrounding
+        transaction, so everything the caller derives from the returned row
+        (current state, version) is guaranteed to still be true when it acts
+        on it. This is the single place that read is expressed, so the lock and
+        the section that must observe the locked row cannot drift apart.
+
+        Args:
+            item_id:       UUID of the item.
+            item_type:     Entity type string.
+            workspace_id:  Workspace UUID.
+
+        Returns:
+            The locked WorkflowItemState instance.
+
+        Raises:
+            WorkflowStateError: No state row exists for that item.
+            TransactionManagementError: Called outside a transaction. This is a
+                hard precondition, not a style rule: under autocommit on
+                PostgreSQL ``SELECT ... FOR UPDATE`` is legal SQL and the lock is
+                released again at the end of that single statement, so the method
+                returns a row that is already unlocked by the time the caller acts
+                on it — the exact race this method exists to prevent, silently.
+                Django only surfaces it as an error when the backend
+                ``supports_select_for_update_in_autocommit`` is False (true for
+                SQLite, false for PostgreSQL), so on the production database the
+                misuse raises nothing at all.
+        """
+        item_state = (
+            WorkflowItemState.objects.select_for_update()
+            .filter(item_id=item_id, item_type=item_type, workspace_id=workspace_id)
+            .first()
+        )
+        if item_state is None:
+            raise WorkflowStateError(
+                f"No WorkflowItemState found for item_id={item_id}, "
+                f"item_type={item_type}"
+            )
+        return item_state
+
     @transaction.atomic
     def perform_transition(
         self,
@@ -254,6 +298,7 @@ class StateLifecycleManager:
         validation_result: ValidationResult,
         change_reason: str = "",
         expected_version: Optional[int] = None,
+        item_state: Optional[WorkflowItemState] = None,
     ) -> TransitionOutcome:
         """Atomically mutate state and append a history entry.
 
@@ -278,6 +323,15 @@ class StateLifecycleManager:
                                the UPDATE is guarded by ``version=expected_version``
                                so that any concurrent increment raises 409 Conflict
                                (REQ-L2-WE-003, ADR-L3-WE003-02).
+            item_state:        The caller's ALREADY-locked ``WorkflowItemState``
+                               row (``lock_item_state``), reused instead of
+                               issuing a second ``SELECT ... FOR UPDATE`` for
+                               the same row in the same transaction. Optional:
+                               when ``None`` (every direct caller, incl. the
+                               tests) the row is locked here as before. The lock
+                               this method relies on must already be held by the
+                               OUTERMOST transaction — that is the caller's
+                               contract, unchanged by this parameter.
 
         Returns:
             TransitionOutcome with all transition details.
@@ -294,16 +348,11 @@ class StateLifecycleManager:
 
         # SELECT FOR UPDATE to acquire a row-level lock for the duration of this
         # transaction, preventing lost-update races on concurrent requests.
-        item_state = (
-            WorkflowItemState.objects.select_for_update()
-            .filter(item_id=item_id, item_type=item_type, workspace_id=workspace_id)
-            .first()
-        )
+        # Skipped when the caller already holds that exact lock (m1): the row
+        # was read for the graph validation under the same lock, so a second
+        # round trip would return the identical row and lock nothing new.
         if item_state is None:
-            raise WorkflowStateError(
-                f"No WorkflowItemState found for item_id={item_id}, "
-                f"item_type={item_type}"
-            )
+            item_state = self.lock_item_state(item_id, item_type, workspace_id)
 
         previous_state = item_state.current_state
 

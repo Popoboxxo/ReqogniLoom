@@ -18,7 +18,12 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from application.base import NotFoundError, PermissionDeniedError, ValidationError
+from application.base import (
+    NotFoundError,
+    OptimisticLockError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
 from auth_tenancy.context import AuthContext
@@ -293,6 +298,16 @@ class GoalToolGroup(BaseToolGroup):
                         ),
                     },
                     "credential": {"type": "string"},
+                    "expected_version": {
+                        "type": "integer",
+                        "description": (
+                            "Optional last-seen workflow revision of the Goal "
+                            "version. When supplied and a concurrent transition "
+                            "has already moved it on, the call is rejected with "
+                            "a version conflict instead of overwriting the "
+                            "winner (CR-08)."
+                        ),
+                    },
                 },
                 "required": ["goal_id", "target_state"],
             },
@@ -628,11 +643,16 @@ class GoalToolGroup(BaseToolGroup):
                 auth_context,
                 change_reason=params.get("change_reason"),
                 credential=params.get("credential"),
+                expected_version=params.get("expected_version"),
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except OptimisticLockError as exc:
+            # CR-08: same mapping as the generic *.update tools — a lost race is
+            # a caller-retryable conflict, not an internal error.
+            return ToolResult.error("VALIDATION_ERROR", f"Version conflict: {exc}")
         except ValidationError as exc:
             return self._invalid_target_state_error(
                 service, goal_id, auth_context, str(exc)

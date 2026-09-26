@@ -70,6 +70,7 @@ class WorkflowFacade(ServiceBase):
         credential: str = "",
         item_type: str = "Requirement",
         workspace_id: UUID | str,
+        expected_version: int | None = None,
     ):
         """Execute a workflow transition for an artifact.
 
@@ -85,6 +86,20 @@ class WorkflowFacade(ServiceBase):
             credential: Optional TOTP/password for SignatureGate transitions.
             item_type: Entity type (default "Requirement").
             workspace_id: Workspace UUID.
+            expected_version: Optional caller's last-seen
+                ``WorkflowItemState.version`` (CR-08). Forwarded to the engine
+                so the version compare runs inside its row-locked transaction;
+                a concurrent transition then answers 409 instead of silently
+                overwriting the winner. When omitted (``None``) the row lock
+                still serialises concurrent writers, but inside that lock the
+                write is plain last-writer-wins: a caller that transitions
+                without a revision cannot detect that someone else moved the
+                item on and will overwrite it. The CR-08 rollout only threads
+                ``expected_version`` through the MCP transition tools; the
+                service wrappers that call this facade directly (the ADR, risk,
+                issue, change-request and main-goal services, the goal
+                re-activate path) do not pass it and remain unprotected in that
+                last-writer-wins sense.
 
         Returns:
             workflow.services.TransitionResult
@@ -92,6 +107,7 @@ class WorkflowFacade(ServiceBase):
         Raises:
             PermissionDeniedError: Preset-level role gate blocked transition.
             ValidationError: change_reason missing or transition not allowed.
+            OptimisticLockError: A concurrent transition won the race (409).
         """
         self._set_tenant_context(ctx)
 
@@ -117,6 +133,7 @@ class WorkflowFacade(ServiceBase):
                     credential=credential,
                     item_type=item_type,
                     workspace_id=ws_uuid,
+                    expected_version=expected_version,
                 )
             except Exception as exc:
                 _remap_workflow_exc(exc)
@@ -789,13 +806,17 @@ class WorkflowFacade(ServiceBase):
 
 def _remap_workflow_exc(exc: Exception) -> None:
     """Re-raise workflow-domain exceptions as application-layer exceptions."""
+    from application.base import (
+        OptimisticLockError,
+        PermissionDeniedError,
+        ValidationError,
+    )
+    from workflow.lifecycle_manager import WorkflowConflictError
     from workflow.services import WorkflowTransitionError
     from workflow.transition_validator import (
         EC_AGENT_SELF_CONFIRM,
         EC_ROLE_NOT_ALLOWED,
     )
-
-    from application.base import ValidationError, PermissionDeniedError
 
     if isinstance(exc, WorkflowTransitionError):
         if exc.error_code in (EC_ROLE_NOT_ALLOWED, EC_AGENT_SELF_CONFIRM):
@@ -806,6 +827,14 @@ def _remap_workflow_exc(exc: Exception) -> None:
             # trace-link sibling) instead of a 400 that reads like bad input.
             raise PermissionDeniedError(exc.error_message) from exc
         raise ValidationError(exc.error_message) from exc
+    if isinstance(exc, WorkflowConflictError):
+        # CR-08: the engine's optimistic-locking conflict is a version
+        # conflict, which is exactly what ``OptimisticLockError`` already means
+        # everywhere else in this layer — so remapping it HERE is what brings
+        # both callers (REST ``_EXC_TO_HTTP`` and the MCP tools) to the same
+        # 409 / "VALIDATION_ERROR: Version conflict" answer without a second,
+        # parallel mapping in either protocol layer.
+        raise OptimisticLockError(str(exc)) from exc
     raise exc
 
 

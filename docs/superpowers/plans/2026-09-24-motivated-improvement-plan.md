@@ -566,7 +566,7 @@ Ein grüner Generator, ein einzelner Unit-Test oder ein historischer Report erse
 **Arbeitspakete:**
 
 1. `expected_version` bis zum Lock führen und fachliche Revalidierung innerhalb der Sperre ausführen.
-2. Interview-Formalize mit Lock/Constraint/Idempotenz versehen; Audit-/Outbox-Seam verpflichtend machen.
+2. Interview-Formalize mit Lock/Constraint/Idempotenz versehen; Audit-/Outbox-Seam verpflichtend machen. Der Lock-Teil ist umgesetzt; der Constraint-Teil ist als benannter Folgeschritt in `backend/application/interview_service.py` (`_lock_in_progress_session`) hinterlegt und unten in diesem Abschnitt beschrieben.
 3. REST-/MCP-Multi-Interview-Parität mit bestätigtem Proposal herstellen.
 4. globale und abgeleitete Workflow-Definitionen als eine atomare Fachoperation mit Live-Item-/Orphan-Gate modellieren;
 5. die `CR-09`-Aussage auf Atomizität, globale/derived Divergenz und Orphan-Schutz begrenzen;
@@ -594,6 +594,8 @@ Ein grüner Generator, ein einzelner Unit-Test oder ein historischer Report erse
 **Stop/Rollback:** Bei nicht eindeutigem Lock-/Version-Semantik oder fehlendem Audit-/Outbox-Seam wird der betroffene Write-Pfad deaktiviert statt teilweise repariert. Datenmigrationen folgen Expand/Contract; ein Rollback darf keine Quelle-of-Truth trennen.
 
 **Grobe Aufwand:** L bis XL, etwa 15–30 Personentage inklusive Concurrency- und Fault-Injection-Tests.
+
+**Benannter Folgeschritt (Interview-Formalize-Constraint):** Die Constraint-Variante aus Arbeitspaket 2 ist bewusst zurückgestellt; sie wird hier nur beschrieben, weder terminiert noch mit einer eigenen Nummer versehen. Geplant ist eine `UniqueConstraint(fields=["session", "artifact"])` auf `InterviewSessionArtifact` (`persistence.models`, Tabelle `pl_interview_session_artifact`) als zweite, datenbankseitige Schicht neben dem bereits umgesetzten Row-Lock auf der Interview-Session. Expand-only: die Spalten `(session, artifact)` existieren bereits, es ist kein Daten-Umbau, kein Backfill und kein Contract-Schritt nötig; der Eingriff ist rein additiv zur bestehenden Struktur. Die Constraint gilt bewusst dem Paar und nicht `session` allein, weil eine Multi-Artifakt-Session legitim eine Zeile je erzeugtem Artefakt anlegt — eine reine Session-Uniqueness-Regel würde gültige Multi-Ergebnisse ablehnen. Vor dem Anlegen der Migration ist ein Duplikat-Vorcheck über die bestehenden Daten zwingend (Gruppierung nach `session_id, artifact_id`, Null Gruppen mit `count(*) > 1` als Erwartungswert), da die Tabelle älter ist als das heutige Formalize-Locking und die Constraint auf bereits verletzenden Daten erst zur Apply-Zeit scheitern würde; gefundene Duplikate sind vor der Migration zu bereinigen, nicht von ihr zu entscheiden. Grund des Deferments: das Schema-Delta sollte in diesem Durchgang keine eigene Migration bekommen, weil dafür eine gesonderte Freigabe fehlte. Verwandte Stelle im Code: `backend/application/interview_service.py`, Docstring von `_lock_in_progress_session`.
 
 ### 7.5 W3 — Contract-/SE-SSOT und Integrationsverträge
 
@@ -972,6 +974,55 @@ Die Repository-`README.md` wurde als Nutzer- und Integrationsquelle gelesen. Ihr
 - Er ändert keine Requirements, keinen Anwendungscode und keine bestehenden Auditberichte.
 - Historische oder statische Zählungen bleiben als solche gekennzeichnet.
 - Für eine formale ADR-/REQ- oder Ticket-Übernahme sind die dafür zuständigen Rollen erforderlich; dieser Plan beansprucht keine neue ID.
+
+---
+
+## 14. Umsetzungsstand (2026-09-26)
+
+**Charakter dieses Abschnitts.** Reiner Status-Nachtrag. Die Abschnitte 0–13 einschließlich der Zielarchitektur, der Wellenbeschreibung und der Exit-Kriterien bleiben **unverändert**; dieser Abschnitt **widerspricht** ihnen nicht, sondern berichtet, was von der Umsetzung bis zum 2026-09-26 tatsächlich vorliegt. Er ist **keine** Freigabe, **kein** Release-Gate und **keine** Erfüllungserklärung. Die Wellen selbst stehen in [§7.2](#72-w0--evidence--und-decision-baseline) (W0), [§7.3](#73-w1--security-und-tenant-isolation) (W1), [§7.4](#74-w2--workflow-atomizität-und-fachlicher-konsistenzkern) (W2), [§7.5](#75-w3--contract-se-ssot-und-integrationsverträge) (W3), [§7.6](#76-w4--ci-release-resilience-und-betrieb) (W4) und [§7.7](#77-w5--ux-accessibility-und-externe-reifeentscheidung) (W5); die Abbruch- und Stop-Kriterien stehen in [§11.3](#113-abbruch--und-stop-kriterien).
+
+### 14.1 Wellenstatus
+
+| Welle | Umsetzungsstand | Revisionsbindung |
+|---|---|---|
+| **W0** — Evidence- und Decision-Baseline | **teilweise umgesetzt.** Die Evidence-Baseline und der W0/W1-Slice sind umgesetzt; die **W0-Exit-Kriterien sind nicht vollständig erfüllt**. | `82f13395` — „fix: harden W0/W1 security boundaries", **gemergt** über **PR #1070** (`59bcb7a9`) |
+| **W1** — Security und Tenant-Isolation | **Security-Slice und Close-out gemergt.** Die **W1-Exit-Kriterien sind nicht vollständig erfüllt**; die Restpunkte aus der Review-Runde zu PR #1071 sind offen. | `82f13395` (PR #1070); Close-out `f85407f7` — „fix: close W1 security audit gaps", **gemergt** über **PR #1071** (`acde772e`), einschließlich `7012a7c2` — „fix: address PR 1071 review findings" |
+| **W2** — Workflow, Atomizität und fachlicher Konsistenzkern | **in drei Commits umgesetzt, PR #1073 offen** gegen `main`. Die **W2-Exit-Kriterien sind nicht vollständig erfüllt** (siehe [14.3](#143-ausdrücklich-nicht-erfüllt)). | `6f145c87` — „fix(CR-08): enforce expected_version through the workflow lock"; `14fc05e5` — „fix(CR-06/CR-07/CR-05): serialise and audit interview formalization"; `d4d912bf` — „fix(CR-09/CR-10): make global definition propagation atomic and orphan-safe" |
+| **W3** — Contract-/SE-SSOT und Integrationsverträge | **nicht begonnen** | keine |
+| **W4** — CI, Release, Resilience und Betrieb | **nicht begonnen** | keine |
+| **W5** — UX, Accessibility und externe Reifeentscheidung | **nicht begonnen** | keine |
+
+Basis des W2-Zweigs ist `origin/main` = `acde772e` („Merge pull request #1071 from Popoboxxo/feat/audit-w1-closeout"). Diff des W2-Slices gegen diese Basis: **30 Dateien, +4858 / −153**.
+
+### 14.2 Kein Track wird allein wegen grüner Tests als `VERIFIZIERT` markiert
+
+**Ausdrücklich festgehalten:** Grüne Tests allein begründen **keinen** `VERIFIZIERT`-Status. Maßgeblich ist ausschließlich die Abschlussregel in [§6 des Evidenzregisters](../../se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md#6-pflege--und-abschlussregel); sie verlangt für `VERIFIZIERT` zusätzlich zur Test-/CI-Evidenz eine **Commit-/Revisionsbindung**, Umgebung, Ergebnis und gegebenenfalls Abweichung. Die Revisionsbindung für W2 liegt seit dem Commit-Durchgang vor; die **Statuszuschreibung der einzelnen Tracks ist damit noch nicht erfolgt** und folgt als datierter Nachtrag. W2 bleibt daher **`TEILWEISE VERIFIZIERT`** mit offenen Exit-Punkten — revissionsgebunden, aber **nicht** abgeschlossen. W0 und W1 sind gemergt, erfüllen ihre Exit-Kriterien aber ebenfalls **nicht vollständig**.
+
+### 14.3 Ausdrücklich nicht erfüllt
+
+- Die **W0-Exit-Kriterien** sind **nicht vollständig** erfüllt.
+- Die **W1-Exit-Kriterien** sind **nicht vollständig** erfüllt; die W1-Restpunkte sind unverändert offen.
+- Die **W2-Exit-Kriterien** sind **nicht vollständig** erfüllt. Nicht erfüllt beziehungsweise nur teilweise erfüllt sind insbesondere das Kriterium „dieselbe versionierte Fehler-/Status-Semantik" über REST, MCP **und UI** (die UI-Schicht blieb unberührt) sowie das Kriterium „Tenant, Workspace, Actor, Version **und Korrelation**" (das Korrelationsfeld fehlt).
+- **Kein** Wellenabbruch nach [§11.3](#113-abbruch--und-stop-kriterien) wurde ausgelöst; **kein** globales Release-Stopp-Kriterium ist eingetreten. W2 ist damit **nicht gestoppt, aber auch nicht abgeschlossen**.
+
+### 14.4 Offene Restpunkte
+
+| Restpunkt | Stand |
+|---|---|
+| **D1-Constraint** — `UniqueConstraint(session, artifact)` auf `InterviewSessionArtifact` | **bewusst zurückgestellt.** Vollständig beschrieben in [§7.4](#74-w2--workflow-atomizität-und-fachlicher-konsistenzkern) („Benannter Folgeschritt (Interview-Formalize-Constraint)"); hier **nicht** wiederholt. |
+| **Korrelationsfeld** | **offen.** W2-Exit-Kriterium „Korrelation" nicht erfüllt. |
+| **W2-Negativtest 6** (Chat-/Provider-Ausfall) | **fehlt vollständig.** |
+| **`CR-13`** | **unberührt** — kein Test, keine Implementierung. |
+| **`CR-17`**, **`CR-22`**, **`CR-26`** | **unverändert offen.** W2 hat keinen dieser Punkte geschlossen. |
+| **`pl_user`** | **unverändert offen.** |
+| **Service-Wrapper-`expected_version`-Lücke** | **offen.** |
+| **Orphan-Gate-Restfenster** | **offen, bewusst nicht geschlossen**, sondern im Code dokumentiert. |
+
+### 14.5 Statusnotizen
+
+- **Getrenntes Vorhaben, nicht Teil von W2:** **PR #1072**, Branch `chore/refresh-project-metadata`, Commit `22aeae4e` („chore: refresh project metadata"). Es betrifft ausschließlich `.meta-config/project.yaml` und ist **offen** gegen `main`. Inhalte oder Werte aus diesem Vorhaben werden hier **nicht** reproduziert.
+- **`deploy/.env`** wurde für diesen Statusnachweis **weder verändert noch gelesen**; es werden hier **keine** Werte aus dieser Datei wiedergegeben.
+- Dieser Abschnitt führt **keinen** Test, **keinen** Lint und **keinen** Scan aus. Er berichtet ausschließlich bereits gemessene Werte sowie per `git log`, `git rev-parse` und `gh pr view` verifizierte Revisionen.
 
 ---
 

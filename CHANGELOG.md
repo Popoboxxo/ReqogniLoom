@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **REST breaking change — `expected_version` / `If-Match` on `POST /api/v1/<entity>/{id}/transitions/` is now enforced (CR-08):** a client-supplied revision was previously read by the view and then silently dropped, so requests that carried `expected_version` or an `If-Match` header and received `200` are now answered **`409 CONFLICT`** when the item's workflow revision has moved on. Clients that relied on the old silently-ignored behaviour (or that send a stale revision without checking) must handle `409` — re-read the item and retry. Omitting the revision is unchanged and stays last-writer-wins. Note that on this route the tag denotes the **workflow revision** (`version`, now returned by both the GET and the POST response of `transitions/`), *not* the entity ETag that `If-Match` carries on `PATCH` and that answers `412`.
+
 ## [1.8.0-beta.15] — 2026-09-23
 
 ### Added

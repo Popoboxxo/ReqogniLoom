@@ -417,8 +417,15 @@ class TestRequirementStatusSingleSource:
         # Never even reaches the service:
         svc_mock.update_requirement.assert_not_called()
 
+    @pytest.mark.django_db
     def test_transitions_get_lists_allowed(self) -> None:
-        """GET transitions returns current_state + allowed target states."""
+        """GET transitions returns current_state + allowed target states.
+
+        ``django_db`` (M3): the response now also carries the item's workflow
+        revision, a real ``WorkflowItemState`` read. The assertion set is
+        unchanged — only the DB access the view genuinely performs is now
+        declared.
+        """
         from types import SimpleNamespace
 
         avail = SimpleNamespace(
@@ -448,8 +455,15 @@ class TestRequirementStatusSingleSource:
         assert response.data["allowed_transitions"][0]["target_state"] == "in_review"
         assert response.data["allowed_transitions"][0]["requires_change_reason"] is True
 
+    @pytest.mark.django_db
     def test_transitions_post_performs_transition(self) -> None:
-        """POST transitions delegates to WorkflowFacade and returns new state."""
+        """POST transitions delegates to WorkflowFacade and returns new state.
+
+        ``django_db`` (M3): the response now carries the item's workflow
+        revision, which is a real ``WorkflowItemState`` read. The assertion set
+        is unchanged — only the DB access the view genuinely performs is now
+        declared.
+        """
         from types import SimpleNamespace
 
         facade = MagicMock()

@@ -10,7 +10,15 @@ proven against the source code (not against the plan's own claims).
 ## Top level — open work
 
 ## [2026-09-24-motivated-improvement-plan.md](2026-09-24-motivated-improvement-plan.md)
-**Open — audit-based improvement plan; not implemented and not a release approval.** Derived from the 2026-09 system audit, it prioritizes P1 validation, QS-first evidence, a central Django core with a versioned contract/tool registry, and Bluepencil as QS-only/default-off. The plan records open measurements and implementation waves; it contains no application-code changes.
+**Open — audit-based improvement plan; partially implemented and not a release approval.** Derived from the 2026-09 system audit, it prioritizes P1 validation, QS-first evidence, a central Django core with a versioned contract/tool registry, and Bluepencil as QS-only/default-off. The plan records open measurements and implementation waves; it contains no application-code changes.
+
+Implementation status as of 2026-09-26 (recorded in the plan's own §14 "Umsetzungsstand"; provenance in [`09-evidence-register.md`](../../se/reports/deep_audit/system-audit-2026-09/09-evidence-register.md) §7.4/§7.5/§9.17, verified via `git log`/`git rev-parse`/`gh pr view`):
+- **W0** — evidence baseline and the W0/W1 slice **partially implemented**; W0 exit criteria **not fully met**.
+- **W1** — security slice and close-out **merged** (PR #1070 / `82f13395`; PR #1071 / `acde772e`, incl. `7012a7c2`). W1 exit criteria **not fully met**; the W1 residual items stay open.
+- **W2** — implemented in **three commits**, **PR #1073 open** against `main`: `6f145c87`, `14fc05e5`, `d4d912bf` (base `acde772e`; diff 30 files, +4858 / −153). Status is **`TEILWEISE VERIFIZIERT`** — the revision binding now exists, but the W2 exit criteria are **not fully met** and no track is marked `VERIFIZIERT` on green tests alone.
+- **W3, W4, W5** — **not started**.
+
+Do not read the waves as closed: green tests alone never establish `VERIFIZIERT` (the evidence register's §6 also requires a commit/revision binding), and the open items — the deferred D1 `UniqueConstraint(session, artifact)`, the missing correlation field, W2 negative test 6 (chat/provider outage), `CR-13`, `CR-17`/`CR-22`/`CR-26`, `pl_user`, the service-wrapper `expected_version` gap, and the orphan-gate residual window — all remain **open**.
 
 ## [2026-09-21-open-issues-bundle.md](2026-09-21-open-issues-bundle.md)
 Cluster/sequencing plan for the open GitHub issues as of `main` @ `e11140d6` (v1.8.0-beta.14). 40 open issues reviewed, 27 actionable grouped into 7 clusters (C1 deploy/embedding, C2 SE-audit correctness, C3 frontend integrity, C4 E2E hardening, C5 SE completeness, C6 data-model identity, C7 attribute-v3 epic), 13 deliberately dispositioned out. Execution order C1→C2→C3→C4→C5→C6→C7; C1/C2 are the immediate start. Not yet implemented — no source claim verified beyond the `file:line` references quoted from the issue bodies.
