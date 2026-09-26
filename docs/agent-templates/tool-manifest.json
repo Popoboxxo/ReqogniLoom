@@ -3090,6 +3090,10 @@
           },
           "credential": {
             "type": "string"
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional last-seen workflow revision of the Goal version. When supplied and a concurrent transition has already moved it on, the call is rejected with a version conflict instead of overwriting the winner (CR-08)."
           }
         },
         "required": [
@@ -3390,6 +3394,31 @@
           "session_id": {
             "type": "string",
             "description": "UUID of the interview session."
+          },
+          "confirmed_proposal": {
+            "type": "array",
+            "description": "Required for multi-kind sessions: the caller-confirmed proposal to create. One item per artifact, each {\"type\": <one of Requirement | ArchitectureElement | StakeholderNeed | Risk | TestCase | Adr | Issue | Goal>, \"fields\": {...}, \"links\": [{\"from\": <item index>, \"to\": <item index>, \"type\": <link type>}]}. All items are created in ONE transaction; any failure rolls the whole batch back. Ignored by single-kind sessions.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "fields": {
+                  "type": "object"
+                },
+                "links": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "fields"
+              ]
+            }
           }
         },
         "required": [
@@ -5241,6 +5270,10 @@
           },
           "change_reason": {
             "type": "string"
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional last-seen workflow revision of the item. When supplied and a concurrent transition has already moved the item on, the call is rejected with a version conflict instead of overwriting the winner (CR-08)."
           }
         },
         "required": [
@@ -5319,6 +5352,10 @@
           },
           "reason": {
             "type": "string"
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional last-seen workflow revision of the item (CR-08) — a stale value is rejected with a version conflict."
           }
         },
         "required": [

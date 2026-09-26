@@ -25,7 +25,12 @@ from mcp_server.tools.interview import InterviewToolGroup
 EDITOR_CTX_ID = UUID("00000000-0000-0000-0000-000000000001")
 TENANT_UUID = UUID("00000000-0000-0000-0000-000000000002")
 API_KEY_UUID = UUID("00000000-0000-0000-0000-000000000003")
-VALID_API_KEY = "reqlo_testkey1234"
+# Fixture-only key: no real credential, just a shape the auth stub accepts. The
+# ``placeholder`` marker is the W1 secret scanner's documented allowlist token
+# (``_SAFE_PATTERNS``) — the scanner pattern still matches, the allowlist is
+# what clears it, exactly as in
+# rest_api/tests/test_readonly_and_unknown_field_rejection_915_916.py.
+VALID_API_KEY = "reqlo_placeholder_testkey1234"
 WORKSPACE_UUID = UUID("00000000-0000-0000-0000-000000000010")
 SESSION_UUID = UUID("00000000-0000-0000-0000-000000000080")
 
@@ -447,7 +452,13 @@ class TestInterviewToolGroup:
 
         assert result.success is True
         assert result.data == svc.formalize.return_value
-        svc.formalize.assert_called_once_with(EDITOR_CTX, SESSION_UUID)
+        # CR-05: the handler now forwards `params.get("confirmed_proposal")` as
+        # the service's third argument so a multi-kind session is not
+        # permanently un-formalizable over MCP (REST already forwarded it).
+        # `params.get` -- not `params[...]` -- is what keeps a single-kind
+        # caller valid, so the absent case is asserted as an explicit None
+        # rather than a missing argument.
+        svc.formalize.assert_called_once_with(EDITOR_CTX, SESSION_UUID, None)
         mock_audit.assert_called_once()
         call_kwargs = mock_audit.call_args.kwargs
         assert call_kwargs["tool_name"] == "interview.formalize"

@@ -103,6 +103,12 @@ class DomainEventOutbox(models.Model):
         # events. Purely additive -- no existing emitter changes.
         INTERVIEW_CHAT_TURN = "InterviewChatTurn"
         INTERVIEW_FORMALIZED = "InterviewFormalized"
+        # W2 audit slice CR-07: InterviewService.abandon() mutated the status
+        # with neither an audit entry nor an outbox event, so a user-cancelled
+        # session left no trace in either seam. Declared next to the two events
+        # above because it is the third face of the same session lifecycle.
+        # Purely additive: no existing emitter changed.
+        INTERVIEW_ABANDONED = "InterviewAbandoned"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)

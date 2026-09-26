@@ -949,7 +949,104 @@ class InterviewService(ServiceBase):
         return self._formalize_single(ctx, session)
 
     def _formalize_single(self, ctx, session) -> "dict[str, Any]":
-        """Single-kind path: one typed artifact from collected_fields.
+        """Single-kind path: lock the session, then run the writer.
+
+        CR-06: this wrapper takes the same row lock + status recheck that
+        ``_formalize_multi`` has had since its M2 review finding. The
+        ``in_progress`` guard in ``formalize()`` reads the row UNLOCKED, so
+        without the lock two concurrent single-mode ``formalize()`` calls
+        could both observe ``in_progress`` and go on to create an artifact,
+        bump ``version`` and emit a successful ``INTERVIEW_FORMALIZED`` event
+        for one session -- a check-then-act race. ``select_for_update()``
+        makes the loser block until the winner commits, after which the
+        recheck below fails it deterministically (exactly one completion,
+        exactly one audit entry, exactly one outbox event).
+
+        The writer itself lives in ``_write_single_artifact`` so the lock
+        wraps the *whole* mutation -- lock and recheck are only useful if
+        they span the writes they protect.
+        """
+        with transaction.atomic():
+            locked_session = self._lock_in_progress_session(session)
+            return self._write_single_artifact(ctx, locked_session)
+
+    @staticmethod
+    def _lock_in_progress_session(
+        session: InterviewSession, action: str = "formalize"
+    ) -> InterviewSession:
+        """Re-read *session* under a row lock and re-validate ``in_progress``.
+
+        Returns the locked row, with its engine-resolved ``status``
+        corrected in memory. Raises ``ValidationError`` when the session is
+        no longer ``in_progress`` -- which is how the losing racer learns it
+        lost. Must be called inside an active ``transaction.atomic()`` block;
+        the lock is released by COMMIT/ROLLBACK of that block.
+
+        Single owner of the guard (M4): the row lock, the engine-resolved
+        status re-read and the ``in_progress`` precondition live HERE and
+        nowhere else. ``_formalize_multi`` used to carry a byte-identical
+        inline copy; two owners of one invariant drift, and the message text
+        had already started to. ``action`` only shapes the error message so
+        ``abandon()`` (M2) does not report "cannot formalize" for a cancel.
+
+        Callers beyond the two formalize paths: ``abandon()`` must take this
+        lock too. It read ``session.status`` unlocked and never locked, so
+        ``abandon()`` could interleave with ``formalize()``'s engine
+        transition ``in_progress -> completed`` and — having read
+        ``in_progress`` first, then validated after that commit — move a
+        JUST-formalized session to ``abandoned``. ``completed -> abandoned``
+        is a declared edge of the interview workflow, so the graph validator
+        accepts it: a formalized interview was silently un-completed.
+
+        Deferred DB-level follow-up (this lock is the *application-level* half
+        of a two-layer guard; the database half is planned, not yet written):
+
+        * Intended: a ``UniqueConstraint(fields=["session", "artifact"])`` on
+          ``persistence.models.InterviewSessionArtifact``
+          (``pl_interview_session_artifact``).
+        * Shape: expand-only. The table already has a plain index on
+          ``artifact``; the constraint adds a uniqueness rule on top of the
+          existing ``(session, artifact)`` columns and needs no data rewrite,
+          no backfill and no contract step to be reverted. It is scoped to the
+          *pair* rather than to ``session`` alone on purpose -- a multi-kind
+          session legitimately produces one row per created artifact
+          (``_formalize_multi``), so a per-session uniqueness rule would reject
+          valid multi-formalize results. A repeated provenance row for the very
+          same session *and* artifact is never legitimate.
+        * Precondition before writing the migration: a duplicate pre-check over
+          existing rows (group by ``session_id, artifact_id``, expect zero
+          groups with ``count(*) > 1``). The constraint cannot be created on a
+          table that already violates it, and this table predates the current
+          formalize locking, so duplicates would fail the migration at apply
+          time rather than at review time. Purge any duplicates found before
+          adding the constraint; do not let the migration decide.
+        * Why deferred: the formalize paths are already serialised by this
+          lock, and adding a schema migration was out of scope for this pass --
+          it was to be introduced only with a separate migration approval. Until
+          the constraint lands, duplicate provenance stays possible for any
+          write path that does not take this lock (backfills, re-entrant
+          service calls, ad-hoc scripts), which is precisely what the constraint
+          is meant to make impossible.
+        """
+        locked_session = InterviewSession.objects.select_for_update().get(pk=session.pk)
+        # Datenmodell-Konsolidierung Phase 1: the row-locked re-fetch bypasses
+        # _get_session's correction -- resolve through the engine again. Task 12:
+        # the `status` column is dropped, so a session with no WorkflowItemState
+        # row (init failed, or predates the Task 12 fix that registers
+        # multi-mode sessions too) falls back to the interview_default preset's
+        # initial state -- same fallback _formalize_multi applies.
+        locked_status = state_reader.current_state(
+            "Interview", locked_session.id
+        ) or state_reader.initial_state("Interview")
+        if locked_status != InterviewSession.STATUS_IN_PROGRESS:
+            raise ValidationError(
+                f"InterviewSession {session.pk} is {locked_status}, cannot {action}."
+            )
+        locked_session.status = locked_status
+        return locked_session
+
+    def _write_single_artifact(self, ctx, session) -> "dict[str, Any]":
+        """Single-kind writer: one typed artifact from collected_fields.
 
         Dispatches through ARTIFACT_CREATION_ADAPTERS -- the same registry
         the multi-kind path uses -- so all 8 in-scope artifact types work
@@ -961,6 +1058,9 @@ class InterviewService(ServiceBase):
         Requirement-only: generalizing it needs a second, update-flavoured
         adapter registry, which the spec does not ask for -- see
         ``set_target()``'s matching guard.
+
+        Caller contract: must run inside a transaction that holds the row
+        lock taken by ``_lock_in_progress_session`` (see ``_formalize_single``).
         """
         # Reuse get_state()'s exact missing-fields computation: a non-empty
         # `missing` here means the interview is not actually complete yet
@@ -1091,6 +1191,12 @@ class InterviewService(ServiceBase):
 
         from workflow.services import transition as workflow_transition
 
+        # CR-07: the engine transition is best-effort by contract (see the
+        # except-branch below), so "did it actually reach the engine?" must
+        # not be inferred from the call having returned. Tracked explicitly
+        # and recorded in the audit entry's details, so a completion that
+        # only exists in memory is distinguishable from a real one.
+        transition_applied = True
         try:
             workflow_transition(
                 item_id=session.id,
@@ -1120,9 +1226,16 @@ class InterviewService(ServiceBase):
             # later re-fetch with no engine state resolves to the
             # interview_default preset's initial state instead (documented,
             # reviewed data-loss tradeoff, see Task 12 report Finding 2).
-            logger.debug(
+            transition_applied = False
+            # CR-07: the broad except stays (it protects legacy sessions
+            # without a WorkflowItemState), but the swallowed error is no
+            # longer DEBUG-level silence: warning + exc_info makes the
+            # failure path greppable in production logs, and the
+            # transition_applied=False flag below marks the audit entry so it
+            # can never be read as a clean engine transition.
+            logger.warning(
                 "InterviewService: workflow transition unavailable for session=%s, "
-                "falling back to in-memory-only status", session.id
+                "falling back to in-memory-only status", session.id, exc_info=True
             )
             session.status = InterviewSession.STATUS_COMPLETED
             session.version = F("version") + 1
@@ -1130,15 +1243,47 @@ class InterviewService(ServiceBase):
 
         # formalize() (the caller) wraps this whole method in
         # @atomic_transaction, so this is already inside an active
-        # transaction -- the outbox INSERT below runs inline in that same
-        # transaction (SA-02), and a failed/partial formalization above
-        # never reaches here.
+        # transaction -- the audit entry and the outbox INSERT below run
+        # inline in that same transaction (SA-02, and ServiceBase._audit /
+        # _emit_event are both synchronous writes), and a failed/partial
+        # formalization above never reaches here.
+        #
+        # CR-07: InterviewService wrote no AuditEntry at all before this --
+        # every write in this service was invisible to the audit trail, while
+        # its sibling WorkflowFacade._audit covered the same transition for
+        # every other item type. `operation="transition"` /
+        # `entity_type="Interview"` mirror WorkflowFacade.transition exactly,
+        # so one entity_id query returns the whole interview lifecycle.
+        self._audit(
+            ctx=ctx,
+            operation="transition",
+            entity_type="Interview",
+            entity_id=session.id,
+            change_reason="Interview formalized into a real artifact",
+            details={
+                "session_kind": InterviewSession.SESSION_KIND_SINGLE,
+                "artifact_type": session.artifact_type,
+                "resulting_artifact_ids": resulting_ids,
+                "new_state": session.status,
+                # False => the completion exists in memory only; the engine
+                # has no WorkflowItemState for this session.
+                "workflow_transition_applied": transition_applied,
+            },
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
                 entity_id=session.id,
                 workspace_id=session.workspace_id,
                 payload={
+                    # m4: INTERVIEW_FORMALIZED had three payload shapes — single
+                    # {artifact_type, resulting_artifact_ids}, multi
+                    # {artifact_type, created}, abandon {session_kind,
+                    # artifact_type}. session_kind existed only on the abandon
+                    # event, so a consumer could not tell a single formalize
+                    # from a multi one. It is carried on both formalize payloads
+                    # now, so the discriminator is on the event that needs it.
+                    "session_kind": InterviewSession.SESSION_KIND_SINGLE,
                     "artifact_type": session.artifact_type,
                     "resulting_artifact_ids": resulting_ids,
                 },
@@ -1180,25 +1325,14 @@ class InterviewService(ServiceBase):
         from application.trace_link_service import TraceLinkService
 
         with transaction.atomic():
-            # Review finding M2: re-read the session under a row lock so two
+            # Review finding M2 / M4: re-read the session under a row lock so two
             # concurrent formalize() calls cannot both pass the in_progress
             # guard above and commit duplicate batches (check-then-act race).
-            locked_session = InterviewSession.objects.select_for_update().get(pk=session.pk)
-            # Datenmodell-Konsolidierung Phase 1: re-resolve through the
-            # engine -- the row-locked re-fetch bypasses _get_session's
-            # correction. Task 12: the `status` column is dropped, so a
-            # session with no WorkflowItemState row (init failed, or predates
-            # the Task 12 fix that registers multi-mode sessions too) falls
-            # back to the interview_default preset's initial state.
-            locked_status = state_reader.current_state(
-                "Interview", locked_session.id
-            ) or state_reader.initial_state("Interview")
-            if locked_status != InterviewSession.STATUS_IN_PROGRESS:
-                raise ValidationError(
-                    f"InterviewSession {session.pk} is {locked_status}, cannot formalize."
-                )
-            locked_session.status = locked_status
-            session = locked_session
+            # Delegates to the shared guard (the single owner of this
+            # invariant) instead of repeating it inline — the inline copy was
+            # byte-identical, error message included, and had already begun to
+            # drift.
+            session = self._lock_in_progress_session(session)
 
             created_refs = []
             for item in confirmed_proposal:
@@ -1249,6 +1383,11 @@ class InterviewService(ServiceBase):
             # value below, not by a future state_reader lookup.
             from workflow.services import transition as workflow_transition
 
+            # CR-07: same "did it reach the engine?" tracking as
+            # _write_single_artifact -- the broad except below is a
+            # deliberate legacy-session fallback and must stay, but its
+            # effect has to stay legible (log level + audit detail flag).
+            transition_applied = True
             try:
                 workflow_transition(
                     item_id=session.id,
@@ -1259,25 +1398,52 @@ class InterviewService(ServiceBase):
                     workspace_id=session.workspace_id,
                 )
             except Exception:
-                logger.debug(
+                transition_applied = False
+                logger.warning(
                     "InterviewService: workflow transition unavailable for "
-                    "multi-mode session=%s", session.id
+                    "multi-mode session=%s", session.id, exc_info=True
                 )
-            # Same optimistic-concurrency bump as _formalize_single.
+            # Same optimistic-concurrency bump as _write_single_artifact.
             session.version = F("version") + 1
             session.save(update_fields=["modified_at", "version"])
 
-            # Emitted inside this same atomic() block (unlike
-            # _formalize_single, which relies on formalize()'s outer
-            # decorator) so the event is bound to the exact transaction that
-            # created the batch -- a rollback anywhere above (adapter/link
-            # failure) means this line never runs.
+            # CR-07: audit inside this same atomic() block, so a rollback
+            # anywhere above (adapter/link failure) leaves neither an audit
+            # entry nor an outbox row behind -- the two can never disagree
+            # about whether the batch committed. Mirrors
+            # WorkflowFacade.transition's seam.
+            self._audit(
+                ctx=ctx,
+                operation="transition",
+                entity_type="Interview",
+                entity_id=session.id,
+                change_reason="Multi-mode interview formalized into real artifacts",
+                details={
+                    "session_kind": InterviewSession.SESSION_KIND_MULTI,
+                    "artifact_type": None,
+                    "resulting_artifact_ids": [
+                        str(ref.artifact_id) for ref in created_refs
+                    ],
+                    "new_state": InterviewSession.STATUS_COMPLETED,
+                    "workflow_transition_applied": transition_applied,
+                },
+            )
+
+            # Emitted inside this same atomic() block (and, like the audit
+            # entry above, not merely inside _formalize_multi's caller) so
+            # the event is bound to the exact transaction that created the
+            # batch -- a rollback anywhere above (adapter/link failure) means
+            # this line never runs.
             self._emit_event(
                 self._make_event(
                     event_type=DomainEventOutbox.EventType.INTERVIEW_FORMALIZED,
                     entity_id=session.id,
                     workspace_id=session.workspace_id,
                     payload={
+                        # m4: see the single-path payload — session_kind is the
+                        # discriminator that makes single vs. multi readable
+                        # from the event alone.
+                        "session_kind": InterviewSession.SESSION_KIND_MULTI,
                         "artifact_type": None,
                         "created": [
                             {"artifact_id": str(ref.artifact_id), "artifact_type": ref.artifact_type}
@@ -1306,15 +1472,27 @@ class InterviewService(ServiceBase):
         abandoned server-side; it just silently stayed "in_progress"
         forever and kept showing up in in-progress lists. Distinct from
         formalize(): explicit user action, not a completion.
+
+        Review finding M2: the ``in_progress`` check is now taken through
+        ``_lock_in_progress_session`` like both formalize paths, i.e. under the
+        session's row lock. It used to read ``session.status`` from an unlocked
+        ``_get_session`` and never lock, so abandon() was not serialised against
+        formalize(): T1 formalized (``in_progress -> completed``), T2 had already
+        read ``in_progress`` and then — after T1's commit — validated and applied
+        ``completed -> abandoned``, a declared edge of the interview workflow. A
+        just-formalized interview was silently flipped to ``abandoned`` while
+        its artifacts stayed.
         """
-        session = self._get_session(ctx, session_id)
-        if session.status != InterviewSession.STATUS_IN_PROGRESS:
-            raise ValidationError(
-                f"InterviewSession {session_id} is {session.status}, cannot abandon."
-            )
+        session = self._lock_in_progress_session(
+            self._get_session(ctx, session_id), action="abandon"
+        )
 
         from workflow.services import transition as workflow_transition
 
+        # CR-07: same "did it reach the engine?" tracking as the formalize
+        # paths -- the broad except below is a deliberate legacy-session
+        # fallback and stays, but it must not read as a clean success.
+        transition_applied = True
         try:
             workflow_transition(
                 item_id=session.id,
@@ -1340,13 +1518,54 @@ class InterviewService(ServiceBase):
             # re-fetch with no engine state resolves to the
             # interview_default preset's initial state instead (documented,
             # reviewed data-loss tradeoff, see Task 12 report Finding 2).
-            logger.debug(
+            transition_applied = False
+            # CR-07: the broad except is kept (it protects legacy sessions
+            # without a WorkflowItemState), but the swallowed error becomes a
+            # warning with exc_info and is flagged in the audit entry below.
+            logger.warning(
                 "InterviewService: workflow transition unavailable for session=%s, "
-                "falling back to in-memory-only status", session.id
+                "falling back to in-memory-only status", session.id, exc_info=True
             )
             session.status = InterviewSession.STATUS_ABANDONED
             session.version = F("version") + 1
             session.save(update_fields=["modified_at", "version"])
+
+        # CR-07: abandon was the one interview write with NEITHER an audit
+        # entry NOR an outbox event -- a user-cancelled session left no trace
+        # in either seam. Both are written here, synchronously, inside the
+        # @atomic_transaction above, so they commit or roll back with the
+        # status change and can never claim a cancellation that did not
+        # happen. `operation="transition"` / `entity_type="Interview"` match
+        # WorkflowFacade.transition, so a session's audit trail reads as one
+        # continuous series. m5: `resulting_artifact_ids` is carried (always
+        # empty here) so the key is present on every formalize/abandon audit
+        # entry -- a consumer can then branch on the key instead of guessing
+        # from the operation's change_reason.
+        self._audit(
+            ctx=ctx,
+            operation="transition",
+            entity_type="Interview",
+            entity_id=session.id,
+            change_reason="Cancelled by user",
+            details={
+                "session_kind": session.session_kind,
+                "artifact_type": session.artifact_type,
+                "resulting_artifact_ids": [],
+                "new_state": session.status,
+                "workflow_transition_applied": transition_applied,
+            },
+        )
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.INTERVIEW_ABANDONED,
+                entity_id=session.id,
+                workspace_id=session.workspace_id,
+                payload={
+                    "session_kind": session.session_kind,
+                    "artifact_type": session.artifact_type,
+                },
+            )
+        )
         return {"status": session.status}
 
     def _compress_transcript_if_needed(self, ctx, session: InterviewSession) -> None:

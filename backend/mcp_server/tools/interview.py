@@ -197,6 +197,39 @@ class InterviewToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "session_id": {"type": "string", "description": "UUID of the interview session."},
+                    # CR-05: REST parity. POST /api/v1/interviews/{id}/formalize/
+                    # already forwarded `confirmed_proposal`; this tool's schema
+                    # had no such property and its handler passed no third
+                    # argument, so a multi-kind session over MCP ALWAYS failed
+                    # with "confirmed_proposal is required for a multi-mode
+                    # interview" -- the published multi path was permanently
+                    # blocked. Deliberately OPTIONAL, not required: single-kind
+                    # sessions must keep formalizing with session_id alone (the
+                    # single path ignores this argument entirely, exactly as it
+                    # ignores it over REST). Same list-of-{type, fields, links}
+                    # shape and same VALIDATION_ERROR channel as REST.
+                    "confirmed_proposal": {
+                        "type": "array",
+                        "description": (
+                            "Required for multi-kind sessions: the caller-confirmed "
+                            "proposal to create. One item per artifact, each "
+                            '{"type": <one of Requirement | ArchitectureElement | '
+                            'StakeholderNeed | Risk | TestCase | Adr | Issue | Goal>, '
+                            '"fields": {...}, "links": [{"from": <item index>, '
+                            '"to": <item index>, "type": <link type>}]}. All items are '
+                            "created in ONE transaction; any failure rolls the whole "
+                            "batch back. Ignored by single-kind sessions."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {"type": "string"},
+                                "fields": {"type": "object"},
+                                "links": {"type": "array", "items": {"type": "object"}},
+                            },
+                            "required": ["type", "fields"],
+                        },
+                    },
                 },
                 "required": ["session_id"],
             },
@@ -409,8 +442,13 @@ class InterviewToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context, api_key: str
     ) -> ToolResult:
         session_id = require_uuid(params, "session_id")
+        # CR-05: forward the confirmed proposal so a multi-kind session is not
+        # permanently un-formalizable over MCP. `params.get(...)` (never
+        # `params[...]`) mirrors REST's `request.data.get(...)`: a single-kind
+        # caller that omits the key must still reach the single path unchanged.
+        confirmed_proposal = params.get("confirmed_proposal")
         try:
-            result = self._service.formalize(auth_context, session_id)
+            result = self._service.formalize(auth_context, session_id, confirmed_proposal)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except ValidationError as exc:

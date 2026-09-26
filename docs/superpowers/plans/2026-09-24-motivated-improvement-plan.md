@@ -566,7 +566,7 @@ Ein grüner Generator, ein einzelner Unit-Test oder ein historischer Report erse
 **Arbeitspakete:**
 
 1. `expected_version` bis zum Lock führen und fachliche Revalidierung innerhalb der Sperre ausführen.
-2. Interview-Formalize mit Lock/Constraint/Idempotenz versehen; Audit-/Outbox-Seam verpflichtend machen.
+2. Interview-Formalize mit Lock/Constraint/Idempotenz versehen; Audit-/Outbox-Seam verpflichtend machen. Der Lock-Teil ist umgesetzt; der Constraint-Teil ist als benannter Folgeschritt in `backend/application/interview_service.py` (`_lock_in_progress_session`) hinterlegt und unten in diesem Abschnitt beschrieben.
 3. REST-/MCP-Multi-Interview-Parität mit bestätigtem Proposal herstellen.
 4. globale und abgeleitete Workflow-Definitionen als eine atomare Fachoperation mit Live-Item-/Orphan-Gate modellieren;
 5. die `CR-09`-Aussage auf Atomizität, globale/derived Divergenz und Orphan-Schutz begrenzen;
@@ -594,6 +594,8 @@ Ein grüner Generator, ein einzelner Unit-Test oder ein historischer Report erse
 **Stop/Rollback:** Bei nicht eindeutigem Lock-/Version-Semantik oder fehlendem Audit-/Outbox-Seam wird der betroffene Write-Pfad deaktiviert statt teilweise repariert. Datenmigrationen folgen Expand/Contract; ein Rollback darf keine Quelle-of-Truth trennen.
 
 **Grobe Aufwand:** L bis XL, etwa 15–30 Personentage inklusive Concurrency- und Fault-Injection-Tests.
+
+**Benannter Folgeschritt (Interview-Formalize-Constraint):** Die Constraint-Variante aus Arbeitspaket 2 ist bewusst zurückgestellt; sie wird hier nur beschrieben, weder terminiert noch mit einer eigenen Nummer versehen. Geplant ist eine `UniqueConstraint(fields=["session", "artifact"])` auf `InterviewSessionArtifact` (`persistence.models`, Tabelle `pl_interview_session_artifact`) als zweite, datenbankseitige Schicht neben dem bereits umgesetzten Row-Lock auf der Interview-Session. Expand-only: die Spalten `(session, artifact)` existieren bereits, es ist kein Daten-Umbau, kein Backfill und kein Contract-Schritt nötig; der Eingriff ist rein additiv zur bestehenden Struktur. Die Constraint gilt bewusst dem Paar und nicht `session` allein, weil eine Multi-Artifakt-Session legitim eine Zeile je erzeugtem Artefakt anlegt — eine reine Session-Uniqueness-Regel würde gültige Multi-Ergebnisse ablehnen. Vor dem Anlegen der Migration ist ein Duplikat-Vorcheck über die bestehenden Daten zwingend (Gruppierung nach `session_id, artifact_id`, Null Gruppen mit `count(*) > 1` als Erwartungswert), da die Tabelle älter ist als das heutige Formalize-Locking und die Constraint auf bereits verletzenden Daten erst zur Apply-Zeit scheitern würde; gefundene Duplikate sind vor der Migration zu bereinigen, nicht von ihr zu entscheiden. Grund des Deferments: das Schema-Delta sollte in diesem Durchgang keine eigene Migration bekommen, weil dafür eine gesonderte Freigabe fehlte. Verwandte Stelle im Code: `backend/application/interview_service.py`, Docstring von `_lock_in_progress_session`.
 
 ### 7.5 W3 — Contract-/SE-SSOT und Integrationsverträge
 
