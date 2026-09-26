@@ -614,6 +614,7 @@ class GoalService(ServiceBase):
         ctx: Any,
         change_reason: Optional[str] = None,
         credential: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> Goal:
         """Transition a Goal version's workflow state via the WorkflowEngine.
 
@@ -633,6 +634,9 @@ class GoalService(ServiceBase):
                 ``goal_default`` preset requires a non-empty reason for
                 ``Entwurf`` -> ``Freigegeben``.
             credential: Password/TOTP token for signature-gated transitions.
+            expected_version: Caller's last-seen ``WorkflowItemState.version``
+                (CR-08). Forwarded verbatim; a stale value answers
+                ``OptimisticLockError`` (409) from the engine.
 
         Returns:
             The refreshed Goal ORM instance.
@@ -641,6 +645,7 @@ class GoalService(ServiceBase):
             NotFoundError: No such Goal in the active tenant.
             ValidationError: Transition rejected by the WorkflowEngine.
             PermissionDeniedError: Preset-level role gate blocked the move.
+            OptimisticLockError: A concurrent transition won the race.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -659,6 +664,7 @@ class GoalService(ServiceBase):
             ctx=ctx,
             change_reason=change_reason or "",
             credential=credential or "",
+            expected_version=expected_version,
         )
         # The transition audit entry is written authoritatively by the
         # WorkflowEngine inside the same atomic transaction (mirrors

@@ -21,7 +21,7 @@ Import paths for downstream consumers:
 
 Public API surface (IF-WE-EXT-IN-001):
     transition(item_id, target_state, change_reason, ctx, *, credential, item_type,
-               workspace_id) -> TransitionResult
+               workspace_id, expected_version=None) -> TransitionResult
     outdate(item_id, item_type, workspace_id, ctx, *, reason) -> TransitionResult
     reactivate(item_id, item_type, workspace_id, ctx) -> TransitionResult
 
@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from auth_tenancy.context import AuthContext
@@ -241,13 +242,27 @@ def transition(
     credential: str = "",
     item_type: str = "Requirement",
     workspace_id: UUID | str,
+    expected_version: int | None = None,
 ) -> TransitionResult:
     """Execute a workflow transition for an item (IF-WE-EXT-IN-001).
 
     Orchestrates the full pipeline:
-      1. Fetch current WorkflowItemState.
-      2. Validate via TransitionValidator (all four rules).
-      3. Perform atomic state mutation + history write via StateLifecycleManager.
+      1. Lock the item's WorkflowItemState row ONCE and read the current state
+         from that locked row (CR-08).
+      2. Validate via TransitionValidator (all four rules) against the locked
+         state.
+      3. Perform atomic state mutation + history write via StateLifecycleManager,
+         handing it the already-locked row (m1) so it never re-locks.
+
+    Steps 1-3 run inside one ``transaction.atomic()`` block, so the row lock is
+    held from the state read until the history entry is committed. The history
+    entry therefore always records a ``from_state`` the edge was actually
+    validated for — two concurrent transitions can no longer both validate
+    against the same stale state and each append their own (possibly invalid)
+    edge. There is deliberately no second "did the row move on?" hook here: a
+    re-check would compare the locked row against a value read *from that same
+    locked row*, so it could never fire. The lock-read in step 1 is the whole
+    fix.
 
     Args:
         item_id:      UUID of the item to transition.
@@ -257,6 +272,17 @@ def transition(
         credential:   Password or TOTP token for SignatureGate transitions.
         item_type:    Entity type (default "Requirement").
         workspace_id: Workspace UUID.
+        expected_version: Caller's last-seen ``WorkflowItemState.version``. When
+            supplied, a concurrent transition that already bumped the version
+            answers WorkflowConflictError (409) instead of overwriting it. When
+            ``None`` (the historical behaviour), the row lock plus the CAS
+            update on the locked version still serialise concurrent writers, but
+            inside that lock the write is plain LAST-WRITER-WINS: a caller that
+            asserts no revision cannot detect that someone else moved the item
+            on and will overwrite it. The caller has to supply the revision to
+            get the 409; this function never rejects a revision-less caller.
+            (``WorkflowFacade.transition`` documents the same semantics, and
+            lists which service wrappers still omit the revision.)
 
     Returns:
         TransitionResult with the transition details.
@@ -270,61 +296,80 @@ def transition(
     item_id_uuid = UUID(str(item_id))
     workspace_uuid = UUID(str(workspace_id))
 
-    # Fetch current state
     lifecycle = _get_lifecycle()
-    item_state = lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid)
-    if item_state is None:
-        raise WorkflowStateError(
-            f"No workflow state found for item_id={item_id}, "
-            f"item_type={item_type}"
-        )
-
-    current_state = item_state.current_state
-
-    # GH-913: an agent may not approve/verify an artifact it proposed, even
-    # after a human confirmed it out of the "proposed" state. The authorship
-    # signal lives in the proposal's genesis history entry, so it is resolved
-    # here (the validator itself stays free of persistence concerns) and only
-    # for agents -- a human transition never pays for the extra lookup.
-    proposal_author = (
-        _proposing_actor(item_state) if ctx.actor_type == "agent" else ""
-    )
-
-    # Validate (COMP-WE-002)
     validator = _get_validator()
-    req = ValidationRequest(
-        item_id=item_id_uuid,
-        workspace_id=workspace_uuid,
-        item_type=item_type,
-        current_state=current_state,
-        target_state=target_state,
-        user_id=ctx.user_id,
-        user_roles=ctx.active_roles,
-        tenant_id=ctx.tenant_id,
-        actor_type=ctx.actor_type,
-        agent_label=ctx.agent_label,
-        proposal_author=proposal_author,
-        change_reason=change_reason,
-        credential=credential,
-    )
-    result = validator.validate(req)
 
-    if not result.valid:
-        raise WorkflowTransitionError(
-            error_code=result.error_code or "UNKNOWN",
-            error_message=result.error_message or "Transition rejected",
+    # CR-08: the state read, the graph validation and the state write must all
+    # observe the same row under the same lock. Nesting inside the caller's
+    # transaction (the facade opens one) keeps the audit/outbox writes atomic
+    # with this transition, exactly as before.
+    with transaction.atomic():
+        # CR-08: read the state from the locked row, never from an unlocked read.
+        item_state = lifecycle.lock_item_state(item_id_uuid, item_type, workspace_uuid)
+
+        current_state = item_state.current_state
+
+        # CR-08, precedence: a caller that asserted a revision gets its
+        # precondition answered *before* the graph is consulted. Once the locked
+        # row shows a newer version the request is a lost race, and "409, re-read
+        # the item" is the only useful answer — validating first would report
+        # "transition not allowed" for an edge that was perfectly valid when the
+        # client formed the request, which reads like bad input, not a conflict.
+        if expected_version is not None and item_state.version != expected_version:
+            raise WorkflowConflictError(
+                f"Concurrent transition detected for item_id={item_id} "
+                f"(409 Conflict): expected version {expected_version}, "
+                f"found {item_state.version}"
+            )
+
+        # GH-913: an agent may not approve/verify an artifact it proposed, even
+        # after a human confirmed it out of the "proposed" state. The authorship
+        # signal lives in the proposal's genesis history entry, so it is resolved
+        # here (the validator itself stays free of persistence concerns) and only
+        # for agents -- a human transition never pays for the extra lookup.
+        proposal_author = (
+            _proposing_actor(item_state) if ctx.actor_type == "agent" else ""
         )
 
-    # Perform transition (COMP-WE-003)
-    outcome: TransitionOutcome = lifecycle.perform_transition(
-        item_id=item_id_uuid,
-        item_type=item_type,
-        workspace_id=workspace_uuid,
-        target_state=target_state,
-        transitioned_by=str(ctx.user_id),
-        validation_result=result,
-        change_reason=change_reason,
-    )
+        # Validate (COMP-WE-002) against the locked current state.
+        req = ValidationRequest(
+            item_id=item_id_uuid,
+            workspace_id=workspace_uuid,
+            item_type=item_type,
+            current_state=current_state,
+            target_state=target_state,
+            user_id=ctx.user_id,
+            user_roles=ctx.active_roles,
+            tenant_id=ctx.tenant_id,
+            actor_type=ctx.actor_type,
+            agent_label=ctx.agent_label,
+            proposal_author=proposal_author,
+            change_reason=change_reason,
+            credential=credential,
+        )
+        result = validator.validate(req)
+
+        if not result.valid:
+            raise WorkflowTransitionError(
+                error_code=result.error_code or "UNKNOWN",
+                error_message=result.error_message or "Transition rejected",
+            )
+
+        # Perform transition (COMP-WE-003)
+        # The already-locked ``item_state`` is handed down (m1) so the row is
+        # locked once per transition instead of twice. The version compare below
+        # still runs on the very row this lock covers, so nothing is weakened.
+        outcome: TransitionOutcome = lifecycle.perform_transition(
+            item_id=item_id_uuid,
+            item_type=item_type,
+            workspace_id=workspace_uuid,
+            target_state=target_state,
+            transitioned_by=str(ctx.user_id),
+            validation_result=result,
+            change_reason=change_reason,
+            expected_version=expected_version,
+            item_state=item_state,
+        )
 
     # Menschen-im-System spec §5.1: the single seam for transition_pending.
     # This is the only non-test caller of perform_transition, so hooking here

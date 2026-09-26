@@ -112,6 +112,40 @@ def _latest_proposal_actor(
     return entry.transitioned_by if entry is not None else None
 
 
+def resolve_workflow_version(
+    item_id: UUID | str,
+    item_type: str,
+    workspace_id: UUID | str,
+) -> int | None:
+    """Return the item's current ``WorkflowItemState.version``, or ``None``.
+
+    M3: ``expected_version``/``If-Match`` on ``transitions/`` is only usable if
+    the client can *read* the revision it is supposed to echo back. Neither the
+    GET nor the POST response carried it, so a client had to reach into a second
+    endpoint (or guess) to build the precondition — the guard was discoverable
+    only from the source. ``None`` means "no workflow state row for this item",
+    which is a legitimate answer for a definition-less workspace and must not be
+    confused with revision 0.
+
+    Read through ``unscoped`` deliberately: ``item_id``/``workspace_id`` were
+    already resolved by ``_resolve_workflow_target`` under the caller's
+    authorization, so no tenant predicate is needed for correctness here — and
+    the thread-local tenant is NOT reliably set at this point in a view (it is
+    derived from the token, not set on the thread), so the scoped manager would
+    raise ``TenantContextNotSetError`` on a perfectly authorized request. Same
+    reasoning as the ``unscoped`` read in ``StateLifecycleManager``.
+    """
+    from workflow.models import WorkflowItemState
+
+    return (
+        WorkflowItemState.unscoped.filter(
+            item_id=item_id, item_type=item_type, workspace_id=workspace_id
+        )
+        .values_list("version", flat=True)
+        .first()
+    )
+
+
 def resolve_proposed_by(
     current_state: str | None,
     item_id: UUID,
@@ -127,6 +161,28 @@ def resolve_proposed_by(
     if current_state != "proposed":
         return None
     return _latest_proposal_actor(item_id, item_type, workspace_id)
+
+
+def _coerce_expected_version(value: Any) -> int | None:
+    """Normalise a client-asserted revision to an int, or ``None`` for "unset".
+
+    Unlike the PATCH routes, this action reads ``request.data`` directly, so the
+    asserted revision arrives as whatever the client sent — an ``If-Match`` tag
+    is already an int, but the legacy body field is usually a JSON *string* or
+    an int, and ``"3" != 3`` in Python would make every string-sending client
+    fail the engine's compare forever.
+
+    Raises:
+        ValueError: The value is present but is not an integer.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"expected_version must be an integer, got {value!r}."
+        ) from None
 
 
 class WorkflowTransitionsMixin:
@@ -145,6 +201,11 @@ class WorkflowTransitionsMixin:
 
     Subclasses may override ``_serialize_after_transition`` to embed the refreshed
     entity in the transition POST response.
+
+    All current users inherit ``BaseEntityViewSet``, which mixes in
+    ``ETagMixin`` — the POST action relies on its ``resolve_expected_version``
+    to turn a client-asserted ``If-Match`` header or ``expected_version`` body
+    field into the engine's ``expected_version`` (CR-08).
     """
 
     workflow_item_type: str = ""
@@ -285,13 +346,43 @@ class WorkflowTransitionsMixin:
     def transitions(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """Workflow transitions for a workflow-backed entity (REQ-143).
 
-        GET  → ``{current_state, states, allowed_transitions[]}`` — the moves
-               allowed from the current state. Drives a transition-aware UI.
+        GET  → ``{current_state, version, states, allowed_transitions[]}`` — the
+               moves allowed from the current state, plus the item's workflow
+               revision. Drives a transition-aware UI.
 
-        POST → body ``{target_state, change_reason?, credential?}``; performs the
-               transition through the WorkflowEngine (role / change_reason /
-               signature gates enforced) and returns the new state envelope,
-               optionally with the refreshed entity embedded.
+        POST → body ``{target_state, change_reason?, credential?,
+               expected_version?}``; performs the transition through the
+               WorkflowEngine (role / change_reason / signature gates
+               enforced) and returns the new state envelope, optionally with
+               the refreshed entity embedded.
+
+        Revision precondition (CR-08) — READ THIS BEFORE USING ``If-Match``
+        ==============================================================
+        On this route, ``If-Match`` and the body's ``expected_version`` denote
+        the **WorkflowItemState revision** (the ``version`` returned by both
+        responses below), NOT the entity's HTTP ETag. Three consequences, all
+        deliberate and all easy to get wrong:
+
+        * It is **not derivable**. Nothing in the workflow graph, the item's
+          fields or the ETag reveals it. The only sources are the ``version``
+          key of these two responses and the workflow-state endpoint. A client
+          cannot compute or reconstruct it — it must have been handed one.
+        * It is **not the entity ETag**. On ``PATCH /requirements/{id}/`` an
+          ``If-Match`` carries the *entity* version and a mismatch answers
+          **412 Precondition Failed**; here the same header carries the
+          *workflow* revision and a mismatch answers **409 CONFLICT**. Same
+          header, two different things, two different status codes, on two
+          routes of the same resource. An intermediary that normalises 412 to
+          409 (or vice versa) will silently mis-handle one of them.
+        * The embedded refreshed entity keeps its OWN version, namespaced under
+          its own key (e.g. ``body["requirement"]["version"]``). That is the
+          entity version for a subsequent ``PATCH`` — a different number with a
+          different meaning from the top-level ``body["version"]`` above.
+
+        Omitting both stays supported and is last-writer-wins: a caller that
+        asserts no revision is never rejected for a lost race, it just
+        overwrites whatever the winner committed. Sending a non-numeric revision
+        is a 400, not a permanent 409.
         """
         # Imported lazily to avoid a circular import: rest_api.serializers now
         # imports WorkflowStateSerializerMixin from this package at module
@@ -336,6 +427,11 @@ class WorkflowTransitionsMixin:
             return Response(
                 {
                     "current_state": avail.current_state,
+                    # M3: the revision the client echoes back as
+                    # ``expected_version`` / ``If-Match`` on the POST.
+                    "version": resolve_workflow_version(
+                        item_id, self.workflow_item_type, workspace_id
+                    ),
                     "states": list(avail.states),
                     "allowed_transitions": [
                         {
@@ -367,6 +463,21 @@ class WorkflowTransitionsMixin:
             )
         change_reason = request.data.get("change_reason", "") or ""
         credential = request.data.get("credential", "") or ""
+        # CR-08: forward the revision the client claims to have seen. The
+        # authoritative compare stays inside the engine's row-locked
+        # transaction (this view never compares anything itself), but the claim
+        # must be forwarded at all — before this, a stale `expected_version` /
+        # `If-Match` on this route was silently dropped and the transition
+        # went through as if the client had never asserted a revision.
+        try:
+            expected_version = _coerce_expected_version(
+                self.resolve_expected_version(request, request.data)
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             result = facade.transition(
                 item_id=item_id,
@@ -376,6 +487,7 @@ class WorkflowTransitionsMixin:
                 credential=credential,
                 item_type=self.workflow_item_type,
                 workspace_id=workspace_id,
+                expected_version=expected_version,
             )
         except Exception as exc:
             return self._error(exc, lang)
@@ -384,6 +496,13 @@ class WorkflowTransitionsMixin:
             "id": pk,
             "previous_state": result.previous_state,
             "new_state": result.new_state,
+            # M3: the revision AFTER this transition — i.e. the value the client
+            # sends as ``expected_version``/``If-Match`` on its NEXT call. A
+            # client that had to re-GET after every successful write to learn it
+            # could not hold a precondition across a read-modify-write at all.
+            "version": resolve_workflow_version(
+                item_id, self.workflow_item_type, workspace_id
+            ),
         }
         embedded = self._serialize_after_transition(item_id, ctx)
         if embedded is not None:
