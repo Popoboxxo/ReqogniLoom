@@ -17,7 +17,7 @@ ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Sup
 - **Layer 0 (Foundation):** Persistierung, Auth/Tenancy, Konfiguration, Audit
 - **Layer 1 (Domain Services):** LLM-Adapter, Traceability, Workflow, Baseline, Diagram, ICD
 - **Layer 2 (Orchestration):** ApplicationService (16 Services, Single Entry Point)
-- **Layer 3 (Interfaces):** REST API + MCP Server (215 Tools, 31 Tool-Gruppen-Präfixe)
+- **Layer 3 (Interfaces):** REST API + MCP Server (219 Tools, 35 Tool-Gruppen-Präfixe — Stand `v1.8.0-beta.17`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
 - **Layer 4 (Frontend):** React-SPA
 - **Cross-Cutting:** SeMetrics (Read Model), ResilienceOrchestrator
 
@@ -654,61 +654,80 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). Die folgenden 5 Gruppen sind die dokumentierte Kern-Menge; die vollständige, generierte Tool-Liste (215 Tools, 31 Gruppen-Präfixe) steht in `docs/agent-templates/tool-manifest.json`.
+**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **219 Tools in 35 Gruppen-Präfixen** (gemessen auf `v1.8.0-beta.17` (Zahlen unverändert seit der Messung, siehe `docs/api/MCP-SURFACE.md`); die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`, die lesbare Referenz in [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md)).
+
+> **Zahlen nicht aus diesem Dokument übernehmen.** Die Werkzeuganzahl ändert sich mit jedem neuen Tool; maßgeblich sind `tool-manifest.json` und die Messmethode in [`docs/api/MCP-SURFACE.md` §1](api/MCP-SURFACE.md#1-catalogue-size) (`tools/list` per `curl` oder offline `manage.py export_tool_manifest`). Die früheren Angaben in diesem Dokument (143, 171, 172, 212, 215) waren Kopien ohne Nachmessung; die CI-Guards `test_tool_manifest_drift.py` und `test_entity_surface_parity.py` verhindern inzwischen, dass eine Zahl still veraltet.
 
 **Exportierte API (Kern-Gruppen, Auszug):**
 
-**Group 1: Requirements (6 Tools)**
+**Group 1: Requirements (11 Tools)**
 ```
-create_requirement      # name, description, status → Requirement ID
-read_requirement        # requirement_id → Requirement object
-update_requirement      # requirement_id, updates → updated Requirement
-delete_requirement      # requirement_id → null
-list_requirements       # workspace_id, filters → List[Requirement]
-query_requirements      # workspace_id, query_string → List[Requirement]
-```
-
-**Group 2: Architecture (6 Tools)**
-```
-create_architecture     # name, level, type_name → Element ID
-read_architecture       # element_id → Element object
-update_architecture     # element_id, updates → updated Element
-delete_architecture     # element_id → null
-list_architecture       # workspace_id → List[Element]
-verify_consistency      # workspace_id → bool, issues[]
+requirement.create        # workspace_id, title, … → Requirement
+requirement.get           # id → Requirement
+requirement.query         # workspace_id, filters → List[Requirement]
+requirement.update        # id, data, expected_version → updated Requirement
+requirement.outdate       # id, reason → soft-deleted Requirement
+requirement.reactivate    # id → restored Requirement
+requirement.decompose     # requirement_id, workspace_id → decomposition draft
+requirement.derive        # parent_requirement_id → derived Requirement
+requirement.validate      # requirement_id → validation report
+requirement.check_consistency / .check_consistency_status
 ```
 
-**Group 3: Tests (5 Tools)**
+**Group 2: Architecture (9 Tools)**
 ```
-create_testcase         # name, requirement_id → TestCase ID
-read_testcase           # testcase_id → TestCase object
-update_testcase         # testcase_id, updates → updated TestCase
-execute_testcase        # testcase_id, inputs → result{passed, output, duration}
-list_testcases          # workspace_id → List[TestCase]
-```
-
-**Group 4: Traceability (3 Tools)**
-```
-create_tracelink        # source_id, target_id, link_type → TraceLink ID
-query_tracelinks        # artifact_id, direction="both" → List[TraceLink]
-report_coverage         # requirement_id/workspace_id → coverage%
+architecture.create          # workspace_id, title, element_type, … → Element
+architecture.get             # id → Element
+architecture.query           # workspace_id, parent_id → List[Element]
+architecture.update          # id, data, expected_version → updated Element
+architecture.link            # arch_id, target_id, link_type → TraceLink
+architecture.decompose       # element_id → decomposition proposal (preview)
+architecture.decompose_commit
+architecture.outdate / architecture.reactivate
 ```
 
-**Group 5: Memory (4 Tools, v1.2)**
+**Group 3: Tests (14 Tools, TestCase *and* TestRun)**
+```
+test.get / test.query / test.create / test.update    # TestCase CRUD
+test.link                    # test_id, req_id → 'verifies' TraceLink
+test.mark_reviewed           # test_case_id, reviewed → in-content review flag
+test.outdate / test.reactivate
+test.derive_from_requirement # mode="preview" | "write" (AI draft, #424 provenance)
+# --- TestRun: the 4-phase execution record (REQ-L2-AS-030) ---
+test.run_create              # workspace_id, name, ci_job_id?, test_case_ids?
+test.run_list                # workspace_id, status?, limit? → runs, newest first (#1080)
+test.run_get                 # run_id → run + per-TestCase result rows
+test.run_report_results      # run_id, results[] → recorded rows (upserted)
+test.run_complete            # run_id → finalized run (aggregate status + finished_at)
+```
+
+**Group 4: Traceability (5 Tools)**
+```
+traceability.create_link      # source_id, target_id, link_type → TraceLink ID
+traceability.query           # artifact_id, direction="both" → List[TraceLink]
+traceability.suggest_links   # artifact_id → link-type suggestions
+traceability.coverage        # workspace_id → coverage summary
+traceability.vcrm            # workspace_id, format=json|csv → VCRM matrix (MCP-only)
+```
+
+**Group 5: Memory (6 Tools)**
 ```
 memory.query            # Semantic search over workspace or user-tenant memory
 memory.list             # List recent memory entries (workspace or user-tenant scoped)
+memory.get              # One entry by id (RFC #1002 PR B)
+memory.write            # Create an entry explicitly (scope=workspace|user|artifact)
 memory.forget           # Delete a memory entry (ownership/admin-gated)
 memory.digest           # Consolidated digest of one scope (RFC #1002 F6, read-only)
 ```
 
 **Komponenten:**
-- `server.py` — MCP Server-Instanz
-- `tools/` — 5 Tool-Group-Module
-- `handlers/` — Request-Handler pro Tool
-- `schemas/` — JSON-Schema für Tool-Inputs/-Outputs
+- `tool_registry.py` — Registry, Rollen-/Scope-Gate, Tool-Gruppen-Registrierung
+- `tools/` — ein Modul pro Tool-Gruppe (jede Gruppe eine `BaseToolGroup`-Subklasse, siehe `tools/base.py`)
+- `protocol_handler.py` — JSON-RPC 2.0 Dispatch (`initialize`, `tools/list`, `tools/call`)
+- `views.py` / `urls.py` — HTTP- und SSE-Transport
+- `workspace_scope.py` — Workspace-Scoping des Read-Gates
 
-**Test-Coverage:** 71 Tests grün
+**Test-Coverage:** siehe [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md) und `backend/mcp_server/tests/`
 
 ---
 
@@ -1074,7 +1093,7 @@ Das optionale Honcho-Memory-Backend (`profiles: ["honcho"]`) pinnt alle aktiven 
 ### API Key Header (preferred)
 
 ```
-X-API-Key: rfk_<40 character hex string>
+X-API-Key: reqlo_<40 alphanumeric characters>
 ```
 
 ### API Key in Body (fallback, for stdio)
@@ -1094,7 +1113,7 @@ curl -X POST http://localhost:8000/api/v1/api-keys/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"claude-desktop"}'
-# Response: {"id":7, "key":"rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12", ...}
+# Response: {"id":7, "key":"reqlo_<40 chars, returned once, store it now>", ...}
 ```
 
 **The plaintext key is returned exactly once.** Store it in a password manager or environment variable immediately.
@@ -1112,12 +1131,14 @@ Returns `204 No Content`. The key is immediately invalidated.
 
 - Keys **inherit the creator's role and workspace scope** at creation time. Creating a key as Admin gives it full Admin scope; there is no separate key-role system.
 - Rotation workflow: create a new key → switch clients to use the new key → revoke the old one.
-- The `rfk_` prefix is intentional so secrets-scanners (truffleHog, Gitleaks, etc.) can detect leaked keys in source code.
+- The `reqlo_` prefix is intentional so secrets-scanners (truffleHog, Gitleaks, etc.) can detect leaked keys in source code.
 
 
 ### Tool Reference
 
-All 12 tool groups listed below. Tools are called as `<prefix>.<tool_name>` (e.g., `requirement.query`, `test.run_create`).
+> **Auszug, nicht die Referenz.** Der MCP-Server bietet **219 Tools in 35 Gruppen-Präfixen** (Stand `v1.8.0-beta.17`). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
+>
+> Tools werden als `<prefix>.<tool_name>` aufgerufen, z. B. `requirement.query` oder `test.run_create`.
 
 ####1 `requirement.*` — Requirements Management
 
@@ -1129,7 +1150,7 @@ Read, create, update, decompose, and validate requirements.
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1154,7 +1175,7 @@ Read, create, update, and link architecture artifacts (system components, subsys
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1169,28 +1190,34 @@ curl -X POST http://localhost:8000/mcp/ \
 
 ---
 
-####3 `test.*` — Test Management
+####3 `test.*` — Test Management (TestCase *and* TestRun)
 
-Read, create, link, execute test runs, and report results.
+Read, create, link, execute test runs, and report results. One group covers two
+entities; the TestRun tools use a `run_` infix rather than a separate
+`test_run` prefix.
 
-**Tools:** `get`, `query`, `create`, `update`, `link`, `run_create`, `run_get`, `run_report_results`
+**Tools (TestCase):** `get`, `query`, `create`, `update`, `link`,
+`mark_reviewed`, `outdate`, `reactivate`, `derive_from_requirement`
+**Tools (TestRun):** `run_create`, `run_list`, `run_get`,
+`run_report_results`, `run_complete`
 
 **Example:**
 ```bash
+# List the workspace's test runs (the #1080 gap: no tool could *find* a run).
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
     "params": {
-      "name": "test.run_create",
-      "arguments": {"workspace_id": 1, "testcase_ids": [10, 11, 12]}
+      "name": "test.run_list",
+      "arguments": {"workspace_id": "<uuid>", "status": "in_progress"}
     }
   }'
 ```
 
-**Role required:** Member
+**Role required:** read → Member; writes → Editor
 
 ---
 
@@ -1198,13 +1225,15 @@ curl -X POST http://localhost:8000/mcp/ \
 
 Cross-cutting queries across requirements, architecture, and tests. Search artifacts and retrieve full workspace traceability trees.
 
-**Tools:** `query`, `artifact.search`, `artifact.get_tree`, `workspace.get_context`
+**Tools:** `query`, `suggest_links`, `create_link`, `coverage`, `vcrm`
+
+> `traceability.vcrm` (Verification Cross Reference Matrix) and `traceability.coverage` have **no REST route** — a full-text search of the generated OpenAPI schema for `vcrm` returns nothing. See [`docs/api/MCP-SURFACE.md` §6](api/MCP-SURFACE.md).
 
 **Example:**
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1229,7 +1258,7 @@ Retrieve the full artifact tree and comments for a workspace.
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1254,7 +1283,7 @@ Close, reactivate, and delete workspaces. These are destructive or state-changin
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1279,7 +1308,7 @@ Set, list, revoke, and check RBAC permission rules.
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1306,7 +1335,7 @@ Create and list backups; restore a workspace from a backup.
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1331,7 +1360,7 @@ Query the system-wide audit log with filters for actor, operation, workspace, an
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1356,7 +1385,7 @@ Inspect and replay failed events from the dead-letter queue (DLQ).
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",
@@ -1381,7 +1410,7 @@ Create, list, assign roles, and deactivate users.
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_..." \
+  -H "X-API-Key: reqlo_..." \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "tools/call",

@@ -13,11 +13,25 @@ Execution model
   definition or snapshot row is written. Only the *run* row is recorded (mode
   ``dry_run``, status ``planned``), so previews are auditable history.
 * **apply** snapshots every touched artifact before writing
-  (:class:`~persistence.models.AttributeMigrationSnapshot`) and writes one
-  ``AuditEntry`` per changed artifact (spec §6, op
+  (:class:`~persistence.models.AttributeMigrationSnapshot`) **and every touched
+  attribute definition** (:class:`~persistence.models.AttributeDefinitionSnapshot`,
+  #1082) and writes one ``AuditEntry`` per changed artifact (spec §6, op
   ``attribute_migration.apply``).
-* **rollback** restores artifacts from a run's snapshots and audits each restore
-  (op ``attribute_migration.rollback``).
+* **rollback** restores artifacts *and* definitions from a run's snapshots and
+  audits each restore (op ``attribute_migration.rollback``). A changed target
+  with no before-image is reported as ``partially_rolled_back`` with the op
+  named — "reports success, changed nothing" is not a reachable state.
+
+Scope honesty
+-------------
+``ad_global_definition`` is the tenant-wide preset catalog: it has no
+``workspace_id`` and one row per ``(tenant, item_type, preset)``, and a global
+edit propagates to every on-default workspace row of that preset. ``scope\
+.workspace`` therefore bounds *value* ops only. A report never leaves that
+implicit (issue #1083): ``target_scope`` on the run, on every step and on every
+change sample says which of the two a change reaches, and an ``apply`` of a
+workspace-scoped plan that contains definition ops is refused unless the plan
+sets ``options.allow_tenant_global_definition_ops``.
 
 Safety
 ------
@@ -34,6 +48,7 @@ Safety
 """
 from __future__ import annotations
 
+import copy
 import logging
 from datetime import date, datetime
 from typing import Any, Callable, Iterable
@@ -44,9 +59,11 @@ from django.db.models import F
 from django.utils import timezone
 
 from attribute_definitions.migration_plan import (
+    DEFINITION_OPS,
     MAX_SAMPLES,
     MOVE,
     MigrationPlanError,
+    NON_WRITING_OPS,
     OP_BACKFILL_VALUE,
     OP_DEFINE_ATTRIBUTE,
     OP_DEPRECATE_ATTRIBUTE,
@@ -69,6 +86,10 @@ from attribute_definitions.migration_plan import (
     STRATEGY_DERIVE_FROM_LINK,
     STRATEGY_EXPRESSION,
     STRATEGY_SEQUENCE,
+    TARGET_SCOPE_READ,
+    TARGET_SCOPE_TENANT,
+    TARGET_SCOPE_WORKSPACE,
+    VALUE_OPS,
     evaluate_condition,
     normalize_plan,
     parse_verify_assertion,
@@ -133,6 +154,16 @@ _ARTIFACT_ACTOR_FIELDS: frozenset[str] = frozenset({"owner", "reporter"})
 
 _RUN_APPLY = "apply"
 _RUN_DRY_RUN = "dry_run"
+
+#: Rollback statuses (#1082). ``_PARTIALLY_ROLLED_BACK`` is what a rollback
+#: answers when a changed target had no before-image to restore from.
+_ROLLED_BACK = "rolled_back"
+_PARTIALLY_ROLLED_BACK = "partially_rolled_back"
+
+#: ``field`` prefix of a definition change sample, which is what tells the
+#: rollback's coverage check whether a reported change is an artifact write or a
+#: definition write (and therefore which snapshot table must cover it).
+_SAMPLE_FIELD_PREFIX_DEFINITION = "definition:"
 
 
 class AttributeMigrationNotFound(NotFoundError):
@@ -291,7 +322,22 @@ class AttributeMigrationService(ServiceBase):
         return self._execute(ctx, normalized, write=True)
 
     def rollback(self, ctx: AuthContext, run_id: Any) -> dict[str, Any]:
-        """Restore every artifact a run touched, from its snapshots."""
+        """Restore every artifact **and definition** a run touched (#1082).
+
+        Restores both snapshot tables: artifact value changes from
+        :class:`~persistence.models.AttributeMigrationSnapshot` and
+        attribute-definition changes from
+        :class:`~persistence.models.AttributeDefinitionSnapshot` — the latter
+        is what makes ``define_attribute``/``drop_attribute``/``import_scope``
+        genuinely reversible instead of reporting success over a surviving
+        change.
+
+        The status is never ``rolled_back`` while something stayed changed: a
+        target the run report lists as changed but for which no before-image
+        exists (a run applied before definition snapshots existed, or a target
+        row deleted in the meantime) is named in ``not_reverted`` and the run
+        ends ``partially_rolled_back``.
+        """
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         run = self._get_run(run_id)
@@ -299,48 +345,256 @@ class AttributeMigrationService(ServiceBase):
             raise MigrationPlanError(
                 [f"run {run.id} is a dry run and has nothing to roll back"]
             )
-        if run.status == "rolled_back":
+        if run.status in (_ROLLED_BACK, _PARTIALLY_ROLLED_BACK):
+            from persistence.models import (
+                AttributeDefinitionSnapshot,
+                AttributeMigrationSnapshot,
+            )
+
+            # Recompute rather than answering a flat "nothing left to do": a
+            # previous *partial* rollback still owes the caller the list of what
+            # it could not revert, and that list is derivable from the run's
+            # own report plus its surviving snapshots.
+            not_reverted: list[dict[str, Any]] = []
+            if run.status == _PARTIALLY_ROLLED_BACK:
+                not_reverted = self._not_reverted(
+                    run,
+                    artifact_ids={
+                        str(row.artifact_id)
+                        for row in AttributeMigrationSnapshot.objects.filter(run=run)
+                    },
+                    definition_keys={
+                        row.target_key
+                        for row in AttributeDefinitionSnapshot.objects.filter(run=run)
+                    },
+                )
             return {
                 "run_id": str(run.id),
                 "status": run.status,
                 "restored": 0,
+                "restored_artifacts": 0,
+                "restored_definitions": 0,
+                "not_reverted": not_reverted,
+                "samples": [],
                 "message": "run is already rolled back",
             }
 
-        from persistence.models import AttributeMigrationSnapshot
+        from persistence.models import (
+            AttributeDefinitionSnapshot,
+            AttributeMigrationSnapshot,
+        )
 
         snapshots = list(
             AttributeMigrationSnapshot.objects.filter(run=run).order_by("artifact_id")
         )
-        restored = 0
+        definition_snapshots = list(
+            AttributeDefinitionSnapshot.objects.filter(run=run).order_by("target_key")
+        )
+        # Global first: restoring the tenant-wide default re-propagates it into
+        # every on-default workspace row, so the per-workspace restores that
+        # follow only have to fix the rows propagation cannot touch (the
+        # customized ones). The other order would write a pre-run *workspace*
+        # image on top of an already-restored global one.
+        definition_snapshots.sort(key=lambda row: row.target_kind != "global")
+
+        restored_artifacts = 0
+        restored_definitions = 0
         samples: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
         with transaction.atomic():
             for snapshot in snapshots:
-                if self._restore_snapshot(ctx, snapshot):
-                    restored += 1
+                try:
+                    restored = self._restore_snapshot(ctx, snapshot)
+                except Exception:  # noqa: BLE001 — one target must not kill the rest
+                    logger.exception(
+                        "AttributeMigration: rollback failed for artifact %s",
+                        snapshot.artifact_id,
+                    )
+                    restored = False
+                    failed.append(
+                        {
+                            "target": str(snapshot.artifact_id),
+                            "kind": "artifact",
+                            "reason": _INTERNAL_FAILURE_MESSAGE,
+                        }
+                    )
+                if restored:
+                    restored_artifacts += 1
                 if len(samples) < MAX_SAMPLES:
                     samples.append(
                         {
                             "artifact_id": str(snapshot.artifact_id),
+                            "target_scope": TARGET_SCOPE_WORKSPACE,
+                            "restored": restored,
                             "fields": sorted(snapshot.model_fields or {}),
                         }
                     )
-            run.status = "rolled_back"
+            for snapshot in definition_snapshots:
+                try:
+                    restored = self._restore_definition_snapshot(ctx, snapshot)
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "AttributeMigration: rollback failed for definition %s",
+                        snapshot.target_key,
+                    )
+                    restored = False
+                    failed.append(
+                        {
+                            "target": snapshot.target_key,
+                            "kind": snapshot.target_kind,
+                            "reason": _INTERNAL_FAILURE_MESSAGE,
+                        }
+                    )
+                if restored:
+                    restored_definitions += 1
+                if len(samples) < MAX_SAMPLES:
+                    samples.append(
+                        {
+                            "target": snapshot.target_key,
+                            "target_scope": TARGET_SCOPE_TENANT,
+                            "restored": restored,
+                            "item_type": snapshot.item_type,
+                            "preset": snapshot.preset,
+                        }
+                    )
+            restored = restored_artifacts + restored_definitions
+            not_reverted = self._not_reverted(
+                run,
+                artifact_ids={str(row.artifact_id) for row in snapshots},
+                definition_keys={row.target_key for row in definition_snapshots},
+            )
+            not_reverted.extend(failed)
+            if not_reverted:
+                status = _PARTIALLY_ROLLED_BACK
+            else:
+                status = _ROLLED_BACK
+            run.status = status
             run.finished_at = timezone.now()
-            run.save(update_fields=["status", "finished_at", "modified_at", "version"])
+            run.counts = {**dict(run.counts or {}), "restored": restored}
+            run.save(
+                update_fields=[
+                    "status",
+                    "finished_at",
+                    "counts",
+                    "modified_at",
+                    "version",
+                ]
+            )
             self._audit(
                 ctx,
                 operation=AuditEntry.OP_ATTRIBUTE_MIGRATION_ROLLBACK,
                 entity_type="AttributeMigrationRun",
                 entity_id=run.id,
-                details={"restored": restored, "plan_id": run.plan_id},
+                details={
+                    "restored": restored,
+                    "restored_artifacts": restored_artifacts,
+                    "restored_definitions": restored_definitions,
+                    "not_reverted": len(not_reverted),
+                    "plan_id": run.plan_id,
+                },
             )
         return {
             "run_id": str(run.id),
-            "status": run.status,
+            "status": status,
             "restored": restored,
+            "restored_artifacts": restored_artifacts,
+            "restored_definitions": restored_definitions,
+            "not_reverted": not_reverted,
             "samples": samples,
         }
+
+    @staticmethod
+    def _not_reverted(
+        run: Any,
+        *,
+        artifact_ids: set[str],
+        definition_keys: set[str],
+    ) -> list[dict[str, Any]]:
+        """Name the run's changed targets that no snapshot covers (#1082).
+
+        The run's own report is the list of what it claims to have changed, so
+        comparing it against the snapshots that exist is the exact difference
+        between "everything is back" and "this is only partly back" — no
+        counter to drift out of sync with reality.
+
+        Sample lists are capped at :data:`MAX_SAMPLES`, so a step whose change
+        list was truncated is reported as one unresolvable entry rather than
+        silently counted as covered.
+        """
+        report = dict(run.report_json or {})
+        steps = report.get("steps") or []
+        findings: list[dict[str, Any]] = []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            if step.get("op") in NON_WRITING_OPS:
+                # ``export_scope``/``verify`` report an intent, not a write —
+                # there is nothing to roll back and no before-image to miss.
+                continue
+            changed = int((step.get("counts") or {}).get("changed", 0) or 0)
+            if changed <= 0:
+                continue
+            samples = [
+                sample
+                for sample in (step.get("changes") or [])
+                if isinstance(sample, dict)
+            ]
+            # Only a ``changed`` sample is a target a snapshot must cover; a
+            # ``skipped``/``unchanged`` one is the report saying "nothing was
+            # written here" and must never be counted as an unreverted change.
+            changed_samples = [
+                sample
+                for sample in samples
+                if sample.get("status") == _STATUS_CHANGED
+            ]
+            if len(changed_samples) != changed or len(samples) >= MAX_SAMPLES:
+                findings.append(
+                    {
+                        "step": step.get("index"),
+                        "op": step.get("op"),
+                        "reason": (
+                            "change list does not account for every reported "
+                            "change (truncated at MAX_SAMPLES); coverage of "
+                            "this step cannot be proven"
+                        ),
+                        "changed": changed,
+                        "reported": len(changed_samples),
+                    }
+                )
+                continue
+            for sample in changed_samples:
+                field = str(sample.get("field") or "")
+                if field.startswith(_SAMPLE_FIELD_PREFIX_DEFINITION):
+                    key = str(sample.get("definition_target") or "")
+                    covered = key in definition_keys
+                    kind = "definition"
+                else:
+                    key = str(sample.get("artifact_id") or "")
+                    covered = key in artifact_ids
+                    kind = "artifact"
+                if covered:
+                    continue
+                findings.append(
+                    {
+                        "step": step.get("index"),
+                        "op": step.get("op"),
+                        "kind": kind,
+                        "field": field,
+                        "target": key,
+                        "reason": "no before-image snapshot for this changed target",
+                    }
+                )
+        # A run that reported changes but for which nothing at all could be
+        # checked (empty report, e.g. written by a pre-#1082 build) still must
+        # not read as a clean rollback.
+        if not findings and not steps and int((run.counts or {}).get("changed", 0) or 0):
+            findings.append(
+                {
+                    "reason": "run report is empty; changed targets cannot be verified",
+                    "changed": int((run.counts or {}).get("changed", 0) or 0),
+                }
+            )
+        return findings
 
     def list_runs(
         self,
@@ -417,9 +671,11 @@ class AttributeMigrationService(ServiceBase):
             raise MigrationPlanError([f"item_type {item_type!r} has no resolvable model"])
         workspaces = self._resolve_workspaces(scope)
         digest = plan_hash(plan)
+        scope_effect = self._scope_effect(plan, workspaces)
 
         if write:
             self._assert_no_hash_conflict(plan["id"], digest)
+            self._assert_scope_honest(plan, scope_effect)
 
         mode = _RUN_APPLY if write else _RUN_DRY_RUN
         run = AttributeMigrationRun.objects.create(
@@ -463,8 +719,12 @@ class AttributeMigrationService(ServiceBase):
                         write=write,
                         snapshot_ids=snapshot_ids,
                     )
+                step_scope = self._step_target_scope(plan, step["op"])
                 outcome["index"] = index
                 outcome["op"] = step["op"]
+                outcome["target_scope"] = step_scope
+                for sample in outcome["changes"]:
+                    sample["target_scope"] = step_scope
                 steps.append(outcome)
                 if outcome["counts"]["failed"] and abort:
                     raise _StepAbort(
@@ -488,12 +748,17 @@ class AttributeMigrationService(ServiceBase):
                 "mode": mode,
                 "status": status,
                 "scope": scope,
+                # Issue #1083: how far this run reaches. A reader must never
+                # have to infer "3 presets" == "3 presets x every workspace"
+                # from the counts — the report says it outright.
+                "target_scope": scope_effect["target_scope"],
+                "scope_effect": scope_effect,
                 "steps": steps,
                 "summary": summary,
             }
             run.status = status
             run.finished_at = timezone.now()
-            run.counts = summary
+            run.counts = {**summary, "target_scope": scope_effect["target_scope"]}
             run.report_json = report
             run.snapshot_reference = snapshot_ids
             run.save(
@@ -509,6 +774,100 @@ class AttributeMigrationService(ServiceBase):
             )
             report["run_id"] = str(run.id)
         return report
+
+    def _scope_effect(
+        self, plan: dict[str, Any], workspaces: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Describe how far the plan's steps reach, in the report's own words.
+
+        Issue #1083. The honest answer has three parts, and the old report had
+        none of them:
+
+        * ``ad_global_definition`` is keyed by ``(tenant, item_type, preset)``
+          with no ``workspace_id``, and a global edit propagates into every
+          on-default workspace row of that preset. A definition op therefore
+          reaches the WHOLE TENANT, whatever ``scope.workspace`` says.
+        * value ops are bounded by the resolved ``scope.workspace``.
+        * ``workspaces_in_tenant`` is the number the dry-run's ``matched: 3``
+          was silently multiplying by.
+        """
+        from persistence.models import Workspace
+
+        scope = plan["scope"]
+        raw_workspace = scope.get("workspace", "*")
+        workspace_scoped = raw_workspace != "*"
+        definition_ops = [s["op"] for s in plan["steps"] if s["op"] in DEFINITION_OPS]
+        value_ops = [s["op"] for s in plan["steps"] if s["op"] in VALUE_OPS]
+        presets = list(scope.get("preset") or [])
+        warnings: list[str] = []
+        if definition_ops:
+            reach = TARGET_SCOPE_TENANT
+            if workspace_scoped:
+                warnings.append(
+                    "definition ops in this plan reach every workspace of the "
+                    f"tenant: scope.workspace={raw_workspace!r} narrows the value "
+                    "ops only, because ad_global_definition has no workspace_id "
+                    "and one row per (tenant, item_type, preset) propagates to "
+                    "every on-default workspace row of that preset"
+                )
+        else:
+            reach = (
+                TARGET_SCOPE_WORKSPACE if workspace_scoped else TARGET_SCOPE_TENANT
+            )
+        return {
+            "target_scope": reach,
+            "value_target_scope": (
+                TARGET_SCOPE_WORKSPACE if workspace_scoped else reach
+            ),
+            "definition_target_scope": (
+                TARGET_SCOPE_TENANT if definition_ops else None
+            ),
+            "scope_workspace": raw_workspace,
+            "workspaces_selected": len(workspaces),
+            "workspaces_in_tenant": Workspace.objects.count(),
+            "definition_presets": presets or list(PRESETS),
+            "definition_ops": list(definition_ops),
+            "value_ops": list(value_ops),
+            "non_writing_ops": [
+                s["op"] for s in plan["steps"] if s["op"] in NON_WRITING_OPS
+            ],
+            "warnings": warnings,
+        }
+
+    def _assert_scope_honest(
+        self, plan: dict[str, Any], scope_effect: dict[str, Any]
+    ) -> None:
+        """Refuse an ``apply`` whose ``scope.workspace`` cannot mean what it says.
+
+        Issue #1083 / option (c): a plan that narrows itself to a workspace list
+        *and* carries a definition op asks for a scoping the data model cannot
+        deliver. Rather than apply the tenant-wide write and report
+        ``matched: 3``, the run is refused with the two ways out: use
+        ``scope.workspace: "*"`` (the honest scope for a definition op) or set
+        ``options.allow_tenant_global_definition_ops`` to acknowledge the
+        tenant-wide reach explicitly.
+
+        ``dry_run`` never refuses — a preview is exactly where an operator has
+        to be able to see this.
+        """
+        if not scope_effect["warnings"]:
+            return
+        if plan["options"].get("allow_tenant_global_definition_ops"):
+            return
+        raise MigrationPlanError(
+            [
+                f"plan narrows scope.workspace to "
+                f"{scope_effect['scope_workspace']!r} but contains definition "
+                f"ops ({', '.join(scope_effect['definition_ops'])}), which are "
+                f"tenant-global: one write to ad_global_definition reaches all "
+                f"{scope_effect['workspaces_in_tenant']} workspace(s) of this "
+                "tenant, not only the selected one. Use scope.workspace: '*' for "
+                "a definition op, or set "
+                "options.allow_tenant_global_definition_ops: true to apply the "
+                "tenant-wide change on purpose (run the dry-run first and read "
+                "scope_effect)."
+            ]
+        )
 
     @staticmethod
     def _summary(steps: list[dict[str, Any]]) -> dict[str, Any]:
@@ -779,6 +1138,24 @@ class AttributeMigrationService(ServiceBase):
         )
 
     @staticmethod
+    def _step_target_scope(plan: dict[str, Any], op: str) -> str:
+        """How far one step's writes reach (#1083).
+
+        ``define_attribute``/``drop_attribute``/``import_scope``/... write the
+        tenant-wide preset catalog, so their answer is ``tenant`` whatever
+        ``scope.workspace`` selected. A value op is bounded by the selected
+        workspaces, and by the whole tenant when the scope did not narrow it.
+        A non-writing op reaches nothing at all.
+        """
+        if op in NON_WRITING_OPS:
+            return TARGET_SCOPE_READ
+        if op in DEFINITION_OPS:
+            return TARGET_SCOPE_TENANT
+        if plan["scope"].get("workspace", "*") != "*":
+            return TARGET_SCOPE_WORKSPACE
+        return TARGET_SCOPE_TENANT
+
+    @staticmethod
     def _empty_outcome(message: str = "") -> dict[str, Any]:
         return {
             "counts": {"matched": 0, "changed": 0, "skipped": 0, "failed": 0},
@@ -1025,6 +1402,193 @@ class AttributeMigrationService(ServiceBase):
             )
         return targets
 
+    # ------------------------------------------------------------------
+    # Definition snapshotting (issue #1082)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _definition_target_key(item_type: str, target: dict[str, Any]) -> str:
+        """Stable per-run addressing key for one definition target.
+
+        Mirrors :attr:`persistence.models.AttributeDefinitionSnapshot.target_key`
+        and is also stamped on every definition change sample, so rollback can
+        match a reported change against the before-image that covers it.
+        """
+        if target["kind"] == "global":
+            return f"global:{item_type}:{target['preset']}"
+        return f"workspace:{target['id']}:{item_type}"
+
+    def _definition_row(
+        self, ctx: Any, item_type: str, target: dict[str, Any]
+    ) -> Any | None:
+        """The definition ORM row behind *target*, or ``None`` if it has none.
+
+        Read through the stores' own ``unscoped`` + explicit ``tenant_id``
+        convention rather than the tenant manager: the stores that
+        :meth:`_read_definition`/``_save_definition`` delegate to read exactly
+        this way, and a snapshot must describe the row *they* would write.
+        """
+        from attribute_definitions.models import (
+            GlobalAttributeDefinition,
+            WorkspaceAttributeDefinition,
+        )
+
+        if target["kind"] == "global":
+            return GlobalAttributeDefinition.unscoped.filter(
+                tenant_id=ctx.tenant_id,
+                item_type=item_type,
+                preset=target["preset"],
+            ).first()
+        return WorkspaceAttributeDefinition.unscoped.filter(
+            tenant_id=ctx.tenant_id,
+            workspace_id=target["id"],
+            item_type=item_type,
+        ).first()
+
+    def _snapshot_definition(
+        self,
+        ctx: Any,
+        run: Any,
+        item_type: str,
+        target: dict[str, Any],
+        snapshot_ids: list[str],
+    ) -> str:
+        """Record *target*'s current state as this run's before-image.
+
+        ``get_or_create`` semantics on the target key, so a second step touching
+        the same definition keeps the **first** before-image — otherwise
+        rollback would restore an intermediate state instead of the state before
+        the run (the same rule the artifact snapshots follow).
+
+        Returns the target key, so callers can stamp it on their report sample.
+        """
+        from persistence.models import AttributeDefinitionSnapshot
+
+        key = self._definition_target_key(item_type, target)
+        row = self._definition_row(ctx, item_type, target)
+        snapshot, created = AttributeDefinitionSnapshot.objects.get_or_create(
+            run=run,
+            target_key=key,
+            defaults={
+                "tenant_id": ctx.tenant_id,
+                "target_kind": target["kind"],
+                "item_type": item_type,
+                "preset": (
+                    target["preset"]
+                    if target["kind"] == "global"
+                    else (row.preset if row is not None else target.get("preset") or "")
+                ),
+                "workspace_id": target.get("id"),
+                "existed": row is not None,
+                "definition_json": (
+                    copy.deepcopy(row.definition_json) if row is not None else None
+                ),
+                # Only the workspace table has the flag; ``getattr`` rather than
+                # a branch so a new column on one of the two tables cannot
+                # crash a snapshot.
+                "is_customized": (
+                    getattr(row, "is_customized", None) if row is not None else None
+                ),
+                "previous_version": row.version if row is not None else None,
+            },
+        )
+        if created:
+            snapshot_ids.append(str(snapshot.id))
+        return key
+
+    def _save_definition_snapshotted(
+        self,
+        ctx: Any,
+        run: Any,
+        item_type: str,
+        target: dict[str, Any],
+        attributes: list[dict[str, Any]],
+        snapshot_ids: list[str],
+    ) -> str:
+        """Snapshot then write one definition target, and return its key.
+
+        Every definition-writing step goes through here, which is what makes
+        ``define_attribute``/``drop_attribute``/``deprecate_attribute``/
+        ``rename_attribute``/``retype_attribute`` reversible. Before #1082 the
+        write path had no before-image at all, so the rollback had nothing to
+        restore and answered ``restored: 0`` over a change that had landed.
+        """
+        key = self._snapshot_definition(ctx, run, item_type, target, snapshot_ids)
+        self._save_definition(ctx, item_type, target, attributes)
+        return key
+
+    def _restore_definition_snapshot(self, ctx: Any, snapshot: Any) -> bool:
+        """Put one definition target back the way *snapshot* found it.
+
+        ``existed=False`` (the run created the row) means **delete** it —
+        writing the empty definition instead would leave a row that claims an
+        empty attribute set, i.e. still a change the operator asked to undo.
+        """
+        from attribute_definitions.models import (
+            GlobalAttributeDefinition,
+            WorkspaceAttributeDefinition,
+        )
+
+        with transaction.atomic():
+            if snapshot.target_kind == "global":
+                model = GlobalAttributeDefinition
+                lookup = {
+                    "tenant_id": ctx.tenant_id,
+                    "item_type": snapshot.item_type,
+                    "preset": snapshot.preset,
+                }
+            else:
+                model = WorkspaceAttributeDefinition
+                lookup = {
+                    "tenant_id": ctx.tenant_id,
+                    "workspace_id": snapshot.workspace_id,
+                    "item_type": snapshot.item_type,
+                }
+            if not snapshot.existed:
+                model.unscoped.filter(**lookup).delete()
+                restored = True
+            else:
+                updates: dict[str, Any] = {
+                    "definition_json": copy.deepcopy(snapshot.definition_json)
+                }
+                if snapshot.target_kind == "workspace":
+                    # ``update_workspace`` flips is_customized on every write,
+                    # so a rollback that left it True would silently exclude the
+                    # row from all further global propagation.
+                    updates["is_customized"] = snapshot.is_customized
+                # ``version`` is intentionally NOT written back: it is the
+                # optimistic-lock counter, and restoring a stale value would
+                # discard a concurrent editor's bump. The prior value stays in
+                # the snapshot for the audit trail.
+                updates["version"] = F("version") + 1
+                updates["modified_at"] = timezone.now()
+                restored = (
+                    model.unscoped.filter(**lookup).update(**updates) > 0
+                )
+        if restored:
+            self._invalidate_definition_cache(
+                snapshot.target_kind, snapshot.workspace_id
+            )
+        return restored
+
+    @staticmethod
+    def _invalidate_definition_cache(
+        target_kind: str, workspace_id: Any
+    ) -> None:
+        """Drop the resolved-definition cache a restore invalidated.
+
+        The facade caches the *resolved* payload per workspace; a rollback that
+        wrote the rows behind it without dropping the cache would keep serving
+        the post-migration definition for up to ``_CACHE_TTL_SECONDS``. The
+        global restore re-propagates through ``update_global``, which already
+        invalidates every derived workspace; the explicit call here covers the
+        workspace targets and keeps the two paths symmetric.
+        """
+        from application.cache_invalidation import invalidate_workspace_caches
+
+        if target_kind == "workspace" and workspace_id is not None:
+            invalidate_workspace_caches(str(workspace_id))
+
     def _step_define_attribute(
         self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
     ):
@@ -1048,6 +1612,7 @@ class AttributeMigrationService(ServiceBase):
             record = {
                 "artifact_id": None,
                 "workspace_id": str(target.get("id")) if target.get("id") else None,
+                "definition_target": self._definition_target_key(item_type, target),
                 "field": field,
                 "before": None,
                 "after": "defined",
@@ -1063,8 +1628,8 @@ class AttributeMigrationService(ServiceBase):
                 if payload_block["name"] in {a["name"] for a in current}:
                     self._record_skip(outcome, None, field, "already defined")
                     continue
-                self._save_definition(
-                    ctx, item_type, target, current + [payload_block]
+                self._save_definition_snapshotted(
+                    ctx, run, item_type, target, current + [payload_block], snapshot_ids
                 )
                 outcome["counts"]["changed"] += 1
                 self._append_sample(outcome, record)
@@ -1118,6 +1683,7 @@ class AttributeMigrationService(ServiceBase):
             record = {
                 "artifact_id": None,
                 "workspace_id": str(target.get("id")) if target.get("id") else None,
+                "definition_target": self._definition_target_key(item_type, target),
                 "field": field,
                 "before": old_name,
                 "after": new_name,
@@ -1148,7 +1714,9 @@ class AttributeMigrationService(ServiceBase):
                         updated.append({**attribute, "name": new_name})
                     else:
                         updated.append({**attribute, "type": step["new_type"]})
-                self._save_definition(ctx, item_type, target, updated)
+                self._save_definition_snapshotted(
+                    ctx, run, item_type, target, updated, snapshot_ids
+                )
                 outcome["counts"]["changed"] += 1
                 self._append_sample(outcome, record)
             except Exception:  # noqa: BLE001
@@ -1186,6 +1754,7 @@ class AttributeMigrationService(ServiceBase):
             record = {
                 "artifact_id": None,
                 "workspace_id": str(target.get("id")) if target.get("id") else None,
+                "definition_target": self._definition_target_key(item_type, target),
                 "field": field,
                 "before": "present",
                 "after": None,
@@ -1208,8 +1777,13 @@ class AttributeMigrationService(ServiceBase):
                         f"'{name}' is a core attribute and cannot be dropped by AWMS",
                     )
                     continue
-                self._save_definition(
-                    ctx, item_type, target, [a for a in current if a["name"] != name]
+                self._save_definition_snapshotted(
+                    ctx,
+                    run,
+                    item_type,
+                    target,
+                    [a for a in current if a["name"] != name],
+                    snapshot_ids,
                 )
                 outcome["counts"]["changed"] += 1
                 self._append_sample(outcome, record)
@@ -1256,6 +1830,7 @@ class AttributeMigrationService(ServiceBase):
             record = {
                 "artifact_id": None,
                 "workspace_id": str(target.get("id")) if target.get("id") else None,
+                "definition_target": self._definition_target_key(item_type, target),
                 "field": field,
                 "before": None,
                 "after": "deprecated",
@@ -1285,7 +1860,9 @@ class AttributeMigrationService(ServiceBase):
                     )
                     for a in current
                 ]
-                self._save_definition(ctx, item_type, target, updated)
+                self._save_definition_snapshotted(
+                    ctx, run, item_type, target, updated, snapshot_ids
+                )
                 outcome["counts"]["changed"] += 1
                 self._append_sample(outcome, record)
             except Exception:  # noqa: BLE001
@@ -1347,15 +1924,23 @@ class AttributeMigrationService(ServiceBase):
         merge, the core-lock and the propagation to non-customized workspaces
         behave exactly like the attribute-defaults import surface. ``dry_run``
         reports the intent without writing.
+
+        The write is snapshot-covered too (#1082): an import rewrites the whole
+        target, so without a before-image the rollback would leave the imported
+        document in place and still answer ``rolled_back``.
         """
         outcome = self._empty_outcome()
         target = step["target"]
         field = f"definition:{target['kind']}:{target['value']}"
         outcome["counts"]["matched"] += 1
+        definition_target = self._scope_ref_to_target(target)
         record = {
             "artifact_id": None,
             "workspace_id": (
                 target["value"] if target["kind"] == SCOPE_REF_WORKSPACE else None
+            ),
+            "definition_target": self._definition_target_key(
+                item_type, definition_target
             ),
             "field": field,
             "before": None,
@@ -1368,6 +1953,9 @@ class AttributeMigrationService(ServiceBase):
             self._append_sample(outcome, record)
             return outcome
         try:
+            self._snapshot_definition(
+                ctx, run, item_type, definition_target, snapshot_ids
+            )
             self._definitions.import_definition(
                 ctx,
                 item_type,
@@ -1383,6 +1971,18 @@ class AttributeMigrationService(ServiceBase):
         self._append_sample(outcome, record)
         return outcome
 
+    @staticmethod
+    def _scope_ref_to_target(ref: dict[str, str]) -> dict[str, Any]:
+        """Translate a normalized ``{preset|workspace}`` scope ref into a target.
+
+        Same shape :meth:`_definition_targets` yields, so an op that addresses a
+        scope explicitly (``import_scope``) shares the snapshot/rollback key
+        space with the ops that iterate the resolved targets.
+        """
+        if ref["kind"] == SCOPE_REF_PRESET:
+            return {"kind": "global", "preset": ref["value"]}
+        return {"kind": "workspace", "id": ref["value"], "preset": ""}
+
     def _step_requeue_definition(
         self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
     ):
@@ -1390,6 +1990,13 @@ class AttributeMigrationService(ServiceBase):
 
         Spec §8.4's hard rule: a customized workspace row is never overwritten
         after this action.
+
+        #1082: a row that already mirrors its source is reported as a *skip*,
+        not as a change. It used to be counted as ``changed`` and then handed to
+        ``reset_workspace`` — which now (correctly) refuses a no-op reset, so
+        counting it as a change would have turned an in-sync workspace into a
+        run failure. The re-materialization that actually has work to do — a
+        stale non-customized row — still runs and is snapshot-covered.
         """
         outcome = self._empty_outcome()
         presets = set(step["preset"])
@@ -1403,18 +2010,45 @@ class AttributeMigrationService(ServiceBase):
             )
             for row in rows:
                 outcome["counts"]["matched"] += 1
-                field = f"workspace:{workspace['id']}:{item_type}"
+                field = f"definition:workspace:{row.preset}:{item_type}"
                 if row.is_customized:
                     self._record_skip(
                         outcome, None, field, "workspace definition is customized"
                     )
                     continue
+                if self._workspace_row_in_sync(row):
+                    self._record_skip(
+                        outcome, None, field, "already in sync with the global default"
+                    )
+                    continue
+                record = {
+                    "artifact_id": None,
+                    "workspace_id": str(workspace["id"]),
+                    "definition_target": self._definition_target_key(
+                        item_type, {"kind": "workspace", "id": workspace["id"]}
+                    ),
+                    "field": field,
+                    "before": "stale",
+                    "after": "re-materialized",
+                    "status": _STATUS_CHANGED,
+                    "reason": "requeue_definition",
+                }
                 if not write:
                     outcome["counts"]["changed"] += 1
+                    self._append_sample(outcome, record)
                     continue
+                target = {
+                    "kind": "workspace",
+                    "id": workspace["id"],
+                    "preset": row.preset,
+                }
                 try:
+                    self._snapshot_definition(
+                        ctx, run, item_type, target, snapshot_ids
+                    )
                     self._definitions.reset_workspace(ctx, item_type, workspace["id"])
                     outcome["counts"]["changed"] += 1
+                    self._append_sample(outcome, record)
                 except Exception:  # noqa: BLE001
                     # #697 (CWE-209): log the cause, report a static message.
                     logger.exception(
@@ -1422,6 +2056,21 @@ class AttributeMigrationService(ServiceBase):
                     )
                     self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
         return outcome
+
+    @staticmethod
+    def _workspace_row_in_sync(row: Any) -> bool:
+        """True when a non-customized workspace row already equals its source.
+
+        The same "a reset that does not reset" condition
+        :meth:`attribute_definitions.workspace_definition_store.\
+WorkspaceAttributeDefinitionStore.reset` now refuses with a conflict —
+        compared here so ``requeue_definition`` reports a clean skip instead
+        of a failure.
+        """
+        source = row.source_global
+        if source is None:
+            return False
+        return row.definition_json == source.definition_json
 
     # ------------------------------------------------------------------
     # Verification

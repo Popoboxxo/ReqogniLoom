@@ -10,9 +10,10 @@
  *   - Save → PATCH /api/v1/auth/me/ via AuthContext.updateProfile.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
+import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../hooks/useSaveShortcut";
 import styles from "./ProfileSection.module.css";
 
 function extractErrorMessage(err: unknown): string {
@@ -30,6 +31,10 @@ export function ProfileSection(): JSX.Element {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Issue #1087 (behaviour rule 2): same-tick guard for the same reason as in
+  // `shared/ArtifactForm` — the `isSaving` state is not yet updated when a
+  // second Save click or `Ctrl+S` arrives in the same event-loop turn.
+  const savingRef = useRef(false);
 
   const startEdit = useCallback(() => {
     setFirstName(user?.first_name ?? "");
@@ -45,6 +50,8 @@ export function ProfileSection(): JSX.Element {
   }, []);
 
   const handleSave = useCallback(async (): Promise<void> => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setError(null);
     setSaved(false);
     setIsSaving(true);
@@ -55,9 +62,21 @@ export function ProfileSection(): JSX.Element {
     } catch (err: unknown) {
       setError(extractErrorMessage(err));
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   }, [firstName, lastName, updateProfile]);
+
+  /**
+   * Issue #1087: `Ctrl`/`Cmd`+`S` while the name is being edited.
+   *
+   * Covered because the saving mechanism is the same shape as the artifact
+   * form's — an async PATCH behind one primary button with an in-flight state —
+   * so the same hook and the same three rules apply unchanged. `enabled` is
+   * `isEditing`: in read mode there is nothing to save, and swallowing the
+   * shortcut there would only deny the browser its own action.
+   */
+  useSaveShortcut({ onSave: handleSave, enabled: isEditing, isSaving });
 
   const displayName = [user?.first_name, user?.last_name].filter(Boolean).join(" ");
 
@@ -137,6 +156,11 @@ export function ProfileSection(): JSX.Element {
               onClick={() => void handleSave()}
               disabled={isSaving}
               className={styles.primaryButton}
+              // Issue #1087: the shortcut this button also answers to. See the
+              // ArtifactForm save button for why it is announced here rather
+              // than in a shortcuts overview.
+              aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
+              title={t("profile.saveShortcutHint", "Speichern (Strg/Cmd+S)")}
             >
               {isSaving ? t("profile.saving", "Speichern…") : t("profile.save", "Speichern")}
             </button>

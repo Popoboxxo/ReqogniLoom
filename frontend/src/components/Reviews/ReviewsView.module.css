@@ -89,6 +89,56 @@
   color: var(--color-text-muted);
 }
 
+/*
+ * Issue #1089 — AI-proposal affordances.
+ *
+ * `.proposalBadge` marks every row of the proposals queue so a reviewer can
+ * see, before opening an item, that the content came from the AI. It reuses the
+ * existing badge tokens rather than introducing new colours, so the proposals
+ * queue reads as the same surface as the rest of the app.
+ */
+.proposalBadge {
+  display: inline-block;
+  margin-top: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  background: var(--color-badge-info-bg);
+  color: var(--color-badge-info-text);
+}
+
+/*
+ * `.proposalOrigin` is the detail-pane counterpart: "Vorschlag von {agent}"
+ * (or the generic "KI-Vorschlag" when the workspace recorded no proposer
+ * label). Quiet on purpose — it is provenance, not a call to action.
+ */
+.proposalOrigin {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/*
+ * `.queueModeCount` is the badge on the "AI proposals only" toggle carrying how
+ * many are waiting. It is the discoverability hinge of #1089: without a number
+ * the switch looks like an empty filter.
+ */
+.queueModeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.queueModeCount {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-badge-info-bg);
+  color: var(--color-badge-info-text);
+  font-weight: var(--weight-semibold);
+}
+
 .paginationRow {
   display: flex;
   align-items: center;

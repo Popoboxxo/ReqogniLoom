@@ -97,6 +97,18 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "Resource not found.",
         "de": "Ressource nicht gefunden.",
     },
+    # #1081: the two statuses DRF raises on its own that the rest of the
+    # registry had no entry for. They complete the status->code map in
+    # ``rest_api.error_envelope`` so every code a client can observe is a key
+    # of this registry (and therefore has a localised message).
+    "METHOD_NOT_ALLOWED": {
+        "en": "This method is not allowed on this resource.",
+        "de": "Diese Methode ist auf dieser Ressource nicht erlaubt.",
+    },
+    "UNSUPPORTED_MEDIA_TYPE": {
+        "en": "The request media type is not supported.",
+        "de": "Der Medientyp der Anfrage wird nicht unterstützt.",
+    },
     "PERMISSION_DENIED": {
         "en": "You do not have permission to perform this action.",
         "de": "Sie haben keine Berechtigung, diese Aktion durchzuführen.",
@@ -640,6 +652,24 @@ class ArtifactSystemFieldsSerializerMixin(
             "(type=enum; default low|medium|high|critical)."
         ),
     )
+    # ADR-006: the ISO 42010 stakeholder selection of a StakeholderNeed. A list
+    # of option values whose vocabulary lives in the attribute catalogue
+    # (type=multi-enum) — a classification, NOT a person reference, which is why
+    # it is not an actor field. Declared here for the same reason as the three
+    # above: the value is persisted through ``_apply_artifact_system_fields`` →
+    # ``ArtifactAttributeGateway`` (the column is on ``Artifact``), so the viewset
+    # never passes it to the service; declaring it is what lets a payload carry it
+    # past ``UnknownFieldRejectionMixin`` (#851) and what makes the read-back
+    # include the key.
+    stakeholder = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ISO 42010 stakeholder role(s)/group(s) of the need, as a list of "
+            "option values. The options are defined per (item_type, preset) in "
+            "the attribute definition (type=multi-enum) and validated there."
+        ),
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         data = super().to_representation(instance)  # type: ignore[misc]
@@ -975,14 +1005,29 @@ class RequirementSerializer(
     # RequirementLevel migration but was never exposed by the REST/MCP
     # boundaries — a client could never set it despite it being a real,
     # queryable column used by the traceability audit rules.
+    #
+    # ADR-005: exposed but then made `read_only=True` again, for a different
+    # reason. `level` is a **derived** field: it is recomputed from the
+    # hierarchy on every hierarchy change
+    # (`traceability.audit.hierarchy.recompute_requirement_levels`), and
+    # `RequirementService` no longer takes a `level` parameter. It stays
+    # declared and readable because it is the only L4 filter TRACE-P5, ARCH-003
+    # and VERIF-P8 have (`traceability/audit/hierarchy.py` has no L4 concept of
+    # its own), and because the export contract carries it
+    # (`application/export_service.py`, `application/requirement_bundle_service.py`).
+    # A client that sends it gets a field-level 400 from
+    # `RequirementViewSet.partial_update` / `.create` — never a silent drop,
+    # which is the same failure class this wave closes for `parent_id`.
     level = serializers.IntegerField(
-        required=False,
+        read_only=True,
         allow_null=True,
         min_value=1,
         max_value=4,
         help_text=(
             "V-model hierarchy level (1=System, 2=Subsystem, 3=Component, "
-            "4=Presentation). NULL until assigned explicitly."
+            "4=Presentation). DERIVED and read-only (ADR-005): recomputed from "
+            "the Requirement hierarchy on every hierarchy change, NULL when the "
+            "hierarchy does not determine a level."
         ),
     )
     # Issue [U2, systemaudit 2026-09-02]: the model field and its propagation
@@ -1566,8 +1611,9 @@ class BaselineSerializer(
     default when the UI does not supply one.
 
     ``entries`` is only present on the detail (retrieve/create) response — the
-    list endpoint returns summaries without entries (lazy loading). Each entry
-    may carry a full-state ``state`` snapshot (REQ-L2-BL-012).
+    list endpoint serialises through :class:`BaselineSummarySerializer` and
+    carries no ``entries`` key at all (#1078). Each detail entry may carry a
+    full-state ``state`` snapshot (REQ-L2-BL-012).
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -1617,6 +1663,44 @@ class BaselineSerializer(
     entries = BaselineDeltaEntrySerializer(
         many=True, read_only=True, required=False
     )
+
+
+class BaselineSummarySerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
+    """List representation of a Baseline — the detail fields minus ``entries``.
+
+    GitHub #1078 (regression report against closed #585). The list route must
+    never emit an ``entries`` key: an empty list reads as "this baseline
+    captured nothing", which is a claim the list route cannot support. Using
+    :class:`BaselineSerializer` there left the guarantee resting on whether the
+    list source happens to lack the attribute — ``_baseline_to_dict`` copies
+    ``entries`` whenever it has one, and ``BaselineDetail`` always has one
+    (defaulting to ``[]``), so the field could reappear as ``[]`` at any time.
+
+    The field is ABSENT here by construction, whatever the source carries.
+    Serialising the entries identically in both representations would mean one
+    extra detail query per row on the list, turning a single paged query into
+    an N+1 to serve data the list view has never promised. Absence is
+    unambiguous: a client renders "load details to see captured items" instead
+    of "this baseline captured nothing".
+
+    Only the read fields are declared. The two write-only inputs
+    (``override_reason``/``waived_findings``) produce no output and the
+    list route never validates a body, so carrying them here would only
+    suggest the endpoint accepts writes.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    scope = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
+    created_at = serializers.DateTimeField(read_only=True)
 
 
 class FieldChangeSerializer(serializers.Serializer):
@@ -1784,6 +1868,20 @@ class AdrSerializer(
     decision = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     consequences = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
+    # ADR-006: a multi-value **person reference** (ISO 42010 deciders) — real
+    # Actor rows, not typed names, so a rename updates every ADR that names them.
+    # Wire form is the `multiple` envelope of spec section 4. Persisted through
+    # the gateway (`_apply_artifact_system_fields` → `Adr.deciders.set(...)`),
+    # which is why `AdrViewSet` never passes it to `AdrService`.
+    deciders = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            'ISO 42010 deciders of this ADR, as '
+            '{"multiple": true, "items": [{"kind": "user", "id": "<uuid>"}]}. '
+            "Internal users and external placeholders are both Actors."
+        ),
+    )
     # #290: AdrViewSet.partial_update forwards ``data.get("change_reason")`` to
     # AdrService.update_adr(), which records it on the audit event. The field was
     # never declared here, so DRF dropped it from validated_data and the audit
@@ -2074,6 +2172,22 @@ class IssueSerializer(
     # `_issue_to_dict` and both view methods below now round-trip it via REST
     # too.
     due_date = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    # ADR-006: the multi-value **person reference** — real Actor rows, in the
+    # `multiple` envelope of spec section 4. Deliberately NOT an alias of the
+    # legacy `assignee_id`: that UUID is owned by `IssueService.assign_issue()`
+    # (REQ-L3-ISSUE-008) with its own audit trail and is not serializer-writable
+    # at all; folding it onto this carrier is an AWMS value-migration step
+    # (issue #940), a separate concern from the carrier landing.
+    assignee = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Persons/teams this issue is assigned to, as "
+            '{"multiple": true, "items": [{"kind": "user", "id": "<uuid>"}]}. '
+            "Not the legacy 'assignee_id' User UUID, which the dedicated "
+            "assign action owns."
+        ),
+    )
     # #290: see AdrSerializer.change_reason — IssueViewSet.partial_update
     # forwards it to IssueService.update_issue() but DRF dropped it.
     change_reason = SanitizedCharField(
@@ -2478,6 +2592,7 @@ __all__ = [
     "TraceLinkSerializer",
     "BaselineSerializer",
     "BaselineDeltaEntrySerializer",
+    "BaselineSummarySerializer",
     "FieldChangeSerializer",
     "DiffItemSerializer",
     "BaselineDiffSerializer",

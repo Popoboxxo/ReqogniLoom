@@ -36,6 +36,7 @@ from attribute_definitions.management.commands.bootstrap_attribute_definitions i
 )
 from attribute_definitions.models import GlobalAttributeDefinition
 from attribute_definitions.schema import (
+    ENTITY_LEVEL_CARRIER_FIELDS,
     PRESETS,
     materialize_sections,
     normalize_attribute,
@@ -43,12 +44,13 @@ from attribute_definitions.schema import (
     stored_sections,
 )
 from attribute_definitions.stage_matrix import (
+    CORE_ATTRIBUTE_LABELS_DE,
     MATRIX_ATTRIBUTES,
     PRESET_STAGE,
     build_stage_attributes,
     stage_mandatory_names,
 )
-from persistence.models import Tenant
+from persistence.models import Artifact, Tenant
 
 pytestmark = pytest.mark.django_db
 
@@ -65,13 +67,56 @@ def _by_name(item_type: str, preset: str) -> dict[str, dict]:
     }
 
 
+def _model_field_names(item_type: str) -> set[str]:
+    """Every field name that can carry a ``core`` attribute of *item_type*.
+
+    The item type's own model **plus** the shared ``Artifact`` row — those are
+    exactly the two routing targets ``ArtifactAttributeGateway`` knows (a
+    column on the entity, or a column on the backing Artifact), so this is the
+    set in which "this attribute has a carrier" is true. ``Artifact`` is not
+    consulted for the types that have no backing row (``ChangeRequest`` has one
+    but nullable; the gateway resolves through it either way).
+
+    A ``ManyToManyField`` has no column on the model, but it is a real field and
+    therefore a real carrier, so it is included.
+    """
+    from django.db import models as django_models
+
+    from attribute_definitions.management.commands.bootstrap_attribute_definitions import (
+        _resolve_model,
+    )
+
+    names: set[str] = set()
+    for model in (_resolve_model(item_type), Artifact):
+        names.update(
+            field.name
+            for field in model._meta.get_fields()
+            if isinstance(field, django_models.Field)
+        )
+    return names
+
+
 # ---------------------------------------------------------------------------
 # 1. Matrix attributes are seeded per stage
 # ---------------------------------------------------------------------------
 
 
 def test_matrix_attributes_cover_the_transcribed_rows() -> None:
-    """Every matrix ``**Neu**`` row is present for its item type, extended."""
+    """Every matrix ``**Neu**`` row is present for its item type, with a real carrier.
+
+    ADR-006 widened the matrix from "every row is an extended attribute in the
+    flat ``custom_fields`` map" to "every row is either extended, or a ``core``
+    attribute whose value the flat map structurally cannot hold (a list, a
+    person reference — see ``MATRIX_ATTRIBUTES``'s ``stakeholder``/``deciders``/
+    ``assignee`` rows)".
+
+    The second half is the load-bearing one: a ``kind="core"`` entry is only
+    honest if the item type's model really has a field of that name, because
+    that column is the whole reason the value is not free text. Asserting it
+    here is what stops the matrix from reintroducing the class of defect
+    ADR-006 removed — an attribute presented as fillable that no column and no
+    producer can ever back (the phantom ``origin_link``).
+    """
     assert set(MATRIX_ATTRIBUTES) <= set(BOOTSTRAP_ITEM_TYPES)
     for item_type, rows in MATRIX_ATTRIBUTES.items():
         built = {
@@ -79,10 +124,77 @@ def test_matrix_attributes_cover_the_transcribed_rows() -> None:
             for attribute in build_stage_attributes(item_type, "extended")
         }
         assert {row["name"] for row in rows} == set(built), item_type
+        model_fields = _model_field_names(item_type)
         for attribute in built.values():
-            assert attribute["kind"] == "extended", item_type
+            if attribute["kind"] == "core":
+                assert attribute["name"] in model_fields, (
+                    f"{item_type}.{attribute['name']} is declared kind='core' but "
+                    f"the model has no such field; a core attribute without a "
+                    f"column cannot be written (the flat custom_fields map "
+                    f"rejects the value it would have to hold)"
+                )
+            else:
+                assert attribute["kind"] == "extended", item_type
             if attribute["type"] in ("enum", "multi-enum"):
                 assert attribute["options"], f"{item_type}.{attribute['name']}"
+
+
+def test_matrix_declares_no_core_attribute_without_a_catalogued_wire_field() -> None:
+    """Every ``core`` matrix attribute is a name a transport actually carries.
+
+    The other half of the phantom-attribute guard: a column-backed attribute is
+    only reachable if the transport forwards its name (the gateway write picks
+    the names out of the payload) and the shared read projection emits it. Both
+    are driven by ``schema.ENTITY_LEVEL_CARRIER_FIELDS``, so a core matrix entry
+    outside that registry is a value the user can neither set nor read.
+    """
+    carried = {
+        (item_type, name)
+        for item_type, names in ENTITY_LEVEL_CARRIER_FIELDS.items()
+        for name in names
+    }
+    for item_type, rows in MATRIX_ATTRIBUTES.items():
+        for row in rows:
+            if row["kind"] != "core":
+                continue
+            assert (item_type, row["name"]) in carried, (
+                f"{item_type}.{row['name']} is a core (column-backed) attribute "
+                f"but is not in ENTITY_LEVEL_CARRIER_FIELDS, so no transport "
+                f"would forward or emit it"
+            )
+
+
+def test_origin_link_is_not_seeded() -> None:
+    """ADR-006: the phantom ``origin_link`` attribute is gone.
+
+    It had zero writers in the whole backend (no model field, no serializer, no
+    service parameter, no import, no export) and only these two catalogue
+    references. Removal is asserted over the *built* definition per item type
+    (not over the constant), so a re-introduction through any path fails.
+    """
+    assert "origin_link" not in CORE_ATTRIBUTE_LABELS_DE
+    for preset in PRESETS:
+        for item_type in BOOTSTRAP_ITEM_TYPES:
+            assert "origin_link" not in _by_name(item_type, preset), (item_type, preset)
+
+
+def test_source_help_text_answers_exactly_one_question() -> None:
+    """ADR-006: ``source`` is origin-only.
+
+    It used to read "Herkunft/Stakeholder der Anforderung." — two questions in
+    one sentence, which is the whole complaint of issue #1088. The stakeholder
+    half now has its own field, so the help text must not mention it again.
+    """
+    for preset in PRESETS:
+        source = _by_name("Requirement", preset)["source"]
+        for language in ("de", "en"):
+            text = source["help_text"][language]
+            assert text.strip(), language
+            assert "stakeholder" not in text.lower(), (language, text)
+            assert "/" not in text, (
+                f"source.help_text.{language} still answers two questions in one "
+                f"sentence: {text!r}"
+            )
 
 
 def test_requirement_stage_visibility_and_mandatory() -> None:

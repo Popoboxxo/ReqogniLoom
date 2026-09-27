@@ -47,7 +47,6 @@ from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import (
     ElementType,
     MoSCoWPriority,
-    RequirementLevel,
     ScenarioKind,
     Tenant,
     TestCaseOrigin,
@@ -179,7 +178,9 @@ def _seed(tenant: Tenant, user: User) -> None:
             description=f"Systemanforderung {index + 1} der Gesamtsystemebene.",
             acceptance_criteria="Nachweis über Test TC-01 mit dokumentiertem Ergebnis.",
             verification_method=_VERIFICATION_METHOD,
-            level=int(RequirementLevel.L1_SYSTEM),
+            # ADR-005: `level` is derived, not set. A requirement with no
+            # hierarchy parent IS an L1 system requirement, so the derivation
+            # arrives at L1 without the seed having to assert it.
         )
         l1_requirements.append(requirement)
         need = needs[index % len(needs)]
@@ -216,7 +217,11 @@ def _seed(tenant: Tenant, user: User) -> None:
             description=f"Verfeinerte Anforderung {index + 1} der Subsystemebene.",
             acceptance_criteria="Nachweis über den zugeordneten TestCase.",
             verification_method=_VERIFICATION_METHOD,
-            level=int(RequirementLevel.L2_SUBSYSTEM),
+            # ADR-005: the L2 level is *derived* from the hierarchy, so the
+            # parent this docstring always claimed the L2 requirements have is
+            # now actually expressed. Asserting `level=2` without the edge
+            # was the field-lies-to-you defect ADR-005 removes.
+            parent_id=l1_requirements[index % len(l1_requirements)].artifact_id,
         )
         l2_requirements.append(requirement)
         # 1:1 parent so *every* L1 requirement has a child (otherwise it counts

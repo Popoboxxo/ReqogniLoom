@@ -211,16 +211,26 @@ class RequirementsToolGroup(BaseToolGroup):
                     },
                     "level": {
                         "type": "integer",
-                        # Mirrors persistence.models.RequirementLevel (migration
-                        # 0067). The integer IS the V-model cascade level. L0
-                        # (Stakeholder Need) is a separate entity type, never a
-                        # Requirement, so 0 is not a legal value here.
-                        "enum": [1, 2, 3, 4],
+                        # ADR-005: declared as NON-settable. It used to be an
+                        # `enum: [1, 2, 3, 4]` a client could send, and the
+                        # handler forwarded it straight into
+                        # `create_requirement(level=...)`. That is gone: the
+                        # field is derived from the hierarchy, so an agent's
+                        # value would be overwritten by the derivation a
+                        # moment later — a write that looks accepted and is not.
+                        # Kept in the schema (rather than deleted) so
+                        # `additionalProperties: false` does not turn a
+                        # legacy agent's `level` into an opaque
+                        # "additional property not allowed", and so the
+                        # advertised contract stays honest about the field
+                        # existing and being readable.
                         "description": (
-                            "V-model cascade level (1=System, 2=Subsystem, "
-                            "3=Component, 4=Presentation). Omit to leave "
-                            "unassigned; a decomposed child inherits "
-                            "parent + 1 automatically."
+                            "READ-ONLY (ADR-005). V-model cascade level "
+                            "(1=System, 2=Subsystem, 3=Component, "
+                            "4=Presentation) is DERIVED from the Requirement "
+                            "hierarchy and cannot be set. Omit it: it is "
+                            "recomputed on every hierarchy change, and a "
+                            "supplied value is rejected with VALIDATION_ERROR."
                         ),
                     },
                     # REQ-L2-AS-037: extended (user-defined) attributes. Nested
@@ -253,7 +263,9 @@ class RequirementsToolGroup(BaseToolGroup):
             "description": (
                 "Update an existing requirement. Note: `status` is read-only "
                 "(REQ-143) — the WorkflowEngine owns the lifecycle state; use the "
-                "transitions endpoint to change it."
+                "transitions endpoint to change it. `level` is read-only too "
+                "(ADR-005) — it is derived from the hierarchy. `parent_id` moves "
+                "the requirement in the hierarchy and re-derives `level`."
             ),
             "inputSchema": {
                 "type": "object",
@@ -272,12 +284,33 @@ class RequirementsToolGroup(BaseToolGroup):
                             "Fields to update. `status` is READ-ONLY (REQ-143) "
                             "and ignored if present — the WorkflowEngine owns "
                             "the lifecycle state; use the transitions endpoint "
-                            "instead."
+                            "instead. `level` is READ-ONLY and derived "
+                            "(ADR-005) and is rejected if supplied. `parent_id` "
+                            "re-parents the requirement and re-derives `level`."
                         ),
                         "properties": {
                             "title": {"type": "string"},
                             "description": {"type": "string"},
                             "category": {"type": "string"},
+                            "parent_id": {
+                                "type": ["string", "null"],
+                                "description": (
+                                    "Artifact id of the new parent Requirement, or "
+                                    "null to detach this requirement to the top "
+                                    "of the cascade. Applied (ADR-005) — the "
+                                    "derived `level` is recomputed for the moved "
+                                    "requirement and everything below it."
+                                ),
+                            },
+                            "level": {
+                                "type": "integer",
+                                "description": (
+                                    "READ-ONLY (ADR-005): derived from the "
+                                    "hierarchy, never settable. Listed so the "
+                                    "contract stays explicit; a supplied value "
+                                    "is rejected with VALIDATION_ERROR."
+                                ),
+                            },
                             "change_reason": {
                                 "type": "string",
                                 "description": (
@@ -463,7 +496,20 @@ class RequirementsToolGroup(BaseToolGroup):
         req_type: str = params.get("type", "SyReq")
         complexity_fibonacci = params.get("complexity_fibonacci")
         verification_method = params.get("verification_method")
-        level = params.get("level")
+        # ADR-005: `level` is derived from the hierarchy (see the schema entry).
+        # It used to be forwarded into create_requirement(level=...), which is
+        # how an agent could store a cascade position the hierarchy does not
+        # support. Refuse it explicitly rather than let the derivation
+        # overwrite it: an accepted-then-ignored write is the exact defect this
+        # wave closes for REST `parent_id`.
+        if params.get("level") is not None:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "'level' is derived from the Requirement hierarchy and cannot "
+                "be set (ADR-005). Create the requirement with 'parent_id' (or "
+                "add a 'decomposes' / 'derives-from' link) and read the derived "
+                "level back.",
+            )
         # REQ-L2-AS-037 / Epic #934 WS1: the extended attributes were accepted
         # by RequirementService.create_requirement() but silently dropped here.
         custom_fields = params.get("custom_fields")
@@ -494,7 +540,6 @@ class RequirementsToolGroup(BaseToolGroup):
                     type=req_type,
                     complexity_fibonacci=complexity_fibonacci,
                     verification_method=verification_method,
-                    level=level,
                     custom_fields=custom_fields,
                 )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
@@ -578,12 +623,36 @@ class RequirementsToolGroup(BaseToolGroup):
         if "custom_fields" in data or "custom_fields" in params:
             custom_fields_kwargs["custom_fields"] = _field("custom_fields")
 
+        # ADR-005: `parent_id` re-parents and re-derives `level`. Same
+        # "only forward what was sent" rule as custom_fields — an absent key must
+        # not be conflated with "detach to the top of the cascade".
+        hierarchy_kwargs: Dict[str, Any] = {}
+        if "parent_id" in data or "parent_id" in params:
+            hierarchy_kwargs["parent_id"] = _field("parent_id")
+
         try:
             # Ledger gap #1 / issue #881: same central gate as
             # RequirementViewSet.partial_update. workspace_id is not part of
             # this tool's params, so it is resolved via the same lookup
             # requirement.outdate already uses.
             existing_req = self._service.get_requirement(req_id, auth_context)
+
+            # ADR-005: `level` is derived and read-only. The update path never
+            # forwarded it (that asymmetry with the create path was the gap the
+            # ADR closes), but "not forwarded" alone would still be a silent
+            # accept — the very failure class this wave removes. An unchanged
+            # echo is tolerated, mirroring the REST `status` contract (#263): a
+            # client that resends the object it just read keeps its other
+            # edits.
+            sent_level = _field("level")
+            if sent_level is not None and sent_level != existing_req.level:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    "'level' is derived from the Requirement hierarchy and "
+                    "cannot be set (ADR-005). Send 'parent_id' to move the "
+                    "requirement, then read the derived level back.",
+                )
+
             definition_error = validate_artifact_write(
                 auth_context,
                 "Requirement",
@@ -608,6 +677,7 @@ class RequirementsToolGroup(BaseToolGroup):
                     category=_field("category"),
                     change_reason=_field("change_reason"),
                     **custom_fields_kwargs,
+                    **hierarchy_kwargs,
                 )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             apply_system_fields("Requirement", req, system_values, auth_context)

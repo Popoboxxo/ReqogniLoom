@@ -629,7 +629,7 @@
     "priorityNone": "Keine",
     "deriveStarting": "KI-Ableitung wird gestartet...",
     "deriveStarted": "Task gestartet: {{taskId}}. Warte auf Abschluss...",
-    "deriveSuccess": "Systemanforderungen erfolgreich abgeleitet!",
+    "deriveSuccess": "Systemanforderungen abgeleitet – {{count}} Vorschlag/Vorschläge warten unter „Reviews → Nur KI-Vorschläge“ auf deine Prüfung.",
     "deriveFailed": "Ableitung fehlgeschlagen.",
     "deriveRolledBack": "{{message}} Das bereits angelegte Requirement wurde zurückgenommen (archiviert).",
     "derivePartialFailure": "{{message}} Achtung: Ein Requirement wurde bereits angelegt, aber die Verknüpfung zum Bedarf ist fehlgeschlagen und die automatische Rücknahme ebenfalls. Bitte manuell prüfen (Requirement-ID: {{id}}).",
@@ -1536,7 +1536,13 @@
     "ariaLabel": "Benachrichtigungen",
     "label": "Benachrichtigungen",
     "empty": "Nichts Neues.",
-    "markAllRead": "Alle als gelesen markieren"
+    "markAllRead": "Alle als gelesen markieren",
+    "loading": "Benachrichtigungen werden geladen …",
+    "loadFailed": "Benachrichtigungen konnten nicht geladen werden.",
+    "preferencesUnavailable": "Deine Benachrichtigungseinstellungen konnten nicht gelesen werden, daher werden diese Benachrichtigungen ungefiltert angezeigt.",
+    "unread": "{{count}} ungelesene Benachrichtigungen",
+    "unread_one": "{{count}} ungelesene Benachrichtigung",
+    "unread_other": "{{count}} ungelesene Benachrichtigungen"
   },
   "notificationPreferences": {
     "title": "Benachrichtigungen",
@@ -1706,6 +1712,7 @@
   },
   "archDecompose": {
     "trigger": "KI-Zerlegung",
+    "triggerHint": "Die KI schlägt eine Zerlegung des Elements in Unterelemente vor – übernommen wird erst nach deiner Bestätigung",
     "title": "KI-Zerlegung",
     "close": "Schließen",
     "maxBreadth": "Max. Kinder je Ebene",
@@ -1766,7 +1773,7 @@
     "stepPlaceholder": "Aktion",
     "expectedResultPlaceholder": "Erwartetes Ergebnis",
     "addStep": "Schritt hinzufügen",
-    "removeStep": "Entfernen",
+    "removeStep": "Schritt {{index}} entfernen",
     "create": "Testfall anlegen",
     "creating": "Wird angelegt...",
     "discard": "Verwerfen",
@@ -1931,6 +1938,25 @@
     "revealed": "Wert angezeigt",
     "revealHint": "Zum Anzeigen klicken oder {{shortcut}} drücken"
   },
+  "idChip": {
+    "systemIdTerm": "System-ID",
+    "readableIdTerm": "Lesbare ID",
+    "copy": "{{kind}} kopieren",
+    "copyWithLabel": "{{label}}: {{kind}} kopieren",
+    "copiedSystemId": "UUID kopiert",
+    "copiedUidFallback": "UID kopiert, weil keine System-ID vorhanden",
+    "copyFailed": "Kopieren fehlgeschlagen"
+  },
+  "identifiers": {
+    "title": "Kennungen",
+    "hint": "Artefakte tragen zwei Kennungen: eine lesbare, im Workspace hochgezählte (z. B. REQ-001) und eine System-ID (UUID). Kopiert wird immer die System-ID, weil nur sie außerhalb dieses Workspaces gilt.",
+    "showReadable": "Lesbare IDs anzeigen (z. B. REQ-001)",
+    "readableShown": "Lesbare IDs werden angezeigt. Die System-ID bleibt zusätzlich kopierbar.",
+    "readableHidden": "Lesbare IDs sind ausgeblendet. Die System-ID bleibt kopierbar.",
+    "persistenceNote": "Hinweis: Diese Einstellung wird nur in diesem Browser gespeichert. Für einen server-seitigen Benutzer-Vorzug wird noch ein eigener Endpunkt benötigt.",
+    "accountLabel": "Ihr Konto",
+    "accountUnavailable": "Konto wird geladen…"
+  },
   "pageHeader": {
     "more": "Weitere Aktionen",
     "moreLabel": "Weitere Aktionen anzeigen"
@@ -2052,17 +2078,29 @@
     "spineCount": "Anzahl der Artefakte auf dieser Station beziehungsweise der verknüpften Testfälle. Anklicken öffnet die Liste.",
     "spineEmpty": "Auf dieser Station fehlt eine Verknüpfung — eine Lücke in der Nachverfolgbarkeit."
   },
+  "aiActions": {
+    "heading": "KI-Aktionen",
+    "hint": "Alle KI-gestützten Aktionen für dieses Element an einem Ort. Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung."
+  },
   "systemSettings": {
     "themes.heading": "Design-Paletten",
-    "themes.hint": "Benannte Farbpaletten für den gesamten Tenant. System-Paletten sind schreibgeschützt; eigene Paletten als JSON-Datei importieren.",
+    "themes.hint": "Benannte Farbpaletten für den gesamten Tenant. Eigene Paletten lassen sich als JSON-Datei importieren.",
     "themes.readOnly": "Schreibgeschützt",
+    "themes.systemReadOnlyHint": "System-Palette kann nicht geändert werden",
     "themes.export": "Exportieren",
+    "themes.exportJson": "JSON exportieren",
+    "themes.exportJsonFor": "{{label}} als JSON exportieren",
     "themes.delete": "Löschen",
+    "themes.deleteFor": "{{label}} löschen",
     "themes.deleteConfirmTitle": "Palette löschen",
     "themes.deleteConfirmMessage": "Palette \"{{label}}\" endgültig löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+    "themes.deleteConfirmButton": "{{label}} endgültig löschen",
     "themes.importLabel": "Palette importieren (JSON):",
+    "themes.importButton": "JSON-Datei auswählen",
     "themes.tenantDefaultLabel": "Tenant-Standard:",
+    "themes.tenantDefaultTarget": "Standard: {{target}}",
     "themes.tenantDefaultSave": "Als Standard speichern",
+    "themes.tenantDefaultSaveFor": "{{target}} als Standard speichern",
     "themes.tenantDefaultSaved": "Gespeichert",
     "memory.heading": "Memory-Übersicht",
     "memory.hint": "Pro Workspace: Memory-Status, Anzahl Einträge je Ebene, letzte Konsolidierung. Löschen entfernt Workspace-Memory und das Tenant-Memory der aktuellen Workspace-Mitglieder unwiderruflich.",
@@ -2173,7 +2211,8 @@
     }
   },
   "profile": {
-    "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen."
+    "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen.",
+    "saveShortcutHint": "Speichern (Strg/Cmd+S)"
   },
   "permissions": {
     "revoke": "Widerrufen",
@@ -2244,7 +2283,9 @@
       "title": "Interview-Assistent",
       "open": "Interview-Assistent öffnen",
       "close": "Interview-Assistent schließen",
-      "hint": "Wähle einen Typ — das Interview öffnet sich unter /interviews."
+      "hint": "Wähle einen Typ — das Interview öffnet sich unter /interviews.",
+      "tabsLabel": "Interview-Assistent-Bereiche",
+      "tabStart": "Interview starten"
     },
     "multi": {
       "chatPlaceholder": "Beschreibe dein Problem...",
@@ -2320,7 +2361,8 @@
     "actorRemove": "{{name}} entfernen",
     "systemValueUnavailable": "Kein Wert",
     "changeReason": "Änderungsgrund",
-    "changeReasonRequired": "Bitte einen Änderungsgrund angeben."
+    "changeReasonRequired": "Bitte einen Änderungsgrund angeben.",
+    "saveShortcutHint": "Speichern (Strg/Cmd+S)"
   },
   "sections": {
     "identification": "Identifikation",

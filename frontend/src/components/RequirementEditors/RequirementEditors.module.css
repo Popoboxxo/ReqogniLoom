@@ -170,10 +170,6 @@
   color: var(--color-danger);
 }
 
-.deriveTestcaseSection {
-  margin-top: var(--space-2);
-}
-
 .selectPlaceholder {
   color: var(--color-text-muted);
   font-size: var(--font-size-lg);

@@ -20,7 +20,7 @@
  * `NeedForm` was its only consumer, and field visibility now comes from the
  * resolved attribute definition like every other migrated type.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
@@ -33,6 +33,7 @@ import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
+import { AiActionSection, type AiActionDescriptor } from '../shared/AiActions';
 import { DeriveRequirementsPanel } from './DeriveRequirementsPanel';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
@@ -202,7 +203,11 @@ export default function NeedsEditors(): JSX.Element {
     }
   };
 
-  const handleDerive = async () => {
+  // Issue #1092: stabilised with `useCallback` because the route's
+  // `<AiActionSection>` action list below depends on it — the memo would
+  // otherwise be invalidated on every render. Same reason RequirementEditors
+  // wraps its `handleAiDerive`.
+  const handleDerive = useCallback(async () => {
     if (!need) return;
     setIsDeriving(true);
     setDerivationIsError(false);
@@ -225,7 +230,33 @@ export default function NeedsEditors(): JSX.Element {
     } finally {
       setIsDeriving(false);
     }
-  };
+  }, [need, t]);
+
+  /**
+   * Issue #1092: the route's AI-action set, in one list. The trigger itself
+   * used to be a prop of `TraceLinkPanel` and rendered in that panel's header
+   * row; it now sits in the single `<AiActionSection>` below, next to every
+   * other AI action on the route, carrying the same flat icon.
+   *
+   * Empty while no need is selected — `<AiActionSection>` renders nothing for
+   * an empty list, so there is no AI region on a context that cannot act.
+   */
+  const aiActions = useMemo<AiActionDescriptor[]>(() => {
+    if (!need) return [];
+    return [
+      {
+        label: t('actions.deriveAi', 'KI-Ableitung'),
+        busyLabel: t('actions.derivingAi', 'KI-Ableitung läuft…'),
+        hint: t(
+          'actions.deriveAiHint',
+          'Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
+        ),
+        onClick: () => void handleDerive(),
+        disabled: isDeriving,
+        testId: 'need-ai-derive-btn',
+      },
+    ];
+  }, [need, t, handleDerive, isDeriving]);
 
   const handleDraftsAccepted = (count: number) => {
     setDerivedDrafts(null);
@@ -485,10 +516,17 @@ export default function NeedsEditors(): JSX.Element {
               <TraceLinkPanel
                 workspaceId={need.workspace_id}
                 artifactId={need.artifact_id}
-                onDerive={handleDerive}
-                isDeriving={isDeriving}
               />
             )}
+            {/* Issue #1092: the AI derive action's new, single home on this
+                route. `need-ai-derive-btn` is the only AI trigger here, but it
+                shares the icon, the button variant and the "no section without
+                capability" rule with the Requirements and Architecture routes. */}
+            <AiActionSection
+              title={t('aiActions.heading')}
+              hint={t('aiActions.hint')}
+              actions={aiActions}
+            />
             {derivationStatus && (
               <div
                 role={derivationIsError ? 'alert' : 'status'}

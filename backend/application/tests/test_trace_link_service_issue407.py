@@ -113,6 +113,20 @@ class TestResolveRiskAndIssue:
             _miss(stack, *_EARLIER_MODELS)
             _hit(stack, _RISK_PATH, mock_risk)
             _miss(stack, _ISSUE_PATH)
+            # #1075: the chain now ends in the registry-driven fallback. The
+            # ``_miss`` stubs neutralise ``objects.filter(...).first()``, which
+            # is the shape the ten hand-maintained probes use; the fallback
+            # chains ``.exclude().values_list().first()``, which a chained
+            # MagicMock turns into a *hit*. Stub it to "found nothing" — this
+            # test is about the Risk/Issue null-artifact guard, and the
+            # fallback is covered by
+            # ``persistence/tests/test_artifact_backing_resolution_1075.py``.
+            stack.enter_context(
+                patch(
+                    "persistence.artifact_backing.resolve_backing_artifact_id",
+                    return_value=None,
+                )
+            )
 
             with pytest.raises(NotFoundError, match="Entity"):
                 svc._resolve_artifact_id(risk_id)

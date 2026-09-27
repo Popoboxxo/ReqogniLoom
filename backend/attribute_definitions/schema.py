@@ -10,7 +10,7 @@ service and the table view; every key below is part of it.
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 ATTRIBUTE_KINDS: frozenset[str] = frozenset({"core", "extended"})
 
@@ -68,6 +68,14 @@ SYSTEM_FIELDS_ENABLED_ITEM_TYPES: frozenset[str] = frozenset(
     }
 )
 
+#: The attribute types. ``multi-enum`` is the multi-value variant of ``enum``
+#: (spec section 3.1): its value is a **list** of ``options[].value``, so a
+#: multi-select can be defined purely from the catalogue like every other enum
+#: — no model column is required for the *definition*. The carrier that can
+#: actually hold the list is a separate question (see
+#: :data:`ENTITY_LEVEL_CARRIER_FIELDS`): ``Artifact.custom_fields`` is flat
+#: (REQ-L2-AS-037) and rejects arrays, so a multi-enum needs a column-backed
+#: ``kind="core"`` carrier.
 ATTRIBUTE_TYPES: frozenset[str] = frozenset(
     {
         "text", "textarea", "number", "boolean", "enum", "multi-enum",
@@ -80,6 +88,76 @@ ATTRIBUTE_TYPES: frozenset[str] = frozenset(
 #: (``field_validation._check_type``). ``user`` is the legacy spelling kept
 #: readable for definitions written before the ``actor`` type existed.
 ACTOR_TYPES: frozenset[str] = frozenset({"actor", "user"})
+
+#: Attribute names whose value cannot live in the flat ``Artifact.custom_fields``
+#: map (REQ-L2-AS-037 rejects nested objects **and** arrays) and therefore
+#: needs a column-backed ``kind="core"`` carrier.
+#:
+#: Maps ``item_type -> (attribute name, ...)``; the names are the ones a
+#: transport must carry in addition to the Artifact-level system fields, in
+#: wire order. Both transports resolve them through the ONE shared projection
+#: (``application.artifact_attribute_gateway.artifact_system_fields``) and
+#: persist them through the ONE shared write seam
+#: (``ArtifactAttributeGateway.write``), which is what keeps REST and MCP
+#: identical (spec section 11 / ADR-004).
+#:
+#: Why a registry and not a lookup against the model or the resolved
+#: definition:
+#:
+#: * The read projection is called from places that hold a **DTO**, not a
+#:   resolved definition and no ``ctx`` (``rest_api.views._need_to_dict``,
+#:   ``mcp_server.tools.needs._need_to_dict``). A definition lookup is not
+#:   available there, so the read side is driven by the entity's own shape.
+#: * The write side resolves the real definition anyway, so it is driven by
+#:   ``type``/``multiple`` on the attribute, not by this table. The table only
+#:   says *which names a transport must forward* — the property that
+#:   ``rest_api.views._SYSTEM_FIELD_NAMES`` and
+#:   ``mcp_server.tools.system_fields.SYSTEM_FIELD_NAMES`` need so a
+#:   multi-actor / list value is never splatted into a service that cannot
+#:   accept it (``TypeError``) nor silently dropped.
+#:
+#: Adding the *next* multi-valued attribute is therefore a config change: one
+#: entry here, one column, one catalogue entry — no new transport code.
+#: ADR-006, the third carrier pattern after the single-valued Artifact
+#: ``owner``/``reporter`` Actor FKs (WS2/#936) and the flat extended map.
+ENTITY_LEVEL_CARRIER_FIELDS: Mapping[str, tuple[str, ...]] = {
+    #: ISO 42010 deciders — a multi-selection of Actors, not a typed name list.
+    "Adr": ("deciders",),
+    #: A multi-selection of Actors. Distinct from the legacy
+    #: ``Issue.assignee_id`` User UUIDField, which stays the service-level
+    #: ``assign_issue`` contract and is excluded from introspection.
+    "Issue": ("assignee",),
+    #: ISO 42010 stakeholder — a multi-selection of *classifications* (a role
+    #: or a group), NOT a person reference. See ADR-006 option D: an Actor row
+    #: per role would be invented data.
+    "StakeholderNeed": ("stakeholder",),
+}
+
+
+def entity_carrier_fields(item_type: str) -> tuple[str, ...]:
+    """Return the carrier-backed attribute names *item_type* adds to the wire.
+
+    Unknown item types return an empty tuple rather than raising: this is a
+    transport-projection convenience, not a schema gate (``validate_definition_key``
+    is the gate).
+    """
+    return ENTITY_LEVEL_CARRIER_FIELDS.get(item_type, ())
+
+
+def all_entity_carrier_fields() -> tuple[str, ...]:
+    """Every name in :data:`ENTITY_LEVEL_CARRIER_FIELDS`, de-duplicated.
+
+    The wire-forwarding set the transports apply to a create/update payload.
+    Flat rather than per-item-type because both call sites (``_SYSTEM_FIELD_NAMES``
+    on REST, ``SYSTEM_FIELD_NAMES`` on MCP) filter a payload by *name presence*,
+    and a name can only ever mean one thing per entity.
+    """
+    seen: dict[str, None] = {}
+    for names in ENTITY_LEVEL_CARRIER_FIELDS.values():
+        for name in names:
+            seen.setdefault(name, None)
+    return tuple(seen)
+
 
 #: ``"workflow"`` means: changeable only through a workflow transition.
 #: ``"system"`` means: server-owned (the Artifact id/status), never a client
@@ -1174,6 +1252,7 @@ __all__ = [
     "CORE_EDITABLE_META_PROPERTIES",
     "DISPLAY_FORMAT_VALUES",
     "EDITABLE_VALUES",
+    "ENTITY_LEVEL_CARRIER_FIELDS",
     "GRID_COLUMNS",
     "ITEM_TYPES",
     "LOCKED_IMMUTABLE_PROPERTIES",
@@ -1188,8 +1267,10 @@ __all__ = [
     "SPAN_COLUMNS",
     "SYSTEM_FIELDS_ENABLED_ITEM_TYPES",
     "WIDGET_KEYS",
+    "all_entity_carrier_fields",
     "effective_attribute_flow",
     "effective_section_flow",
+    "entity_carrier_fields",
     "materialize_attribute_flow",
     "materialize_section_flow",
     "materialize_sections",

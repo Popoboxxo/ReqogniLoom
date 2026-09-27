@@ -5,7 +5,14 @@ A deliberately thin wrapper over WorkflowFacade / workflow.services — no new
 state machine, no new state_meta flags. Reuses:
   - workflow.services.is_approval_gate (Phase 5 Task 2) for
     review.list_pending: a transition is a real human approval decision when
-    its allowed_roles excludes "editor".
+    its allowed_roles excludes "editor". The walk itself now lives in
+    ``application.review_queue_service.ReviewQueueService`` (issue #1089), which
+    the REST endpoints ``GET /api/v1/reviews/pending/`` and
+    ``GET /api/v1/workspaces/{id}/reviews/pending/`` share — one service, two
+    transports. That service additionally surfaces items in the ``"proposed"``
+    state (AI proposals awaiting a human), which ``is_approval_gate``
+    deliberately does not match because a proposal's own moves are
+    editor-gated.
   - WorkflowEngineDefinition's state_meta "auto_approve_target" (Phase 3) for
     review.approve's destination (falls back to the first approval-gated
     transition's target when no explicit auto_approve_target is configured).
@@ -26,7 +33,12 @@ from typing import Any, Dict
 
 from auth_tenancy.context import AuthContext
 
-from application.base import OptimisticLockError, PermissionDeniedError, ValidationError
+from application.base import (
+    NotFoundError,
+    OptimisticLockError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from application.workflow_facade import WorkflowFacade
 
 from mcp_server.tools.base import (
@@ -151,37 +163,43 @@ class ReviewToolGroup(BaseToolGroup):
     def _handle_list_pending(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        from workflow.services import is_approval_gate, list_item_states
+        from application.review_queue_service import ReviewQueueService
 
         workspace_id = require_uuid(params, "workspace_id")
         item_type = params.get("item_type")
 
-        facade = WorkflowFacade()
-        # ADR-01 (#124): the tenant/workspace/item_type filtering moved into
-        # workflow.services.list_item_states — same queryset, same laziness.
-        qs = list_item_states(
-            workspace_id,
-            tenant_id=auth_context.tenant_id,
-            item_type=item_type,
-        )
-
-        pending = []
-        for state in qs:
-            available = facade.get_available_transitions(
-                state.item_id,
-                auth_context,
-                item_type=state.item_type,
-                workspace_id=workspace_id,
+        try:
+            # Issue #1089: one source of truth for "what awaits a human". This
+            # used to be an inline `list_item_states` + `get_available_
+            # transitions` + `is_approval_gate` walk here; it now lives in
+            # ``application.review_queue_service.ReviewQueueService``, which the
+            # REST endpoints ``GET /api/v1/reviews/pending/`` and
+            # ``GET /api/v1/workspaces/<id>/reviews/pending/`` call as well. Two
+            # transports, one decision.
+            pending = ReviewQueueService().list_pending(
+                auth_context, workspace_id=workspace_id, item_type=item_type
             )
-            if any(is_approval_gate(t) for t in available.transitions):
-                pending.append(
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+
+        # The three-key shape is the tool's published contract and stays exactly
+        # as it was; the richer provenance (is_proposal / proposed_by /
+        # approval_targets) is the REST projection's job, not a wire change here.
+        return ToolResult.ok(
+            {
+                "items": [
                     {
-                        "item_id": str(state.item_id),
-                        "item_type": state.item_type,
-                        "current_state": state.current_state,
+                        "item_id": item.item_id,
+                        "item_type": item.item_type,
+                        "current_state": item.current_state,
                     }
-                )
-        return ToolResult.ok({"items": pending, "count": len(pending)})
+                    for item in pending
+                ],
+                "count": len(pending),
+            }
+        )
 
     # ------------------------------------------------------------------
     # review.approve

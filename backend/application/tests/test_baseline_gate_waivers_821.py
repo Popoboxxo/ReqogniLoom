@@ -186,10 +186,10 @@ class TestPerBlockerWaiver:
                     workspace_id=workspace.id,
                     name="gh821-unknown",
                     ctx=ctx,
-                    waived_findings=[_waiver("CONS-P11", ("other-art",))],
+                    waived_findings=[_waiver("TRACE-P3", ("other-art",))],
                 )
 
-        assert "CONS-P11" in str(exc_info.value)
+        assert "TRACE-P3" in str(exc_info.value)
         assert not isinstance(exc_info.value, BaselineGateBlockedError)
         mock_build.assert_not_called()
         assert not BaselineGateWaiver.unscoped.filter(

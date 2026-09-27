@@ -15,6 +15,12 @@
  *      SE-Auditor violation, surfaced here as a 422 with findings).
  *
  * data-testid is set on every interactive element (E2E convention).
+ *
+ * Issue #1092: "Generate" is an AI action, so it carries the shared flat AI
+ * icon (`<AiActionIcon>` — lucide `Sparkles`, `currentColor`, 16px) instead of
+ * nothing at all, and all three controls here are on the global `.btn-*`
+ * classes like every other dialog. The panel is itself the AI surface opened
+ * from the route's `<AiActionSection>`, so it needs no section of its own.
  */
 
 import type { CSSProperties } from "react";
@@ -31,6 +37,7 @@ import type {
 import { extractErrorMessage } from "../../api/client";
 import { UnprocessableEntityError } from "../../api/errors";
 import { promptVariablesApi } from "../../api/prompt-variables";
+import { AiActionIcon } from "../shared/AiActions";
 import styles from "./ArchitectureDecomposePanel.module.css";
 
 /**
@@ -260,10 +267,12 @@ export function ArchitectureDecomposePanel({
         </label>
         <button
           type="button"
+          className="btn-primary"
           onClick={handleGenerate}
           disabled={busy}
           data-testid="arch-decompose-generate"
         >
+          <AiActionIcon />
           {phase === "generating"
             ? t("archDecompose.generating")
             : t("archDecompose.generate")}
@@ -352,6 +361,7 @@ export function ArchitectureDecomposePanel({
           <div className={styles.actions}>
             <button
               type="button"
+              className="btn-primary"
               onClick={handleCommit}
               disabled={busy}
               data-testid="arch-decompose-commit"
@@ -362,6 +372,7 @@ export function ArchitectureDecomposePanel({
             </button>
             <button
               type="button"
+              className="btn-secondary"
               onClick={handleDiscard}
               disabled={busy}
               data-testid="arch-decompose-discard"

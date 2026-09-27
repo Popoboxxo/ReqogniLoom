@@ -186,7 +186,7 @@ def test_no_new_endpoint_emits_422():
             ws,
             ctx,
             body={
-                "rule_id": "CONS-P11",
+                "rule_id": "TRACE-P3",
                 "artifact_ids": [str(uuid.uuid4())],
                 "reason": "Accepted deviation for a finding that is not reported.",
             },

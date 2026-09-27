@@ -24,15 +24,20 @@ Design constraints:
   :mod:`admin_ops.celery_beat_heartbeat`). A fresh timestamp proves the
   ``beat -> broker -> worker`` chain is alive; the web worker only *reads* it,
   so the check itself stays side-effect free.
+* The defensive 403 backstop answers with the one canonical error envelope
+  (``rest_api.serializers.build_error_response``, GitHub #1081) — the same
+  builder every other admin_ops adapter uses.
 """
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
 from django.conf import settings
 from django.db import connection
+from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -42,6 +47,7 @@ from auth_tenancy.context import AuthContext
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import Operation
 from application.base import PermissionDeniedError
+from rest_api.serializers import build_error_response, detect_lang
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +276,31 @@ def _check_llm_provider() -> dict[str, str]:
             "status": STATUS_DEGRADED,
             "detail": f"provider={provider}, but LLM_API_KEY is not set",
         }
+    # GitHub #1050: ``opencode_go`` additionally REQUIRES
+    # LLM_OPENCODE_SESSION — the Zen-Go endpoint answers every chat completion
+    # without the ``x-opencode-session`` header with ``400 MissingSessionID``.
+    # Checked before the probe for two reasons: the outcome is already certain,
+    # so a probe would only burn _LLM_PROBE_TIMEOUT_S per poll to rediscover it,
+    # and a "down" row carrying the raw driver text is far less actionable than
+    # one naming the variable. DEGRADED, matching the LLM_API_KEY branch: the
+    # deployment may still be serving every non-LLM request successfully.
+    #
+    # Read from ``os.environ``, not ``settings``, because that is where the
+    # variable lives: it is deliberately not a Django setting
+    # (``reqogniloom.settings`` never declared it), and
+    # ``llm_adapter.providers._read_env_config`` reads it the same way. The
+    # provider name, by contrast, keeps using ``settings.LLM_PROVIDER`` so this
+    # check stays consistent with the branches above it.
+    opencode_session = (os.environ.get("LLM_OPENCODE_SESSION") or "").strip()
+    if provider == "opencode_go" and not opencode_session:
+        return {
+            "name": "llm_provider",
+            "status": STATUS_DEGRADED,
+            "detail": (
+                "provider=opencode_go, but LLM_OPENCODE_SESSION is not set — "
+                "every LLM call fails with 400 MissingSessionID (#1050)"
+            ),
+        }
     try:
         from llm_adapter.providers import ProviderConfig, get_provider  # noqa: PLC0415
 
@@ -279,6 +310,11 @@ def _check_llm_provider() -> dict[str, str]:
             api_key=settings.LLM_API_KEY,
             api_base_url=settings.LLM_BASE_URL or None,
             model_name=settings.LLM_MODEL,
+            # #1050: without this the probe built a *different* config than the
+            # request path and would report a healthy deployment as DOWN
+            # whenever the variable WAS set — the mirror image of the bug this
+            # check exists for.
+            opencode_session=opencode_session or None,
         )
         probe_provider = get_provider(cfg)
         # Bypass resilient_call/PolicyEngine for this instance only — see the
@@ -526,9 +562,17 @@ class SystemHealthView(APIView):
         try:
             self._auth_context(request)
         except PermissionDeniedError as exc:
+            # GitHub #1081: this was the last flat
+            # ``{"error": "PERMISSION_DENIED", ...}`` body in admin_ops. The
+            # health dashboard is polled by the very frontend that branches on
+            # ``body.error.code``, so a string ``error`` here meant the 403 was
+            # silently unreadable. Same builder, same shape as every other
+            # admin_ops adapter (see ``admin_ops.theme_rest._err``).
             return Response(
-                {"error": "PERMISSION_DENIED", "message": str(exc)},
-                status=403,
+                build_error_response(
+                    "PERMISSION_DENIED", detect_lang(request), message=str(exc)
+                ),
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         components = [

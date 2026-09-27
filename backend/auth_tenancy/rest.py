@@ -17,6 +17,38 @@ Import paths for downstream apps:
     from auth_tenancy.rest import AuthTenancyAuthentication, HasOperationPermission
     request.auth_context   # -> auth_tenancy.context.AuthContext
 
+Credential contract (the auth contract for every ``/api/v1/`` endpoint)
+-----------------------------------------------------------------------
+Precedence: ``X-API-Key`` → ``Authorization: Bearer <jwt|reqlo_…>`` →
+httpOnly ``reqogniloom_access`` cookie. A credential that is *present but
+invalid* is rejected; it is never silently skipped in favour of the next one.
+The fail-closed **decision** and its rationale live on
+:class:`AuthTenancyAuthentication` — read that before changing the precedence.
+
+GitHub #1076 pinned the observable behaviour:
+
+===================================  =========================================
+Request                              Answer
+===================================  =========================================
+valid ``Bearer``, no ``X-API-Key``   200
+valid ``Bearer``, *valid* key        200 (the key wins — see the decision)
+valid ``Bearer``, *empty* key        200 (empty header is "not present")
+valid ``Bearer``, *invalid* key      401 ``{"error": {"code":
+                                     "invalid_api_key", …}}`` with a message
+                                     naming the ``X-API-Key`` header as the
+                                     cause and the ``Bearer`` credential as
+                                     never evaluated
+``X-API-Key`` only, no ``Bearer``    401 ``invalid_api_key``, same message
+                                     naming the header, but stating the
+                                     request is simply unauthenticated
+===================================  =========================================
+
+The status code and the machine-readable ``code`` are unchanged by #1076; only
+the human-readable ``message`` became specific. A ``reqlo_``-prefixed key sent
+in ``Authorization: Bearer`` is a different transport and keeps the generic
+catalogue text, because "remove the X-API-Key header" would be wrong advice for
+it.
+
 Requirements: REQ-L2-AT-001/002/003/007, REQ-L3-AT001-*, REQ-L3-AT002-001, REQ-126.
 """
 from __future__ import annotations
@@ -28,7 +60,12 @@ from rest_framework import authentication, exceptions, permissions
 from rest_framework.authentication import CSRFCheck
 
 from .context import AuthContext, AuthMethod
-from .errors import AuthenticationFailed, AuthError, build_error_body
+from .errors import (
+    AuthenticationFailed,
+    AuthError,
+    build_api_key_header_rejection_message,
+    build_error_body,
+)
 from .services import (
     AuthenticationService,
     AuthorizationService,
@@ -118,6 +155,10 @@ class _StandardAuthError(exceptions.APIException):
     ``rest_api.error_envelope.reqogniloom_exception_handler`` leaves this body
     untouched (its "already normalised" branch triggers on the ``error`` key),
     so the shape reaches the client verbatim and is not double-wrapped.
+
+    ``error.message`` is forwarded as the message override (GitHub #1076): the
+    DRF integration is the only layer that knows *which header* carried a
+    rejected credential, so it is the only place that can make the text say so.
     """
 
     def __init__(self, error: AuthError, *, accept_language: str | None) -> None:
@@ -126,6 +167,7 @@ class _StandardAuthError(exceptions.APIException):
             error.code,
             accept_language=accept_language,
             required_role=error.required_role,
+            message=error.message,
         )
         super().__init__(detail=body)
 
@@ -136,6 +178,43 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
     On success, returns ``(user_placeholder, auth_context)`` per the DRF contract
     and attaches ``request.auth_context``. The first element is DRF's ``request.user``
     surrogate; downstream RBAC uses ``auth_context`` exclusively.
+
+    DECISION — a present-but-invalid ``X-API-Key`` is NOT ignored (GitHub #1076)
+    ---------------------------------------------------------------------
+    Credential precedence in :meth:`_extract_and_validate` is
+    ``X-API-Key`` → ``Authorization: Bearer`` → access cookie. The tempting
+    alternative is to fall through to the Bearer token when the key does not
+    validate ("the caller clearly meant the Bearer token"). **Rejected, on
+    purpose — do not "fix" this into a fallback.**
+
+    Why fail-closed is the right posture here:
+
+    * *Security.* Silently ignoring a credential the caller presented means an
+      attacker who can inject an ``X-API-Key`` header controls nothing — but it
+      also means the *deployment* can no longer assert which credential
+      authenticated a request. A key that should have been rejected is
+      indistinguishable from one that was never seen, so revoking a key,
+      detecting a leaked one, and attributing an audit entry all lose their
+      ground truth.
+    * *Blast radius.* The realistic producer of a stale key is a reverse proxy
+      or service mesh injecting ``X-API-Key`` for one upstream. Under
+      fall-through that single stale key would silently authenticate *every*
+      session behind the proxy with whatever Bearer token each caller happened
+      to have — a key that was supposed to be dead would keep granting access
+      for as long as the injection lasts, and nothing would say so.
+    * *Detectability.* A rejected credential is a signal. Swallowing it makes
+      the system unable to tell "no credential" from "wrong credential", which
+      is the property the audit log is built on.
+
+    What #1076 changed is therefore **legibility, not posture**: the 401 now
+    states that the request was rejected *because of* the ``X-API-Key`` header
+    and that the ``Authorization: Bearer`` credential was never evaluated, so
+    removing the header lets the Bearer token be used. The machine-readable
+    ``code`` stays ``invalid_api_key`` (the whole invalid-key family shares it
+    on purpose, so the response is no oracle for key existence) and the HTTP
+    status stays 401. See
+    :func:`~auth_tenancy.errors.build_api_key_header_rejection_message` for the
+    exact wording and :meth:`_extract_and_validate` for where it is attached.
     """
 
     def __init__(self) -> None:
@@ -223,10 +302,42 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
         is present. ``via_cookie`` is ``True`` only when the token came from the
         httpOnly ``reqogniloom_access`` cookie (drives CSRF enforcement, REQ-052).
         Header and API-key credentials take precedence over the cookie.
+
+        The fail-closed decision this implements is documented on
+        :class:`AuthTenancyAuthentication`; GitHub #1076 added the one part that
+        was missing from it, which is *legibility*: an ``X-API-Key`` that fails
+        to validate is re-raised with a message naming the header as the cause,
+        and pointing at the ``Bearer`` credential that was consequently never
+        evaluated — or, when no ``Authorization`` header was sent at all, saying
+        that the request is simply unauthenticated. ``code``
+        (``invalid_api_key``) and the 401 are unchanged.
+
+        Only the ``X-API-Key`` branch gets that treatment. A ``reqlo_``-prefixed
+        key carried in ``Authorization: Bearer`` is the *same* code and the
+        *same* service call, but "remove the X-API-Key header" would be actively
+        wrong advice there — there is no such header on the request — so that
+        branch keeps the catalog text.
         """
         api_key = request.META.get(_API_KEY_HEADER)
         if api_key:
-            return self._authn.validate_api_key(api_key), False
+            try:
+                return self._authn.validate_api_key(api_key), False
+            except AuthenticationFailed as exc:
+                if exc.code != "invalid_api_key":
+                    # ``api_key_revoked`` / ``api_key_expired`` already name
+                    # their own cause and remediation, so they are left alone.
+                    raise
+                raise AuthenticationFailed(
+                    "invalid_api_key",
+                    message=build_api_key_header_rejection_message(
+                        request.META.get("HTTP_ACCEPT_LANGUAGE"),
+                        bearer_present=(
+                            request.META.get(_AUTH_HEADER, "").startswith(
+                                _BEARER_PREFIX
+                            )
+                        ),
+                    ),
+                ) from exc
 
         header = request.META.get(_AUTH_HEADER, "")
         if header.startswith(_BEARER_PREFIX):

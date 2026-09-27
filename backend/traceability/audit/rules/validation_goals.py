@@ -5,7 +5,7 @@ stakeholder layer is actually connected to the goal layer: a StakeholderNeed
 that satisfies no Goal is a requirement nobody asked for.
 
 Tier: Extended only, alongside the other stricter SE-formalism rules
-(TRACE-P3/P5/P7, ARCH-003, VERIF-P8, CONS-P11). Minimal and Standard
+(TRACE-P3/P5/P7, ARCH-003, VERIF-P8). Minimal and Standard
 workspaces do not maintain a goal layer at all (ADR-04, configurable rigor).
 
 Severity: always WARNING. ``Rule.severity_for_tier`` defaults to BLOCKER, and

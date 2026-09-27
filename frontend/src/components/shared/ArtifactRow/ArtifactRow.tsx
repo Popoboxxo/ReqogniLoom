@@ -24,18 +24,27 @@
  * list row and a tree row read as the same interaction language.
  *
  * Composed entirely from the ch. 12.4 identity building blocks
- * (`ArtifactId`, `LevelBadge`, `StatusBadge`, `VersionBadge`) — this
+ * (`IdChip`, `LevelBadge`, `StatusBadge`, `VersionBadge`) — this
  * component owns layout only, no artifact-type-specific knowledge. Any
  * artifact list (Goals, ADRs, Risks, Issues, TestCases, Requirements, ...)
  * can render its rows with it.
+ *
+ * Issue #1094 changed which of the two identities the row *copies*. The row
+ * displays the readable `uid`; the copy control hands over the system id
+ * (UUID), because that is what an API call, an MCP tool or a ReqIF export needs,
+ * and a pasted `REQ-001` is meaningless outside its workspace. The display of
+ * the readable id itself became a user preference (`hooks/useReadableIdsVisible`,
+ * toggled in `UserProfileSettings`), so the identifier can no longer dominate
+ * the list.
  */
 
 import { useTranslation } from "react-i18next";
 
-import { ArtifactId } from "../ArtifactId";
+import { IdChip } from "../IdChip";
 import { LevelBadge } from "../LevelBadge";
 import { StatusBadge } from "../StatusBadge";
 import { VersionBadge } from "../VersionBadge";
+import { useReadableIdsVisible } from "../../../hooks/useReadableIdsVisible";
 import type { BadgeVariant } from "../../../utils/statusBadge";
 import styles from "./ArtifactRow.module.css";
 
@@ -58,6 +67,16 @@ export interface ArtifactRowProps {
   id?: string | null;
   /** Shown when `id` is empty, e.g. the first 8 chars of the UUID. */
   idFallback?: string | null;
+  /**
+   * The artifact's system id (UUID, `id` / `artifact_id`).
+   *
+   * Issue #1094: this is what the row's copy control puts on the clipboard,
+   * never the readable `id`. It is optional so a call site that has not been
+   * migrated yet keeps working — the chip then falls back to copying the
+   * readable id and says so in the announcement. Callers that have the payload
+   * should pass it.
+   */
+  systemId?: string | null;
   /**
    * Visible label in front of the identifier (issue #807), so a short hash
    * reads as a clearly-labelled reference rather than the artifact's name.
@@ -102,6 +121,7 @@ export interface ArtifactRowProps {
 export function ArtifactRow({
   id,
   idFallback,
+  systemId,
   idLabel,
   level,
   levelLabel,
@@ -118,12 +138,20 @@ export function ArtifactRow({
   testId = "artifact-row",
 }: ArtifactRowProps): JSX.Element {
   const { t } = useTranslation();
+  // Issue #1094: the readable identifier is a display preference, not a fact
+  // about the row. One module-level subscription (see
+  // `hooks/useReadableIdsVisible`) serves every mounted row, so a virtualized
+  // list does not attach one `storage` listener per line.
+  const [readableIdsVisible] = useReadableIdsVisible();
   // `undefined` keeps the translated default; `null` explicitly opts out.
   const resolvedIdLabel =
     idLabel === undefined ? t("artifactId.shortLabel", "ID") : idLabel;
   const visibleAttributes = (attributes ?? []).filter(
     (attr) => attr.value != null && String(attr.value).trim() !== "",
   );
+  // With the readable id hidden there is nothing left for the "ID" label to
+  // label, so it goes with it rather than floating over a bare copy button.
+  const showIdLabel = readableIdsVisible && resolvedIdLabel != null && resolvedIdLabel !== "";
 
   return (
     <div
@@ -168,10 +196,22 @@ export function ArtifactRow({
         {/* Copy-to-clipboard is a standalone interaction (ch. 12.4) that
             must not also trigger row selection. */}
         <span className={styles.idGroup} onClick={(e) => e.stopPropagation()}>
-          {resolvedIdLabel != null && resolvedIdLabel !== "" && (
-            <span className={styles.idLabel}>{resolvedIdLabel}</span>
-          )}
-          <ArtifactId value={id} fallback={idFallback} testId={`${testId}-id`} />
+          {showIdLabel ? <span className={styles.idLabel}>{resolvedIdLabel}</span> : null}
+          {/*
+            Issue #1094: `<IdChip>` replaced `<ArtifactId>` here. The row
+            previously copied whatever it displayed — the readable `REQ-001` —
+            while every API, MCP tool and ReqIF round-trip speaks the system id
+            (see #1003 on why both must stay in the payload). The chip shows
+            `uid` (ch. 12.4: a labelled secondary reference, the title still
+            leads) and copies the UUID.
+          */}
+          <IdChip
+            uid={id}
+            systemId={systemId}
+            fallback={idFallback}
+            hideReadable={!readableIdsVisible}
+            testId={`${testId}-id`}
+          />
         </span>
         <LevelBadge
           level={level}

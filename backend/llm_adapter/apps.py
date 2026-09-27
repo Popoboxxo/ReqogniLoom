@@ -107,17 +107,22 @@ class LlmAdapterConfig(AppConfig):
         eagerly warm the *previous* (env-default) model here first. This is
         accepted, known behaviour, not a bug.
 
-        Also registers the #794 embedding-dimension system check (see
-        ``llm_adapter.checks``) — unconditionally, including for the
-        preload-skip commands above, since ``manage.py check`` is exactly
-        where an operator should learn that their provider cannot fill the
-        embedding columns.
+        Also registers the startup system checks (see ``llm_adapter.checks``) —
+        unconditionally, including for the preload-skip commands above, since
+        ``manage.py check`` is exactly where an operator should learn that
+        their provider cannot fill the embedding columns (#794) or that the
+        selected ``opencode_go`` provider is missing the session id it requires
+        (#1050).
         """
         from django.core.checks import register
 
-        from llm_adapter.checks import check_embedding_dimensions
+        from llm_adapter.checks import (
+            check_embedding_dimensions,
+            check_opencode_session_required,
+        )
 
         register(check_embedding_dimensions)
+        register(check_opencode_session_required)
 
         if self._should_skip_preload():
             return

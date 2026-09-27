@@ -66,6 +66,28 @@ Intentionally still direct (documented WS1 decision, no big-bang refactor):
   with the domain services; :meth:`write` is the WS1 contract for the paths that
   adopt it, not a retrofit of every existing persistence path.
 
+ADR-006 — the third carrier pattern
+-----------------------------------
+``Artifact.custom_fields`` is deliberately **flat** (REQ-L2-AS-037 rejects nested
+objects *and* arrays), so a value that is a person reference or a list of option
+values cannot live there. WS2/#936 put the single-valued person fields on the
+``Artifact`` row as ``Actor`` FKs; ADR-006 adds the two remaining shapes without
+a new concept:
+
+* **multi-value person reference** (``Adr.deciders``, ``Issue.assignee``) — a
+  ``ManyToManyField`` to the same ``Actor`` table, declared in the definition as
+  ``type="actor"`` + ``multiple=True``. A person selection is a **set**, so the
+  read resolves a deterministic data order rather than the payload order
+  (:meth:`ArtifactAttributeGateway.selected_actors`).
+* **multi-value classification** (``StakeholderNeed.stakeholder``) — a plain
+  JSONB list column on ``Artifact`` whose allowed values come from the
+  definition's ``options`` (``type="multi-enum"``).
+
+Both are reached through this module and through one registry
+(``attribute_definitions.schema.ENTITY_LEVEL_CARRIER_FIELDS``), so REST and MCP
+carry them by construction and the *next* such field is a config change: one
+model column, one catalogue entry, one registry entry.
+
 References:
     * ADR-004 — ``docs/se/ADR/ADR-004_traeger_modell_und_auc.md``
     * Spec sections 9 (transport gaps) and 11 (contract matrix) —
@@ -79,11 +101,16 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Iterable, Protocol
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from attribute_definitions.schema import resolve_attribute_span
+from attribute_definitions.schema import (
+    ITEM_TYPES,
+    all_entity_carrier_fields,
+    entity_carrier_fields,
+    resolve_attribute_span,
+)
 
 if TYPE_CHECKING:
     from application.attribute_definition_service import AttributeDefinitionService
@@ -139,14 +166,111 @@ def carrier_for(attribute: dict[str, Any]) -> AttributeCarrier:
     return AttributeCarrier.CORE
 
 
+#: The Artifact-level system field names, in wire order — what a transport must
+#: forward in addition to the carrier-backed names of
+#: :data:`attribute_definitions.schema.ENTITY_LEVEL_CARRIER_FIELDS`. Public
+#: because both transports build their "names this payload carries" set from it
+#: (``rest_api.views._SYSTEM_FIELD_NAMES``,
+#: ``mcp_server.tools.system_fields.SYSTEM_FIELD_NAMES``), and a second,
+ #: hand-typed copy of this list is exactly how the two would drift.
+ARTIFACT_SYSTEM_FIELD_NAMES: tuple[str, ...] = (
+    "owner",
+    "reporter",
+    "priority",
+    "stakeholder",
+)
+
 #: Core attributes whose column lives on the backing ``Artifact`` rather than on
 #: the type-specific entity (spec section 3, ADR-004). ``owner``/``reporter`` are
-#: ``Actor`` foreign keys; ``priority`` is a plain enum column. The gateway read/
-#: write adapter resolves them through ``_custom_fields_owner`` (the Artifact) and
+#: ``Actor`` foreign keys; ``priority`` is a plain enum column; ``stakeholder``
+#: (ADR-006) is a plain list-of-option-values column. The gateway read/write
+#: adapter resolves them through ``_custom_fields_owner`` (the Artifact) and
 #: converts actor FKs to/from the wire value form of spec section 4.
-_ARTIFACT_LEVEL_CORE_FIELDS: frozenset[str] = frozenset(
-    {"owner", "reporter", "priority"}
-)
+#:
+#: ``stakeholder`` is here rather than on ``StakeholderNeed`` for a transport
+#: reason, not a modelling one: this set is what makes the value resolve
+#: identically for an ORM entity **and** for a service DTO (which exposes only
+#: its backing ``.artifact`` row), and it is why REST and MCP cannot diverge on
+#: it. See ``persistence.models.Artifact.stakeholder``.
+_ARTIFACT_LEVEL_CORE_FIELDS: frozenset[str] = frozenset(ARTIFACT_SYSTEM_FIELD_NAMES)
+
+
+def transport_field_names() -> tuple[str, ...]:
+    """Return every attribute name a transport must forward for *any* item type.
+
+    The union of the Artifact-level system fields and the carrier-backed names,
+    de-duplicated and in wire order. Both transports build their "names this
+    payload carries" set from this one function
+    (``rest_api.views._SYSTEM_FIELD_NAMES``,
+    ``mcp_server.tools.system_fields.SYSTEM_FIELD_NAMES``), because that set has
+    two jobs that must be the *same* set: the gateway write picks those keys out
+    of the payload, and the create/update handlers pop exactly those names before
+    splatting the rest into a type-specific service. A name in one list and not
+    the other is a ``TypeError`` (500) on create.
+
+    Flat rather than per item type because both call sites filter a payload by
+    name *presence*; a name only ever means one thing per entity.
+    """
+    seen: dict[str, None] = {}
+    for name in ARTIFACT_SYSTEM_FIELD_NAMES + all_entity_carrier_fields():
+        seen.setdefault(name, None)
+    return tuple(seen)
+
+#: Of the carrier-backed attribute names (ADR-006), the ones stored as a plain
+#: column on the backing ``Artifact`` rather than as a multi-value Actor relation
+#: on the entity. Read straight off the Artifact row, so they need no adapter —
+#: which is what makes them resolve identically for an ORM entity and for a
+#: service DTO that only exposes its ``.artifact``.
+_ARTIFACT_COLUMN_CARRIER_FIELDS: frozenset[str] = frozenset({"stakeholder"})
+
+#: The wire value form of a multi-value person field (spec section 4):
+#: ``{"multiple": true, "items": [<entry>, ...]}``. The single-valued form is
+#: the bare entry; ``multiple`` therefore has to be *stated* in the envelope,
+#: which is what lets one attribute name mean either shape without a second
+#: attribute name.
+_MULTI_ACTOR_KEY = "multiple"
+_MULTI_ACTOR_ITEMS_KEY = "items"
+
+
+def entity_item_type(entity: Any) -> str:
+    """Return the ``ITEM_TYPES`` name of *entity*, or ``""`` if it has none.
+
+    Best-effort by design, because the read projection it serves
+    (:func:`artifact_system_fields`) is called with whatever the transport
+    happens to hold — an ORM model, a service DTO, a test double — and none of
+    those carries the item type as data. Class name is the only signal
+    available, and a DTO is named after its model (``StakeholderNeedDTO``), so
+    the ``DTO`` suffix is stripped. A name outside ``ITEM_TYPES`` (``Artifact``
+    itself, a double) resolves to ``""``, which every caller treats as "no
+    carrier fields" — never as an error.
+    """
+    name = type(entity).__name__
+    if name.endswith("DTO"):
+        name = name[: -len("DTO")]
+    return name if name in ITEM_TYPES else ""
+
+
+def _artifact_of(entity: Any) -> Any:
+    """Return the backing ``Artifact`` row of *entity* (or *entity* itself)."""
+    artifact = getattr(entity, "artifact", None)
+    return entity if artifact is None else artifact
+
+
+def actors_to_value(actors: Iterable[Any]) -> dict[str, Any]:
+    """Return a multi-value actor selection in wire form (spec section 4).
+
+    The empty selection is ``{"multiple": true, "items": []}``, not ``None``:
+    an empty team is a *value* of a multi-value field (it clears the field),
+    whereas ``None`` is what a single-valued actor field uses for "unset". The
+    distinction is the attribute's ``multiple`` property, and the envelope is
+    what carries it to the client.
+    """
+    return {
+        _MULTI_ACTOR_KEY: True,
+        _MULTI_ACTOR_ITEMS_KEY: [
+            ArtifactAttributeGateway.actor_to_value(actor) for actor in actors
+        ],
+    }
 
 
 def artifact_system_fields(entity: Any) -> dict[str, Any]:
@@ -159,12 +283,19 @@ def artifact_system_fields(entity: Any) -> dict[str, Any]:
 
     ``owner``/``reporter`` are converted to the same Actor value form the write
     adapter accepts (``ArtifactAttributeGateway.actor_to_value``); ``priority``
-    is a plain, possibly empty string. Unset FKs become ``None``.
+    and ``stakeholder`` are plain columns and pass through; ``stakeholder`` is
+    only emitted for an item type that actually declares it. Unset FKs become
+    ``None``, an unset selection an empty list.
+
+    ADR-006 also adds the **carrier-backed** fields of the entity's own item
+    type — ``Adr.deciders`` / ``Issue.assignee`` (multi-value Actor references)
+    — to the same projection, in the same wire form the write adapter accepts.
+    That is deliberate: one shared read function is what makes "identical over
+    REST and MCP" a structural property instead of a convention the two
+    transports have to keep re-establishing per field (spec section 11).
     """
-    artifact = getattr(entity, "artifact", None)
-    if artifact is None:
-        artifact = entity
-    return {
+    artifact = _artifact_of(entity)
+    values: dict[str, Any] = {
         "owner": ArtifactAttributeGateway.actor_to_value(
             getattr(artifact, "owner", None)
         ),
@@ -173,6 +304,16 @@ def artifact_system_fields(entity: Any) -> dict[str, Any]:
         ),
         "priority": getattr(artifact, "priority", "") or "",
     }
+    item_type = entity_item_type(entity)
+    for name in entity_carrier_fields(item_type):
+        if name in _ARTIFACT_COLUMN_CARRIER_FIELDS:
+            stored = getattr(artifact, name, None)
+            values[name] = list(stored) if isinstance(stored, (list, tuple)) else []
+        else:
+            values[name] = ArtifactAttributeGateway.actors_to_value(
+                ArtifactAttributeGateway.selected_actors(entity, name)
+            )
+    return values
 
 
 class AttributeArtifact(Protocol):
@@ -398,6 +539,101 @@ class ArtifactAttributeGateway:
             return {"kind": "external", "name": actor.display_name}
         return {"kind": "user", "id": str(actor.id)}
 
+    @staticmethod
+    def actors_to_value(actors: Iterable[Any]) -> dict[str, Any]:
+        """Return a multi-value actor selection in wire form (spec section 4).
+
+        Module-level twin of :func:`actors_to_value`, exposed on the class for
+        symmetry with :meth:`actor_to_value` (the read projections already reach
+        for the class).
+        """
+        return actors_to_value(actors)
+
+    @staticmethod
+    def selected_actors(entity: Any, name: str) -> list[Any]:
+        """Return the Actors of a multi-value actor column, in a stable order.
+
+        A multi-value person field is a **selection, not a sequence**, so the read
+        order is a deterministic function of the *data* rather than of the write:
+        ``(display_name, id)``, case-folded. Two consequences, both wanted:
+
+        * two consecutive reads always agree, which is what the AUC's round-trip
+          stability check (and the frontend chip row) depends on;
+        * the order is human-meaningful in a UI, and needs neither an index nor a
+          database collation (a locale-dependent ``ORDER BY`` would make the wire
+          order depend on the database's locale, not on the data).
+
+        Write order is deliberately NOT reproduced: Django's own
+        ``ManyRelatedManager.set()`` cannot promise it — its non-fast path
+        computes the rows to insert as ``target_ids.difference(...)``, a **set**,
+        so the insertion order is hash-dependent (``_get_missing_target_ids``).
+        Reproducing it would mean hand-writing the join rows and giving up
+        ``m2m_changed``, i.e. re-implementing a Django primitive to carry an order
+        the domain does not have. The multi-value *classification* field
+        (``stakeholder``) is the opposite case and keeps the user's order, because
+        it is stored as a plain list column.
+
+        Falls back to ``manager.all()`` for anything that is not a
+        ``ManyToManyField`` (a structural test double has no ``_meta``), which
+        keeps this a total function instead of a second, silent failure mode.
+        """
+        manager = getattr(entity, name, None)
+        if manager is None:
+            return []
+        field_meta = getattr(getattr(entity, "_meta", None), "get_field", None)
+        m2m = None
+        if callable(field_meta):
+            try:
+                candidate = field_meta(name)
+            except Exception:  # pragma: no cover - defensive
+                candidate = None
+            if getattr(candidate, "many_to_many", False):
+                m2m = candidate
+        actors = list(manager.all())
+        if m2m is not None:
+            # The manager's ``all()`` carries no ORDER BY, so sort here rather
+            # than in SQL: the sort key is Python-computed (case folding), and the
+            # selection is bounded by the number of people on one artifact.
+            actors.sort(
+                key=lambda actor: (
+                    str(getattr(actor, "display_name", "")).casefold(),
+                    str(getattr(actor, "id", "")),
+                )
+            )
+        return actors
+
+    def resolve_actor_write_values(
+        self, ctx: AuthContext, attribute: dict[str, Any], value: Any
+    ) -> list[Any]:
+        """Resolve a wire multi-actor value to concrete ``Actor`` rows.
+
+        The multi-value half of :meth:`resolve_actor_write_value`, sharing its
+        existence/policy check (``ActorService.validate_actor_value``) so REST,
+        MCP and the gateway cannot disagree about what a valid selection is. The
+        resolved order is the payload order, which is *not* preserved by the read
+        — see :meth:`selected_actors` for why a person selection is unordered.
+
+        Raises:
+            ValidationError: the value is not the ``{"multiple": true,
+                "items": [...]}`` envelope, an actor/user is unknown, or an
+                external actor was supplied while ``allow_external`` is false.
+        """
+        from persistence.errors import ValidationError
+
+        if not attribute.get("multiple", False):
+            raise ValidationError(
+                f"'{attribute['name']}' is a single-valued actor attribute and "
+                "cannot be stored in a multi-value actor column"
+            )
+        from application.actor_service import ActorService
+
+        return ActorService().validate_actor_value(
+            ctx,
+            value,
+            multiple=True,
+            allow_external=bool(attribute.get("allow_external", False)),
+        )
+
     def resolve_actor_write_value(
         self, ctx: AuthContext, attribute: dict[str, Any], value: Any
     ) -> Any:
@@ -446,10 +682,18 @@ class ArtifactAttributeGateway:
         passed it, the wrapped service created the artifact, and only the
         subsequent system-field write failed — leaving a duplicate on retry.
         This companion performs the Layer-2 half (``validate_actor_value`` /
-        ``resolve_reference``) for ``owner``/``reporter`` while the payload is
-        still only a payload, so an unresolvable actor is rejected *before* the
-        service call. Both transports call it from their existing validation
-        seam, which is what keeps REST and MCP identical (ADR-004).
+        ``resolve_reference``) while the payload is still only a payload, so an
+        unresolvable actor is rejected *before* the service call. Both
+        transports call it from their existing validation seam, which is what
+        keeps REST and MCP identical (ADR-004).
+
+        ADR-006 widened the name set: the multi-value person fields
+        (``Adr.deciders`` / ``Issue.assignee``) are actor references resolved
+        against the DB exactly like ``owner``/``reporter``, so the same
+        before-the-service-call guarantee has to cover them or a bad selection
+        would only surface after the entity exists. The candidate names come
+        from one registry (``schema.all_entity_carrier_fields``), so the next
+        person field is covered by declaring it, not by editing this method.
 
         Only ``visible`` + ``editable`` actor attributes are checked — exactly
         the ones :meth:`write` would apply (Major 3) — so a hidden legacy field
@@ -464,15 +708,14 @@ class ArtifactAttributeGateway:
         Raises:
             FieldValidationError: an actor value could not be resolved (unknown
                 actor/user, external while disallowed, or a ``multiple``
-                definition on the single-valued system field). The per-field
+                attribute on the single-valued system field). The per-field
                 messages mirror the ones :meth:`write` would raise, so both
                 transports map them to VALIDATION_ERROR identically.
             AttributeDefinitionNotFound: propagated from
                 :meth:`resolve_definition` (callers degrade to a no-op).
         """
-        names = [
-            name for name in _ARTIFACT_LEVEL_CORE_FIELDS if name in changed_fields
-        ]
+        candidates = _ARTIFACT_LEVEL_CORE_FIELDS | frozenset(all_entity_carrier_fields())
+        names = [name for name in candidates if name in changed_fields]
         if not names:
             return
         from attribute_definitions.field_validation import FieldValidationError
@@ -491,7 +734,12 @@ class ArtifactAttributeGateway:
             ):
                 continue
             try:
-                self.resolve_actor_write_value(ctx, attribute, changed_fields[name])
+                if attribute.get("multiple", False):
+                    self.resolve_actor_write_values(
+                        ctx, attribute, changed_fields[name]
+                    )
+                else:
+                    self.resolve_actor_write_value(ctx, attribute, changed_fields[name])
             except (ValidationError, NotFoundError) as exc:
                 errors[name] = [str(exc)]
         if errors:
@@ -500,7 +748,12 @@ class ArtifactAttributeGateway:
     def _read_core_value(
         self, artifact: AttributeArtifact, attribute: dict[str, Any]
     ) -> Any:
-        """Read one core attribute, resolving Artifact-level fields and actors."""
+        """Read one core attribute, resolving Artifact-level fields and actors.
+
+        Three carrier shapes, one dispatch on the definition entry (never on the
+        model), which is what keeps this generic: a plain column, a single Actor
+        FK, and — ADR-006 — a multi-value Actor relation, read in write order.
+        """
         name = attribute["name"]
         target: Any = (
             self._custom_fields_owner(artifact)
@@ -508,9 +761,11 @@ class ArtifactAttributeGateway:
             else artifact
         )
         raw = getattr(target, name)
-        if attribute["type"] == "actor":
-            return self.actor_to_value(raw)
-        return raw
+        if attribute["type"] != "actor":
+            return raw
+        if attribute.get("multiple", False):
+            return self.actors_to_value(self.selected_actors(artifact, name))
+        return self.actor_to_value(raw)
 
     # ---- Discovery (the ``attribute-schema`` capability) -------------------
 
@@ -698,14 +953,30 @@ class ArtifactAttributeGateway:
             if not attribute["visible"] or attribute["editable"] is not True:
                 continue
             if name in _ARTIFACT_LEVEL_CORE_FIELDS:
-                # ``owner``/``reporter``/``priority`` live on the backing
-                # Artifact; actors additionally translate the wire value form
-                # into the FK row (spec sections 3/4).
+                # ``owner``/``reporter``/``priority``/``stakeholder`` live on the
+                # backing Artifact; actors additionally translate the wire value
+                # form into the FK row (spec sections 3/4). A ``multiple`` actor
+                # definition on one of these is a definition error, raised by
+                # ``resolve_actor_write_value`` rather than silently dropped.
                 target = self._custom_fields_owner(artifact)
                 if attribute["type"] == "actor":
                     value = self.resolve_actor_write_value(ctx, attribute, value)
                 setattr(target, name, value)
                 _remember(target)
+                continue
+            if attribute["type"] == "actor" and attribute.get("multiple", False):
+                # ADR-006: a multi-value person field. Its column is a
+                # ``ManyToManyField`` on the entity, so ``setattr`` would raise
+                # ("Direct assignment to the forward side of a many-to-many set
+                # is prohibited") and the relation has to be replaced through the
+                # manager. Dispatched purely on the definition's ``type`` +
+                # ``multiple``, so the next such field needs no change here.
+                # ``set()`` writes its own join rows, so no ``_persist`` is
+                # needed for the relation itself — the entity is only remembered
+                # for a sibling plain-column write in the same payload.
+                actors = self.resolve_actor_write_values(ctx, attribute, value)
+                getattr(artifact, name).set(actors)
+                _remember(artifact)
                 continue
             setattr(artifact, name, value)
             _remember(artifact)
@@ -781,11 +1052,15 @@ class ArtifactAttributeGateway:
 
 
 __all__ = [
+    "ARTIFACT_SYSTEM_FIELD_NAMES",
     "ArtifactAttributeGateway",
     "AttributeArtifact",
     "AttributeCarrier",
     "AttributeDescriptor",
     "AttributeValues",
     "artifact_system_fields",
+    "actors_to_value",
     "carrier_for",
+    "entity_item_type",
+    "transport_field_names",
 ]

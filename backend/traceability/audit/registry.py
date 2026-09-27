@@ -23,11 +23,12 @@ Adding a new rule (for the follow-up rule-implementer agents)
 2. Subclass :class:`Rule`, set the class attributes:
        rule_id       = TRACE_P3            # a constant from this module
        is_scope_aware = False              # True only if it needs a baseline
-                                           # scope (like TRACE-P7)
+                                            # scope (like TRACE-P7)
    and implement ``check(self, context) -> list[Finding]``.
-3. Override ``severity_for_tier(tier)`` only if the severity varies per tier
-   (e.g. TRACE-P2: WARNING at standard, BLOCKER at extended). The default is
-   BLOCKER whenever the rule is active.
+3. Override ``severity_for_tier(tier)`` only if the severity varies per tier.
+   The default is BLOCKER whenever the rule is active, and BLOCKER is the
+   right default: it means "blocks baseline creation", which is exactly what a
+   rule in this registry can do (see the enforcement-point section below).
 4. Decorate the class with ``@register_rule``.
 5. Add ``from . import <rule>`` to ``rules/__init__.py`` so it self-registers.
 6. Ensure ``rule_id`` is listed in ``RULE_PRESET_MAP`` for every tier it must
@@ -39,6 +40,42 @@ Adding a new rule (for the follow-up rule-implementer agents)
 
 Do NOT re-implement endpoint-type legality — call
 ``traceability.types.check_se_link_semantics`` instead (§2.1).
+
+Where a rule is ENFORCED (read this before picking a severity)
+------------------------------------------------------------
+This registry is the only rule vocabulary, and the **baseline gate is the only
+enforcement point**. A BLOCKER finding reaches the user through exactly one
+producer — ``application/baseline_facade.py:488`` ->
+``AuditService.blocking_findings`` (``application/audit_service.py:406-441``)
+— and that producer is the only one with a remediation path: a waiver **per
+finding** (``baseline/waivers.py``, ``BaselineGateWaiver``,
+``baseline/models.py:190-215``). So "BLOCKER" in this module means "this blocks
+baseline creation until it is fixed or waived", never "this rejects a POST".
+
+Do NOT add a create/update gate for relation rules. That was tried once and is
+documented as refuted: enforcing ``mandatory_fields`` as a create gate 400'd
+every existing client, every quick-create dialog and roughly fifteen E2E specs
+(migration ``0005_relax_requirement_create_required``; regression test
+``rest_api/tests/test_bootstrapped_definition_allows_creates.py``). A gate that
+has to be taken back is not a gate. This question reopens only through a
+decision that supersedes ADR-007 — not by adding a rule file.
+
+Field-level obligations are a **different mechanism** and stay with
+``attribute_definitions/field_validation.py``, which already rejects on create
+*and* update with field-precise 400 details. Keep the two apart: a field
+obligation refused at the payload and a relation obligation waived per finding
+are two different error contracts for the same user, and mixing them is what
+produced the create-gate break.
+
+One vocabulary, one owner: the second, purely documented rule vocabulary is
+retired (ADR-007). The allocation obligation is carried by ``TRACE-P2``, the
+test-link obligation by ``TRACE-P6`` + ``VERIF-P8``, and ``source`` is a
+*coverage convention* rather than a rule — no writer in the codebase ever
+fills that field, so a rule rejecting an artifact for it would only be
+satisfied on paper. Severity for those inherited obligations is deliberately
+un-promoted where the evidence says so; see
+``rules/trace_derivation_allocation.py`` for the ``TRACE-P2`` calibration
+(#581: a BLOCKER there produced a 100% blocker rate and an unpassable gate).
 """
 from __future__ import annotations
 
@@ -60,13 +97,19 @@ TRACE_P5 = "TRACE-P5"
 TRACE_P6 = "TRACE-P6"
 TRACE_P7 = "TRACE-P7"
 ARCH_003 = "ARCH-003"
+#: TRACE-P6 and VERIF-P8 together carry the "a Requirement needs verification
+#: evidence" obligation that used to exist as a second, documented rule id with
+#: no implementation (ADR-007). No new id was added for it — that is the point
+#: of the decision.
 VERIF_P8 = "VERIF-P8"
 CONS_P9 = "CONS-P9"
 CONS_P10 = "CONS-P10"
-#: P1-9 (SYSTEMAUDIT_2026-08-27) — not part of the original §2.2
-#: Pflichtmatrix; added when RequirementLevel was realigned with the
-#: documented V-model cascade. See rules/level_progression.py.
-CONS_P11 = "CONS-P11"
+#: ADR-005 removed CONS-P11 (V-model level progression). It asserted that
+#: ``Requirement.level`` agrees with the decomposition graph, and the same ADR
+#: made ``level`` **derived from** that graph — the rule could never fire. Its
+#: id is deliberately gone from every tier set below, not merely unregistered:
+#: a rule id that is still listed but has no implementation is a preset that
+#: promises a check it cannot run.
 #: #402 (cluster 5) — Stakeholder-Goal traceability. Not part of the original
 #: §2.2 Pflichtmatrix: it is the validation-pillar rule the Goals feature was
 #: missing. Advisory (WARNING) at every tier it runs in; see
@@ -98,19 +141,18 @@ _EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
         TRACE_P7,
         ARCH_003,
         VERIF_P8,
-        CONS_P11,
         VAL_P1,
     }
 )
 
 #: The "Full-SE" mandate, coupled to **stage 3 / Extended only** (Epic #934
 #: WS6, #939). These are the rules that demand a complete SE chain —
-#: architecture derivation (TRACE-P3/P5), level progression (TRACE-P7),
-#: architecture decomposition (ARCH-003), leaf-requirement verification
-#: (VERIF-P8) and configurable-preset coverage (CONS-P11). A stage-1 (Minimal)
-#: or stage-2 (Standard) workspace must never fail on them: Minimal maps to the
-#: empty rule set structurally, and Standard's baseline set is disjoint from
-#: this one by construction. ``test_se_auditor_stage_coupling`` pins both.
+#: architecture derivation (TRACE-P3/P5), baseline-scope consistency (TRACE-P7),
+#: architecture decomposition (ARCH-003) and leaf-requirement verification
+#: (VERIF-P8). A stage-1 (Minimal) or stage-2 (Standard) workspace must never
+#: fail on them: Minimal maps to the empty rule set structurally, and Standard's
+#: baseline set is disjoint from this one by construction.
+#: ``test_se_auditor_stage_coupling`` pins both.
 FULL_SE_RULE_IDS: FrozenSet[str] = _EXTENDED_ONLY_RULES
 
 #: Tier → set of active rule ids. Minimal is intentionally empty ("Minimal =
@@ -239,9 +281,12 @@ class Rule(ABC):
     def severity_for_tier(self, tier: str) -> Severity:
         """Return the severity this rule emits at rigor *tier*.
 
-        Default is :attr:`Severity.BLOCKER` whenever the rule is active.
-        Override only for rules whose severity varies per tier (e.g. TRACE-P2:
-        WARNING at standard, BLOCKER at extended).
+        Default is :attr:`Severity.BLOCKER` whenever the rule is active —
+        which, per the module's enforcement-point section, means the finding
+        blocks baseline creation (waivable per finding), not that a write is
+        rejected. Override only for rules whose severity genuinely varies per
+        tier, or that are advisory at every tier they run in: ``TRACE-P2`` is
+        a WARNING in *all* tiers by decision (#581), not a tier-dependent one.
         """
         return Severity.BLOCKER
 
@@ -311,6 +356,5 @@ __all__ = [
     "VERIF_P8",
     "CONS_P9",
     "CONS_P10",
-    "CONS_P11",
     "VAL_P1",
 ]

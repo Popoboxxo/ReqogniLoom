@@ -217,9 +217,13 @@ class RequirementLevel(models.IntegerChoices):
 
     Numbering: **the integer IS the cascade level** — ``level == 3`` means "L3
     Component", full stop. This holds by construction and every consumer
-    (``RequirementService.decompose``'s ``parent.level + 1`` derivation, the
-    CONS-P11 audit rule, ``migrate_se_docs._REQ_LEVEL_MAP``, the frontend
-    ``reqLevel.L{n}`` i18n keys) relies on it.
+    (``migrate_se_docs._REQ_LEVEL_MAP``, the frontend ``reqLevel.L{n}`` i18n
+    keys) relies on it. Since ADR-005 the column is *derived*: the single
+    writer is ``traceability.audit.hierarchy.recompute_requirement_levels``,
+    which recomputes the affected sub-tree on every hierarchy write and is
+    therefore what now guarantees the integer identity. The former guard,
+    the ``CONS-P11`` audit rule, was removed with it — it asserted the field
+    agreed with the graph, which a derived field can never fail.
 
     Vocabulary (SYSTEMAUDIT_2026-08-27 P1-9)
     ----------------------------------------
@@ -979,19 +983,29 @@ class AttributeMigrationRun(TenantScopedModel):
     STATUS_PARTIAL = "partial"
     STATUS_FAILED = "failed"
     STATUS_ROLLED_BACK = "rolled_back"
+    #: Issue #1082: a rollback that reverted *some* of what the run changed.
+    #: Reachable only when a changed target has no before-image to restore from
+    #: (a run applied before :class:`AttributeDefinitionSnapshot` existed, or a
+    #: target whose row has since been deleted). The run's ``report_json`` is
+    #: then scanned and the un-restored ops are listed in the rollback response,
+    #: so "reports success, changed nothing" is no longer a reachable state.
+    STATUS_PARTIALLY_ROLLED_BACK = "partially_rolled_back"
     STATUS_CHOICES = [
         (STATUS_PLANNED, "Planned (dry run)"),
         (STATUS_APPLIED, "Applied"),
         (STATUS_PARTIAL, "Partially applied"),
         (STATUS_FAILED, "Failed"),
         (STATUS_ROLLED_BACK, "Rolled back"),
+        (STATUS_PARTIALLY_ROLLED_BACK, "Partially rolled back"),
     ]
 
     plan_id = models.CharField(max_length=128)
     plan_hash = models.CharField(max_length=64)
     mode = models.CharField(max_length=16, choices=MODE_CHOICES)
+    #: 32 wide because ``partially_rolled_back`` is 21 characters; the previous
+    #: 16 would have been a ``fields.E009`` against the widened choice set (#1082).
     status = models.CharField(
-        max_length=16, choices=STATUS_CHOICES, default=STATUS_PLANNED
+        max_length=32, choices=STATUS_CHOICES, default=STATUS_PLANNED
     )
     started_at = models.DateTimeField()
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -1025,6 +1039,12 @@ class AttributeMigrationSnapshot(TenantScopedModel):
     ``model_fields`` stores only the fields the plan referenced — a full row
     image would be needless exposure for a bulk migration. A field the snapshot
     does not mention is never touched by rollback either.
+
+    Issue #1082: this table covers **value** changes only. Attribute-*definition*
+    changes (which live in the other two tables and are tenant-wide for the
+    ``global`` target) are captured by :class:`AttributeDefinitionSnapshot`, a
+    separate table, so ``artifact_id`` keeps meaning "an artifact" and rollback
+    never has to guess which rows it is allowed to touch.
     """
 
     run = models.ForeignKey(
@@ -1051,6 +1071,83 @@ class AttributeMigrationSnapshot(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"AttributeMigrationSnapshot({self.artifact_id})"
+
+
+class AttributeDefinitionSnapshot(TenantScopedModel):
+    """Before-image of one attribute-*definition* target of an AWMS run (#1082).
+
+    :class:`AttributeMigrationSnapshot` only ever recorded artifact value
+    changes, so a plan step like ``define_attribute`` produced no before-image at
+    all: the rollback answered ``{"status": "rolled_back", "restored": 0}`` while
+    the definitions it had written into ``ad_global_definition`` survived. This
+    table closes that gap — one row per ``(run, target_key)`` with the target's
+    complete ``definition_json`` map from *before* the run.
+
+    Two target kinds, matching the two definition tables:
+
+    * ``global``   — the tenant-wide row in ``ad_global_definition``, keyed by
+      ``(item_type, preset)``. One write reaches every on-default workspace row
+      of that preset in the tenant (issue #1083), which is why the key carries
+      the preset and not a workspace.
+    * ``workspace`` — the materialized row in ``ad_workspace_definition``, keyed
+      by ``(workspace_id, item_type)``.
+
+    :attr:`definition_json` is ``None`` when the target did **not** exist before
+    the run; :attr:`existed`` records the same fact explicitly so rollback
+    *deletes* such a target instead of writing an empty definition over it. That
+    is the difference between "the attribute is gone" and "the row now claims an
+    empty attribute set".
+
+    ``version`` is deliberately **not** restored: it is the optimistic-lock
+    counter, so writing a stale value back would silently discard a concurrent
+    editor's bump. The prior value is kept in :attr:`previous_version` for the
+    audit trail and the rollback report.
+    """
+
+    TARGET_GLOBAL = "global"
+    TARGET_WORKSPACE = "workspace"
+    TARGET_KIND_CHOICES = [
+        (TARGET_GLOBAL, "Global (tenant preset)"),
+        (TARGET_WORKSPACE, "Workspace"),
+    ]
+
+    run = models.ForeignKey(
+        "persistence.AttributeMigrationRun",
+        on_delete=models.CASCADE,
+        related_name="definition_snapshots",
+    )
+    #: Stable, human-readable addressing key, unique per run:
+    #: ``global:<item_type>:<preset>`` / ``workspace:<workspace_id>:<item_type>``.
+    #: A plain string (rather than the tuple of nullable columns) because a
+    #: UniqueConstraint treats NULLs as distinct in PostgreSQL, so a
+    #: ``(item_type, preset, workspace_id)`` constraint would silently not
+    #: constrain the global targets.
+    target_key = models.CharField(max_length=255)
+    target_kind = models.CharField(max_length=16, choices=TARGET_KIND_CHOICES)
+    item_type = models.CharField(max_length=128)
+    preset = models.CharField(max_length=32, blank=True, default="")
+    workspace_id = models.UUIDField(null=True, blank=True)
+    #: ``False`` when the target row did not exist before the run — rollback
+    #: then removes the row it created.
+    existed = models.BooleanField(default=True)
+    definition_json = models.JSONField(null=True, blank=True)
+    is_customized = models.BooleanField(null=True, blank=True)
+    previous_version = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "pl_attribute_definition_snapshot"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "target_key"],
+                name="uq_attr_def_snapshot_run_target",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "run"], name="idx_adst_tnt_run"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AttributeDefinitionSnapshot({self.target_key})"
 
 
 class Artifact(TenantScopedModel):
@@ -1152,6 +1249,32 @@ class Artifact(TenantScopedModel):
             "Spec section 3: priority value. Deliberately no model-level "
             "choices — the scale is defined per attribute definition "
             "(type=enum, default low/medium/high/critical)."
+        ),
+    )
+    # ADR-006: the ISO 42010 stakeholder of an artifact — a **role or a group**,
+    # i.e. a classification, not an identity. Staged on StakeholderNeed as a
+    # `multi-enum` whose option list lives in the attribute catalogue, so a
+    # workspace configures its own roles.
+    #
+    # Why an Artifact column and not a StakeholderNeed one: the value is a LIST,
+    # and `Artifact.custom_fields` rejects arrays (REQ-L2-AS-037), so a dedicated
+    # column is the only honest carrier. Putting it on the shared Artifact row —
+    # the same place `owner`/`reporter`/`priority` live — is what makes the read
+    # identical on REST and MCP *by construction*: every transport projection for
+    # an artifact-backed type already resolves the entity's values from this row
+    # (`application.artifact_attribute_gateway.artifact_system_fields`), and a
+    # service DTO (StakeholderNeedDTO) exposes exactly this row through its
+    # `.artifact` property. A per-type column would instead need the DTO, the
+    # service signature and every per-transport kwargs list changed with it.
+    stakeholder = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "ADR-006: ISO 42010 stakeholder role/group of the artifact, a "
+            "list of option values. A classification, NOT a person reference "
+            "(an Actor FK would force an invented Actor row per role). The "
+            "option list is defined per (item_type, preset) in the attribute "
+            "catalogue (type=multi-enum), which is also what validates it."
         ),
     )
     custom_fields = models.JSONField(
@@ -3009,6 +3132,26 @@ class Adr(TenantScopedModel):
     # into it: `updated_at` is part of the published REST/MCP contract for these
     # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
+    # ADR-006: the people who decided (ISO 42010 deciders) — a **multi-value
+    # Actor reference**, the third carrier pattern: a real relation to the
+    # system's own person/team rows, not a typed name list. Renaming one of them
+    # updates every ADR that names them, which is exactly the property the
+    # single-valued `Artifact.owner`/`reporter` FKs bought (WS2/#936) and the
+    # reason this cannot be free text.
+    #
+    # `related_name="+"` matches the convention of those two FKs: the reverse
+    # accessor is not part of any public contract, so it is suppressed rather
+    # than added to the Actor model's namespace.
+    deciders = models.ManyToManyField(
+        "persistence.Actor",
+        related_name="+",
+        blank=True,
+        help_text=(
+            "ADR-006: ISO 42010 deciders of this ADR, as Actor references "
+            "(internal users and/or external placeholders). A multi-selection, "
+            "so the attribute definition declares type=actor with multiple=true."
+        ),
+    )
 
     class Meta:
         db_table = "as_adr"
@@ -3390,6 +3533,30 @@ class Issue(TenantScopedModel):
     # into it: `updated_at` is part of the published REST/MCP contract for these
     # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
+    # ADR-006: the people/teams this issue is assigned to — a **multi-value Actor
+    # reference** (see Adr.deciders for the same pattern and the reasoning).
+    #
+    # Deliberately a SEPARATE carrier from the legacy ``assignee_id`` UUIDField
+    # above, which is a loose User UUID owned by the service-level
+    # ``IssueService.assign_issue`` method (REQ-L3-ISSUE-008) with its own audit
+    # trail. This field is the definition-driven, transport-level one; folding the
+    # legacy column onto it is an AWMS value-migration step (issue #940), not part
+    # of the carrier landing. The two do not collide: ``assignee`` is a relation
+    # with no column on ``as_issue`` (its join table is ``as_issue_assignee``),
+    # and ``assignee_id`` stays excluded from definition introspection (see
+    # ``bootstrap_attribute_definitions.EXCLUDED_MODEL_FIELDS``).
+    assignee = models.ManyToManyField(
+        "persistence.Actor",
+        related_name="+",
+        blank=True,
+        help_text=(
+            "ADR-006: persons/teams this issue is assigned to, as Actor "
+            "references. A multi-selection, so the attribute definition "
+            "declares type=actor with multiple=true. Distinct from the legacy "
+            "'assignee_id' User UUID, which the dedicated assign_issue() "
+            "service method owns."
+        ),
+    )
 
     class Meta:
         db_table = "as_issue"
@@ -3652,6 +3819,7 @@ __all__ = [
     "Actor",
     "AttributeMigrationRun",
     "AttributeMigrationSnapshot",
+    "AttributeDefinitionSnapshot",
     "Artifact",
     "Requirement",
     "RequirementType",

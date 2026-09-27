@@ -225,7 +225,7 @@ def test_waiver_for_an_unreported_finding_is_a_validation_error() -> None:
             "name": "gh821-unknown",
             "waived_findings": [
                 {
-                    "rule_id": "CONS-P11",
+                    "rule_id": "TRACE-P3",
                     "artifact_ids": [str(uuid.uuid4())],
                     "reason": "Accepted deviation that does not exist anywhere.",
                 }
@@ -235,7 +235,7 @@ def test_waiver_for_an_unreported_finding_is_a_validation_error() -> None:
 
     assert response.status_code == 400
     assert response.data["error"]["code"] == "VALIDATION_ERROR"
-    assert "CONS-P11" in response.data["error"]["message"]
+    assert "TRACE-P3" in response.data["error"]["message"]
     assert not BaselineGateWaiver.unscoped.filter(
         workspace_id=workspace.id
     ).exists()

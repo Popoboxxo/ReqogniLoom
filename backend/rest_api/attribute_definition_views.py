@@ -336,6 +336,16 @@ class WorkspaceAttributeDefinitionResetView(AdminScopeRequiredMixin, APIView):
             payload = AttributeDefinitionService().reset_workspace(
                 ctx, item_type, workspace_id
             )
+        except AttributeDefinitionConflictError as exc:
+            # #1082: a no-op reset (row not customized and already equal to its
+            # source) is a 409, not a 500. ``AttributeDefinitionConflictError``
+            # is a plain ValueError, so without this handler it fell through to
+            # DRF's unhandled-exception path. Same envelope as
+            # WorkspaceAttributeDefinitionView.get / ...ExportView.
+            return Response(
+                build_error_response("CONFLICT", lang, message=str(exc)),
+                status=status.HTTP_409_CONFLICT,
+            )
         except AttributeDefinitionNotFound as exc:
             return _not_found(lang, str(exc))
         return Response(payload, status=status.HTTP_200_OK)

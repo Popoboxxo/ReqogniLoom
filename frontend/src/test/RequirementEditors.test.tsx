@@ -374,7 +374,7 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
   // REQ-008 — AI-derive button in Anforderungen view
   // -------------------------------------------------------------------------
 
-  it("renders AI-derive button (✨ Ableiten) in RequirementEditors (REQ-008)", async () => {
+  it("renders the AI-derive action (KI-Ableitung) in RequirementEditors (REQ-008)", async () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
@@ -433,6 +433,54 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
     await waitFor(() => {
       expect(status).toHaveAttribute("role", "status");
     });
+  });
+
+  it("renders the AI actions in ONE section, each with the shared flat icon", async () => {
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
+    });
+
+    // Issue #1092: exactly one AI region, not one button per panel header.
+    const sections = screen.getAllByTestId("ai-actions-section");
+    expect(sections).toHaveLength(1);
+    const aiSection = sections[0];
+
+    // Both AI actions live in it, with their test ids unchanged (#1091 keeps
+    // `derive-testcase-dialog`; E2E relies on these two).
+    const derive = within(aiSection).getByTestId("req-ai-derive-btn");
+    const deriveTestcase = within(aiSection).getByTestId("req-derive-testcase-btn");
+    expect(derive).toBeInTheDocument();
+    expect(deriveTestcase).toBeInTheDocument();
+
+    // Same icon on both, and no `✨` emoji left in the AI region.
+    for (const button of [derive, deriveTestcase]) {
+      const icon = button.querySelector("svg.lucide-sparkles");
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveAttribute("stroke", "currentColor");
+      expect(icon).toHaveAttribute("width", "16");
+      expect(button.textContent).not.toContain("✨");
+    }
+
+    // …and neither of them is a primary action any more: the route keeps
+    // exactly one (`create-req-btn`), which is the #797 contract.
+    expect(derive).toHaveClass("btn-secondary");
+    expect(deriveTestcase).toHaveClass("btn-secondary");
+    expect(derive).not.toHaveClass("btn-primary");
+  });
+
+  it("keeps the AI actions out of the trace-link panel header", async () => {
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-field-title")).toBeInTheDocument();
+    });
+
+    // The trigger used to be a prop of ReqTraceLinkPanel and render in that
+    // panel's header row. The panel is now trace-links only.
+    const panel = screen.getByTestId("req-tracelink-panel");
+    expect(within(panel).queryByTestId("req-ai-derive-btn")).not.toBeInTheDocument();
   });
 
   it("renders the ArtifactInspector exactly once — no duplicate RightSidebar (REQ-TBD)", async () => {
@@ -1270,9 +1318,11 @@ describe("RequirementEditors — create dialog focus order (#800)", () => {
 // R2/T1 (systemaudit 2026-09-02): role-gated write controls
 //
 // A live audit found that a "viewer" role saw the "Testfall generieren"
-// trigger and the ✨ "Ableiten" button (REQ-008) here — only the server
+// trigger and the "KI-Ableitung" button (REQ-008) here — only the server
 // rejected the actual write. Both must be genuinely absent from the DOM for
 // a viewer, not merely disabled ("nicht gerendert, nicht nur deaktiviert").
+// Since #1092 both live in one `<AiActionSection>`, so the section itself
+// must be gone for a viewer, not just empty.
 // Save/Delete/Status-ändern (owned by RequirementForm/RequirementList) are
 // covered by their own colocated role-gate tests.
 // ---------------------------------------------------------------------------
@@ -1313,6 +1363,9 @@ describe("RequirementEditors — role-gated write controls (R2/T1)", () => {
     });
     expect(screen.queryByTestId("req-derive-testcase-btn")).not.toBeInTheDocument();
     expect(screen.queryByTestId("req-ai-derive-btn")).not.toBeInTheDocument();
+    // #1092: the whole AI region is absent for a role without the capability
+    // — not rendered as an empty box.
+    expect(screen.queryByTestId("ai-actions-section")).not.toBeInTheDocument();
   });
 
   it("renders 'Testfall generieren' and the Ableiten button for an editor", async () => {
@@ -1324,6 +1377,7 @@ describe("RequirementEditors — role-gated write controls (R2/T1)", () => {
     });
     expect(screen.getByTestId("req-derive-testcase-btn")).toBeInTheDocument();
     expect(screen.getByTestId("req-ai-derive-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("ai-actions-section")).toBeInTheDocument();
   });
 
   // Final review: the route's PageHeader primary action ("New Requirement")

@@ -24,11 +24,17 @@ from mcp_server.tools.base import (
     write_mcp_audit,
 )
 from mcp_server.tools.system_fields import (
-    SYSTEM_FIELD_SCHEMA,
     add_system_fields,
     apply_system_fields,
+    schema_for,
     system_field_values,
 )
+
+# ADR-006: this group serves exactly one item type, so the advertised field set
+# is resolved once here instead of per instance (its tool schemas are a
+# class-level constant). Carries the Artifact-level system fields plus the
+# need's own carrier field ``stakeholder``.
+_STAKEHOLDER_NEED_FIELD_SCHEMA = schema_for("StakeholderNeed")
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +125,10 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                             "map) defined by this workspace's attribute definition."
                         ),
                     },
-                    # Attribut v3 WS2 (#936): Artifact-level system fields.
-                    **SYSTEM_FIELD_SCHEMA,
+                    # Attribut v3 WS2 (#936) + ADR-006: the Artifact-level
+                    # system fields and the need's own carrier field
+                    # (``stakeholder``), both in wire form.
+                    **_STAKEHOLDER_NEED_FIELD_SCHEMA,
                 },
                 "required": ["workspace_id", "title"],
             },
@@ -153,8 +161,10 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                             "map). Replaces the stored map."
                         ),
                     },
-                    # Attribut v3 WS2 (#936): Artifact-level system fields.
-                    **SYSTEM_FIELD_SCHEMA,
+                    # Attribut v3 WS2 (#936) + ADR-006: the Artifact-level
+                    # system fields and the need's own carrier field
+                    # (``stakeholder``), both in wire form.
+                    **_STAKEHOLDER_NEED_FIELD_SCHEMA,
                 },
                 "required": ["id"],
             },

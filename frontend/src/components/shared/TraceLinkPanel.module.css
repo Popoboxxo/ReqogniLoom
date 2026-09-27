@@ -14,10 +14,9 @@
  *   - the link item's soft-delete dimming uses `.linkItem` plus the
  *     `.linkItemOutdated` modifier (mutually-exclusive opacity).
  *
- * The AI-derive gradient keeps the doubled-class selector
- * (`.aiGradientButton.aiGradientButton`) established by
- * `ReqTraceLinkPanel.module.css`, so it still overrides `.btn-primary`'s
- * background and hover rule regardless of stylesheet order.
+ * Issue #1092: `.aiGradientButton` is GONE. The AI-derive trigger left this
+ * panel for the route's single `<AiActionSection>`, which carries the shared
+ * flat AI icon instead of a gradient fill.
  */
 
 .panel {
@@ -44,15 +43,6 @@
 .headerActions {
   display: flex;
   gap: var(--space-2);
-}
-
-.aiGradientButton.aiGradientButton,
-.aiGradientButton.aiGradientButton:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    var(--color-gradient-ai-start),
-    var(--color-gradient-ai-end)
-  );
 }
 
 .showAllLink {

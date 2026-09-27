@@ -1,5 +1,10 @@
-/* ThemeManagementSection (Theme Presets) — mirrors BannerSection.module.css's
-   card/list styling using design tokens only. */
+/* ThemeManagementSection (Theme Palettes) — mirrors BannerSection.module.css's
+   card/list styling using design tokens only.
+
+   Issue #1093: the section had no design-system classes on any of its
+   controls and seven identically-labelled "Exportieren" buttons. The button
+   *appearance* is owned by the global `.btn-*` classes; this file owns layout
+   only. */
 
 .section {
   background: var(--color-surface);
@@ -26,12 +31,26 @@
   padding: 0;
 }
 
+/* The label block owns the free space (`margin-right: auto` on `.rowMain`) and
+   the actions are a right-aligned group, so system and custom rows share one
+   geometry and the buttons never drift into the palette name. `flex-wrap`
+   keeps the row usable now that each action carries its object's name. */
 .row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex-wrap: wrap;
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.rowMain {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
+  margin-right: auto;
 }
 
 .rowLabel {
@@ -40,27 +59,53 @@
 
 .rowKey {
   color: var(--color-text-muted);
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
 }
 
-.spacer {
-  flex: 1;
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
 }
 
 .badge {
   font-size: var(--font-size-xs);
   padding: 2px var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--color-badge-neutral-bg);
   color: var(--color-badge-neutral-text);
 }
 
-.importLabel {
+/* The import is a real file picker (`<input type="file">`, the only one in
+   the frontend). No file-picker *dialog* is introduced: the repo has no
+   file-picker convention to follow and a second presentation would be exactly
+   the per-page drift #1093 is about. The input is visually hidden but still
+   focusable and still carries the shared button classes plus an explicit
+   focus ring (WCAG 2.1 SC 2.4.7 — a native file input cannot be restyled
+   reliably, so hiding it visually rather than `display: none` keeps it in the
+   Tab order and screen-reader tree). */
+/* The import row: caption, the real (hidden) file input, and the visible
+   design-system trigger that opens it. */
+.importRow {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex-wrap: wrap;
   font-size: var(--font-size-sm);
+}
+
+.importLabel {
+  color: var(--color-text);
+}
+
+/* The `<input type="file">` is driven by the button next to it, so it carries
+   no Tab stop and no accessible name of its own — `display: none` is the
+   correct choice here (unlike a control that must itself stay reachable). It
+   keeps its `data-testid` so the import test can drive it directly. */
+.importInput {
+  display: none;
 }
 
 .tenantDefault {
@@ -76,6 +121,14 @@
 .tenantDefaultLabel {
   font-weight: 600;
   margin-right: var(--space-2);
+}
+
+/* Issue #1093: "Als Standard speichern" had no visible target. The button
+   carries the selection in its accessible name; this caption states the same
+   thing visibly, next to the two selects it reads from. */
+.tenantDefaultTarget {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .tenantDefaultSaved {

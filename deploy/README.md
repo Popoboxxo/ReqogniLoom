@@ -3,6 +3,11 @@
 This directory holds the reference Docker Compose deployments for ReqogniLoom. Pick one file (or
 combination), run it from the **repository root**, and the stack comes up.
 
+> **After every deploy, run the verification gate in
+> [`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md).** A stack that reports healthy can still
+> have written an empty database backup, a completely dead LLM, a proxy that 502s on login, and a
+> memory worker that never runs — all four were real findings (#1074, #1050, #1051, #1052, #1054).
+
 | File | Purpose | Use when |
 |---|---|---|
 | `docker-compose.yml` | Full stack: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend. Optional Honcho memory backend (`honcho-postgres`/`honcho-redis`/`honcho-migrate`/`honcho`) gated behind the `honcho` Compose profile — costs nothing unless activated. | Production, or any deployment that needs async task processing and scheduled backups. **Default choice.** |
@@ -10,7 +15,47 @@ combination), run it from the **repository root**, and the stack comes up.
 | `docker-compose.override.yml` | Dev overlay: hot-reload (`uvicorn --reload` / Vite dev server), source bind-mounts, weaker defaults. Auto-applied by `make up` (see repo-root `Makefile`). | Local development against the full stack only — **not** compatible with `docker-compose.minimal.yml` (it re-adds `celery`/`celery-beat`, defeating the point of minimal). |
 | `docker-compose.override.example.yml` | Documentation only — a commented-out template for optional local services (e.g. Ollama). **Never read by Compose itself** (wrong filename on purpose); copy it to `docker-compose.override.yml` and uncomment what you need. | Reference when wiring up an optional local service. |
 
-### Optional profiles (off by default)
+## No frontend restart after a backend recreate (#1054)
+
+The frontend's nginx resolves its upstreams **per request** through Docker's embedded DNS
+(`resolver 127.0.0.11 ipv6=off valid=10s;` plus a `set $…_upstream` variable), for `/api/`, `/mcp/`
+and the bluepencil sidecar alike.
+
+**This is resolved — you do not have to restart the frontend after recreating the backend.** The old
+`proxy_pass http://backend:8000;` resolved the name once, at worker start, and kept that IP, so every
+`up -d` (which gives the backend container a new IP) left the proxy answering 502 on `/api/` and
+`/mcp/` until the frontend was restarted too. Because the SPA is served by the same nginx, the UI kept
+loading and only the login POST failed — which reads to the user as "wrong password" and is invisible
+to every application health check.
+
+The only residual is a `valid=10s` DNS cache window: a request in the first 10 seconds after a backend
+recreate can still 502. Retry after 10 s. The verification command is in
+[`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §4.
+
+## The database backup is verified, not assumed (#1074)
+
+The `postgres-backup` sidecar dumps into the `postgres_backup_data` volume and prunes all but the
+newest `BACKUP_RETENTION` dumps. A dump is only **published** if it passes two gates: a valid gzip
+stream, and at least `BACKUP_MIN_COPY_BLOCKS` `COPY <table> (…) FROM stdin;` blocks. Anything else is
+treated as a failed backup — the file is deleted, the failure is logged on stderr, and the exit status
+is non-zero. `BACKUP_ONCE=true` runs exactly one dump and exits with *its* status, which is what the
+post-deploy gate calls. Details and the exact commands:
+[`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §1. The logic is inlined in the compose file by
+design (so the stack needs no repo file); `deploy/verify-backup-command.sh` extracts it back out and
+regression-tests the failure semantics against a real throwaway Postgres.
+
+## LLM provider misconfiguration fails the deploy (#1050)
+
+`LLM_PROVIDER=opencode_go` requires `LLM_OPENCODE_SESSION` — the Zen-Go endpoint answers
+`400 MissingSessionID` without it, which kills every AI feature while `/health` stays 200. The
+one-shot `llm-preflight` service checks that combination from the environment alone and exits
+non-zero, and `backend`/`celery`/`celery-beat` declare
+`depends_on: {llm-preflight, condition: service_completed_successfully}` — so a missing session value
+now aborts `up -d` with an actionable message instead of producing a silently dead deployment. The
+check is conditional: mock/anthropic/openai/ollama/azure deployments are unaffected.
+
+## Optional profiles (off by default)
+
 
 Both are Compose **profiles**: they cost nothing — no pull, no start — until you name them
 (`--profile <name>` / `COMPOSE_PROFILES=<name>`, or the `make` wrappers).
@@ -201,6 +246,34 @@ upstream; pinned so they are visible and flippable). None of this runs unless th
 docker compose -f deploy/docker-compose.yml --project-directory . --profile honcho up -d
 ```
 
+**Two things the pins alone do not buy you.**
+
+**(a) The `x-opencode-session` header (#1051).** The Zen-Go endpoint rejects every server-side call
+without it (`400 MissingSessionID`), so a pinned base URL is not enough — Dialectic answers HTTP 500
+and every engine module dies in the background. Honcho's escape hatch is
+`ModelConfig.provider_params["extra_headers"]`, which reaches the SDK as the `extra_headers` kwarg.
+The variable names that requires contain a **dash**, and **Docker silently drops every environment
+variable whose name contains a dash** — verified with `docker run -e`, `docker run --env-file`,
+Compose `environment:` and Compose `env_file:`. `docker compose config` even prints them, so a compose
+file full of them looks correct and is dead. The nine per-module variables are therefore *not* set
+literally: the single `LLM_OPENCODE_SESSION` value is passed instead, and the `honcho` /
+`honcho-deriver` entrypoints materialise all nine names at container start (Python's `os.environ`
+accepts them; `sh`'s `export` does not). Set it in `.env` — required for `LLM_PROVIDER=opencode_go`
+too, and enforced by the `llm-preflight` service (#1050).
+
+**(b) A deriver process (#1052).** Those pins describe what the deriver, the summary job and the dream
+job *should* use, but Honcho runs them in a **separate process** (`python -m src.deriver`; upstream's
+`DeriverSettings.SCHEDULER` defaults to `deriver`, not `api`). The image's own entrypoint starts only
+the API server, so the API alone never drains the queue: work units stay `processed = false` forever
+and no `document_sources` are written — the derived memory layers never materialise while the pins
+look configured. The `honcho-deriver` service runs it, sharing the API service's entire environment
+from one YAML anchor (`x-honcho-env`) so the two halves cannot drift apart. Verify with:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . --profile honcho logs honcho-deriver \
+  | grep -E 'Running main loop|ReconcilerScheduler started'
+```
+
 **Failure mode when a module's model is left unpinned:** Honcho's built-in default for these modules
 is `transport=openai, model=gpt-5.4-mini`, but the only key in the container is the `opencode_go` one
 — not a real OpenAI key. An unpinned module therefore tries to authenticate against a model/endpoint
@@ -208,6 +281,7 @@ it cannot reach and fails in the background; memory **reads** keep working, so n
 ReqogniLoom's UI — the summary/dream job simply never lands. Pin `SUMMARY_MODEL_CONFIG__*`,
 `DREAM_DEDUCTION_MODEL_CONFIG__*` and `DREAM_INDUCTION_MODEL_CONFIG__*` alongside the
 deriver/dialectic block (see the `honcho` service comments; RFC #1002 finding F6).
+
 
 ## Troubleshooting: LLM calls fail with ConnectError (backend container DNS)
 
@@ -343,6 +417,23 @@ docker compose -f deploy/docker-compose.yml --project-directory . \
 
 It resizes every embedding column and recreates the HNSW index behind each one, and prints a loud
 warning with the non-NULL row count before it discards any existing vectors.
+
+**Do not run it through `backend` (#1053).** The backend runs as the least-privilege
+`DB_APP_USER`, which does not own the tables or their HNSW indexes, so that path fails with a raw
+`django.db.utils.ProgrammingError: must be owner of index mem_entry_embedding_hnsw` — an error that
+says nothing about what to do. The `migrate` service above is the documented path because it connects
+as the Postgres superuser. If you must run it in a running backend container, pass the owner
+credentials explicitly:
+
+```bash
+P=$(docker compose -f deploy/docker-compose.yml --project-directory . exec -T postgres printenv POSTGRES_PASSWORD)
+docker compose -f deploy/docker-compose.yml --project-directory . exec -e DB_APP_USER=reqogniloom \
+  -e DB_APP_PASSWORD="$P" -e DB_USER=reqogniloom -e DB_PASSWORD="$P" \
+  backend python manage.py align_embedding_dimensions
+```
+
+`verify_embedding_dimensions` is the cheap pre-deploy check (same rule: run it through `migrate`),
+and `GET /health/`'s `checks.embedding_dimensions` field is the runtime signal.
 
 **Both paths — regenerate the vectors afterwards** (the resize discards them, because pgvector
 cannot cast between widths):

@@ -38,7 +38,6 @@ from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import (
     Artifact,
     Requirement,
-    RequirementLevel,
     Tenant,
     Workspace,
 )
@@ -53,7 +52,9 @@ from application.base import (
     ValidationError,
 )
 from application.artifact_service import (
+    ArtifactService,
     _clean_custom_fields,
+    _recompute_derived_levels,
     clean_free_text_field,
     has_field_changes,
     snapshot_versioned_fields,
@@ -104,6 +105,7 @@ class PgVectorUnavailableError(RuntimeError):
     package is missing or the DB extension is not installed, the REST layer
     maps this to HTTP 503 (service unavailable) rather than a 500.
     """
+
 
 # ---------------------------------------------------------------------------
 # DTOs
@@ -192,6 +194,28 @@ class RequirementService(ServiceBase):
 
     # ---------- CRUD (REQ-L2-AS-003) ----------
 
+    def _validate_no_parent_cycle(
+        self, artifact_id: UUID, new_parent_id: UUID
+    ) -> None:
+        """Reject a re-parent that would make *artifact_id* its own ancestor.
+
+        Delegates to :meth:`ArtifactService._detect_cycle` (a static method, and
+        the single ancestor walk in the codebase) so ADR-005's new
+        ``update_requirement(parent_id=...)`` path refuses exactly the same
+        cycles ``ArtifactService.update_artifact`` refuses — a self-reference
+        and a longer ``A -> B -> C, C.parent = A`` chain alike. Without it a
+        Requirement PATCH could build a cycle that the derivation's own cycle
+        guard would then have to silently answer with NULL levels for.
+        """
+        if new_parent_id == artifact_id:
+            raise ValidationError(
+                f"Cycle detected: self-reference (id={artifact_id})"
+            )
+        cycle_path = ArtifactService._detect_cycle(new_parent_id, artifact_id)
+        if cycle_path:
+            path_str = "→".join(str(node) for node in cycle_path)
+            raise ValidationError(f"Cycle detected: {path_str}→{artifact_id}")
+
     def _assert_uid_unique_in_workspace(
         self,
         workspace_id: UUID,
@@ -233,7 +257,6 @@ class RequirementService(ServiceBase):
         type: str = "SyReq",
         complexity_fibonacci: Optional[int] = None,
         verification_method: Optional[str] = None,
-        level: Optional[int] = None,
         uid: Optional[str] = None,
         custom_fields: Optional[dict] = None,
     ) -> Requirement:
@@ -241,9 +264,18 @@ class RequirementService(ServiceBase):
 
         REQ-L2-AS-003: creates Requirement + initialises WorkflowState.
         REQ-L3-RF003-005: Accepts SE mask fields (type,
-        complexity_fibonacci, verification_method, level).
+        complexity_fibonacci, verification_method).
         Note: moscow_priority lives on StakeholderNeed (migration 0020).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
+
+        ADR-005: there is deliberately **no** ``level`` parameter. The V-model
+        cascade level is derived from the hierarchy, so the only way to place a
+        new Requirement in the cascade is to give it a parent
+        (:func:`traceability.audit.hierarchy.recompute_requirement_levels` runs
+        at the end of this method and derives the level from the ``parent_id``
+        written above). A client that used to pass a level here would silently
+        store something the hierarchy does not say — the exact defect ADR-005
+        removes.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -298,11 +330,26 @@ class RequirementService(ServiceBase):
             type=type,
             complexity_fibonacci=complexity_fibonacci,
             verification_method=verification_method,
-            level=level,
+            # ADR-005: ``level`` is derived, never assigned here — see the
+            # docstring and the recompute call at the end of this method.
             # Issue #932: allocate the local readable uid when the caller did
             # not supply one (ReqIF's external identity lives on the Artifact).
             uid=uid or generate_local_uid("Requirement", workspace_id),
         )
+
+        # ADR-005: the new node's cascade level follows from the ``parent_id``
+        # written above — no parent means it is the top of the cascade (L1).
+        # A fresh Requirement has no children yet, so this touches one row.
+        #
+        # The refresh is not optional: the derivation writes through a bulk
+        # UPDATE, so the in-memory instance would otherwise still carry the
+        # ``level=None`` it was constructed with. Callers serialise *this*
+        # object — ``_dto_from_orm`` in the REST view, ``RequirementDTO.from_orm``
+        # in ``decompose`` — so a stale attribute here would put ``level: null``
+        # in a 201 body for a row whose level is 1. The same response-fidelity
+        # class ``_dto_from_orm``'s own docstring is about.
+        _recompute_derived_levels([requirement.artifact_id])
+        requirement.refresh_from_db(fields=["level"])
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
         # appends a revision. create_requirement takes no change_reason, so the
@@ -398,7 +445,7 @@ class RequirementService(ServiceBase):
         type: Optional[str] = None,
         complexity_fibonacci: object = _UNSET,
         verification_method: object = _UNSET,
-        level: object = _UNSET,
+        parent_id: object = _UNSET,
         uid: object = _UNSET,
         suspect: Optional[bool] = None,
         custom_fields: object = _UNSET,
@@ -409,8 +456,22 @@ class RequirementService(ServiceBase):
         REQ-L2-AS-003: change_reason required in Extended preset.
         ADR-L3-AS002-02: delegates policy check to PresetPolicyService.
         REQ-L3-RF003-005: Accepts SE mask fields (type, moscow_priority,
-        complexity_fibonacci, verification_method, level).
+        complexity_fibonacci, verification_method).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
+
+        ADR-005: there is deliberately **no** ``level`` parameter any more —
+        the cascade level is derived from the hierarchy
+        (:func:`traceability.audit.hierarchy.recompute_requirement_levels`).
+
+        ADR-005 / AUC: *``parent_id`` is now applied.* The method used to have no
+        ``parent_id`` parameter at all while ``RequirementSerializer.parent_id``
+        declared one, so a ``PATCH {"parent_id": ...}`` answered 200 and moved
+        nothing — a silently discarded field, which is the same failure class
+        this wave exists to close. The value moves the Requirement inside the
+        ``Artifact.parent_id`` FK tree and then re-derives ``level`` for the
+        moved node and its whole subtree. Omitted leaves the hierarchy alone;
+        an explicit ``None`` detaches the Requirement to the top of the cascade
+        (the ``_UNSET`` sentinel is what distinguishes the two).
 
         REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror; state
         changes must go through a workflow transition (see
@@ -475,8 +536,6 @@ class RequirementService(ServiceBase):
             requirement.complexity_fibonacci = complexity_fibonacci
         if verification_method is not _UNSET:
             requirement.verification_method = verification_method
-        if level is not _UNSET:
-            requirement.level = level
         if uid is not _UNSET:
             self._assert_uid_unique_in_workspace(
                 workspace_id, uid, exclude_id=requirement.id
@@ -493,6 +552,50 @@ class RequirementService(ServiceBase):
             requirement.artifact.custom_fields = cleaned_custom_fields
             requirement.artifact.save(update_fields=["custom_fields", "modified_at"])
 
+        # ADR-005: apply the re-parent (see the docstring — the value used to
+        # be declared by the serializer and silently discarded by the view).
+        # The FK tree and the TraceLink graph are two separate hierarchies; this
+        # writes the FK half, and the derivation below reads the union of both,
+        # so ``level`` follows the re-parent even though no link is created.
+        # Whether the reciprocal ``derives-from`` link should be created here
+        # too (as ``decompose()`` does, and as the ``Artifact.parent``
+        # docstring requires of *any* writer of one half) is **not** decided
+        # here — it changes link-creation semantics, which ADR-005 does not
+        # authorise. Recorded as an open follow-up in the ADR-005 report.
+        _parent_changed = False
+        if parent_id is not _UNSET:
+            new_parent_id = (
+                None if parent_id is None else UUID(str(parent_id))
+            )
+            current_parent_id = requirement.artifact.parent_id
+            _parent_changed = new_parent_id != current_parent_id
+            if _parent_changed:
+                if new_parent_id is not None:
+                    if new_parent_id == requirement.artifact_id:
+                        raise ValidationError(
+                            "parent_id cannot be the requirement itself"
+                        )
+                    parent_artifact = Artifact.objects.filter(
+                        id=new_parent_id
+                    ).first()
+                    if parent_artifact is None:
+                        raise NotFoundError(
+                            f"Parent artifact {new_parent_id} not found"
+                        )
+                    if parent_artifact.workspace_id != workspace_id:
+                        raise ValidationError(
+                            f"Parent artifact {new_parent_id} is not in "
+                            f"workspace {workspace_id}"
+                        )
+                    self._validate_no_parent_cycle(
+                        artifact_id=requirement.artifact_id,
+                        new_parent_id=new_parent_id,
+                    )
+                requirement.artifact.parent_id = new_parent_id
+                requirement.artifact.save(
+                    update_fields=["parent_id", "modified_at"]
+                )
+
         # SN-30: If title or description changed, we will propagate suspect
         # (Task 12: `status` dropped from this list -- it is no longer a
         # settable field on this method at all, see the docstring above).
@@ -503,6 +606,17 @@ class RequirementService(ServiceBase):
                 requirement.suspect = suspect
 
         requirement.save()
+        # ADR-005: a re-parent changes the cascade position of the moved node
+        # *and of everything below it*, so the whole subtree is re-derived. Runs
+        # after the FK write above (the derivation reads the persisted tree) and
+        # inside this method's transaction, so a failure rolls the re-parent
+        # back rather than leaving a moved node with its old level.
+        if _parent_changed:
+            _recompute_derived_levels([requirement.artifact_id])
+            # The level is part of the versioned snapshot, so re-read it before
+            # the change detection below decides whether this update is a real
+            # content change.
+            requirement.refresh_from_db(fields=["level"])
         # Atomic version increment (REQ-L3-PL001-002): requirement_service was
         # missing any version bump at all — the baseline diff engine compares
         # stored version numbers, so without this increment every update appears
@@ -951,9 +1065,10 @@ class RequirementService(ServiceBase):
         * ``allocated-to`` : child Requirement -> ArchitectureElement
           (only when *target_architecture_elements* is given)
 
-        Each child also inherits ``level = parent.level + 1`` (P1-9), unless
-        the parent's level is unknown or already the bottom of the cascade —
-        see the inline comment at the derivation for both exceptions.
+        Each child also gets a derived V-model cascade level, one below its
+        parent — see ADR-005 and
+        :func:`traceability.audit.hierarchy.recompute_requirement_levels`, which
+        ``create_requirement`` calls for the child it just wrote.
 
         Args:
             requirement_id: UUID of parent requirement to decompose.
@@ -1022,29 +1137,16 @@ class RequirementService(ServiceBase):
 
         result = DecompositionResultDTO(parent_id=requirement_id)
 
-        # SYSTEMAUDIT_2026-08-27 P1-9: derive the child's V-model cascade level
-        # from the parent instead of leaving it NULL. Decomposition is by
-        # definition a move one level down the cascade (RequirementLevel: the
-        # stored integer IS the level), so the value is knowable here — and
-        # this method is the dominant creator of Requirements, which is why
-        # ``level`` used to be NULL for practically the whole corpus (see the
-        # level-vocabulary sections of the SE-Auditor rule modules).
-        #
-        # Two cases deliberately keep NULL rather than guessing:
-        #   * parent.level is NULL — every Requirement decomposed before this
-        #     change. Inventing a level for the child would fabricate a
-        #     cascade position from no evidence and would make the new CONS-P11
-        #     rule audit derived data against derived data.
-        #   * parent is already at L4_PRESENTATION — the cascade has no tier
-        #     below it. Clamping to L4 would emit a child at the *same* level
-        #     as its parent, i.e. a self-inflicted CONS-P11 finding on every
-        #     such decomposition; NULL ("not assigned") is the honest answer.
-        parent_level = parent_req.level
-        child_level: Optional[int]
-        if parent_level is None or parent_level >= RequirementLevel.L4_PRESENTATION:
-            child_level = None
-        else:
-            child_level = parent_level + 1
+        # ADR-005: the child's V-model cascade level is no longer computed
+        # here. ``create_requirement`` writes the ``parent_id`` FK and then
+        # re-derives the level from the hierarchy, and the two TraceLink writes
+        # below re-derive it again through ``TraceLinkManager`` — so all three
+        # hierarchy sources agree on one value, computed in one place. The
+        # previous local ``parent_level + 1`` (P1-9) deliberately left the child
+        # NULL when the parent's level was unknown or already L4; that behaviour
+        # is preserved, but as a property of the derivation (see
+        # ``traceability.audit.hierarchy.derive_requirement_levels``) rather than
+        # as a second, divergent implementation of it.
 
         with TransactionContextManager():
             for idx, child_data in enumerate(children):
@@ -1054,7 +1156,6 @@ class RequirementService(ServiceBase):
                     ctx=ctx,
                     description=child_data.get("description", ""),
                     parent_id=parent_req.artifact_id,
-                    level=child_level,
                 )
                 result.children.append(RequirementDTO.from_orm(child_req))
 

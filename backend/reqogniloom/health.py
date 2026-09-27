@@ -55,6 +55,48 @@ def _embedding_dimension_mismatches() -> list:
     return mismatches
 
 
+def _missing_llm_required_env() -> list[str]:
+    """Return the names of provider-required environment variables that are unset.
+
+    GitHub #1050, the ``/health/`` half of
+    :func:`llm_adapter.checks.check_opencode_session_required` (``llm_adapter.W003``).
+
+    Same failure mode the system check exists for, and the same reason it needs a
+    second surface: ``LLM_OPENCODE_SESSION`` is REQUIRED by the ``opencode_go``
+    endpoint, which answers every chat completion without the
+    ``x-opencode-session`` header with ``400 MissingSessionID``. The provider
+    deliberately omits the header when the variable is unset, the resilience
+    wrapper treats 4xx as permanent so nothing retries, and the only trace is a
+    provider-side log line — the deployment looks healthy while every LLM call
+    (decomposition, validation, consistency check) fails.
+
+    ``manage.py check`` is pull-based and manual; this is where a deployment is
+    actually watched.
+
+    The variable NAME is safe to expose on the unauthenticated ``/health/``
+    endpoint (CWE-209) — it is a configuration name, not a value. The session id
+    itself is treated as a credential and never read, logged or returned.
+
+    Reuses ``llm_adapter``'s own constants so the check, the provider docstring
+    and this function cannot drift apart on the spelling.
+
+    Returns:
+        The unset variable names; empty when the active provider needs nothing
+        extra, or when a required variable is present (even blank-but-present is
+        the provider's call, not this function's — an empty header must not be
+        sent, and that decision belongs to the provider).
+    """
+    from llm_adapter.checks import OPENCODE_PROVIDER_NAME
+    from llm_adapter.providers import resolve_provider_config
+
+    cfg = resolve_provider_config()
+    if cfg.provider_name != OPENCODE_PROVIDER_NAME:
+        return []
+    if (cfg.opencode_session or "").strip():
+        return []
+    return ["LLM_OPENCODE_SESSION"]
+
+
 class HealthView(View):
     """Health check endpoint for container orchestration.
 
@@ -68,6 +110,9 @@ class HealthView(View):
     - embedding_dimensions: the physical pgvector column width vs. the
       configured embedding provider's output width (a mismatch silently
       disables embedding writes and semantic search, #1018/#1019)
+    - llm_provider_env: the active LLM provider's REQUIRED environment
+      variables, which it is easy to select a provider for and then not supply
+      (#1050)
     """
 
     def get(self, request):
@@ -168,6 +213,45 @@ class HealthView(View):
                         "width and discard the stored vectors — the mismatch "
                         "would remain."
                     )
+
+        # Provider-required environment check (#1050): `opencode_go` is selected
+        # but `LLM_OPENCODE_SESSION` is not set, so every LLM call fails with a
+        # permanent 400 that nothing retries and nothing surfaces.
+        #
+        # Deliberately follows the embedding-dimension precedent above exactly:
+        # a WARNING (HTTP 200) rather than `degraded` (503), because a missing
+        # optional provider variable does not make the container unable to serve
+        # — it makes one feature dead — and a liveness probe must not
+        # restart-loop a stack that is otherwise serving traffic. In the
+        # configured state this adds no warning at all, so it can never trigger a
+        # 503 cascade.
+        #
+        # NOT gated on the database: the check reads environment/tenant LLM
+        # settings, not the catalog, so it stays available when Postgres is down.
+        # Never allowed to raise (a health endpoint must not crash), and only the
+        # variable NAME reaches the client — CWE-209, same as the checks above.
+        try:
+            missing_env = _missing_llm_required_env()
+        except Exception as e:  # noqa: BLE001 - health check must never crash
+            logger.warning("Health check: provider-env check failed - %s", e)
+            status["warnings"].append("provider-environment check failed")
+        else:
+            status["checks"]["llm_provider_env"] = "missing" if missing_env else "ok"
+            if missing_env:
+                logger.warning(
+                    "Health check: provider-required environment missing - %s",
+                    ", ".join(missing_env),
+                )
+                status["warnings"].append(
+                    "The active LLM provider requires "
+                    f"{', '.join(missing_env)}, which is not set. The provider "
+                    "answers every LLM call with a permanent 4xx, so "
+                    "decomposition, validation and the consistency check all "
+                    "fail while the UI shows nothing. Set it in the environment "
+                    "and restart the process. The value is treated as a "
+                    "credential and is never echoed here. Reported by "
+                    "`manage.py check` as llm_adapter.W003."
+                )
 
         # CSRF-cookie security check: AUTH_COOKIE_SECURE must match CSRF_COOKIE_SECURE
         # to avoid CSRF failures in deployments without a TLS-terminating reverse proxy.

@@ -1,0 +1,42 @@
+/* <IdChip> (issue #1094) — every value comes from styles/tokens.css; no
+   hardcoded colours or sizes (design-tokens ratchet). The chip is a badge-
+   family element: neutral, because colour encodes workflow status and nothing
+   else (UI concept ch. 3.3) — an identifier never carries a hue of its own. */
+
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+}
+
+/* The identifier itself. `user-select: all` so a pointer user can grab the
+   whole string in one gesture without the chip pretending to be a button. */
+.value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-sm);
+  letter-spacing: var(--tracking-normal);
+  color: var(--color-text-muted);
+  user-select: all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The design-system `btn-ghost`/`btn-sm` classes carry the chrome (this file
+   only tightens the geometry so a chip-sized control does not inflate a list
+   row); nothing here re-declares a fill or a colour. */
+.copyButton {
+  min-height: var(--space-5);
+  padding: 0 var(--space-1);
+  font-weight: 400;
+}
+
+/* Copy outcome. `aria-live` does the announcing; the colour only keeps the
+   message legible next to the muted identifier. */
+.status {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}

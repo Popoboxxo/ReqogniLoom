@@ -204,3 +204,109 @@ class TestAlignEmbeddingDimensions:
 
         with pytest.raises(CommandError, match="migrate"):
             _run()
+
+    def test_ownership_refusal_is_an_actionable_command_error(
+        self, monkeypatch
+    ) -> None:
+        """GitHub #1053: a least-privilege run must explain *itself*.
+
+        The shipped deployment hands the app services the ``reqogniloom_app``
+        role, which does not own the embedding tables or their HNSW indexes, so
+        the DDL raises ``ProgrammingError: must be owner of index
+        mem_entry_embedding_hnsw``. That text is a Postgres internal an operator
+        cannot act on — the fix is *which role they ran as*, not anything they
+        typed. The command must translate it into a ``CommandError`` that names
+        the cause and both supported fixes.
+        """
+        import persistence.management.commands.align_embedding_dimensions as cmd
+        from django.db.utils import ProgrammingError
+
+        monkeypatch.setattr(cmd, "EMBEDDING_VECTOR_DIMENSIONS", 768)
+
+        original = cmd.connection.cursor
+
+        class _OwnershipDeniedCursor:
+            """Cursor wrapper that refuses the first DDL like the app role would.
+
+            Only DDL is refused. The introspection SELECTs still run, which is
+            what the real least-privilege role can do — it reads the catalog
+            fine, it just cannot own what it finds there.
+            """
+
+            def __init__(self, inner) -> None:
+                self._inner = inner
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+            def __enter__(self):
+                self._inner.__enter__()
+                return self
+
+            def __exit__(self, *exc_info):
+                return self._inner.__exit__(*exc_info)
+
+            def execute(self, sql, params=None):
+                if sql.lstrip().upper().startswith(("DROP INDEX", "CREATE INDEX", "ALTER TABLE")):
+                    raise ProgrammingError("must be owner of index mem_entry_embedding_hnsw")
+                return self._inner.execute(sql, params)
+
+        monkeypatch.setattr(
+            cmd.connection, "cursor", lambda *a, **kw: _OwnershipDeniedCursor(original(*a, **kw))
+        )
+
+        with pytest.raises(CommandError) as excinfo:
+            _run()
+
+        message = str(excinfo.value)
+        # The cause is named, and the raw driver text is passed through so an
+        # operator can correlate it with the Postgres log.
+        assert "not the owner" in message
+        assert "must be owner of index mem_entry_embedding_hnsw" in message
+        # Both supported fixes are offered, with the exact knobs each needs.
+        assert "docker compose run --rm migrate" in message
+        assert "DB_USER" in message and "DB_PASSWORD" in message
+        assert "DB_APP_USER" in message and "DB_APP_PASSWORD" in message
+        # The original exception is preserved for a traceback.
+        assert isinstance(excinfo.value.__cause__, ProgrammingError)
+
+    def test_non_ownership_database_error_is_not_laundered(self, monkeypatch) -> None:
+        """A genuine SQL fault must still surface as itself.
+
+        The #1053 handler catches ``DatabaseError`` broadly (the psycopg
+        subclass for SQLSTATE 42501 is version-dependent), so the message
+        marker is the only thing keeping an unrelated fault from being reported
+        as "check your credentials".
+        """
+        import persistence.management.commands.align_embedding_dimensions as cmd
+        from django.db.utils import ProgrammingError
+
+        monkeypatch.setattr(cmd, "EMBEDDING_VECTOR_DIMENSIONS", 768)
+
+        original = cmd.connection.cursor
+
+        class _BrokenSqlCursor:
+            def __init__(self, inner) -> None:
+                self._inner = inner
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+            def __enter__(self):
+                self._inner.__enter__()
+                return self
+
+            def __exit__(self, *exc_info):
+                return self._inner.__exit__(*exc_info)
+
+            def execute(self, sql, params=None):
+                if sql.lstrip().upper().startswith(("DROP INDEX", "CREATE INDEX", "ALTER TABLE")):
+                    raise ProgrammingError('relation "pl_ghost" does not exist')
+                return self._inner.execute(sql, params)
+
+        monkeypatch.setattr(
+            cmd.connection, "cursor", lambda *a, **kw: _BrokenSqlCursor(original(*a, **kw))
+        )
+
+        with pytest.raises(ProgrammingError, match="does not exist"):
+            _run()

@@ -23,6 +23,11 @@ Tools implemented:
   test.mark_reviewed — #424: set the in-content review flag of a TestCase, the
                   only write path for it (write, audited). Independent of the
                   workflow lifecycle state.
+  test.run_list   — #1080: list the TestRuns of a workspace (read). The run
+                  lifecycle was observable only by an id the caller had kept
+                  from its own test.run_create; a run produced by CI, or by
+                  another agent, was unreachable, so the entity existed over
+                  REST (GET /api/v1/test-runs/) but not over MCP.
 
 Interface contracts implemented:
   IF-MC-INT-004  — inbound: execute_tool(tool_name, params, auth_context) -> ToolResult
@@ -45,6 +50,16 @@ _WRITE_TOOL_PREFIXES (Phase 3). That RBAC gate is name-based (not mode-aware),
 so — mirroring the same deliberate restriction documented in
 mcp_server/tools/ai_derivation.py — a Viewer can no longer call this tool at
 all, including mode="preview".
+
+#1080 — why the TestRun tools live in the ``test`` group and not in a second
+``test_run`` prefix: ``ToolRegistry._ensure_groups`` already registers one group
+instance per prefix and shares a single instance across the prefixes of one
+entity family (``traceability``/``artifact``/``context`` -> one
+CrossCuttingToolGroup, ``audit``/``events`` -> one AuditToolGroup, REQ-129).
+TestRun is the execution record of a TestCase, its four sibling tools already
+live in this group, and a second prefix would be a second group instance for
+one entity — duplicating its schemas in ``tools/list`` (the exact REQ-129
+defect) and splitting one lifecycle across two namespaces.
 """
 from __future__ import annotations
 
@@ -71,6 +86,7 @@ from mcp_server.tools.ai_derivation import (
 )
 from mcp_server.tools.base import (
     BaseToolGroup,
+    ParameterError,
     artifact_custom_fields,
     mcp_audit_handoff,
     optional_uuid,
@@ -88,7 +104,13 @@ from mcp_server.tools.system_fields import (
     apply_system_fields,
     system_field_values,
 )
-from persistence.models import ScenarioKind, TestCase, TestCaseOrigin, TestCaseType
+from persistence.models import (
+    ScenarioKind,
+    TestCase,
+    TestCaseOrigin,
+    TestCaseType,
+    TestRun,
+)
 from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
@@ -119,6 +141,24 @@ _VALID_MODEL_TEST_TYPES = frozenset(value for value, _label in TestCaseType.choi
 _LIFECYCLE_STATES = frozenset(
     {choice.value for choice in TestCase.Status} | {"outdated"}
 )
+
+#: ``TestRun.status`` vocabulary — the *aggregate* axis of the test-run
+#: lifecycle, derived from the model so it cannot drift from it.
+#:
+#: The four documented phases are ``created -> in_progress -> completed/failed
+#: -> archived``; the model spells the last two ``passed``/``failed``/
+#: ``partial`` (derived) and ``closed`` (a human verdict on a run with no
+#: results), and has no ``created``/``archived``/``completed`` value at all —
+#: see ``rest_api.views.TestRunViewSet.complete`` and
+#: ``TestRunService._compute_aggregate_status``. Exposing the model's own
+#: choices is what an agent can actually filter on.
+_VALID_RUN_STATUSES = tuple(value for value, _label in TestRun._meta.get_field("status").choices)
+
+#: ``test.run_list`` page ceiling. The REST list is paginated (default 50, max
+#: 500); an MCP caller has no page cursor, so the handler slices server-side
+#: instead of materialising every run of the workspace into the response.
+_RUN_LIST_DEFAULT_LIMIT = 100
+_RUN_LIST_MAX_LIMIT = 500
 
 
 def _test_case_to_dict(
@@ -177,8 +217,84 @@ def _test_case_to_dict(
     return result
 
 
+def _test_run_result_summary(tr: Any) -> Dict[str, int]:
+    """Per-status result tallies for a TestRun — the REST ``_result_summary``.
+
+    Mirrors ``rest_api.views._result_summary`` (REQ-L2-AS-030) so a client can
+    read the same counters on both transports. ``tr.results`` is a reverse FK:
+    on a prefetched run the related manager is already populated, otherwise this
+    issues one query, so a page of N runs costs N queries and never more.
+    """
+    results = list(getattr(tr, "results").all()) if hasattr(tr, "results") else []
+    return {
+        "total": len(results),
+        "passed": sum(1 for r in results if r.status == "passed"),
+        "failed": sum(1 for r in results if r.status == "failed"),
+        "blocked": sum(1 for r in results if r.status == "blocked"),
+        "not_run": sum(1 for r in results if r.status == "not_run"),
+    }
+
+
+def _test_run_to_dict(tr: Any) -> Dict[str, Any]:
+    """Serialise a TestRun ORM object to the shared MCP/REST wire shape.
+
+    #1080: extracted from the four inline dicts the ``test.run_*`` handlers
+    each built, so ``test.run_list`` rows are byte-for-byte the same shape as a
+    ``test.run_get`` body and as ``GET /api/v1/test-runs/{id}/``. Purely
+    additive for the existing handlers — every key they already returned is
+    still here, plus ``uid``, ``result_summary``, ``version``, ``created_at``
+    and ``updated_at``.
+    """
+    return {
+        "id": str(tr.id),
+        "workspace_id": str(tr.workspace_id),
+        "name": tr.name,
+        # #932: local readable identifier, NULL for pre-0093 rows.
+        "uid": getattr(tr, "uid", None),
+        "status": tr.status,
+        "ci_job_id": getattr(tr, "ci_job_id", ""),
+        "started_at": tr.started_at.isoformat() if tr.started_at else None,
+        "finished_at": tr.finished_at.isoformat() if tr.finished_at else None,
+        # The lifecycle's observable evidence: a run is "in_progress" while
+        # anything is not_run, and the derived terminal value otherwise.
+        "result_summary": _test_run_result_summary(tr),
+        "version": getattr(tr, "version", None),
+        "created_at": tr.created_at.isoformat() if tr.created_at else None,
+        "updated_at": tr.modified_at.isoformat() if tr.modified_at else None,
+    }
+
+
+def _parse_run_list_limit(params: Dict[str, Any]) -> int:
+    """Read and validate ``test.run_list``'s ``limit`` parameter.
+
+    Absent (or ``null``) means :data:`_RUN_LIST_DEFAULT_LIMIT`. Raises
+    ``ParameterError`` — which ``BaseToolGroup.execute_tool`` maps to
+    ``VALIDATION_ERROR`` — for a non-integer, a bool (``True`` is an ``int``
+    in Python but never a page size), or a value outside 1..max. A *string*
+    digit sequence is accepted, because an MCP client that serialises a
+    typed schema incorrectly is a client bug we should not turn into a
+    500; ``limit="20"`` costs nothing to honour.
+    """
+    raw = params.get("limit")
+    if raw is None or raw == "":
+        return _RUN_LIST_DEFAULT_LIMIT
+    if isinstance(raw, bool):
+        raise ParameterError("Parameter 'limit' must be an integer.")
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        raise ParameterError(
+            f"Parameter 'limit' must be an integer, got {raw!r}."
+        ) from None
+    if not 1 <= value <= _RUN_LIST_MAX_LIMIT:
+        raise ParameterError(
+            f"Parameter 'limit' must be between 1 and {_RUN_LIST_MAX_LIMIT}, got {value}."
+        )
+    return value
+
+
 class McpTestToolGroup(BaseToolGroup):
-    """COMP-MC-005 — Test tool group (12 tools)."""
+    """COMP-MC-005 — Test tool group (14 tools)."""
     __test__ = False
 
     _TOOL_MAP = {
@@ -188,6 +304,7 @@ class McpTestToolGroup(BaseToolGroup):
         "test.update": "_handle_update",
         "test.link": "_handle_link",
         "test.run_create": "_handle_run_create",
+        "test.run_list": "_handle_run_list",
         "test.run_get": "_handle_run_get",
         "test.run_report_results": "_handle_run_report_results",
         "test.run_complete": "_handle_run_complete",
@@ -384,6 +501,50 @@ class McpTestToolGroup(BaseToolGroup):
             },
         },
         {
+            "name": "test.run_list",
+            "description": (
+                "List the TestRuns of a workspace, most recent first (read). "
+                "#1080: the TestRun entity used to be reachable over MCP only "
+                "by an id the caller already held (test.run_get) — a run "
+                "created by CI or by another agent was invisible, while "
+                "GET /api/v1/test-runs/ listed it. Each row carries 'status' "
+                "— in_progress|passed|failed|partial|closed, the four-phase "
+                "lifecycle's observable axis — plus 'result_summary' "
+                "(total/passed/failed/blocked/not_run) and 'finished_at' "
+                "(null while the run is still in_progress). Use "
+                "test.run_get for the per-result rows."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the workspace whose runs to list.",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": list(_VALID_RUN_STATUSES),
+                        "description": (
+                            "Optional aggregate-status filter. Omit to return "
+                            "every run of the workspace."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _RUN_LIST_MAX_LIMIT,
+                        "description": (
+                            f"Maximum number of runs to return (default "
+                            f"{_RUN_LIST_DEFAULT_LIMIT}, max "
+                            f"{_RUN_LIST_MAX_LIMIT}). Applied in the query, so "
+                            "a large workspace is not materialised whole."
+                        ),
+                    },
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
             "name": "test.run_get",
             "description": "Fetch a TestRun with its results by ID.",
             "inputSchema": {
@@ -396,7 +557,17 @@ class McpTestToolGroup(BaseToolGroup):
         },
         {
             "name": "test.run_report_results",
-            "description": "Add result(s) to a TestRun (write, audited).",
+            "description": (
+                "Add result(s) to a TestRun (write, audited). Honours the "
+                "four-phase lifecycle: results are upserted per "
+                "(run, test_case), and the run's aggregate 'status' is then "
+                "re-derived — in_progress while any result is still "
+                "not_run, then passed (all passed) / failed (any failed) / "
+                "partial (any blocked). A run explicitly finalised as "
+                "'closed' by test.run_complete keeps that status; its result "
+                "rows are still recorded. A single result object is accepted "
+                "in place of a one-element array."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -979,14 +1150,50 @@ class McpTestToolGroup(BaseToolGroup):
         )
 
         return ToolResult.ok({
-            "test_run": {
-                "id": str(tr.id),
-                "workspace_id": str(tr.workspace_id),
-                "name": tr.name,
-                "status": tr.status,
-                "ci_job_id": tr.ci_job_id,
-            }
+            "test_run": _test_run_to_dict(tr),
         })
+
+    # ------------------------------------------------------------------
+    # test.run_list
+    # ------------------------------------------------------------------
+
+    def _handle_run_list(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.run_list — list a workspace's TestRuns, newest first (#1080).
+
+        Scoping mirrors ``test.query`` and every other workspace-scoped read:
+        ``workspace_id`` is **required** in the published inputSchema, so the
+        dispatcher narrows the caller's roles to that workspace and answers
+        ``PERMISSION_DENIED`` for a workspace they hold no role in (see
+        ``mcp_server.workspace_scope``), and
+        ``TestRunService.list_test_runs`` additionally arms the tenant context
+        before its query — a foreign-tenant run is invisible either way.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+        status = params.get("status")
+        if status is not None and str(status) not in _VALID_RUN_STATUSES:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Invalid status '{status}'. Valid: {list(_VALID_RUN_STATUSES)}",
+            )
+        limit = _parse_run_list_limit(params)
+
+        try:
+            runs = self._run_service.list_test_runs(workspace_id, auth_context)
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        if status is not None:
+            runs = runs.filter(status=str(status))
+        # Slice before materialising: TestRunService returns a lazy QuerySet
+        # precisely so a caller can LIMIT/OFFSET instead of loading every run.
+        runs = list(runs[:limit])
+        return ToolResult.ok(
+            {
+                "test_runs": [_test_run_to_dict(tr) for tr in runs],
+                "count": len(runs),
+            }
+        )
 
     # ------------------------------------------------------------------
     # test.run_get
@@ -1017,15 +1224,9 @@ class McpTestToolGroup(BaseToolGroup):
         ]
 
         return ToolResult.ok({
-            "test_run": {
-                "id": str(tr.id),
-                "workspace_id": str(tr.workspace_id),
-                "name": tr.name,
-                "status": tr.status,
-                "ci_job_id": tr.ci_job_id,
-                "started_at": tr.started_at.isoformat() if tr.started_at else None,
-                "finished_at": tr.finished_at.isoformat() if tr.finished_at else None,
-            },
+            # #1080: shared shape with test.run_list's rows, so a caller can
+            # list runs, pick one and read it without reconciling two shapes.
+            "test_run": _test_run_to_dict(tr),
             "results": results,
             "result_count": len(results),
         })
@@ -1153,15 +1354,7 @@ class McpTestToolGroup(BaseToolGroup):
         )
 
         return ToolResult.ok({
-            "test_run": {
-                "id": str(tr.id),
-                "workspace_id": str(tr.workspace_id),
-                "name": tr.name,
-                "status": tr.status,
-                "ci_job_id": tr.ci_job_id,
-                "started_at": tr.started_at.isoformat() if tr.started_at else None,
-                "finished_at": tr.finished_at.isoformat() if tr.finished_at else None,
-            }
+            "test_run": _test_run_to_dict(tr),
         })
 
     # ------------------------------------------------------------------

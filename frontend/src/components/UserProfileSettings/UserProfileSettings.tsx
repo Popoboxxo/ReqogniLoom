@@ -13,6 +13,7 @@
 
 import { useTranslation } from "react-i18next";
 import { ApiKeysSection } from "./ApiKeysSection";
+import { IdentifiersSection } from "./IdentifiersSection";
 import { MemorySection } from "./MemorySection";
 import { NotificationsSection } from "./NotificationsSection";
 import { ProfileSection } from "./ProfileSection";
@@ -93,6 +94,12 @@ export default function UserProfileSettings(): JSX.Element {
       {/* User-global section: keep it contiguous with the three above and
           before the workspace-scoped visibility block below. */}
       <NotificationsSection />
+
+      {/* Issue #1094: the readable-id display preference and the one identifier
+          chip the whole app shares. User-global, so it sits with the other
+          user-global blocks and BEFORE the workspace-scoped visibility section
+          — it applies in every workspace. */}
+      <IdentifiersSection />
 
       {activeWorkspace && (
         <section className={styles.visibilitySection} data-testid="visibility-section">

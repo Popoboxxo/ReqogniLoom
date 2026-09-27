@@ -1830,10 +1830,18 @@ class OpencodeGoProvider(_BaseHttpProvider):
         LLM_MODEL_NAME / LLM_MODEL=<model-id>  (overrides MODEL_NAME,
             optional — see https://opencode.ai/docs/providers for available
             model ids)
-        LLM_OPENCODE_SESSION=<session-id>  (optional; sent as the
-            `x-opencode-session` header the Zen-Go endpoint requires — without
-            it the endpoint answers 400 MissingSessionID, see RFC #1002 F12.
-            Unset/empty = header omitted.)
+        LLM_OPENCODE_SESSION=<session-id>  (**REQUIRED for this provider**,
+            issue #1050; sent as the `x-opencode-session` header the Zen-Go
+            endpoint demands). The endpoint rejects a request without it with
+            ``400 MissingSessionID``, and the retry/resilience wrapper treats
+            a 4xx as permanent, so *every* LLM call fails — with nothing in the
+            UI, only a provider-side log line. The docstring used to call this
+            variable "optional" while the endpoint treated it as mandatory, and
+            that mismatch is the whole bug. Enforced by the
+            ``llm_adapter.W003`` system check
+            (:func:`llm_adapter.checks.check_opencode_session_required`), so
+            ``manage.py check`` reports it before a request ever does.
+            A whitespace-only value counts as unset.
 
     A DB-persisted ``LlmSettings.model_name`` row takes precedence over both
     of the above (see Issue #196) — env vars are only the fallback for

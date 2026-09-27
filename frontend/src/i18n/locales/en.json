@@ -629,7 +629,7 @@
     "priorityNone": "None",
     "deriveStarting": "Starting AI derivation task...",
     "deriveStarted": "Task started: {{taskId}}. Waiting for completion...",
-    "deriveSuccess": "System requirements derived successfully!",
+    "deriveSuccess": "System requirements derived — {{count}} proposal(s) await your review under \"Reviews → AI proposals only\".",
     "deriveFailed": "Derivation failed.",
     "deriveRolledBack": "{{message}} The already-created requirement was rolled back (archived).",
     "derivePartialFailure": "{{message}} Warning: a requirement was already created, but linking it to the need failed and the automatic rollback failed too. Please check manually (requirement id: {{id}}).",
@@ -1536,7 +1536,13 @@
     "ariaLabel": "Notifications",
     "label": "Notifications",
     "empty": "Nothing new.",
-    "markAllRead": "Mark all as read"
+    "markAllRead": "Mark all as read",
+    "loading": "Loading notifications …",
+    "loadFailed": "Notifications could not be loaded.",
+    "preferencesUnavailable": "Your notification settings could not be read, so these notifications are shown unfiltered.",
+    "unread": "{{count}} unread notifications",
+    "unread_one": "{{count}} unread notification",
+    "unread_other": "{{count}} unread notifications"
   },
   "notificationPreferences": {
     "title": "Notifications",
@@ -1706,6 +1712,7 @@
   },
   "archDecompose": {
     "trigger": "AI Decompose",
+    "triggerHint": "The AI proposes a decomposition of this element into sub-elements – it is applied only after you confirm",
     "title": "AI Decomposition",
     "close": "Close",
     "maxBreadth": "Max. children per level",
@@ -1766,7 +1773,7 @@
     "stepPlaceholder": "Action",
     "expectedResultPlaceholder": "Expected result",
     "addStep": "Add step",
-    "removeStep": "Remove",
+    "removeStep": "Remove step {{index}}",
     "create": "Create test case",
     "creating": "Creating...",
     "discard": "Discard",
@@ -1931,6 +1938,25 @@
     "revealed": "Value shown",
     "revealHint": "Click or press {{shortcut}} to show"
   },
+  "idChip": {
+    "systemIdTerm": "System id",
+    "readableIdTerm": "Readable id",
+    "copy": "Copy {{kind}}",
+    "copyWithLabel": "{{label}}: copy {{kind}}",
+    "copiedSystemId": "UUID copied",
+    "copiedUidFallback": "UID copied because no system id is available",
+    "copyFailed": "Copy failed"
+  },
+  "identifiers": {
+    "title": "Identifiers",
+    "hint": "Artifacts carry two identifiers: a readable one, counted up per workspace (e.g. REQ-001), and a system id (UUID). The system id is always what gets copied, because it is the only one that is valid outside this workspace.",
+    "showReadable": "Show readable ids (e.g. REQ-001)",
+    "readableShown": "Readable ids are shown. The system id remains copyable as well.",
+    "readableHidden": "Readable ids are hidden. The system id remains copyable.",
+    "persistenceNote": "Note: this setting is stored in this browser only. A dedicated endpoint is still needed for a server-side user preference.",
+    "accountLabel": "Your account",
+    "accountUnavailable": "Loading account…"
+  },
   "pageHeader": {
     "more": "More actions",
     "moreLabel": "Show more actions"
@@ -2052,17 +2078,29 @@
     "spineCount": "Number of artifacts on this station, or of the linked test cases. Clicking opens the list.",
     "spineEmpty": "A link is missing on this station — a gap in traceability."
   },
+  "aiActions": {
+    "heading": "AI actions",
+    "hint": "Every AI-supported action for this element in one place. The AI produces drafts for review – nothing is saved until you confirm."
+  },
   "systemSettings": {
     "themes.heading": "Theme Palettes",
-    "themes.hint": "Named color palettes for the whole tenant. System palettes are read-only; import custom palettes as JSON files.",
+    "themes.hint": "Named color palettes for the whole tenant. Custom palettes can be imported as JSON files.",
     "themes.readOnly": "Read-only",
+    "themes.systemReadOnlyHint": "System palettes cannot be modified",
     "themes.export": "Export",
+    "themes.exportJson": "Export JSON",
+    "themes.exportJsonFor": "Export {{label}} as JSON",
     "themes.delete": "Delete",
+    "themes.deleteFor": "Delete {{label}}",
     "themes.deleteConfirmTitle": "Delete palette",
     "themes.deleteConfirmMessage": "Permanently delete palette \"{{label}}\"? This action cannot be undone.",
+    "themes.deleteConfirmButton": "Permanently delete {{label}}",
     "themes.importLabel": "Import palette (JSON):",
+    "themes.importButton": "Choose JSON file",
     "themes.tenantDefaultLabel": "Tenant default:",
+    "themes.tenantDefaultTarget": "Default: {{target}}",
     "themes.tenantDefaultSave": "Save as default",
+    "themes.tenantDefaultSaveFor": "Save {{target}} as default",
     "themes.tenantDefaultSaved": "Saved",
     "memory.heading": "Memory Overview",
     "memory.hint": "Per workspace: memory status, entry counts per tier, last consolidation. Deleting permanently removes workspace memory and the tenant memory of the workspace's current members.",
@@ -2173,7 +2211,8 @@
     }
   },
   "profile": {
-    "pageSummary": "Personal settings: profile, personal access tokens and visibility of optional artifact types."
+    "pageSummary": "Personal settings: profile, personal access tokens and visibility of optional artifact types.",
+    "saveShortcutHint": "Save (Ctrl/Cmd+S)"
   },
   "permissions": {
     "revoke": "Revoke",
@@ -2244,7 +2283,9 @@
       "title": "Interview assistant",
       "open": "Open interview assistant",
       "close": "Close interview assistant",
-      "hint": "Pick a type — the interview opens under /interviews."
+      "hint": "Pick a type — the interview opens under /interviews.",
+      "tabsLabel": "Interview assistant sections",
+      "tabStart": "Start interview"
     },
     "multi": {
       "chatPlaceholder": "Describe your problem...",
@@ -2320,7 +2361,8 @@
     "actorRemove": "Remove {{name}}",
     "systemValueUnavailable": "No value",
     "changeReason": "Change reason",
-    "changeReasonRequired": "Please provide a change reason."
+    "changeReasonRequired": "Please provide a change reason.",
+    "saveShortcutHint": "Save (Ctrl/Cmd+S)"
   },
   "sections": {
     "identification": "Identification",

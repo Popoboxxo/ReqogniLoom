@@ -364,7 +364,9 @@ def test_workspaceless_bearer_drops_suspended_or_removed_role_before_endpoint(
     response = client.get("/api/v1/prompt-templates/")
 
     assert response.status_code == 403, response.content
-    assert response.json()["error"]["code"] == "403"
+    # #1081: the envelope code is the named registry code, not the status
+    # number ("403" was the pre-fix value).
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"
 
 
 @pytest.mark.django_db
@@ -466,7 +468,8 @@ def test_fenced_agent_key_cannot_resolve_same_tenant_workspace_b_comment():
     response = client.post(f"/api/v1/comments/{comment.id}/resolve/")
 
     assert response.status_code == 403, response.content
-    assert response.json()["error"]["code"] == "403"
+    # #1081: named registry code instead of the bare status number.
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"
     comment.refresh_from_db()
     assert comment.resolved is False
     assert AuditEntry.unscoped.filter(

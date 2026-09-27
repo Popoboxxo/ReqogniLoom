@@ -48,67 +48,16 @@ import { usersApi, type ManagedUser } from "../../../api/users";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { Dialog } from "../../shared/Dialog";
 import { PageHeader } from "../../shared/PageHeader";
+import {
+  extractMessage,
+  isLastAdminError,
+  parseLastAdminMessage,
+} from "../../shared/apiError";
 import styles from "./UserManagement.module.css";
 
 // ---------------------------------------------------------------------------
-// LAST_ADMIN error handling
+// LAST_ADMIN error handling — shared with WorkspaceSettings/PermissionsSection
 // ---------------------------------------------------------------------------
-
-/** Nested envelope (current) or flat body (legacy) — see the file docstring. */
-type ApiErrorBody =
-  | { error: { code: string; message: string } }
-  | { error: string; message: string };
-
-/** Read the machine code out of either envelope shape. */
-function errorCode(err: unknown): string | null {
-  const candidate = err as
-    | { error?: unknown; message?: unknown }
-    | null
-    | undefined;
-  if (!candidate || typeof candidate !== "object") return null;
-  const nested = candidate.error as { code?: unknown } | undefined;
-  if (nested && typeof nested === "object" && typeof nested.code === "string") {
-    return nested.code;
-  }
-  return typeof candidate.error === "string" ? candidate.error : null;
-}
-
-/**
- * Read the human-readable sentence out of either envelope shape.
- *
- * Kept separate from `client.ts`'s `extractApiErrorMessage`: that helper
- * prefers `details[0].errors[0]` (field-level serializer rejections), whereas
- * every error this component shows — including the `LAST_ADMIN` sentence
- * `parseLastAdminMessage` needs verbatim — lives in the top-level `message`.
- */
-function extractMessage(err: unknown): string | null {
-  const candidate = err as
-    | { error?: unknown; message?: unknown }
-    | null
-    | undefined;
-  if (!candidate || typeof candidate !== "object") return null;
-  const nested = candidate.error as { message?: unknown } | undefined;
-  if (nested && typeof nested === "object" && typeof nested.message === "string") {
-    return nested.message;
-  }
-  return typeof candidate.message === "string" ? candidate.message : null;
-}
-
-function isLastAdminError(err: unknown): err is ApiErrorBody {
-  return errorCode(err) === "LAST_ADMIN" && extractMessage(err) !== null;
-}
-
-// Matches `LastAdminError.__init__`'s fixed message format
-// (backend/auth_tenancy/services/authorization.py): "Cannot complete this
-// action: it would leave {scope} {identifier} with no active admin."
-const LAST_ADMIN_MESSAGE_RE = /leave (workspace|tenant) (\S+) with no active admin/i;
-
-function parseLastAdminMessage(message: string): { scope: string; identifier: string } | null {
-  const match = message.match(LAST_ADMIN_MESSAGE_RE);
-  if (!match) return null;
-  const [, scope, identifier] = match;
-  return { scope: scope.charAt(0).toUpperCase() + scope.slice(1), identifier };
-}
 
 // ---------------------------------------------------------------------------
 // Component

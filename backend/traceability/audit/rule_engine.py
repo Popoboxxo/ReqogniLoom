@@ -122,9 +122,14 @@ class RuleEngine:
         """Run one rule, stamping the tier-resolved severity onto findings.
 
         Rules return findings with their natural severity; the engine is the
-        authority on per-tier severity (e.g. TRACE-P2 downgrades to WARNING at
-        Standard), so it overrides each finding's severity with
+        authority on severity (e.g. TRACE-P2 is advisory in *every* tier it
+        runs in, #581 — the rule's own ``Finding`` carries a placeholder that
+        only this stamp replaces), so it overrides each finding's severity with
         ``rule.severity_for_tier(tier)`` to keep that policy in one place.
+
+        A BLOCKER stamped here means "blocks baseline creation, waivable per
+        finding" — this engine has no other enforcement surface; see the
+        enforcement-point section in :mod:`traceability.audit.registry`.
 
         Deferred rules (``rule.deferred_reason is not None``, see
         :class:`traceability.audit.registry.Rule`) are short-circuited to an
