@@ -248,11 +248,40 @@ Klasse, die #985 verhindern soll. Die Pins wurden deshalb beibehalten und
 nicht gelöscht. Eine statische Prüfung auf `data-testid`s, die es nicht
 mehr gibt, würde die Klasse schließen.
 
-### 8.4 Der E2E-Workspace-Helper ist reihenfolgeabhängig
+### 8.4 Der E2E-Workspace-Helper ist reihenfolgeabhängig → **#1115**
 
 `getWorkspaceId` in `e2e/helpers/auth.ts` nimmt `items[0]` aus der
 Workspace-Liste. Auf einer verschmutzten Entwicklerdatenbank ist das ein
 Testrest. Siehe Abschnitt 7.
+
+### 8.5 Das Dev-Overlay lässt den Backend als App-Role migrieren → **#1116**
+
+`deploy/docker-compose.override.yml:70-72` startet `manage.py migrate` im
+Backend-Service unter dem App-DB-Benutzer. Jede Migration mit
+`ADD COLUMN` braucht in PostgreSQL Eigentümer- oder Superuserrechte, also
+crash-loopt der Backend nach `0102`. Produktion und CI umgehen den Pfad
+(separater `migrate`-Service als Owner, Playwright als `reqflow`), deshalb
+trifft es nur den Dev-Stack — und nur dort wird es zuerst sichtbar und
+leicht der Datenbank zugeschrieben, obwohl die Datenbank korrekt ist.
+Für diesen Cut umgangen, nicht behoben.
+
+### 8.6 Drei nicht reproduzierbare Frontend-Fehlschläge → **#1117**
+
+Ein Full Run zeigte 3 Fehlschläge, die im Folgelauf nicht wieder
+auftraten. Keine Hypothese, keine Eingrenzung — der Fakt reicht, um ihn
+nicht stillschweigend zu verbuchen. CI ist an dieser Stelle grün
+(`frontend-test` pass), was den Fall von einem Release-Blocker trennt.
+
+### 8.7 Übersicht: alle offenen Punkte mit Issue
+
+| Punkt | Issue |
+|---|---|
+| W5 — Baseline-Rollback additiv vs. CCB, nicht entschieden | #50 |
+| ADR-006-Feldkinds auf Altinstanzen | #1112 |
+| Statischer Ratchet auf nicht mehr existierende `data-testid`s | #1113 |
+| `getWorkspaceId` nimmt `items[0]` | #1115 |
+| Dev-Overlay migriert als App-Role | #1116 |
+| 3 nicht reproduzierbare Frontend-Fehlschläge | #1117 |
 
 ## 9. Tag & GitHub-Pre-Release
 
