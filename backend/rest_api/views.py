@@ -105,6 +105,9 @@ from application.requirement_bundle_service import (
 # re-exported through application.services (which only carries the shared
 # persistence-layer exceptions).
 from application.trace_link_service import AgentSelfConfirmError
+# #1084: service-local exception of the workspace hard delete, imported from its
+# own module for the same reason as AgentSelfConfirmError above.
+from application.workspace_service import BaselineImmutabilityError
 from presets.exceptions import CrossTenantWorkspaceError
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
@@ -128,6 +131,7 @@ from rest_api.serializers import (
     ArchitectureElementSerializer,
     BaselineDiffSerializer,
     BaselineSerializer,
+    BaselineSummarySerializer,
     GoalSerializer,
     ImpactNodeSerializer,
     IssueSerializer,
@@ -199,6 +203,12 @@ _EXC_TO_HTTP: dict[type, int] = {
     WaiverReasonPolicyViolation: status.HTTP_400_BAD_REQUEST,
     WaiverFindingNotBlockingError: status.HTTP_400_BAD_REQUEST,
     SuppressionExpiredError: status.HTTP_409_CONFLICT,
+    # #1084: a hard delete refused because the workspace still holds
+    # append-only baselines. A rejected precondition, not a malformed request,
+    # hence 409 — and registering the type is what also forwards the service's
+    # own message to the client when the refusal escapes a view that has no
+    # dedicated branch (the exact-type lookup degrades to a 500 otherwise).
+    BaselineImmutabilityError: status.HTTP_409_CONFLICT,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
 }
@@ -220,6 +230,7 @@ _EXC_TO_CODE: dict[type, str] = {
     WaiverReasonPolicyViolation: "WAIVER_REASON_REJECTED",
     WaiverFindingNotBlockingError: "WAIVER_FINDING_NOT_BLOCKING",
     SuppressionExpiredError: "SUPPRESSION_EXPIRED",
+    BaselineImmutabilityError: "CONFLICT",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
 }
@@ -997,6 +1008,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         REQ-L3-RF003-005: Accepts type-dependent fields (moscow_priority,
         complexity_fibonacci, verification_method).
+
+        #1079: the 201 carries ``ETag: "<version>"`` just like the detail GET
+        and PATCH do, so a client can follow the create with a conditional
+        PATCH without first looking the new artifact up.
         """
         lang = detect_lang(request)
         ser = RequirementSerializer(data=request.data)
@@ -1043,7 +1058,13 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(RequirementSerializer(_dto_from_orm(item)).data, status=status.HTTP_201_CREATED)
+        return self.with_etag(
+            Response(
+                RequirementSerializer(_dto_from_orm(item)).data,
+                status=status.HTTP_201_CREATED,
+            ),
+            item,
+        )
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/requirements/{pk}/ — update a requirement. Returns 200.
@@ -2604,6 +2625,13 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return self.with_etag(Response(payload), item)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/testcases/ — create a test case. Returns 201.
+
+        #1079: the 201 carries ``ETag: "<version>"`` (baselines fall back to
+        ``created_at``, see :func:`compute_etag`) so the response that hands out
+        the new id is also the response that hands out the value a following
+        ``If-Match`` needs.
+        """
         lang = detect_lang(request)
         ser = TestCaseSerializer(data=request.data)
         if not ser.is_valid():
@@ -2680,7 +2708,14 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         response_data = _test_to_dict(item)
         response_data["verifies_link_id"] = verifies_link_id
-        return Response(TestCaseSerializer(response_data).data, status=status.HTTP_201_CREATED)
+        # #1079: the 201 carries the new ETag, like the detail GET and PATCH.
+        return self.with_etag(
+            Response(
+                TestCaseSerializer(response_data).data,
+                status=status.HTTP_201_CREATED,
+            ),
+            item,
+        )
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/testcases/{pk}/ — update a test case. Returns 200.
@@ -3704,6 +3739,21 @@ class BaselineViewSet(BaseEntityViewSet):
     serializer_class = BaselineSerializer
     preset_endpoint_key = "baselines"
 
+    def get_serializer_class(self) -> type:
+        """#1078: the list response has no ``entries`` field, by contract.
+
+        ``serializer_class`` stays the detail/create representation (that is
+        what the create route and the schema's non-list operations need), but
+        the *list* operation documents and declares the summary shape, so the
+        generated OpenAPI entry for ``GET /baselines/`` stops promising a field
+        the endpoint does not emit. Without this override the schema would
+        describe ``entries`` on the list operation — the same contract mismatch
+        the issue reports, one layer down.
+        """
+        if getattr(self, "action", None) == "list":
+            return BaselineSummarySerializer
+        return BaselineSerializer
+
     def _svc(self) -> BaselineFacade:
         return BaselineFacade()
 
@@ -3736,6 +3786,11 @@ class BaselineViewSet(BaseEntityViewSet):
         via a nested ``workspaces/<workspace_pk>/...`` path. The nested route
         is now registered too (rest_api/urls.py); the flat route is kept for
         backward compatibility (frontend/MCP callers use ?workspace_id=).
+
+        #1078: the list serialises through ``BaselineSummarySerializer`` (see
+        ``get_serializer_class``), so a row has no ``entries`` key at all
+        instead of an empty one — the list must not claim a baseline captured
+        nothing.
         """
         workspace_id_str = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
         # The preset gate deliberately still runs on the raw value and before
@@ -3755,7 +3810,9 @@ class BaselineViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return self._paginate(
-            request, items, lambda item: BaselineSerializer(_baseline_to_dict(item)).data
+            request,
+            items,
+            lambda item: BaselineSummarySerializer(_baseline_to_dict(item)).data,
         )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -3809,6 +3866,9 @@ class BaselineViewSet(BaseEntityViewSet):
         A ``400`` with the plain ``VALIDATION_ERROR`` code from the same gate
         means the auditor itself could not be evaluated — that case is *not*
         overridable.
+
+        #1079: the 201 carries the same ``ETag`` as the detail GET, so a client
+        can start a conditional write against the freshly created baseline.
         """
         workspace_pk = kwargs.get("workspace_pk")
         self._check_preset(request, workspace_id=workspace_pk)
@@ -3882,7 +3942,13 @@ class BaselineViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(BaselineSerializer(_baseline_to_dict(item)).data, status=status.HTTP_201_CREATED)
+        return self.with_etag(
+            Response(
+                BaselineSerializer(_baseline_to_dict(item)).data,
+                status=status.HTTP_201_CREATED,
+            ),
+            item,
+        )
 
     @action(detail=False, methods=["get"], url_path="diff")
     def diff(self, request: Request, **kwargs: Any) -> Response:
@@ -5537,6 +5603,12 @@ class WorkspaceViewSet(BaseEntityViewSet):
 
         Both verbs must enforce the same captcha and hit the same service call,
         so neither can drift into a silent no-op.
+
+        #1084: a workspace that still holds baselines answers ``409 CONFLICT``
+        with ``details.code == "baselines_immutable"`` and a message naming the
+        cause. Before, that case reached the ``bl_raise_immutable`` DB trigger
+        and surfaced as a 500, which made ``/delete/`` a dead end for exactly
+        those workspaces.
         """
         lang = detect_lang(request)
         confirmation = request.data.get("confirmation", "")
@@ -5562,13 +5634,26 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 confirmation_text=str(confirmation),
                 ctx=ctx,
             )
+        except BaselineImmutabilityError as exc:
+            # Baselines are append-only, so the workspace cannot go away while
+            # one exists. 409, and a details code a client can branch on —
+            # deliberately ahead of the ValidationError clause below, which
+            # would otherwise label this a captcha mismatch.
+            return Response(
+                build_error_response(
+                    "CONFLICT", lang,
+                    message=str(exc),
+                    details=[{"code": "baselines_immutable"}],
+                ),
+                status=status.HTTP_409_CONFLICT,
+            )
         except ValidationError as exc:
             # Captcha mismatch → 409 Conflict
             return Response(
                 build_error_response(
                     "CONFLICT", lang,
                     message=str(exc),
-                    details={"code": "confirmation_mismatch"},
+                    details=[{"code": "confirmation_mismatch"}],
                 ),
                 status=status.HTTP_409_CONFLICT,
             )

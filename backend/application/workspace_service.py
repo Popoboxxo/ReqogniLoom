@@ -24,6 +24,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.db import InternalError
 from django.db.models import QuerySet
 from django.utils import timezone
 from auth_tenancy.models import ROLE_ADMIN, UserRole
@@ -54,6 +55,40 @@ from application.base import NotFoundError, ServiceBase, ValidationError
 from application.workspace_provisioning import provision_workspace_defaults
 
 logger = logging.getLogger(__name__)
+
+
+#: Substring the ``bl_raise_immutable`` DB trigger raises with (see
+#: ``baseline/migrations/0001_initial.py``: ``RAISE EXCEPTION 'Baselines are
+#: immutable'``). Matched case-insensitively against the driver message of a
+#: failed baseline DELETE so the safety net recognises the trigger and not
+#: every other database fault. #1084.
+_BASELINE_IMMUTABLE_DB_MARKER = "baselines are immutable"
+
+#: Message a caller receives when the workspace still holds baselines. #1084.
+_BASELINE_IMMUTABLE_MESSAGE = (
+    "Baselines are immutable, remove them first: a baseline is an append-only "
+    "audit artifact and cannot be deleted, so the workspace cannot be "
+    "hard-deleted while one exists."
+)
+
+
+class BaselineImmutabilityError(ValidationError):
+    """A hard delete was refused because the workspace still holds baselines.
+
+    GitHub #1084. ``delete_workspace`` used to reach
+    ``BaselineSnapshot.unscoped.filter(...).delete()`` unconditionally, so a
+    workspace with baselines tripped the ``bl_raise_immutable`` DB trigger and
+    surfaced as an unmapped ``InternalError`` — an HTTP 500 through the REST
+    layer, leaving ``/workspaces/{id}/delete/`` a dead end for exactly those
+    workspaces.
+
+    A :class:`ValidationError` subclass on purpose: the situation is a rejected
+    precondition, the same shape the duplicate-tracelink path already reports
+    (``application.trace_link_service``, #126), and every existing caller that
+    already catches ``ValidationError`` keeps working unchanged. The subclass
+    exists only so the REST layer can give this one case its own 409 +
+    ``details`` code instead of the generic captcha-mismatch branch.
+    """
 
 
 _VALID_PRESETS = {key for key, _ in PRESET_CHOICES}
@@ -551,17 +586,27 @@ class WorkspaceService(ServiceBase):
 
         Validates that ``confirmation_text`` matches the workspace name
         (case-sensitive). If valid, performs a full cascade delete in this order:
+          0. Baseline rows — refused up front if any exist (#1084)
           1. AuditLogEntry rows for this workspace
-          2. Baseline rows
-          3. TraceLink rows
-          4. TestCase rows
-          5. ArchitectureElement rows
-          6. Requirement rows
-          7. Artifact rows
-          8. Workspace itself
+          2. TraceLink rows
+          3. TestCase rows
+          4. ArchitectureElement rows
+          5. Requirement rows
+          6. Artifact rows
+          7. Workspace itself
 
         All operations are wrapped in ``transaction.atomic()`` for all-or-nothing
         semantics (REQ-L2-AS-018).
+
+        GitHub #1084: step 2 is now guarded. Baselines are append-only (the
+        ``bl_raise_immutable`` DB trigger, REQ-L2-BL-002), so the cascade could
+        never remove them — it only ever tripped the trigger and rolled the
+        whole delete back as a 500. The workspace is refused up front with
+        :class:`BaselineImmutabilityError`, and the delete below additionally
+        translates a trigger ``InternalError`` into the same error so a baseline
+        inserted concurrently between the check and the delete cannot reopen
+        the 500. The trigger itself is untouched and still blocks any direct
+        row DELETE.
 
         Requires ``admin`` role (COMP-AT-002).
 
@@ -569,6 +614,8 @@ class WorkspaceService(ServiceBase):
             NotFoundError: workspace does not exist.
             PermissionDeniedError: user lacks admin role.
             ValidationError: confirmation text does not match workspace name.
+            BaselineImmutabilityError: the workspace still holds baselines
+                (a ``ValidationError`` subclass).
         """
         self._set_tenant_context(ctx)
         self._assert_permission(ctx, "admin")
@@ -588,51 +635,97 @@ class WorkspaceService(ServiceBase):
         # Use unscoped manager to bypass tenant filtering for delete operations
         workspace_pk = workspace.pk
 
-        # 1. AuditLogEntry rows for this workspace
-        AuditLogEntry.unscoped.filter(
-            object_type="Workspace", object_id=workspace_pk
-        ).delete()
+        # 2. Baselines block the hard delete entirely (#1084). Checked BEFORE
+        # any row is touched so the refusal is a clean precondition failure
+        # rather than a trigger abort that rolls half the cascade back.
+        if self._workspace_has_baselines(workspace_pk):
+            raise BaselineImmutabilityError(_BASELINE_IMMUTABLE_MESSAGE)
 
-        # 2-7. Delete through artifacts (Baseline, TraceLink, TestCase,
-        # ArchitectureElement, Requirement, Artifact)
-        artifact_ids = list(
-            Artifact.unscoped.filter(workspace_id=workspace_pk).values_list("id", flat=True)
-        )
-
-        if artifact_ids:
-            # 2. BaselineSnapshot rows (via workspace_id or artifact FK)
-            from baseline.models import BaselineSnapshot
-            BaselineSnapshot.unscoped.filter(workspace_id=workspace_pk).delete()
-            # 3. TraceLink rows (source or target)
-            TraceLink.unscoped.filter(
-                source_id__in=artifact_ids
-            ).delete()
-            TraceLink.unscoped.filter(
-                target_id__in=artifact_ids
-            ).delete()
-            # 4. TestCase rows
-            TestCase.unscoped.filter(artifact_id__in=artifact_ids).delete()
-            # 5. ArchitectureElement rows
-            ArchitectureElement.unscoped.filter(artifact_id__in=artifact_ids).delete()
-            # 6. Requirement rows
-            Requirement.unscoped.filter(artifact_id__in=artifact_ids).delete()
-            # 7. Artifact rows
-            Artifact.unscoped.filter(workspace_id=workspace_pk).delete()
-
-        # Also delete WorkspacePresetConfig companion
-        WorkspacePresetConfig.unscoped.filter(workspace_id=workspace_pk).delete()
-
-        # 8. Workspace itself
-        Workspace.unscoped.filter(pk=workspace_pk).delete()
+        try:
+            artifact_count = self._cascade_delete_workspace_rows(workspace_pk)
+        except InternalError as exc:
+            # Safety net for the pre-flight's TOCTOU window: a baseline created
+            # between the check and step 7 makes the Artifact collector fire
+            # ``bl_raise_immutable`` through the CASCADE on
+            # BaselineSnapshot.artifact. The check above cannot close that
+            # window on its own, so the same trigger failure is reported as the
+            # same domain error instead of escaping as a 500. ``@atomic_transaction``
+            # rolls the partial cascade back, so nothing is half-deleted.
+            if _BASELINE_IMMUTABLE_DB_MARKER in str(exc).lower():
+                logger.info(
+                    "Workspace %s: baseline immutability trigger fired after the "
+                    "pre-flight check (concurrent baseline insert)",
+                    workspace_pk,
+                )
+                raise BaselineImmutabilityError(_BASELINE_IMMUTABLE_MESSAGE) from exc
+            raise
 
         self._audit(
             ctx=ctx,
             operation="workspace.delete",
             entity_type="Workspace",
             entity_id=workspace_pk,
-            details={"name": workspace.name, "artifact_count": len(artifact_ids)},
+            details={"name": workspace.name, "artifact_count": artifact_count},
         )
 
+    @staticmethod
+    def _workspace_has_baselines(workspace_pk: UUID) -> bool:
+        """Whether *workspace_pk* still holds at least one baseline (#1084).
+
+        Read through the unscoped manager for the same reason the cascade below
+        does: the delete must see every row, tenant scoping is already enforced
+        by the caller-resolved workspace row.
+        """
+        from baseline.models import BaselineSnapshot
+
+        return BaselineSnapshot.unscoped.filter(workspace_id=workspace_pk).exists()
+
+    def _cascade_delete_workspace_rows(self, workspace_pk: UUID) -> int:
+        """Delete every dependent row of *workspace_pk* in the specified order.
+
+        Split out of :meth:`delete_workspace` only so the caller's
+        ``except InternalError`` wraps the whole cascade: the immutability
+        trigger can fire on step 7 through the ORM collector, not only on an
+        explicit baseline DELETE.
+
+        Returns:
+            The number of artifacts the cascade removed (for the audit entry).
+        """
+        # 1. AuditLogEntry rows for this workspace
+        AuditLogEntry.unscoped.filter(
+            object_type="Workspace", object_id=workspace_pk
+        ).delete()
+
+        # 2-7. Delete through artifacts (TraceLink, TestCase,
+        # ArchitectureElement, Requirement, Artifact)
+        artifact_ids = list(
+            Artifact.unscoped.filter(workspace_id=workspace_pk).values_list("id", flat=True)
+        )
+
+        if artifact_ids:
+            # 2. TraceLink rows (source or target)
+            TraceLink.unscoped.filter(
+                source_id__in=artifact_ids
+            ).delete()
+            TraceLink.unscoped.filter(
+                target_id__in=artifact_ids
+            ).delete()
+            # 3. TestCase rows
+            TestCase.unscoped.filter(artifact_id__in=artifact_ids).delete()
+            # 4. ArchitectureElement rows
+            ArchitectureElement.unscoped.filter(artifact_id__in=artifact_ids).delete()
+            # 5. Requirement rows
+            Requirement.unscoped.filter(artifact_id__in=artifact_ids).delete()
+            # 6. Artifact rows
+            Artifact.unscoped.filter(workspace_id=workspace_pk).delete()
+
+        # Also delete WorkspacePresetConfig companion
+        WorkspacePresetConfig.unscoped.filter(workspace_id=workspace_pk).delete()
+
+        # 7. Workspace itself
+        Workspace.unscoped.filter(pk=workspace_pk).delete()
+
+        return len(artifact_ids)
 
     # ---------- Metadata + preset orchestration (REQ-066, REQ-L2-RF-012) ----------
 

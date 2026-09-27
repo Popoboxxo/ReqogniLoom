@@ -62,6 +62,58 @@ def _require_admin(request: Request):
     return ctx, lang
 
 
+def _require_workspace_membership(
+    ctx: Any, workspace_id: str, lang: str
+) -> Response | None:
+    """Return a 403 Response unless *ctx* holds an active role in the workspace.
+
+    GitHub #1077. The workspace permission-definition routes resolve the
+    workspace straight into
+    :meth:`PermissionDefinitionService.get_or_create_workspace`, which
+    ``get_or_create``s a row keyed on the ``workspace_id`` from the URL. A
+    ``workspace_id`` outside the caller's standing therefore never fails an
+    authorization check — it fails the foreign-key constraint, which surfaces
+    as an unmapped ``InternalError``, i.e. an HTML 500 that also confirms to a
+    prober whether the id exists at all (two disclosure problems in one
+    response).
+
+    The guard mirrors the neighbouring ``GET /workspaces/{id}/members/`` route
+    (auth_tenancy/rest_workspace_members.py), which answers
+    ``403 PERMISSION_DENIED`` from the same
+    :meth:`AuthorizationService.active_roles_for` predicate, and reuses the
+    canonical envelope so a client sees one error shape (#1081).
+
+    Deliberately NOT the ``_assert_workspace_in_tenant`` 404 convention of
+    ``/workspaces/{id}/audit/``: that route's non-disclosure 404 is its own
+    documented contract, whereas this route has a long-standing 403-permission
+    semantics. What must not leak — that the workspace exists, or that the
+    caller is/isn't a member of it — is not leaked by either: both answer a
+    single, context-free 403 for every non-member.
+
+    Args:
+        ctx: The caller's :class:`AuthContext`.
+        workspace_id: The raw ``workspace_id`` URL kwarg.
+        lang: Response language for the envelope.
+
+    Returns:
+        A 403 ``Response`` when the caller is not a member, else ``None``.
+    """
+    from auth_tenancy.services.authorization import AuthorizationService
+
+    if not AuthorizationService().active_roles_for(
+        user_id=ctx.user_id, workspace_id=UUID(str(workspace_id))
+    ):
+        return Response(
+            build_error_response(
+                "PERMISSION_DENIED",
+                lang,
+                message="You are not a member of this workspace.",
+            ),
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
 def _validation(lang: str, message: str, *, code: str = "VALIDATION_ERROR") -> Response:
     return Response(
         build_error_response(code, lang, message=message),
@@ -641,7 +693,12 @@ def _serialize_workspace_permission(obj: Any) -> dict[str, Any]:
 
 
 class WorkspacePermissionDefinitionView(APIView):
-    """GET/PUT/PATCH /workspaces/{workspace_id}/permission-definition/."""
+    """GET/PUT/PATCH /workspaces/{workspace_id}/permission-definition/.
+
+    GitHub #1077: every verb first asserts workspace membership and answers
+    ``403 PERMISSION_DENIED`` for a foreign / non-member workspace, so a
+    missing permission cannot reach the FK constraint as a 500.
+    """
 
     def get(
         self, request: Request, workspace_id: str, **kwargs: Any
@@ -649,7 +706,10 @@ class WorkspacePermissionDefinitionView(APIView):
         gate = _require_admin(request)
         if isinstance(gate, Response):
             return gate
-        ctx, _lang = gate
+        ctx, lang = gate
+        denied = _require_workspace_membership(ctx, workspace_id, lang)
+        if denied is not None:
+            return denied
         obj = PermissionDefinitionService().get_or_create_workspace(
             ctx.tenant_id, workspace_id
         )
@@ -672,6 +732,9 @@ class WorkspacePermissionDefinitionView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        denied = _require_workspace_membership(ctx, workspace_id, lang)
+        if denied is not None:
+            return denied
         body = request.data if isinstance(request.data, dict) else {}
         if "permission_json" not in body:
             return _validation(lang, "permission_json is required")
@@ -688,7 +751,10 @@ class WorkspacePermissionDefinitionView(APIView):
 
 
 class WorkspacePermissionResetView(APIView):
-    """POST /workspaces/{workspace_id}/permission-definition/reset/."""
+    """POST /workspaces/{workspace_id}/permission-definition/reset/.
+
+    Same membership gate as :class:`WorkspacePermissionDefinitionView` (#1077).
+    """
 
     def post(
         self, request: Request, workspace_id: str, **kwargs: Any
@@ -697,6 +763,9 @@ class WorkspacePermissionResetView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        denied = _require_workspace_membership(ctx, workspace_id, lang)
+        if denied is not None:
+            return denied
         try:
             obj = PermissionDefinitionService().reset_workspace(ctx, workspace_id)
         except NoGlobalSourceError as exc:
