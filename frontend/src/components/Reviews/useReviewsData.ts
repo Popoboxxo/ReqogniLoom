@@ -73,6 +73,17 @@ export const reviewKeys = {
     ["reviews", type, "transitions", id] as const,
   history: (type: WorkflowArtifactType, id: string) =>
     ["reviews", type, "history", id] as const,
+  /**
+   * Separate key for the *always-on* proposal count (#1089).
+   *
+   * Deliberately not part of `list`: that key is scoped by `mode`, so reusing
+   * it would make the count query and the visible queue fight over one cache
+   * entry and flip the rendered list as the user toggles. The count is a
+   * separate question ("is anything waiting in the other queue?") and gets its
+   * own entry.
+   */
+  proposalCount: (type: WorkflowArtifactType, workspaceId: string) =>
+    ["reviews", type, "proposal-count", workspaceId] as const,
 };
 
 export interface UseReviewsDataParams {
@@ -107,6 +118,17 @@ export interface ReviewsData {
   items: ReviewListItem[];
   isLoading: boolean;
   error: string | null;
+  /**
+   * How many items the *other* queue holds for this workspace/type (#1089).
+   *
+   * Fetched in both modes so the "AI proposals only" toggle can say how many
+   * are waiting even while the review queue is on screen. Before this, a user
+   * landing on /reviews in the default mode saw an empty proposals queue with
+   * no indication that anything was in it — the same "created but never
+   * presented" gap the backend fix closes, one layer up.
+   */
+  pendingProposalCount: number;
+  proposalCountLoading: boolean;
   transitions: RequirementTransitions | null;
   transitionsLoading: boolean;
   history: WorkflowHistoryEntry[];
@@ -148,6 +170,21 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     enabled: !!workspaceId,
   });
 
+  // #1089: the proposals queue is fetched in BOTH modes, so the toggle can
+  // report how many AI proposals are waiting. Skipped while the proposals
+  // queue is already on screen (that query *is* the answer) — one request
+  // either way, never two for the same list.
+  const proposalsAreVisible = queueMode === "proposals";
+  const proposalCountQuery = useQuery({
+    queryKey: reviewKeys.proposalCount(artifactType, workspaceId ?? ""),
+    queryFn: () =>
+      resolver.list(
+        workspaceId as string,
+        pendingStateFor(artifactType, "proposals")
+      ),
+    enabled: !!workspaceId && !proposalsAreVisible,
+  });
+
   const transitionsEnabled = !!selectedId;
   const transitionsQuery = useQuery({
     queryKey: reviewKeys.transitions(artifactType, selectedId ?? ""),
@@ -166,6 +203,13 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     if (!workspaceId) return;
     await queryClient.invalidateQueries({
       queryKey: reviewKeys.list(artifactType, workspaceId, queueMode),
+    });
+    // The visible list and the cross-queue count answer different keys, so a
+    // confirm/approve that empties the proposals queue has to invalidate the
+    // count explicitly — otherwise the toggle keeps advertising a number the
+    // reviewer can no longer act on.
+    await queryClient.invalidateQueries({
+      queryKey: reviewKeys.proposalCount(artifactType, workspaceId),
     });
   };
 
@@ -202,6 +246,16 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     items: listQuery.data ?? [],
     isLoading: !!workspaceId && listQuery.isLoading,
     error: listQuery.error ? extractErrorMessage(listQuery.error) : null,
+    // In proposals mode the visible list IS the answer, so the count is read
+    // from it; otherwise from the dedicated count query. A failed count query
+    // degrades to 0 (the toggle then simply shows no number) rather than
+    // surfacing an error banner for a badge nobody needs to act on.
+    pendingProposalCount: proposalsAreVisible
+      ? (listQuery.data ?? []).length
+      : (proposalCountQuery.data ?? []).length,
+    proposalCountLoading: proposalsAreVisible
+      ? listQuery.isLoading
+      : proposalCountQuery.isLoading,
     transitions: transitionsEnabled ? transitionsQuery.data ?? null : null,
     transitionsLoading: transitionsEnabled && transitionsQuery.isLoading,
     history: historyEnabled ? historyQuery.data ?? [] : [],

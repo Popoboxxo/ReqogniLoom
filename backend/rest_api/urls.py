@@ -79,6 +79,10 @@ from rest_api.audit_views import (
     WorkspaceAuditWaiverView,
 )
 from rest_api.traceability_suggest_views import WorkspaceTraceabilitySuggestLinksView
+from rest_api.review_views import (
+    ReviewsPendingView,
+    WorkspaceReviewsPendingView,
+)
 from rest_api.architecture_decompose_views import (
     WorkspaceArchitectureDecomposeCommitView,
     WorkspaceArchitectureDecomposeView,
@@ -914,6 +918,23 @@ urlpatterns = [
         "consistency-status/<str:task_id>/",
         ConsistencyStatusView.as_view(),
         name="api-v1-consistency-status",
+    ),
+    # Pending-review queue (issue #1089) — the REST half of the MCP
+    # `review.list_pending` tool, which existed while both of these routes
+    # 404'd. One service (`application.review_queue_service.ReviewQueueService`),
+    # two transports; the flat route follows the `?workspace_id=` convention
+    # every other unscoped list endpoint in this API uses, the nested one the
+    # workspace-scoped convention. Approving/rejecting stays on the existing
+    # `POST /<entity>/<pk>/transitions/` action — see review_views' docstring.
+    path(
+        "reviews/pending/",
+        ReviewsPendingView.as_view(),
+        name="api-v1-reviews-pending",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/reviews/pending/",
+        WorkspaceReviewsPendingView.as_view(),
+        name="workspace-reviews-pending",
     ),
     # Artifact comments (Menschen-im-System spec §4) — nested sub-resource,
     # must precede router.urls so the artifacts/<pk>/ detail route cannot

@@ -60,6 +60,14 @@ import styles from "./ReviewsView.module.css";
 // component below.
 const REVIEWS_PAGE_SIZE = 20;
 
+// Issue #1089: the workflow state the proposal state is injected under, in
+// every non-minimal graph (backend/workflow/definition_store.py
+// PROPOSED_STATE). Duplicated here as a literal on purpose — the backend
+// source is not importable from the SPA bundle, and `pendingStateFor` in
+// useReviewsData already pins the same literal for the queue query; a
+// divergence between the two would show an origin badge for a non-proposal.
+const PROPOSED_STATE = "proposed";
+
 type ReviewTab = "details" | "history";
 
 // REQ-168: per-type approve/reject targets. The review queue keeps the queue
@@ -206,6 +214,8 @@ export default function ReviewsView({
     items,
     isLoading,
     error,
+    pendingProposalCount,
+    proposalCountLoading,
     transitions,
     transitionsLoading,
     history,
@@ -221,6 +231,32 @@ export default function ReviewsView({
     artifactType: selectedArtifactType,
     queueMode,
   });
+
+  // #1089: the item open in the detail pane is an AI proposal when the
+  // workflow engine says so. `proposed_by` is the actor of the newest
+  // `-> "proposed"` history entry (the #904 mechanism); it is null for every
+  // non-proposal item, so this single nullable field is the whole test — the
+  // same one WorkflowStatusEditor already branches on, rendered here because
+  // the review queue is where a reviewer decides whether to trust the content.
+  //
+  // Read through a local widening cast: the backend has returned `proposed_by`
+  // on GET .../transitions/ since #904 (`WorkflowTransitionsMixin.transitions`
+  // → `resolve_proposed_by`) and `WorkflowTransitionsResponse` in
+  // `api/workflow-transitions.ts` types it, but the requirement-specific
+  // `RequirementTransitions` in `api/requirements.ts` — which is what the
+  // `requirement` resolver hands back — still declares only the three original
+  // keys. The cast is a workaround for that gap, not a claim that the field is
+  // optional: it is null-or-string by contract.
+  const proposedBy = (
+    transitions as { proposed_by?: string | null } | null
+  )?.proposed_by;
+  const proposalOrigin = useMemo(() => {
+    if (queueMode !== "proposals") return null;
+    if (!transitions || transitions.current_state !== PROPOSED_STATE) return null;
+    return proposedBy
+      ? t("workflow.proposal.hint", { agent: proposedBy })
+      : t("workflow.proposal.hintUnknown");
+  }, [queueMode, transitions, proposedBy, t]);
 
   // In proposals mode the confirm target is the graph's own initial state and
   // the discard target its reject state — both come back in
@@ -490,7 +526,7 @@ export default function ReviewsView({
         </select>
       </div>
 
-      <label data-testid="reviews-queue-mode-toggle">
+      <label data-testid="reviews-queue-mode-toggle" className={styles.queueModeRow}>
         <input
           type="checkbox"
           data-testid="reviews-queue-mode-checkbox"
@@ -500,6 +536,16 @@ export default function ReviewsView({
           }
         />
         {t("workflow.proposal.queueMode")}
+        {/* #1089: "3 KI-Vorschläge warten auf Prüfung". Without the number the
+            toggle is an undiscoverable empty-looking switch — the reviewer has
+            no way to learn that the AI left something behind without first
+            clicking it. Hidden while loading or at zero, so a workspace with
+            no proposals keeps the same label it always had. */}
+        {proposalCountLoading ? null : pendingProposalCount > 0 ? (
+          <span className={styles.queueModeCount} data-testid="reviews-proposal-count">
+            {pendingProposalCount}
+          </span>
+        ) : null}
       </label>
 
       {queueMode === "proposals" && selectedIds.length > 0 && (
@@ -591,6 +637,18 @@ export default function ReviewsView({
                   {r.uid}
                 </div>
               )}
+              {/* #1089: every row in this queue is by definition in the
+                  "proposed" state, so the badge is what tells the reviewer
+                  *before* opening the item that the content came from the AI
+                  rather than from a colleague. */}
+              {queueMode === "proposals" && (
+                <span
+                  className={styles.proposalBadge}
+                  data-testid={`review-proposal-badge-${r.id}`}
+                >
+                  {t("workflow.proposal.hintUnknown")}
+                </span>
+              )}
             </button>
           </li>
         ))}
@@ -661,6 +719,14 @@ export default function ReviewsView({
       ) : (
         <>
           <h2 className={styles.detailTitle}>{selected.title}</h2>
+          {proposalOrigin && (
+            <p
+              className={styles.proposalOrigin}
+              data-testid="review-proposal-origin"
+            >
+              {proposalOrigin}
+            </p>
+          )}
           <p className={styles.detailDescription}>
             {selected.description}
           </p>
