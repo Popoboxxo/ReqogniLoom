@@ -153,7 +153,20 @@ class TraceLinkService(ServiceBase):
           8. If it matches a StakeholderNeed, return its artifact_id (#264).
           9. If it matches a Risk, return Risk.artifact_id (fix #407).
           10. If it matches an Issue, return Issue.artifact_id (fix #407).
-          11. Otherwise raise NotFoundError.
+          11. Otherwise ask the Artifact-backing registry, which walks every
+              registered artifact subtype (Icd, Diagram, GlossaryTerm, ...) and
+              returns the backing Artifact id of the row whose OWN id matches
+              (#1075).
+          12. Otherwise raise NotFoundError.
+
+        Step 11 exists because steps 2-10 are a *hand-maintained* list and the
+        drift is silent: every specialised table owns its own primary key AND a
+        backing ``Artifact`` row with a different primary key, so a type missing
+        from the list is simply not a linkable endpoint. ``Icd`` was missing
+        (95 rows, 0 of their ``icd_icd`` UUIDs present in ``pl_artifact``), so
+        ``GET /icds/{id}/`` handed a client a UUID that ``POST /tracelinks/``
+        answered 404 for. ``Requirement``/``TestCase`` are in the same
+        situation and only work *because* they are on the list.
 
         Fix #264: TestCase and StakeholderNeed were missing from this chain
         even though both are plain ``OneToOneField(Artifact)`` entities like
@@ -175,6 +188,19 @@ class TraceLinkService(ServiceBase):
         They are appended at the end rather than next to Requirement so the
         earlier steps keep their established probe order; the id spaces are
         disjoint UUIDs, so order is irrelevant for correctness.
+
+        #1075: the registry fallback (step 11) was preferred over *replacing*
+        this list with ``resolve_backing_artifact_id``, but the list was kept:
+        replacing it is not behaviour-preserving. (a) The registry probe is a
+        strict superset, so the resolution *result* set grows — Diagram,
+        GlossaryTerm, ChangeRequest and Icd ids would start resolving, i.e. a
+        deliberate behaviour change, not a refactor. (b) On the common miss
+        path (an id that names no entity at all) the registry costs up to 14
+        sequential probes where the list costs 10. (c) Steps 2-8/10 do not
+        guard ``artifact_id is None`` and therefore raise ``ValueError`` on a
+        row whose nullable FK is empty, where the registry excludes NULL and
+        falls through to a clean 404 — better, but a changed error path.
+        Because both places must agree, the invariant below is load-bearing.
         """
         from persistence.models import (
             ArchitectureElement,
@@ -243,6 +269,27 @@ class TraceLinkService(ServiceBase):
         issue = Issue.objects.filter(id=entity_id).first()
         if issue is not None and issue.artifact_id is not None:
             return UUID(str(issue.artifact_id)), None
+
+        # 11. Registry fallback (#1075) — every artifact subtype the list above
+        # forgot, Icd first among them. Deliberately LAST: steps 1-10 stay
+        # ahead of it, unchanged, so every pre-existing artifact-based link
+        # resolves exactly as it did before and no stored endpoint id moves.
+        # The probe reads each subtype's OWN ``id`` and is tenant-scoped (every
+        # ARTIFACT_TYPE_MODELS entry is a TenantScopedModel), so a stale or
+        # foreign id resolves to nobody's Artifact and falls through to the
+        # NotFoundError below.
+        #
+        # INVARIANT: steps 2-10 above and
+        # ``persistence.artifact_backing.ARTIFACT_TYPE_MODELS`` must stay in
+        # sync. A new artifact type needs a registry entry (which this fallback
+        # picks up automatically) and does NOT need a line above; the lines
+        # above exist only to keep the common types on the fast path with
+        # their established probe order and error behaviour.
+        from persistence.artifact_backing import resolve_backing_artifact_id
+
+        backing_artifact_id = resolve_backing_artifact_id(entity_id)
+        if backing_artifact_id is not None:
+            return backing_artifact_id, None
 
         raise NotFoundError(f"Entity {entity_id} not found")
 

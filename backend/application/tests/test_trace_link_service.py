@@ -799,6 +799,18 @@ class TestResolveArtifactId:
                 "application.models.Issue.objects.filter",
                 return_value=MagicMock(first=MagicMock(return_value=None)),
             ),
+            # #1075: the chain now ends in the registry-driven fallback, which
+            # probes the remaining subtypes through ``.exclude().values_list()``
+            # — a shape the ``first=`` stubs above do not neutralise (a chained
+            # call on a MagicMock yields another MagicMock, i.e. a *hit*). Stub
+            # the fallback itself: this test is about the ten hand-maintained
+            # probes finding nothing, and the fallback has its own coverage
+            # (persistence/tests/test_artifact_backing_resolution_1075.py plus
+            # rest_api/tests/test_icd_tracelink_endpoint_1075.py).
+            patch(
+                "persistence.artifact_backing.resolve_backing_artifact_id",
+                return_value=None,
+            ),
         ):
             with pytest.raises(NotFoundError, match="Entity"):
                 svc._resolve_artifact_id(unknown_id)
