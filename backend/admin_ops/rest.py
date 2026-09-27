@@ -68,6 +68,7 @@ from application.base import (
     PermissionDeniedError,
     ValidationError,
 )
+from rest_api.serializers import build_error_response, detect_lang
 
 logger = logging.getLogger(__name__)
 
@@ -139,10 +140,26 @@ def _restore_result_to_dict(result: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _err(code: str, message: str, http_status: int) -> Response:
-    """Build a standardised error response body."""
+def _err(
+    request: Request, code: str, message: str, http_status: int
+) -> Response:
+    """Build the one canonical error envelope (GitHub #1081).
+
+    Delegates to :func:`rest_api.serializers.build_error_response` — the same
+    single builder (and the same top-level import) :mod:`admin_ops.theme_rest`
+    already uses, so the backup/restore surface can no longer answer with a
+    flat ``{"error": "<CODE>", "message": ...}`` body whose ``error`` is a
+    string instead of the object every client reads a ``code`` from.
+
+    ``request`` is a parameter rather than a captured closure so the language
+    comes from the actual ``Accept-Language`` header
+    (:func:`~rest_api.serializers.detect_lang`). It has no effect on the
+    messages this module emits — every call site passes the service layer's own
+    English text — but it keeps the helper correct for the day a call site
+    relies on the localised registry instead.
+    """
     return Response(
-        {"error": code, "message": message},
+        build_error_response(code, detect_lang(request), message=message),
         status=http_status,
     )
 
@@ -240,12 +257,13 @@ class BackupListCreateView(APIView):
         try:
             ctx = self._auth_context(request)
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
 
         # Optional filters
         status_filter = request.query_params.get("status")
         if status_filter is not None and status_filter not in _VALID_BACKUP_STATUSES:
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 f"Query parameter 'status' must be one of {sorted(_VALID_BACKUP_STATUSES)}.",
                 status.HTTP_400_BAD_REQUEST,
@@ -254,6 +272,7 @@ class BackupListCreateView(APIView):
         type_filter = request.query_params.get("backup_type")
         if type_filter is not None and type_filter not in _VALID_BACKUP_TYPES:
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 f"Query parameter 'backup_type' must be one of {sorted(_VALID_BACKUP_TYPES)}.",
                 status.HTTP_400_BAD_REQUEST,
@@ -264,6 +283,7 @@ class BackupListCreateView(APIView):
             limit = int(request.query_params.get("limit", 100))
         except (TypeError, ValueError):
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Query parameter 'limit' must be an integer.",
                 status.HTTP_400_BAD_REQUEST,
@@ -272,6 +292,7 @@ class BackupListCreateView(APIView):
             offset = int(request.query_params.get("offset", 0))
         except (TypeError, ValueError):
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Query parameter 'offset' must be an integer.",
                 status.HTTP_400_BAD_REQUEST,
@@ -286,11 +307,11 @@ class BackupListCreateView(APIView):
                 offset=offset,
             )
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
 
         return Response(
             {"backups": [_backup_to_dict(r) for r in rows]},
@@ -339,11 +360,12 @@ class BackupListCreateView(APIView):
         try:
             ctx = self._auth_context(request)
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
 
         data = request.data
         if not isinstance(data, dict):
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Request body must be a JSON object.",
                 status.HTTP_400_BAD_REQUEST,
@@ -353,7 +375,7 @@ class BackupListCreateView(APIView):
         try:
             reason = _parse_optional_str(data.get("reason"), "reason")
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         # backup_type: default "full"; validate against the model choices.
         backup_type_raw = data.get("backup_type")
@@ -365,6 +387,7 @@ class BackupListCreateView(APIView):
                 or backup_type_raw not in _VALID_BACKUP_TYPES
             ):
                 return _err(
+                    request,
                     "VALIDATION_ERROR",
                     f"Field 'backup_type' must be one of {sorted(_VALID_BACKUP_TYPES)}.",
                     status.HTTP_400_BAD_REQUEST,
@@ -378,20 +401,21 @@ class BackupListCreateView(APIView):
         try:
             row = self._service.create_backup(ctx, backup_type=backup_type, metadata=metadata)
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
         except ValueError as exc:
             # BackupService raises ValueError for unknown backup_type as
             # a backstop; we already validate above, but stay defensive.
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
         except BackupStorageError as exc:
             # GitHub #37: clean 500 with an actionable message instead of a
             # raw OSError ("Permission denied: /app/backups/") reaching the
             # client, or an unmapped exception producing a bare 500.
             return _err(
+                request,
                 "BACKUP_STORAGE_ERROR", str(exc), status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -459,11 +483,12 @@ class AdminRestoreView(APIView):
         try:
             ctx = self._auth_context(request)
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
 
         data = request.data
         if not isinstance(data, dict):
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Request body must be a JSON object.",
                 status.HTTP_400_BAD_REQUEST,
@@ -473,9 +498,10 @@ class AdminRestoreView(APIView):
         try:
             backup_id = _parse_uuid(data.get("backup_id"), "backup_id")
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
         if backup_id is None:
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Field 'backup_id' is required.",
                 status.HTTP_400_BAD_REQUEST,
@@ -485,6 +511,7 @@ class AdminRestoreView(APIView):
         confirmation_text = data.get("confirmation_text")
         if not isinstance(confirmation_text, str) or not confirmation_text:
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Field 'confirmation_text' is required.",
                 status.HTTP_400_BAD_REQUEST,
@@ -495,6 +522,7 @@ class AdminRestoreView(APIView):
             # raise ValidationError with "Captcha mismatch" but we want
             # the REST shape to match the rest of the API.
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Captcha mismatch: confirmation_text must equal 'RESTORE'.",
                 status.HTTP_400_BAD_REQUEST,
@@ -510,6 +538,7 @@ class AdminRestoreView(APIView):
                 or restore_type_raw not in _VALID_BACKUP_TYPES
             ):
                 return _err(
+                    request,
                     "VALIDATION_ERROR",
                     f"Field 'restore_type' must be one of {sorted(_VALID_BACKUP_TYPES)}.",
                     status.HTTP_400_BAD_REQUEST,
@@ -522,16 +551,16 @@ class AdminRestoreView(APIView):
                 confirmation_text=confirmation_text,
             )
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
         except BackupNotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
         except FileNotFoundError as exc:
             # The data file referenced by the row is missing on disk.
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
 
         return Response(
             {"restore": _restore_result_to_dict(result)},

@@ -3,6 +3,10 @@
 Verifies that DRF exceptions are normalised to
 ``{"error": {"code", "message", "details"}}`` regardless of the raised
 exception type, matching the explicit ``build_error_response`` format.
+
+GitHub #1081: the ``code`` is the *named* registry code, not the HTTP status
+number. It used to be ``"404"``/``"400"``, a value no other layer emits, so a
+client branching on ``body.error.code`` had to match a numeric string.
 """
 from __future__ import annotations
 
@@ -23,7 +27,7 @@ def test_not_found_wrapped_in_error_envelope() -> None:
     assert set(response.data) == {"error"}
     error = response.data["error"]
     assert set(error) == {"code", "message", "details"}
-    assert error["code"] == "404"
+    assert error["code"] == "NOT_FOUND"
     assert isinstance(error["message"], str) and error["message"]
 
 
@@ -34,7 +38,7 @@ def test_validation_error_message_and_details() -> None:
     assert response is not None
     assert response.status_code == 400
     error = response.data["error"]
-    assert error["code"] == "400"
+    assert error["code"] == "VALIDATION_ERROR"
     assert error["details"] == {"title": ["This field is required."]}
 
 

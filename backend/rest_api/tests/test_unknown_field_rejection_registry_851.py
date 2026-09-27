@@ -139,6 +139,10 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "SimilarTraceLinkSerializer": "read-only response serializer",
     "TracePathSerializer": "read-only response serializer",
     "BaselineDeltaEntrySerializer": "read-only response serializer",
+    "BaselineSummarySerializer": (
+        "read-only list response serializer for GET /baselines/ (#1078); every "
+        "field is read_only, so the route accepts no body to guard"
+    ),
     "FieldChangeSerializer": "read-only response serializer",
     "DiffItemSerializer": "read-only response serializer",
     "BaselineDiffSerializer": "read-only response serializer",

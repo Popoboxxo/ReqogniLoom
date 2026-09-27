@@ -582,7 +582,9 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": (
         "AI-native Requirements Management Tool. "
         "Dual-interface: REST API + MCP Server (ADR-01). "
-        "All endpoints require Bearer Token authentication (REQ-L2-RA-005). "
+        "All endpoints require authentication (REQ-L2-RA-005): an X-API-Key "
+        "header, a Bearer token, or the session cookie — see the BearerAuth "
+        "security scheme for the precedence and the fail-closed rule. "
         "Schema endpoints (/api/v1/schema/, /api/v1/schema/swagger-ui/) are public."
     ),
     "VERSION": "0.1.0",
@@ -601,7 +603,18 @@ SPECTACULAR_SETTINGS = {
                 "description": (
                     "Bearer token authentication. "
                     "Use 'Authorization: Bearer <token>' header. "
-                    "API keys (reqlo_ prefix) are also accepted via this header."
+                    "Two credentials are accepted, and the header order is the "
+                    "resolution order: 'X-API-Key: reqlo_…' takes precedence "
+                    "over 'Authorization: Bearer', which in turn takes "
+                    "precedence over the httpOnly reqogniloom_access cookie. "
+                    "A credential that is present but INVALID is rejected "
+                    "(401, code 'invalid_api_key') rather than skipped in favour "
+                    "of the next one — a present-but-wrong X-API-Key is not "
+                    "ignored, and the Bearer credential is then never "
+                    "evaluated. An EMPTY X-API-Key header counts as absent. "
+                    "A reqlo_-prefixed key sent as "
+                    "'Authorization: Bearer <key>' is a separate transport and "
+                    "keeps the generic catalogue text."
                 ),
             }
         }

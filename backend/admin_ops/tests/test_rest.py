@@ -204,7 +204,7 @@ class TestListBackups:
         response = view.get(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("admin_ops.rest.BackupService")
     def test_list_with_invalid_limit_returns_400(self, mock_cls):
@@ -220,7 +220,7 @@ class TestListBackups:
         response = view.get(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("admin_ops.rest.BackupService")
     def test_list_non_admin_returns_403(self, mock_cls):
@@ -239,7 +239,7 @@ class TestListBackups:
         response = view.get(request)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.data["error"] == "PERMISSION_DENIED"
+        assert response.data["error"]["code"] == "PERMISSION_DENIED"
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +313,7 @@ class TestCreateBackup:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("admin_ops.rest.BackupService")
     def test_create_with_non_object_body_returns_400(self, mock_cls):
@@ -331,7 +331,7 @@ class TestCreateBackup:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("admin_ops.rest.BackupService")
     def test_create_non_admin_returns_403(self, mock_cls):
@@ -350,7 +350,7 @@ class TestCreateBackup:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.data["error"] == "PERMISSION_DENIED"
+        assert response.data["error"]["code"] == "PERMISSION_DENIED"
 
 
 # ---------------------------------------------------------------------------
@@ -410,8 +410,8 @@ class TestRestore:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
-        assert "Captcha" in response.data["message"]
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "Captcha" in response.data["error"]["message"]
         mock_svc.restore.assert_not_called()
 
     @patch("admin_ops.rest.AdminRestoreService")
@@ -433,7 +433,7 @@ class TestRestore:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
         mock_svc.restore.assert_not_called()
 
     @patch("admin_ops.rest.AdminRestoreService")
@@ -451,7 +451,7 @@ class TestRestore:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("admin_ops.rest.AdminRestoreService")
     def test_restore_invalid_backup_id_returns_400(self, mock_cls):
@@ -471,7 +471,7 @@ class TestRestore:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("admin_ops.rest.AdminRestoreService")
     def test_restore_missing_confirmation_text_returns_400(self, mock_cls):
@@ -488,7 +488,7 @@ class TestRestore:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("admin_ops.rest.AdminRestoreService")
     def test_restore_unknown_backup_id_returns_404(self, mock_cls):
@@ -514,7 +514,7 @@ class TestRestore:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert response.data["error"] == "NOT_FOUND"
+        assert response.data["error"]["code"] == "NOT_FOUND"
 
     @patch("admin_ops.rest.AdminRestoreService")
     def test_restore_non_admin_returns_403(self, mock_cls):
@@ -539,7 +539,7 @@ class TestRestore:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.data["error"] == "PERMISSION_DENIED"
+        assert response.data["error"]["code"] == "PERMISSION_DENIED"
 
     @patch("admin_ops.rest.AdminRestoreService")
     def test_restore_with_invalid_restore_type_returns_400(self, mock_cls):
@@ -560,7 +560,7 @@ class TestRestore:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
 
 # ---------------------------------------------------------------------------
@@ -672,7 +672,7 @@ class TestIntegration:
         )
         resp = view.post(req)
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert resp.data["error"] == "VALIDATION_ERROR"
+        assert resp.data["error"]["code"] == "VALIDATION_ERROR"
         # No row was created, no audit row was written.
         with active_tenant(tenant_a):
             from audit.models import AuditEntry

@@ -25,6 +25,12 @@ The view is a thin HTTP-translation layer: it delegates all logic to
 :class:`AuthorizationService` (REQ-L3-RA001-004 — no business logic in views)
 and does not touch models directly. The existing ItemPermission / RBAC data
 models are untouched (REQ-014 AC#2/#3).
+
+Error envelope (GitHub #1081): every error answer goes through
+:func:`rest_api.serializers.build_error_response`, i.e. the one canonical
+``{"error": {"code", "message", "details"}}`` body. This module used to build a
+flat ``{"error": "<CODE>", "message": ...}`` of its own, so the 403 path proven
+in #1081 was the only 403 in the API a client could not read a ``code`` from.
 """
 from __future__ import annotations
 
@@ -59,9 +65,31 @@ def _member_to_dict(member: WorkspaceMember) -> dict[str, Any]:
     }
 
 
-def _err(code: str, message: str, http_status: int) -> Response:
-    """Build a standardised error response body (mirrors the item-perm view)."""
-    return Response({"error": code, "message": message}, status=http_status)
+def _err(
+    request: Request, code: str, message: str, http_status: int
+) -> Response:
+    """Build the one canonical error envelope (GitHub #1081).
+
+    Delegates to :func:`rest_api.serializers.build_error_response` so this
+    adapter emits the same ``{"error": {"code", "message", "details"}}`` body
+    as every other REST error. The previous local literal
+    (``{"error": code, "message": message}``) made ``error`` a *string*, so a
+    client branching on ``body.error.code`` read ``None`` here and nowhere
+    else in the API.
+
+    ``request`` is a parameter rather than a captured closure so the language
+    comes from the actual ``Accept-Language`` header
+    (:func:`~rest_api.serializers.detect_lang`). It has no effect on the
+    messages this module emits — every call site passes the service layer's own
+    English text — but it keeps the helper correct for the day a call site
+    relies on the localised registry instead.
+    """
+    from rest_api.serializers import build_error_response, detect_lang
+
+    return Response(
+        build_error_response(code, detect_lang(request), message=message),
+        status=http_status,
+    )
 
 
 class WorkspaceMembersView(APIView):
@@ -134,7 +162,7 @@ class WorkspaceMembersView(APIView):
         try:
             workspace_id = self._workspace_id_from_kwargs(request)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         try:
             members = self._service.list_workspace_members(
@@ -143,6 +171,7 @@ class WorkspaceMembersView(APIView):
             )
         except (PermissionDenied, PermissionDeniedError):
             return _err(
+                request,
                 "PERMISSION_DENIED",
                 "You are not a member of this workspace.",
                 status.HTTP_403_FORBIDDEN,
@@ -200,12 +229,12 @@ class WorkspaceMembersView(APIView):
         try:
             workspace_id = self._workspace_id_from_kwargs(request)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         target_user_id = (request.data or {}).get("user_id")
         role = (request.data or {}).get("role")
         if not target_user_id or not role:
-            return _err("VALIDATION_ERROR", "user_id and role are required.", status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", "user_id and role are required.", status.HTTP_400_BAD_REQUEST)
 
         actor_is_tenant_admin = self._service.is_tenant_admin(
             user_id=ctx.user_id, tenant_id=ctx.tenant_id
@@ -242,11 +271,11 @@ class WorkspaceMembersView(APIView):
                 target_is_member=False,
             )
         except (PermissionDenied, PermissionDeniedError):
-            return _err("PERMISSION_DENIED", "You must be a workspace admin.", status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", "You must be a workspace admin.", status.HTTP_403_FORBIDDEN)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
         except (ValueError, ValidationError) as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         # Fix round 3 (C-4): mirror `mcp_server.tools.users._handle_user_
         # assign_role`'s `write_mcp_audit` call — this REST surface is the
@@ -298,13 +327,13 @@ class WorkspaceMemberRoleTransitionView(APIView):
         ctx = self._auth_context(request)
         role = (request.data or {}).get("role")
         if not role:
-            return _err("VALIDATION_ERROR", "role is required.", status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", "role is required.", status.HTTP_400_BAD_REQUEST)
 
         try:
             ws_uuid = UUID(str(workspace_id))
             user_uuid = UUID(str(user_id))
         except (ValueError, TypeError):
-            return _err("VALIDATION_ERROR", "Invalid workspace_id or user_id.", status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", "Invalid workspace_id or user_id.", status.HTTP_400_BAD_REQUEST)
 
         actor_is_tenant_admin = self._service.is_tenant_admin(
             user_id=ctx.user_id, tenant_id=ctx.tenant_id
@@ -320,11 +349,11 @@ class WorkspaceMemberRoleTransitionView(APIView):
                 role=role,
             )
         except (PermissionDenied, PermissionDeniedError):
-            return _err("PERMISSION_DENIED", "You must be a workspace admin.", status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", "You must be a workspace admin.", status.HTTP_403_FORBIDDEN)
         except LastAdminError as exc:
-            return _err("LAST_ADMIN", str(exc), status.HTTP_409_CONFLICT)
+            return _err(request, "LAST_ADMIN", str(exc), status.HTTP_409_CONFLICT)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
 
         # Fix round 3 (C-4): mirror the MCP `user.suspend_role` /
         # `user.reactivate_role` audit calls (entity_id=target user id,

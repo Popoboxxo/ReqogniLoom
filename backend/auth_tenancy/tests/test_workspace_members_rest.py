@@ -108,7 +108,7 @@ class TestWorkspaceMembersGet:
         response = view.get(request)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.data["error"] == "PERMISSION_DENIED"
+        assert response.data["error"]["code"] == "PERMISSION_DENIED"
 
     @patch("auth_tenancy.rest_workspace_members.AuthorizationService")
     def test_empty_workspace_returns_200_empty_list(self, mock_cls):
