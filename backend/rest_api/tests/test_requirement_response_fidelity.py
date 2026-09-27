@@ -201,13 +201,20 @@ def test_demonstration_verification_method_round_trips(fidelity_env):
 def test_unrelated_patch_does_not_clear_verification_method(fidelity_env):
     """Issue #409: an unrelated PATCH must not silently NULL out SE fields.
 
-    A partial PATCH that omits ``verification_method``/``complexity_fibonacci``/
-    ``level`` must leave the previously stored values untouched — omission from
+    A partial PATCH that omits ``verification_method``/``complexity_fibonacci``
+    must leave the previously stored values untouched — omission from
     the payload means "unchanged", not "clear to NULL". The view used to
     forward ``data.get(...)`` unconditionally, which is ``None`` both when the
     field is genuinely absent and when the field was explicitly nulled,
     collapsing the two cases and wiping the stored value on every unrelated
     edit (e.g. a title-only PATCH).
+
+    ADR-005 changed this test: ``level`` used to be the third field in the set
+    (settable, then stored, then asserted to survive an unrelated PATCH). It is
+    now **derived and read-only**, so it is neither sent nor asserted here; its
+    own read-only contract is pinned in
+    ``test_requirement_level_readonly_1086.py``. The two *client-settable* SE
+    fields keep the exact coverage this test was written for.
     """
     client = _client(fidelity_env)
     requirement = _create_requirement(client, fidelity_env["workspace"].id)
@@ -217,14 +224,12 @@ def test_unrelated_patch_does_not_clear_verification_method(fidelity_env):
         {
             "complexity_fibonacci": 5,
             "verification_method": "Test",
-            "level": 1,
         },
         format="json",
     )
     assert setup.status_code == 200, setup.content
     assert setup.json()["complexity_fibonacci"] == 5
     assert setup.json()["verification_method"] == "Test"
-    assert setup.json()["level"] == 1
 
     # Unrelated edit — does not mention the SE fields at all.
     resp = client.patch(
@@ -238,12 +243,10 @@ def test_unrelated_patch_does_not_clear_verification_method(fidelity_env):
     assert body["title"] == "Renamed, unrelated to SE fields"
     assert body["complexity_fibonacci"] == 5
     assert body["verification_method"] == "Test"
-    assert body["level"] == 1
 
     fresh = client.get(f"/api/v1/requirements/{requirement['id']}/").json()
     assert fresh["complexity_fibonacci"] == 5
     assert fresh["verification_method"] == "Test"
-    assert fresh["level"] == 1
 
 
 @override_settings(**_JWT_OVERRIDES)

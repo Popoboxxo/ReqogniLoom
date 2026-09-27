@@ -932,6 +932,57 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def _svc(self) -> RequirementService:
         return RequirementService()
 
+    # ADR-005: the V-model cascade level is DERIVED, so it is not a request
+    # field. The serializer alone cannot express this honestly: a
+    # ``read_only=True`` field makes DRF drop the value without a word, which
+    # is the "200 and nothing happened" failure class this wave exists to close
+    # (the same one ``parent_id`` had). It also cannot be added to
+    # ``WorkflowTransitionsMixin._PROTECTED_PATCH_FIELDS``, because that set
+    # rejects a field on *every* entity and would break the form round-trip:
+    # #263 established that a read-only field echoed back unchanged must be
+    # accepted, not refused.
+    _DERIVED_LEVEL_MESSAGE = (
+        "'level' is derived from the Requirement hierarchy and cannot be set "
+        "(ADR-005). It is recomputed on every hierarchy change — create or move "
+        "the Requirement, or add/remove a 'decomposes' / 'derives-from' link, "
+        "and read the value back."
+    )
+
+    def _reject_derived_level(
+        self, request: Request, lang: str, *, current: int | None
+    ) -> Response | None:
+        """Refuse a client-supplied ``level``; return a 400 Response or ``None``.
+
+        Args:
+            current: The requirement's stored level, or ``None`` on the create
+                path (nothing to echo) and on a failed read.
+
+        Contract, mirroring ``status`` (#263 / #915) so the two read-only
+        fields behave alike:
+
+        * a value that **differs** from the stored one (or any value at all on
+          create) → **400** naming ``level``, atomically — nothing else in the
+          payload is written;
+        * an **unchanged echo** → accepted and ignored, so a detail panel that
+          resends the whole form keeps the user's other edits.
+        """
+        data = request.data
+        if not isinstance(data, dict) or "level" not in data:
+            return None
+        sent = data.get("level")
+        if current is not None and sent == current:
+            return None
+        message = self._DERIVED_LEVEL_MESSAGE
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                details=[{"field": "level", "errors": [message]}],
+                message=message,
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/ — list all requirements.
 
@@ -1009,11 +1060,22 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         REQ-L3-RF003-005: Accepts type-dependent fields (moscow_priority,
         complexity_fibonacci, verification_method).
 
+        ADR-005: a ``level`` in the payload is refused with a field-level 400
+        (see :meth:`_reject_derived_level`) instead of being read-only-dropped
+        by DRF. ``level`` is derived from the hierarchy — a client that sets it
+        asks the system to store something the hierarchy does not say, and the
+        derivation would overwrite it a moment later. Silently ignoring the
+        value would be the same "looks accepted, does nothing" defect this
+        wave closes for ``parent_id``.
+
         #1079: the 201 carries ``ETag: "<version>"`` just like the detail GET
         and PATCH do, so a client can follow the create with a conditional
         PATCH without first looking the new artifact up.
         """
         lang = detect_lang(request)
+        level_rejected = self._reject_derived_level(request, lang, current=None)
+        if level_rejected is not None:
+            return level_rejected
         ser = RequirementSerializer(data=request.data)
         if not ser.is_valid():
             return Response(
@@ -1048,7 +1110,8 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 type=data.get("type", "SyReq"),
                 complexity_fibonacci=data.get("complexity_fibonacci"),
                 verification_method=data.get("verification_method"),
-                level=data.get("level"),
+                # ADR-005: no `level` — it is derived from `parent_id` by
+                # RequirementService.create_requirement itself.
                 uid=data.get("uid"),
                 custom_fields=data.get("custom_fields"),
             )
@@ -1077,8 +1140,34 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         available — the body's ``expected_version`` keeps answering 409 when no
         ``If-Match`` is sent (see ``ETagMixin.resolve_expected_version`` for the
         precedence when both are present).
+
+        ADR-005, two contract changes:
+
+        * ``level`` is read-only (derived). A *differing* value is refused with
+          a field-level 400; an unchanged echo is accepted and ignored, exactly
+          like ``status`` (#263) — the detail panels resend the whole form, and
+          throwing away the user's edit over an echoed read-only field was the
+          worse bug. See :meth:`_reject_derived_level`.
+        * ``parent_id`` is now **applied** instead of silently discarded. It was
+          declared by the serializer and dropped on the floor, which is a
+          contract break on its own and left ``level`` unreachable for a
+          re-parent.
         """
         lang = detect_lang(request)
+        current_level = None
+        if isinstance(request.data, dict) and "level" in request.data:
+            # Read the stored value so an unchanged echo can be told apart from
+            # a real change. Best-effort: a probe failure falls through to the
+            # reject branch, which is the safe direction.
+            try:
+                current_level = self._svc().get_requirement(
+                    UUID(pk), get_auth_context(request)
+                ).level
+            except Exception:  # noqa: BLE001 — the guard below refuses anyway
+                current_level = None
+        invalid = self._reject_derived_level(request, lang, current=current_level)
+        if invalid is not None:
+            return invalid
         invalid = self._validate_patch_payload(
             request,
             lang,
@@ -1103,9 +1192,9 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # REQ-L2-AS-037: only forward custom_fields when the client actually
         # sent it, so an unrelated PATCH does not wipe existing custom_fields.
         #
-        # Issue #409: complexity_fibonacci/verification_method/level are
-        # nullable SE fields whose absence from a partial PATCH payload must
-        # mean "leave unchanged", not "clear to NULL". update_requirement()
+        # Issue #409: complexity_fibonacci/verification_method are nullable SE
+        # fields whose absence from a partial PATCH payload must mean "leave
+        # unchanged", not "clear to NULL". update_requirement()
         # already distinguishes the two cases via the ``_UNSET`` sentinel
         # (default), but this view used to always pass ``data.get(...)`` —
         # which is None both when the client omitted the field AND when the
@@ -1114,6 +1203,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # Forward these fields only when actually present in the payload, the
         # same way custom_fields already is, so the sentinel default takes
         # over ("leave unchanged") whenever the client didn't send them.
+        #
+        # ADR-005: ``level`` was in this list and no longer is — it is derived
+        # and read-only, and the guard above refuses a differing value. The
+        # ``parent_id`` entry is new for the same ADR: the serializer always
+        # declared it, and discarding it is the AUC break this wave fixes.
         extra_kwargs: dict[str, Any] = {}
         if "custom_fields" in data:
             extra_kwargs["custom_fields"] = data["custom_fields"]
@@ -1121,8 +1215,8 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             extra_kwargs["complexity_fibonacci"] = data["complexity_fibonacci"]
         if "verification_method" in data:
             extra_kwargs["verification_method"] = data["verification_method"]
-        if "level" in data:
-            extra_kwargs["level"] = data["level"]
+        if "parent_id" in data:
+            extra_kwargs["parent_id"] = data["parent_id"]
         try:
             ctx = get_auth_context(request)
             # REQ-143: `status` is intentionally NOT forwarded. The serializer

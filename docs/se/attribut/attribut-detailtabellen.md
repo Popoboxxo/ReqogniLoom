@@ -110,6 +110,16 @@ aber **kein Attribut-Stufenmodell**. Genau das schlage ich unten vor.
 Katalogs fehlen komplett. Ohne `priority` ist die Preset-Pflicht aus `standard`/`extended` **nicht
 erfüllbar**.
 
+> **ADR-005 (2026-09-27) — `level` ist keine Eingabe mehr.** Die Zeile `level` oben bleibt als
+> *sichtbares* Attribut stehen, aber sie ist **abgeleitet und schreibgeschützt**: der Wert wird bei
+> jeder Hierarchieänderung neu berechnet, und REST/MCP/Service lehnen einen gesendeten `level` ab,
+> statt ihn zu übernehmen. Praktisch heißt das für dieses Stufenmodell: `level` kann in **keiner**
+> Stufe `P` (Pflicht) sein — die Pflicht-Fortsetzung dieser Tabelle ist für `level` gestrichen, und
+> der Attribut-Override `MATRIX_OVERRIDES["Requirement"]["level"]` trägt entsprechend
+> `{"visible": {2, 3}, "mandatory": {}}`. Sichtbarkeit bleibt, weil `level == L4` der einzige
+> L4-Filter von `TRACE-P5`, `ARCH-003` und `VERIF-P8` ist. Details:
+> `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
+
 ---
 
 ## 4. StakeholderNeed (Bedarf) — 6 Attribute heute

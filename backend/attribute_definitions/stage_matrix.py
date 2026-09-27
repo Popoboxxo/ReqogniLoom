@@ -664,7 +664,15 @@ MATRIX_OVERRIDES: Mapping[str, Mapping[str, Mapping[str, Any]]] = {
     "Requirement": {
         "description": {"visible": {1, 2, 3}, "mandatory": {2, 3}},
         "type": {"visible": {2, 3}, "mandatory": {3}},
-        "level": {"visible": {2, 3}, "mandatory": {3}},
+        # ADR-005: `level` keeps its stage-2/3 visibility but loses the
+        # `mandatory` flag for stage 3. The field is now DERIVED
+        # (`traceability.audit.hierarchy.recompute_requirement_levels`) and
+        # read-only on every transport, so no create payload can legitimately
+        # carry it — demanding it in the extended preset would 400 every single
+        # create with a message the client cannot act on. Visible stays, so the
+        # derived value is still rendered (it is the only L4 filter TRACE-P5,
+        # ARCH-003 and VERIF-P8 have).
+        "level": {"visible": {2, 3}, "mandatory": {}},
         "acceptance_criteria": {"visible": {1, 2, 3}, "mandatory": {2, 3}},
         "verification_method": {"visible": {2, 3}, "mandatory": {2, 3}},
         "complexity_fibonacci": {"visible": {2, 3}, "mandatory": {}},

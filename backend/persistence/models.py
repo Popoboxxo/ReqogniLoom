@@ -217,9 +217,13 @@ class RequirementLevel(models.IntegerChoices):
 
     Numbering: **the integer IS the cascade level** — ``level == 3`` means "L3
     Component", full stop. This holds by construction and every consumer
-    (``RequirementService.decompose``'s ``parent.level + 1`` derivation, the
-    CONS-P11 audit rule, ``migrate_se_docs._REQ_LEVEL_MAP``, the frontend
-    ``reqLevel.L{n}`` i18n keys) relies on it.
+    (``migrate_se_docs._REQ_LEVEL_MAP``, the frontend ``reqLevel.L{n}`` i18n
+    keys) relies on it. Since ADR-005 the column is *derived*: the single
+    writer is ``traceability.audit.hierarchy.recompute_requirement_levels``,
+    which recomputes the affected sub-tree on every hierarchy write and is
+    therefore what now guarantees the integer identity. The former guard,
+    the ``CONS-P11`` audit rule, was removed with it — it asserted the field
+    agreed with the graph, which a derived field can never fail.
 
     Vocabulary (SYSTEMAUDIT_2026-08-27 P1-9)
     ----------------------------------------

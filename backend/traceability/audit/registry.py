@@ -63,10 +63,12 @@ ARCH_003 = "ARCH-003"
 VERIF_P8 = "VERIF-P8"
 CONS_P9 = "CONS-P9"
 CONS_P10 = "CONS-P10"
-#: P1-9 (SYSTEMAUDIT_2026-08-27) — not part of the original §2.2
-#: Pflichtmatrix; added when RequirementLevel was realigned with the
-#: documented V-model cascade. See rules/level_progression.py.
-CONS_P11 = "CONS-P11"
+#: ADR-005 removed CONS-P11 (V-model level progression). It asserted that
+#: ``Requirement.level`` agrees with the decomposition graph, and the same ADR
+#: made ``level`` **derived from** that graph — the rule could never fire. Its
+#: id is deliberately gone from every tier set below, not merely unregistered:
+#: a rule id that is still listed but has no implementation is a preset that
+#: promises a check it cannot run.
 #: #402 (cluster 5) — Stakeholder-Goal traceability. Not part of the original
 #: §2.2 Pflichtmatrix: it is the validation-pillar rule the Goals feature was
 #: missing. Advisory (WARNING) at every tier it runs in; see
@@ -98,19 +100,18 @@ _EXTENDED_ONLY_RULES: FrozenSet[str] = frozenset(
         TRACE_P7,
         ARCH_003,
         VERIF_P8,
-        CONS_P11,
         VAL_P1,
     }
 )
 
 #: The "Full-SE" mandate, coupled to **stage 3 / Extended only** (Epic #934
 #: WS6, #939). These are the rules that demand a complete SE chain —
-#: architecture derivation (TRACE-P3/P5), level progression (TRACE-P7),
-#: architecture decomposition (ARCH-003), leaf-requirement verification
-#: (VERIF-P8) and configurable-preset coverage (CONS-P11). A stage-1 (Minimal)
-#: or stage-2 (Standard) workspace must never fail on them: Minimal maps to the
-#: empty rule set structurally, and Standard's baseline set is disjoint from
-#: this one by construction. ``test_se_auditor_stage_coupling`` pins both.
+#: architecture derivation (TRACE-P3/P5), baseline-scope consistency (TRACE-P7),
+#: architecture decomposition (ARCH-003) and leaf-requirement verification
+#: (VERIF-P8). A stage-1 (Minimal) or stage-2 (Standard) workspace must never
+#: fail on them: Minimal maps to the empty rule set structurally, and Standard's
+#: baseline set is disjoint from this one by construction.
+#: ``test_se_auditor_stage_coupling`` pins both.
 FULL_SE_RULE_IDS: FrozenSet[str] = _EXTENDED_ONLY_RULES
 
 #: Tier → set of active rule ids. Minimal is intentionally empty ("Minimal =
@@ -311,6 +312,5 @@ __all__ = [
     "VERIF_P8",
     "CONS_P9",
     "CONS_P10",
-    "CONS_P11",
     "VAL_P1",
 ]

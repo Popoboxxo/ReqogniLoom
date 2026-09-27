@@ -4903,13 +4903,7 @@
           },
           "level": {
             "type": "integer",
-            "enum": [
-              1,
-              2,
-              3,
-              4
-            ],
-            "description": "V-model cascade level (1=System, 2=Subsystem, 3=Component, 4=Presentation). Omit to leave unassigned; a decomposed child inherits parent + 1 automatically."
+            "description": "READ-ONLY (ADR-005). V-model cascade level (1=System, 2=Subsystem, 3=Component, 4=Presentation) is DERIVED from the Requirement hierarchy and cannot be set. Omit it: it is recomputed on every hierarchy change, and a supplied value is rejected with VALIDATION_ERROR."
           },
           "custom_fields": {
             "type": "object",
@@ -5073,7 +5067,7 @@
       "name": "requirement.update",
       "prefix": "requirement",
       "is_write": true,
-      "description": "Update an existing requirement. Note: `status` is read-only (REQ-143) — the WorkflowEngine owns the lifecycle state; use the transitions endpoint to change it.",
+      "description": "Update an existing requirement. Note: `status` is read-only (REQ-143) — the WorkflowEngine owns the lifecycle state; use the transitions endpoint to change it. `level` is read-only too (ADR-005) — it is derived from the hierarchy. `parent_id` moves the requirement in the hierarchy and re-derives `level`.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5083,7 +5077,7 @@
           },
           "data": {
             "type": "object",
-            "description": "Fields to update. `status` is READ-ONLY (REQ-143) and ignored if present — the WorkflowEngine owns the lifecycle state; use the transitions endpoint instead.",
+            "description": "Fields to update. `status` is READ-ONLY (REQ-143) and ignored if present — the WorkflowEngine owns the lifecycle state; use the transitions endpoint instead. `level` is READ-ONLY and derived (ADR-005) and is rejected if supplied. `parent_id` re-parents the requirement and re-derives `level`.",
             "properties": {
               "title": {
                 "type": "string"
@@ -5093,6 +5087,17 @@
               },
               "category": {
                 "type": "string"
+              },
+              "parent_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Artifact id of the new parent Requirement, or null to detach this requirement to the top of the cascade. Applied (ADR-005) — the derived `level` is recomputed for the moved requirement and everything below it."
+              },
+              "level": {
+                "type": "integer",
+                "description": "READ-ONLY (ADR-005): derived from the hierarchy, never settable. Listed so the contract stays explicit; a supplied value is rejected with VALIDATION_ERROR."
               },
               "change_reason": {
                 "type": "string",

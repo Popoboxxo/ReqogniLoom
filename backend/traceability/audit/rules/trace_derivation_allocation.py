@@ -10,12 +10,9 @@ Level vocabulary used here (see UMSETZUNGSPLAN_SYSENG_2.0.md §1.2, "Achsen-
 Klarstellung"): the plan documents that "L0..L4" is ambiguous across four
 independent, non-aligned vocabularies in this codebase and that the choice
 between them for §2.2 was explicitly left open ("Diese Entscheidung ist noch
-nicht getroffen"). ``Requirement.level`` (the DB enum) is NULL for
-practically every Requirement created via the production path
-(``RequirementService.decompose()`` never sets it — see §1.2) so a rule that
-required it to be populated would never fire against real data. This module
-therefore uses the *dynamic decomposition-graph depth* option the plan
-names as the alternative:
+nicht getroffen"). This module therefore uses the *dynamic
+decomposition-graph depth* option the plan names as the alternative, not the
+stored ``Requirement.level`` column:
 
 - **L0** = :class:`~persistence.models.StakeholderNeed` — a distinct model,
   never a ``Requirement`` row. No Requirement is ever "L0".
@@ -32,10 +29,19 @@ names as the alternative:
 - **L4 (Presentation)** is explicitly out of scope for every rule in this
   module (§2.2, "L4 (Presentation)"). There is no dynamic-graph signal for
   it (it has no architectural representation per §1.2), so the only
-  data-backed way to recognise it is an explicitly assigned
+  data-backed way to recognise it is
   ``Requirement.level == RequirementLevel.L4_PRESENTATION``. Rows with
-  ``level IS NULL`` (the overwhelming majority) are never treated as L4 by
-  this heuristic — they simply are not skipped.
+  ``level IS NULL`` are never treated as L4 by this heuristic — they simply
+  are not skipped.
+
+ADR-005 made that column a **derived, read-only** field, recomputed from the
+hierarchy on every hierarchy change
+(``traceability.audit.hierarchy.recompute_requirement_levels``), and it is
+retained exactly because of the L4 bullet above: ``traceability.audit.hierarchy``
+has no L4 concept of its own, so removing the column would take the L4 filter
+out of TRACE-P3, ARCH-003 and VERIF-P8. The root/leaf classification in *this*
+module is unaffected — it was never read off the column, and a derived value
+now agrees with the graph by construction instead of by luck.
 
 Endpoint-type legality (may ``Requirement`` link to ``StakeholderNeed`` via
 ``derives-from``, may ``Requirement`` link to ``ArchitectureElement`` via

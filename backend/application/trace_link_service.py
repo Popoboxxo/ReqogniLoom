@@ -58,6 +58,10 @@ from traceability.types import (  # noqa: F401 — re-exported via __all__
     MANUAL_LINK_TYPES,
     LinkType,
 )
+from traceability.audit.hierarchy import (
+    HIERARCHY_LINK_TYPES,
+    recompute_requirement_levels,
+)
 
 if TYPE_CHECKING:  # pragma: no cover — import cycle at runtime
     from persistence.models import Artifact, TraceLink
@@ -650,7 +654,21 @@ class TraceLinkService(ServiceBase):
             entity_id=link.id,
             details={"proposal": "discarded"},
         )
+        # ADR-005: `Requirement.level` is derived from the hierarchy, so every
+        # hierarchy write has to recompute it. This method deletes the row
+        # directly instead of going through `TraceLinkManager.delete()` (it
+        # already holds the instance and has its own permission checks), which
+        # means it is a hierarchy write path too — without the recompute a
+        # discarded `decomposes` / `derives-from` proposal would leave the
+        # surviving sub-tree one level too deep. That is exactly the "level may
+        # silently become wrong" defect ADR-005 removes, reintroduced through
+        # the back door.
+        hierarchy_seeds: list[UUID] = []
+        if link.link_type in HIERARCHY_LINK_TYPES:
+            hierarchy_seeds.extend((link.source_id, link.target_id))
         link.delete()
+        if hierarchy_seeds:
+            recompute_requirement_levels(hierarchy_seeds)
 
     def _emit_trace_link_event(
         self,

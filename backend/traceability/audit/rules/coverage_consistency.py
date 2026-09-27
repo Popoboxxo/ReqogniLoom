@@ -10,12 +10,11 @@ whole workspace graph, not a single baseline scope.
 Level vocabulary (leaf Requirement, VERIF-P8)
 --------------------------------------------------------------------------
 Follows the same convention established in ``trace_derivation_allocation.py``
-(see that module's docstring for the full rationale): ``Requirement.level``
-is ``NULL`` for practically every Requirement created via
-``RequirementService.decompose()``, so "leaf" cannot be read off that field
-for the regular case. This module instead uses the *dynamic
-decomposition-graph depth*: a Requirement is a "leaf" when no other
-Requirement in scope hangs below it in the hierarchy, i.e. nothing was
+(see that module's docstring for the full rationale): "leaf" is not read off
+``Requirement.level`` for the regular case, because that field describes a
+node's *position*, not whether anything hangs below it. This module instead
+uses the *dynamic decomposition-graph depth*: a Requirement is a "leaf" when no
+other Requirement in scope hangs below it in the hierarchy, i.e. nothing was
 decomposed/derived from it. Both spellings of a hierarchy edge count —
 ``parent --decomposes/parent-child--> child`` and the inverse
 ``child --derives-from--> parent`` (issue #395); see
@@ -25,10 +24,18 @@ classification (and only those two — that module's docstring lists the other
 hierarchy representations it must *not* be unified with).
 
 L4 (Presentation) is out of scope for the whole §2.2 matrix (closing note
-of §2.2): a Requirement with an *explicitly assigned*
-``level == RequirementLevel.L4_PRESENTATION`` is skipped by VERIF-P8. Rows with
-``level IS NULL`` (the overwhelming majority) are never treated as L4 and are
-NOT skipped — same rationale as the sibling rule modules.
+of §2.2): a Requirement with ``level == RequirementLevel.L4_PRESENTATION`` is
+skipped by VERIF-P8. ADR-005 did not change that filter — it made
+``Requirement.level`` a derived, read-only field recomputed from the hierarchy
+on every hierarchy change
+(``traceability.audit.hierarchy.recompute_requirement_levels``), and the
+attribute is retained precisely because this filter, ARCH-003 and TRACE-P5 have
+no other L4 concept (``hierarchy.py`` has none of its own). Rows with
+``level IS NULL`` are never treated as L4 and are NOT skipped — so a row whose
+hierarchy does not determine a level is audited at full strength rather than
+silently exempted. The "overwhelming majority are NULL" remark above is a
+pre-ADR-005 observation about the un-backfilled corpus; it is no longer the
+reason NULL is handled this way, which is now the conservative one.
 
 --------------------------------------------------------------------------
 LinkType gap: CONS-P9/CONS-P10 are deferred (verified against code, 2026-07-19)

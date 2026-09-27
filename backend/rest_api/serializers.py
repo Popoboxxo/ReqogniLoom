@@ -987,14 +987,29 @@ class RequirementSerializer(
     # RequirementLevel migration but was never exposed by the REST/MCP
     # boundaries — a client could never set it despite it being a real,
     # queryable column used by the traceability audit rules.
+    #
+    # ADR-005: exposed but then made `read_only=True` again, for a different
+    # reason. `level` is a **derived** field: it is recomputed from the
+    # hierarchy on every hierarchy change
+    # (`traceability.audit.hierarchy.recompute_requirement_levels`), and
+    # `RequirementService` no longer takes a `level` parameter. It stays
+    # declared and readable because it is the only L4 filter TRACE-P5, ARCH-003
+    # and VERIF-P8 have (`traceability/audit/hierarchy.py` has no L4 concept of
+    # its own), and because the export contract carries it
+    # (`application/export_service.py`, `application/requirement_bundle_service.py`).
+    # A client that sends it gets a field-level 400 from
+    # `RequirementViewSet.partial_update` / `.create` — never a silent drop,
+    # which is the same failure class this wave closes for `parent_id`.
     level = serializers.IntegerField(
-        required=False,
+        read_only=True,
         allow_null=True,
         min_value=1,
         max_value=4,
         help_text=(
             "V-model hierarchy level (1=System, 2=Subsystem, 3=Component, "
-            "4=Presentation). NULL until assigned explicitly."
+            "4=Presentation). DERIVED and read-only (ADR-005): recomputed from "
+            "the Requirement hierarchy on every hierarchy change, NULL when the "
+            "hierarchy does not determine a level."
         ),
     )
     # Issue [U2, systemaudit 2026-09-02]: the model field and its propagation

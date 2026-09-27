@@ -8,6 +8,19 @@
 > Neue/geänderte Einträge gegenüber heute sind mit **Neu** markiert. `uid` wird zum externen
 > Import-Schlüssel (nicht mehr Nutzer-Attribut); die **einzige** Identität ist `id`.
 
+> **ADR-005 (2026-09-27) — `Requirement.level`:** Das Attribut ist **abgeleitet und
+> schreibgeschützt**. `level` wird bei **jeder** Hierarchieänderung aus dem Requirement-Baum
+> neu berechnet (`traceability/audit/hierarchy.py::recompute_requirement_levels`, aus
+> `decompose()`, dem `Artifact.parent_id`-Schreibpfad und TraceLink create/delete für
+> `decomposes`/`derives-from`); der Service nimmt keinen `level`-Parameter mehr, REST und MCP
+> lehnen einen gesendeten Wert mit einem Feld-Fehler ab. Konsequenz für diese Matrix: `level`
+> ist in **keiner** Stufe `P` (Pflicht) — ein abgeleitetes Feld kann auf einem Create nicht
+> *gefordert* werden, weil kein gültiger Payload es enthalten kann. Sichtbar bleibt es, weil
+> `level == L4` der einzige L4-Filter der Audit-Regeln `TRACE-P5`, `ARCH-003` und `VERIF-P8`
+> ist (`hierarchy.py` hat kein eigenes L4-Konzept). Die Wurzelkonvention: eine Requirement ohne
+> Hierarchie-Eltern ist **L1**; ein Kind sitzt exakt eine Ebene tiefer. Details:
+> `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
+
 ---
 
 ## 0. Querschnitts-Systemfelder (auf `Artifact`, gelten für alle 11 Typen)
@@ -31,7 +44,7 @@
 | description_editor | Inhalt | widget | widget | o | o | o | markdown_tab_group |
 | category | Klassifikation | text | core | o | o | o | |
 | type | Klassifikation | enum | core | - | o | P | funktional/nicht-funktional/… |
-| level | Klassifikation | enum | core | - | o | P | L0–L4 |
+| level | Klassifikation | enum | core | - | o | o | L1–L4, **abgeleitet & read-only** (ADR-005) |
 | difficulty | Klassifikation | enum | ext | - | o | P | **Neu** |
 | criticality | Klassifikation | enum | ext | - | o | P | **Neu**, low/medium/high/critical |
 | acceptance_criteria | Verifikation | textarea | core | o | P | P | |

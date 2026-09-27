@@ -26,6 +26,7 @@ Ergebnis: **12/13 bestätigt**, 1 zunächst falsch bewertete Aussage wurde durch
 | 11 | Baseline-State erfasst `Artifact.custom_fields` (inkl. „rationale"-Beispiel) | ✅ bestätigt | `baseline/state_capture.py:46` + Docstring (Issue #398) |
 | 12 | QS: **0 Artefakte** mit `custom_fields` → Greenfield für Wert-Migration | ✅ bestätigt | requirements/needs/architecture/testcases geprüft |
 | 13 | Interview-Adapter mappt `rationale → description` | ✅ bestätigt | `interview_artifact_adapters.py:166` |
+| 14 | `level` ist **abgeleitet und schreibgeschützt**, in keiner Stufe Pflicht | ✅ bestätigt (ADR-005, 2026-09-27) | `bootstrap_attribute_definitions.py::READ_ONLY_MODEL_FIELDS` enthält `level`; `stage_matrix.py::MATRIX_OVERRIDES["Requirement"]["level"] == {"visible": {2, 3}, "mandatory": {}}`; `RequirementSerializer.level` ist `read_only=True`; `RequirementService.create_requirement`/`update_requirement` haben keinen `level`-Parameter; `mcp_server/tools/requirements.py` lehnt `level` in create/update mit `VALIDATION_ERROR` ab |
 
 ---
 
@@ -56,9 +57,15 @@ uid = models.CharField(
 
 ```
 # Anlege-Signatur: uid ist ein Durchreiche-Parameter mit Default None
+#
+# ADR-005 (2026-09-27): `level` ist aus dieser Signatur ENTFERNT. Das Feld ist
+# abgeleitet (Neuberechnung bei jeder Hierarchieänderung) und schreibgeschützt;
+# ein Create legt seine Kaskadenposition allein über `parent_id` fest. Die
+# Signatur lautet heute:
 create_requirement(self, workspace_id, title, ctx, description="", acceptance_criteria="",
-                   category="", parent_id=None, type="SyReq", complexity_fibonacci=None,
-                   verification_method=None, level=None, uid: Optional[str] = None,
+                   rationale="", source="", category="", parent_id=None, type="SyReq",
+                   complexity_fibonacci=None, verification_method=None,
+                   uid: Optional[str] = None,
                    custom_fields=None) -> Requirement
 ```
 

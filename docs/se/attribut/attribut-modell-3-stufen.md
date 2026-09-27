@@ -89,6 +89,13 @@ Relevante Empfehlungen wörtlich:
 | P4 | **20** | „**Pflichtfelder je Rigor-Stufe:** ab `standard` `acceptance_criteria` und `verification_method` verpflichtend; `rationale`-Feld ergänzen." |
 | P1 | 1 | „**Fehlende Endpunkt-Gruppe für Requirement-Attribute**" |
 
+> **ADR-005 (2026-09-27) überstimmt P2-10** („`Requirement.level` in Serializer und MCP-Schema
+> exponieren"). Der Audit empfahl *Exposition*; #394 hat sie umgesetzt; ADR-005 hat sie **widerrufen**,
+> weil `level` dadurch **falsch werden durfte** (drei Hierarchie-Schreibpfade, nur `decompose()`
+> pflegte das Feld) — und ein schreibgeschütztes, aber veraltetes Feld ist *schlechter* als ein
+> offenes, weil es Vertrauen vortäuscht. Die P2-9-Forderung (Baseline-State) ist davon unberührt.
+> Siehe `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
+
 Achsenurteil: **A. Requirements = ⚠️ Mittel** („Syntax/Rationale nicht erzwungen; `level` nicht
 befüllbar; AC/VM optional und flüchtig") — die schlechteste der vier Achsen.
 
@@ -195,11 +202,22 @@ erfüllt und die ihm beim nächsten Speichern wieder entzogen wird. Ich setze da
 
 ### C5 — `level` und `uid` sind heute nicht benutzbar (ABHÄNGIGKEIT)
 
-- `Requirement.level` (V-Modell L0–L4) ist über REST/MCP nicht schreib- und lesbar (**#394**).
+- `Requirement.level` (V-Modell L1–L4) ist über REST/MCP nicht schreib- und lesbar (**#394**).
 - `uid` ist „= null bei 100 % der Stichprobe" (**#583**) — obwohl es als Attribut definiert ist.
 
 Mein Stufenmodell setzt `level` in **Stufe 2** und `uid` in **Stufe 1** (als Identifikation). Beides ist
 ohne Fix nicht erfüllbar → **Vorbedingungen D2/D3**.
+
+> **ADR-005 (2026-09-27) — die D2-Lesart dieses Dokuments ist überholt.** #394 wurde am
+> 2026-08-13 durch *Exponieren* von `level` geschlossen; ADR-005 hat den Expositionsweg wieder
+> geschlossen, diesmal aus dem anderen Grund: `level` war nicht nur redundant, es durfte **falsch
+> werden** — es gab drei Hierarchie-Schreibpfade und nur einer (`decompose()`) fasste das Feld an.
+> Heute ist `level` **abgeleitet und schreibgeschützt**, wird bei jeder Hierarchieänderung neu
+> berechnet und von REST/MCP abgelehnt, wenn ein Client es sendet. Für dieses Stufenmodell heißt
+> das: **`level` ist in keiner Stufe Pflicht** (S3 `P` in §5.3 ist zu streichen), **sichtbar bleibt
+> es** (der einzige L4-Filter von `TRACE-P5`, `ARCH-003`, `VERIF-P8`), und die Vorbedingung **D2 ist
+> wieder offen** — diesmal nicht als „fehlende Exposition", sondern als „abgeleitetes Feld darf nicht
+> gefordert werden". Details: `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
 
 ### C6 — Der Träger der Stufen ist defekt (ABHÄNGIGKEIT)
 
@@ -297,7 +315,8 @@ abgegrenzte Aufgabe und der eigentliche Kern von #583.
 | **Attribution** | **`source`** | **Modellfeld** | – | ✅ | ✅P | 29148 Source | **#871**; Herkunft/Stakeholder |
 | **Attribution** | **`owner`** | **Modellfeld** (FK) | – | ○ | ✅P | 29148 Owner | **#871**; Zuweisung braucht Sortierung/Join |
 | **Klassifikation** | **`priority`** | **Modellfeld** | – | ✅ **P** | ✅P | 29148 Priority | **Preset fordert es schon**, Feld fehlt. Skala: MoSCoW (C7) |
-| Klassifikation | `type`, `level` | Modellfeld | – | ✅ | ✅P | 29148 Type / 15288 | `level` heute nicht exposiert → **D2 (#394)** |
+| Klassifikation | `type` | Modellfeld | – | ✅ | ✅P | 29148 Type | – |
+| Klassifikation | `level` | Modellfeld | – | ✅ | ✅ | 15288 | **abgeleitet, read-only** (ADR-005) → **D2**, in keiner Stufe `P` |
 | Klassifikation | `difficulty` | Attribut | – | ○ | ✅ | 29148 Difficulty | Aufwandsschätzung, selten gefiltert |
 | Klassifikation | `criticality` | Attribut | – | ○ | ✅ | 26262 | Safety/Security-Einstufung |
 | Verifikation | `verification_method` | Modellfeld | – | ✅ **P** | ✅P | 29148 VerMethod | Audit P4-20/#408 — **aber erst nach D1 (Wipe-Fix)** |
@@ -337,11 +356,19 @@ abgegrenzte Aufgabe und der eigentliche Kern von #583.
 >   Verifiziert live: `level` steht im Requirement-Response und ist befüllt (1/6 im QS-Workspace).
 >
 > Damit bleiben **zwei** echte Vorbedingungen.
+>
+> **ADR-005 (2026-09-27) — D2 ist wieder offen, aus einem anderen Grund.** #394 wurde durch
+> *Exponieren* von `level` geschlossen. ADR-005 hat den Expositionsweg geschlossen, weil `level`
+> über drei Hierarchie-Schreibpfade **falsch werden durfte** (nur `decompose()` pflegte es). Der
+> Feld bleibt, aber **abgeleitet und read-only**; die Stage-Matrix trägt für `level` kein
+> `mandatory` mehr. Wer das Stufenmodell umsetzt, trägt `level` in **keiner** Stufe als Pflicht und
+> behält es sichtbar (einziger L4-Filter von `TRACE-P5`/`ARCH-003`/`VERIF-P8`). Details:
+> `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
 
 | ID | Vorbedingung | Bezug | Status | Warum blockierend |
 |---|---|---|---|---|
 | ~~D1~~ | ~~`verification_method`-Wipe bei unbeteiligten PATCH~~ | ~~Audit Befund 4~~ | **✅ erledigt** (#409) | – |
-| ~~D2~~ | ~~`Requirement.level` in Serializer + MCP-Schema~~ | ~~#394~~ | **✅ erledigt** (#394) | – |
+| ~~D2~~ | ~~`Requirement.level` in Serializer + MCP-Schema~~ | ~~#394~~ | **↩️ wieder offen** (ADR-005) | `level` ist jetzt **abgeleitet + read-only** statt nicht exponiert: es darf in keiner Stufe Pflicht sein, bleibt aber sichtbar. Die Expositions-Vorbedingung ist damit hinfällig; offen ist nur noch die *Pflicht*-Frage |
 | **D3** | **`uid`-Autogenerierung implementieren** — der `help_text` in 8 Modellen verspricht „auto-generated", es gibt aber keinen Generator (live: **0/6** gefüllt, read-only im API). Entweder Versprechen einlösen oder `help_text` korrigieren | **#583** + **C9** | **offen** | Stufe 1 zeigt `uid` als Identifikation; ein dauerhaft leeres Feld ist keine Identifikation |
 | **D4** | `mandatory_fields` je `(item_type, preset)` auflösen — oder ganz auf `required` der Attribut-Definition umstellen | **#912** | **offen** | sonst hat das Stufenmodell keinen Träger (C6) |
 
