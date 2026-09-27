@@ -78,6 +78,31 @@ the same reason in the same change.
 None of the four rules re-implement endpoint-type legality — that is
 ``traceability.types.check_se_link_semantics`` territory (§2.1). They only
 check existence/graph-consistency/state at audit time.
+
+--------------------------------------------------------------------------
+Test-link coverage: one obligation, two rules (ADR-007)
+--------------------------------------------------------------------------
+The documentation used to name a rule id for "a Requirement needs a verifying
+TestCase" that existed in no code path. ADR-007 mapped that obligation onto the
+two rules that already implement it, rather than adding a third id for the same
+check:
+
+  * ``VERIF-P8`` (:class:`LeafRequirementHasTestCaseRule`) — the requirement
+    side: every non-L4 leaf Requirement must be covered by a verifying
+    TestCase. This is the rule that answers "is anything verified?".
+  * ``TRACE-P6`` (:class:`TestCaseVerifiesExistingArtifactRule`) — the test
+    side: every TestCase must point at an artifact that exists, so coverage
+    cannot be claimed by a link into nothing.
+
+Neither is a substitute for the other, which is why the obligation needs both:
+one without the other would let a workspace pass by pointing tests at nothing
+(TRACE-P6) or by leaving leaves uncovered (VERIF-P8). Both are enforced at the
+baseline gate, not at create time — see the enforcement-point section in
+``traceability/audit/registry.py``.
+
+``source`` completeness is **not** in this module, on purpose: no writer in the
+codebase fills that field, so a rule demanding it would only be satisfiable on
+paper. It is documented as a coverage convention instead.
 """
 from __future__ import annotations
 
@@ -258,7 +283,11 @@ def _targets_by_source(
 
 @register_rule
 class TestCaseVerifiesExistingArtifactRule(Rule):
-    """TRACE-P6: every TestCase verifies an existing target."""
+    """TRACE-P6: every TestCase verifies an existing target.
+
+    The test-side half of the test-link obligation (ADR-007); the requirement
+    side is ``VERIF-P8`` in the same module.
+    """
 
     rule_id = TRACE_P6
 
@@ -301,7 +330,12 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
 
 @register_rule
 class LeafRequirementHasTestCaseRule(Rule):
-    """VERIF-P8: every leaf Requirement has a verifying TestCase."""
+    """VERIF-P8: every leaf Requirement has a verifying TestCase.
+
+    The requirement-side half of the test-link obligation (ADR-007); the test
+    side is ``TRACE-P6`` in the same module. Extended-only, and therefore
+    blockable only at a Full-SE baseline.
+    """
 
     rule_id = VERIF_P8
 

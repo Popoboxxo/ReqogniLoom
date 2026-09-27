@@ -397,6 +397,11 @@ class RequirementOrphanCheckRule(Rule):
 # ---------------------------------------------------------------------------
 # TRACE-P2 — every Requirement (>= L1) is allocated to an ArchitectureElement.
 # WARNING at every tier the rule runs in (severity_for_tier override).
+#
+# ADR-007: this rule is the single home of the "a Requirement must be
+# allocated" obligation. A second, documented-only rule id used to name the
+# same obligation; it was mapped here and deleted rather than implemented, so
+# that the obligation has exactly one owner and one severity policy.
 # ---------------------------------------------------------------------------
 
 
@@ -430,6 +435,15 @@ class RequirementAllocatedToArchitectureRule(Rule):
         mis-calibration #581 reports for the rigor preset (extended) that
         produces the real finding volumes, and would leave the default gate
         unusable for every SE workspace.
+
+        Re-confirmed, not re-opened: ADR-007 (2026-09-27) had the allocation
+        obligation that existed as a second, unimplemented documented id mapped
+        onto this rule and **explicitly declined** the promotion to BLOCKER, for
+        the reason above. If you believe the evidence has changed, say so
+        loudly and change nothing until that decision is superseded — the
+        severity is pinned by
+        ``traceability/tests/test_se_rule_vocabulary_adr007.py`` and by
+        ``tests/test_audit_calibration_581.py``.
         """
         return Severity.WARNING
 

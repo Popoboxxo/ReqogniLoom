@@ -18,6 +18,26 @@ same argument ``hierarchy.py`` already makes about TRACE-P5's ``decomposes``-
 only read ("feeding it normalised edges would make the rule tautologically
 true"). The attribute itself stays: ``level == L4`` is the only L4 filter
 TRACE-P5, ARCH-003 and VERIF-P8 have. Only the rule went.
+
+ADR-007 retired a *second*, purely documented rule vocabulary that referenced
+none of the above. Those obligations are already implemented here and are not
+re-listed as new ids:
+
+  * allocation coverage  -> ``TRACE-P2``  (``trace_derivation_allocation``),
+    WARNING at every tier — the evidence behind that severity is in that
+    module's ``severity_for_tier`` docstring, do not re-litigate it here.
+  * test-link coverage   -> ``TRACE-P6`` + ``VERIF-P8``
+    (``coverage_consistency``): one rule asks "does the TestCase point at
+    something real", the other asks "does every leaf Requirement have one".
+  * ``source`` completeness -> **not a rule at all**, see below.
+
+``source`` is a documented *coverage convention* and deliberately has no rule
+and no enforcement code: nothing in the codebase ever writes it (the LLM
+derivation maps ``rationale`` only, ``mcp_server/tools/ai_derivation.py``; the
+CSV export and the ReqIF export both omit it), so a rule rejecting an artifact
+for an empty ``source`` would be a rule users satisfy on paper and a form
+backwards. Filling the field is the user's job; judging coverage is the
+auditor's.
 """
 from __future__ import annotations
 

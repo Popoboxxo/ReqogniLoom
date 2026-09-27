@@ -371,6 +371,16 @@ abgegrenzte Aufgabe und der eigentliche Kern von #583.
 | ~~D2~~ | ~~`Requirement.level` in Serializer + MCP-Schema~~ | ~~#394~~ | **↩️ wieder offen** (ADR-005) | `level` ist jetzt **abgeleitet + read-only** statt nicht exponiert: es darf in keiner Stufe Pflicht sein, bleibt aber sichtbar. Die Expositions-Vorbedingung ist damit hinfällig; offen ist nur noch die *Pflicht*-Frage |
 | **D3** | **`uid`-Autogenerierung implementieren** — der `help_text` in 8 Modellen verspricht „auto-generated", es gibt aber keinen Generator (live: **0/6** gefüllt, read-only im API). Entweder Versprechen einlösen oder `help_text` korrigieren | **#583** + **C9** | **offen** | Stufe 1 zeigt `uid` als Identifikation; ein dauerhaft leeres Feld ist keine Identifikation |
 | **D4** | `mandatory_fields` je `(item_type, preset)` auflösen — oder ganz auf `required` der Attribut-Definition umstellen | **#912** | **offen** | sonst hat das Stufenmodell keinen Träger (C6) |
+| **D5** | `stage_mandatory` (das `P` der Stufenmatrix) ist **seeded und discoverable, aber bewusst noch nicht konsumiert** — die Verdrahtung ins Approval- bzw. Baseline-Gate wartet auf den **AWMS-Backfill #940** | **#940** + ADR-007 | **benannte Abhängigkeit** | ohne Backfill würde jedes **bereits freigegebene** Artefakt über Nacht unfreigebbar — dieselbe Grandfathering-Regel, der `required` folgt. Umsetzung hier ausdrücklich **nicht** erfolgt |
+
+> **D5 (ADR-007) — `stage_mandatory` ist eine benannte Abhängigkeit, keine stille Lücke.**
+> Die Stufenmatrix trägt `P` über das additive Feld `stage_mandatory`
+> (`backend/attribute_definitions/stage_matrix.py:36-39`); der
+> `mandatory_fields`-Resolver konsumiert es bewusst **noch nicht**. Wer es
+> verdrahtet, muss zuerst #940 (Wert-Migration der neuen Felder auf den
+> Bestand) liefern — sonst fällt jedes schon freigegebene Artefakt aus dem
+> Approval-Gate. Diese Doku-Zeile ist die Buchhaltung dafür, damit die Lücke
+> nicht als Versehen gelesen wird.
 
 **Bezug zu bestehenden Umbrella-Issues:** **#920** („Bundle B2 — Artefakt-/Attributfelder konsistent",
 P1) sammelt #886/#887/#889/#816/#820. Das Stufenmodell berührt diese Punkte, **ersetzt sie aber nicht** —
@@ -387,7 +397,7 @@ Einzelfeld-Konsistenz.
 | 4 | `required`/`visible`/`audience` je Stufe setzen | 3 |
 | 5 | `Measure`-Entität (`kind`, `unit`, `target_value`, `threshold`, `current_value`, `measured_at` + Zeitreihe) | #393 |
 | 6 | Goal-Attribute auf `Measure` migrieren | 5 |
-| 7 | SE-Auditor-Regeln an Stufe 3 koppeln (`REQ_MUST_HAVE_ALLOCATION`, `REQ_MUST_HAVE_TEST_LINK`, `REQ_MUST_HAVE_SOURCE`) | 4, #19 |
+| 7 | SE-Auditor-Regeln an Stufe 3 koppeln: die Allocationspflicht hängt an `TRACE-P2`, die Testfallpflicht an `TRACE-P6` + `VERIF-P8`; durchgesetzt wird **am Baseline-Gate**, nicht beim Create (ADR-007) | 4, #19 |
 
 ---
 
@@ -399,6 +409,7 @@ Einzelfeld-Konsistenz.
 | 2 | `priority`-Skala | **MoSCoW** für alle Typen (Bestand-kompatibel, eine Skala) — **weicht bewusst von #871 ab** |
 | 3 | `rationale` ab Stufe 2 Pflicht? | **Ja**, aber erst nach Schritt 1 (Modellfeld) und mit Prompt-Slot-Nachbesserung (`#583` nennt die Prompt-Schwäche) |
 | 4 | Kritikalitäts-Skala | **generisch** `low/medium/high/critical`; `asil_level` bleibt als separates Attribut am ArchitectureElement |
-| 5 | Traceability Pflicht ab Stufe 3 | **Ja, blockierend über den SE-Auditor** (konsistent zu #19) |
+| 5 | Traceability Pflicht ab Stufe 3 | **Ja, durchgesetzt am Baseline-Gate** über den SE-Auditor (konsistent zu #19) — aber **nicht** durch einen Create-Gate und **nicht** durch die Erhöhung von `TRACE-P2` auf BLOCKER. Beides ist widerlegt bzw. kalibrierungsbedingt (ADR-007, #581): der Create-Gate hat jede bestehende API 400iert, der BLOCKER produziert einen nicht passierbaren Gate-Stand |
 | 6 | `Measure` jetzt oder später? | **Später (Schritt 5)**, aber `kind`/`unit`/`target_value` bereits jetzt als Goal-**Attribute** anlegen und als migrierbar kennzeichnen |
 | 7 | Soll ich das als GH-Issue anlegen? | **Ja** — Master-Issue „3-Stufen-Attributmodell" + Querbezug zu #871/#583/#408/#393/#394/#912/#19 |
+| 8 | Wird `source` zur Pflicht (Stufe 2/3)? | **Als Konvention ja, als durchgesetzte Regel nein** (ADR-007). Kein Writer im Code füllt das Feld — die LLM-Ableitung mappt nur `rationale`, CSV- und ReqIF-Export lassen es weg. Eine Regel, die ein Artefakt wegen eines Feldes zurückweist, das nichts befüllen kann, wird formal erfüllt statt gelebt. Details: §5.3 in `attribut-detailtabellen.md` |
