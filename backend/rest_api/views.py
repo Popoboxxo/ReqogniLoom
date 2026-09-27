@@ -89,6 +89,7 @@ from application.artifact_attribute_gateway import (
     ArtifactAttributeGateway,
     AttributeValues,
     artifact_system_fields,
+    transport_field_names,
 )
 from application.requirement_bundle_formatters import (
     format_bundle_csv,
@@ -4748,9 +4749,26 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
     }
 
 
-#: Artifact-level system field names (Attribut v3 WS2, #936), shared by every
-#: REST write/read hook so the wire keys cannot drift.
-_SYSTEM_FIELD_NAMES: tuple[str, ...] = ("owner", "reporter", "priority")
+#: Attribute-level system field names (Attribut v3 WS2, #936; ADR-006), shared
+#: by every REST write/read hook so the wire keys cannot drift.
+#:
+#: One list with two jobs, which is why it is derived rather than typed out:
+#:
+#: * ``_apply_artifact_system_fields`` collects *these* keys out of
+#:   ``request.data`` and hands them to ``ArtifactAttributeGateway.write`` — the
+#:   value never reaches the type-specific service, which does not own the
+#:   backing Artifact (or, for ``deciders``/``assignee``, the relation).
+#: * the create/update handlers pop *these* names out of ``validated_data``
+#:   before splatting the rest into the service. Without the pop, a name the
+#:   service does not accept raises ``TypeError`` (500) — so the pop list and the
+#:   gateway list MUST be the same set, by construction.
+#:
+#: The Artifact-level names come from the application layer (which owns the
+#: carrier routing) and the carrier-backed names from the attribute vocabulary
+#: (which owns which item type declares what), composed by the one function the
+#: MCP side calls too (``mcp_server.tools.system_fields.SYSTEM_FIELD_NAMES``) —
+#: so REST and MCP cannot disagree about which fields a transport carries.
+_SYSTEM_FIELD_NAMES: tuple[str, ...] = transport_field_names()
 
 
 def _need_to_dict(need: Any) -> dict[str, Any]:

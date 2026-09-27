@@ -20,8 +20,8 @@ from mcp_server.tools.base import (
 )
 from mcp_server.tools.system_fields import (
     SYSTEM_FIELD_NAMES,
-    SYSTEM_FIELD_SCHEMA,
     apply_system_fields,
+    schema_for,
     system_field_values,
     system_fields_enabled,
 )
@@ -271,11 +271,15 @@ class GenericCrudToolGroup(BaseToolGroup):
 
         # Attribut v3 WS2 (#936): advertise the Artifact-level system fields for
         # the item types whose transports carry them, so a client sees them up
-        # front and the handler can persist them.
+        # front and the handler can persist them. ADR-006: the same fragment
+        # also carries the item type's own carrier fields (``deciders`` for Adr,
+        # ``assignee`` for Issue), resolved per item type — an item type must
+        # not advertise a field its definition does not declare.
         self._system_fields_enabled = system_fields_enabled(self._item_type)
         if self._system_fields_on:
-            create_props.update(SYSTEM_FIELD_SCHEMA)
-            update_props.update(SYSTEM_FIELD_SCHEMA)
+            field_schema = schema_for(self._item_type)
+            create_props.update(field_schema)
+            update_props.update(field_schema)
 
         # Instance-level JSON schemas (prefix is only known at construction).
         self._TOOL_SCHEMAS = [

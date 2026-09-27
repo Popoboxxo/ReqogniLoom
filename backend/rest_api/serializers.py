@@ -652,6 +652,24 @@ class ArtifactSystemFieldsSerializerMixin(
             "(type=enum; default low|medium|high|critical)."
         ),
     )
+    # ADR-006: the ISO 42010 stakeholder selection of a StakeholderNeed. A list
+    # of option values whose vocabulary lives in the attribute catalogue
+    # (type=multi-enum) — a classification, NOT a person reference, which is why
+    # it is not an actor field. Declared here for the same reason as the three
+    # above: the value is persisted through ``_apply_artifact_system_fields`` →
+    # ``ArtifactAttributeGateway`` (the column is on ``Artifact``), so the viewset
+    # never passes it to the service; declaring it is what lets a payload carry it
+    # past ``UnknownFieldRejectionMixin`` (#851) and what makes the read-back
+    # include the key.
+    stakeholder = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ISO 42010 stakeholder role(s)/group(s) of the need, as a list of "
+            "option values. The options are defined per (item_type, preset) in "
+            "the attribute definition (type=multi-enum) and validated there."
+        ),
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         data = super().to_representation(instance)  # type: ignore[misc]
@@ -1850,6 +1868,20 @@ class AdrSerializer(
     decision = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     consequences = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
+    # ADR-006: a multi-value **person reference** (ISO 42010 deciders) — real
+    # Actor rows, not typed names, so a rename updates every ADR that names them.
+    # Wire form is the `multiple` envelope of spec section 4. Persisted through
+    # the gateway (`_apply_artifact_system_fields` → `Adr.deciders.set(...)`),
+    # which is why `AdrViewSet` never passes it to `AdrService`.
+    deciders = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            'ISO 42010 deciders of this ADR, as '
+            '{"multiple": true, "items": [{"kind": "user", "id": "<uuid>"}]}. '
+            "Internal users and external placeholders are both Actors."
+        ),
+    )
     # #290: AdrViewSet.partial_update forwards ``data.get("change_reason")`` to
     # AdrService.update_adr(), which records it on the audit event. The field was
     # never declared here, so DRF dropped it from validated_data and the audit
@@ -2140,6 +2172,22 @@ class IssueSerializer(
     # `_issue_to_dict` and both view methods below now round-trip it via REST
     # too.
     due_date = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    # ADR-006: the multi-value **person reference** — real Actor rows, in the
+    # `multiple` envelope of spec section 4. Deliberately NOT an alias of the
+    # legacy `assignee_id`: that UUID is owned by `IssueService.assign_issue()`
+    # (REQ-L3-ISSUE-008) with its own audit trail and is not serializer-writable
+    # at all; folding it onto this carrier is an AWMS value-migration step
+    # (issue #940), a separate concern from the carrier landing.
+    assignee = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Persons/teams this issue is assigned to, as "
+            '{"multiple": true, "items": [{"kind": "user", "id": "<uuid>"}]}. '
+            "Not the legacy 'assignee_id' User UUID, which the dedicated "
+            "assign action owns."
+        ),
+    )
     # #290: see AdrSerializer.change_reason — IssueViewSet.partial_update
     # forwards it to IssueService.update_issue() but DRF dropped it.
     change_reason = SanitizedCharField(

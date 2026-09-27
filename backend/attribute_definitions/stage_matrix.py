@@ -10,7 +10,13 @@ walk cannot know:
 1. **New attributes** that have no dedicated model column yet and therefore
    live in ``Artifact.custom_fields`` (``kind="extended"``) — the ``**Neu**``
    rows of the matrix.
-2. **Per-stage metadata** for the attributes that already exist: at which rigor
+2. **Column-backed attributes** that the flat map structurally cannot hold
+   (ADR-006): a value that is a **list** or a **reference to a person**. They
+   arrive here as ``kind="core"`` entries (``_new(..., kind="core")``) because
+   the bootstrap's model walk cannot introspect a ``ManyToManyField`` or a
+   ``JSONField`` — see :func:`_new` and the ``stakeholder``/``deciders``/
+   ``assignee`` rows for what each one is and why.
+3. **Per-stage metadata** for the attributes that already exist: at which rigor
    stage an attribute becomes visible, whether it is required at that stage for
    approval/baseline readiness, and which ISO/SE section it belongs to.
 
@@ -177,7 +183,6 @@ CORE_ATTRIBUTE_LABELS_DE: Mapping[str, str] = {
     # -- attribution --------------------------------------------------------
     "origin": "Herkunft",
     "source": "Quelle",
-    "origin_link": "Quellverweis",
     "rationale": "Begründung",
     "stakeholder": "Stakeholder",
     "viewpoint": "Viewpoint",
@@ -336,6 +341,23 @@ CCB_DECISION_OPTIONS: tuple[dict[str, str], ...] = (
     _opt("deferred", "Zurückgestellt", "Deferred"),
 )
 
+#: ISO 42010 stakeholder roles/groups (ADR-006). Deliberately a **seed**, not a
+#: closed vocabulary: a workspace replaces it through the attribute catalogue
+#: (``attribute_definitions.schema.CORE_EDITABLE_META_PROPERTIES`` lists
+#: ``options``, so ``options`` is admin-editable on a core attribute and
+#: ``attribute_definition.update`` persists it per workspace). The values are
+#: roles a *need* has, never persons — that is exactly why
+#: ``StakeholderNeed.stakeholder`` is a classification and not an Actor
+#: reference.
+STAKEHOLDER_OPTIONS: tuple[dict[str, str], ...] = (
+    _opt("customer", "Kunde", "Customer"),
+    _opt("end_user", "Endanwender", "End user"),
+    _opt("operations", "Betrieb", "Operations"),
+    _opt("maintenance", "Instandhaltung", "Maintenance"),
+    _opt("regulator", "Regulator", "Regulator"),
+    _opt("supplier", "Lieferant", "Supplier"),
+)
+
 SAFETY_CLASSIFICATION_OPTIONS: tuple[dict[str, str], ...] = (
     _opt("qm", "QM", "QM"),
     _opt("asil_a", "ASIL A", "ASIL A"),
@@ -369,16 +391,28 @@ def _new(
     ai_elicit: bool = False,
     export: bool = True,
     validation: dict[str, Any] | None = None,
+    kind: str = "extended",
 ) -> dict[str, Any]:
     """Build one raw matrix attribute entry (pre-normalization).
 
     ``visible_stages``/``mandatory_stages`` are consumed by
     :func:`build_stage_attributes` and stripped before normalization; every
     other key is a documented schema key.
+
+    ``kind`` defaults to ``"extended"`` (the flat ``custom_fields`` carrier).
+    ADR-006 added ``"core"`` for the attributes whose value the flat map
+    structurally cannot hold — a list (``stakeholder``) or a multi-value
+    person reference (``deciders``/``assignee``). Those need a real column,
+    which is also why the bootstrap's model walk cannot see them: it skips
+    ``ManyToManyField``/``JSONField`` entirely, so the entry below is the only
+    place that declares them. ``_merge_stage_attributes`` still lets a
+    genuinely introspected column win over the matrix (it keeps the walked
+    entry's ``kind``/``type`` and only merges metadata), so passing
+    ``kind="core"`` here can never *downgrade* a model-backed attribute.
     """
     return {
         "name": name,
-        "kind": "extended",
+        "kind": kind,
         "type": type_,
         "section": section,
         "order": order,
@@ -395,6 +429,40 @@ def _new(
         "_visible_stages": frozenset(visible_stages),
         "_mandatory_stages": frozenset(mandatory_stages),
     }
+
+
+def _new_core(
+    name: str,
+    type_: str,
+    *,
+    section: str,
+    order: int,
+    visible_stages: Iterable[int],
+    mandatory_stages: Iterable[int] = (),
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """A :func:`_new` entry for a column-backed (``kind="core"``) attribute.
+
+    The label is resolved through :func:`resolve_core_label` — the same decided
+    German term the model walk uses — so the two halves of the catalogue cannot
+    drift. Per the registry's own rule (see
+    ``CORE_ATTRIBUTE_LABELS_DE``'s comment) the English label of a core
+    attribute *is* its field name, which is what makes the "no field-name leak"
+    rule in ``test_attribute_label_i18n_1090.py`` catch a missing German term.
+    """
+    label = resolve_core_label(name)
+    return _new(
+        name,
+        type_,
+        section=section,
+        order=order,
+        label_de=label["de"],
+        label_en=label["en"],
+        visible_stages=visible_stages,
+        mandatory_stages=mandatory_stages,
+        kind="core",
+        **kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -425,27 +493,41 @@ MATRIX_ATTRIBUTES: Mapping[str, tuple[dict[str, Any], ...]] = {
         _new("source", "text", section=SEC_ATTRIBUTION, order=121,
              label_de="Quelle", label_en="Source",
              visible_stages={2, 3}, mandatory_stages={3},
-             help_de="Herkunft/Stakeholder der Anforderung.",
-             help_en="Origin/stakeholder of the requirement."),
-        _new("origin_link", "text", section=SEC_TRACEABILITY, order=120,
-             label_de="Quellverweis", label_en="Origin link",
-             visible_stages={2, 3}, mandatory_stages={3},
-             help_de="Referenz auf die Quellpassage (ISO 29148 §5.2.8).",
-             help_en="Reference to the source passage (ISO 29148 §5.2.8)."),
+             help_de="Herkunft der Anforderung (Freitext).",
+             help_en="Origin of the requirement (free text)."),
+        # ADR-006: `origin_link` was REMOVED here. It had **zero writers** in
+        # the whole backend — no model field, no serializer, no service
+        # parameter, no import, no export — and these two catalogue references
+        # were its only occurrence in the codebase. It was presented to the user
+        # as a fillable field that nothing could ever fill, i.e. a phantom
+        # attribute. Removal is the honest option: a reference to a source
+        # passage (ISO 29148 §5.2.8) needs a producer that records WHERE a
+        # requirement came from, and inventing one (an import-run id, a ReqIF
+        # coordinate, an LLM prompt citation) is a feature of its own, not a
+        # field. Its `Requirement.origin_link` label entry is gone from
+        # CORE_ATTRIBUTE_LABELS_DE for the same reason — a label for a
+        # non-existent attribute is dead data.
     ),
     "StakeholderNeed": (
-        # Matrix carrier is ``actor``. ``Artifact.custom_fields`` is deliberately
-        # flat (REQ-L2-AS-037 rejects nested dicts/lists), so the structured
-        # Actor value cannot round-trip through the extended carrier yet; the
-        # interim scalar text form keeps the attribute discoverable/writable and
-        # is upgraded when the Actor carrier lands (WS7/AWMS, #940).
-        _new("stakeholder", "text", section=SEC_ATTRIBUTION, order=120,
-             label_de="Stakeholder", label_en="Stakeholder",
-             visible_stages={2, 3}, mandatory_stages={2, 3},
-             help_de="Rolle/Gruppe, die den Bedarf hat (ISO 42010). "
-                     "Interim als Text, bis der Actor-Träger greift.",
-             help_en="Role/group that owns the need (ISO 42010). "
-                     "Interim text until the Actor carrier lands."),
+        # ADR-006: `stakeholder` is a **multi-selection of classifications**,
+        # NOT a person reference. The matrix carrier is `multi-enum` and the
+        # option list lives here, next to every other enum's, so bootstrap, REST
+        # and MCP pick it up through the ordinary catalogue path and a
+        # workspace can replace it (`options` is admin-editable on a core
+        # attribute, see schema.CORE_EDITABLE_META_PROPERTIES).
+        #
+        # It is `kind="core"` because the value is a LIST and
+        # `Artifact.custom_fields` rejects arrays (REQ-L2-AS-037) — the column
+        # is `Artifact.stakeholder` (ADR-006). An Actor reference was
+        # deliberately rejected: the stakeholder of a need is a role or a group
+        # (ISO 42010), so an Actor row per role would be invented data.
+        _new_core("stakeholder", "multi-enum", section=SEC_ATTRIBUTION, order=120,
+                  visible_stages={2, 3}, mandatory_stages={2, 3},
+                  options=STAKEHOLDER_OPTIONS,
+                  help_de="Rolle/Gruppe, die den Bedarf hat (ISO 42010). "
+                          "Mehrfachauswahl aus den Katalog-Optionen.",
+                  help_en="Role/group that owns the need (ISO 42010). "
+                          "Multi-selection of the catalogue options."),
         _new("rationale", "textarea", section=SEC_ATTRIBUTION, order=121,
              label_de="Begründung", label_en="Rationale",
              visible_stages={2, 3}, mandatory_stages={3}),
@@ -515,18 +597,32 @@ MATRIX_ATTRIBUTES: Mapping[str, tuple[dict[str, Any], ...]] = {
              visible_stages={2, 3}, mandatory_stages={2, 3},
              help_de="Betrachtete und verworfene Optionen (ISO 42010/MADR).",
              help_en="Considered and rejected options (ISO 42010/MADR)."),
-        # ``multi-enum``/``actor`` list/object values are rejected by the flat
-        # custom_fields map (REQ-L2-AS-037); interim comma-separated text.
+        # A list of free-text reasons has no closed vocabulary to become an enum
+        # from, so the interim carrier stays a comma-separated text — an honest
+        # limitation, not a deferred one. (The matrix carrier IS ``multi-enum``;
+        # the flat custom_fields map rejects list values, REQ-L2-AS-037, so a
+        # structured form would need its own column the way ``deciders`` below
+        # got one. It is not worth a column for a list of prose.)
         _new("decision_drivers", "text", section=SEC_CLASSIFICATION, order=120,
              label_de="Entscheidungstreiber", label_en="Decision drivers",
              visible_stages={2, 3}, mandatory_stages={3},
              help_de="Kommasepariert (Interim bis zum strukturierten Träger).",
              help_en="Comma-separated (interim until the structured carrier)."),
-        _new("deciders", "text", section=SEC_ATTRIBUTION, order=120,
-             label_de="Entscheider", label_en="Deciders",
-             visible_stages={2, 3}, mandatory_stages={3},
-             help_de="Kommasepariert (Interim bis zum Actor-Träger).",
-             help_en="Comma-separated (interim until the Actor carrier)."),
+        # ADR-006: `deciders` is now a **multi-value Actor reference**, the same
+        # carrier `Artifact.owner`/`reporter` use (WS2/#936) — not a typed,
+        # comma-separated name list. The column is `Adr.deciders`; the entry is
+        # `kind="core"` because `Artifact.custom_fields` rejects objects
+        # (REQ-L2-AS-037) and because the model walk cannot introspect a
+        # ManyToManyField. `decision_drivers` above keeps the interim text form
+        # deliberately: those are *reasons for the decision*, which are free
+        # text by nature, not a person reference.
+        _new_core("deciders", "actor", section=SEC_ATTRIBUTION, order=120,
+                  visible_stages={2, 3}, mandatory_stages={3},
+                  multiple=True,
+                  help_de="Personen/Teams, die entschieden haben (ISO 42010), "
+                          "als Mehrfachauswahl aus den System-Personen.",
+                  help_en="Persons/teams that decided (ISO 42010), as a "
+                          "multi-selection of the system's people."),
         _new("decided_at", "date", section=SEC_ATTRIBUTION, order=121,
              label_de="Entschieden am", label_en="Decided at",
              visible_stages={2, 3}, mandatory_stages={3}),
@@ -562,13 +658,20 @@ MATRIX_ATTRIBUTES: Mapping[str, tuple[dict[str, Any], ...]] = {
              help_en="Derived from the risk matrix (RPN)."),
     ),
     "Issue": (
-        # Matrix carrier is ``actor``; flat custom_fields rejects the entry
-        # object (REQ-L2-AS-037) — interim scalar text until the Actor carrier.
-        _new("assignee", "text", section=SEC_ATTRIBUTION, order=120,
-             label_de="Zugewiesen an", label_en="Assignee",
-             visible_stages={2, 3}, mandatory_stages={3},
-             help_de="Interim als Text, bis der Actor-Träger greift.",
-             help_en="Interim text until the Actor carrier lands."),
+        # ADR-006: `assignee` is now a **multi-value Actor reference** (column
+        # `Issue.assignee`), the same carrier `Artifact.owner`/`reporter` use —
+        # not free text. Distinct from the legacy `Issue.assignee_id` User UUID,
+        # which the dedicated `IssueService.assign_issue()` method owns and which
+        # stays excluded from introspection; folding that legacy value onto this
+        # carrier is an AWMS value-migration step (issue #940), a separate
+        # concern from the carrier landing.
+        _new_core("assignee", "actor", section=SEC_ATTRIBUTION, order=120,
+                  visible_stages={2, 3}, mandatory_stages={3},
+                  multiple=True,
+                  help_de="Personen/Teams, denen der Vorgang zugewiesen ist, "
+                          "als Mehrfachauswahl aus den System-Personen.",
+                  help_en="Persons/teams this issue is assigned to, as a "
+                          "multi-selection of the system's people."),
         _new("resolution", "textarea", section=SEC_CONTENT, order=120,
              label_de="Lösung", label_en="Resolution",
              visible_stages={2, 3}, mandatory_stages={3}),

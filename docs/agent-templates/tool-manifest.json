@@ -135,6 +135,14 @@
           "priority": {
             "type": "string",
             "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
+          },
+          "deciders": {
+            "type": [
+              "object",
+              "array",
+              "null"
+            ],
+            "description": "Multi-value field in actor wire form (spec section 4): {\"multiple\": true, \"items\": [{\"kind\": \"user\", \"id\": \"<uuid>\"}]}. Allowed values for a multi-selection are the option values of this workspace's attribute definition."
           }
         },
         "required": [
@@ -303,6 +311,14 @@
           "priority": {
             "type": "string",
             "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
+          },
+          "deciders": {
+            "type": [
+              "object",
+              "array",
+              "null"
+            ],
+            "description": "Multi-value field in actor wire form (spec section 4): {\"multiple\": true, \"items\": [{\"kind\": \"user\", \"id\": \"<uuid>\"}]}. Allowed values for a multi-selection are the option values of this workspace's attribute definition."
           }
         },
         "required": [
@@ -3658,6 +3674,14 @@
           "priority": {
             "type": "string",
             "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
+          },
+          "assignee": {
+            "type": [
+              "object",
+              "array",
+              "null"
+            ],
+            "description": "Multi-value field in actor wire form (spec section 4): {\"multiple\": true, \"items\": [{\"kind\": \"user\", \"id\": \"<uuid>\"}]}. Allowed values for a multi-selection are the option values of this workspace's attribute definition."
           }
         },
         "required": [
@@ -3840,6 +3864,14 @@
           "priority": {
             "type": "string",
             "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
+          },
+          "assignee": {
+            "type": [
+              "object",
+              "array",
+              "null"
+            ],
+            "description": "Multi-value field in actor wire form (spec section 4): {\"multiple\": true, \"items\": [{\"kind\": \"user\", \"id\": \"<uuid>\"}]}. Allowed values for a multi-selection are the option values of this workspace's attribute definition."
           }
         },
         "required": [
@@ -4297,6 +4329,14 @@
           "priority": {
             "type": "string",
             "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
+          },
+          "stakeholder": {
+            "type": [
+              "object",
+              "array",
+              "null"
+            ],
+            "description": "Multi-value field in actor wire form (spec section 4): {\"multiple\": true, \"items\": [{\"kind\": \"user\", \"id\": \"<uuid>\"}]}. Allowed values for a multi-selection are the option values of this workspace's attribute definition."
           }
         },
         "required": [
@@ -4495,6 +4535,14 @@
           "priority": {
             "type": "string",
             "description": "Artifact priority; the scale comes from the attribute definition (default low|medium|high|critical)."
+          },
+          "stakeholder": {
+            "type": [
+              "object",
+              "array",
+              "null"
+            ],
+            "description": "Multi-value field in actor wire form (spec section 4): {\"multiple\": true, \"items\": [{\"kind\": \"user\", \"id\": \"<uuid>\"}]}. Allowed values for a multi-selection are the option values of this workspace's attribute definition."
           }
         },
         "required": [
