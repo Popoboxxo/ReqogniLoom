@@ -25,7 +25,6 @@ import { searchApi, type SearchHit } from "../../api/search";
 import { versionApi, type VersionInfo } from "../../api/version";
 import { workspacesApi } from "../../api/workspaces";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
-import { NotificationBell } from "./NotificationBell";
 import type { Workspace } from "../../types";
 import styles from "./SidebarNavigation.module.css";
 
@@ -757,7 +756,13 @@ export function SidebarNavigation(): JSX.Element {
         >
           {mode === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
         </button>
-        <NotificationBell />
+        {/* ADR-009: the notification bell used to sit here, between the theme
+            toggle and the profile row. The feed moved into the assistant entry
+            point (InterviewWidget) as a tab, so this row is gone rather than
+            duplicated — two entry points to one subject is the state the ADR
+            rejects, and two places the unread count could drift apart. The
+            unread signal is the badge on the widget, `aria-live` so it stays
+            accessible now that this row no longer is. */}
         {/* Personal Access Tokens — workspace-independent, always reachable (REQ-L2-RF-027) */}
         <button
           data-testid="nav-profile"

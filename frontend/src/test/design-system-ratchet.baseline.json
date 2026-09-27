@@ -4,7 +4,7 @@
   "recordedBy": "DESIGN_SYSTEM_RATCHET_DUMP=1 npx vitest run src/test/design-system-ratchet.test.ts",
   "checks": {
     "button-missing-design-system-class": {
-      "maxViolations": 327,
+      "maxViolations": 324,
       "known": [
         "button-missing-design-system-class::components/ArchitectureEditors/ArchitectureEditors.tsx::button",
         "button-missing-design-system-class::components/ArtifactDiff/ArtifactDiff.tsx::button[data-testid=diff-close-btn]",
@@ -136,9 +136,6 @@
         "button-missing-design-system-class::components/NavigationShell/ErrorBoundary.tsx::button[data-testid=error-back-btn]",
         "button-missing-design-system-class::components/NavigationShell/ErrorBoundary.tsx::button[data-testid=error-reload-btn]",
         "button-missing-design-system-class::components/NavigationShell/LoginPage.tsx::button[data-testid=login-page-banner-dismiss]",
-        "button-missing-design-system-class::components/NavigationShell/NotificationBell.tsx::button[data-testid=notification-bell-item-${notification.id}]",
-        "button-missing-design-system-class::components/NavigationShell/NotificationBell.tsx::button[data-testid=notification-bell-mark-all]",
-        "button-missing-design-system-class::components/NavigationShell/NotificationBell.tsx::button[data-testid=notification-bell-toggle]",
         "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::button[data-testid=create-workspace-btn]",
         "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::button[data-testid=global-search-result]",
         "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::button[data-testid=lang-switch]",

@@ -1536,7 +1536,13 @@
     "ariaLabel": "Notifications",
     "label": "Notifications",
     "empty": "Nothing new.",
-    "markAllRead": "Mark all as read"
+    "markAllRead": "Mark all as read",
+    "loading": "Loading notifications …",
+    "loadFailed": "Notifications could not be loaded.",
+    "preferencesUnavailable": "Your notification settings could not be read, so these notifications are shown unfiltered.",
+    "unread": "{{count}} unread notifications",
+    "unread_one": "{{count}} unread notification",
+    "unread_other": "{{count}} unread notifications"
   },
   "notificationPreferences": {
     "title": "Notifications",
@@ -2277,7 +2283,9 @@
       "title": "Interview assistant",
       "open": "Open interview assistant",
       "close": "Close interview assistant",
-      "hint": "Pick a type — the interview opens under /interviews."
+      "hint": "Pick a type — the interview opens under /interviews.",
+      "tabsLabel": "Interview assistant sections",
+      "tabStart": "Start interview"
     },
     "multi": {
       "chatPlaceholder": "Describe your problem...",
