@@ -10,12 +10,11 @@ whole workspace graph, not a single baseline scope.
 Level vocabulary (leaf Requirement, VERIF-P8)
 --------------------------------------------------------------------------
 Follows the same convention established in ``trace_derivation_allocation.py``
-(see that module's docstring for the full rationale): ``Requirement.level``
-is ``NULL`` for practically every Requirement created via
-``RequirementService.decompose()``, so "leaf" cannot be read off that field
-for the regular case. This module instead uses the *dynamic
-decomposition-graph depth*: a Requirement is a "leaf" when no other
-Requirement in scope hangs below it in the hierarchy, i.e. nothing was
+(see that module's docstring for the full rationale): "leaf" is not read off
+``Requirement.level`` for the regular case, because that field describes a
+node's *position*, not whether anything hangs below it. This module instead
+uses the *dynamic decomposition-graph depth*: a Requirement is a "leaf" when no
+other Requirement in scope hangs below it in the hierarchy, i.e. nothing was
 decomposed/derived from it. Both spellings of a hierarchy edge count —
 ``parent --decomposes/parent-child--> child`` and the inverse
 ``child --derives-from--> parent`` (issue #395); see
@@ -25,10 +24,18 @@ classification (and only those two — that module's docstring lists the other
 hierarchy representations it must *not* be unified with).
 
 L4 (Presentation) is out of scope for the whole §2.2 matrix (closing note
-of §2.2): a Requirement with an *explicitly assigned*
-``level == RequirementLevel.L4_PRESENTATION`` is skipped by VERIF-P8. Rows with
-``level IS NULL`` (the overwhelming majority) are never treated as L4 and are
-NOT skipped — same rationale as the sibling rule modules.
+of §2.2): a Requirement with ``level == RequirementLevel.L4_PRESENTATION`` is
+skipped by VERIF-P8. ADR-005 did not change that filter — it made
+``Requirement.level`` a derived, read-only field recomputed from the hierarchy
+on every hierarchy change
+(``traceability.audit.hierarchy.recompute_requirement_levels``), and the
+attribute is retained precisely because this filter, ARCH-003 and TRACE-P5 have
+no other L4 concept (``hierarchy.py`` has none of its own). Rows with
+``level IS NULL`` are never treated as L4 and are NOT skipped — so a row whose
+hierarchy does not determine a level is audited at full strength rather than
+silently exempted. The "overwhelming majority are NULL" remark above is a
+pre-ADR-005 observation about the un-backfilled corpus; it is no longer the
+reason NULL is handled this way, which is now the conservative one.
 
 --------------------------------------------------------------------------
 LinkType gap: CONS-P9/CONS-P10 are deferred (verified against code, 2026-07-19)
@@ -71,6 +78,31 @@ the same reason in the same change.
 None of the four rules re-implement endpoint-type legality — that is
 ``traceability.types.check_se_link_semantics`` territory (§2.1). They only
 check existence/graph-consistency/state at audit time.
+
+--------------------------------------------------------------------------
+Test-link coverage: one obligation, two rules (ADR-007)
+--------------------------------------------------------------------------
+The documentation used to name a rule id for "a Requirement needs a verifying
+TestCase" that existed in no code path. ADR-007 mapped that obligation onto the
+two rules that already implement it, rather than adding a third id for the same
+check:
+
+  * ``VERIF-P8`` (:class:`LeafRequirementHasTestCaseRule`) — the requirement
+    side: every non-L4 leaf Requirement must be covered by a verifying
+    TestCase. This is the rule that answers "is anything verified?".
+  * ``TRACE-P6`` (:class:`TestCaseVerifiesExistingArtifactRule`) — the test
+    side: every TestCase must point at an artifact that exists, so coverage
+    cannot be claimed by a link into nothing.
+
+Neither is a substitute for the other, which is why the obligation needs both:
+one without the other would let a workspace pass by pointing tests at nothing
+(TRACE-P6) or by leaving leaves uncovered (VERIF-P8). Both are enforced at the
+baseline gate, not at create time — see the enforcement-point section in
+``traceability/audit/registry.py``.
+
+``source`` completeness is **not** in this module, on purpose: no writer in the
+codebase fills that field, so a rule demanding it would only be satisfiable on
+paper. It is documented as a coverage convention instead.
 """
 from __future__ import annotations
 
@@ -251,7 +283,11 @@ def _targets_by_source(
 
 @register_rule
 class TestCaseVerifiesExistingArtifactRule(Rule):
-    """TRACE-P6: every TestCase verifies an existing target."""
+    """TRACE-P6: every TestCase verifies an existing target.
+
+    The test-side half of the test-link obligation (ADR-007); the requirement
+    side is ``VERIF-P8`` in the same module.
+    """
 
     rule_id = TRACE_P6
 
@@ -294,7 +330,12 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
 
 @register_rule
 class LeafRequirementHasTestCaseRule(Rule):
-    """VERIF-P8: every leaf Requirement has a verifying TestCase."""
+    """VERIF-P8: every leaf Requirement has a verifying TestCase.
+
+    The requirement-side half of the test-link obligation (ADR-007); the test
+    side is ``TRACE-P6`` in the same module. Extended-only, and therefore
+    blockable only at a Full-SE baseline.
+    """
 
     rule_id = VERIF_P8
 

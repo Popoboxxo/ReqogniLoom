@@ -20,6 +20,17 @@ L4 (Presentation) is out of scope for the whole Section 2.2 matrix (Section 2.2
 closing note): a Requirement with ``level == RequirementLevel.L4_PRESENTATION`` is
 never required to carry a ``derives-from`` link by TRACE-P5/ARCH-003.
 
+ADR-005 made ``Requirement.level`` a **derived, read-only** field, recomputed
+from the hierarchy on every hierarchy change
+(``traceability.audit.hierarchy.recompute_requirement_levels``). That does not
+weaken the two L4 filters below: ``level == L4`` is still the only L4 concept
+these rules have (``traceability.audit.hierarchy`` has none of its own), and
+this is exactly why ADR-005 rejected removing the column. A derived value is a
+*better* L4 signal than a hand-set one, because it cannot be stale. Note the
+asymmetry that keeps working in our favour: ``level IS NULL`` is never treated as
+L4 (see ``_non_l4_requirements``), so a row whose hierarchy does not determine a
+level is audited at full strength rather than skipped.
+
 --------------------------------------------------------------------------
 TRACE-P4 — ArchitectureElement decomposition orphan check
 --------------------------------------------------------------------------

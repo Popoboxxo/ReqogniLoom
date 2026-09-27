@@ -1536,7 +1536,13 @@
     "ariaLabel": "Benachrichtigungen",
     "label": "Benachrichtigungen",
     "empty": "Nichts Neues.",
-    "markAllRead": "Alle als gelesen markieren"
+    "markAllRead": "Alle als gelesen markieren",
+    "loading": "Benachrichtigungen werden geladen …",
+    "loadFailed": "Benachrichtigungen konnten nicht geladen werden.",
+    "preferencesUnavailable": "Deine Benachrichtigungseinstellungen konnten nicht gelesen werden, daher werden diese Benachrichtigungen ungefiltert angezeigt.",
+    "unread": "{{count}} ungelesene Benachrichtigungen",
+    "unread_one": "{{count}} ungelesene Benachrichtigung",
+    "unread_other": "{{count}} ungelesene Benachrichtigungen"
   },
   "notificationPreferences": {
     "title": "Benachrichtigungen",
@@ -2277,7 +2283,9 @@
       "title": "Interview-Assistent",
       "open": "Interview-Assistent öffnen",
       "close": "Interview-Assistent schließen",
-      "hint": "Wähle einen Typ — das Interview öffnet sich unter /interviews."
+      "hint": "Wähle einen Typ — das Interview öffnet sich unter /interviews.",
+      "tabsLabel": "Interview-Assistent-Bereiche",
+      "tabStart": "Interview starten"
     },
     "multi": {
       "chatPlaceholder": "Beschreibe dein Problem...",

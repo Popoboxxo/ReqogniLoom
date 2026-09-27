@@ -13,6 +13,24 @@ MCP transports carry them:
   (:func:`apply_system_fields`) — never through the service, which does not
   know the backing Artifact.
 
+ADR-006 extended the same three operations to the **carrier-backed** fields
+(``Adr.deciders``, ``Issue.assignee``, ``StakeholderNeed.stakeholder``), whose
+values are a multi-value person reference / a list of option values and are
+therefore equally un-accept-able by a type-specific service signature. They are
+appended to the name/schema sets from the one Django-free registry
+(``attribute_definitions.schema``) rather than spelled out here, so this module
+and ``rest_api.views._SYSTEM_FIELD_NAMES`` cannot drift — which is what keeps
+REST and MCP from disagreeing about which fields a transport carries.
+
+Note on the naming: the brief for ADR-006 named
+``mcp_server/tools/adr.py`` / ``issues.py`` as the files to touch. Those do not
+exist — ``adr.*`` and ``issue.*`` are served by the *generic* tool group
+(``mcp_server/tools/generic.py``), and this module is where that group's shared
+field-name/schema/apply logic lives. That is the equivalent seam, and it needed
+no change in ``generic.py`` itself: the generic group reads its name set and its
+write seam from here, and its read projection from
+``application.artifact_attribute_gateway.artifact_system_fields``.
+
 The rollout gate (which item types are wired today) is the single canonical
 ``attribute_definitions.schema.SYSTEM_FIELDS_ENABLED_ITEM_TYPES``: the bootstrap
 command flips the definition rows for exactly those types, and the read path
@@ -25,11 +43,23 @@ from typing import Any, Dict, Mapping, Tuple
 
 from auth_tenancy.context import AuthContext
 
-#: The three Artifact-level system field names, in wire order.
-SYSTEM_FIELD_NAMES: Tuple[str, ...] = ("owner", "reporter", "priority")
+#: Both registries are Django-free on purpose: this module is imported at
+#: ``tools``-registry build time, before an app registry is guaranteed. The
+#: Artifact-level names come from the application layer, which owns the carrier
+#: routing; the carrier-backed names from the attribute vocabulary, which owns
+#: which item type declares what.
+from application.artifact_attribute_gateway import transport_field_names
+from attribute_definitions.schema import ENTITY_LEVEL_CARRIER_FIELDS
 
-#: JSON-Schema fragment for the three fields, merged into a tool's create/update
-#: ``properties`` for every enabled item type.
+#: The Attribute-level system field names, in wire order: the Artifact-level
+#: trio (spec section 3) plus the carrier-backed names of ADR-006. Read from the
+#: registry that owns them rather than re-listed, so a new carrier field cannot
+#: be added to the definition but forgotten here (which would show up as an
+#: opaque "Invalid field for adr.create" TypeError).
+SYSTEM_FIELD_NAMES: Tuple[str, ...] = transport_field_names()
+
+#: JSON-Schema fragment for the Artifact-level fields, merged into a tool's
+#: create/update ``properties`` for every enabled item type.
 SYSTEM_FIELD_SCHEMA: Dict[str, Dict[str, Any]] = {
     "owner": {
         "type": ["object", "null"],
@@ -51,6 +81,41 @@ SYSTEM_FIELD_SCHEMA: Dict[str, Dict[str, Any]] = {
         ),
     },
 }
+
+#: ADR-006: the carrier-backed fields are advertised on the **item types that
+#: declare them**, not on every enabled type — a client that reads
+#: ``adr.create``'s schema has to see that ``deciders`` exists, while
+#: ``risk.create`` must not advertise a field no Risk definition has. The
+#: names per item type come from the one registry; the wire shapes are fixed by
+#: spec section 4 (``multiple`` envelope) and the catalogue (``multi-enum``
+#: option list).
+CARRIER_FIELD_SCHEMA: Dict[str, Dict[str, Dict[str, Any]]] = {
+    item_type: {
+        name: {
+            "type": ["object", "array", "null"],
+            "description": (
+                'Multi-value field in actor wire form (spec section 4): '
+                '{"multiple": true, "items": [{"kind": "user", "id": "<uuid>"}]}. '
+                "Allowed values for a multi-selection are the option values of "
+                "this workspace's attribute definition."
+            ),
+        }
+        for name in names
+    }
+    for item_type, names in ENTITY_LEVEL_CARRIER_FIELDS.items()
+}
+
+
+def schema_for(item_type: str) -> Dict[str, Dict[str, Any]]:
+    """Return the inputSchema fragment a tool of *item_type* advertises.
+
+    The Artifact-level trio (for every enabled type) plus the carrier-backed
+    names *this* item type declares. Empty when the type carries the system
+    fields nowhere (kept for the ``Risk`` legacy-owner case).
+    """
+    if not system_fields_enabled(item_type):
+        return {}
+    return {**SYSTEM_FIELD_SCHEMA, **CARRIER_FIELD_SCHEMA.get(item_type, {})}
 
 
 def system_fields_enabled(item_type: str) -> bool:
@@ -80,12 +145,14 @@ def apply_system_fields(
     values: Mapping[str, Any],
     auth_context: AuthContext,
 ) -> None:
-    """Persist ``owner``/``reporter``/``priority`` through the shared gateway.
+    """Persist the system fields through the shared gateway.
 
-    These live on ``Artifact``, not the per-type model, so the wrapped service
-    never sees them. Routing them through ``ArtifactAttributeGateway.write``
-    gives MCP the same actor resolution and validation path REST uses. A
-    workspace without a bootstrapped definition is a no-op: the fields are not
+    These live on ``Artifact`` (or on a multi-value relation the service does not
+    own), so the wrapped service never sees them. Routing them through
+    ``ArtifactAttributeGateway.write`` gives MCP the same actor resolution and
+    validation path REST uses — ADR-006's ``deciders``/``assignee``/
+    ``stakeholder`` included, since they arrive here through the same name set.
+    A workspace without a bootstrapped definition is a no-op: the fields are not
     visible there anyway and the definition engine cannot validate them.
 
     ``obj`` is the persisted entity (or an object exposing a backing
@@ -119,11 +186,13 @@ def apply_system_fields(
 
 
 def add_system_fields(payload: Dict[str, Any], obj: Any) -> Dict[str, Any]:
-    """Merge the Artifact-level system fields into a wire ``payload`` in place.
+    """Merge the system fields into a wire ``payload`` in place.
 
     Mirror of the REST DTO builders: every MCP read/create/update projection for
-    a wired item type carries ``owner``/``reporter``/``priority`` in actor wire
-    form so the Attribute Usability Contract's R/Round-Trip checks hold.
+    a wired item type carries ``owner``/``reporter``/``priority`` — and, per
+    ADR-006, the item type's own carrier-backed fields (``deciders``,
+    ``assignee``, ``stakeholder``) — in wire form, so the Attribute Usability
+    Contract's R/Round-Trip checks hold.
     """
     from application.artifact_attribute_gateway import artifact_system_fields
 
@@ -132,10 +201,12 @@ def add_system_fields(payload: Dict[str, Any], obj: Any) -> Dict[str, Any]:
 
 
 __all__ = [
+    "CARRIER_FIELD_SCHEMA",
     "SYSTEM_FIELD_NAMES",
     "SYSTEM_FIELD_SCHEMA",
     "add_system_fields",
     "apply_system_fields",
+    "schema_for",
     "system_field_values",
     "system_fields_enabled",
 ]

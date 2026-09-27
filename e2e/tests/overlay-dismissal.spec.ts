@@ -7,6 +7,13 @@
 //
 // These are regression pins, not exploratory tests: each one asserts the exact
 // behaviour that was reported broken, so the class cannot come back.
+//
+// ADR-009 moved the notifications out of the sidebar bell and into the assistant
+// entry point, so the first two pins address `interview-widget-toggle` /
+// `-panel` instead of the removed `notification-bell-*` pair. The behaviour they
+// pin is unchanged; only the location moved. Keeping the pins is the point: a
+// moved overlay that quietly lost its Escape path is exactly the regression
+// class #985 is about.
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
@@ -18,35 +25,36 @@ test.describe('[REQ-L1-081] Overlay dismissal (issue #985)', () => {
     await loginAsAdmin(page);
   });
 
-  test('notification popover closes on Escape', async ({ page }) => {
+  test('assistant panel closes on Escape', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/`);
 
-    const toggle = page.locator('[data-testid="notification-bell-toggle"]');
-    const dropdown = page.locator('[data-testid="notification-bell-dropdown"]');
+    const toggle = page.locator('[data-testid="interview-widget-toggle"]');
+    const panel = page.locator('[data-testid="interview-widget-panel"]');
 
     await toggle.click();
-    await expect(dropdown).toBeVisible();
+    await expect(panel).toBeVisible();
 
     await page.keyboard.press('Escape');
-    await expect(dropdown).toBeHidden();
+    await expect(panel).toBeHidden();
 
     // Focus must not be lost to the document body: the trigger is the
     // element the user came from, so it is where focus belongs.
     await expect(toggle).toBeFocused();
   });
 
-  test('notification popover closes on an outside click', async ({ page }) => {
+  test('assistant panel closes on an outside click', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/`);
 
-    const toggle = page.locator('[data-testid="notification-bell-toggle"]');
-    const dropdown = page.locator('[data-testid="notification-bell-dropdown"]');
+    const toggle = page.locator('[data-testid="interview-widget-toggle"]');
+    const panel = page.locator('[data-testid="interview-widget-panel"]');
 
     await toggle.click();
-    await expect(dropdown).toBeVisible();
+    await expect(panel).toBeVisible();
 
-    // A point on the page body, clear of both the sidebar and the popover.
-    await page.mouse.click(900, 600);
-    await expect(dropdown).toBeHidden();
+    // A point on the page body, clear of both the dock and the panel. The
+    // panel is anchored bottom-right, so 900/600 is well clear of it.
+    await page.mouse.click(900, 300);
+    await expect(panel).toBeHidden();
   });
 
   test('system health dialog closes on Escape', async ({ page }) => {

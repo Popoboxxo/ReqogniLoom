@@ -42,6 +42,7 @@ from persistence.tenancy import TenantContext
 from traceability.audit.hierarchy import (
     HIERARCHY_LINK_TYPES,
     normalise_hierarchy_edge,
+    recompute_requirement_levels,
 )
 from traceability.exceptions import (
     ContradictoryHierarchyLinkError,
@@ -295,6 +296,7 @@ class TraceLinkManager:
         return qs.order_by("created_at", "id")
 
     # IF-TE-EXT-IN-003: create
+    @transaction.atomic
     def create(
         self,
         source_id: uuid.UUID,
@@ -315,6 +317,19 @@ class TraceLinkManager:
         *rationale* (Q1.6) is optional free text explaining why these two
         artifacts are linked; it is stored verbatim (sanitization happens at
         the transport boundary) and defaults to "".
+
+        ADR-005: creating a ``decomposes``/``derives-from`` link is a hierarchy
+        change, so the derived ``Requirement.level`` of both endpoints (and of
+        whatever hangs below them) is recomputed. This path used to write the
+        link and nothing else, which is one of the three ways the field could
+        silently go stale.
+
+        ADR-005: the new ``@transaction.atomic`` is what makes that promise
+        hold. Without it, ``link.save()`` would commit and a failing derivation
+        would leave the edge persisted with a stale level — a fail-open hole
+        that reintroduces exactly the defect the recompute exists to remove.
+        Nesting inside a caller's existing transaction (``TraceLinkService``
+        already wraps this) is a savepoint, so this is additive.
         """
         _validate_link_type(link_type)
 
@@ -387,6 +402,14 @@ class TraceLinkManager:
             link.created_by_id = created_by_id
             link.modified_by_id = created_by_id
         link.save()
+        if link_type in HIERARCHY_LINK_TYPES:
+            # ADR-005: re-derive the cascade level. Both endpoints, not just the
+            # child: adding a parent edge can also change where the *parent*
+            # sits (it may gain a hierarchy parent of its own through the
+            # `derives-from` inverse spelling), and the derivation closes over
+            # ancestors and descendants anyway, so the seed set is the cheap
+            # part. No-op for non-Requirement endpoints.
+            recompute_requirement_levels([source_id, target_id])
         return link
 
     def _reject_hierarchy_contradiction(
@@ -480,12 +503,24 @@ class TraceLinkManager:
         return link
 
     # IF-TE-EXT-IN-003: delete
+    @transaction.atomic
     def delete(self, link_id: uuid.UUID) -> None:
         """Delete a TraceLink (tenant-scoped).
 
         REQ-L2-TE-011: raises DoesNotExist if not in active tenant.
+
+        ADR-005: removing a ``decomposes``/``derives-from`` link is a hierarchy
+        change too — the child loses a parent and the parent may become a root —
+        so the derived ``Requirement.level`` of both endpoints is recomputed.
+        The row is read before the delete because afterwards its link type and
+        endpoints are gone. ``@transaction.atomic`` (ADR-005) keeps the delete
+        and the re-derivation all-or-nothing, for the same reason as ``create``.
         """
-        TraceLink.objects.get(pk=link_id).delete()
+        link = TraceLink.objects.get(pk=link_id)
+        link_type, source_id, target_id = link.link_type, link.source_id, link.target_id
+        link.delete()
+        if link_type in HIERARCHY_LINK_TYPES:
+            recompute_requirement_levels([source_id, target_id])
 
     # IF-TE-EXT-IN-003: batch
     @transaction.atomic
@@ -502,9 +537,17 @@ class TraceLinkManager:
         - Any error (validation or cycle) triggers a full rollback.
 
         items: list of {source_id, target_id, link_type}
+
+        ADR-005: hierarchy links re-derive ``Requirement.level`` for their
+        endpoints once, after the whole batch has been written, so a batch that
+        builds a chain (``A decomposes B``, ``B decomposes C``) derives the
+        final, consistent answer in one pass instead of an intermediate one per
+        link. The derivation runs inside this method's transaction, so the
+        Tarjan rollback below also undoes it.
         """
         tenant_id = TenantContext.get_tenant()
         created: list[TraceLink] = []
+        hierarchy_seeds: list[uuid.UUID] = []
 
         for item in items:
             link_type = item["link_type"]
@@ -538,6 +581,8 @@ class TraceLinkManager:
                 link.modified_by_id = created_by_id
             link.save()
             created.append(link)
+            if link_type in HIERARCHY_LINK_TYPES:
+                hierarchy_seeds.extend((source_id, target_id))
 
         # Tarjan SCC on the full tenant graph at transaction end (REQ-L2-TE-003).
         # #629: values_list(), not list(TraceLink.objects.all()) -- cycle
@@ -552,6 +597,8 @@ class TraceLinkManager:
             # Raising here triggers the @atomic rollback
             raise CycleDetectedError(link_type="batch", cycle_path=path)
 
+        if hierarchy_seeds:
+            recompute_requirement_levels(hierarchy_seeds)
         return created
 
     @transaction.atomic
@@ -560,12 +607,22 @@ class TraceLinkManager:
 
         REQ-L2-TE-003: partial failure rolls back all deletes.
         Returns the number of deleted links.
+
+        ADR-005: hierarchy links among the deleted set re-derive
+        ``Requirement.level`` for their endpoints, once, after the batch. This
+        is the path ``cascade_delete_trace_links`` takes, so deleting an
+        Requirement also re-levels the Requirements that were its children.
         """
         count = 0
+        hierarchy_seeds: list[uuid.UUID] = []
         for link_id in link_ids:
             link = TraceLink.objects.get(pk=link_id)  # raises if not in tenant
+            if link.link_type in HIERARCHY_LINK_TYPES:
+                hierarchy_seeds.extend((link.source_id, link.target_id))
             link.delete()
             count += 1
+        if hierarchy_seeds:
+            recompute_requirement_levels(hierarchy_seeds)
         return count
 
     # IF-TE-INT-003

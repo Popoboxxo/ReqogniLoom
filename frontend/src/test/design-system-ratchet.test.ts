@@ -774,7 +774,6 @@ const DUMPING = process.env[DUMP_ENV_VAR] === "1";
 if (process.env[REPORT_ENV_VAR] === "1") {
   for (const check of Object.keys(SCANNERS) as CheckId[]) {
     const { unexempted } = measure(check, baseline);
-    // eslint-disable-next-line no-console
     console.log(
       `\n=== ${check} (${unexempted.length} unexempted, baseline ` +
         `${baseline.checks[check]?.maxViolations ?? "?"}) ===\n` +

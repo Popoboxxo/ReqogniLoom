@@ -45,6 +45,7 @@ TenantContext = AuthContext
 from persistence.models import Artifact, Tenant, Workspace
 from persistence.custom_fields import coerce_custom_fields
 from persistence.transactions import atomic_transaction
+from traceability.audit.hierarchy import recompute_requirement_levels
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.event_bus import DomainEvent
@@ -214,6 +215,24 @@ class TreeNodeDTO:
 # ---------------------------------------------------------------------------
 
 
+def _recompute_derived_levels(artifact_ids: List[UUID]) -> None:
+    """Re-derive ``Requirement.level`` for *artifact_ids* (ADR-005).
+
+    A thin, deliberately un-guarded delegation to the single writer,
+    :func:`traceability.audit.hierarchy.recompute_requirement_levels`. Defined
+    here, in the lower of the two Layer-2 modules that need it, so both
+    ``ArtifactService`` and ``RequirementService`` share one seam.
+
+    There is no ``try``/``except`` on purpose: the whole point of ADR-005 is
+    that ``level`` is *never* allowed to silently disagree with the hierarchy,
+    and a best-effort derivation that swallowed a failure would restore exactly
+    that defect while looking fixed. A failure propagates into the caller's
+    ``@atomic_transaction`` and rolls the whole write back — the same reasoning
+    ``RequirementService.decompose`` applies to its TraceLink writes.
+    """
+    recompute_requirement_levels(artifact_ids)
+
+
 class ArtifactService(ServiceBase):
     """COMP-AS-001 — Artifact lifecycle management.
 
@@ -342,6 +361,13 @@ class ArtifactService(ServiceBase):
         REQ-L2-AS-001.
         REQ-L2-AS-037: custom_fields replaces the stored map when provided
         (``_UNSET`` sentinel distinguishes "omitted" from "cleared to {}").
+
+        ADR-005: a ``parent_id`` write is a **hierarchy** change, so a moved
+        Requirement's derived ``level`` — and that of every Requirement below
+        it — is re-derived here. This path used to move the FK and nothing
+        else, so the field silently kept the pre-move value while the audit
+        graph (TraceLink-normalised) and the field disagreed. The derivation
+        reads the union of both hierarchy sources, so it sees this write.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -350,8 +376,10 @@ class ArtifactService(ServiceBase):
         if artifact is None:
             raise NotFoundError(f"Artifact {artifact_id} not found")
 
+        _parent_changed = False
         if parent_id is not None:
             self._validate_no_cycle(artifact_id, parent_id)
+            _parent_changed = artifact.parent_id != parent_id
             artifact.parent_id = parent_id
 
         if artifact_type is not None:
@@ -361,6 +389,11 @@ class ArtifactService(ServiceBase):
             artifact.custom_fields = _clean_custom_fields(custom_fields)
 
         artifact.save()
+        if _parent_changed and artifact.artifact_type == "Requirement":
+            # ADR-005 — see the docstring. A non-Requirement artifact is skipped
+            # by the artifact_type check; the derivation itself re-checks against
+            # the Requirement table, so a mislabelled type cannot corrupt it.
+            _recompute_derived_levels([artifact.id])
         self._audit(ctx=ctx, operation="update", entity_type="Artifact", entity_id=artifact.id)
         return artifact
 

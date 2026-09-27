@@ -8,6 +8,38 @@
 > Neue/geänderte Einträge gegenüber heute sind mit **Neu** markiert. `uid` wird zum externen
 > Import-Schlüssel (nicht mehr Nutzer-Attribut); die **einzige** Identität ist `id`.
 
+> **ADR-005 (2026-09-27) — `Requirement.level`:** Das Attribut ist **abgeleitet und
+> schreibgeschützt**. `level` wird bei **jeder** Hierarchieänderung aus dem Requirement-Baum
+> neu berechnet (`traceability/audit/hierarchy.py::recompute_requirement_levels`, aus
+> `decompose()`, dem `Artifact.parent_id`-Schreibpfad und TraceLink create/delete für
+> `decomposes`/`derives-from`); der Service nimmt keinen `level`-Parameter mehr, REST und MCP
+> lehnen einen gesendeten Wert mit einem Feld-Fehler ab. Konsequenz für diese Matrix: `level`
+> ist in **keiner** Stufe `P` (Pflicht) — ein abgeleitetes Feld kann auf einem Create nicht
+> *gefordert* werden, weil kein gültiger Payload es enthalten kann. Sichtbar bleibt es, weil
+> `level == L4` der einzige L4-Filter der Audit-Regeln `TRACE-P5`, `ARCH-003` und `VERIF-P8`
+> ist (`hierarchy.py` hat kein eigenes L4-Konzept). Die Wurzelkonvention: eine Requirement ohne
+> Hierarchie-Eltern ist **L1**; ein Kind sitzt exakt eine Ebene tiefer. Details:
+> `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
+
+> **ADR-007 (2026-09-27) — die `link`-Zeilen sind keine Attribut-Pflicht, und `source` ist eine
+> Konvention.** Zwei Dinge, die diese Matrix sonst falsch liest:
+>
+> 1. **Die `link`-Zeilen (`allocated-to`, `derives-from`, `verifies`) sind TraceLinks, keine
+>    Definition-Attribute** — sie werden *nicht* in die Stufen-Maske als Attribut gesät, sondern
+>    als Referenz-Widget angezeigt und als Link persistiert. Ihre "Pflicht" ist eine **Relation**,
+>    und Relationen werden **am Baseline-Gate** durchgesetzt
+>    (`application/baseline_facade.py:488` → `AuditService.blocking_findings`), nicht beim Create.
+>    Das `P` in diesen Zeilen sagt daher *"ab Stufe 3 erwartet"* (Prüfpunkt), **nicht** *"Create
+>    400 bei Fehlen"*. Dieses `P` als Create-Gate zu lesen ist der Fehler, der einmal teuer war
+>    (Migration `0005_relax_requirement_create_required`).
+> 2. **`source` (`Requirement`, Stufe 3) ist eine Coverage-Konvention, keine Regel.** Die Spalte
+>    `P` bedeutet hier *"soll belegt sein"*, nicht *"wird erzwungen"*. Kein Writer im Code füllt
+>    das Feld: die LLM-Ableitung mappt nur `rationale`, CSV- und ReqIF-Export lassen `source` weg.
+>    Eine Regel dafür wäre eine Regel, die Nutzer formal erfüllen lernen. Bewusst **keine**
+>    Registrierung in `traceability/audit/registry.py`, bewusst **kein** Enforcement-Code. Wer
+>    Herkunft belegen will, trägt sie ein; wer sie nicht belegen kann, wird dafür nicht
+>    blockiert. Details: `docs/se/ADR/ADR-007_se_regeln_am_baseline_gate.md`.
+
 ---
 
 ## 0. Querschnitts-Systemfelder (auf `Artifact`, gelten für alle 11 Typen)
@@ -31,7 +63,7 @@
 | description_editor | Inhalt | widget | widget | o | o | o | markdown_tab_group |
 | category | Klassifikation | text | core | o | o | o | |
 | type | Klassifikation | enum | core | - | o | P | funktional/nicht-funktional/… |
-| level | Klassifikation | enum | core | - | o | P | L0–L4 |
+| level | Klassifikation | enum | core | - | o | o | L1–L4, **abgeleitet & read-only** (ADR-005) |
 | difficulty | Klassifikation | enum | ext | - | o | P | **Neu** |
 | criticality | Klassifikation | enum | ext | - | o | P | **Neu**, low/medium/high/critical |
 | acceptance_criteria | Verifikation | textarea | core | o | P | P | |
@@ -39,7 +71,7 @@
 | verification_status | Verifikation | enum | ext | - | o | P | **Neu** |
 | validation_method | Verifikation | enum | ext | - | - | P | **Neu** |
 | rationale | Attribution | textarea | ext | - | P | P | **Neu** (#871) |
-| source | Attribution | text | ext | - | o | P | **Neu** (#871) |
+| source | Attribution | text | ext | - | o | P | **Neu** (#871) — **Konvention, keine Regel** (ADR-007, s. u.) |
 | complexity_fibonacci | Klassifikation | enum | ext | - | o | o | |
 | change_reason | Änderung | textarea | core | - | o | P | |
 | allocated-to | Traceability | link | link | o | P | P | TraceLink |

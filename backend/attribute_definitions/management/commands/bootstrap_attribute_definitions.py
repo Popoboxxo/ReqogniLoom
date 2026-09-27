@@ -339,6 +339,16 @@ def section_order_index(section: str) -> int:
 #: whose PATCH the serializer refuses. Keeping it editable would re-open the
 #: silent-no-op class this set exists to close.
 #:
+#: ADR-005: `Requirement.level` joins the set for a *stronger* reason than the
+#: others — it is not merely read-only on the serializer, it is **derived**:
+#: `traceability.audit.hierarchy.recompute_requirement_levels` recomputes it from
+#: the hierarchy on every hierarchy change, and `RequirementService` no longer
+#: accepts a `level` parameter at all. Rendering an editable control for it would
+#: offer the user a value the system is about to overwrite. Its `mandatory` flag
+#: in the extended stage matrix had to go for the same reason — a derived field
+#: cannot be *demanded* on a create (see `attribute_definitions/stage_matrix.py`,
+#: `MATRIX_OVERRIDES["Requirement"]["level"]`).
+#:
 #: #424 (cluster 5) review finding M-A: `TestCase.origin` has the same
 #: write-once shape. The spec makes it immutable after creation
 #: ("`origin` ist nach dem Anlegen immutable", §4.3/§4.4) and the client
@@ -356,7 +366,7 @@ def section_order_index(section: str) -> int:
 #: renderer omits it from the editable surface, closing the silent-discard
 #: class this set exists to close.
 READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset(
-    {"uid", "requestor_id", "reviewed", "origin"}
+    {"uid", "requestor_id", "reviewed", "origin", "level"}
 )
 
 #: Curated widget attributes (spec section 6.3). ``fields[]`` names the core

@@ -11,6 +11,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
@@ -289,6 +291,41 @@ describe("SidebarNavigation — role-gated admin nav items (R2/T1)", () => {
     });
     expect(screen.queryByText("Workspace Settings")).not.toBeInTheDocument();
     expect(screen.queryByText("System Settings")).not.toBeInTheDocument();
+  });
+});
+
+describe("SidebarNavigation — no notification row (ADR-009)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    stubAuthFetch(["admin"]);
+  });
+
+  // ADR-009 moved the notification feed into the assistant entry point
+  // (InterviewWidget) as a tab. The failure mode this pins is a *duplicate*
+  // entry point: the sidebar row left behind next to the new one. So the
+  // assertion is the bell's absence, not the feed's presence.
+  it("no longer renders the notification bell in the footer", async () => {
+    setListWorkspace(true);
+    renderSidebar();
+
+    // A stable, always-visible footer row confirms the footer itself rendered
+    // — otherwise "the bell is missing" would pass on a broken render.
+    await screen.findByTestId("sidebar-theme-mode-toggle");
+    expect(screen.getByTestId("nav-profile")).toBeInTheDocument();
+
+    expect(screen.queryByTestId("notification-bell-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("notification-bell-dropdown")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("notification-bell-badge")).not.toBeInTheDocument();
+  });
+
+  it("does not import the deleted bell component any more", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "components", "NavigationShell", "SidebarNavigation.tsx"),
+      "utf-8"
+    );
+    expect(source).not.toMatch(/NotificationBell/);
   });
 });
 

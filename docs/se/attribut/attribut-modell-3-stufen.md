@@ -89,6 +89,13 @@ Relevante Empfehlungen wörtlich:
 | P4 | **20** | „**Pflichtfelder je Rigor-Stufe:** ab `standard` `acceptance_criteria` und `verification_method` verpflichtend; `rationale`-Feld ergänzen." |
 | P1 | 1 | „**Fehlende Endpunkt-Gruppe für Requirement-Attribute**" |
 
+> **ADR-005 (2026-09-27) überstimmt P2-10** („`Requirement.level` in Serializer und MCP-Schema
+> exponieren"). Der Audit empfahl *Exposition*; #394 hat sie umgesetzt; ADR-005 hat sie **widerrufen**,
+> weil `level` dadurch **falsch werden durfte** (drei Hierarchie-Schreibpfade, nur `decompose()`
+> pflegte das Feld) — und ein schreibgeschütztes, aber veraltetes Feld ist *schlechter* als ein
+> offenes, weil es Vertrauen vortäuscht. Die P2-9-Forderung (Baseline-State) ist davon unberührt.
+> Siehe `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
+
 Achsenurteil: **A. Requirements = ⚠️ Mittel** („Syntax/Rationale nicht erzwungen; `level` nicht
 befüllbar; AC/VM optional und flüchtig") — die schlechteste der vier Achsen.
 
@@ -195,11 +202,22 @@ erfüllt und die ihm beim nächsten Speichern wieder entzogen wird. Ich setze da
 
 ### C5 — `level` und `uid` sind heute nicht benutzbar (ABHÄNGIGKEIT)
 
-- `Requirement.level` (V-Modell L0–L4) ist über REST/MCP nicht schreib- und lesbar (**#394**).
+- `Requirement.level` (V-Modell L1–L4) ist über REST/MCP nicht schreib- und lesbar (**#394**).
 - `uid` ist „= null bei 100 % der Stichprobe" (**#583**) — obwohl es als Attribut definiert ist.
 
 Mein Stufenmodell setzt `level` in **Stufe 2** und `uid` in **Stufe 1** (als Identifikation). Beides ist
 ohne Fix nicht erfüllbar → **Vorbedingungen D2/D3**.
+
+> **ADR-005 (2026-09-27) — die D2-Lesart dieses Dokuments ist überholt.** #394 wurde am
+> 2026-08-13 durch *Exponieren* von `level` geschlossen; ADR-005 hat den Expositionsweg wieder
+> geschlossen, diesmal aus dem anderen Grund: `level` war nicht nur redundant, es durfte **falsch
+> werden** — es gab drei Hierarchie-Schreibpfade und nur einer (`decompose()`) fasste das Feld an.
+> Heute ist `level` **abgeleitet und schreibgeschützt**, wird bei jeder Hierarchieänderung neu
+> berechnet und von REST/MCP abgelehnt, wenn ein Client es sendet. Für dieses Stufenmodell heißt
+> das: **`level` ist in keiner Stufe Pflicht** (S3 `P` in §5.3 ist zu streichen), **sichtbar bleibt
+> es** (der einzige L4-Filter von `TRACE-P5`, `ARCH-003`, `VERIF-P8`), und die Vorbedingung **D2 ist
+> wieder offen** — diesmal nicht als „fehlende Exposition", sondern als „abgeleitetes Feld darf nicht
+> gefordert werden". Details: `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
 
 ### C6 — Der Träger der Stufen ist defekt (ABHÄNGIGKEIT)
 
@@ -297,7 +315,8 @@ abgegrenzte Aufgabe und der eigentliche Kern von #583.
 | **Attribution** | **`source`** | **Modellfeld** | – | ✅ | ✅P | 29148 Source | **#871**; Herkunft/Stakeholder |
 | **Attribution** | **`owner`** | **Modellfeld** (FK) | – | ○ | ✅P | 29148 Owner | **#871**; Zuweisung braucht Sortierung/Join |
 | **Klassifikation** | **`priority`** | **Modellfeld** | – | ✅ **P** | ✅P | 29148 Priority | **Preset fordert es schon**, Feld fehlt. Skala: MoSCoW (C7) |
-| Klassifikation | `type`, `level` | Modellfeld | – | ✅ | ✅P | 29148 Type / 15288 | `level` heute nicht exposiert → **D2 (#394)** |
+| Klassifikation | `type` | Modellfeld | – | ✅ | ✅P | 29148 Type | – |
+| Klassifikation | `level` | Modellfeld | – | ✅ | ✅ | 15288 | **abgeleitet, read-only** (ADR-005) → **D2**, in keiner Stufe `P` |
 | Klassifikation | `difficulty` | Attribut | – | ○ | ✅ | 29148 Difficulty | Aufwandsschätzung, selten gefiltert |
 | Klassifikation | `criticality` | Attribut | – | ○ | ✅ | 26262 | Safety/Security-Einstufung |
 | Verifikation | `verification_method` | Modellfeld | – | ✅ **P** | ✅P | 29148 VerMethod | Audit P4-20/#408 — **aber erst nach D1 (Wipe-Fix)** |
@@ -337,13 +356,31 @@ abgegrenzte Aufgabe und der eigentliche Kern von #583.
 >   Verifiziert live: `level` steht im Requirement-Response und ist befüllt (1/6 im QS-Workspace).
 >
 > Damit bleiben **zwei** echte Vorbedingungen.
+>
+> **ADR-005 (2026-09-27) — D2 ist wieder offen, aus einem anderen Grund.** #394 wurde durch
+> *Exponieren* von `level` geschlossen. ADR-005 hat den Expositionsweg geschlossen, weil `level`
+> über drei Hierarchie-Schreibpfade **falsch werden durfte** (nur `decompose()` pflegte es). Der
+> Feld bleibt, aber **abgeleitet und read-only**; die Stage-Matrix trägt für `level` kein
+> `mandatory` mehr. Wer das Stufenmodell umsetzt, trägt `level` in **keiner** Stufe als Pflicht und
+> behält es sichtbar (einziger L4-Filter von `TRACE-P5`/`ARCH-003`/`VERIF-P8`). Details:
+> `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
 
 | ID | Vorbedingung | Bezug | Status | Warum blockierend |
 |---|---|---|---|---|
 | ~~D1~~ | ~~`verification_method`-Wipe bei unbeteiligten PATCH~~ | ~~Audit Befund 4~~ | **✅ erledigt** (#409) | – |
-| ~~D2~~ | ~~`Requirement.level` in Serializer + MCP-Schema~~ | ~~#394~~ | **✅ erledigt** (#394) | – |
+| ~~D2~~ | ~~`Requirement.level` in Serializer + MCP-Schema~~ | ~~#394~~ | **↩️ wieder offen** (ADR-005) | `level` ist jetzt **abgeleitet + read-only** statt nicht exponiert: es darf in keiner Stufe Pflicht sein, bleibt aber sichtbar. Die Expositions-Vorbedingung ist damit hinfällig; offen ist nur noch die *Pflicht*-Frage |
 | **D3** | **`uid`-Autogenerierung implementieren** — der `help_text` in 8 Modellen verspricht „auto-generated", es gibt aber keinen Generator (live: **0/6** gefüllt, read-only im API). Entweder Versprechen einlösen oder `help_text` korrigieren | **#583** + **C9** | **offen** | Stufe 1 zeigt `uid` als Identifikation; ein dauerhaft leeres Feld ist keine Identifikation |
 | **D4** | `mandatory_fields` je `(item_type, preset)` auflösen — oder ganz auf `required` der Attribut-Definition umstellen | **#912** | **offen** | sonst hat das Stufenmodell keinen Träger (C6) |
+| **D5** | `stage_mandatory` (das `P` der Stufenmatrix) ist **seeded und discoverable, aber bewusst noch nicht konsumiert** — die Verdrahtung ins Approval- bzw. Baseline-Gate wartet auf den **AWMS-Backfill #940** | **#940** + ADR-007 | **benannte Abhängigkeit** | ohne Backfill würde jedes **bereits freigegebene** Artefakt über Nacht unfreigebbar — dieselbe Grandfathering-Regel, der `required` folgt. Umsetzung hier ausdrücklich **nicht** erfolgt |
+
+> **D5 (ADR-007) — `stage_mandatory` ist eine benannte Abhängigkeit, keine stille Lücke.**
+> Die Stufenmatrix trägt `P` über das additive Feld `stage_mandatory`
+> (`backend/attribute_definitions/stage_matrix.py:36-39`); der
+> `mandatory_fields`-Resolver konsumiert es bewusst **noch nicht**. Wer es
+> verdrahtet, muss zuerst #940 (Wert-Migration der neuen Felder auf den
+> Bestand) liefern — sonst fällt jedes schon freigegebene Artefakt aus dem
+> Approval-Gate. Diese Doku-Zeile ist die Buchhaltung dafür, damit die Lücke
+> nicht als Versehen gelesen wird.
 
 **Bezug zu bestehenden Umbrella-Issues:** **#920** („Bundle B2 — Artefakt-/Attributfelder konsistent",
 P1) sammelt #886/#887/#889/#816/#820. Das Stufenmodell berührt diese Punkte, **ersetzt sie aber nicht** —
@@ -360,7 +397,7 @@ Einzelfeld-Konsistenz.
 | 4 | `required`/`visible`/`audience` je Stufe setzen | 3 |
 | 5 | `Measure`-Entität (`kind`, `unit`, `target_value`, `threshold`, `current_value`, `measured_at` + Zeitreihe) | #393 |
 | 6 | Goal-Attribute auf `Measure` migrieren | 5 |
-| 7 | SE-Auditor-Regeln an Stufe 3 koppeln (`REQ_MUST_HAVE_ALLOCATION`, `REQ_MUST_HAVE_TEST_LINK`, `REQ_MUST_HAVE_SOURCE`) | 4, #19 |
+| 7 | SE-Auditor-Regeln an Stufe 3 koppeln: die Allocationspflicht hängt an `TRACE-P2`, die Testfallpflicht an `TRACE-P6` + `VERIF-P8`; durchgesetzt wird **am Baseline-Gate**, nicht beim Create (ADR-007) | 4, #19 |
 
 ---
 
@@ -372,6 +409,7 @@ Einzelfeld-Konsistenz.
 | 2 | `priority`-Skala | **MoSCoW** für alle Typen (Bestand-kompatibel, eine Skala) — **weicht bewusst von #871 ab** |
 | 3 | `rationale` ab Stufe 2 Pflicht? | **Ja**, aber erst nach Schritt 1 (Modellfeld) und mit Prompt-Slot-Nachbesserung (`#583` nennt die Prompt-Schwäche) |
 | 4 | Kritikalitäts-Skala | **generisch** `low/medium/high/critical`; `asil_level` bleibt als separates Attribut am ArchitectureElement |
-| 5 | Traceability Pflicht ab Stufe 3 | **Ja, blockierend über den SE-Auditor** (konsistent zu #19) |
+| 5 | Traceability Pflicht ab Stufe 3 | **Ja, durchgesetzt am Baseline-Gate** über den SE-Auditor (konsistent zu #19) — aber **nicht** durch einen Create-Gate und **nicht** durch die Erhöhung von `TRACE-P2` auf BLOCKER. Beides ist widerlegt bzw. kalibrierungsbedingt (ADR-007, #581): der Create-Gate hat jede bestehende API 400iert, der BLOCKER produziert einen nicht passierbaren Gate-Stand |
 | 6 | `Measure` jetzt oder später? | **Später (Schritt 5)**, aber `kind`/`unit`/`target_value` bereits jetzt als Goal-**Attribute** anlegen und als migrierbar kennzeichnen |
 | 7 | Soll ich das als GH-Issue anlegen? | **Ja** — Master-Issue „3-Stufen-Attributmodell" + Querbezug zu #871/#583/#408/#393/#394/#912/#19 |
+| 8 | Wird `source` zur Pflicht (Stufe 2/3)? | **Als Konvention ja, als durchgesetzte Regel nein** (ADR-007). Kein Writer im Code füllt das Feld — die LLM-Ableitung mappt nur `rationale`, CSV- und ReqIF-Export lassen es weg. Eine Regel, die ein Artefakt wegen eines Feldes zurückweist, das nichts befüllen kann, wird formal erfüllt statt gelebt. Details: §5.3 in `attribut-detailtabellen.md` |

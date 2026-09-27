@@ -92,7 +92,7 @@ aber **kein Attribut-Stufenmodell**. Genau das schlage ich unten vor.
 | Klassifikation | **`priority`** | enum (Must/Should/Could/Won't) | ○ | **✅P** | ✅P | ⚠️ **fehlt** | 29148 Priority |
 | Klassifikation | **`difficulty`** | enum | – | ○ | ✅ | ➕ neu | 29148 Difficulty |
 | Klassifikation | **`criticality`** (safety/security) | enum (ASIL/DAL/Klasse) | – | ○ | ✅ | ➕ neu | ISO 26262/IEC 61508 |
-| Attributierung | **`source`** | text | – | **✅P** | ✅P | ➕ **fehlt** | 29148 Source |
+| Attributierung | **`source`** *(Konvention, keine Regel)* | text | – | **✅P** | ✅P | ➕ **fehlt** | 29148 Source |
 | Attributierung | **`rationale`** | textarea | – | **✅P** | ✅P | ➕ **fehlt** | 29148 Rationale |
 | Attributierung | **`owner`** | user | – | ○ | ✅ | ➕ neu | 29148 Owner |
 | Attributierung | `status` | enum (workflow) | ✅ | ✅ | ✅ | ✅ | Workflow |
@@ -109,6 +109,37 @@ aber **kein Attribut-Stufenmodell**. Genau das schlage ich unten vor.
 **Fehlende Muss-Attribute:** `priority`, `source`, `rationale` — die drei Kernattribute des ISO-29148-
 Katalogs fehlen komplett. Ohne `priority` ist die Preset-Pflicht aus `standard`/`extended` **nicht
 erfüllbar**.
+
+> **ADR-005 (2026-09-27) — `level` ist keine Eingabe mehr.** Die Zeile `level` oben bleibt als
+> *sichtbares* Attribut stehen, aber sie ist **abgeleitet und schreibgeschützt**: der Wert wird bei
+> jeder Hierarchieänderung neu berechnet, und REST/MCP/Service lehnen einen gesendeten `level` ab,
+> statt ihn zu übernehmen. Praktisch heißt das für dieses Stufenmodell: `level` kann in **keiner**
+> Stufe `P` (Pflicht) sein — die Pflicht-Fortsetzung dieser Tabelle ist für `level` gestrichen, und
+> der Attribut-Override `MATRIX_OVERRIDES["Requirement"]["level"]` trägt entsprechend
+> `{"visible": {2, 3}, "mandatory": {}}`. Sichtbarkeit bleibt, weil `level == L4` der einzige
+> L4-Filter von `TRACE-P5`, `ARCH-003` und `VERIF-P8` ist. Details:
+> `docs/se/ADR/ADR-005_requirement_level_abgeleitet.md`.
+
+> **ADR-007 (2026-09-27) — `source` ist eine Coverage-Konvention, keine durchgesetzte Regel.**
+> Die Zeile `source` trägt in Stufe 2/3 ein `P`, aber **als Soll-Vorgabe an den Menschen, nicht als
+> Gate**. In der gesamten Codebase gibt es **keinen** Writer, der dieses Feld füllt: die
+> LLM-Ableitung mappt ausschließlich `rationale`
+> (`backend/mcp_server/tools/ai_derivation.py:140-142`), der CSV-Export lässt es weg
+> (`backend/application/export_service.py:121-132`), der ReqIF-Export ebenso
+> (`backend/application/reqif_export_service.py:246-253`). Ein REST- oder MCP-Client kann es
+> setzen — aber es ist reines Nutzer-Freitextfeld.
+>
+> Warum daraus **keine** Regel wird: eine Regel, die ein Artefakt wegen eines Feldes zurückweist,
+> das nichts befüllen kann, ist eine Regel, die Nutzer **formal** erfüllen lernen — der
+> Feldinhalt wird dann nicht besser, nur das Feld gefüllt. Deshalb ist `source` hier
+> dokumentiert und **nicht** in `traceability/audit/registry.py` registriert, und es gibt dafür
+> bewusst **keinen** Enforcement-Code. Wer Vollständigkeit erzwingen wollte, verliert diese
+> Möglichkeit bewusst (die Kosten der Entscheidung, ADR-007 „Konsequenzen").
+>
+> **Konvention, wenn `source` gefüllt wird:** die Herkunft des Artefakts benennen, nicht den
+> Bearbeiter — z. B. `Kundenanforderung KAN-2026-14`, `Stakeholder-Interview 2026-03-02`,
+> `29148 §5.2.5`, oder die Artefakt-Kennung der ableitenden Requirement
+> (`REQ-L1-...`).
 
 ---
 
@@ -329,8 +360,18 @@ Das Attribut-Feature kann **alles** davon tragen — es braucht **keine** Schema
 5. **Traceability-Attribute** (`allocated-to`, `verifies`, `derives-from`) bleiben TraceLinks, nicht
    Attribute — sie sind coverage-relevant (siehe #928). In der Maske als **Referenz-Widget** zeigen,
    persistiert als Link.
-6. **Beziehungen als Pflicht** (Stufe 3) brauchen einen Gate im SE-Auditor bzw. Workflow —
-   passend zu **#19** (`REQ_MUST_HAVE_ALLOCATION`, `REQ_MUST_HAVE_TEST_LINK`, `REQ_MUST_HAVE_SOURCE`).
+6. **Beziehungen als Pflicht** (Stufe 3) brauchen ein Gate — **das Baseline-Gate, nicht das
+   Create-Gate** (ADR-007). Der einzige Durchsetzungspunkt für Relation-Regeln ist
+   `application/baseline_facade.py:488` → `AuditService.blocking_findings`
+   (`application/audit_service.py:406-441`); er ist zugleich die einzige Stelle mit einem
+   vollständigen Remediation-Pfad, einem **Waiver pro Finding** (`baseline/waivers.py`,
+   `BaselineGateWaiver`, `baseline/models.py:190-215`). Die zwei Pflichten sind damit an
+   je einer Stelle verortet: `allocated-to` an `TRACE-P2`, die Testfallpflicht an `TRACE-P6` +
+   `VERIF-P8`. **Nicht** über `mandatory_fields` oder `field_validation.py` erzwingen — dieser Weg
+   ist empirisch widerlegt (er hat jede bestehende API, jeden Quick-Create-Dialog und ~15
+   E2E-Specs mit 400 getroffen; Migration `0005_relax_requirement_create_required`). Felder selbst
+   bleiben bei `field_validation.py`, das bereits bei Create **und** Update mit feldgenauen
+   400-Details ablehnt. Details: `docs/se/ADR/ADR-007_se_regeln_am_baseline_gate.md`.
 
 ---
 
@@ -343,5 +384,8 @@ Das Attribut-Feature kann **alles** davon tragen — es braucht **keine** Schema
 3. **`rationale` Pflicht ab Stufe 2?** 29148 verlangt ihn, aber er erhöht die Eingabehürde deutlich.
 4. **Kritikalitäts-Skala**: ASIL (Automotive, `asil_level` existiert schon) oder generisch
    (low/medium/high/critical) — ein Feld für alle Artefakttypen?
-5. **Traceability als Pflicht ab Stufe 3** — über den SE-Auditor (blockierend) oder als Warnung?
+5. **Traceability als Pflicht ab Stufe 3** — blockierend? *(ADR-007: entschieden)* **Blockierend am
+   Baseline-Gate, nicht beim Create.** `TRACE-P2` bleibt dabei bewusst **WARNING** (die
+   Kalibrierung aus #581), `TRACE-P6`/`VERIF-P8` sind BLOCKER, aber erst ab Stufe 3. `source` wird
+   **gar nicht** durchgesetzt, sondern als Konvention dokumentiert.
 6. Soll ich daraus **ein GH-Issue als Master-Tabelle** machen + je Artefakttyp ein Unter-Issue?

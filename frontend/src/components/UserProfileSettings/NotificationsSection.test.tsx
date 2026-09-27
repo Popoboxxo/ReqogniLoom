@@ -25,6 +25,7 @@ import {
   NOTIFICATION_PREFERENCE_KINDS,
   notificationPreferencesApi,
 } from "../../api/notification-preferences";
+import { NOTIFICATION_PREFERENCES_CHANGED_EVENT } from "../../hooks/useNotificationFeed";
 import { apiKeysApi } from "../../api/api-keys";
 import { memoryApi } from "../../api/memory";
 
@@ -214,5 +215,49 @@ describe("NotificationsSection", () => {
     expect(
       memory.compareDocumentPosition(notifications) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it("(h) announces a successful write so the assistant widget refetches (ADR-009)", async () => {
+    // The unread badge on InterviewWidget is derived from the same preference
+    // map this section writes. Live-verified in the browser: without the
+    // announcement the badge survived the opt-out until the next remount.
+    const user = userEvent.setup();
+    const announcements: string[] = [];
+    const listener = (event: Event): void => {
+      announcements.push(event.type);
+    };
+    window.addEventListener(NOTIFICATION_PREFERENCES_CHANGED_EVENT, listener);
+
+    try {
+      render(<NotificationsSection />);
+      await user.click(await screen.findByTestId("notification-pref-checkbox-assigned"));
+
+      await waitFor(() => {
+        expect(notificationPreferencesApi.update).toHaveBeenCalledTimes(1);
+      });
+      expect(announcements).toEqual([NOTIFICATION_PREFERENCES_CHANGED_EVENT]);
+    } finally {
+      window.removeEventListener(NOTIFICATION_PREFERENCES_CHANGED_EVENT, listener);
+    }
+  });
+
+  it("(i) announces nothing when the write is rejected", async () => {
+    const user = userEvent.setup();
+    vi.mocked(notificationPreferencesApi.update).mockRejectedValue({ error: { message: "nope" } });
+    const announcements: string[] = [];
+    const listener = (event: Event): void => {
+      announcements.push(event.type);
+    };
+    window.addEventListener(NOTIFICATION_PREFERENCES_CHANGED_EVENT, listener);
+
+    try {
+      render(<NotificationsSection />);
+      await user.click(await screen.findByTestId("notification-pref-checkbox-assigned"));
+
+      expect(await screen.findByTestId("notification-preferences-error")).toBeInTheDocument();
+      expect(announcements).toEqual([]);
+    } finally {
+      window.removeEventListener(NOTIFICATION_PREFERENCES_CHANGED_EVENT, listener);
+    }
   });
 });

@@ -185,21 +185,39 @@ function collectReferencedKeys(dir: string): Set<string> {
 // files, so none of them contributes to this count. Re-measured: 117 - 1 = 116.
 const MISSING_KEY_BASELINE = 116;
 
+/**
+ * Wall-clock budget for the whole-`src/` source scan below, same rationale and
+ * same constant as `design-tokens.test.ts` (which documents it at length).
+ *
+ * This is a static scan over every `.ts`/`.tsx` file, not a unit test: it
+ * measures 2.3 s in isolation and 5.0-5.5 s when the suite runs under load,
+ * i.e. right on vitest's default 5 s `testTimeout`. Two full-suite runs on
+ * 2026-09-27 measured 5.08 s and 5.50 s here and failed on the clock alone,
+ * with the de/en key-set parity test above green in the same runs. A source
+ * scan should not share a budget with a pure function test. If the scan ever
+ * approaches this, the real problem is the scan, not the budget.
+ */
+const SOURCE_SCAN_TIMEOUT_MS = 60_000;
+
 describe("i18n code-to-locale coverage (#619)", () => {
-  it("does not reference more undefined translation keys than the frozen baseline", () => {
-    const referenced = collectReferencedKeys(SRC_DIR);
-    const deKeys = new Set(flattenKeys(de as LocaleValue));
-    const enKeys = new Set(flattenKeys(en as LocaleValue));
+  it(
+    "does not reference more undefined translation keys than the frozen baseline",
+    () => {
+      const referenced = collectReferencedKeys(SRC_DIR);
+      const deKeys = new Set(flattenKeys(de as LocaleValue));
+      const enKeys = new Set(flattenKeys(en as LocaleValue));
 
-    const missing = [...referenced]
-      .filter((key) => !deKeys.has(key) && !enKeys.has(key))
-      .sort();
+      const missing = [...referenced]
+        .filter((key) => !deKeys.has(key) && !enKeys.has(key))
+        .sort();
 
-    expect(
-      missing.length,
-      missing.length > MISSING_KEY_BASELINE
-        ? `New missing i18n key(s) beyond the ${MISSING_KEY_BASELINE}-key baseline: ${missing.join(", ")}`
-        : undefined
-    ).toBeLessThanOrEqual(MISSING_KEY_BASELINE);
-  });
+      expect(
+        missing.length,
+        missing.length > MISSING_KEY_BASELINE
+          ? `New missing i18n key(s) beyond the ${MISSING_KEY_BASELINE}-key baseline: ${missing.join(", ")}`
+          : undefined
+      ).toBeLessThanOrEqual(MISSING_KEY_BASELINE);
+    },
+    SOURCE_SCAN_TIMEOUT_MS
+  );
 });

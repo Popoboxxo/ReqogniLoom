@@ -217,9 +217,13 @@ class RequirementLevel(models.IntegerChoices):
 
     Numbering: **the integer IS the cascade level** — ``level == 3`` means "L3
     Component", full stop. This holds by construction and every consumer
-    (``RequirementService.decompose``'s ``parent.level + 1`` derivation, the
-    CONS-P11 audit rule, ``migrate_se_docs._REQ_LEVEL_MAP``, the frontend
-    ``reqLevel.L{n}`` i18n keys) relies on it.
+    (``migrate_se_docs._REQ_LEVEL_MAP``, the frontend ``reqLevel.L{n}`` i18n
+    keys) relies on it. Since ADR-005 the column is *derived*: the single
+    writer is ``traceability.audit.hierarchy.recompute_requirement_levels``,
+    which recomputes the affected sub-tree on every hierarchy write and is
+    therefore what now guarantees the integer identity. The former guard,
+    the ``CONS-P11`` audit rule, was removed with it — it asserted the field
+    agreed with the graph, which a derived field can never fail.
 
     Vocabulary (SYSTEMAUDIT_2026-08-27 P1-9)
     ----------------------------------------
@@ -1245,6 +1249,32 @@ class Artifact(TenantScopedModel):
             "Spec section 3: priority value. Deliberately no model-level "
             "choices — the scale is defined per attribute definition "
             "(type=enum, default low/medium/high/critical)."
+        ),
+    )
+    # ADR-006: the ISO 42010 stakeholder of an artifact — a **role or a group**,
+    # i.e. a classification, not an identity. Staged on StakeholderNeed as a
+    # `multi-enum` whose option list lives in the attribute catalogue, so a
+    # workspace configures its own roles.
+    #
+    # Why an Artifact column and not a StakeholderNeed one: the value is a LIST,
+    # and `Artifact.custom_fields` rejects arrays (REQ-L2-AS-037), so a dedicated
+    # column is the only honest carrier. Putting it on the shared Artifact row —
+    # the same place `owner`/`reporter`/`priority` live — is what makes the read
+    # identical on REST and MCP *by construction*: every transport projection for
+    # an artifact-backed type already resolves the entity's values from this row
+    # (`application.artifact_attribute_gateway.artifact_system_fields`), and a
+    # service DTO (StakeholderNeedDTO) exposes exactly this row through its
+    # `.artifact` property. A per-type column would instead need the DTO, the
+    # service signature and every per-transport kwargs list changed with it.
+    stakeholder = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "ADR-006: ISO 42010 stakeholder role/group of the artifact, a "
+            "list of option values. A classification, NOT a person reference "
+            "(an Actor FK would force an invented Actor row per role). The "
+            "option list is defined per (item_type, preset) in the attribute "
+            "catalogue (type=multi-enum), which is also what validates it."
         ),
     )
     custom_fields = models.JSONField(
@@ -3102,6 +3132,26 @@ class Adr(TenantScopedModel):
     # into it: `updated_at` is part of the published REST/MCP contract for these
     # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
+    # ADR-006: the people who decided (ISO 42010 deciders) — a **multi-value
+    # Actor reference**, the third carrier pattern: a real relation to the
+    # system's own person/team rows, not a typed name list. Renaming one of them
+    # updates every ADR that names them, which is exactly the property the
+    # single-valued `Artifact.owner`/`reporter` FKs bought (WS2/#936) and the
+    # reason this cannot be free text.
+    #
+    # `related_name="+"` matches the convention of those two FKs: the reverse
+    # accessor is not part of any public contract, so it is suppressed rather
+    # than added to the Actor model's namespace.
+    deciders = models.ManyToManyField(
+        "persistence.Actor",
+        related_name="+",
+        blank=True,
+        help_text=(
+            "ADR-006: ISO 42010 deciders of this ADR, as Actor references "
+            "(internal users and/or external placeholders). A multi-selection, "
+            "so the attribute definition declares type=actor with multiple=true."
+        ),
+    )
 
     class Meta:
         db_table = "as_adr"
@@ -3483,6 +3533,30 @@ class Issue(TenantScopedModel):
     # into it: `updated_at` is part of the published REST/MCP contract for these
     # entities, so dropping it would be a breaking API change (own decision).
     updated_at = models.DateTimeField(auto_now=True)
+    # ADR-006: the people/teams this issue is assigned to — a **multi-value Actor
+    # reference** (see Adr.deciders for the same pattern and the reasoning).
+    #
+    # Deliberately a SEPARATE carrier from the legacy ``assignee_id`` UUIDField
+    # above, which is a loose User UUID owned by the service-level
+    # ``IssueService.assign_issue`` method (REQ-L3-ISSUE-008) with its own audit
+    # trail. This field is the definition-driven, transport-level one; folding the
+    # legacy column onto it is an AWMS value-migration step (issue #940), not part
+    # of the carrier landing. The two do not collide: ``assignee`` is a relation
+    # with no column on ``as_issue`` (its join table is ``as_issue_assignee``),
+    # and ``assignee_id`` stays excluded from definition introspection (see
+    # ``bootstrap_attribute_definitions.EXCLUDED_MODEL_FIELDS``).
+    assignee = models.ManyToManyField(
+        "persistence.Actor",
+        related_name="+",
+        blank=True,
+        help_text=(
+            "ADR-006: persons/teams this issue is assigned to, as Actor "
+            "references. A multi-selection, so the attribute definition "
+            "declares type=actor with multiple=true. Distinct from the legacy "
+            "'assignee_id' User UUID, which the dedicated assign_issue() "
+            "service method owns."
+        ),
+    )
 
     class Meta:
         db_table = "as_issue"

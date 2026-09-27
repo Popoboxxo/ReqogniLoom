@@ -475,7 +475,7 @@ class TestErrorTypeContract:
             empty.suppress_finding(
                 workspace.id,
                 admin_ctx,
-                rule_id="CONS-P11",
+                rule_id="TRACE-P3",
                 artifact_ids=["other"],
                 reason=_REASON,
             )

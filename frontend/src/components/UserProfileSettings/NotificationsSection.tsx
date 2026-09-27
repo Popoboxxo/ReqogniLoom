@@ -16,6 +16,14 @@
  * PATCH is in flight, the server's returned map is applied on success, and a
  * failure surfaces in a `role="alert"` element while the previous state stays
  * intact. The box is never flipped optimistically and then lied about.
+ *
+ * ADR-009: a successful PATCH also announces itself on the window, because the
+ * unread badge on the assistant widget (useNotificationFeed) is derived from
+ * this same preference map. Without the announcement the badge kept sitting on
+ * the widget until the next remount — live-verified in the browser, and the
+ * one place where these two states could visibly contradict each other. The
+ * event carries no data; the widget refetches, so this section stays the only
+ * writer and the hook the only reader.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -26,6 +34,7 @@ import {
   type NotificationPreferenceKind,
   type NotificationPreferences,
 } from "../../api/notification-preferences";
+import { NOTIFICATION_PREFERENCES_CHANGED_EVENT } from "../../hooks/useNotificationFeed";
 import styles from "./NotificationsSection.module.css";
 
 /**
@@ -67,6 +76,10 @@ export function NotificationsSection(): JSX.Element {
       try {
         // The server's returned map wins — never assume the click took effect.
         setPreferences(await notificationPreferencesApi.update({ [kind]: enabled }));
+        // Only after a *successful* write: an optimistic announcement would
+        // withdraw the assistant widget's badge for a change the server
+        // rejected. (See the ADR-009 note in the module docstring.)
+        window.dispatchEvent(new Event(NOTIFICATION_PREFERENCES_CHANGED_EVENT));
       } catch (err) {
         setError(extractErrorMessage(err));
       } finally {
