@@ -116,7 +116,7 @@ def test_suspend_blocks_last_workspace_admin(admin_client, tenant, workspace):
         f"/api/v1/workspaces/{workspace.id}/members/{admin_user.id}/suspend/", {"role": "admin"}, format="json"
     )
     assert resp.status_code == 409, resp.content
-    assert resp.json()["error"] == "LAST_ADMIN"
+    assert resp.json()["error"]["code"] == "LAST_ADMIN"
 
 
 @pytest.mark.django_db
@@ -681,7 +681,7 @@ def test_suspend_nonexistent_admin_role_assignment_returns_404(tenant, admin_les
         format="json",
     )
     assert resp.status_code == 404, resp.content
-    assert resp.json()["error"] == "NOT_FOUND"
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
 
 
 @pytest.mark.django_db

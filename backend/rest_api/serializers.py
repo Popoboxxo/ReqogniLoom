@@ -97,6 +97,18 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "Resource not found.",
         "de": "Ressource nicht gefunden.",
     },
+    # #1081: the two statuses DRF raises on its own that the rest of the
+    # registry had no entry for. They complete the status->code map in
+    # ``rest_api.error_envelope`` so every code a client can observe is a key
+    # of this registry (and therefore has a localised message).
+    "METHOD_NOT_ALLOWED": {
+        "en": "This method is not allowed on this resource.",
+        "de": "Diese Methode ist auf dieser Ressource nicht erlaubt.",
+    },
+    "UNSUPPORTED_MEDIA_TYPE": {
+        "en": "The request media type is not supported.",
+        "de": "Der Medientyp der Anfrage wird nicht unterstützt.",
+    },
     "PERMISSION_DENIED": {
         "en": "You do not have permission to perform this action.",
         "de": "Sie haben keine Berechtigung, diese Aktion durchzuführen.",
@@ -1566,8 +1578,9 @@ class BaselineSerializer(
     default when the UI does not supply one.
 
     ``entries`` is only present on the detail (retrieve/create) response — the
-    list endpoint returns summaries without entries (lazy loading). Each entry
-    may carry a full-state ``state`` snapshot (REQ-L2-BL-012).
+    list endpoint serialises through :class:`BaselineSummarySerializer` and
+    carries no ``entries`` key at all (#1078). Each detail entry may carry a
+    full-state ``state`` snapshot (REQ-L2-BL-012).
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -1617,6 +1630,44 @@ class BaselineSerializer(
     entries = BaselineDeltaEntrySerializer(
         many=True, read_only=True, required=False
     )
+
+
+class BaselineSummarySerializer(
+    UnknownFieldRejectionMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
+    """List representation of a Baseline — the detail fields minus ``entries``.
+
+    GitHub #1078 (regression report against closed #585). The list route must
+    never emit an ``entries`` key: an empty list reads as "this baseline
+    captured nothing", which is a claim the list route cannot support. Using
+    :class:`BaselineSerializer` there left the guarantee resting on whether the
+    list source happens to lack the attribute — ``_baseline_to_dict`` copies
+    ``entries`` whenever it has one, and ``BaselineDetail`` always has one
+    (defaulting to ``[]``), so the field could reappear as ``[]`` at any time.
+
+    The field is ABSENT here by construction, whatever the source carries.
+    Serialising the entries identically in both representations would mean one
+    extra detail query per row on the list, turning a single paged query into
+    an N+1 to serve data the list view has never promised. Absence is
+    unambiguous: a client renders "load details to see captured items" instead
+    of "this baseline captured nothing".
+
+    Only the read fields are declared. The two write-only inputs
+    (``override_reason``/``waived_findings``) produce no output and the
+    list route never validates a body, so carrying them here would only
+    suggest the endpoint accepts writes.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    scope = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
+    created_at = serializers.DateTimeField(read_only=True)
 
 
 class FieldChangeSerializer(serializers.Serializer):
@@ -2478,6 +2529,7 @@ __all__ = [
     "TraceLinkSerializer",
     "BaselineSerializer",
     "BaselineDeltaEntrySerializer",
+    "BaselineSummarySerializer",
     "FieldChangeSerializer",
     "DiffItemSerializer",
     "BaselineDiffSerializer",

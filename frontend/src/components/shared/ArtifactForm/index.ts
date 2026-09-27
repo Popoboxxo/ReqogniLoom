@@ -1,4 +1,9 @@
-export { ArtifactForm, groupIntoSections } from "./ArtifactForm";
+export {
+  ArtifactForm,
+  findFieldControl,
+  firstErroredField,
+  groupIntoSections,
+} from "./ArtifactForm";
 export type {
   ArtifactFormProps,
   ArtifactFormValues,

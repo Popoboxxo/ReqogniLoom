@@ -9,18 +9,41 @@
  * persists it via the existing TestCase creation path and auto-links it to
  * the source requirement, and discard clears the draft without creating
  * anything.
+ *
+ * Issue #1091 adds the design-system assertions: every control carries a
+ * global `.btn-*` class, the per-row "Entfernen" is an icon-only control with
+ * a UNIQUE accessible name inside its own step row (it used to be four
+ * identically-labelled text buttons in the panel's action area), and the AI
+ * "generate" control carries the shared flat AI icon.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { DeriveTestCasePanel } from "../components/TestCaseEditors/DeriveTestCasePanel";
 import type { TestCase } from "../api/testcases";
 
-// t() returns the key so assertions can rely on data-testid, not copy.
+/**
+ * t() returns the key so assertions can rely on data-testid, not copy — with
+ * one exception (#1091): `deriveTestcase.removeStep` carries a `{{index}}`
+ * placeholder, and the whole point of the fix is that the four controls get
+ * four DIFFERENT names. An identity mock would collapse them back into one,
+ * so this one key is resolved for real (same pattern as
+ * `needs-editors-derive.test.tsx`).
+ */
+const INDEXED_TRANSLATIONS: Record<string, string> = {
+  "deriveTestcase.removeStep": "Schritt {{index}} entfernen",
+};
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => {
+      const template = INDEXED_TRANSLATIONS[key];
+      return template
+        ? template.replace("{{index}}", String(opts?.index ?? ""))
+        : key;
+    },
+  }),
 }));
 
 vi.mock("../api/client", () => ({
@@ -204,3 +227,139 @@ describe("DeriveTestCasePanel", () => {
     expect(create).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Issue #1091 — the panel was measured with seven unstyled browser-default
+ * buttons ("Entfernen" ×4, "Schritt hinzufügen", "Testfall anlegen",
+ * "Verwerfen") forming one flex row.
+ */
+describe("DeriveTestCasePanel — design system (#1091)", () => {
+  beforeEach(() => {
+    aiDeriveTestcase.mockReset();
+    create.mockReset();
+  });
+
+  it("puts every control of the idle panel on a global btn-* class", () => {
+    renderPanel();
+
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(button.className).toMatch(/(^|\s)btn-(primary|secondary|ghost|danger)(\s|$)/);
+    }
+  });
+
+  it("marks the generate control as the primary action and the AI icon", () => {
+    renderPanel();
+
+    const generate = screen.getByTestId("derive-testcase-generate");
+    expect(generate).toHaveClass("btn-primary");
+    // #1092: a flat, single-colour icon from the repo's existing set
+    // (lucide `Sparkles`) — not an emoji, which renders platform-dependently.
+    const icon = generate.querySelector("svg.lucide-sparkles");
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute("width", "16");
+    expect(icon).toHaveAttribute("stroke", "currentColor");
+  });
+
+  it("gives the four per-step remove controls four unique accessible names", async () => {
+    const fourSteps = {
+      ...DRAFT_RESULT,
+      draft: {
+        ...DRAFT_RESULT.draft,
+        steps: [
+          { step: "A", expected_result: "a" },
+          { step: "B", expected_result: "b" },
+          { step: "C", expected_result: "c" },
+          { step: "D", expected_result: "d" },
+        ],
+      },
+    };
+    aiDeriveTestcase.mockResolvedValue(fourSteps);
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByTestId("derive-testcase-generate"));
+    await screen.findByTestId("derive-testcase-draft");
+
+    const names = fourSteps.draft.steps.map(
+      (_, i) => screen.getByTestId(`derive-testcase-step-remove-${i}`).getAttribute("aria-label")
+    );
+    expect(names).toEqual([
+      "Schritt 1 entfernen",
+      "Schritt 2 entfernen",
+      "Schritt 3 entfernen",
+      "Schritt 4 entfernen",
+    ]);
+    // Four screen-reader users must not hear the same name four times.
+    expect(new Set(names).size).toBe(4);
+    for (const name of names) {
+      expect(screen.getByRole("button", { name: name as string })).toBeInTheDocument();
+    }
+  });
+
+  it("keeps each remove control inside its own step row, out of the action row", async () => {
+    const fourSteps = {
+      ...DRAFT_RESULT,
+      draft: {
+        ...DRAFT_RESULT.draft,
+        steps: [
+          { step: "A", expected_result: "a" },
+          { step: "B", expected_result: "b" },
+          { step: "C", expected_result: "c" },
+          { step: "D", expected_result: "d" },
+        ],
+      },
+    };
+    aiDeriveTestcase.mockResolvedValue(fourSteps);
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByTestId("derive-testcase-generate"));
+    await screen.findByTestId("derive-testcase-draft");
+
+    for (let i = 0; i < 4; i += 1) {
+      const row = screen.getByTestId(`derive-testcase-step-${i}`);
+      const remove = screen.getByTestId(`derive-testcase-step-remove-${i}`);
+      // The remove control belongs to its row…
+      expect(row).toContainElement(remove);
+      // …and to no other row.
+      for (let j = 0; j < 4; j += 1) {
+        if (j === i) continue;
+        expect(screen.getByTestId(`derive-testcase-step-${j}`)).not.toContainElement(remove);
+      }
+    }
+
+    // The action row holds exactly the two dialog actions — no per-row remove.
+    const create = screen.getByTestId("derive-testcase-create");
+    const discard = screen.getByTestId("derive-testcase-discard");
+    const actionRow = create.parentElement as HTMLElement;
+    expect(actionRow).toContainElement(discard);
+    expect(within(actionRow).getAllByRole("button")).toHaveLength(2);
+    for (let i = 0; i < 4; i += 1) {
+      expect(actionRow).not.toContainElement(
+        screen.getByTestId(`derive-testcase-step-remove-${i}`)
+      );
+    }
+  });
+
+  it("keeps the destructive per-row remove off the primary hierarchy and the draft actions on it", async () => {
+    aiDeriveTestcase.mockResolvedValue(DRAFT_RESULT);
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByTestId("derive-testcase-generate"));
+    await screen.findByTestId("derive-testcase-draft");
+
+    // "Entfernen" is destructive and per-row → not primary.
+    const remove = screen.getByTestId("derive-testcase-step-remove-0");
+    expect(remove).toHaveClass("btn-ghost");
+    expect(remove).not.toHaveClass("btn-primary");
+    // "Testfall anlegen" is the dialog's one primary action; "Verwerfen" is
+    // its secondary — the same pair every other dialog in the app uses.
+    expect(screen.getByTestId("derive-testcase-create")).toHaveClass("btn-primary");
+    expect(screen.getByTestId("derive-testcase-discard")).toHaveClass("btn-secondary");
+    expect(screen.getByTestId("derive-testcase-add-step")).toHaveClass("btn-secondary");
+  });
+});
+

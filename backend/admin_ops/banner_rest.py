@@ -24,6 +24,12 @@ Endpoints:
 
 All three views delegate every read/write to :class:`BannerService`
 (REQ-L3-RA001-004 — no business logic in views).
+
+Error envelope (GitHub #1081): every error answer goes through
+:func:`rest_api.serializers.build_error_response`, i.e. the one canonical
+``{"error": {"code", "message", "details"}}`` body. This module used to build a
+flat ``{"error": "<CODE>", "message": ...}`` of its own, so its 403s were
+unreadable to any client branching on ``body.error.code``.
 """
 from __future__ import annotations
 
@@ -42,12 +48,29 @@ from application.base import NotFoundError, PermissionDeniedError, ValidationErr
 from auth_tenancy.context import AuthContext
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService, Operation
+from rest_api.serializers import build_error_response, detect_lang
 
-_VALID_LEVELS = frozenset(choice for choice, _label in BannerLevel.choices)
+_VALID_LEVELS = frozenset(choice for choice, _ in BannerLevel.choices)
 
 
-def _err(code: str, message: str, http_status: int) -> Response:
-    return Response({"error": code, "message": message}, status=http_status)
+def _err(
+    request: Request, code: str, message: str, http_status: int
+) -> Response:
+    """Build the one canonical error envelope (GitHub #1081).
+
+    Same single builder (and same top-level import) as
+    :mod:`admin_ops.theme_rest`. ``request`` is a parameter rather than a
+    captured closure so the language comes from the actual ``Accept-Language``
+    header (:func:`~rest_api.serializers.detect_lang`); it has no effect on the
+    messages this module emits — every call site passes the service layer's own
+    English text — but it keeps the helper correct for the day a call site
+    relies on the localised registry instead.
+    """
+    return Response(
+        build_error_response(code, detect_lang(request), message=message),
+        status=http_status,
+    )
+
 
 
 def _auth_context(request: Request) -> AuthContext:
@@ -148,7 +171,7 @@ class GlobalBannerView(APIView):
         try:
             ctx = _auth_context(request)
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         banner = self._service.get_global_banner(ctx)
         if banner is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -158,7 +181,7 @@ class GlobalBannerView(APIView):
         try:
             ctx = _auth_context(request)
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
 
         is_system_admin = self._authz.is_tenant_admin(
             user_id=ctx.user_id, tenant_id=ctx.tenant_id
@@ -167,11 +190,12 @@ class GlobalBannerView(APIView):
         try:
             payload = _parse_write_payload(request.data)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         show_on_login_page = request.data.get("show_on_login_page", False)
         if not isinstance(show_on_login_page, bool):
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Field 'show_on_login_page' must be a boolean.",
                 status.HTTP_400_BAD_REQUEST,
@@ -185,7 +209,7 @@ class GlobalBannerView(APIView):
                 **payload,
             )
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
 
         return Response(_banner_to_dict(banner), status=status.HTTP_200_OK)
 
@@ -249,9 +273,9 @@ class WorkspaceBannerView(APIView):
             ctx = _auth_context(request)
             workspace_id = self._workspace_id_from_kwargs(request)
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         banner = self._service.get_workspace_banner(ctx, workspace_id=workspace_id)
         if banner is None:
@@ -263,9 +287,9 @@ class WorkspaceBannerView(APIView):
             ctx = _auth_context(request)
             workspace_id = self._workspace_id_from_kwargs(request)
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         # Workspace-scoped admin (AuthTenancyAuthentication resolves
         # active_roles for this workspace because the URL carries
@@ -277,7 +301,7 @@ class WorkspaceBannerView(APIView):
         try:
             payload = _parse_write_payload(request.data)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         try:
             banner = self._service.upsert_workspace_banner(
@@ -287,9 +311,9 @@ class WorkspaceBannerView(APIView):
                 **payload,
             )
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
 
         return Response(_banner_to_dict(banner), status=status.HTTP_200_OK)
 

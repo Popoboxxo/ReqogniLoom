@@ -95,7 +95,12 @@ class AttributeMigrationToolGroup(BaseToolGroup):
                 "name": "attribute_migration.dry_run",
                 "description": (
                     "Plan a migration against real data and return the full "
-                    "change report without modifying artifacts (admin-only)."
+                    "change report without modifying artifacts (admin-only). "
+                    "The report carries scope_effect.target_scope "
+                    "('workspace' | 'tenant') plus value_target_scope and "
+                    "definition_target_scope, so a plan can be checked for "
+                    "tenant-wide reach before it is applied; steps that only "
+                    "read report 'read'."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -107,7 +112,12 @@ class AttributeMigrationToolGroup(BaseToolGroup):
                 "name": "attribute_migration.apply",
                 "description": (
                     "Execute an AWMS plan: snapshot, migrate values, audit "
-                    "(admin-only)."
+                    "(admin-only). The report carries the same scope_effect."
+                    "target_scope / value_target_scope / definition_target_scope "
+                    "as dry_run, and an apply whose scope.workspace narrows a "
+                    "plan that also contains tenant-global definition ops is "
+                    "refused with VALIDATION_ERROR unless the plan sets "
+                    "options.allow_tenant_global_definition_ops: true."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -117,7 +127,20 @@ class AttributeMigrationToolGroup(BaseToolGroup):
             },
             {
                 "name": "attribute_migration.rollback",
-                "description": "Restore every artifact of a previous apply run (admin-only).",
+                "description": (
+                    "Restore the artifacts and attribute definitions a previous "
+                    "apply run changed (admin-only). Returns {run_id, status, "
+                    "restored, restored_artifacts, restored_definitions, "
+                    "not_reverted, samples}: 'restored' is the sum of the two "
+                    "split counters. status is 'rolled_back' or "
+                    "'partially_rolled_back' — a changed target with no "
+                    "before-image (an older run without a definition snapshot, "
+                    "or a target row deleted since) is named in 'not_reverted' "
+                    "and the status is 'partially_rolled_back', so read that "
+                    "list rather than assuming everything is back. Re-running "
+                    "on an already rolled-back run restores nothing and "
+                    "re-reports the outstanding 'not_reverted' entries."
+                ),
                 "inputSchema": {
                     "type": "object",
                     "properties": {

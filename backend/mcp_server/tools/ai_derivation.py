@@ -189,6 +189,17 @@ def derive_requirements_from_need(
         return ToolResult.error("NOT_FOUND", str(exc))
     workspace_id = need.artifact.workspace_id
 
+    # Issue #1089: resolve the proposal authoring context ONCE for the whole
+    # loop and hand ``create_context`` to every create call, so each derived
+    # Requirement is born in the "proposed" state with a proposal history entry
+    # naming the derivation. Previously the state depended on the *caller's*
+    # principal: an API-key caller got "proposed" for free, and a human
+    # pressing the same button in the UI got "draft" — an AI-authored artefact
+    # nobody could review.
+    authoring = service.proposal_authoring(
+        auth_context, item_type="Requirement", workspace_id=workspace_id
+    )
+
     # Each draft is written in its own atomic transaction
     # (AiDerivationService._write_derived_entity is wrapped in
     # @atomic_transaction): a failure on one draft (e.g. an invalid
@@ -207,7 +218,7 @@ def derive_requirements_from_need(
                 create_fn=lambda d=draft: requirement_service.create_requirement(
                     workspace_id=workspace_id,
                     title=d["title"],
-                    ctx=auth_context,
+                    ctx=authoring.create_context,
                     description=d["description"],
                     # The draft's INCOSE rationale is an extended Requirement
                     # attribute; its carrier is Artifact.custom_fields
@@ -255,6 +266,19 @@ def derive_requirements_from_need(
     response: Dict[str, Any] = {
         "written": written,
         "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+        # Issue #1089: the workspace's proposal capability, reported once for
+        # the whole run. When `supported` is false every row above carries the
+        # same per-item `proposal.reason`, and this summarises it — an agent
+        # must never read a successful write as "the human will see these as
+        # proposals" when the workspace cannot express that.
+        "proposal": {
+            "state": authoring.state,
+            "is_proposal": authoring.supported,
+            "supported": authoring.supported,
+            "proposed_by": authoring.label if authoring.supported else "",
+            "label": authoring.label,
+            "reason": authoring.reason,
+        },
     }
     if failed:
         response["failed"] = failed
@@ -566,6 +590,13 @@ class AiDerivationToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         workspace_id = parent_req.artifact.workspace_id
 
+        # Issue #1089: same as derive_requirements_from_need above — the
+        # derived children must be born in "proposed" regardless of whether an
+        # agent or a human triggered the decomposition.
+        authoring = self._service.proposal_authoring(
+            auth_context, item_type="Requirement", workspace_id=workspace_id
+        )
+
         # See _handle_derive_requirements above: each draft is written in its
         # own atomic transaction, so a failure on one draft must not discard
         # the drafts already written in this loop.
@@ -580,7 +611,7 @@ class AiDerivationToolGroup(BaseToolGroup):
                     create_fn=lambda d=draft: self._requirement_service.create_requirement(
                         workspace_id=workspace_id,
                         title=d["title"],
-                        ctx=auth_context,
+                        ctx=authoring.create_context,
                         description=d["description"],
                         # Same rationale carrier as derive_requirements_from_need
                         # above (issue #583): Artifact.custom_fields, never a
@@ -614,10 +645,19 @@ class AiDerivationToolGroup(BaseToolGroup):
                 api_key=api_key,
                 details={"parent_requirement_id": str(requirement_id), "policy": policy},
             )
-        # See derive_requirements_from_need above (Systemaudit item 11).
+        # See derive_requirements_from_need above (Systemaudit item 11) and the
+        # issue #1089 proposal block.
         response: Dict[str, Any] = {
             "written": written,
             "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
+            "proposal": {
+                "state": authoring.state,
+                "is_proposal": authoring.supported,
+                "supported": authoring.supported,
+                "proposed_by": authoring.label if authoring.supported else "",
+                "label": authoring.label,
+                "reason": authoring.reason,
+            },
         }
         if failed:
             response["failed"] = failed
@@ -649,6 +689,12 @@ class AiDerivationToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         workspace_id = ae.artifact.workspace_id
 
+        # Issue #1089: derived Risks are AI content too — see
+        # derive_requirements_from_need above.
+        authoring = self._service.proposal_authoring(
+            auth_context, item_type="Risk", workspace_id=workspace_id
+        )
+
         # See _handle_derive_requirements above: each draft is written in its
         # own atomic transaction, so a failure on one draft must not discard
         # the drafts already written in this loop.
@@ -665,7 +711,7 @@ class AiDerivationToolGroup(BaseToolGroup):
                         title=d["title"],
                         probability=d["probability"],
                         impact=d["impact"],
-                        ctx=auth_context,
+                        ctx=authoring.create_context,
                         description=d["description"],
                         category=d["category"],
                     ),

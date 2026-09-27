@@ -201,7 +201,7 @@ class TestItemPermissionGrant:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("auth_tenancy.rest_item_permission.ItemPermissionService")
     def test_grant_invalid_level_returns_400(self, mock_cls):
@@ -221,7 +221,7 @@ class TestItemPermissionGrant:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data["error"] == "VALIDATION_ERROR"
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
     @patch("auth_tenancy.rest_item_permission.ItemPermissionService")
     def test_grant_invalid_uuid_returns_400(self, mock_cls):
@@ -268,7 +268,7 @@ class TestItemPermissionGrant:
         response = view.post(request)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.data["error"] == "PERMISSION_DENIED"
+        assert response.data["error"]["code"] == "PERMISSION_DENIED"
 
 
 # ---------------------------------------------------------------------------

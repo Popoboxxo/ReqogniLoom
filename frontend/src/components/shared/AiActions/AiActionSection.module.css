@@ -1,0 +1,51 @@
+/*
+ * <AiActionSection> — the one home for every AI (LLM-backed) action (issue
+ * #1092). Tokens only; the buttons themselves are the global `.btn-secondary`
+ * class, so this file owns layout and the AI mark, never button appearance.
+ *
+ * Deliberately quiet next to the content panels: the section is a *grouping*,
+ * not a call to action. The AI gradient that used to mark these buttons
+ * (`--color-gradient-ai-start/-end`, `.aiGradientButton` in
+ * ReqTraceLinkPanel/TraceLinkPanel) is gone — with a titled section and a
+ * shared icon, a gradient fill would re-introduce a second visual language
+ * for "this is an AI action" and fight the primary-action hierarchy.
+ */
+
+.section {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.hint {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/*
+ * Mobile-first: the actions wrap by default, so a narrow pane stacks them
+ * instead of overflowing. `min-width: 0` on the flex item keeps a long
+ * translated label from forcing a horizontal scrollbar.
+ */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  min-width: 0;
+}

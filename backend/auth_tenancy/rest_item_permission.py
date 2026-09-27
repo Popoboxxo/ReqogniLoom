@@ -103,10 +103,29 @@ def _decision_to_dict(decision: PermissionDecision) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _err(code: str, message: str, http_status: int) -> Response:
-    """Build a standardised error response body."""
+def _err(
+    request: Request, code: str, message: str, http_status: int
+) -> Response:
+    """Build the one canonical error envelope (GitHub #1081).
+
+    Delegates to :func:`rest_api.serializers.build_error_response` so this
+    adapter emits the same ``{"error": {"code", "message", "details"}}`` body as
+    every other REST error. The previous local literal
+    (``{"error": code, "message": message}``) made ``error`` a *string*, so a
+    client branching on ``body.error.code`` read ``None`` here and nowhere else
+    in the API.
+
+    ``request`` is a parameter rather than a captured closure so the language
+    comes from the actual ``Accept-Language`` header
+    (:func:`~rest_api.serializers.detect_lang`). It has no effect on the
+    messages this module emits — every call site passes the service layer's own
+    English text — but it keeps the helper correct for the day a call site
+    relies on the localised registry instead.
+    """
+    from rest_api.serializers import build_error_response, detect_lang
+
     return Response(
-        {"error": code, "message": message},
+        build_error_response(code, detect_lang(request), message=message),
         status=http_status,
     )
 
@@ -203,6 +222,7 @@ class ItemPermissionViewSet(APIView):
         data = request.data or {}
         if not isinstance(data, dict):
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Request body must be a JSON object.",
                 status.HTTP_400_BAD_REQUEST,
@@ -212,6 +232,7 @@ class ItemPermissionViewSet(APIView):
         user_id_raw = data.get("user_id")
         if user_id_raw is None or (isinstance(user_id_raw, str) and not user_id_raw.strip()):
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Field 'user_id' is required.",
                 status.HTTP_400_BAD_REQUEST,
@@ -219,18 +240,19 @@ class ItemPermissionViewSet(APIView):
         try:
             user_id = _parse_uuid(user_id_raw, "user_id")
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         # artifact_id (optional)
         try:
             artifact_id = _parse_uuid(data.get("artifact_id"), "artifact_id")
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         # permission_level (required)
         level = data.get("permission_level")
         if not isinstance(level, str) or level not in _VALID_LEVELS:
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 f"Field 'permission_level' must be one of {sorted(_VALID_LEVELS)}.",
                 status.HTTP_400_BAD_REQUEST,
@@ -246,15 +268,15 @@ class ItemPermissionViewSet(APIView):
                 granted_by_user_id=ctx.user_id,
             )
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
         except ValueError as exc:
             # The service raises ValueError for unknown levels as a backstop;
             # we already validate above, but stay defensive.
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         return Response(
             {"permission": _permission_to_dict(permission)},
@@ -276,6 +298,7 @@ class ItemPermissionViewSet(APIView):
         user_id_raw = request.query_params.get("user_id")
         if user_id_raw is None:
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Query parameter 'user_id' is required.",
                 status.HTTP_400_BAD_REQUEST,
@@ -283,7 +306,7 @@ class ItemPermissionViewSet(APIView):
         try:
             user_id = _parse_uuid(user_id_raw, "user_id")
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         # Optional artifact filter — applied post-fetch since the service
         # does not expose a filter param. Cheap because the rule set for a
@@ -294,7 +317,7 @@ class ItemPermissionViewSet(APIView):
             try:
                 artifact_filter = _parse_uuid(artifact_filter_raw, "artifact_id")
             except ValidationError as exc:
-                return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+                return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
 
         try:
             rules = self._service.list_permissions(
@@ -303,9 +326,9 @@ class ItemPermissionViewSet(APIView):
                 workspace_id=workspace_id,
             )
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
 
         if artifact_filter is not None:
             rules = [r for r in rules if r.artifact_id == artifact_filter]
@@ -334,6 +357,7 @@ class ItemPermissionViewSet(APIView):
         )
         if not permission_id_raw:
             return _err(
+                request,
                 "VALIDATION_ERROR",
                 "Field 'permission_id' is required (body or query).",
                 status.HTTP_400_BAD_REQUEST,
@@ -341,9 +365,9 @@ class ItemPermissionViewSet(APIView):
         try:
             permission_id = _parse_uuid(permission_id_raw, "permission_id")
         except ValidationError as exc:
-            return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
         if permission_id is None:
-            return _err("VALIDATION_ERROR", "Invalid permission_id.", status.HTTP_400_BAD_REQUEST)
+            return _err(request, "VALIDATION_ERROR", "Invalid permission_id.", status.HTTP_400_BAD_REQUEST)
 
         # Translate the permission id into a (user, workspace, artifact)
         # triple so the service can locate the row. The service signature
@@ -356,6 +380,7 @@ class ItemPermissionViewSet(APIView):
         )
         if perm is None:
             return _err(
+                request,
                 "NOT_FOUND",
                 f"ItemPermission with id {permission_id!r} not found in workspace {workspace_id}.",
                 status.HTTP_404_NOT_FOUND,
@@ -369,12 +394,13 @@ class ItemPermissionViewSet(APIView):
                 artifact_id=perm.artifact_id,
             )
         except PermissionDeniedError as exc:
-            return _err("PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
+            return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)
         except NotFoundError as exc:
-            return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+            return _err(request, "NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
 
         if not deleted:
             return _err(
+                request,
                 "NOT_FOUND",
                 f"ItemPermission with id {permission_id!r} not found.",
                 status.HTTP_404_NOT_FOUND,

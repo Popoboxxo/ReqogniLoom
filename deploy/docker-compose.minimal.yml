@@ -140,6 +140,14 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_LONG_RUNNING_TIMEOUT: ${LLM_LONG_RUNNING_TIMEOUT:-180}
+      # #1050: REQUIRED for LLM_PROVIDER=opencode_go (the Zen-Go endpoint answers
+      # 400 MissingSessionID without it, killing every AI feature while /health
+      # stays 200). Must be a STABLE per-deployment session id. This slim file
+      # has no `llm-preflight` gate (see the header comment: it is the try-out
+      # variant with no extra services), so the value is wired but not enforced
+      # here — the check lives in deploy/docker-compose.yml. Verify after deploy
+      # with `printenv LLM_OPENCODE_SESSION`; see docs/DEPLOY_RUNBOOK.md §3.
+      LLM_OPENCODE_SESSION: ${LLM_OPENCODE_SESSION:-}
       # ID of the base tenant the `migrate` self-init provisions on an empty DB.
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
     volumes:

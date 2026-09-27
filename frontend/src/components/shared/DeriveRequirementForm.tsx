@@ -2,9 +2,15 @@
  * DeriveRequirementForm — shared "Ableiten" (manual derive) trigger + inline
  * form, used identically across Needs, Architecture, and Requirements so the
  * manual-derive UI is visually consistent everywhere (UI standards: "aus
- * einem Guss"). The AI-assisted derive (✨ gradient button) stays exclusive
- * to Needs via TraceLinkPanel's `onDerive` prop — it is backed by a real LLM
- * endpoint that only exists for StakeholderNeed.
+ * einem Guss"). This is the MANUAL path: the user names the requirement and
+ * picks the architecture element, nothing is generated.
+ *
+ * The AI-assisted derive is a different action and lives in the route's single
+ * `<AiActionSection>` (issue #1092) — it is backed by a real LLM endpoint that
+ * only exists for StakeholderNeed, so Needs is the only route that offers it.
+ * Keeping the two apart is deliberate: #927 already decided the wording
+ * ("Ableiten" vs "KI-Ableitung"), and #1092 that the AI one is grouped with
+ * every other AI action under the shared AI icon.
  */
 
 import React from 'react';

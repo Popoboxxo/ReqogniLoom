@@ -353,3 +353,133 @@ class TestHealthEmbeddingDimensions:
 
         assert response.status_code == 503
         assert "embedding_dimensions" not in body["checks"]
+
+
+@pytest.mark.django_db
+class TestHealthLlmProviderEnv:
+    """``/health/`` surfaces a provider-required env var that is unset (#1050).
+
+    ``opencode_go`` is selected but ``LLM_OPENCODE_SESSION`` is not set. The
+    endpoint answers every chat completion without the ``x-opencode-session``
+    header with a permanent ``400 MissingSessionID``; the provider omits the
+    header when the variable is unset, the resilience wrapper treats 4xx as
+    permanent, and the only trace is a provider-side log line. The deployment
+    looks healthy while every LLM call fails.
+
+    ``llm_adapter.W003`` reports this from ``manage.py check`` — pull-based and
+    manual. This is the watched surface. The precedent is the
+    ``embedding_dimensions`` check above: a WARNING at HTTP 200, never
+    ``degraded``/503, because a missing optional-provider variable does not make
+    the container unable to serve.
+    """
+
+    @staticmethod
+    def _healthy_memory_backend(monkeypatch) -> None:
+        """Isolate this class from the independent ``memory_backend`` probe."""
+
+        class _Backend:
+            @staticmethod
+            def health_check():
+                return True, "reachable"
+
+        monkeypatch.setattr("memory.backends.get_memory_backend", lambda: _Backend())
+
+    @staticmethod
+    def _opencode_go(monkeypatch, session: str | None) -> None:
+        """Pin the active provider to ``opencode_go`` with/without a session."""
+        from llm_adapter.providers import ProviderConfig
+
+        monkeypatch.setattr(
+            "llm_adapter.providers.resolve_provider_config",
+            lambda: ProviderConfig(
+                provider_name="opencode_go", opencode_session=session
+            ),
+        )
+        # ``resolve_provider_config`` is imported lazily inside the health
+        # helper, so the patch has to be visible as an attribute of the module
+        # it is read from — which is what monkeypatch.setattr above does.
+
+    def test_missing_session_is_reported_as_a_warning_not_503(self, monkeypatch) -> None:
+        self._healthy_memory_backend(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        self._opencode_go(monkeypatch, session=None)
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        # Visible, but NOT degraded: one feature is dead, the service is not.
+        assert response.status_code == 200
+        assert body["status"] == "warning"
+        assert body["checks"]["llm_provider_env"] == "missing"
+        assert any("LLM_OPENCODE_SESSION" in w for w in body["warnings"])
+        # CWE-209: reachable without authentication. The variable NAME is safe to
+        # expose; the session VALUE is a credential and must never appear.
+        assert "LLM_OPENCODE_SESSION=" not in str(body)
+
+    def test_present_session_reports_ok_without_a_warning(self, monkeypatch) -> None:
+        self._healthy_memory_backend(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        self._opencode_go(monkeypatch, session="a-real-session-id")
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert body["checks"]["llm_provider_env"] == "ok"
+        assert not any("LLM_OPENCODE_SESSION" in w for w in body["warnings"])
+        assert body["status"] != "degraded"
+
+    def test_another_provider_never_reports_a_missing_session(self, monkeypatch) -> None:
+        """``LLM_OPENCODE_SESSION`` is meaningless for every other provider, so
+        its absence must not produce a warning on a default deployment."""
+        self._healthy_memory_backend(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        monkeypatch.setenv("LLM_PROVIDER", "mock")
+        monkeypatch.delenv("LLM_OPENCODE_SESSION", raising=False)
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert body["checks"]["llm_provider_env"] == "ok"
+        assert not any("LLM_OPENCODE_SESSION" in w for w in body["warnings"])
+
+    def test_check_still_runs_when_the_database_is_down(self, monkeypatch) -> None:
+        """Unlike the dimension check, this one reads no catalog — it must stay
+        available when Postgres is unavailable, which is exactly when an
+        operator is debugging."""
+        import reqogniloom.health as health_module
+
+        self._opencode_go(monkeypatch, session=None)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        def _boom():
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(health_module.connection, "ensure_connection", _boom)
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 503
+        assert body["checks"]["llm_provider_env"] == "missing"
+        assert any("LLM_OPENCODE_SESSION" in w for w in body["warnings"])
+
+    def test_probe_exception_warns_without_crashing(self, monkeypatch) -> None:
+        """A health endpoint must never 500 on its own check."""
+        import reqogniloom.health as health_module
+
+        self._healthy_memory_backend(monkeypatch)
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        def _boom():
+            raise RuntimeError("config service exploded")
+
+        monkeypatch.setattr(health_module, "_missing_llm_required_env", _boom)
+
+        response = Client().get("/health/")
+        body = response.json()
+
+        assert response.status_code == 200
+        assert "provider-environment check failed" in body["warnings"]
+        assert "exploded" not in str(body)

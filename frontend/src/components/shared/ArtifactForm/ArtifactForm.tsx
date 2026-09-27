@@ -28,6 +28,7 @@ import { extractErrorMessage } from "../../../api/client";
 import type { WorkflowArtifactType } from "../../../api/workflow-transitions";
 import { useEntityReset } from "../../../hooks/use-entity-reset";
 import { useFormDirty } from "../../../hooks/use-form-dirty";
+import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../../hooks/useSaveShortcut";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { RevealValue } from "../RevealValue";
 import { WorkflowStatusEditor } from "../../WorkflowStatusEditor";
@@ -192,6 +193,77 @@ function writeValue(
   return { ...values, [attribute.name]: next };
 }
 
+// ---------------------------------------------------------------------------
+// Issue #1087 — error-to-field focus routing
+// ---------------------------------------------------------------------------
+
+/** One outstanding "move the focus to what failed" request. */
+interface FocusRequest {
+  /** Distinguishes two consecutive failed saves with the same field. */
+  nonce: number;
+  /** Attribute name to focus, or `null` for a form-level failure. */
+  field: string | null;
+}
+
+/**
+ * Elements that take focus without a `tabindex`. Anything else in a field cell
+ * is a composite (a widget) and needs `tabindex="-1"` before a programmatic
+ * focus can land on it.
+ */
+const FOCUSABLE_SELECTOR = /^(INPUT|SELECT|TEXTAREA|BUTTON|A)$/;
+
+/**
+ * The first errored attribute in DEFINITION order, not in `Object.keys` order:
+ * the definition is the order the fields are drawn in, so this is the topmost
+ * offending control on screen. An error naming a field the definition does not
+ * declare (e.g. a `custom_fields` key) still resolves, so the fallback is the
+ * first key rather than nothing.
+ */
+export function firstErroredField(
+  errors: Record<string, string[]>,
+  attributes: readonly AttributeSpec[]
+): string | null {
+  const names = Object.keys(errors);
+  if (names.length === 0) return null;
+  const inDefinitionOrder = attributes
+    .filter((attribute) => names.includes(attribute.name))
+    .map((attribute) => attribute.name);
+  return inDefinitionOrder[0] ?? names[0];
+}
+
+/**
+ * Locate the focus target for the attribute named `name`.
+ *
+ * Two shapes, tried in this order:
+ *   1. the field's own control — every `FieldShell`-based control takes its
+ *      `id` AND its `data-testid` from the same `testId` (see
+ *      `fields/FieldShell.tsx`), possibly renamed by the adapter's
+ *      `fieldTestIds` (#583);
+ *   2. the composite that draws it — an attribute with `type: "widget"` claims
+ *      the fields in its `fields` list and is not rendered standalone
+ *      (`widgetOwned` in the renderer), so the widget's own container is the
+ *      only focusable thing on screen for a failure inside it. Widgets name
+ *      their inner controls differently from each other, so resolving those
+ *      per widget would be a second, drifting lookup table.
+ */
+export function findFieldControl(
+  root: HTMLElement | null,
+  name: string,
+  fieldTestIds?: Record<string, string>,
+  attributes?: readonly AttributeSpec[]
+): HTMLElement | null {
+  if (!root) return null;
+  const testId = fieldTestIds?.[name] ?? `artifact-field-${name}`;
+  const direct = root.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+  if (direct) return direct;
+  const owner = attributes?.find(
+    (attribute) => attribute.type === "widget" && attribute.fields.includes(name)
+  );
+  return owner
+    ? root.querySelector<HTMLElement>(`[data-testid="artifact-widget-${owner.name}"]`)
+    : null;
+}
+
 export function ArtifactForm({
   itemType,
   artifactId,
@@ -252,6 +324,25 @@ export function ArtifactForm({
   // here and keeps the input's `aria-describedby` resolvable.
   const changeReasonErrorId = "artifact-form-change-reason-error";
 
+  // Issue #1087 (behaviour rule 2): a same-tick guard for BOTH save entry
+  // points. `saving` is React state, so a Save click followed by a `Ctrl+S`
+  // inside the same event-loop turn reads a stale `saving === false` and
+  // submits twice — which for a PATCH carrying a version tag means the second
+  // request is either a duplicate write or a spurious 412 conflict. The ref is
+  // set synchronously at the top of `handleSave` and cleared in its `finally`.
+  const savingRef = useRef(false);
+
+  // Issue #1087 (behaviour rule 3): a rejected save must land the user on the
+  // field the server complained about, not on a banner at the very top of a
+  // form that may be several screens long. `focusRequest` is bumped by a new
+  // object identity per failed save (a counter, not a timestamp — a
+  // `Date.now()` state value is not reproducible under StrictMode), and the
+  // effect below resolves it AFTER the render that opened the errored section
+  // and rendered its control.
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
+  const focusRequestRef = useRef(0);
+  const formErrorRef = useRef<HTMLDivElement | null>(null);
+
   // `initialValues` is an object prop and every realistic call site builds it
   // inline from the fetched artifact, so both its IDENTITY and its key ORDER
   // (e.g. a parent assembling it via a conditional spread) change on every
@@ -274,6 +365,10 @@ export function ArtifactForm({
     // artifact the user clicks.
     setFieldErrors({});
     setFormError(null);
+    // A pending focus request belongs to the artifact that was open at the
+    // time; keeping it would re-focus a control on the NEXT artifact the moment
+    // the form re-renders.
+    setFocusRequest(null);
     // A change reason typed for the PREVIOUS artifact must not silently ride
     // along on the next one's PATCH once the user switches selection (same
     // reused-mounted-form bug class NeedArtifactForm's R-2 fix already
@@ -506,7 +601,10 @@ export function ArtifactForm({
   });
 
   const handleSave = useCallback(async (): Promise<void> => {
-    if (saving || missingCreateValue) return;
+    // Issue #1087: `savingRef` rather than the `saving` state — see its
+    // declaration. Same-tick double submit is exactly what a `Ctrl+S` shortcut
+    // invites (hold the chord), and the state check cannot see it.
+    if (savingRef.current || missingCreateValue) return;
     if (changeReasonMissing) {
       setFormError(t("artifactForm.changeReasonRequired"));
       setChangeReasonInvalid(true);
@@ -518,6 +616,7 @@ export function ArtifactForm({
       changeReasonRef.current?.focus();
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     setFormError(null);
     setChangeReasonInvalid(false);
@@ -544,7 +643,16 @@ export function ArtifactForm({
       const parsed = fieldErrorsFromException(exc, message);
       setFieldErrors(parsed);
       if (!Object.keys(parsed).length) setFormError(message);
+      // Issue #1087 (behaviour rule 3): ask for the focus move. `null` means
+      // "no field-level mapping" — the effect then lands on the banner, which
+      // is the only place such a message is rendered.
+      focusRequestRef.current += 1;
+      setFocusRequest({
+        nonce: focusRequestRef.current,
+        field: firstErroredField(parsed, definition?.attributes ?? []),
+      });
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [
@@ -555,7 +663,6 @@ export function ArtifactForm({
     definition,
     markClean,
     onSave,
-    saving,
     missingCreateValue,
     formValues,
     t,
@@ -583,6 +690,56 @@ export function ArtifactForm({
       setFormError(extractErrorMessage(exc));
     }
   }, [changeReason, changeReasonMissing, changeReasonNeeded, onDelete, t]);
+
+  /**
+   * Issue #1087: `Ctrl`/`Cmd`+`S` saves, exactly like the Save button.
+   *
+   * Enabled for every editable `ArtifactForm`, which is every artifact type's
+   * detail editor AND every create dialog (Requirement, ArchitectureElement,
+   * Adr, Risk, Issue, TestCase, StakeholderNeed) — one renderer, one saving
+   * mechanism, one place to get it right. Disabled when the form is read-only
+   * or its definition never loaded, because there is then nothing to save and
+   * swallowing the key would only deny the browser's own action.
+   */
+  useSaveShortcut({
+    onSave: handleSave,
+    enabled: !isReadOnly && !loading && !loadError && definition !== null,
+    isSaving: saving,
+  });
+
+  /**
+   * Issue #1087 (behaviour rule 3) — resolve the focus request issued by the
+   * last failed save.
+   *
+   * Runs after the render that applied `fieldErrors`, which is what matters:
+   * `isSectionOpen` forces a section open when it holds an error, so the
+   * offending control only exists in the DOM by then. Without that ordering the
+   * lookup would find nothing and silently fall back to the banner.
+   */
+  useEffect(() => {
+    if (focusRequest === null) return;
+    const target = focusRequest.field
+      ? findFieldControl(
+          formRef.current,
+          focusRequest.field,
+          fieldTestIds,
+          definition?.attributes
+        )
+      : null;
+    if (target) {
+      // A widget draws its bound fields inside one composite, so the focus
+      // target may be a container that is not natively focusable. `tabindex`
+      // makes the programmatic focus actually land (it stays out of the tab
+      // order, which is what a composite wants).
+      if (!FOCUSABLE_SELECTOR.test(target.tagName) && target.tabIndex < 0) {
+        target.tabIndex = -1;
+      }      target.focus();
+      return;
+    }
+    // Form-level failure (no field mapping, or a field that is not rendered):
+    // the banner is the only place the reason exists, so it takes the focus.
+    formErrorRef.current?.focus();
+  }, [focusRequest, fieldTestIds, definition]);
 
   if (loading) {
     return <div data-testid="artifact-form-loading" aria-busy="true" />;
@@ -646,9 +803,15 @@ export function ArtifactForm({
         // live region — otherwise the click on Save produces no audible
         // feedback at all.
         <div
+          ref={formErrorRef}
           className={styles.errors}
           role="alert"
           aria-live="assertive"
+          // Issue #1087: a form-level rejection (no field mapping) has its
+          // reason only here, so the focus effect below lands on this element.
+          // `tabindex="-1"` keeps it out of the tab order — it is a target for
+          // a programmatic focus, not a stop the user has to walk through.
+          tabIndex={-1}
           data-testid="artifact-form-error"
         >
           {formError}
@@ -845,7 +1008,21 @@ export function ArtifactForm({
               {t("actions.cancel")}
             </button>
           ) : null}
-          <button type="submit" className="btn-primary" data-testid={saveTestId} disabled={saving || missingCreateValue}>
+          <button
+            type="submit"
+            className="btn-primary"
+            data-testid={saveTestId}
+            disabled={saving || missingCreateValue}
+            // Issue #1087: the shortcut has to be discoverable on the control
+            // that also performs it. `aria-keyshortcuts` is the machine-
+            // readable form (WAI-ARIA 1.2) and the only one assistive tech can
+            // surface; the title carries the same fact for pointer users.
+            // There is no app-wide shortcuts/help surface to list it in (the
+            // only shortcut help in the repo is the workflow canvas's own),
+            // so the button annotates itself rather than a new page appearing.
+            aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
+            title={t("artifactForm.saveShortcutHint", "Speichern (Strg/Cmd+S)")}
+          >
             {saving ? t("actions.saving") : t(artifactId === null ? "actions.create" : "actions.save")}
           </button>
         </div>

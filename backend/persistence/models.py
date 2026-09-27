@@ -979,19 +979,29 @@ class AttributeMigrationRun(TenantScopedModel):
     STATUS_PARTIAL = "partial"
     STATUS_FAILED = "failed"
     STATUS_ROLLED_BACK = "rolled_back"
+    #: Issue #1082: a rollback that reverted *some* of what the run changed.
+    #: Reachable only when a changed target has no before-image to restore from
+    #: (a run applied before :class:`AttributeDefinitionSnapshot` existed, or a
+    #: target whose row has since been deleted). The run's ``report_json`` is
+    #: then scanned and the un-restored ops are listed in the rollback response,
+    #: so "reports success, changed nothing" is no longer a reachable state.
+    STATUS_PARTIALLY_ROLLED_BACK = "partially_rolled_back"
     STATUS_CHOICES = [
         (STATUS_PLANNED, "Planned (dry run)"),
         (STATUS_APPLIED, "Applied"),
         (STATUS_PARTIAL, "Partially applied"),
         (STATUS_FAILED, "Failed"),
         (STATUS_ROLLED_BACK, "Rolled back"),
+        (STATUS_PARTIALLY_ROLLED_BACK, "Partially rolled back"),
     ]
 
     plan_id = models.CharField(max_length=128)
     plan_hash = models.CharField(max_length=64)
     mode = models.CharField(max_length=16, choices=MODE_CHOICES)
+    #: 32 wide because ``partially_rolled_back`` is 21 characters; the previous
+    #: 16 would have been a ``fields.E009`` against the widened choice set (#1082).
     status = models.CharField(
-        max_length=16, choices=STATUS_CHOICES, default=STATUS_PLANNED
+        max_length=32, choices=STATUS_CHOICES, default=STATUS_PLANNED
     )
     started_at = models.DateTimeField()
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -1025,6 +1035,12 @@ class AttributeMigrationSnapshot(TenantScopedModel):
     ``model_fields`` stores only the fields the plan referenced — a full row
     image would be needless exposure for a bulk migration. A field the snapshot
     does not mention is never touched by rollback either.
+
+    Issue #1082: this table covers **value** changes only. Attribute-*definition*
+    changes (which live in the other two tables and are tenant-wide for the
+    ``global`` target) are captured by :class:`AttributeDefinitionSnapshot`, a
+    separate table, so ``artifact_id`` keeps meaning "an artifact" and rollback
+    never has to guess which rows it is allowed to touch.
     """
 
     run = models.ForeignKey(
@@ -1051,6 +1067,83 @@ class AttributeMigrationSnapshot(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"AttributeMigrationSnapshot({self.artifact_id})"
+
+
+class AttributeDefinitionSnapshot(TenantScopedModel):
+    """Before-image of one attribute-*definition* target of an AWMS run (#1082).
+
+    :class:`AttributeMigrationSnapshot` only ever recorded artifact value
+    changes, so a plan step like ``define_attribute`` produced no before-image at
+    all: the rollback answered ``{"status": "rolled_back", "restored": 0}`` while
+    the definitions it had written into ``ad_global_definition`` survived. This
+    table closes that gap — one row per ``(run, target_key)`` with the target's
+    complete ``definition_json`` map from *before* the run.
+
+    Two target kinds, matching the two definition tables:
+
+    * ``global``   — the tenant-wide row in ``ad_global_definition``, keyed by
+      ``(item_type, preset)``. One write reaches every on-default workspace row
+      of that preset in the tenant (issue #1083), which is why the key carries
+      the preset and not a workspace.
+    * ``workspace`` — the materialized row in ``ad_workspace_definition``, keyed
+      by ``(workspace_id, item_type)``.
+
+    :attr:`definition_json` is ``None`` when the target did **not** exist before
+    the run; :attr:`existed`` records the same fact explicitly so rollback
+    *deletes* such a target instead of writing an empty definition over it. That
+    is the difference between "the attribute is gone" and "the row now claims an
+    empty attribute set".
+
+    ``version`` is deliberately **not** restored: it is the optimistic-lock
+    counter, so writing a stale value back would silently discard a concurrent
+    editor's bump. The prior value is kept in :attr:`previous_version` for the
+    audit trail and the rollback report.
+    """
+
+    TARGET_GLOBAL = "global"
+    TARGET_WORKSPACE = "workspace"
+    TARGET_KIND_CHOICES = [
+        (TARGET_GLOBAL, "Global (tenant preset)"),
+        (TARGET_WORKSPACE, "Workspace"),
+    ]
+
+    run = models.ForeignKey(
+        "persistence.AttributeMigrationRun",
+        on_delete=models.CASCADE,
+        related_name="definition_snapshots",
+    )
+    #: Stable, human-readable addressing key, unique per run:
+    #: ``global:<item_type>:<preset>`` / ``workspace:<workspace_id>:<item_type>``.
+    #: A plain string (rather than the tuple of nullable columns) because a
+    #: UniqueConstraint treats NULLs as distinct in PostgreSQL, so a
+    #: ``(item_type, preset, workspace_id)`` constraint would silently not
+    #: constrain the global targets.
+    target_key = models.CharField(max_length=255)
+    target_kind = models.CharField(max_length=16, choices=TARGET_KIND_CHOICES)
+    item_type = models.CharField(max_length=128)
+    preset = models.CharField(max_length=32, blank=True, default="")
+    workspace_id = models.UUIDField(null=True, blank=True)
+    #: ``False`` when the target row did not exist before the run — rollback
+    #: then removes the row it created.
+    existed = models.BooleanField(default=True)
+    definition_json = models.JSONField(null=True, blank=True)
+    is_customized = models.BooleanField(null=True, blank=True)
+    previous_version = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "pl_attribute_definition_snapshot"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "target_key"],
+                name="uq_attr_def_snapshot_run_target",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "run"], name="idx_adst_tnt_run"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AttributeDefinitionSnapshot({self.target_key})"
 
 
 class Artifact(TenantScopedModel):
@@ -3652,6 +3745,7 @@ __all__ = [
     "Actor",
     "AttributeMigrationRun",
     "AttributeMigrationSnapshot",
+    "AttributeDefinitionSnapshot",
     "Artifact",
     "Requirement",
     "RequirementType",

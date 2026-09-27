@@ -18,7 +18,9 @@ import { describe, expect, it } from "vitest";
 const SRC_DIR = resolve(__dirname, "..");
 const TOKENS_FILE = join(SRC_DIR, "styles", "tokens.css");
 
-/** Recursively collect files under `dir` whose basename matches `extPattern`. */
+/**
+ * Recursively collect files under `dir` whose basename matches `extPattern`.
+ */
 function collectFiles(dir: string, extPattern: RegExp): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -44,6 +46,39 @@ function collectScannableFiles(dir: string): string[] {
     (f) => resolve(f) !== resolve(__filename),
   );
 }
+
+/**
+ * The `src/` walk plus the file contents, read ONCE per worker process.
+ *
+ * Three tests in this file each need "every scannable source file and its
+ * text". Reading it three times cost ~5.3 s of the suite's wall clock and made
+ * the file the slowest in the run; the walk is deterministic within a single
+ * vitest worker, so caching it changes no assertion and removes two thirds of
+ * the I/O. The cache is keyed per worker rather than global so parallel workers
+ * do not share mutable state.
+ */
+let _sourceCache: { file: string; text: string }[] | null = null;
+function readScannableSources(): { file: string; text: string }[] {
+  if (_sourceCache === null) {
+    _sourceCache = collectScannableFiles(SRC_DIR).map((file) => ({
+      file,
+      text: readFileSync(file, "utf-8"),
+    }));
+  }
+  return _sourceCache;
+}
+
+/**
+ * Wall-clock budget for a whole-`src/` scan.
+ *
+ * These are static source scans over the entire tree, not unit tests: they were
+ * measured at 2.9-3.7 s against vitest's default 5 s `testTimeout`, which made
+ * the file fail intermittently whenever the suite ran under load (several
+ * agents hit exactly that flake). A source scan should not share a budget with
+ * a pure function test, so it gets an explicit one. If a scan ever approaches
+ * this, the real problem is the scan, not the budget.
+ */
+const SOURCE_SCAN_TIMEOUT_MS = 60_000;
 
 /**
  * Parse `tokens.css` and return the set of every `--token-name` custom
@@ -130,67 +165,71 @@ const STRUCTURAL_INLINE_STYLE_TOKENS: ReadonlyMap<string, string> = new Map([
 ]);
 
 describe("design token existence (Task 7.1)", () => {
-  it("every var(--token) reference in src/ resolves to a token defined in styles/tokens.css", () => {
-    const tokensCss = readFileSync(TOKENS_FILE, "utf-8");
-    const definedTokens = collectDefinedTokens(tokensCss);
-    expect(definedTokens.size).toBeGreaterThan(0);
+  it(
+    "every var(--token) reference in src/ resolves to a token defined in styles/tokens.css",
+    () => {
+      const tokensCss = readFileSync(TOKENS_FILE, "utf-8");
+      const definedTokens = collectDefinedTokens(tokensCss);
+      expect(definedTokens.size).toBeGreaterThan(0);
 
-    const files = collectScannableFiles(SRC_DIR);
-    const undefinedReferences: TokenReference[] = [];
+      const undefinedReferences: TokenReference[] = [];
 
-    for (const file of files) {
-      const text = readFileSync(file, "utf-8");
-      const localDeclarations = collectLocalDeclarations(text);
-      const references = collectTokenReferences(text, file);
-      for (const ref of references) {
-        if (!definedTokens.has(ref.name) && !localDeclarations.has(ref.name)) {
-          undefinedReferences.push(ref);
+      for (const { file, text } of readScannableSources()) {
+        const localDeclarations = collectLocalDeclarations(text);
+        const references = collectTokenReferences(text, file);
+        for (const ref of references) {
+          if (!definedTokens.has(ref.name) && !localDeclarations.has(ref.name)) {
+            undefinedReferences.push(ref);
+          }
         }
       }
-    }
 
-    // Structural inline-style tokens are exempt only when they are NOT also
-    // accidentally defined in tokens.css — if someone adds a definition there,
-    // the global one wins and the exemption must be re-evaluated.
-    const exempt = [...STRUCTURAL_INLINE_STYLE_TOKENS.keys()].filter(
-      (name) => !definedTokens.has(name),
-    );
-    const filteredReferences = undefinedReferences.filter(
-      (ref) => !exempt.includes(ref.name),
-    );
-
-    if (filteredReferences.length > 0) {
-      const details = filteredReferences
-        .map((ref) => `  ${relative(SRC_DIR, ref.file)}:${ref.line} -> ${ref.name}`)
-        .join("\n");
-      throw new Error(
-        `Found ${filteredReferences.length} reference(s) to token(s) not defined in styles/tokens.css:\n${details}`,
+      // Structural inline-style tokens are exempt only when they are NOT also
+      // accidentally defined in tokens.css — if someone adds a definition there,
+      // the global one wins and the exemption must be re-evaluated.
+      const exempt = [...STRUCTURAL_INLINE_STYLE_TOKENS.keys()].filter(
+        (name) => !definedTokens.has(name),
       );
-    }
+      const filteredReferences = undefinedReferences.filter(
+        (ref) => !exempt.includes(ref.name),
+      );
 
-    expect(filteredReferences).toEqual([]);
-  });
-
-  it("every structural inline-style exemption still points at an actually-referenced token", () => {
-    // Guards against stale exemptions: if the consuming stylesheet is ever
-    // refactored away, the allow-list entry should be removed too, not left
-    // behind as dead documentation.
-    const files = collectScannableFiles(SRC_DIR);
-    const referencedNames = new Set<string>();
-    for (const file of files) {
-      const text = readFileSync(file, "utf-8");
-      for (const ref of collectTokenReferences(text, file)) {
-        referencedNames.add(ref.name);
+      if (filteredReferences.length > 0) {
+        const details = filteredReferences
+          .map((ref) => `  ${relative(SRC_DIR, ref.file)}:${ref.line} -> ${ref.name}`)
+          .join("\n");
+        throw new Error(
+          `Found ${filteredReferences.length} reference(s) to token(s) not defined in styles/tokens.css:\n${details}`,
+        );
       }
-    }
 
-    for (const [name] of STRUCTURAL_INLINE_STYLE_TOKENS) {
-      expect(
-        referencedNames.has(name),
-        `stale exemption: '${name}' is listed in STRUCTURAL_INLINE_STYLE_TOKENS but no longer referenced anywhere in src/`,
-      ).toBe(true);
-    }
-  });
+      expect(filteredReferences).toEqual([]);
+    },
+    SOURCE_SCAN_TIMEOUT_MS,
+  );
+
+  it(
+    "every structural inline-style exemption still points at an actually-referenced token",
+    () => {
+      // Guards against stale exemptions: if the consuming stylesheet is ever
+      // refactored away, the allow-list entry should be removed too, not left
+      // behind as dead documentation.
+      const referencedNames = new Set<string>();
+      for (const { file, text } of readScannableSources()) {
+        for (const ref of collectTokenReferences(text, file)) {
+          referencedNames.add(ref.name);
+        }
+      }
+
+      for (const [name] of STRUCTURAL_INLINE_STYLE_TOKENS) {
+        expect(
+          referencedNames.has(name),
+          `stale exemption: '${name}' is listed in STRUCTURAL_INLINE_STYLE_TOKENS but no longer referenced anywhere in src/`,
+        ).toBe(true);
+      }
+    },
+    SOURCE_SCAN_TIMEOUT_MS,
+  );
 });
 
 /**

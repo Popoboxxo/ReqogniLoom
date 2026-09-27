@@ -1,6 +1,6 @@
 {
-  "generated_from": "reqogniloom==unknown",
-  "tool_count": 218,
+  "generated_from": "reqogniloom==1.8.0-beta.16",
+  "tool_count": 219,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1531,7 +1531,7 @@
       "name": "attribute_migration.apply",
       "prefix": "attribute_migration",
       "is_write": true,
-      "description": "Execute an AWMS plan: snapshot, migrate values, audit (admin-only).",
+      "description": "Execute an AWMS plan: snapshot, migrate values, audit (admin-only). The report carries the same scope_effect.target_scope / value_target_scope / definition_target_scope as dry_run, and an apply whose scope.workspace narrows a plan that also contains tenant-global definition ops is refused with VALIDATION_ERROR unless the plan sets options.allow_tenant_global_definition_ops: true.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1549,7 +1549,7 @@
       "name": "attribute_migration.dry_run",
       "prefix": "attribute_migration",
       "is_write": true,
-      "description": "Plan a migration against real data and return the full change report without modifying artifacts (admin-only).",
+      "description": "Plan a migration against real data and return the full change report without modifying artifacts (admin-only). The report carries scope_effect.target_scope ('workspace' | 'tenant') plus value_target_scope and definition_target_scope, so a plan can be checked for tenant-wide reach before it is applied; steps that only read report 'read'.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1632,7 +1632,7 @@
       "name": "attribute_migration.rollback",
       "prefix": "attribute_migration",
       "is_write": true,
-      "description": "Restore every artifact of a previous apply run (admin-only).",
+      "description": "Restore the artifacts and attribute definitions a previous apply run changed (admin-only). Returns {run_id, status, restored, restored_artifacts, restored_definitions, not_reverted, samples}: 'restored' is the sum of the two split counters. status is 'rolled_back' or 'partially_rolled_back' — a changed target with no before-image (an older run without a definition snapshot, or a target row deleted since) is named in 'not_reverted' and the status is 'partially_rolled_back', so read that list rather than assuming everything is back. Re-running on an already rolled-back run restores nothing and re-reports the outstanding 'not_reverted' entries.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5979,10 +5979,45 @@
       }
     },
     {
+      "name": "test.run_list",
+      "prefix": "test",
+      "is_write": false,
+      "description": "List the TestRuns of a workspace, most recent first (read). #1080: the TestRun entity used to be reachable over MCP only by an id the caller already held (test.run_get) — a run created by CI or by another agent was invisible, while GET /api/v1/test-runs/ listed it. Each row carries 'status' — in_progress|passed|failed|partial|closed, the four-phase lifecycle's observable axis — plus 'result_summary' (total/passed/failed/blocked/not_run) and 'finished_at' (null while the run is still in_progress). Use test.run_get for the per-result rows.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace whose runs to list."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "in_progress",
+              "passed",
+              "failed",
+              "partial",
+              "closed"
+            ],
+            "description": "Optional aggregate-status filter. Omit to return every run of the workspace."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Maximum number of runs to return (default 100, max 500). Applied in the query, so a large workspace is not materialised whole."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
       "name": "test.run_report_results",
       "prefix": "test",
       "is_write": true,
-      "description": "Add result(s) to a TestRun (write, audited).",
+      "description": "Add result(s) to a TestRun (write, audited). Honours the four-phase lifecycle: results are upserted per (run, test_case), and the run's aggregate 'status' is then re-derived — in_progress while any result is still not_run, then passed (all passed) / failed (any failed) / partial (any blocked). A run explicitly finalised as 'closed' by test.run_complete keeps that status; its result rows are still recorded. A single result object is accepted in place of a one-element array.",
       "inputSchema": {
         "type": "object",
         "properties": {

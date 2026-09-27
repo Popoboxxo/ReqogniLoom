@@ -96,22 +96,25 @@ interface ReqTraceLinkPanelProps {
   requirementId: UUID;
   requirements: Requirement[];
   onLinksChanged: () => void;
-  /** REQ-008: optional AI-derive callback — when provided renders the ✨ Ableiten button */
-  onAiDerive?: () => void;
-  /** REQ-008: loading state for the AI-derive button */
-  isAiDeriving?: boolean;
 }
 
 /**
  * ReqTraceLinkPanel — Standalone panel for requirement TraceLink management.
+ *
+ * Issue #1092: the AI-derive trigger (`onAiDerive` / `isAiDeriving`) used to be
+ * a prop of this panel and rendered itself in the panel's header action row.
+ * That is what made the same "KI-Ableitung" action land in a different place
+ * on every route, and it is why this file also carried an `.aiGradientButton`
+ * override. Both props are removed: the action now lives in the route's
+ * single `<AiActionSection>` (see `RequirementEditors`), which owns the shared
+ * AI icon and the button variant. The panel is left with trace-link concerns
+ * only.
  */
 export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
   workspaceId,
   requirementId,
   requirements,
   onLinksChanged,
-  onAiDerive,
-  isAiDeriving = false,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -415,27 +418,6 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         </h4>
         {!showDeriveForm && (
           <div className={styles.actionRow}>
-            {onAiDerive && (
-              // Issue #927: distinct "KI-Ableitung" label, decorative icon
-              // outside the accessible name, own hint.
-              <button
-                type="button"
-                data-testid="req-ai-derive-btn"
-                className={`btn-primary ${styles.aiGradientButton}`}
-                onClick={onAiDerive}
-                disabled={isAiDeriving}
-                aria-label={t('actions.deriveAi', 'KI-Ableitung')}
-                title={t(
-                  'actions.deriveAiHint',
-                  'Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
-                )}
-              >
-                <span aria-hidden="true">✨</span>{' '}
-                {isAiDeriving
-                  ? t('actions.derivingAi', 'KI-Ableitung läuft…')
-                  : t('actions.deriveAi', 'KI-Ableitung')}
-              </button>
-            )}
             {canEdit && (
               // Issue #926: same shared CreateTraceLinkDialog primitive as
               // every other artifact type (REQ-005) — no more inline form.

@@ -37,19 +37,29 @@ A2A envelope present → parse `payload.{t,ctx,con,refs,pri,dep}`. Otherwise: pl
 
 ## 2. REST API operation (`/api/v1/`)
 
-- DRF-based, 16 ViewSets + 2 APIViews (`backend/rest_api/urls.py`, `views.py`), OpenAPI schema via drf-spectacular (`backend/rest_api/openapi.py`).
+- DRF-based, 27 router-registered ViewSets plus ~118 explicit `path()` routes and nested ViewSets (`backend/rest_api/urls.py`, `views.py`) — do not hardcode a count, read the router. OpenAPI schema via drf-spectacular (`backend/rest_api/openapi.py`), served at `GET /api/schema/`.
 - Auth: JWT (`auth/login/`, `auth/logout/`, `auth/me/`) — obtain a token before calling any tenant-scoped endpoint.
 - Every call against a tenant-scoped resource requires the tenant context to already be set server-side (`TenantContext` via `X-API-Key` or JWT) — do not expect cross-tenant reads to succeed, that is Row-Level-Security working as intended, not a bug.
 - Typical operator tasks: query/list artifacts, create/update via a ViewSet, fetch history (history endpoint), fetch a baseline diff, trigger a PDF report export, drive a CSV bulk import, check `openapi.json`/`schema/` for the current contract before assuming a shape.
 - Prefer `curl`/`httpie` one-shot calls over ad-hoc scripts for read/diagnostic operations; write a small Python/requests snippet only for multi-step flows (login → use token → call endpoint → assert).
+- Cross-cutting contracts that the OpenAPI schema does not state well enough — optimistic locking via **both** `If-Match` and the `expected_version` body field, read-only `PATCH` fields (including `workspace_id`), the baselines `workspace_id` requirement, and which UUID `POST /tracelinks/` expects — are written up in `docs/api/REST-CONVENTIONS.md`. Read it before diagnosing a `409`/`412`/`400`/`404` on a PATCH or a link creation.
 
 ## 3. MCP server operation (`/mcp/`)
 
 - JSON-RPC 2.0, transports: HTTP, SSE, stdio.
-- Tool groups live under `backend/mcp_server/tools/*.py` (one module per group, each a `BaseToolGroup` subclass — see `base.py`): `requirement`, `needs`, `architecture`, `test`, `traceability`, `artifact`, `context`, `workspace`, `permissions`, `admin`, `audit`, `events`, `user`, `adr`, `risk`, `issue`, `glossary`, `change_request`, `prompt_template`, `ai_derivation`, `diagram`, `custom_field`, `review`, `baseline`, `goal`, `main_goal` (26 groups). Run `docker-compose exec backend python manage.py export_tool_manifest` and check `docs/agent-templates/tool-manifest.json`'s `tool_count` for the current exact figure (143 as of this writing) instead of trusting a hardcoded number here — the manifest is the single source of truth.
+- **Do not hardcode a tool count.** The catalogue is **219 tools in 35 tool-group prefixes** as of `v1.8.0-beta.16`; both numbers change with every release. The single source of truth is `docs/agent-templates/tool-manifest.json` (field `tool_count`) — read it, or regenerate it with `python backend/manage.py export_tool_manifest`. `docs/api/MCP-SURFACE.md` is the readable reference: the full per-group table, the tools that are *deliberately* absent, and the exact `tools/list` one-liner to re-derive the numbers before quoting them.
+- Prefixes, grouped by the module that serves them (a prefix is not always a module — `traceability`/`artifact`/`context` share one `CrossCuttingToolGroup`, `audit`/`events` share one `AuditToolGroup`): `requirement`, `needs`, `architecture`, `test` (TestCase *and* TestRun), `traceability`, `artifact`, `context`, `workspace`, `permissions`, `admin`, `audit`, `events`, `user`, `adr`, `risk`, `issue`, `glossary`, `change_request`, `goal`, `main_goal`, `icd`, `diagram`, `review`, `baseline`, `requirement_bundle`, `interview`, `memory`, `link_type`, `prompt_template`, `prompt_variable`, `ai_derivation`, `attribute_definition`, `attribute_catalog`, `attribute_migration`, `comment`.
 - Auth: every MCP call requires a prior login/API-key header (`X-API-Key: reqlo_*`) — there is no anonymous tool access.
 - Typical operator tasks: enumerate available tools/groups for a capability check, invoke a specific tool with a JSON-RPC payload, verify a tool's response against its declared schema, diagnose "tool not found"/"unauthorized" errors by checking group registration and API-key scope.
 - Transport choice for manual testing: HTTP for one-shot calls, stdio when testing the same code path a local AI-tool integration would use.
+
+### Things that trip people up
+
+- **`memory.write` exists.** The six `memory.*` tools are `memory.digest`, `memory.forget`, `memory.get`, `memory.list`, `memory.query`, `memory.write`. Writing is not restricted to the background projector.
+- **There is no `comment.query`** — only `comment.list` (the comments of one artifact). And **there is no `testcase.*` prefix**: TestCase tools live in the `test` group.
+- **TestRuns are listable**: `test.run_list` (workspace-scoped, optional `status` filter and `limit`), alongside `test.run_create`, `test.run_get`, `test.run_report_results`, `test.run_complete`.
+- **`traceability.vcrm` and `traceability.coverage` have no REST route.** A full-text search of the OpenAPI schema for `vcrm` returns nothing, so the REST docs cannot answer "where is VCRM". It is MCP-only.
+- `tools/list` is filtered: a Viewer key sees no write tools, and an AUTHOR-tier key additionally sees no *governance* tools — the namespaces `admin`, `user`, `permissions`, `workspace`, `events`, `baseline`, `prompt_template`, `prompt_variable`, `link_type`, `attribute_definition`, `attribute_catalog`, `attribute_migration`, plus `audit.waive_finding`. A tool missing from `tools/list` may be a scope decision, not an absence — check the key's `ApiKey.scope` before reporting a gap.
 
 ## 4. API-key handling (`reqlo_*`)
 
@@ -59,11 +69,11 @@ A2A envelope present → parse `payload.{t,ctx,con,refs,pri,dep}`. Otherwise: pl
 
 ## 5. Data & lifecycle operations
 
-- **Baselines** (3 scopes) — snapshot + diff engine; use to compare artifact states across time or scope.
+- **Baselines** (3 scopes) — snapshot + diff engine; use to compare artifact states across time or scope. **Baselines are workspace-scoped and immutable**: list them at `GET /api/v1/workspaces/{id}/baselines/` (or `/api/v1/baselines/?workspace_id={id}`). The flat route *without* `workspace_id` answers `404`, not `400` — that is a known misleading status, not "baselines do not exist". `PATCH` answers `405`; finalize by creating a new baseline. See `docs/api/REST-CONVENTIONS.md` §3.
 - **Artifact diff** — field-level; use for "what changed on this requirement/test/element" questions.
 - **History endpoint** — per-artifact change log; use before assuming a diff engine call is needed.
 - **CSV bulk import** — for seeding/migrating artifacts at volume. `backend/application/import_service.py` and `export_service.py` implement the round-trip (Requirement, StakeholderNeed, ArchitectureElement, TestCase, Adr, Risk, Issue) — treat these as read-only reference for how the app itself expects import/export payloads to be shaped; do not edit them here.
-- **Test-run logging** — record/query test execution results via the test-runs endpoints/tools.
+- **Test-run logging** — record/query test execution results via `test.run_create` / `test.run_list` / `test.run_get` / `test.run_report_results` / `test.run_complete`, or the REST twin `POST /api/v1/test-runs/` and `/api/v1/test-runs/{id}/results/bulk/`. The lifecycle's observable axis is `status` (`in_progress` → `passed`/`failed`/`partial`, plus `closed`); `passed`/`failed`/`partial` are derived from the recorded results and are re-derived if a late result arrives.
 - **Rigor presets** (Minimal/Standard/Extended) and **terminology profiles** (dev_mode/se_mode) affect which fields/labels an artifact exposes — check the active preset before reporting a field as "missing".
 - **Audit log** — every mutating operation is recorded; use it to verify an operation actually happened, not just that the call returned 2xx.
 
@@ -90,11 +100,11 @@ Report what was called (endpoint/tool), what was returned (status + short summar
 </workflow>
 
 <context>
-**Project context:** ReqogniLoom ist ein AI-natives Requirements- und Test-Management-Tool mit MBSE-Unterstützung. Tech-Stack: Django 4.2+ (Backend) + React 18 + TypeScript (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen: REST API unter /api/v1/ (DRF, 16 ViewSets + 2 APIViews, JWT-Auth, OpenAPI via drf-spectacular) und nativer MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; 30 Tool-Gruppen, siehe `docs/agent-templates/tool-manifest.json` für die aktuelle Tool-Anzahl; API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management, 15 Trace-Link-Typen, Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level), History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import, API-Key-Management, Visual Artifact Diff, 3 Rigor-Presets (Minimal/Standard/Extended), Terminology-Profile (dev_mode/se_mode), Audit-Log, Multi-Tenancy via Row-Level-Security. LLM-Adapter: Anthropic, OpenAI, Ollama, mock (Default: mock).
+**Project context:** ReqogniLoom ist ein AI-natives Requirements- und Test-Management-Tool mit MBSE-Unterstützung. Tech-Stack: Django 5.2+ (Backend) + React 18 + TypeScript (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen: REST API unter /api/v1/ (DRF, JWT-Auth, OpenAPI via drf-spectacular) und nativer MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; **219 Tools in 35 Tool-Gruppen-Präfixen** — Stand `v1.8.0-beta.16`, NICHT hartcodieren: `docs/agent-templates/tool-manifest.json` und `docs/api/MCP-SURFACE.md` sind die Referenz; API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management, 20 built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level), History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import, API-Key-Management, Visual Artifact Diff, 3 Rigor-Presets (Minimal/Standard/Extended), Terminology-Profile (dev_mode/se_mode), Audit-Log, Multi-Tenancy via Row-Level-Security. LLM-Adapter: Anthropic, OpenAI, Ollama, mock (Default: mock).
 
 **Why this agent exists:** ReqogniLoom is being dogfooded — its own SE requirements (`docs/se/`) are being migrated into a running ReqogniLoom instance so the project manages itself with itself. That requires an agent that actually knows how to drive the concrete app (endpoints, tools, auth), separate from the agents that model generic SE processes.
 
-**Relevant code locations:** `backend/rest_api/urls.py` + `views.py` (REST surface), `backend/rest_api/api_key_views.py` (API-key lifecycle), `backend/mcp_server/tools/*.py` (MCP tool groups), `backend/auth_tenancy/` (JWT auth, tenant context, RLS), `backend/baseline/` (baselines + diff engine), `backend/application/import_service.py` / `export_service.py` (CSV round-trip, read-only reference for you).
+**Relevant code locations:** `backend/rest_api/urls.py` + `views.py` (REST surface), `backend/rest_api/api_key_views.py` (API-key lifecycle), `backend/mcp_server/tools/*.py` (MCP tool groups), `backend/mcp_server/tool_registry.py` (group registration, read/write gate), `backend/auth_tenancy/` (JWT auth, tenant context, RLS), `backend/baseline/` (baselines + diff engine), `backend/application/import_service.py` / `export_service.py` (CSV round-trip, read-only reference for you). **Docs to read before diagnosing:** `docs/api/MCP-SURFACE.md` (MCP catalogue) and `docs/api/REST-CONVENTIONS.md` (PATCH locking, read-only fields, baselines path, TraceLink ID space).
 </context>
 
 <tools>

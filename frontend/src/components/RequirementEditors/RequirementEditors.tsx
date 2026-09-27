@@ -43,6 +43,7 @@ import { RequirementList } from './RequirementList';
 import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './RequirementArtifactForm';
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
+import { AiActionSection, type AiActionDescriptor } from '../shared/AiActions';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { ArtifactMemoryPanel } from '../Memory/ArtifactMemoryPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
@@ -73,9 +74,11 @@ export default function RequirementEditors(): JSX.Element {
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
   // R2/T1 (systemaudit 2026-09-02): a viewer must not see the "Testfall
-  // generieren" trigger or the ✨ "Ableiten" button (REQ-008) — only the
-  // server rejected those writes before. Shared with SidebarNavigation/
-  // RequirementForm/RequirementList via useHasRole.
+  // generieren" trigger or the "KI-Ableitung" button (REQ-008) — only the
+  // server rejected those writes before. Both now live in the single
+  // `<AiActionSection>` (issue #1092), whose action list this gate empties.
+  // Shared with SidebarNavigation/RequirementForm/RequirementList via
+  // useHasRole.
   const hasRole = useHasRole();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta('Requirement');
@@ -355,7 +358,10 @@ export default function RequirementEditors(): JSX.Element {
       // a run that produced zero drafts reported "derived successfully" and
       // left no trace of the fact that nothing had happened.
       if (count > 0) {
-        setAiDeriveStatus(t('needs.deriveSuccess'));
+        // #1089: the derivation lands in `proposed`, so it is not finished
+        // work — it is a queue entry. The message has to name where the user
+        // reviews it, otherwise "derived successfully" reads as "done".
+        setAiDeriveStatus(t('needs.deriveSuccess', { count }));
         refresh();
         return;
       }
@@ -369,6 +375,46 @@ export default function RequirementEditors(): JSX.Element {
       setIsAiDeriving(false);
     }
   }, [requirement, t, refresh]);
+
+  /**
+   * Issue #1092: the route's complete AI-action set, in one list. Each entry
+   * keeps its own label, hint and test id from before the move; the shared
+   * `<AiActionSection>` adds the common AI icon and the button variant, so
+   * adding a third AI action here is a data change, never another header
+   * button.
+   *
+   * `canUseAi` is the existing workspace-role gate (R2/T1): a viewer gets an
+   * empty list, and an empty list means the section is not rendered at all —
+   * the triggers are genuinely absent from the DOM, not merely disabled.
+   */
+  const canUseAi = hasRole('editor');
+  const aiActions = useMemo<AiActionDescriptor[]>(() => {
+    if (!canUseAi) return [];
+    return [
+      {
+        label: t('actions.deriveAi', 'KI-Ableitung'),
+        busyLabel: t('actions.derivingAi', 'KI-Ableitung läuft…'),
+        hint: t(
+          'actions.deriveAiHint',
+          'Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
+        ),
+        onClick: () => void handleAiDerive(),
+        disabled: isAiDeriving,
+        testId: 'req-ai-derive-btn',
+      },
+      {
+        // SysEng 2.0 N5: AI-generate a TestCase draft for this requirement.
+        label: t('actions.deriveAiTestcase', 'KI-Testfall'),
+        busyLabel: t('actions.derivingAiTestcase', 'KI-Testfall wird erzeugt…'),
+        hint: t(
+          'actions.deriveAiTestcaseHint',
+          'Die KI erzeugt einen Testfall-Entwurf zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
+        ),
+        onClick: () => setShowDeriveTestcasePanel(true),
+        testId: 'req-derive-testcase-btn',
+      },
+    ];
+  }, [canUseAi, t, handleAiDerive, isAiDeriving]);
 
   const currentVersion: VersionRef | undefined = useMemo(() => {
     if (!requirement) return undefined;
@@ -705,21 +751,18 @@ export default function RequirementEditors(): JSX.Element {
         />
       </div>
 
-      {/* TraceLink management incl. "Ableiten" (REQ-L2-RF-006) — restored
-          after the SplitView refactor dropped this panel. The read-only
-          trace view lives in the ArtifactInspector inside RequirementArtifactForm. */}
+      {/* TraceLink management (REQ-L2-RF-006) — restored after the SplitView
+          refactor dropped this panel. The read-only trace view lives in the
+          ArtifactInspector inside RequirementArtifactForm.
+          Issue #1092: the AI-derive action moved OUT of this panel's header
+          row into the single `<AiActionSection>` below; the panel is
+          trace-links only now. */}
       {activeWorkspace && (
         <ReqTraceLinkPanel
           workspaceId={activeWorkspace.id}
           requirementId={requirement.id}
           requirements={requirements}
           onLinksChanged={refresh}
-          // R2/T1: ReqTraceLinkPanel already renders the ✨ Ableiten button
-          // conditionally on `onAiDerive` being provided (see its own props
-          // doc) — reused here instead of adding a second gate inside the
-          // panel.
-          onAiDerive={hasRole('editor') ? handleAiDerive : undefined}
-          isAiDeriving={isAiDeriving}
         />
       )}
       {aiDeriveStatus && (
@@ -735,30 +778,22 @@ export default function RequirementEditors(): JSX.Element {
         </div>
       )}
 
-      {/* SysEng 2.0 N5: AI-generate a TestCase draft for this requirement.
-          R2/T1: rendered conditionally, not just disabled — a viewer must
-          not find this trigger in the DOM at all. */}
-      {hasRole('editor') && (
-        <div className={styles.deriveTestcaseSection}>
-          {/* Issue #927: distinct "KI-Testfall" label, a real `btn-primary`
-              (was an unstyled browser-default button), decorative icon out of
-              the accessible name and its own hint. */}
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => setShowDeriveTestcasePanel(true)}
-            data-testid="req-derive-testcase-btn"
-            aria-label={t('actions.deriveAiTestcase', 'KI-Testfall')}
-            title={t(
-              'actions.deriveAiTestcaseHint',
-              'Die KI erzeugt einen Testfall-Entwurf zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
-            )}
-          >
-            <span aria-hidden="true">✨</span>{' '}
-            {t('actions.deriveAiTestcase', 'KI-Testfall')}
-          </button>
-        </div>
-      )}
+      {/* Issue #1092: ONE AI section per route. Both AI actions used to render
+          themselves where they happened to live — the derive action inside
+          ReqTraceLinkPanel's header row, the test-case draft in a section of
+          its own — so "the AI things on this page" had no single place. Both
+          now sit here, each carrying the shared flat AI icon.
+
+          Context awareness: the array is empty for a viewer (R2/T1 — a viewer
+          must not find these triggers in the DOM at all, not merely disabled),
+          and `<AiActionSection>` renders nothing at all for an empty array. So
+          this is the app's existing `useHasRole` capability gate, not a new
+          one. */}
+      <AiActionSection
+        title={t('aiActions.heading')}
+        hint={t('aiActions.hint')}
+        actions={aiActions}
+      />
 
       {/* REQ-L2-VS-004: semantic similarity search */}
       <SimilarRequirementsPanel

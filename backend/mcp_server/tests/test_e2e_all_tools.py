@@ -12,8 +12,9 @@ wired in :mod:`mcp_server.tests.conftest`.
 Tool coverage (40 tools):
     requirement.*      : 6 tools (get, query, create, update, decompose, validate)
     architecture.*     : 5 tools (get, query, create, update, link)
-    test.*             : 8 tools (get, query, create, update, link,
-                              run_create, run_get, run_report_results)
+    test.*             : 9 tools (get, query, create, update, link,
+                              run_create, run_list, run_get,
+                              run_report_results)
     traceability.*     : 1 tool  (query)
     artifact.*         : 2 tools (search, get_tree)
     workspace.*        : 4 tools (get_context, close, reactivate, delete)
@@ -23,11 +24,11 @@ Tool coverage (40 tools):
     events.*           : 2 tools (dlq_list, dlq_replay)
     user.*             : 4 tools (create, assign_role, list, deactivate)
                         ========
-                        40 tools total
+                        41 tools total
 
 Section layout (target ≥ 130 tests):
 
-    1. Happy-path  (40 tests, one per tool)
+    1. Happy-path  (41 tests, one per tool)
     2. RBAC denial for all 23 write tools
     3. Auth-failure (5 representative tools)
     4. JSON-RPC frame validation (6 tests)
@@ -494,6 +495,15 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "params": {"workspace_id": "__WORKSPACE__", "name": "E2E Run"},
         "result_key": "test_run",
         "needs_seed": None,
+    },
+    {
+        "tool": "test.run_list",
+        "params": {"workspace_id": "__WORKSPACE__"},
+        "result_key": "test_runs",
+        # #1080: the run is seeded so the list is not trivially empty — the
+        # point of the tool is that a run the caller did not create is
+        # findable, so a bare empty workspace would not exercise it.
+        "needs_seed": "testrun",
     },
     {
         "tool": "test.run_get",

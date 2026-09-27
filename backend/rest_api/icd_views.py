@@ -355,6 +355,11 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             "workspace_id": str(icd.workspace_id),
             "source_element_id": str(icd.source_element_id),
             "target_element_id": str(icd.target_element_id),
+            # #1075: the backing ``pl_artifact`` id, i.e. the id a TraceLink
+            # endpoint is addressed by. Without it a client has no way to obtain
+            # the correct UUID (``icd.id`` is a different id space) — the same
+            # contract Requirement/ArchitectureElement already publish.
+            "artifact_id": str(icd.artifact_id) if icd.artifact_id else None,
             # Epic #934 WS1: the visible ``status`` system attribute.
             "status": _icd_status(icd, status_map),
             "custom_fields": self._icd_custom_fields(icd),
@@ -602,6 +607,8 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "workspace_id": str(icd.workspace_id),
                 "source_element_id": str(icd.source_element_id),
                 "target_element_id": str(icd.target_element_id),
+                # #1075: see ``_icd_to_dict``. List and detail must agree.
+                "artifact_id": str(icd.artifact_id) if icd.artifact_id else None,
                 "version": icd.current_revision or 1,
                 "direction": icd.direction,
                 "interface_type": icd.interface_type,

@@ -11,9 +11,11 @@ need it, and Layer 0 is the only layer all three may import.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
+from django.core.exceptions import FieldDoesNotExist
 from django.db import models, transaction
 
 from persistence.models import Artifact
@@ -125,10 +127,85 @@ def artifact_id_of(entity: Any, field_name: str = "artifact") -> UUID | None:
     return getattr(entity, f"{field_name}_id", None)
 
 
+def resolve_backing_artifact_id(
+    entity_id: UUID | str,
+    *,
+    candidate_types: Iterable[str] | None = None,
+) -> UUID | None:
+    """Map a *domain-entity* id to the id of its backing ``Artifact`` (#1075).
+
+    Every specialised table owns its own primary key **and** a backing
+    ``Artifact`` row with a **different** primary key. ``icd_icd`` /
+    ``pl_artifact.Icd`` are one such pair: 95 rows, 0 of the ``icd_icd`` UUIDs
+    present in ``pl_artifact``. A client that read ``GET /icds/{id}/`` therefore
+    held a UUID the trace graph could not resolve, and
+    ``POST /tracelinks/`` answered 404 for an entity that demonstrably exists.
+    Requirement/ArchitectureElement/TestCase/... have exactly the same shape; the
+    reason they happen to work is only that some caller-side resolvers list them
+    one by one.
+
+    This is the single, registry-driven fallback: the caller resolves against
+    ``pl_artifact`` first (unchanged, so all existing links keep resolving
+    exactly as before) and only then asks here. Because the probe reads each
+    subtype table's **own** ``id``, a stale/foreign UUID cannot resolve to
+    someone else's Artifact.
+
+    Tenant isolation: the probe uses each model's default manager. Every model in
+    :data:`ARTIFACT_TYPE_MODELS` is a :class:`~persistence.models.\
+TenantScopedModel`, whose ``objects`` is a tenant-filtering
+    :class:`~persistence.tenancy.TenantManager`, so a cross-tenant entity id
+    matches nothing and the caller raises its own not-found error without leaking
+    existence. The ``Icd`` row additionally carries its own ``tenant_id`` (see
+    :class:`icd.models.Icd`), so the same holds for the Ext layer.
+
+    Args:
+        entity_id: A domain-entity UUID (``Icd.id``, ``Requirement.id``, ...).
+        candidate_types: Restrict the probe to these ``artifact_type`` names.
+            Defaults to the whole :data:`ARTIFACT_TYPE_MODELS` registry.
+
+    Returns:
+        The backing ``Artifact`` UUID, or ``None`` when *entity_id* names no
+        known entity or the entity has no backing row yet (``artifact_id IS
+        NULL``, which is possible because the FK is nullable).
+    """
+    try:
+        identifier = UUID(str(entity_id))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+    names = list(candidate_types) if candidate_types is not None else list(
+        ARTIFACT_TYPE_MODELS
+    )
+    for artifact_type in names:
+        if artifact_type not in ARTIFACT_TYPE_MODELS:
+            continue
+        try:
+            model = model_for(artifact_type)
+        except (KeyError, LookupError):  # pragma: no cover - defensive
+            continue
+        try:
+            model._meta.get_field("artifact")
+        except FieldDoesNotExist:
+            # A registry entry whose table has no OneToOne ``artifact`` cannot
+            # answer this question. Skipping keeps the probe usable for a future
+            # type instead of raising FieldError on every lookup.
+            continue
+        backing = (
+            model.objects.filter(id=identifier)
+            .exclude(artifact_id=None)
+            .values_list("artifact_id", flat=True)
+            .first()
+        )
+        if backing is not None:
+            return UUID(str(backing))
+    return None
+
+
 __all__ = [
     "ARTIFACT_TYPE_MODELS",
     "ArtifactBackingError",
     "artifact_id_of",
     "ensure_artifact",
     "model_for",
+    "resolve_backing_artifact_id",
 ]

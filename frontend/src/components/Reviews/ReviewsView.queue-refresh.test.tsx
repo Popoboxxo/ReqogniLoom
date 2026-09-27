@@ -122,8 +122,19 @@ describe("ReviewsView — queue refresh after a transition (BUG-05)", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("review-list-item-req-001")).not.toBeInTheDocument();
     });
-    // Two calls: the initial mount fetch, and the refetch triggered by
-    // useReviewsData's transitionMutation.onSuccess -> refreshList().
-    expect(requirementsModule.requirementsApi.list).toHaveBeenCalledTimes(2);
+    // The visible queue must be refetched, not left stale.
+    //
+    // Issue #1089 added a second, always-on query for the *other* queue
+    // (the AI-proposals count shown on the mode toggle), so `list` is now
+    // called twice per fetch round — once per status filter. What this test is
+    // actually about is the in_review fetch, so that is what is counted: it
+    // must have run once on mount and once after the successful transition.
+    // Asserting the raw total (4) instead would pin the proposal-count query's
+    // existence into a regression test about BUG-05, so it would fail for a
+    // reason unrelated to what it documents.
+    const inReviewCalls = vi
+      .mocked(requirementsModule.requirementsApi.list)
+      .mock.calls.filter((call) => call[1] === "in_review");
+    expect(inReviewCalls).toHaveLength(2);
   });
 });

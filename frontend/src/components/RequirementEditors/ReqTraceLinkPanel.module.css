@@ -15,14 +15,12 @@
  * `.titleButton` / `.removeButton` classes — the same reuse the other migrated
  * modules apply to their repeated field labels.
  *
- * The `#927` AI-derive gradient is a decorative fill layered on top of the
- * global `.btn-primary` class. The inline style it replaces outranked *every*
- * selector, including `.btn-primary:hover:not(:disabled)` — so the gradient has
- * to keep winning in the hover state too, or hovering would flip the button to
- * the solid `--color-primary-dark` fill (a visual change). The doubled class
- * selector (`.aiGradientButton.aiGradientButton` = 0,2,0 / `:hover` = 0,4,0)
- * stays above `.btn-primary` (0,1,0) and its hover rule (0,3,0) without
- * `!important` and without depending on stylesheet order.
+ * Issue #1092: `.aiGradientButton` is GONE. The AI-derive trigger left this
+ * panel for the route's single `<AiActionSection>`, which carries the shared
+ * flat AI icon; the `#927` gradient fill was a second visual language for "this
+ * is an AI action" that competed with `.btn-primary` (the same
+ * duplicate-primary complaint as #797). Nothing in this module styles a
+ * button's fill any more.
  */
 
 .panel {
@@ -50,15 +48,6 @@
 .actionRow {
   display: flex;
   gap: var(--space-2);
-}
-
-.aiGradientButton.aiGradientButton,
-.aiGradientButton.aiGradientButton:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    var(--color-gradient-ai-start),
-    var(--color-gradient-ai-end)
-  );
 }
 
 .allocationSection {

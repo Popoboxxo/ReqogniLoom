@@ -10,6 +10,20 @@ Every flow follows the **Draft/Accept** pattern (REQ-L2-AI-001):
     existing create/update REST endpoints to persist whichever drafts the
     user selected.
 
+Issue #1089 changed what "persisted" means for the write-mode helpers
+(:meth:`_write_derived_entity`, :meth:`_write_glossary_term_draft`,
+:meth:`_write_adr_draft`) and for the REST persist path added in
+:mod:`rest_api.derive_views`: an artefact whose *content* was written by the
+LLM must be born in the ``"proposed"`` workflow state of
+:data:`workflow.definition_store.PROPOSED_STATE`, with a
+``from_state="" -> "proposed"`` history entry naming who proposed it — even
+when a **human** triggered the derivation from the UI. The state is seeded at
+creation time (there is no ``draft -> proposed`` edge in any default graph,
+see :mod:`application.ai_proposal_service`), and every write response now
+carries a ``proposal`` block reporting the state that was *actually* stored, so
+a workspace that cannot express a proposal says so instead of downgrading
+silently.
+
 Flows (REQ-L2-AI-002):
   1. :meth:`derive_requirements_from_need` — StakeholderNeed -> SystemRequirements
   2. :meth:`suggest_architecture_for_requirement` — Requirement -> ArchitectureElement ids
@@ -69,6 +83,11 @@ from persistence.models import (
 from traceability.types import LinkType
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.ai_proposal_service import (
+    proposal_report,
+    resolve_proposal_authoring,
+    verify_proposal_state,
+)
 from application.glossary_service import GlossaryService
 from application.models import Risk
 from llm_adapter.providers import truncate_prompt_content
@@ -496,7 +515,13 @@ class LlmResponseError(RuntimeError):
 
 
 class AiDerivationService(ServiceBase):
-    """LLM-backed, draft-only derivation flows (REQ-L2-AI-001, REQ-L2-AI-002)."""
+    """LLM-backed, draft-only derivation flows (REQ-L2-AI-001, REQ-L2-AI-002).
+
+    The three ``derive_*``/``decompose_*`` flows are preview-only. The
+    ``_write_*`` helpers are the persistence side and seed AI content into the
+    ``"proposed"`` workflow state (issue #1089) — see
+    :mod:`application.ai_proposal_service`.
+    """
 
     # ------------------------------------------------------------------
     # Public flows
@@ -1244,6 +1269,31 @@ class AiDerivationService(ServiceBase):
     # returns; only the persistence step is new here.
     # ------------------------------------------------------------------
 
+    def proposal_authoring(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+        label: str = "",
+    ):
+        """Resolve the proposal authoring context for one AI write (issue #1089).
+
+        Thin pass-through to :func:`application.ai_proposal_service.resolve_proposal_authoring`
+        so callers reach the single seam through this service rather than
+        re-deriving the "is this a proposal?" decision themselves — which is how
+        it went wrong in the first place.
+
+        The caller passes the returned ``create_context`` into the service that
+        persists the artefact, so the row is seeded in ``"proposed"``; the write
+        helpers read the real state back and report it (see
+        :meth:`_proposal_block`).
+        """
+        self._set_tenant_context(ctx)
+        return resolve_proposal_authoring(
+            ctx, item_type=item_type, workspace_id=workspace_id, label=label
+        )
+
     @atomic_transaction
     def _write_derived_entity(
         self,
@@ -1315,9 +1365,37 @@ class AiDerivationService(ServiceBase):
 
         Returns:
             ``{"id": <uuid-str>, "status": <final status string>,
-            "trace_link_id": <uuid-str>}``.
+            "trace_link_id": <uuid-str>, "proposal": {...}}``.
+
+            The ``proposal`` block (issue #1089) is **always** present and
+            reports the state the artefact was *actually* written in, read back
+            from the workflow engine after the write — never the state the
+            caller intended. A derivation that could not land in
+            ``"proposed"`` is therefore visible in the response
+            (``proposal.is_proposal=false`` plus a human-readable
+            ``proposal.reason``) instead of being reported as a plain success.
+            ``status`` keeps its historical meaning: the workflow state after
+            the optional ``policy="auto"`` walk.
         """
         self._set_tenant_context(ctx)
+
+        # Issue #1089: resolve the proposal state BEFORE the write so the
+        # response can name the workspace's actual capability, and let the
+        # caller's ``create_fn`` closure use ``authoring.create_context`` to
+        # seed the row in "proposed". This method only *verifies* — the
+        # authoring decision belongs to the single seam in
+        # ``application.ai_proposal_service``.
+        authoring = resolve_proposal_authoring(
+            ctx, item_type=item_type, workspace_id=workspace_id
+        )
+        if not authoring.supported:
+            logger.warning(
+                "AI derivation for %s in workspace %s could not create a "
+                "reviewable proposal: %s",
+                item_type,
+                workspace_id,
+                authoring.reason,
+            )
 
         created = create_fn()
         # TraceLinkService._resolve_artifact_id only resolves bare
@@ -1340,15 +1418,76 @@ class AiDerivationService(ServiceBase):
             ctx=ctx,
         )
 
-        status = "draft"
+        # The optional auto-advance walk runs BEFORE the state read-back, so the
+        # reported state is the one the artefact actually ends up in. An
+        # auto-approved item is genuinely no longer awaiting review, and
+        # claiming otherwise would put a phantom entry in the review queue.
         if policy == "auto":
-            status = self._auto_approve(item_type, created.id, workspace_id, ctx)
+            self._auto_approve(item_type, created.id, workspace_id, ctx)
+
+        # Issue #1089: read the real state back rather than reporting the
+        # intent, so a `create_fn` that ignored the proposal context (or a graph
+        # without a "proposed" state) can never masquerade as a successfully
+        # created proposal. `status` is taken from that read-back, never from
+        # `authoring.state`.
+        proposal = self._proposal_block(
+            created_id=created.id, item_type=item_type, authoring=authoring
+        )
 
         return {
             "id": str(created.id),
-            "status": status,
+            # Historical meaning preserved: the workflow state the artefact is
+            # in. Falls back to "draft" only when the state row cannot be read
+            # at all (a definition-less workspace), which the proposal block
+            # already flags via `reason`.
+            "status": proposal["state"] or "draft",
             "trace_link_id": str(link.id),
+            "proposal": proposal,
         }
+
+    @staticmethod
+    def _proposal_block(*, created_id, item_type: str, authoring) -> Dict[str, Any]:
+        """Read back the created artefact's real state into a ``proposal`` block.
+
+        Never raises: a state that cannot be read is reported as
+        ``state=""`` / ``is_proposal=false`` rather than crashing the write
+        that already succeeded (issue #1089 — a visible outcome, not a silent
+        downgrade and not a 500 on committed data).
+        """
+        try:
+            state, proposed_by = verify_proposal_state(created_id, item_type)
+        except Exception:  # noqa: BLE001 — reporting must not fail the write
+            logger.warning(
+                "Could not read back the workflow state of %s %s to verify its "
+                "proposal status.",
+                item_type,
+                created_id,
+                exc_info=True,
+            )
+            state, proposed_by = None, None
+
+        if state and state != authoring.state and not authoring.supported:
+            # The graph has no "proposed" state, so the artefact was expected
+            # in the graph's initial state. Report the graph's gap as the
+            # reason (it is the actionable one) rather than "expected X, got
+            # Y" for a state the workspace cannot express.
+            reason = authoring.reason
+        elif state and state != authoring.state:
+            reason = (
+                f"Expected the artefact to be created in "
+                f"'{authoring.state}' but the workflow engine stored "
+                f"'{state}'."
+            )
+        else:
+            reason = authoring.reason
+
+        return proposal_report(
+            state=state,
+            proposed_by=proposed_by,
+            supported=authoring.supported,
+            reason=reason,
+            label=authoring.label,
+        )
 
     @atomic_transaction
     def _write_glossary_term_draft(
@@ -1401,12 +1540,24 @@ class AiDerivationService(ServiceBase):
         extra handling is needed here.
 
         Returns:
-            ``{"id": <uuid-str>, "term": str, "status": <final status string>}``.
+            ``{"id": <uuid-str>, "term": str, "status": <final status string>,
+            "proposal": {...}}``. The ``proposal`` block reports the workflow
+            state the term was actually written in (issue #1089) — see
+            :meth:`_proposal_block`.
         """
         self._set_tenant_context(ctx)
 
+        # Issue #1089: a derived GlossaryTerm is AI content and must be born a
+        # reviewable proposal. Resolved HERE rather than in the tool layer so
+        # every caller of this helper gets it — this helper is the creation
+        # path for GlossaryTerm, exactly as ``_write_derived_entity`` is for
+        # the trace-linked types.
+        authoring = resolve_proposal_authoring(
+            ctx, item_type="GlossaryTerm", workspace_id=workspace_id
+        )
+
         created = GlossaryService().create(
-            ctx=ctx,
+            ctx=authoring.create_context,
             workspace_id=workspace_id,
             term=term,
             definition=definition,
@@ -1414,13 +1565,24 @@ class AiDerivationService(ServiceBase):
             abbreviation=abbreviation,
         )
 
-        status = "draft"
         if policy == "auto":
-            status = self._auto_approve(
-                "GlossaryTerm", created.id, workspace_id, ctx
-            )
+            self._auto_approve("GlossaryTerm", created.id, workspace_id, ctx)
 
-        return {"id": str(created.id), "term": created.term, "status": status}
+        # Issue #1089: same visible proposal outcome as
+        # ``_write_derived_entity`` — a derived GlossaryTerm is AI content
+        # and must be reviewable, not silently a plain draft.
+        proposal = self._proposal_block(
+            created_id=created.id,
+            item_type="GlossaryTerm",
+            authoring=authoring,
+        )
+
+        return {
+            "id": str(created.id),
+            "term": created.term,
+            "status": proposal["state"] or "draft",
+            "proposal": proposal,
+        }
 
     @atomic_transaction
     def _write_adr_draft(
@@ -1472,8 +1634,10 @@ class AiDerivationService(ServiceBase):
             policy: ``"manual"`` (default) or ``"auto"``.
 
         Returns:
-            ``{"id": <uuid-str>, "status": <final state string>}`` — no
-            ``trace_link_id`` key (see above).
+            ``{"id": <uuid-str>, "status": <final state string>,
+            "proposal": {...}}`` — no ``trace_link_id`` key (see above), and
+            the ``proposal`` block reports the workflow state the ADR was
+            actually written in (issue #1089, see :meth:`_proposal_block`).
 
         Raises:
             NotFoundError: The workspace (or tenant) does not exist.
@@ -1484,20 +1648,37 @@ class AiDerivationService(ServiceBase):
 
         from application.adr_service import AdrService
 
+        # Issue #1089: see _write_glossary_term_draft — resolved here because
+        # this helper is Adr's creation path.
+        authoring = resolve_proposal_authoring(
+            ctx, item_type="Adr", workspace_id=workspace_id
+        )
+
         created = AdrService().create_adr(
             workspace_id=workspace_id,
             title=title,
             description=description,
-            ctx=ctx,
+            ctx=authoring.create_context,
             context=context,
             consequences=consequences,
         )
 
-        status = "draft"
         if policy == "auto":
-            status = self._auto_approve("Adr", created.id, workspace_id, ctx)
+            self._auto_approve("Adr", created.id, workspace_id, ctx)
 
-        return {"id": str(created.id), "status": status}
+        # Issue #1089: same visible proposal outcome as
+        # ``_write_derived_entity``.
+        proposal = self._proposal_block(
+            created_id=created.id,
+            item_type="Adr",
+            authoring=authoring,
+        )
+
+        return {
+            "id": str(created.id),
+            "status": proposal["state"] or "draft",
+            "proposal": proposal,
+        }
 
     def _auto_approve(
         self,

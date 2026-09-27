@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "Known REST/MCP entity-surface gaps for backend/mcp_server/tests/test_entity_surface_parity.py.",
+    "Each entry is a verbatim finding string produced by the test runner. The",
+    "suite is GREEN while the ACTUAL set is a SUBSET of this list, and RED when",
+    "an entry no longer reproduces (so a closed gap has to be deleted here).",
+    "Regenerate with:",
+    "  ENTITY_SURFACE_DUMP=/tmp/gaps.json \\",
+    "    pytest mcp_server/tests/test_entity_surface_parity.py -q",
+    "v1.8.0-beta.16 / #1080: empty — the TestRun gap that created this ratchet is",
+    "closed, so there is nothing left to accept."
+  ],
+  "measured_at": {
+    "version": "1.8.0-beta.16",
+    "commit": "9eb2fc58",
+    "note": "219 tools / 35 tool-group prefixes after the #1080 test.run_list addition."
+  },
+  "violations": []
+}

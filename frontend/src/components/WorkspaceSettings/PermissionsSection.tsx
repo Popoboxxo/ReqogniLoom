@@ -24,10 +24,14 @@
  * `reactivate_role`).
  *
  * `LAST_ADMIN` (409) handling mirrors `UserManagement.tsx` (Task 12): the
- * backend (`rest_workspace_members.py`'s `_err()`) returns a FLAT
- * `{error, message}` body and `apiClient.apiFetch` throws that body
- * directly for a non-2xx response — NOT an axios-style
- * `{response: {status, data}}` wrapper.
+ * backend (`rest_workspace_members.py`'s `_err()`) answers the canonical nested
+ * envelope `{error: {code, message, details}}` — it emitted a FLAT
+ * `{error, message}` body until #1081 — and `apiClient.apiFetch` throws that
+ * body directly for a non-2xx response, NOT an axios-style
+ * `{response: {status, data}}` wrapper. The shape-tolerant
+ * `errorCode`/`extractMessage` pair therefore lives in `shared/apiError`
+ * (shared with, and to be hoisted out of, `UserManagement.tsx`); reading only
+ * one shape is what silently killed this branch.
  *
  * `GET /members/` only returns a member's ACTIVE (non-suspended) roles
  * (`AuthorizationService.list_workspace_members` filters
@@ -56,43 +60,13 @@ import {
 import { artifactsApi } from "../../api/artifacts";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { Artifact, UUID } from "../../types";
+import {
+  extractErrorMessage,
+  extractMessage,
+  isLastAdminError,
+  parseLastAdminMessage,
+} from "../shared/apiError";
 import styles from "./PermissionsSection.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
-
-// ---------------------------------------------------------------------------
-// LAST_ADMIN error handling (mirrors UserManagement.tsx, Task 12)
-// ---------------------------------------------------------------------------
-
-interface ApiErrorBody {
-  error: string;
-  message: string;
-}
-
-function isLastAdminError(err: unknown): err is ApiErrorBody {
-  const candidate = err as Partial<ApiErrorBody> | null | undefined;
-  return (
-    !!candidate &&
-    typeof candidate === "object" &&
-    candidate.error === "LAST_ADMIN" &&
-    typeof candidate.message === "string"
-  );
-}
-
-// Matches `LastAdminError.__init__`'s fixed message format
-// (backend/auth_tenancy/services/authorization.py): "Cannot complete this
-// action: it would leave {scope} {identifier} with no active admin."
-const LAST_ADMIN_MESSAGE_RE = /leave (workspace|tenant) (\S+) with no active admin/i;
-
-function parseLastAdminMessage(message: string): { scope: string; identifier: string } | null {
-  const match = message.match(LAST_ADMIN_MESSAGE_RE);
-  if (!match) return null;
-  const [, scope, identifier] = match;
-  return { scope: scope.charAt(0).toUpperCase() + scope.slice(1), identifier };
-}
 
 function memberRoleKey(userId: string, role: string): string {
   return `${userId}::${role}`;
@@ -260,8 +234,15 @@ export function PermissionsSection({
 
   const handleMembersApiError = useCallback(
     (err: unknown): void => {
-      if (isLastAdminError(err)) {
-        const parsed = parseLastAdminMessage(err.message);
+      // `isLastAdminError` used to be a type guard narrowed to the FLAT
+      // `{error: "<code>", message}` body, so `err.message` was read off that
+      // shape. #1081 migrated the backend to the canonical nested envelope, the
+      // guard stopped matching (an object is never `=== "LAST_ADMIN"`), and this
+      // whole branch became unreachable. Both the guard and the message read now
+      // come from `shared/apiError`, which tolerates both shapes.
+      const lastAdminMessage = isLastAdminError(err) ? extractMessage(err) : null;
+      if (lastAdminMessage !== null) {
+        const parsed = parseLastAdminMessage(lastAdminMessage);
         setMembersError(
           parsed
             ? t(
@@ -269,7 +250,7 @@ export function PermissionsSection({
                 "Cannot complete this action: {{scope}} {{identifier}} would have no active admin left.",
                 { scope: parsed.scope, identifier: parsed.identifier }
               )
-            : err.message
+            : lastAdminMessage
         );
         return;
       }

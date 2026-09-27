@@ -6,6 +6,28 @@ need an explicit ``--sync-new-fields`` run, which is deliberate — model fields
 change rarely and an automatic sync would silently reintroduce columns an admin
 had removed from the form.
 
+Three additive/recovery modes, none of which runs by default:
+
+``--sync-new-fields``
+    Append core attributes the stored definition lacks. Never modifies an
+    existing entry.
+``--relabel``
+    Overwrite ONLY ``label``/``help_text`` on an already-bootstrapped definition
+    and preserve every other admin customization. Added for #1090: instances
+    bootstrapped before the German core-attribute labels shipped still carry the
+    raw field name in ``label.de``, which renders as a label in a German
+    workspace and — because the value is non-empty — makes the UI's "no label in
+    this language" error path structurally unreachable. ``--reset`` also repairs
+    that data but documentedly destroys every admin customization of the global
+    rows, so it is the wrong tool for a label repair. Idempotent; never touches
+    a customized workspace-level row. Composes with ``--sync-new-fields``;
+    rejected together with ``--reset``.
+``--reset``
+    Wholesale replacement from a fresh introspection. The recovery path out of a
+    bad initial payload, and the only one that can undo a malformed seed
+    (core/locked attributes cannot be repaired through the API) — at the cost of
+    every admin customization of the global rows.
+
 Two design points that make this command order-independent with respect to the
 Datenmodell-Konsolidierung spec:
 
@@ -67,6 +89,7 @@ from attribute_definitions.stage_matrix import (
     SEC_VERIFICATION,
     apply_stage_overrides,
     build_stage_attributes,
+    resolve_core_label,
 )
 from persistence.models import Tenant
 from presets.registry import PresetRegistry
@@ -269,6 +292,21 @@ SECTION_ORDER: tuple[str, ...] = (
 )
 
 _SECTION_INDEX: dict[str, int] = {name: index for index, name in enumerate(SECTION_ORDER)}
+
+
+#: The only definition keys ``--relabel`` overwrites on an already-bootstrapped
+#: attribute. Everything else an admin may have tuned through the attribute
+#: editor — section, order, visible, audience, editable, locked, required,
+#: options, kind, type, the whole attribute list, the sections list — is left
+#: exactly as stored.
+#:
+#: Deliberately narrow: the mode exists to repair the #1090 label data gap on
+#: instances that were bootstrapped before the German labels shipped, and
+#: ``--reset`` (the previous, only remedy) achieves that by DISCARDING every
+#: admin customization of the global rows. Labels are the one thing this mode
+#: will overwrite, including a label an admin has since customised — that is the
+#: point of the mode; every other property is preserved.
+RELABEL_KEYS: tuple[str, ...] = ("label", "help_text")
 
 
 def section_order_index(section: str) -> int:
@@ -821,7 +859,14 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
                     "editable": name not in READ_ONLY_MODEL_FIELDS,
                     "section": _section_for(name),
                     "order": order,
-                    "label": {"de": name, "en": name},
+                    # #1090: this used to be ``{"de": name, "en": name}`` — the
+                    # raw field name in BOTH locales, which made a German
+                    # workspace render "level"/"title"/"description"/"uid" as
+                    # labels and structurally unreachable the UI's "no label in
+                    # this language" error path. The German term per field name
+                    # lives in ``stage_matrix.CORE_ATTRIBUTE_LABELS_DE``;
+                    # ``en`` deliberately stays the field name.
+                    "label": resolve_core_label(name),
                     "ai_elicit": name in SHARED_AI_ELICIT_FIELDS
                     or name in PER_ITEM_TYPE_AI_ELICIT_FIELDS.get(item_type, frozenset()),
                     "export": True,
@@ -932,7 +977,8 @@ def unmatched_mandatory_fields(item_type: str, preset: str) -> list[str]:
 class Command(BaseCommand):
     help = (
         "Seed GlobalAttributeDefinition rows from Django model introspection. "
-        "Idempotent: existing rows are left alone unless --sync-new-fields."
+        "Idempotent: existing rows are left alone unless --relabel or "
+        "--sync-new-fields."
     )
 
     def add_arguments(self, parser) -> None:
@@ -962,8 +1008,33 @@ class Command(BaseCommand):
                 "— core/locked attributes cannot be repaired through the API."
             ),
         )
+        parser.add_argument(
+            "--relabel",
+            action="store_true",
+            dest="relabel",
+            help=(
+                "Repair labels/help texts on already-bootstrapped definitions "
+                "(#1090: instances bootstrapped before the German core-attribute "
+                "labels shipped still store the raw field name as label.de). "
+                "Overwrites ONLY 'label' and 'help_text' and preserves every "
+                "other admin customization; idempotent, and never touches a "
+                "customized workspace-level row. Composes with "
+                "--sync-new-fields; rejected together with --reset."
+            ),
+        )
 
     def handle(self, *args, **options) -> None:
+        if options.get("relabel") and options.get("reset"):
+            # Contradictory, and silently picking one would be a trap: --reset
+            # already overwrites every label (it rewrites the whole definition
+            # from the fresh introspection) while destroying the admin
+            # customizations --relabel exists to preserve.
+            raise CommandError(
+                "--relabel cannot be combined with --reset: --reset rewrites the "
+                "whole definition from a fresh introspection, which already "
+                "carries the fixed labels, but discards every admin "
+                "customization. Run --relabel alone to keep them."
+            )
         # A management command has no request/middleware around it, so
         # without explicitly arming both isolation layers the least-privilege
         # runtime role (reqogniloom_app) hits Postgres RLS: reads return
@@ -978,7 +1049,7 @@ class Command(BaseCommand):
             if options["tenant"]
             else list(Tenant.objects.values_list("id", flat=True))
         )
-        created = updated = reset = 0
+        created = updated = reset = relabelled = 0
         with transaction.atomic():
             for tenant_id in tenant_ids:
                 set_request_tenant(tenant_id)
@@ -1008,8 +1079,18 @@ class Command(BaseCommand):
                                 for workspace_id in store.list_derived_workspace_ids(row):
                                     invalidate_workspace_caches(workspace_id)
                                 reset += 1
-                            elif options["sync_new_fields"]:
-                                if self._append_missing(store, existing, attributes):
+                            else:
+                                # --relabel first: a row that predates a new model
+                                # column has to be relabelled before --sync-new-fields
+                                # can append that column, otherwise the appended
+                                # attribute would ship without its label.
+                                if options["relabel"] and self._relabel(
+                                    store, existing, attributes
+                                ):
+                                    relabelled += 1
+                                if options["sync_new_fields"] and self._append_missing(
+                                    store, existing, attributes
+                                ):
                                     updated += 1
                 finally:
                     clear_request_tenant()
@@ -1034,9 +1115,94 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"bootstrap_attribute_definitions: {created} created, "
-                f"{updated} synced, {reset} reset"
+                f"{updated} synced, {relabelled} relabelled, {reset} reset"
             )
         )
+
+    @staticmethod
+    def _relabel(
+        store: GlobalAttributeDefinitionStore,
+        row: GlobalAttributeDefinition,
+        introspected: list[dict[str, Any]],
+    ) -> bool:
+        """Overwrite ONLY ``label``/``help_text`` on an existing row (#1090).
+
+        The additive mode for instances that were bootstrapped before the German
+        core-attribute labels shipped: their stored ``label.de`` is the raw field
+        name, so a German workspace renders ``level``/``title``/``uid`` as labels
+        and — because ``label.de`` is non-empty — the UI's "no label in this
+        language" error path can never fire. ``--reset`` also fixes the data but
+        documentedly DESTROYS every admin customization of the global rows, so
+        it is the wrong tool for a label repair.
+
+        Contract, all of it load-bearing:
+
+        * **Labels only.** See :data:`RELABEL_KEYS`. Every other attribute
+          property, the attribute list itself (admin-added attributes stay) and
+          the ``sections`` list are carried over from the stored row untouched.
+        * **Idempotent.** A row whose labels already match the fresh
+          introspection is not written at all — no version bump, no propagation,
+          no cache invalidation — so a second run is a genuine no-op rather than
+          a rewrite that looks like a change.
+        * **Order preserved.** ``stored_attributes`` re-runs the write-path
+          validator, which sorts; the stored order is put back afterwards so a
+          hand-arranged form layout is not reshuffled as a side effect of a label
+          repair.
+        * **Workspace rows.** Propagation runs through ``store._propagate()``,
+          whose predicate is ``is_customized=False`` — so a customized
+          workspace-level definition is never rewritten here either.
+
+        Writes via a bare ``row.save()`` rather than ``store.update()``, for the
+        same reason as :meth:`_append_missing`: ``update()`` runs
+        ``validate_meta_only_change``, which rejects metadata changes on a locked
+        core attribute — and most core attributes here are locked. The
+        structural validation still runs, via ``stored_attributes``.
+
+        Returns:
+            True when the row was written, False when nothing changed.
+        """
+        stored_raw = row.definition_json if isinstance(row.definition_json, dict) else {}
+        raw_attributes = stored_raw.get("attributes", [])
+        original_order = [
+            a.get("name") for a in raw_attributes if isinstance(a, dict)
+        ]
+        stored = stored_attributes(row.definition_json)
+        fresh = {a["name"]: a for a in introspected}
+
+        changed = False
+        for attribute in stored:
+            source = fresh.get(attribute["name"])
+            if source is None:
+                # An attribute the introspection does not produce (an admin's
+                # own extended attribute, or a column since excluded) has no
+                # authoritative label here — leave it alone rather than blanking
+                # a perfectly good label.
+                continue
+            for key in RELABEL_KEYS:
+                value = source.get(key)
+                if value is None or attribute.get(key) == value:
+                    continue
+                attribute[key] = copy.deepcopy(value)
+                changed = True
+
+        if not changed:
+            return False
+
+        # Put the stored order back (see the docstring); a name that vanished
+        # from the raw list keeps its normalized position at the end.
+        position = {name: index for index, name in enumerate(original_order)}
+        stored.sort(key=lambda a: position.get(a["name"], len(position)))
+        # `dict(...)` rather than a fresh dict: the sections / section_flow keys
+        # are preserved verbatim, which is the whole promise of this mode.
+        row.definition_json = dict(stored_raw, attributes=stored)
+        # Ledger binding (j), closed at Task 10: F("version") + 1 instead of a
+        # read-modify-write, consistent with the other sites in this codebase.
+        row.version = models.F("version") + 1
+        row.save(update_fields=["definition_json", "version", "modified_at"])
+        store._propagate(row)
+        for workspace_id in store.list_derived_workspace_ids(row):
+            invalidate_workspace_caches(workspace_id)
+        return True
 
     @staticmethod
     def _append_missing(

@@ -106,6 +106,21 @@ ERROR_CODES = {
         "A suppression for this finding exists but has expired; re-granting "
         "is a separate governance decision that is not supported yet."
     ),
+    # #1082: a state conflict the caller can act on — an attribute-definition
+    # reset that would change nothing, a stale expected version. It was raised
+    # as a string code by the tools without ever being registered here, so
+    # ``ERROR_CODES[code]`` fell through to echoing the bare code as the
+    # message and, worse, ``ERROR_CODE_MAP.get(code, -32603)`` collapsed it to
+    # Internal error on the direct-method dispatch path — telling the client the
+    # SERVER broke when the request was merely in conflict with current state.
+    # Same reasoning as the suppression codes above: a tool-execution error, not
+    # a protocol error, so it stays out of ``_PROTOCOL_ERROR_CODES`` and surfaces
+    # on ``tools/call`` as ``result.isError == true`` with this string
+    # ``error_code``.
+    "CONFLICT": (
+        "The request conflicts with the current state of the resource. Nothing "
+        "was changed; read the current state and retry if the conflict resolves."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -146,6 +161,10 @@ ERROR_CODE_MAP = {
     "WAIVER_REASON_REJECTED": -32008,     # Server-defined: justification rejected (#569)
     "WAIVER_FINDING_NOT_BLOCKING": -32009,  # Server-defined: no blocking finding (#569)
     "SUPPRESSION_EXPIRED": -32010,        # Server-defined: only an expired row (#569)
+    # Next free server-defined code after SUPPRESSION_EXPIRED. #1082: an
+    # attribute-definition reset that would change nothing. Without this entry
+    # the direct-method dispatch path reported it as -32603 (Internal error).
+    "CONFLICT": -32011,                 # Server-defined: state conflict (#1082)
 }
 
 

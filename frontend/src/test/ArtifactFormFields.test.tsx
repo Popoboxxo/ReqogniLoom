@@ -67,7 +67,14 @@ describe("ArtifactForm field library", () => {
   it("prefers the definition label over the raw attribute name", () => {
     expect(attributeLabel(spec(), "de")).toBe("Titel");
     expect(attributeLabel(spec(), "en")).toBe("Title");
-    expect(attributeLabel(spec({ label: { de: "", en: "" } }), "de")).toBe("title");
+  });
+
+  it("never falls back to the raw attribute name when a label is missing", () => {
+    // #1090: the field name is not a label. A missing translation is a catalog
+    // data error and must surface as one instead of rendering "title".
+    expect(attributeLabel(spec({ label: { de: "", en: "" } }), "de")).toBe("[de-Label fehlt]");
+    expect(attributeLabel(spec({ label: { de: "", en: "" } }), "en")).toBe("[en label missing]");
+    expect(attributeLabel(spec({ label: { de: "", en: "Title" } }), "de")).toBe("Title");
   });
 
   it("renders a text field and reports edits", () => {

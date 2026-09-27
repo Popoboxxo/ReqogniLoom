@@ -226,10 +226,27 @@ class WorkspaceAttributeDefinitionStore:
     ) -> WorkspaceAttributeDefinition:
         """Discard the override and re-copy the global default.
 
+        A reset on a row that **is not customized** and already holds the
+        source's content is refused with :class:`\
+AttributeDefinitionConflictError` instead of returning 200 plus a version bump
+        over an unchanged row (issue #1082). That is the exact shape of the
+        "reset that does not reset": an admin who ran ``define_attribute``
+        (which writes the tenant-wide default) and then tried to undo it here
+        saw the attribute survive, because there is no local override to
+        discard — the change lives in ``ad_global_definition``. The honest
+        answer is 409 naming the row that has to be edited instead.
+
+        A *stale* non-customized row (content differs from the source) is still
+        a real re-materialization and resets normally; so is every customized
+        row, because flipping ``is_customized`` back to ``False`` is itself the
+        change.
+
         Raises:
             AttributeDefinitionNotFound: the workspace has no row, or its
                 ``source_global`` link is gone (the global was deleted), in
                 which case there is nothing to reset TO.
+            AttributeDefinitionConflictError: the reset would change nothing —
+                see above.
         """
         obj = self.get(tenant_id, workspace_id, item_type)
         if obj is None:
@@ -244,6 +261,17 @@ class WorkspaceAttributeDefinitionStore:
                 f"{workspace_id} has no global source to reset to"
             )
         self._global_store.ensure_sections(source)
+        if not obj.is_customized and obj.definition_json == source.definition_json:
+            raise AttributeDefinitionConflictError(
+                [
+                    f"Attribute definition for '{item_type}' in workspace "
+                    f"{workspace_id} is not customized and already matches the "
+                    f"global default for preset '{source.preset}'; there is "
+                    "nothing to reset. Delete the attribute from the global "
+                    "default (it applies to every workspace of that preset) "
+                    "instead of resetting this workspace."
+                ]
+            )
         obj.definition_json = copy.deepcopy(source.definition_json)
         obj.is_customized = False
         # Ledger binding (j): see update() above for why this is F(), not

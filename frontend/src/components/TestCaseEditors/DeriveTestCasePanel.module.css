@@ -15,16 +15,26 @@
  * `.stepInput` duplicates `.input`'s declarations verbatim plus `flex: 1`
  * rather than using `composes` — the codebase has no `composes` precedent and
  * duplicates such pairs per file by convention.
+ *
+ * Issue #1091: `.panel` lost its second card, `.stepRow` gained a per-row
+ * `.stepRemove` square, and `.actions` became the design-system action row.
+ * The button *appearance* is the global `.btn-*` classes' job — this module
+ * never styles a button's colour, radius or height.
  */
 
+/*
+ * `.panel` is the shared <Dialog>'s content box, not a card of its own
+ * (#1091). It used to declare `background: var(--color-surface)`,
+ * `border`, `border-radius: var(--radius-lg)` and `padding: var(--space-5)` —
+ * a second card nested inside the dialog's own card, which is what put the
+ * action row 20px away from the dialog's real edge and made the whole panel
+ * read as a floating box. Only the layout survives; the surface comes from
+ * the dialog.
+ */
 .panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-5);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
   color: var(--color-text);
 }
 
@@ -61,10 +71,25 @@
   resize: vertical;
 }
 
+/* The step row owns its own remove control (#1091): the two inputs share the
+   free space and the trash button occupies exactly one button square at the
+   right edge, so a four-step draft is readable instead of four rows squeezed
+   by four ~90px text buttons. `center` (not `flex-start`) so the square
+   control lines up with the inputs it acts on. */
 .stepRow {
   display: flex;
   gap: var(--space-2);
-  align-items: flex-start;
+  align-items: center;
+}
+
+/* Icon-only square: the `.btn-ghost` base carries the shared `--radius-btn`
+   and `--btn-h-md`, this only removes the horizontal text padding and stops
+   the control from growing. */
+.stepRemove {
+  flex: none;
+  width: var(--btn-h-md);
+  min-height: var(--btn-h-md);
+  padding: 0;
 }
 
 .error {
@@ -89,10 +114,17 @@
   font-size: var(--font-size-sm);
 }
 
+/* The design-system action row: right-aligned, `--space-2` apart, pinned to
+   the bottom of the panel so the primary action never drifts between the
+   idle and review phases. Matches `ArtifactForm.module.css`'s `.actions` and
+   the shared <Dialog>'s `.footer`. */
 .actions {
   display: flex;
-  gap: var(--space-3);
+  justify-content: flex-end;
+  gap: var(--space-2);
   flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: var(--space-3);
 }
 
 .muted {

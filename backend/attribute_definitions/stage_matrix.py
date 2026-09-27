@@ -74,6 +74,181 @@ SEC_CHANGE = "change_control"
 SEC_TYPE_SPECIFIC = "type_specific"
 
 
+# ---------------------------------------------------------------------------
+# German labels for the introspected **core** attributes (#1090)
+# ---------------------------------------------------------------------------
+#
+# Why this registry lives here
+# ---------------------------
+# The bootstrapped catalog has two label sources. The *matrix* attributes
+# (:data:`MATRIX_ATTRIBUTES`) and the hand-written widget/system tables carry
+# their own ``label_de``/``label_en`` and have always been translated. The
+# model-introspected **core** attributes did not: the bootstrap command used to
+# emit ``{"de": name, "en": name}`` — the raw field name as *both* locales.
+#
+# That is a data bug, not a renderer bug, and it is invisible in English: a
+# German workspace with ``language=de`` rendered ``level``, ``title``,
+# ``description``, ``uid`` (and 61 further occurrences) as labels. Because
+# ``label.de`` was non-empty, no fallback could ever fire — the "no label in the
+# workspace language" error path the UI is supposed to surface was structurally
+# unreachable for these attributes.
+#
+# The German terms are kept HERE, next to the matrix labels, on purpose: this is
+# then the single place where a German term for an attribute is decided, so
+# ``Begründung``/``Verifikationsmethode``/``Behandlungsstrategie`` cannot drift
+# between the extended and the core half of the same catalog.
+#
+# Scope and non-goals
+# -------------------
+# * :data:`CORE_ATTRIBUTE_LABELS_DE` is **complete by construction**: every
+#   introspected core attribute name must appear. ``tests/
+#   test_attribute_label_i18n_1090.py`` asserts completeness against the live
+#   introspection result, so a new model column fails the suite until it has a
+#   decided German term. That is the rule; a per-attribute assertion list
+#   would just be the same data twice.
+# * ``label_en`` deliberately stays the bare field name. The English label is
+#   not what this issue is about, and pinning it here would silently change
+#   every English API response. It also keeps the enforcement rule crisp: for a
+#   core attribute the English label *is* the field name, so "German label
+#   differs from the English label" is exactly "German label is not a field-name
+#   leak".
+# * Enum **option** labels are NOT touched. Options are a separate carrier with
+#   their own convention (``_opt`` above): a deliberately untranslated machine
+#   value such as ``unit``/``integration``/``major`` keeps one spelling for both
+#   locales, because those are stored values, not prose.
+# * A handful of entries are German/English homographs on purpose. ``name ->
+#   "Name"`` is a correct German label that merely differs from the identifier
+#   by case, just as this module already ships ``Version``/``Version`` and
+#   ``Timing``/``Timing`` for the matrix attributes. ``Make-or-Buy``,
+#   ``MOSCOW-Priorität`` and ``Reviewer`` are established loanwords in German
+#   SE practice (ISO 42010/26262 vocabulary) and are not mistranslated.
+CORE_ATTRIBUTE_LABELS_DE: Mapping[str, str] = {
+    # -- identification -----------------------------------------------------
+    "title": "Titel",
+    # The user-facing, stable business key of an artifact (REQ-L2-RF-025).
+    # Not the technical surrogate key: that one is the artifact-level ``id``,
+    # already labelled "ID".
+    "uid": "System-ID",
+    "name": "Name",
+    "abbreviation": "Abkürzung",
+    # -- content ------------------------------------------------------------
+    "description": "Beschreibung",
+    "semantic_description": "Semantische Beschreibung",
+    "context": "Kontext",
+    "decision": "Entscheidung",
+    "consequences": "Konsequenzen",
+    "definition": "Definition",
+    "term": "Begriff",
+    "acceptance_criteria": "Abnahmekriterien",
+    # -- classification -----------------------------------------------------
+    "category": "Kategorie",
+    "type": "Typ",
+    # Decomposition/hierarchy level. ``TestCase.test_level`` uses "Testebene",
+    # so the bare hierarchy level stays "Ebene".
+    "level": "Ebene",
+    "complexity_fibonacci": "Komplexität (Fibonacci)",
+    "criticality": "Kritikalität",
+    "difficulty": "Schwierigkeit",
+    "severity": "Schweregrad",
+    "probability": "Wahrscheinlichkeit",
+    "impact": "Auswirkung",
+    "impact_assessment": "Auswirkungsanalyse",
+    # FMEA "Detection" — detectability of the failure mode.
+    "detection": "Erkennbarkeit",
+    # FMEA mitigation (the planned counter-measure) — deliberately NOT
+    # "Behandlungsstrategie", which is ``response_strategy`` below. Both
+    # attributes are visible on Risk, so sharing one German term would render
+    # two identically labelled fields in the same form.
+    "mitigation_strategy": "Maßnahmenstrategie",
+    "element_type": "Elementtyp",
+    "make_or_buy": "Make-or-Buy",
+    "asil_level": "ASIL-Ebene",
+    "test_type": "Testtyp",
+    "test_level": "Testebene",
+    "protocol": "Protokoll",
+    "direction": "Richtung",
+    "interface_type": "Schnittstellentyp",
+    "moscow_priority": "MOSCOW-Priorität",
+    # -- verification -------------------------------------------------------
+    "verification_method": "Verifikationsmethode",
+    "validation_method": "Validierungsmethode",
+    "verification_status": "Verifikationsstatus",
+    "reviewed": "Geprüft",
+    # -- attribution --------------------------------------------------------
+    "origin": "Herkunft",
+    "source": "Quelle",
+    "origin_link": "Quellverweis",
+    "rationale": "Begründung",
+    "stakeholder": "Stakeholder",
+    "viewpoint": "Viewpoint",
+    "concern": "Concern",
+    "owner_user_id": "Verantwortlicher",
+    "requestor_id": "Anforderer",
+    "assigned_reviewer_id": "Zugewiesener Reviewer",
+    "owner": "Verantwortlicher",
+    "reporter": "Melder",
+    # -- traceability -------------------------------------------------------
+    "parent_id": "Übergeordnetes Element",
+    "source_element_id": "Quellelement-ID",
+    "target_element_id": "Zielelement-ID",
+    "parent_goal": "Übergeordnetes Ziel",
+    "supersedes": "Ersetzt",
+    # -- lifecycle ----------------------------------------------------------
+    "due_date": "Fälligkeitsdatum",
+    "change_reason": "Änderungsgrund",
+    "change_class": "Änderungsklasse",
+    "target_baseline": "Ziel-Baseline",
+    "decided_at": "Entschieden am",
+    "review_status": "Review-Status",
+    "review_cycle": "Review-Zyklus",
+    "unit": "Einheit",
+    "threshold": "Schwellwert",
+    "target_value": "Zielwert",
+    "measure_name": "Messgröße",
+    "timeframe": "Zeitrahmen",
+    "data_elements": "Datenelemente",
+    "version": "Version",
+    "timing": "Timing",
+    "synonyms": "Synonyme",
+    "performance_budget": "Performance-Budget",
+    "safety_classification": "Sicherheitsklassifikation",
+    "resolution": "Lösung",
+    "root_cause": "Ursache",
+    "validation_criteria": "Validierungskriterien",
+    "alternatives": "Alternativen",
+    "decision_drivers": "Entscheidungstreiber",
+    "deciders": "Entscheider",
+    "assignee": "Zugewiesen an",
+    "expected_result": "Erwartetes Ergebnis",
+    "preconditions": "Vorbedingungen",
+    "postconditions": "Nachbedingungen",
+    "test_data": "Testdaten",
+    "test_environment": "Testumgebung",
+    "risk_type": "Risikoart",
+    "residual_risk": "Restrisiko",
+    "response_strategy": "Behandlungsstrategie",
+    "ccb_decision": "CCB-Entscheidung",
+    "verification_of_change": "Verifikation der Änderung",
+    "technology": "Technologie",
+    "id": "ID",
+    "status": "Status",
+    "priority": "Priorität",
+}
+
+
+def resolve_core_label(name: str) -> dict[str, str]:
+    """Return the ``{"de": ..., "en": ...}`` label for a core attribute.
+
+    ``en`` stays the bare field name (see the section comment above); ``de`` is
+    the decided German term, falling back to the field name only for a name
+    that is not (yet) in the registry. That fallback is what
+    ``tests/test_attribute_label_i18n_1090.py`` pins shut: the suite asserts
+    the registry is complete, so the fallback can never be reached in a green
+    run.
+    """
+    return {"de": CORE_ATTRIBUTE_LABELS_DE.get(name, name), "en": name}
+
+
 def _opt(value: str, de: str, en: str) -> dict[str, str]:
     """One enum option in the schema's normalized shape."""
     return {"value": value, "label_de": de, "label_en": en}
@@ -663,6 +838,7 @@ def stage_mandatory_names(
 
 
 __all__ = [
+    "CORE_ATTRIBUTE_LABELS_DE",
     "MATRIX_ATTRIBUTES",
     "MATRIX_OVERRIDES",
     "OWNER_MANDATORY_STAGES",
@@ -678,5 +854,6 @@ __all__ = [
     "SEC_VERIFICATION",
     "apply_stage_overrides",
     "build_stage_attributes",
+    "resolve_core_label",
     "stage_mandatory_names",
 ]

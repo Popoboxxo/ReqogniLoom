@@ -103,6 +103,81 @@ _ERROR_CATALOG: dict[str, tuple[int, dict[str, str]]] = {
 _DEFAULT_LANGUAGE = "en"
 _SUPPORTED_LANGUAGES = ("en", "de")
 
+#: Replacement text for ``invalid_api_key`` when — and only when — the rejected
+#: credential came from the ``X-API-Key`` *header* (GitHub #1076).
+#:
+#: The catalog's generic "The provided API key is invalid." is true for every
+#: way a key can fail, which is exactly why it is useless in the one situation
+#: operators hit most: a request that carries a valid ``Authorization: Bearer``
+#: token *and* a stale ``X-API-Key`` (typically injected by a reverse proxy for
+#: one backend service) is rejected with 401, and the operator sees a 401 that
+#: is indistinguishable from an expired session. The code alone cannot carry
+#: the cause, because the whole invalid-key family deliberately shares
+#: ``invalid_api_key`` (no oracle for key existence).
+#:
+#: So the *code* stays stable for machines and this text carries the cause and
+#: the fix for humans. It is built here, next to the catalog, rather than in
+#: the DRF integration so the wording has exactly one home.
+#:
+#: Two variants, not one, because the remediation differs: "remove the
+#: X-API-Key header to use your Bearer token" is *actively wrong* when the
+#: request carried no ``Authorization`` header at all — removing the only
+#: credential would leave it anonymous. Both variants name the header as the
+#: cause; only the advice differs.
+_API_KEY_HEADER_REJECTED_MESSAGES: dict[str, dict[bool, str]] = {
+    "en": {
+        True: (
+            "Request rejected because of the X-API-Key header: the API key it "
+            "carries is not valid. The Authorization: Bearer credential on this "
+            "request was NOT evaluated — remove the X-API-Key header to "
+            "authenticate with the Bearer token instead."
+        ),
+        False: (
+            "Request rejected because of the X-API-Key header: the API key it "
+            "carries is not valid. No other credential was presented, so the "
+            "request is unauthenticated — send a valid X-API-Key or an "
+            "Authorization: Bearer token."
+        ),
+    },
+    "de": {
+        True: (
+            "Anfrage abgelehnt wegen des X-API-Key-Headers: der darin "
+            "übergebene API-Schlüssel ist ungültig. Die Authorization: "
+            "Bearer-Zugangsberechtigung dieser Anfrage wurde NICHT "
+            "ausgewertet — entfernen Sie den X-API-Key-Header, um "
+            "stattdessen mit dem Bearer-Token zu authentifizieren."
+        ),
+        False: (
+            "Anfrage abgelehnt wegen des X-API-Key-Headers: der darin "
+            "übergebene API-Schlüssel ist ungültig. Es wurde keine weitere "
+            "Zugangsberechtigung mitgesendet, die Anfrage ist daher nicht "
+            "authentifiziert — senden Sie einen gültigen X-API-Key oder ein "
+            "Authorization: Bearer-Token."
+        ),
+    },
+}
+
+
+def build_api_key_header_rejection_message(
+    accept_language: str | None, *, bearer_present: bool
+) -> str:
+    """Return the ``X-API-Key``-caused ``invalid_api_key`` text (GitHub #1076).
+
+    Args:
+        accept_language: Raw ``Accept-Language`` header for DE/EN selection.
+        bearer_present: Whether the request also carried an
+            ``Authorization: Bearer`` header. Selects the remediation, because
+            "remove the X-API-Key header" only makes sense when a Bearer
+            credential is there to fall back to.
+
+    Deliberately says *nothing* about whether the key exists, is revoked, or
+    belongs to a deactivated user — that boundary is the reason the whole
+    invalid family shares one code (REQ-L2-AT-010) and must not be weakened by
+    a more specific message.
+    """
+    language = _normalise_language(accept_language)
+    return _API_KEY_HEADER_REJECTED_MESSAGES[language][bool(bearer_present)]
+
 
 class AuthError(Exception):
     """Base for all auth failures carrying a standardised response shape.
@@ -114,13 +189,27 @@ class AuthError(Exception):
     Attributes:
         code: Stable machine code (must exist in the error catalog).
         required_role: Optional role hint for 403 responses (REQ-L2-AT-010).
+        message: Optional per-occurrence *message* override, ``None`` for the
+            catalog default. GitHub #1076: some rejections are only
+            interpretable with transport context that the service layer cannot
+            see (which header carried the credential), and that context lives at
+            the call site — so the call site may override the text while the
+            ``code`` and the HTTP status stay exactly as the catalog defines
+            them. The override is for humans; clients still branch on ``code``.
     """
 
-    def __init__(self, code: str, required_role: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        required_role: str | None = None,
+        *,
+        message: str | None = None,
+    ) -> None:
         if code not in _ERROR_CATALOG:
             raise ValueError(f"Unknown auth error code: {code!r}")
         self.code = code
         self.required_role = required_role
+        self.message = message
         super().__init__(code)
 
     @property
@@ -165,6 +254,7 @@ def build_error_body(
     *,
     accept_language: str | None = None,
     required_role: str | None = None,
+    message: str | None = None,
 ) -> dict[str, Any]:
     """Build the standardised error body for ``code`` (REQ-L3-AT001-004).
 
@@ -196,6 +286,10 @@ def build_error_body(
         code: Error code present in the catalog.
         accept_language: Raw ``Accept-Language`` header for DE/EN selection.
         required_role: Role hint added to 403 ``insufficient_permissions``.
+        message: Optional override for the catalogue text, for rejections whose
+            cause is only knowable at the call site (GitHub #1076). The
+            ``code``, the HTTP status and ``details`` are unaffected — only the
+            human-readable text changes.
 
     Returns:
         The nested error envelope. Never contains sensitive data.
@@ -216,7 +310,7 @@ def build_error_body(
     from rest_api.serializers import build_error_response
 
     return build_error_response(
-        code=code, details=[detail], message=messages[language]
+        code=code, details=[detail], message=message or messages[language]
     )
 
 
@@ -228,6 +322,7 @@ def error_response_tuple(
         error.code,
         accept_language=accept_language,
         required_role=error.required_role,
+        message=error.message,
     )
     return body, error.status_code
 
@@ -237,6 +332,7 @@ __all__ = [
     "AuthenticationFailed",
     "PermissionDenied",
     "TenantResolutionError",
+    "build_api_key_header_rejection_message",
     "build_error_body",
     "error_response_tuple",
 ]
