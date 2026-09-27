@@ -57,17 +57,19 @@ is ``ForeignKey(Artifact, on_delete=models.CASCADE)``, so the ORM's own
 collector attempts to cascade-delete any document-scope baseline the moment
 its owning ``Artifact`` row is deleted — the same trigger fires and aborts
 just the same. The *reference* path this command mirrors,
-``WorkspaceService.delete_workspace``, does not solve this either: it has no
-baseline pre-check, so it hits the same trigger and relies on
-``@atomic_transaction`` to roll the whole delete back, leaving the workspace
-AND its baseline(s) intact (pinned by
-``application/tests/test_workspace_lifecycle.py::test_delete_workspace_with_baselines_fails``).
-An unattended batch job cannot rely on that per-call rollback the same way —
-a raised exception here would abort the entire remaining ``stale`` loop, not
-just one workspace — so ``_cascade_delete`` pre-checks for baselines and
-*skips* (not deletes, not crashes) any workspace that still has one, exactly
-mirroring what the reference path's rollback achieves (workspace + baseline
-both survive), just without needing to hit the trigger to get there. Each
+``WorkspaceService.delete_workspace``, does not reach the trigger at all
+anymore: since GitHub #1084 it pre-checks for baselines and raises
+``BaselineImmutabilityError`` (a ``ValidationError`` subclass) before touching
+a single row, so a workspace holding a baseline is refused as a clean
+precondition failure and the rollback is not what keeps the data intact
+(``application/tests/test_workspace_lifecycle.py::
+test_delete_workspace_with_baselines_fails`` pins the surviving rows). An
+unattended batch job still cannot rely on that per-call exception: it would
+abort the entire remaining ``stale`` loop, not just one workspace — so
+``_cascade_delete`` pre-checks for baselines and
+*skips* (not deletes, not crashes) any workspace that still has one, producing
+the same observable outcome (workspace + baseline both survive) without
+depending on an exception at all. Each
 workspace's cascade also now runs inside its own ``transaction.atomic()``
 block so an unrelated failure can't leave one workspace half-deleted while
 still allowing the rest of the batch to proceed.

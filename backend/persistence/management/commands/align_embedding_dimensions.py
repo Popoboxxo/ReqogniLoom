@@ -51,6 +51,30 @@ the DDL block runs. It opens no transaction and changes nothing, so an operator
 can review exactly which vectors a real run would discard. Without the flag the
 behaviour is unchanged.
 
+Required role (GitHub #1053)
+----------------------------
+Resizing a column and recreating its HNSW index is DDL, and Postgres reserves
+DDL on those objects to their owner. The shipped ``docker-compose.yml`` gives
+the ``backend`` / ``celery`` / ``migrate``-adjacent services the *least-
+privilege* ``reqogniloom_app`` role (``DB_USER`` = ``DB_APP_USER``) while
+``DB_USER`` / ``DB_PASSWORD`` is the cluster superuser the ``migrate`` service
+connects with. So this command has two supported ways to obtain a role that owns
+the tables and indexes, and the failure message names both:
+
+1. ``docker compose run --rm migrate python manage.py
+   align_embedding_dimensions`` — the ``migrate`` service is the one that already
+   runs with owner credentials.
+2. From a source checkout, with ``DB_USER`` / ``DB_PASSWORD`` pointing at the
+   owner (``DB_APP_USER`` / ``DB_APP_PASSWORD`` stay the app role for the
+   runtime services).
+
+Neither is a new capability: the command has no owner-credential path of its
+own, because the connection is resolved once in
+``reqogniloom.settings.DATABASES`` from ``DB_USER`` / ``DB_PASSWORD``. What
+changed in #1053 is only that the refusal is now an actionable
+``CommandError`` instead of a raw ``ProgrammingError: must be owner of index
+…``.
+
 Layering (ADR-01): this lives in ``persistence`` (Layer 0), so it imports
 neither ``llm_adapter`` nor ``application``. The target width therefore comes
 from ``persistence.embedding_dimensions``, not from the configured provider:
@@ -66,10 +90,57 @@ from typing import List, NamedTuple, Optional, Tuple
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
+from django.db.utils import DatabaseError
 from pgvector.django import HnswIndex
 
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.embedding_schema import EmbeddingColumn, column_type, embedding_columns
+
+#: Substrings Postgres uses when the connected role lacks the rights a DDL
+#: statement needs. ``must be owner of index <name>`` is what
+#: ``DROP INDEX``/``CREATE INDEX`` raise for the least-privilege application
+#: role; ``must be owner of table`` is the equivalent for the ``ALTER TABLE``.
+#: Matched case-insensitively so a localized/uppercased server message still
+#: hits (issue #1053).
+_OWNERSHIP_ERROR_MARKERS = (
+    "must be owner of",
+    "permission denied for",
+    "insufficientprivilege",
+)
+
+
+def _is_ownership_error(exc: BaseException) -> bool:
+    """Whether *exc* is Postgres refusing a DDL statement over ownership/ACL.
+
+    A dependency error raised inside the DDL block leaves the surrounding
+    ``atomic()`` aborted, so every later statement in the same transaction
+    reports ``current transaction is aborted`` too. Only the *first* message is
+    therefore the diagnostic one; the markers are matched against the whole
+    str() so a driver that prefixes the server text still hits.
+    """
+    text = str(exc).lower()
+    return any(marker in text for marker in _OWNERSHIP_ERROR_MARKERS)
+
+
+def _ownership_error_hint() -> str:
+    """The operator-actionable half of the #1053 error message.
+
+    Deliberately names *both* supported escape hatches instead of assuming
+    which one an operator has: the compose ``migrate`` service (which connects
+    as the cluster superuser ``DB_USER``) and an explicit owner-credential run
+    from a source checkout.
+    """
+    return (
+        "The connected database role owns neither the embedding table nor its "
+        "HNSW index, so the resize DDL was refused. Two ways forward: (1) run "
+        "it through the migration owner — `docker compose run --rm migrate "
+        "python manage.py align_embedding_dimensions` (the `migrate` service "
+        "connects as the superuser DB_USER/DB_PASSWORD, not the least-privilege "
+        "app role); or (2) run it from a source checkout with owner credentials, "
+        "setting DB_USER/DB_PASSWORD to the owner and DB_APP_USER/DB_APP_PASSWORD "
+        "to the app role. The application role is deliberately not granted "
+        "ownership of the tables or indexes."
+    )
 
 
 class _HnswSpec(NamedTuple):
@@ -285,6 +356,30 @@ class Command(BaseCommand):
                     for spec in specs:
                         cursor.execute(_create_index_sql(column.table, column.column, spec))
                         reindexed += 1
+        except DatabaseError as exc:
+            # GitHub #1053. Resizing a column and its HNSW index is DDL, and
+            # DDL is owner-only in Postgres. Run as the least-privilege app
+            # role (the documented `docker-compose.yml` default, DB_USER =
+            # DB_APP_USER) this dies with the raw
+            #   django.db.utils.ProgrammingError: must be owner of index
+            #   mem_entry_embedding_hnsw
+            # which tells an operator nothing actionable — the fix lives in
+            # which *role* they ran it as, not in anything they typed.
+            #
+            # ``DatabaseError`` rather than ``ProgrammingError`` because the
+            # exact subclass depends on the psycopg version mapping of
+            # SQLSTATE 42501 (``InsufficientPrivilege``); the message marker in
+            # :func:`_is_ownership_error` is what actually decides, and every
+            # non-ownership database error is re-raised untouched so a genuine
+            # SQL bug is not laundered into "check your credentials".
+            if _is_ownership_error(exc):
+                raise CommandError(
+                    "Could not resize the embedding column(s): the connected "
+                    "database role is not the owner of the table or its HNSW "
+                    f"index. Database said: {exc}\n\n"
+                    + _ownership_error_hint()
+                ) from exc
+            raise
         finally:
             # ``SET CONSTRAINTS ALL IMMEDIATE`` is TRANSACTION-scoped, not
             # savepoint-scoped: the ``transaction.atomic()`` above is only a

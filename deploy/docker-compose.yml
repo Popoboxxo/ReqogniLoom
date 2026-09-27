@@ -69,6 +69,177 @@
 #   logs on its own — an unbounded log file can fill the host disk. This
 #   caps each container at 3 × 10MB. Pure hygiene, not a functional setting.
 
+x-honcho-env: &honcho-env
+  DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:-honcho-dev-password}@honcho-postgres:5432/honcho
+  REDIS_URL: redis://honcho-redis:6379
+  # Dev-only. Flip to true + set an API key before using this beyond a
+  # single-developer local stack (see HONCHO_API_KEY in .env.example).
+  AUTH_USE_AUTH: "false"
+  SENTRY_ENABLED: "false"
+  # Pin Honcho's own reasoning LLM for EVERY engine module that calls one
+  # (deriver, peer card, summary, dream, dialectic — all server-side; see
+  # memory/honcho_backend.py's module docstring and .env.example's
+  # "Pinning Honcho's own reasoning LLM" section for why this can't be
+  # done from the client SDK) to this project's own opencode_go provider,
+  # reusing the SAME key already configured for ReqogniLoom's own
+  # LLM_PROVIDER=opencode_go -- one opencode_go account covers both.
+  # `mimo-v2.5` is the verified model id on the `/zen/go/v1` endpoint
+  # (NOT `mimo-v2.5-free`, which only exists on the non-Go `/zen/v1`
+  # endpoint). Comment this whole block out to let Honcho fall back to
+  # its own default model config instead.
+  #
+  # WHY EVERY ACTIVE MODULE MUST BE PINNED: Honcho's built-in defaults for
+  # these modules are `transport=openai, model=gpt-5.4-mini`
+  # (ConfiguredModelSettings), but the ONLY key in this container is
+  # LLM_OPENAI_API_KEY, and it holds an opencode_go key — not a real
+  # OpenAI key. A module whose model config is left untouched therefore
+  # falls back to a model+endpoint it cannot authenticate against and
+  # fails server-side; the memory READ path keeps working, so the failure
+  # is invisible from ReqogniLoom's UI (RFC #1002 finding F6). DERIVER,
+  # DIALECTIC, SUMMARY and DREAM model configs are all pinned below for
+  # exactly that reason.
+  LLM_OPENAI_API_KEY: ${LLM_API_KEY}
+  # #1050/#1051: the Zen-Go endpoint requires an `x-opencode-session` header on
+  # every request and answers `400 MissingSessionID` without it. This is the ONE
+  # variable that carries it — the same value the app itself sends (see the
+  # `backend`/`celery` services), so there is a single place to change it.
+  #
+  # WHY THE NINE `…__EXTRA_HEADERS__x-opencode-session` VARIABLES FROM #1051 ARE
+  # NOT IN THIS FILE, DESPITE THAT ISSUE LISTING THEM AS THE FIX: DOCKER
+  # SILENTLY DROPS ANY ENVIRONMENT VARIABLE WHOSE NAME CONTAINS A DASH. Verified
+  # here on ghcr.io/plastic-labs/honcho:latest with the exact variable names from
+  # the issue, by all four delivery mechanisms, and counting what actually
+  # arrived in the container:
+  #
+  #   docker run -e "FOO__x-opencode-session=v"   -> dropped
+  #   docker run --env-file (dashed name)         -> dropped
+  #   compose environment:  (dashed key)          -> shown by `config`, DROPPED
+  #                                                 at container create
+  #   compose env_file:     (dashed name)         -> dropped
+  #   /bin/sh: export "A-B=1"                     -> "bad variable name"
+  #
+  # So writing those nine keys into `environment:` would have produced a compose
+  # file that LOOKS correct (`docker compose config` even prints them) while
+  # every Honcho LLM call still died with 400 — the exact silent-dead-config
+  # class #1051 is about. `LLM_OPENCODE_SESSION` is set here instead, and the
+  # `honcho`/`honcho-deriver` entrypoints below materialise the nine dashed
+  # names at container start with Python's os.environ, which does accept them
+  # (verified: all nine land in ModelConfig.overrides.provider_params and
+  # survive resolve_model_config — the SDK kwarg `extra_headers`).
+  #
+  # Left empty: no header is set at all, so a deployment on a real OpenAI key
+  # sends nothing rather than an empty header.
+  #
+  # UPSTREAM LIMITATION (cannot be fixed here): Honcho's own default headers are
+  # hardcoded in src/llm/registry.py as `_DEFAULT_HEADERS_BY_BASE_URL`, whose
+  # only entry is `https://openrouter.ai` (HTTP-Referer / X-Openrouter-Title).
+  # There is no env var for it; `extra_headers` is the only supported route, and
+  # per-request `extra_headers` wins on key collision with those defaults.
+  LLM_OPENCODE_SESSION: ${LLM_OPENCODE_SESSION:-}
+  # Upstream, DERIVER_ENABLED / PEER_CARD_ENABLED / SUMMARY_ENABLED /
+  # DREAM_ENABLED all default to `true`. They are set explicitly anyway so
+  # an operator can SEE which engine modules are active without reading
+  # Honcho's source, and can flip any one off. Quoted like AUTH_USE_AUTH /
+  # SENTRY_ENABLED above.
+  DERIVER_ENABLED: "true"
+  PEER_CARD_ENABLED: "true"
+  DERIVER_MODEL_CONFIG__TRANSPORT: openai
+  DERIVER_MODEL_CONFIG__MODEL: mimo-v2.5
+  DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  DIALECTIC_LEVELS__low__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__low__MODEL_CONFIG__MODEL: mimo-v2.5
+  DIALECTIC_LEVELS__low__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  DIALECTIC_LEVELS__minimal__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__minimal__MODEL_CONFIG__MODEL: mimo-v2.5
+  DIALECTIC_LEVELS__minimal__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  DIALECTIC_LEVELS__medium__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__medium__MODEL_CONFIG__MODEL: mimo-v2.5
+  DIALECTIC_LEVELS__medium__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  DIALECTIC_LEVELS__high__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__high__MODEL_CONFIG__MODEL: mimo-v2.5
+  DIALECTIC_LEVELS__high__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  DIALECTIC_LEVELS__max__MODEL_CONFIG__TRANSPORT: openai
+  DIALECTIC_LEVELS__max__MODEL_CONFIG__MODEL: mimo-v2.5
+  DIALECTIC_LEVELS__max__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  # SUMMARY (periodic short/long conversation summaries) and DREAM (the
+  # offline deduction/induction peer-representation job) are the
+  # #1002/F6 gap: the deriver/dialectic block above does NOT cover them,
+  # so before this they silently fell back to the built-in
+  # `transport=openai, model=gpt-5.4-mini` default — see the
+  # "WHY EVERY ACTIVE MODULE MUST BE PINNED" note above. Both are pinned
+  # to opencode_go exactly like DERIVER/DIALECTIC.
+  SUMMARY_ENABLED: "true"
+  SUMMARY_MODEL_CONFIG__TRANSPORT: openai
+  SUMMARY_MODEL_CONFIG__MODEL: mimo-v2.5
+  SUMMARY_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  DREAM_ENABLED: "true"
+  DREAM_DEDUCTION_MODEL_CONFIG__TRANSPORT: openai
+  DREAM_DEDUCTION_MODEL_CONFIG__MODEL: mimo-v2.5
+  DREAM_DEDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  DREAM_INDUCTION_MODEL_CONFIG__TRANSPORT: openai
+  DREAM_INDUCTION_MODEL_CONFIG__MODEL: mimo-v2.5
+  DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
+  # REQUIRED for any write (peer.conclusions.create/...) to succeed --
+  # verified live: without this, Honcho's embedding client defaults to
+  # real OpenAI and fails with `AuthenticationError: Incorrect API key`
+  # the moment it tries to reuse LLM_OPENAI_API_KEY (an opencode_go key,
+  # not an OpenAI one) for embeddings. opencode_go itself serves no
+  # embedding models (see .env.example), so this can't reuse the same
+  # provider as DERIVER/DIALECTIC above. Pick ONE:
+  #
+  #   (a) A real OpenAI key, if you have one -- set in .env:
+  #         LLM_OPENAI_API_KEY=<a REAL OpenAI key -- separate from the
+  #           opencode_go one above; Honcho does not distinguish the two
+  #           by provider, only by this one env var>
+  #         HONCHO_EMBEDDING_MODEL=text-embedding-3-small
+  #         HONCHO_EMBEDDING_VECTOR_DIMENSIONS=1536   # OpenAI width
+  #         HONCHO_EMBEDDING_BASE_URL=https://api.openai.com/v1
+  #
+  #   (b) A self-hosted Ollama with an embedding model (mirrors this
+  #       project's OWN optional Ollama pattern in
+  #       docker-compose.override.example.yml -- add that `ollama`
+  #       service to this stack too, `docker exec ... ollama pull
+  #       nomic-embed-text`, then set in .env):
+  #         HONCHO_EMBEDDING_TRANSPORT=openai
+  #         HONCHO_EMBEDDING_MODEL=nomic-embed-text
+  #         HONCHO_EMBEDDING_VECTOR_DIMENSIONS=768   # see pitfall below
+  #         HONCHO_EMBEDDING_BASE_URL=http://ollama:11434/v1
+  #
+  # Parameterized with defaults that mirror option (b): a host-run Ollama
+  # serving nomic-embed-text, reached as host.docker.internal (extra_hosts
+  # below makes that name resolve on Linux too; built-in on Docker Desktop).
+  # Override the HONCHO_EMBEDDING_* vars in .env to point elsewhere -- e.g.
+  # option (a)'s OpenAI, or an in-stack `ollama` service at
+  # http://ollama:11434/v1 (see .env.example's Honcho section). A memory
+  # WRITE still needs a reachable embedding endpoint; reads do not. The
+  # `memory_backend` row of GET /api/v1/admin/health/ reports down when the
+  # embedding endpoint is unreachable or unconfigured (#911).
+  EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-768}
+  EMBEDDING_MODEL_CONFIG__TRANSPORT: ${HONCHO_EMBEDDING_TRANSPORT:-openai}
+  EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
+  EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
+  # PITFALL, verified live against a real ollama.nomic-embed-text setup:
+  # the pgvector column's dimension is baked into the schema at MIGRATE
+  # time from `EMBEDDING_VECTOR_DIMENSIONS` (Honcho's own default 1536,
+  # i.e. OpenAI's dimension) -- setting the var on the SERVER but migrating
+  # (or having already migrated) with the default still crashes it at boot
+  # with `documents.embedding dim (1536) does not match
+  # EMBEDDING_VECTOR_DIMENSIONS (768)`. Any non-1536-dim model (which
+  # nomic-embed-text is) needs `EMBEDDING_VECTOR_DIMENSIONS` set on BOTH
+  # `honcho-migrate` above AND here BEFORE the very first migration runs
+  # against a fresh `honcho_postgres_data` volume.
+  #
+  # This is no longer a "drop the volume and start over" situation:
+  # `honcho-migrate` now runs Honcho's own supported
+  # `scripts/configure_embeddings.py --yes` right after `alembic upgrade
+  # head` (verified against ghcr.io/plastic-labs/honcho:latest), which
+  # ALTERs an already-migrated schema to `EMBEDDING_VECTOR_DIMENSIONS`.
+  # A later width change is therefore re-applied on the next
+  # `honcho-migrate` run -- but pgvector cannot cast between widths, so
+  # vectors already stored at the old width are DISCARDED by that ALTER
+  # and must be regenerated. text-embedding-3-small in option (a)
+  # sidesteps the whole topic (1536-dim, matches the untouched default).
+
 services:
   # ─────────────────────────────────────────────────────────
   # PostgreSQL — ARCH-L1-010 PersistenceLayer
@@ -127,7 +298,7 @@ services:
   # PostgreSQL Backup — REQ-102 (INF-21) backup strategy
   # ─────────────────────────────────────────────────────────
   # Sidecar that dumps the database on a fixed interval (BACKUP_INTERVAL
-  # seconds, default 24h): a timestamped, gzip-compressed pg_dump into the
+  # seconds, default 6h): a timestamped, gzip-compressed pg_dump into the
   # postgres_backup_data volume, pruning all but the newest BACKUP_RETENTION
   # (default 7) dumps. Restore with:
   #   gunzip -c reqogniloom_<ts>.sql.gz | psql -h postgres -U $DB_USER -d $DB_NAME
@@ -135,7 +306,45 @@ services:
   # bind-mounted backend/scripts/backup_postgres.sh) so this service needs no
   # repo file beyond this compose YAML — `$$` below is the required Compose
   # escape for a literal `$` the container's shell should expand, not Compose
-  # itself at file-parse time.
+  # itself at file-parse time. Shell self-check for this block:
+  # deploy/verify-backup-command.sh (#1074).
+  #
+  # #1074 — a backup must never be able to REPORT success while being broken.
+  # Three defects combined into one silent data-loss class; all three are fixed
+  # here, and the post-deploy gate lives in docs/DEPLOY_RUNBOOK.md:
+  #
+  # 1. `pg_dump … | gzip > "$outfile"` reported SUCCESS for a failed dump. In a
+  #    POSIX shell a pipeline's exit status is that of the LAST command, and
+  #    `gzip` exits 0 even when `pg_dump` wrote nothing. `pipefail` does not
+  #    exist in dash/sh, and this is exactly the "empty file, green deploy"
+  #    the QA found: 389 bytes gzipped, 0 `COPY` blocks. Fix: `pg_dump` now
+  #    writes a plain .sql file with `--file=` (no pipeline at all, so its own
+  #    exit status is the status that is checked) and the dump is verified
+  #    BEFORE it is published: gzip integrity (`gzip -t`) plus a CONTENT gate —
+  #    a real dump of a migrated ReqogniLoom database always contains at least
+  #    one `COPY <table> (… ) FROM stdin;` block, while a truncated/failed
+  #    dump contains none. A size threshold alone is deliberately NOT used: a
+  #    389-byte file and a 30 MB file are both "big enough" for any fixed
+  #    floor, only the COPY count distinguishes them. `set -o pipefail` is kept
+  #    under bash as a second line of defence, not as the primary check.
+  # 2. The first dump fired in the same second the container started — on a
+  #    just-migrated, still-empty database — and the next one was a full
+  #    BACKUP_INTERVAL away. Fix, two independent layers: this service now
+  #    `depends_on: migrate: service_completed_successfully`, so it cannot
+  #    start before the schema exists at all, AND the first iteration is
+  #    preceded by BACKUP_INITIAL_DELAY (default 300s) so a deploy window's
+  #    first dump is never the empty one. Both are configurable, neither is a
+  #    magic constant.
+  # 3. A failed backup was a single "[backup] run failed" line in a log nobody
+  #    reads, and the broken 389-byte file was LEFT IN PLACE, looking exactly
+  #    like a good backup. Fix: a failed dump is deleted (the empty-file
+  #    semantics are retired), logged on stderr with a FAILED prefix, recorded
+  #    in the marker file /backups/.last_backup_status that the runbook gate
+  #    reads, and after BACKUP_MAX_CONSECUTIVE_FAILURES the process exits
+  #    non-zero — visible as a restarting container in `docker ps` instead of
+  #    silent rot. BACKUP_ONCE=true runs exactly one dump and exits with the
+  #    dump's own status; that is the operator-facing one-shot the runbook gate
+  #    calls, so the gate gets a real non-zero exit code.
   postgres-backup:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
@@ -146,31 +355,149 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       BACKUP_DIR: /backups
       BACKUP_RETENTION: ${BACKUP_RETENTION:-7}
-      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
+      # Set explicitly in .env (see .env.example) — do NOT rely on the Compose
+      # default: 86400 meant "the first, and possibly only, backup of a fresh
+      # deployment is 24h away from the deploy" (#1074).
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-21600}
+      # Delay before the FIRST dump of a container start, in seconds. 0 disables.
+      BACKUP_INITIAL_DELAY: ${BACKUP_INITIAL_DELAY:-300}
+      # A dump must contain at least this many `COPY ` blocks to count as a
+      # backup. 1 is the correct floor for any migrated ReqogniLoom database.
+      BACKUP_MIN_COPY_BLOCKS: ${BACKUP_MIN_COPY_BLOCKS:-1}
+      # Consecutive failures tolerated before the process exits non-zero.
+      BACKUP_MAX_CONSECUTIVE_FAILURES: ${BACKUP_MAX_CONSECUTIVE_FAILURES:-3}
+      # true = one dump, then exit with its status (the runbook gate).
+      BACKUP_ONCE: ${BACKUP_ONCE:-false}
     volumes:
       - postgres_backup_data:/backups
-    entrypoint: ["/bin/sh", "-c"]
+    # bash, not sh: the exit-code check needs `set -o pipefail`, which dash/
+    # sh do not implement. Verified present in pgvector/pgvector:pg16.
+    entrypoint: ["/bin/bash", "-c"]
     command:
       - |
+        set -o pipefail
+
+        BACKUP_DIR="$${BACKUP_DIR:-/backups}"
+        BACKUP_INTERVAL="$${BACKUP_INTERVAL:-21600}"
+        BACKUP_INITIAL_DELAY="$${BACKUP_INITIAL_DELAY:-300}"
+        BACKUP_MIN_COPY_BLOCKS="$${BACKUP_MIN_COPY_BLOCKS:-1}"
+        BACKUP_MAX_CONSECUTIVE_FAILURES="$${BACKUP_MAX_CONSECUTIVE_FAILURES:-3}"
+        BACKUP_RETENTION="$${BACKUP_RETENTION:-7}"
+        BACKUP_ONCE="$${BACKUP_ONCE:-false}"
+        # Dot-prefixed so the retention glob (reqogniloom_*.sql.gz) never
+        # matches it. Written on EVERY attempt, success or failure: this is the
+        # file docs/DEPLOY_RUNBOOK.md reads to decide whether the last backup
+        # is trustworthy.
+        STATUS_FILE="$${BACKUP_DIR}/.last_backup_status"
+
+        export PGPASSWORD="$${POSTGRES_PASSWORD}"
+
+        record_status() {
+          printf '%s status=%s copy_blocks=%s file=%s\n' \
+            "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$1" "$${2:-0}" "$${3:-none}" > "$${STATUS_FILE}";
+        }
+
+        # 0 = a verified, restorable backup exists. Non-zero = NO backup file is
+        # left behind and the caller must treat this as a failed backup.
+        run_once() {
+          local timestamp outfile dumpfile copies
+          timestamp=$$(date +%Y%m%d_%H%M%S)
+          outfile="$${BACKUP_DIR}/reqogniloom_$${timestamp}.sql.gz"
+          dumpfile="$${BACKUP_DIR}/reqogniloom_$${timestamp}.sql"
+
+          echo "[backup] dumping $${POSTGRES_DB} from $${POSTGRES_HOST} to $${outfile}"
+
+          # --file=, not a pipe: pg_dump's own exit status is then the status
+          # this branch tests. With `| gzip` only gzip's status was visible
+          # and it is 0 for an empty input — the #1074 root cause.
+          if ! pg_dump --host="$${POSTGRES_HOST}" --username="$${POSTGRES_USER}" \
+              --dbname="$${POSTGRES_DB}" --no-owner --no-privileges --file="$${dumpfile}"; then
+            echo "[backup] FAILED: pg_dump exited non-zero — no backup file kept" >&2
+            rm -f "$${dumpfile}" "$${outfile}"
+            record_status failed 0 none
+            return 1
+          fi
+
+          # CONTENT gate (#1074). pg_dump's plain-text format emits one
+          # `COPY <table> (<cols>) FROM stdin;` header per table, whether or
+          # not the table has rows, so a migrated database always has >= 1.
+          # A dump that failed part-way (or ran against a database pg_dump
+          # cannot read) has 0 — exactly the shape the QA measured.
+          copies=$$(grep -c '^COPY ' "$${dumpfile}" || true)
+          if [ "$${copies:-0}" -lt "$${BACKUP_MIN_COPY_BLOCKS}" ]; then
+            echo "[backup] FAILED: dump has $${copies:-0} 'COPY ' block(s), need >= $${BACKUP_MIN_COPY_BLOCKS} — treating as an empty dump, no backup file kept" >&2
+            echo "[backup] FAILED: first 5 lines of the rejected dump follow" >&2
+            head -5 "$${dumpfile}" >&2 || true
+            rm -f "$${dumpfile}" "$${outfile}"
+            record_status failed "$${copies:-0}" none
+            return 1
+          fi
+
+          if ! gzip -9 -c "$${dumpfile}" > "$${outfile}"; then
+            echo "[backup] FAILED: gzip could not compress the dump — no backup file kept" >&2
+            rm -f "$${dumpfile}" "$${outfile}"
+            record_status failed "$${copies}" none
+            return 1
+          fi
+          rm -f "$${dumpfile}"
+
+          # Restore-verification gate, step 1 of 2: the published file must be
+          # a readable gzip stream. (Step 2 — that the COMPRESSED file still
+          # contains COPY blocks — is the operator gate in
+          # docs/DEPLOY_RUNBOOK.md, because only it proves the bytes on the
+          # volume are restorable.)
+          if ! gzip -t "$${outfile}" 2>/dev/null; then
+            echo "[backup] FAILED: $${outfile} is not a valid gzip stream — no backup file kept" >&2
+            rm -f "$${outfile}"
+            record_status failed "$${copies}" none
+            return 1
+          fi
+
+          echo "[backup] wrote $$(du -h "$${outfile}" | cut -f1) to $${outfile} ($${copies} COPY blocks verified)"
+          record_status ok "$${copies}" "$${outfile}"
+          return 0
+        }
+
+        prune_old() {
+          ls -1t "$${BACKUP_DIR}"/reqogniloom_*.sql.gz 2>/dev/null \
+            | tail -n "+$$(( BACKUP_RETENTION + 1 ))" \
+            | while read -r old; do echo "[backup] pruning old backup $${old}"; rm -f "$${old}"; done
+        }
+
+        if [ "$${BACKUP_ONCE}" = "true" ]; then
+          # Operator-triggered one-shot: the exit code IS the backup status, so
+          # the deploy gate can fail on it. No initial delay — the caller asked
+          # for a dump now.
+          if run_once; then exit 0; else exit 1; fi
+        fi
+
+        if [ "$${BACKUP_INITIAL_DELAY}" -gt 0 ]; then
+          echo "[backup] waiting $${BACKUP_INITIAL_DELAY}s before the first dump so it cannot land on a freshly migrated, still-empty database (#1074)"
+          sleep "$${BACKUP_INITIAL_DELAY}"
+        fi
+
+        failures=0
         while true; do
-          timestamp=$(date +%Y%m%d_%H%M%S);
-          outfile="$${BACKUP_DIR}/reqogniloom_$${timestamp}.sql.gz";
-          export PGPASSWORD="$${POSTGRES_PASSWORD}";
-          echo "[backup] dumping $${POSTGRES_DB} from $${POSTGRES_HOST} to $${outfile}";
-          if pg_dump --host="$${POSTGRES_HOST}" --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}" \
-              --no-owner --no-privileges | gzip > "$${outfile}"; then
-            echo "[backup] wrote $(du -h "$${outfile}" | cut -f1) to $${outfile}";
-            ls -1t "$${BACKUP_DIR}"/reqogniloom_*.sql.gz 2>/dev/null \
-              | tail -n "+$(( BACKUP_RETENTION + 1 ))" \
-              | while read -r old; do echo "[backup] pruning old backup $${old}"; rm -f "$${old}"; done;
+          if run_once; then
+            prune_old
+            failures=0
           else
-            echo "[backup] run failed";
-          fi;
-          sleep "${BACKUP_INTERVAL:-86400}";
+            failures=$$(( failures + 1 ))
+            echo "[backup] FAILED: $${failures} consecutive failure(s); last status in $${STATUS_FILE}" >&2
+            if [ "$${failures}" -ge "$${BACKUP_MAX_CONSECUTIVE_FAILURES}" ]; then
+              echo "[backup] FATAL: $${failures} consecutive failures — exiting non-zero instead of looping silently (restart policy will retry, `docker ps` will show the loop)" >&2
+              exit 1
+            fi
+          fi
+          sleep "$${BACKUP_INTERVAL}"
         done
     depends_on:
       postgres:
         condition: service_healthy
+      # #1074: no dump before the schema exists. Without this the very first
+      # dump of a fresh deployment ran against a just-migrated empty database.
+      migrate:
+        condition: service_completed_successfully
     logging:
       driver: "json-file"
       options:
@@ -271,6 +598,18 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_LONG_RUNNING_TIMEOUT: ${LLM_LONG_RUNNING_TIMEOUT:-180}
+      # #1050: REQUIRED for LLM_PROVIDER=opencode_go, and NOT optional. The
+      # Zen-Go endpoint rejects every call without it
+      # (`400 MissingSessionID: Request is missing x-opencode-session and
+      # cannot be routed efficiently`), which makes EVERY AI feature fail
+      # (validate_artifact, decompose_requirement, check_consistency,
+      # derive_requirements, interviews, ai_review) while the log — not the
+      # UI — is the only place it shows. Must be a STABLE per-deployment
+      # session id: reuse the same value for every call so the endpoint can
+      # route/cache the conversation; never rotate it per request.
+      # `llm-preflight` below turns a missing value into a FAILED DEPLOY
+      # instead of a silently dead LLM.
+      LLM_OPENCODE_SESSION: ${LLM_OPENCODE_SESSION:-}
       # ID of the base tenant/workspace the `migrate` self-init provisions on
       # an empty DB (single-tenant default; real multi-tenant setups assign
       # per-request via auth, this is only the bootstrap fallback).
@@ -312,6 +651,91 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      # #1050: a provider/session mismatch must fail the DEPLOY, not the first
+      # user request. See the `llm-preflight` service below.
+      llm-preflight:
+        condition: service_completed_successfully
+
+  # ─────────────────────────────────────────────────────────
+  # LLM Preflight — one-shot config gate (#1050)
+  # ─────────────────────────────────────────────────────────
+  # LLM_PROVIDER=opencode_go WITHOUT LLM_OPENCODE_SESSION is a deployment that
+  # comes up green and is completely dead: every AI feature returns
+  # `400 MissingSessionID` ("Request is missing x-opencode-session and cannot be
+  # routed efficiently"), while `/health` stays 200 and the UI looks healthy.
+  # The provider's own docstring calls the variable "optional" and
+  # .env.example did not carry it, so the combination was one unset variable
+  # away and produced nothing but a log line.
+  #
+  # This one-shot service closes that hole without touching application code:
+  # it checks the two variables from the ENVIRONMENT ALONE (no database, no
+  # network, no LLM call — it is a config assertion, not a smoke test) and
+  # exits non-zero when the combination is unusable. backend/celery/
+  # celery-beat declare
+  # `depends_on: {llm-preflight, condition: service_completed_successfully}`,
+  # so `up -d` refuses to start them and the operator gets a failed container
+  # with an actionable message instead of a silently broken deployment.
+  #
+  # The check is deliberately CONDITIONAL: a deployment on mock/anthropic/
+  # openai/ollama/azure needs no session id and must not be blocked by this
+  # gate. Only the opencode_go combination is fatal.
+  llm-preflight:
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.16}
+    # Same image tag as backend/celery, but it never pulls anything extra and
+    # runs no Django code — only /bin/sh. Tiny limit because it is a shell.
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    env_file: .env
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_OPENCODE_SESSION: ${LLM_OPENCODE_SESSION:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        provider="$${LLM_PROVIDER:-mock}"
+        session="$${LLM_OPENCODE_SESSION:-}"
+        if [ "$${provider}" = "opencode_go" ]; then
+          if [ -z "$${session}" ]; then
+            echo "[llm-preflight] FAILED: LLM_PROVIDER=opencode_go requires LLM_OPENCODE_SESSION (#1050)." >&2
+            echo "[llm-preflight] FAILED: the Zen-Go endpoint answers every call with '400 MissingSessionID'" >&2
+            echo "[llm-preflight] FAILED: when the header is absent, which kills every AI feature." >&2
+            echo "[llm-preflight] ACTION: set LLM_OPENCODE_SESSION in .env to a STABLE per-deployment id" >&2
+            echo "[llm-preflight] ACTION: (e.g. LLM_OPENCODE_SESSION=reqogniloom-<instance>), then re-run 'up -d'." >&2
+            echo "[llm-preflight] ACTION: it is NOT read live - 'restart' will not pick it up, only 'up -d'." >&2
+            exit 1
+          fi
+          # The placeholder from .env.example is non-empty, so a copy-paste
+          # deployment would pass the check above and then ship the SAME session
+          # id as every other installation that never edited the line. That is
+          # exactly the "looks configured, is wrong" failure this gate exists to
+          # stop, so an unedited placeholder is rejected too. Case-insensitive
+          # via `tr`, so CHANGE-ME / Change-Me / change-me are all caught.
+          lowered=$$(printf '%s' "$${session}" | tr '[:upper:]' '[:lower:]')
+          case "$${lowered}" in
+            *change-me*|*change_me*|*changeme*)
+              echo "[llm-preflight] FAILED: LLM_OPENCODE_SESSION is still the .env.example placeholder" >&2
+              echo "[llm-preflight] FAILED: ('$${session}'). That value is shared by every installation" >&2
+              echo "[llm-preflight] FAILED: that copied the example file unchanged." >&2
+              echo "[llm-preflight] ACTION: replace it with a stable id unique to this deployment," >&2
+              echo "[llm-preflight] ACTION: e.g. LLM_OPENCODE_SESSION=reqogniloom-<host>, then re-run 'up -d'." >&2
+              exit 1
+              ;;
+          esac
+          echo "[llm-preflight] OK: LLM_PROVIDER=opencode_go with LLM_OPENCODE_SESSION=$${session}"
+        else
+          echo "[llm-preflight] OK: LLM_PROVIDER=$${provider} needs no session id (gate not applicable)"
+        fi
+    # One-shot by contract: `service_completed_successfully` is only valid for
+    # a service that is not restarted.
+    restart: "no"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ─────────────────────────────────────────────────────────
   # Database Migration + Self-Init Service (REQ-188)
@@ -403,6 +827,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_LONG_RUNNING_TIMEOUT: ${LLM_LONG_RUNNING_TIMEOUT:-180}
+      # #1050: see the `backend` service — REQUIRED for LLM_PROVIDER=opencode_go.
+      LLM_OPENCODE_SESSION: ${LLM_OPENCODE_SESSION:-}
       # Raw Honcho embedding vars read by the memory backend's health probe
       # (#911); only used when MEMORY_BACKEND=honcho. `honcho`/`honcho-migrate`
       # above consume the same values in EMBEDDING_MODEL_CONFIG__* form.
@@ -428,6 +854,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # #1050: same gate as `backend` — see the `llm-preflight` service.
+      llm-preflight:
+        condition: service_completed_successfully
     # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqogniloom project
     # REQ-077: single worker consumes all queues, including `memory` (AI-memory
     # consolidation, ai-memory-and-search plan). Split into dedicated workers
@@ -489,6 +918,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_LONG_RUNNING_TIMEOUT: ${LLM_LONG_RUNNING_TIMEOUT:-180}
+      # #1050: see the `backend` service — REQUIRED for LLM_PROVIDER=opencode_go.
+      LLM_OPENCODE_SESSION: ${LLM_OPENCODE_SESSION:-}
     logging:
       driver: "json-file"
       options:
@@ -509,6 +940,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # #1050: same gate as `backend` — see the `llm-preflight` service.
+      llm-preflight:
+        condition: service_completed_successfully
     command: >
       sh -c "celery -A reqogniloom beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
 
@@ -651,6 +1085,26 @@ services:
     # differs from EMBEDDING_VECTOR_DIMENSIONS.
     command: sh -c "alembic upgrade head && python scripts/configure_embeddings.py --yes"
 
+  # ---------------------------------------------------------------------
+  # Shared Honcho engine environment (#1051, #1052)
+  # ---------------------------------------------------------------------
+  # Both Honcho processes read the SAME environment, defined once here as a
+  # YAML anchor and referenced by the `honcho` API service and the
+  # `honcho-deriver` queue worker below:
+  #
+  #   honcho:        environment: *honcho-env
+  #   honcho-deriver: environment: *honcho-env
+  #
+  # That duplication used to be a real risk, because the two halves have to
+  # agree: a model pin or a session header that exists on only one of them
+  # is a silent half-configuration (the API answers reads while the worker
+  # dies on every write). One definition, two consumers — there is no second
+  # place to forget.
+  #
+  # It is a top-level `x-` extension field, which the Compose spec ignores
+  # as configuration and which exists purely to be aliased. NOTE the content
+  # is indented to 2 spaces here, one level less than a service-level
+  # `environment:` block, purely because it is no longer nested in a service.
   honcho:
     image: ghcr.io/plastic-labs/honcho:latest
     profiles: ["honcho"]
@@ -667,139 +1121,69 @@ services:
     # setting AUTH_USE_AUTH=true and a real API key below.
     ports:
       - "127.0.0.1:8010:8000"
-    environment:
-      DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:-honcho-dev-password}@honcho-postgres:5432/honcho
-      REDIS_URL: redis://honcho-redis:6379
-      # Dev-only. Flip to true + set an API key before using this beyond a
-      # single-developer local stack (see HONCHO_API_KEY in .env.example).
-      AUTH_USE_AUTH: "false"
-      SENTRY_ENABLED: "false"
-      # Pin Honcho's own reasoning LLM for EVERY engine module that calls one
-      # (deriver, peer card, summary, dream, dialectic — all server-side; see
-      # memory/honcho_backend.py's module docstring and .env.example's
-      # "Pinning Honcho's own reasoning LLM" section for why this can't be
-      # done from the client SDK) to this project's own opencode_go provider,
-      # reusing the SAME key already configured for ReqogniLoom's own
-      # LLM_PROVIDER=opencode_go -- one opencode_go account covers both.
-      # `mimo-v2.5` is the verified model id on the `/zen/go/v1` endpoint
-      # (NOT `mimo-v2.5-free`, which only exists on the non-Go `/zen/v1`
-      # endpoint). Comment this whole block out to let Honcho fall back to
-      # its own default model config instead.
-      #
-      # WHY EVERY ACTIVE MODULE MUST BE PINNED: Honcho's built-in defaults for
-      # these modules are `transport=openai, model=gpt-5.4-mini`
-      # (ConfiguredModelSettings), but the ONLY key in this container is
-      # LLM_OPENAI_API_KEY, and it holds an opencode_go key — not a real
-      # OpenAI key. A module whose model config is left untouched therefore
-      # falls back to a model+endpoint it cannot authenticate against and
-      # fails server-side; the memory READ path keeps working, so the failure
-      # is invisible from ReqogniLoom's UI (RFC #1002 finding F6). DERIVER,
-      # DIALECTIC, SUMMARY and DREAM model configs are all pinned below for
-      # exactly that reason.
-      LLM_OPENAI_API_KEY: ${LLM_API_KEY}
-      # Upstream, DERIVER_ENABLED / PEER_CARD_ENABLED / SUMMARY_ENABLED /
-      # DREAM_ENABLED all default to `true`. They are set explicitly anyway so
-      # an operator can SEE which engine modules are active without reading
-      # Honcho's source, and can flip any one off. Quoted like AUTH_USE_AUTH /
-      # SENTRY_ENABLED above.
-      DERIVER_ENABLED: "true"
-      PEER_CARD_ENABLED: "true"
-      DERIVER_MODEL_CONFIG__TRANSPORT: openai
-      DERIVER_MODEL_CONFIG__MODEL: mimo-v2.5
-      DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      DIALECTIC_LEVELS__low__MODEL_CONFIG__TRANSPORT: openai
-      DIALECTIC_LEVELS__low__MODEL_CONFIG__MODEL: mimo-v2.5
-      DIALECTIC_LEVELS__low__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      DIALECTIC_LEVELS__minimal__MODEL_CONFIG__TRANSPORT: openai
-      DIALECTIC_LEVELS__minimal__MODEL_CONFIG__MODEL: mimo-v2.5
-      DIALECTIC_LEVELS__minimal__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      DIALECTIC_LEVELS__medium__MODEL_CONFIG__TRANSPORT: openai
-      DIALECTIC_LEVELS__medium__MODEL_CONFIG__MODEL: mimo-v2.5
-      DIALECTIC_LEVELS__medium__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      DIALECTIC_LEVELS__high__MODEL_CONFIG__TRANSPORT: openai
-      DIALECTIC_LEVELS__high__MODEL_CONFIG__MODEL: mimo-v2.5
-      DIALECTIC_LEVELS__high__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      DIALECTIC_LEVELS__max__MODEL_CONFIG__TRANSPORT: openai
-      DIALECTIC_LEVELS__max__MODEL_CONFIG__MODEL: mimo-v2.5
-      DIALECTIC_LEVELS__max__MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      # SUMMARY (periodic short/long conversation summaries) and DREAM (the
-      # offline deduction/induction peer-representation job) are the
-      # #1002/F6 gap: the deriver/dialectic block above does NOT cover them,
-      # so before this they silently fell back to the built-in
-      # `transport=openai, model=gpt-5.4-mini` default — see the
-      # "WHY EVERY ACTIVE MODULE MUST BE PINNED" note above. Both are pinned
-      # to opencode_go exactly like DERIVER/DIALECTIC.
-      SUMMARY_ENABLED: "true"
-      SUMMARY_MODEL_CONFIG__TRANSPORT: openai
-      SUMMARY_MODEL_CONFIG__MODEL: mimo-v2.5
-      SUMMARY_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      DREAM_ENABLED: "true"
-      DREAM_DEDUCTION_MODEL_CONFIG__TRANSPORT: openai
-      DREAM_DEDUCTION_MODEL_CONFIG__MODEL: mimo-v2.5
-      DREAM_DEDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      DREAM_INDUCTION_MODEL_CONFIG__TRANSPORT: openai
-      DREAM_INDUCTION_MODEL_CONFIG__MODEL: mimo-v2.5
-      DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL: https://opencode.ai/zen/go/v1
-      # REQUIRED for any write (peer.conclusions.create/...) to succeed --
-      # verified live: without this, Honcho's embedding client defaults to
-      # real OpenAI and fails with `AuthenticationError: Incorrect API key`
-      # the moment it tries to reuse LLM_OPENAI_API_KEY (an opencode_go key,
-      # not an OpenAI one) for embeddings. opencode_go itself serves no
-      # embedding models (see .env.example), so this can't reuse the same
-      # provider as DERIVER/DIALECTIC above. Pick ONE:
-      #
-      #   (a) A real OpenAI key, if you have one -- set in .env:
-      #         LLM_OPENAI_API_KEY=<a REAL OpenAI key -- separate from the
-      #           opencode_go one above; Honcho does not distinguish the two
-      #           by provider, only by this one env var>
-      #         HONCHO_EMBEDDING_MODEL=text-embedding-3-small
-      #         HONCHO_EMBEDDING_VECTOR_DIMENSIONS=1536   # OpenAI width
-      #         HONCHO_EMBEDDING_BASE_URL=https://api.openai.com/v1
-      #
-      #   (b) A self-hosted Ollama with an embedding model (mirrors this
-      #       project's OWN optional Ollama pattern in
-      #       docker-compose.override.example.yml -- add that `ollama`
-      #       service to this stack too, `docker exec ... ollama pull
-      #       nomic-embed-text`, then set in .env):
-      #         HONCHO_EMBEDDING_TRANSPORT=openai
-      #         HONCHO_EMBEDDING_MODEL=nomic-embed-text
-      #         HONCHO_EMBEDDING_VECTOR_DIMENSIONS=768   # see pitfall below
-      #         HONCHO_EMBEDDING_BASE_URL=http://ollama:11434/v1
-      #
-      # Parameterized with defaults that mirror option (b): a host-run Ollama
-      # serving nomic-embed-text, reached as host.docker.internal (extra_hosts
-      # below makes that name resolve on Linux too; built-in on Docker Desktop).
-      # Override the HONCHO_EMBEDDING_* vars in .env to point elsewhere -- e.g.
-      # option (a)'s OpenAI, or an in-stack `ollama` service at
-      # http://ollama:11434/v1 (see .env.example's Honcho section). A memory
-      # WRITE still needs a reachable embedding endpoint; reads do not. The
-      # `memory_backend` row of GET /api/v1/admin/health/ reports down when the
-      # embedding endpoint is unreachable or unconfigured (#911).
-      EMBEDDING_VECTOR_DIMENSIONS: ${HONCHO_EMBEDDING_VECTOR_DIMENSIONS:-768}
-      EMBEDDING_MODEL_CONFIG__TRANSPORT: ${HONCHO_EMBEDDING_TRANSPORT:-openai}
-      EMBEDDING_MODEL_CONFIG__MODEL: ${HONCHO_EMBEDDING_MODEL:-nomic-embed-text}
-      EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: ${HONCHO_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
-      # PITFALL, verified live against a real ollama.nomic-embed-text setup:
-      # the pgvector column's dimension is baked into the schema at MIGRATE
-      # time from `EMBEDDING_VECTOR_DIMENSIONS` (Honcho's own default 1536,
-      # i.e. OpenAI's dimension) -- setting the var on the SERVER but migrating
-      # (or having already migrated) with the default still crashes it at boot
-      # with `documents.embedding dim (1536) does not match
-      # EMBEDDING_VECTOR_DIMENSIONS (768)`. Any non-1536-dim model (which
-      # nomic-embed-text is) needs `EMBEDDING_VECTOR_DIMENSIONS` set on BOTH
-      # `honcho-migrate` above AND here BEFORE the very first migration runs
-      # against a fresh `honcho_postgres_data` volume.
-      #
-      # This is no longer a "drop the volume and start over" situation:
-      # `honcho-migrate` now runs Honcho's own supported
-      # `scripts/configure_embeddings.py --yes` right after `alembic upgrade
-      # head` (verified against ghcr.io/plastic-labs/honcho:latest), which
-      # ALTERs an already-migrated schema to `EMBEDDING_VECTOR_DIMENSIONS`.
-      # A later width change is therefore re-applied on the next
-      # `honcho-migrate` run -- but pgvector cannot cast between widths, so
-      # vectors already stored at the old width are DISCARDED by that ALTER
-      # and must be regenerated. text-embedding-3-small in option (a)
-      # sidesteps the whole topic (1536-dim, matches the untouched default).
+    # The whole engine configuration (LLM pins, session headers, embedding
+    # config) is the shared `x-honcho-env` anchor defined above; the deriver
+    # service below references the exact same mapping.
+    environment: *honcho-env
+    # WHY AN ENTRYPOINT WRAPPER (#1051): the `x-opencode-session` header Honcho
+    # needs is only reachable through environment variables whose names contain
+    # a dash, and Docker drops every one of them (all four delivery mechanisms
+    # tested — see the long note on LLM_OPENCODE_SESSION in `x-honcho-env`
+    # above). The image's own entrypoint therefore has to be preceded by a step
+    # that writes those nine names itself. Python's `os.environ` accepts them
+    # (the shell's `export` does not: "bad variable name").
+    #
+    # THE `os.execv` IS INSIDE THE SAME PYTHON PROCESS AND THAT IS LOAD-BEARING:
+    # writing the names in one process and exec'ing the app from a SHELL
+    # afterwards silently loses all nine of them, because a finished Python
+    # process leaves nothing behind in the environment the shell then inherits.
+    # (That variant was tested and reported "derived 9 module(s)" while the
+    # application saw zero — the log line lies, which is precisely the failure
+    # mode this whole change exists to remove.) `exec python -` + `os.execv`
+    # means one process throughout: the exported names, the log line, and the
+    # unchanged image entrypoint, with the same PID and signal handling.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        exec /app/.venv/bin/python - <<'PY'
+        import os
+
+        # Derive Honcho's per-module `x-opencode-session` header env vars from
+        # the one deployment-wide value. Keep in sync with the identical block in
+        # the `honcho-deriver` service below.
+        SUFFIX = "MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS__EXTRA_HEADERS__x-opencode-session"
+        session = (os.environ.get("LLM_OPENCODE_SESSION") or "").strip()
+        if session:
+            modules = [
+                "DERIVER_",
+                "SUMMARY_",
+                "DREAM_INDUCTION_",
+                "DREAM_DEDUCTION_",
+            ] + [
+                "DIALECTIC_LEVELS__{}__".format(level)
+                for level in ("minimal", "low", "medium", "high", "max")
+            ]
+            for module in modules:
+                os.environ[module + SUFFIX] = session
+            print(
+                "[honcho] derived x-opencode-session for {} engine module(s) "
+                "from LLM_OPENCODE_SESSION".format(len(modules)),
+                flush=True,
+            )
+        else:
+            print(
+                "[honcho] LLM_OPENCODE_SESSION is empty — no x-opencode-session "
+                "header will be sent. This is correct for a real OpenAI key and "
+                "means EVERY server-side LLM call fails with 400 "
+                "MissingSessionID when the pins above point at the Zen-Go "
+                "endpoint (#1050/#1051).",
+                flush=True,
+            )
+        # Hand over to the image's own entrypoint (migrations, then
+        # `fastapi run src/main.py`) in THIS process, so the names above are
+        # still set when Honcho reads its settings.
+        os.execv("/app/docker/entrypoint.sh", ["/app/docker/entrypoint.sh"])
+        PY
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -808,6 +1192,121 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # ─────────────────────────────────────────────────────────
+  # Honcho Deriver / queue worker — #1052
+  # ─────────────────────────────────────────────────────────
+  # CHOSEN OPTION: (a) run the upstream deriver, not (b) run without the
+  # derived memory layers. Option (b) was only ever the fallback for "the
+  # upstream worker command cannot be justified" — it is not justified away
+  # here, because the command is verifiable from the image itself:
+  #
+  #   * src/deriver/__main__.py exists and is a real `__main__` guard:
+  #       setup_logging(); asyncio.set_event_loop_policy(uvloop...);
+  #       asyncio.run(run_deriver())   ->  the process IS `python -m src.deriver`
+  #   * Honcho's own docker/entrypoint.sh only starts the API server
+  #     (`fastapi run … src/main.py`) and never this module — which is exactly
+  #     why the queue stayed at `processed = false` forever.
+  #   * src/config.py: `DeriverSettings.SCHEDULER: Literal["api","deriver"] =
+  #     "deriver"` — the DEFAULT is the separate process, so the API service
+  #     above is not supposed to drain the queue. (Setting it to "api" only
+  #     moves the *reconciler* scheduler in-process, it does NOT replace the
+  #     deriver's queue manager.)
+  #   * src/deriver/queue_manager.py imports DreamScheduler, so this one
+  #     process covers the deriver, the summary job and the dream job.
+  #   * `import src.deriver.__main__` was executed successfully inside
+  #     ghcr.io/plastic-labs/honcho:latest, so the command is not invented.
+  #
+  # WHY IT MATTERS: without this service the `queue` table keeps unprocessed
+  # `representation` work units forever and no `document_sources` rows are ever
+  # written, so the derived memory layers (peer representation, peer card,
+  # summary, dream) never materialise — while the model pins in `x-honcho-env`
+  # sit there looking configured. Reads stay green, so from the UI the failure
+  # is invisible. Option (b) would have been that silent dead config.
+  #
+  # NO HOST PORT: the deriver is a worker, not a service to reach. It opens a
+  # Prometheus exporter on :9090 only when `METRICS_ENABLED` is set; leave it
+  # off (the default) and nothing listens.
+  honcho-deriver:
+    image: ghcr.io/plastic-labs/honcho:latest
+    profiles: ["honcho"]
+    restart: unless-stopped
+    depends_on:
+      honcho-postgres:
+        condition: service_healthy
+      honcho-redis:
+        condition: service_healthy
+      honcho-migrate:
+        condition: service_completed_successfully
+    # Exactly the same environment as the `honcho` API — see `x-honcho-env` at
+    # the top of this file. A pin or session header that exists on only one of
+    # the two processes is a silent half-configuration, so there is one
+    # definition and two consumers.
+    environment: *honcho-env
+    # `-m src.deriver` needs the package on the path, and the image's WORKDIR
+    # is /app; pinned explicitly so the command does not depend on it.
+    working_dir: /app
+    # Same session-header shim as the `honcho` service (see its comment for why
+    # Docker cannot carry the dashed variable names itself), but exec'ing the
+    # deriver process instead of the image's API entrypoint. The `os.execv` must
+    # stay inside this Python process — see the `honcho` service for why.
+    # Keep the Python block identical to the one above.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        exec /app/.venv/bin/python - <<'PY'
+        import os
+
+        # Derive Honcho's per-module `x-opencode-session` header env vars from
+        # the one deployment-wide value. Keep in sync with the identical block in
+        # the `honcho` service above.
+        SUFFIX = "MODEL_CONFIG__OVERRIDES__PROVIDER_PARAMS__EXTRA_HEADERS__x-opencode-session"
+        session = (os.environ.get("LLM_OPENCODE_SESSION") or "").strip()
+        if session:
+            modules = [
+                "DERIVER_",
+                "SUMMARY_",
+                "DREAM_INDUCTION_",
+                "DREAM_DEDUCTION_",
+            ] + [
+                "DIALECTIC_LEVELS__{}__".format(level)
+                for level in ("minimal", "low", "medium", "high", "max")
+            ]
+            for module in modules:
+                os.environ[module + SUFFIX] = session
+            print(
+                "[honcho-deriver] derived x-opencode-session for {} engine "
+                "module(s) from LLM_OPENCODE_SESSION".format(len(modules)),
+                flush=True,
+            )
+        else:
+            print(
+                "[honcho-deriver] LLM_OPENCODE_SESSION is empty — no "
+                "x-opencode-session header will be sent (#1050/#1051).",
+                flush=True,
+            )
+        os.execv(
+            "/app/.venv/bin/python",
+            ["/app/.venv/bin/python", "-m", "src.deriver"],
+        )
+        PY
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Same rationale as the `celery-beat` healthcheck: this image ships no
+    # `ps`/`pgrep`, so the check reads PID 1's own cmdline through /proc. Its
+    # purpose is to make a crashed deriver visible in `docker ps` instead of
+    # failing silently. The worker itself is PID 1 because the shim `exec`s it.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qa 'src.deriver' /proc/1/cmdline || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ═════════════════════════════════════════════════════════
   # OPTIONAL: bluepencil review-notes sidecar (docs/bluepencil-integration.md, PR #972)
