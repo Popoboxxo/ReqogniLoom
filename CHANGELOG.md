@@ -7,8 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.17] — 2026-09-27
+
+> **This beta is explicitly NOT an external production or QA release.** It is an
+> internal pre-release cut prepared on `release/v1.8.0-beta.17` (base
+> `2c4709b0` = PR #1111 merged onto the decision-waves branch, which already
+> contains the QA sweep of PR #1105). Unlike beta.16, **the regression suite is
+> green at this cut** (see *Verification*), and the four decision waves W1–W4
+> shipped below are complete. **W5 is not decided** and one **upgrade-path gap**
+> is open for already-bootstrapped instances (see *Known open points*). Nothing
+> here constitutes a production, staging or QA deployment approval.
+
+### Added
+- **Decision record — the 2026-09 product decisions as five accepted ADRs (PR #1111, `1f710c41`):** `ADR-005` (derive `Requirement.level`), `ADR-006` (person fields and free text), `ADR-007` (SE rules at the baseline gate), `ADR-008` (MoE / MoP / TPM are *not* modelled), `ADR-009` (notifications move into the assistant). Each carries context, at least two weighed alternatives, a checkable decision and consequences
+- **W1 — `Requirement.level` is derived from the hierarchy instead of being written (PR #1111, `7cfa5b5b`; ADR-005):** the level is recomputed on every hierarchy change along *all* affected paths; a root without a parent stays `1`, an explicit `NULL` stays `NULL` rather than being silently defaulted, and derived levels are never persisted as client input
+- **W2 — person fields become first-class and free text becomes a declared choice (PR #1111, `37aeb084`; ADR-006):** `Artifact.stakeholder` is a multi-select with catalogue options, `Adr.deciders` and `Issue.assignee` are `Actor` relations (M2M) instead of loose strings, and `origin_link` is removed. Adds migration `0102` with the RLS policies for the touched tables
+- **W3 — the audit-rule vocabulary is decided and enforced (PR #1111, `e7b8f249`; ADR-007):** the four `REQ_MUST_HAVE_*` rules are mapped onto the audit-rule vocabulary with a documented source convention (ADR plus REQ link), and the SE rules are enforced at the **baseline gate**
+- **W4 — notifications move into the assistant (PR #1111, `23a7e46d`; ADR-009):** the sidebar `NotificationBell` is removed and the feed lives in the assistant entry point (`InterviewWidget` + `NotificationFeed` + `useNotificationFeed`), reachable from the profile settings
+- **QA sweep — 24 findings triaged and closed (PR #1105, `2bee5093` in beta.16's branch line):** including AI derivations made reviewable (#1089), ctrl+s save and copy-system-id in the UI (#1087, #1094), AI action collection on the design system (#1092, #1091, #1093), a translated attribute catalogue instead of a translated field name (#1090), and honest migration scope with a real rollback (#1082, #1083)
+- **Test-run listing over MCP (PR #1080):** `test.run_list` is exposed for the `TestRun` entity
+- **Release plumbing:** all 12 distribution version carriers advanced to `1.8.0-beta.17` (`VERSION`, `frontend/package.json`, `frontend/package-lock.json`, the Hermes plugin `package.json`/`hermes-plugin.json`/`package-lock.json`, both `dist` plugin manifests, `.env.example`, both compose files' image tags, and the site badge/footer)
+
+### Fixed
+- **A foreign workspace answered `500` with an HTML error page instead of `403` JSON (PR #1077):** the workspace fence is now decided before the view builds a response, so a cross-tenant request is a proper `403` in the shared error envelope
+- **The error envelope is unified across every REST adapter (PR #1081):** including a pinned regression test for the canonical envelope in `auth_tenancy`
+- **Subtype entities could not be resolved as tracelink endpoints (PR #1075):** subtype links now resolve to their entity instead of failing the traversal
+- **A broken deployment could be reported as a success (PR #1074):** the deploy step fails closed instead of reporting a healthy rollout
+- **CI — unused ESLint directive and stale overlay pins (PR #1111, `0fcb2027`):** an `eslint-disable` for a rule the config never enables only surfaced with a fresh `node_modules` and broke the lint gate; the two #985 dismissal pins still clicked the removed `notification-bell-toggle`, and are now re-pointed at the assistant overlay. Verified against a live stack (6/6 green)
+- **Docs — MCP surface counts and capability claims corrected against beta.16 reality (PR #1085, `b30767f2`, `98b1c9a8`, `23ffed8d`):** the README and the capability-tier and error-shape claims no longer overstate the surface
+
 ### Changed
-- **REST breaking change — `expected_version` / `If-Match` on `POST /api/v1/<entity>/{id}/transitions/` is now enforced (CR-08):** a client-supplied revision was previously read by the view and then silently dropped, so requests that carried `expected_version` or an `If-Match` header and received `200` are now answered **`409 CONFLICT`** when the item's workflow revision has moved on. Clients that relied on the old silently-ignored behaviour (or that send a stale revision without checking) must handle `409` — re-read the item and retry. Omitting the revision is unchanged and stays last-writer-wins. Note that on this route the tag denotes the **workflow revision** (`version`, now returned by both the GET and the POST response of `transitions/`), *not* the entity ETag that `If-Match` carries on `PATCH` and that answers `412`.
+- **REST breaking change — `Requirement.level` is server-derived and read-only (PR #1111; ADR-005):** a client that still sends `level` on create or update is ignored on that field, not rejected; the value is recomputed from the hierarchy. Clients must stop treating `level` as writable input
+- **REST breaking change — the ADR-006 field kinds (PR #1111; ADR-006):** `Artifact.stakeholder` is a **list** rather than a string, `Adr.deciders` and `Issue.assignee` are `Actor` relations, and `origin_link` no longer exists. See *Known open points* for what this means on an already-bootstrapped instance
+- **Changelog maintenance:** the stale `## [Unreleased]` duplicate of beta.16's CR-08 entry was cleared, and its content stays released under beta.16
+
+### Known open points
+- **Upgrade path for ADR-006 field kinds on an already-bootstrapped instance — OPEN, measured, not guessed.** `bootstrap_attribute_definitions` without `--reset` only *appends* missing attributes: it never changes the `field_kind` of an existing attribute and never removes one. On an instance bootstrapped before this cut, the stored definitions were measured after the upgrade and still hold `stakeholder` as `text`, `deciders` and `assignee` as `text`, and `origin_link` still present. A **fresh** instance is correct (proven by the green E2E shards, which run against a fresh database). The only path to the new field kinds today is `--reset`, which rewrites the stored definition and therefore discards admin customizations. A proper value migration is tracked as a follow-up; it is the AWMS value-migration gap (#940) in a second location
+- **W5 — baseline rollback semantics: additive versus CCB — NOT DECIDED (#50):** open question from the same decision round. The recommendation on record is additive now with an optional CCB gate later, but the decision was not taken, so no W5 code is in this cut
+- **A moved overlay can lose its dismissal path silently:** the #985 pins had pointed at a removed component for a full cycle, which is how a real regression class can pass review. The pins are kept rather than deleted for that reason; a static check for `data-testid`s that no longer exist would close the class
+- **The E2E workspace helper is order-dependent:** `getWorkspaceId` resolves `items[0]` from the workspace list, so on a developer database littered with leftover `e2e-*` workspaces it can pick a test leftover whose workflow has no `draft → in_review` edge. Measured: 6 local failures that are absent in CI on a fresh database. Not a product defect, but it makes local E2E runs untrustworthy
+
+### Verification
+Measured on this cut, not copied from a claim:
+
+- **CI on `0fcb2027`: 14/14 checks green** — `lint`, `frontend-test`, `backend-test` sets 1–4, all four `e2e` shards, plus the actionlint, agent-template, requirements-drift and Hermes-plugin gates
+- **Backend:** `10015 passed, 13 skipped, 1 xfailed`, plus 4 errors confined to `test_mcp_api_key_roles.py`, which needs a live stack; the same files pass in the CI backend sets
+- **Frontend:** `250/250` test files green on the final full run; an earlier run in the same cycle showed 3 intermittent failures that did not reproduce
+- **Static checks:** `ruff --select=F821,F822` clean; `npx tsc -p tsconfig.build.json --noEmit` clean; `npm run lint` (which includes `--report-unused-disable-directives`) reproduced with a fresh `npm install` exactly as CI runs it — 0 errors, 290 warnings
+- **Targeted E2E:** `overlay-dismissal.spec.ts` 6/6 green against a live stack after the re-point
 
 ## [1.8.0-beta.16] — 2026-09-26
 
