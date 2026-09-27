@@ -422,6 +422,13 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        # #1082: a reset that would change nothing is a CONFLICT, not an
+        # unhandled ValueError (which the dispatcher's blanket
+        # ``except Exception`` turns into INTERNAL_ERROR). The REST sibling
+        # ``WorkspaceAttributeDefinitionResetView`` answers 409 for the same
+        # condition.
+        except AttributeDefinitionConflictError as exc:
+            return ToolResult.error("CONFLICT", str(exc))
         except AttributeDefinitionNotFound as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         return ToolResult.ok({"definition": _definition_payload(definition)})

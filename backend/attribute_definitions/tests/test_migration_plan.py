@@ -40,6 +40,10 @@ class TestDefaults:
             "idempotent": True,
             "abort_on_error": True,
             "audit": True,
+            # Issue #1083: default false, i.e. silence is not consent — an
+            # `apply` of a workspace-scoped plan with definition ops is refused
+            # until the plan acknowledges the tenant-wide reach on purpose.
+            "allow_tenant_global_definition_ops": False,
         }
         assert plan["scope"]["workspace"] == "*"
         step = plan["steps"][0]
@@ -62,6 +66,20 @@ class TestOptions:
         assert plan["options"]["audit"] is False
         assert plan["options"]["idempotent"] is True
         assert plan["options"]["abort_on_error"] is True
+
+    def test_allow_tenant_global_definition_ops_is_accepted_and_normalized(
+        self,
+    ) -> None:
+        """#1083: the acknowledgement is a real, consumed option."""
+        plan = normalize_plan(
+            _plan(options={"allow_tenant_global_definition_ops": True})
+        )
+        assert plan["options"]["allow_tenant_global_definition_ops"] is True
+
+    def test_unknown_option_is_still_rejected(self) -> None:
+        with pytest.raises(MigrationPlanError) as exc:
+            normalize_plan(_plan(options={"surprise": True}))
+        assert "surprise" in "; ".join(exc.value.errors)
 
 
     def test_scope_preset_string_is_normalized_to_a_list(self) -> None:

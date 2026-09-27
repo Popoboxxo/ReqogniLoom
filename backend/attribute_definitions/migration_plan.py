@@ -168,10 +168,70 @@ _VERIFY_RE = re.compile(r"^\s*([a-z_]+)\s*(==|!=|<=|>=|<|>)\s*(-?\d+)\s*$")
 MAX_SAMPLES = 100
 PLAN_VERSION = 1
 
+#: How far a step's write reaches. Reported as ``target_scope`` on the run, on
+#: every step and on every change sample, so ``matched: 3`` can never be read as
+#: "3 rows in the selected workspaces" when it actually means "3 definitions for
+#: the whole tenant" (issue #1083).
+TARGET_SCOPE_TENANT = "tenant"
+TARGET_SCOPE_WORKSPACE = "workspace"
+#: A non-writing op (``verify``, ``export_scope``). Reported so a reader can tell
+#: "this step reached nothing because it only read" from "this step reached one
+#: workspace" — ``export_scope`` in particular reads a tenant-global preset or a
+#: single workspace depending on its own ``source``, which no per-op label can
+#: express honestly.
+TARGET_SCOPE_READ = "read"
+
+#: Ops that write an *attribute definition* target. The ``global`` target of such
+#: an op lives in ``ad_global_definition``, which is unique per
+#: ``(tenant, item_type, preset)`` and has **no** ``workspace_id`` column: one
+#: global edit is propagated to every on-default workspace row of that preset in
+#: the tenant (``GlobalAttributeDefinitionStore._propagate``). ``scope.workspace``
+#: therefore cannot narrow these ops — the product semantics of that table is the
+#: preset catalog *per tenant* (see ``attribute_definitions.models``).
+DEFINITION_OPS: frozenset[str] = frozenset(
+    {
+        OP_DEFINE_ATTRIBUTE,
+        OP_RENAME_ATTRIBUTE,
+        OP_RETYPE_ATTRIBUTE,
+        OP_DROP_ATTRIBUTE,
+        OP_DEPRECATE_ATTRIBUTE,
+        OP_REQUEUE_DEFINITION,
+        OP_IMPORT_SCOPE,
+    }
+)
+
+#: Ops that write artifact values only. Bounded by the resolved
+#: ``scope.workspace`` (the engine's ``_rows()``).
+VALUE_OPS: frozenset[str] = frozenset(
+    {
+        OP_MIGRATE_VALUE,
+        OP_MAP_VALUE,
+        OP_BACKFILL_VALUE,
+        OP_DERIVE_VALUE,
+        OP_SPLIT_ATTRIBUTE,
+        OP_MERGE_ATTRIBUTE,
+    }
+)
+
+#: Ops that write nothing (``verify``/``export_scope``).
+NON_WRITING_OPS: frozenset[str] = frozenset({OP_VERIFY, OP_EXPORT_SCOPE})
+
 #: Closed key sets (spec §3). Unknown keys are a 400, never dropped.
 _PLAN_KEYS = frozenset({"version", "id", "description", "scope", "mode", "options", "steps"})
 _SCOPE_KEYS = frozenset({"tenant", "item_type", "preset", "workspace"})
-_OPTION_KEYS = frozenset({"idempotent", "abort_on_error", "audit"})
+_OPTION_KEYS = frozenset(
+    {
+        "idempotent",
+        "abort_on_error",
+        "audit",
+        # Issue #1083: an explicit acknowledgement that the plan's definition ops
+        # are meant to hit every workspace of the tenant. Required on `apply`
+        # when `scope.workspace` narrows the plan to a workspace list *and* the
+        # plan contains definition ops — see the engine's `_assert_scope_honest`.
+        # Default false: silence, not consent.
+        "allow_tenant_global_definition_ops",
+    }
+)
 
 _REF_KEYS = frozenset({"source", "target", "name"})
 #: `transform:` accepts a bare name or a `{name, options}` object.
@@ -783,6 +843,11 @@ def normalize_plan(payload: Any) -> dict[str, Any]:
         # ``AuditEntry`` (spec §3/§6) while the run's own create/rollback audit
         # entries always remain.
         "audit": bool(raw_options.get("audit", True)),
+        # Issue #1083: consumed by the engine's ``_assert_scope_honest``. See
+        # ``_OPTION_KEYS`` for what it acknowledges.
+        "allow_tenant_global_definition_ops": bool(
+            raw_options.get("allow_tenant_global_definition_ops", False)
+        ),
     }
 
     raw_steps = payload.get("steps")
@@ -890,10 +955,12 @@ __all__ = [
     "BACKFILL_STRATEGIES",
     "CONDITION_ATOMS",
     "COPY",
+    "DEFINITION_OPS",
     "MAX_SAMPLES",
     "MIGRATE_MODES",
     "MOVE",
     "MigrationPlanError",
+    "NON_WRITING_OPS",
     "OP_BACKFILL_VALUE",
     "OP_DEFINE_ATTRIBUTE",
     "OP_DEPRECATE_ATTRIBUTE",
@@ -920,9 +987,13 @@ __all__ = [
     "STRATEGY_DERIVE_FROM_LINK",
     "STRATEGY_EXPRESSION",
     "STRATEGY_SEQUENCE",
+    "TARGET_SCOPE_READ",
+    "TARGET_SCOPE_TENANT",
+    "TARGET_SCOPE_WORKSPACE",
     "TRANSFORM_NAMES",
     "UNSUPPORTED_OPS",
     "VERIFY_METRICS",
+    "VALUE_OPS",
     "condition_atoms",
     "evaluate_condition",
     "iter_referenced_fields",
