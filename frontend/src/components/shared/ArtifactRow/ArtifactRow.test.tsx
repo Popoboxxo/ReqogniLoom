@@ -5,13 +5,21 @@
  * selection accent) plus the extraction's acceptance criterion: the
  * component must be usable with a non-Goals artifact shape (an ADR) with
  * no Goals-specific props leaking into its interface.
+ *
+ * The identity line is `<IdChip>` since issue #1094, so the row's copy
+ * affordance is covered here too: the row SHOWS the readable uid and COPIES the
+ * system id.
  */
 
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import deLocale from "../../../i18n/locales/de.json";
 import { ArtifactRow } from "./ArtifactRow";
+import {
+  READABLE_IDS_STORAGE_KEY,
+  setReadableIdsVisible,
+} from "../../../hooks/useReadableIdsVisible";
 
 function resolveLocaleKey(key: string): string | undefined {
   const value = key
@@ -26,9 +34,39 @@ function resolveLocaleKey(key: string): string | undefined {
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => resolveLocaleKey(key) ?? fallback ?? key,
+    // Interpolation-aware, like the shared helper: `<IdChip>` builds its copy
+    // label from `t(key, { kind })`, and an options OBJECT returned as a React
+    // child would throw.
+    t: (key: string, options?: Record<string, unknown>) => {
+      const { defaultValue, ...interpolation } = options ?? {};
+      const resolved =
+        resolveLocaleKey(key) ??
+        (typeof defaultValue === "string" ? defaultValue : key);
+      return Object.entries(interpolation).reduce(
+        (acc, [name, value]) => acc.replace(`{{${name}}}`, String(value)),
+        resolved
+      );
+    },
+    i18n: { language: "de" },
   }),
 }));
+
+const writeText = vi.fn();
+
+beforeEach(() => {
+  writeText.mockReset();
+  writeText.mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText },
+    configurable: true,
+  });
+  setReadableIdsVisible(true);
+});
+
+afterEach(() => {
+  window.localStorage?.removeItem?.(READABLE_IDS_STORAGE_KEY);
+  setReadableIdsVisible(true);
+});
 
 describe("ArtifactRow", () => {
   it("leads with the title and shows the labelled identifier below (issue #807)", () => {
@@ -167,5 +205,89 @@ describe("ArtifactRow", () => {
     render(<ArtifactRow idFallback="a1b2c3d4" title="Some ICD" testId="icd-row" />);
     expect(screen.queryByTestId("icd-row-status")).not.toBeInTheDocument();
     expect(screen.getByText("Some ICD")).toBeInTheDocument();
+  });
+});
+
+describe("ArtifactRow identity chip (issue #1094)", () => {
+  const UUID = "12345678-1234-4abc-8def-1234567890ab";
+
+  // `fireEvent`, not `userEvent`: `userEvent.setup()` installs its own
+  // `navigator.clipboard` stub, which would replace the `writeText` spy the
+  // assertions below read.
+  it("shows the readable uid but copies the system id", async () => {
+    render(<ArtifactRow id="ARCH-001" systemId={UUID} title="Element" testId="row" />);
+
+    expect(screen.getByTestId("row-id-value")).toHaveTextContent("ARCH-001");
+
+    fireEvent.click(screen.getByTestId("row-id-copy"));
+
+    expect(writeText).toHaveBeenCalledWith(UUID);
+    await waitFor(() =>
+      expect(screen.getByTestId("row-id-status")).toHaveTextContent("UUID kopiert")
+    );
+  });
+
+  it("falls back to copying the uid, and says so, when no system id was passed", async () => {
+    // A call site that has not been migrated to pass `systemId` yet must not
+    // put an empty string on the clipboard; the announcement states which
+    // identity actually made it there.
+    render(<ArtifactRow id="ARCH-001" title="Element" testId="row" />);
+
+    fireEvent.click(screen.getByTestId("row-id-copy"));
+
+    expect(writeText).toHaveBeenCalledWith("ARCH-001");
+    await waitFor(() =>
+      expect(screen.getByTestId("row-id-status")).toHaveTextContent(
+        "UID kopiert, weil keine System-ID vorhanden"
+      )
+    );
+  });
+
+  it("does not select the row when the copy control is used", () => {
+    const onClick = vi.fn();
+    render(
+      <ArtifactRow
+        id="ARCH-001"
+        systemId={UUID}
+        title="Element"
+        onClick={onClick}
+        testId="row"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("row-id-copy"));
+
+    expect(writeText).toHaveBeenCalledWith(UUID);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("hides the readable identifier and its label when the preference is off", () => {
+    setReadableIdsVisible(false);
+    render(
+      <ArtifactRow id="ARCH-001" systemId={UUID} title="Element" testId="row" />
+    );
+
+    expect(screen.queryByTestId("row-id-value")).not.toBeInTheDocument();
+    // Nothing is left for the "ID" label to label, so it goes with it.
+    expect(screen.queryByText("ID")).not.toBeInTheDocument();
+    // Copying the system id is unaffected by the display preference.
+    expect(screen.getByTestId("row-id-copy")).toBeInTheDocument();
+  });
+
+  it("keeps the identifier visible again when the preference is turned back on", () => {
+    const { rerender } = render(
+      <ArtifactRow id="ARCH-001" systemId={UUID} title="Element" testId="row" />
+    );
+    expect(screen.getByTestId("row-id-value")).toHaveTextContent("ARCH-001");
+
+    setReadableIdsVisible(false);
+    rerender(<ArtifactRow id="ARCH-001" systemId={UUID} title="Element" testId="row" />);
+    expect(screen.queryByTestId("row-id-value")).not.toBeInTheDocument();
+  });
+
+  it("keeps the label opt-out working independently of the preference", () => {
+    render(<ArtifactRow id="X-1" title="Ohne Label" idLabel={null} testId="row" />);
+    expect(screen.queryByText("ID")).not.toBeInTheDocument();
+    expect(screen.getByTestId("row-id-value")).toHaveTextContent("X-1");
   });
 });
