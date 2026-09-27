@@ -34,6 +34,7 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
+import { AiActionSection, type AiActionDescriptor } from "../shared/AiActions";
 import { RequirementBundleExportPanel } from "../RequirementBundleExport/RequirementBundleExportPanel";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
@@ -145,6 +146,24 @@ export default function ArchitectureEditors(): JSX.Element {
     }
     setShowDecomposePanel(false);
   }, [decomposeHasPendingWork]);
+
+  /**
+   * Issue #1092: the route's AI-action set, in one list — the AI Decompose
+   * trigger is this route's only one, and it now shares the section, the flat
+   * icon and the button variant with the Requirements and Needs routes. Empty
+   * when no element is selected, and an empty list renders no section at all.
+   */
+  const aiActions = useMemo<AiActionDescriptor[]>(() => {
+    if (!element) return [];
+    return [
+      {
+        label: t("archDecompose.trigger"),
+        hint: t("archDecompose.triggerHint"),
+        onClick: () => setShowDecomposePanel(true),
+        testId: "arch-decompose-btn",
+      },
+    ];
+  }, [element, t]);
 
   // Requirement Bundle Export panel state
   const [showBundleExportPanel, setShowBundleExportPanel] = useState(false);
@@ -625,20 +644,6 @@ export default function ArchitectureEditors(): JSX.Element {
                 make_or_buy: true,
               }}
             >
-              {/* Task 24: the AI Decompose trigger used to live inside
-                  ArchitectureForm's own actions row. ArtifactForm has no
-                  `onDecompose` affordance (it is not an attribute), so the
-                  trigger moves next to the form — same panel, same
-                  `showDecomposePanel` state and `arch-decompose-btn` testid,
-                  functionally unchanged. */}
-              <button
-                type="button"
-                data-testid="arch-decompose-btn"
-                className="btn-secondary"
-                onClick={() => setShowDecomposePanel(true)}
-              >
-                {t("archDecompose.trigger")}
-              </button>
               <ArchitectureArtifactForm
                 key={element.id}
                 element={element}
@@ -658,6 +663,17 @@ export default function ArchitectureEditors(): JSX.Element {
                 onDirtyChange={setIsFormDirty}
               />
             </EntityTypeProvider>
+
+            {/* Issue #1092: the AI Decompose trigger's new, single home on this
+                route. It used to be a lone `btn-secondary` wedged between the
+                spine and the form (Task 24), which read as another form action
+                rather than an AI action. Same panel, same `showDecomposePanel`
+                state, same `arch-decompose-btn` test id. */}
+            <AiActionSection
+              title={t("aiActions.heading")}
+              hint={t("aiActions.hint")}
+              actions={aiActions}
+            />
 
             {/* TraceLink panel — carries the e2e test-id since the old
                 placeholder aside ("See the Inspector sidebar") was removed:

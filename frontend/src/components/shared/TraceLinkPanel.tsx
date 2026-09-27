@@ -16,15 +16,18 @@ import styles from "./TraceLinkPanel.module.css";
 interface TraceLinkPanelProps {
   workspaceId: string;
   artifactId: string;
-  onDerive?: () => void;
-  isDeriving?: boolean;
 }
 
+/**
+ * Issue #1092: the AI-derive trigger (`onDerive` / `isDeriving`) used to be a
+ * prop of this panel and rendered itself in the panel's header action row.
+ * Both props are removed: the action now lives in the route's single
+ * `<AiActionSection>`, which owns the shared flat AI icon and the button
+ * variant. The panel keeps trace-link concerns only.
+ */
 export function TraceLinkPanel({
   workspaceId,
   artifactId,
-  onDerive,
-  isDeriving,
 }: TraceLinkPanelProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -225,26 +228,6 @@ export function TraceLinkPanel({
       <div className={styles.header}>
         <h3 className={styles.title}>{t("tracelinks.panelTitle", "Trace Links")}</h3>
         <div className={styles.headerActions}>
-          {onDerive && (
-            // Issue #927: "KI-Ableitung" (distinct first word) + decorative
-            // icon out of the accessible name + its own hint.
-            <button
-              className={`btn-primary ${styles.aiGradientButton}`}
-              data-testid="trace-link-derive-btn"
-              onClick={onDerive}
-              disabled={isDeriving}
-              aria-label={t("actions.deriveAi", "KI-Ableitung")}
-              title={t(
-                "actions.deriveAiHint",
-                "Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung"
-              )}
-            >
-              <span aria-hidden="true">✨</span>{" "}
-              {isDeriving
-                ? t("actions.derivingAi", "KI-Ableitung läuft…")
-                : t("actions.deriveAi", "KI-Ableitung")}
-            </button>
-          )}
           {/* REQ-005: unified CreateTraceLinkDialog opens as modal (no layout shift) */}
           <button
             className="btn-primary"
