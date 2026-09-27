@@ -16,14 +16,29 @@
  *      auto-links it to the source requirement via a 'verifies' TraceLink.
  *
  * data-testid is set on every interactive element (E2E convention).
+ *
+ * Issue #1091 — the panel rendered seven unstyled browser-default buttons
+ * ("Entfernen" ×4, "Schritt hinzufügen", "Testfall anlegen", "Verwerfen") and
+ * nested a second card inside the shared <Dialog>'s own card. Three changes:
+ *   - every control now carries a global `.btn-*` class (#954 convention);
+ *   - the per-row "Entfernen" is an icon-only control at the RIGHT EDGE OF
+ *     ITS OWN STEP ROW with a unique accessible name ("Schritt 1 entfernen"),
+ *     so four of them can no longer collapse into one ambiguous button row —
+ *     and, unlike the old text button, it no longer steals ~90px from the two
+ *     step inputs, which is what actually made four steps unreadable;
+ *   - the outer card is gone (see `.panel`), because the dialog panel is
+ *     already the card; keeping a second background/border/radius inside it
+ *     is what pushed the action row against the dialog edge.
  */
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Plus, Trash2 } from "lucide-react";
 
 import { extractErrorMessage } from "../../api/client";
 import { requirementsApi } from "../../api/requirements";
 import { testcasesApi } from "../../api/testcases";
 import type { TestCase, TestCaseStep } from "../../api/testcases";
+import { AiActionIcon } from "../shared/AiActions";
 import styles from "./DeriveTestCasePanel.module.css";
 
 export interface DeriveTestCasePanelProps {
@@ -158,10 +173,12 @@ export function DeriveTestCasePanel({
         <div className={styles.actions}>
           <button
             type="button"
+            className="btn-primary"
             onClick={handleGenerate}
             disabled={busy}
             data-testid="derive-testcase-generate"
           >
+            <AiActionIcon />
             {t("deriveTestcase.generate")}
           </button>
         </div>
@@ -221,20 +238,30 @@ export function DeriveTestCasePanel({
                 />
                 <button
                   type="button"
+                  // #1091: destructive but per-row, so it stays out of the
+                  // primary action hierarchy. Icon-only with a per-row
+                  // accessible name — four identical "Entfernen" buttons in
+                  // one row were ambiguous for a screen-reader user, and a
+                  // tooltip alone is not an accessible name.
+                  className={`btn-ghost ${styles.stepRemove}`}
                   onClick={() => removeStep(i)}
                   disabled={busy}
                   data-testid={`derive-testcase-step-remove-${i}`}
+                  aria-label={t("deriveTestcase.removeStep", { index: i + 1 })}
+                  title={t("deriveTestcase.removeStep", { index: i + 1 })}
                 >
-                  {t("deriveTestcase.removeStep")}
+                  <Trash2 aria-hidden="true" size={16} />
                 </button>
               </div>
             ))}
             <button
               type="button"
+              className="btn-secondary btn-sm"
               onClick={addStep}
               disabled={busy}
               data-testid="derive-testcase-add-step"
             >
+              <Plus aria-hidden="true" size={16} />
               {t("deriveTestcase.addStep")}
             </button>
           </div>
@@ -242,6 +269,7 @@ export function DeriveTestCasePanel({
           <div className={styles.actions}>
             <button
               type="button"
+              className="btn-primary"
               onClick={handleCreate}
               disabled={busy || !draft.title.trim()}
               data-testid="derive-testcase-create"
@@ -252,6 +280,7 @@ export function DeriveTestCasePanel({
             </button>
             <button
               type="button"
+              className="btn-secondary"
               onClick={handleDiscard}
               disabled={busy}
               data-testid="derive-testcase-discard"
