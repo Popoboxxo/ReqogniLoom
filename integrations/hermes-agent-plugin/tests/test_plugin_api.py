@@ -11,7 +11,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from unittest.mock import MagicMock, patch
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -58,6 +58,38 @@ def _request(**headers: str) -> SimpleNamespace:
     """A framework-free stand-in for the FastAPI ``Request`` the handlers read
     their headers from — anything exposing ``.headers`` behaves identically."""
     return SimpleNamespace(headers=_headers(**headers))
+
+
+# The loopback authority the dashboard tab addresses. It is both the ``Host`` a
+# browser always sends and the ``base_url`` the ASGI test client has to use, so
+# the DNS-rebinding guard cannot reject the modelled request before the
+# credential check gets its say.
+_TAB_HOST = "localhost:8000"
+_TAB_BASE_URL = "http://" + _TAB_HOST
+
+
+def _tab_headers(token: Optional[str] = _TEST_TOKEN) -> Dict[str, str]:
+    """The complete header set a same-origin GET from the dashboard tab sends.
+
+    Mirrors the rewritten ``dist/index.js``, which calls
+    ``window.fetch("/api/plugins/reqogniloom/<path>", { headers, credentials:
+    "same-origin" })``, and deliberately nothing more:
+
+    * ``Host`` — the loopback authority, always sent by the browser;
+    * ``X-ReqogniLoom-Dashboard-Token`` — the shared secret the tab read from
+      ``sessionStorage``, present only once the operator connected. ``token=None``
+      models the not-yet-connected tab, which sends no credential header at all;
+    * no ``Origin`` — browsers omit it on a same-origin GET, and
+      ``_check_allowed_origin`` reads an absent one as a non-browser caller that
+      the credential check alone has to hold in line;
+    * no cookie — the host hands this plugin no credential, so
+      ``credentials: "same-origin"`` has nothing of its own to attach and the
+      header is the only credential the request carries.
+    """
+    headers: Dict[str, str] = {"Host": _TAB_HOST}
+    if token is not None:
+        headers[plugin_api.CREDENTIAL_HEADER] = token
+    return headers
 
 
 def _leaky_client() -> MagicMock:
@@ -562,6 +594,142 @@ class DashboardAuthHttpTests(DashboardAuthTestCase):
         response = self._get("/version", **{plugin_api.CREDENTIAL_HEADER: _TEST_TOKEN})
         self.assertEqual(response.status_code, 200)
         self.assertIn("error", response.json())
+
+
+@unittest.skipIf(TestClient is None, "fastapi.testclient is unavailable")
+class DashboardTabRequestShapeTests(DashboardAuthTestCase):
+    """The request the rewritten dashboard tab actually sends, end to end.
+
+    The two paths under test are ``/stats`` and ``/version`` — the pair
+    ``dist/index.js`` fetches in parallel from its ``load()``.
+
+    LIMIT, stated rather than worked around: this harness is handed a header
+    mapping and nothing else. It can prove the SERVER contract for the shape the
+    tab sends (loopback ``Host``, credential header, no ``Origin``, no cookie)
+    and that the server keeps the tab's failure modes distinguishable — it
+    cannot observe a browser, so it proves nothing about whether the tab really
+    attaches that header on a live request. No JS harness in this repo reaches
+    that bundle (``node --check`` is the only check that does), and standing one
+    up here would test a stub of the tab rather than the tab. The tab side stays
+    a browser check; what is pinned below is that the server answers the tab's
+    shape with 200/401/403 and says which of the three happened.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.app = FastAPI()
+        self.app.include_router(plugin_api.router, prefix="/api/plugins/reqogniloom")
+        # The tab addresses the dashboard by loopback, so base_url pins Host the
+        # same way the tab's own request does.
+        self.client = TestClient(self.app, base_url=_TAB_BASE_URL)
+        self.fake_client = _leaky_client()
+        patcher = patch.object(plugin_api, "ReqogniLoomClient", return_value=self.fake_client)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # A deliberately gate-free diagnostic route, registered outside the
+        # plugin prefix: it has to report the headers the ASGI server actually
+        # received, including for a request the gate would reject.
+        self.app.add_api_route("/_probe", self._echo_headers, methods=["GET"])
+
+    def _echo_headers(self, request: plugin_api.Request) -> Dict[str, str]:
+        """Report the received headers verbatim (names arrive lowercased).
+
+        ``plugin_api.Request`` is ``fastapi.Request`` whenever the TestClient is
+        importable, which is exactly when this class runs — reusing it avoids a
+        second import of the same class.
+        """
+        return {name: value for name, value in request.headers.items()}
+
+    def _get(self, path: str, headers: Dict[str, str]) -> Any:
+        """One GET in the tab's shape, against the mounted plugin prefix."""
+        return self.client.get("/api/plugins/reqogniloom" + path, headers=headers)
+
+    def _seen_headers(self) -> Dict[str, str]:
+        """What the diagnostic route reports for one tab-shaped request."""
+        return self.client.get("/_probe", headers=_tab_headers()).json()
+
+    def test_tab_shape_reaches_the_gate_as_modelled(self) -> None:
+        # Measured, not assumed: if the harness did not really deliver the tab's
+        # shape, every other assertion in this class would be about a fiction.
+        seen = self._seen_headers()
+        self.assertEqual(seen.get("host"), _TAB_HOST)
+        self.assertNotIn("origin", seen)
+        self.assertNotIn("cookie", seen)
+        self.assertEqual(seen.get(plugin_api.CREDENTIAL_HEADER.lower()), _TEST_TOKEN)
+
+    def test_tab_shape_answers_200_with_data(self) -> None:
+        stats = self._get("/stats", _tab_headers())
+        version = self._get("/version", _tab_headers())
+        self.assertEqual((stats.status_code, version.status_code), (200, 200))
+        self.assertEqual(stats.json()["requirements"], _SECRET_COUNTS["requirements"])
+        self.assertEqual(version.json(), {"app_version": "9.9.9"})
+
+    def test_tab_shape_without_the_credential_header_answers_401_missing(self) -> None:
+        # The regression that shipped: the tab reached the API carrying no header
+        # at all. It has to stay a 401 that NAMES the header — dist/index.js
+        # branches on the literal "missing" and echoes the header name back to
+        # the operator, so a generic "unauthorized" would misdirect the fix at
+        # the token instead of at the host that dropped it.
+        for path in ("/stats", "/version"):
+            with self.subTest(path=path):
+                response = self._get(path, _tab_headers(token=None))
+                self.assertEqual(response.status_code, 401)
+                detail = response.json()["detail"]
+                self.assertIn("missing", detail)
+                self.assertIn(plugin_api.CREDENTIAL_HEADER, detail)
+                _assert_no_tenant_data(self, SimpleNamespace(detail=detail))
+        self.fake_client.assert_not_called()
+
+    def test_tab_shape_with_a_wrong_credential_answers_401_invalid(self) -> None:
+        # The other 401. The tab's describeFailure() falls through to
+        # "disconnect and re-enter the token" here, so this detail must not
+        # claim the header is missing.
+        for path in ("/stats", "/version"):
+            with self.subTest(path=path):
+                response = self._get(path, _tab_headers(token="not-the-token"))
+                self.assertEqual(response.status_code, 401)
+                detail = response.json()["detail"]
+                self.assertNotIn(plugin_api.CREDENTIAL_HEADER, detail)
+                self.assertNotIn("missing", detail)
+                _assert_no_tenant_data(self, SimpleNamespace(detail=detail))
+        self.fake_client.assert_not_called()
+
+    def test_a_dropped_header_is_told_apart_from_a_wrong_credential(self) -> None:
+        # What the tab has to be able to say: "the host never forwarded the
+        # header" vs "that token is wrong". Both are 401, so the status alone
+        # cannot carry the difference — only a detail naming the header can.
+        missing = self._get("/stats", _tab_headers(token=None)).json()["detail"]
+        wrong = self._get("/stats", _tab_headers(token="not-the-token")).json()["detail"]
+        self.assertNotEqual(missing, wrong)
+        self.assertIn(plugin_api.CREDENTIAL_HEADER, missing)
+        self.assertNotIn(plugin_api.CREDENTIAL_HEADER, wrong)
+
+    def test_tab_shape_answers_403_when_the_guard_is_unconfigured(self) -> None:
+        # A third, separately handled failure class: the credential may well be
+        # correct, the server simply has nothing to compare it against.
+        # describeFailure() matches TOKEN_ENV_VAR, so the detail has to name it.
+        # (The bare 403 status for an unset token var is already covered by
+        # DashboardAuthHttpTests.test_all_three_endpoints_answer_403_when_the_token_env_var_is_unset;
+        # what is new here is the detail contract and the tab's header shape.)
+        os.environ.pop(plugin_api.TOKEN_ENV_VAR, None)
+        response = self._get("/stats", _tab_headers())
+        self.assertEqual(response.status_code, 403)
+        detail = response.json()["detail"]
+        self.assertIn(plugin_api.TOKEN_ENV_VAR, detail)
+        _assert_no_tenant_data(self, SimpleNamespace(detail=detail))
+        self.fake_client.assert_not_called()
+
+    def test_a_cookie_does_not_authenticate_the_tab_shape(self) -> None:
+        # credentials: "same-origin" would attach a cookie if the host set one.
+        # This host sets none, and a cookie must never become an alternative way
+        # in: without the header the request is rejected whatever the jar holds.
+        response = self._get(
+            "/stats",
+            {"Host": _TAB_HOST, "Cookie": "hermes_dashboard_session=8f14e45fceea167a5a36dedd4bea2543"},
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertIn(plugin_api.CREDENTIAL_HEADER, response.json()["detail"])
+        self.fake_client.assert_not_called()
 
 
 if __name__ == "__main__":
