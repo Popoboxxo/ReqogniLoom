@@ -99,6 +99,53 @@ describe("callMcpTool", () => {
       callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {})
     ).rejects.toThrow();
   });
+
+  it.each([null, undefined])(
+    "throws a named error, not a TypeError, when network.fetch resolves to %s",
+    async (value) => {
+      const fetchMock = vi.fn().mockResolvedValue(value);
+
+      await expect(
+        callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get_state", { session_id: "abc" })
+      ).rejects.toThrow(new Error("MCP call to interview.get_state returned a non-Response value"));
+    }
+  );
+
+  it("throws McpRpcError when a success frame carries no result field", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify({ jsonrpc: "2.0", id: 1 }));
+
+    await expect(callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {})).rejects.toMatchObject({
+      message: "MCP call to interview.get returned a JSON-RPC frame with no result field",
+      code: -32603,
+    });
+  });
+
+  it("throws McpRpcError when the frame is not a JSON-RPC object at all", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify("nope"));
+
+    await expect(callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {})).rejects.toBeInstanceOf(
+      McpRpcError
+    );
+  });
+
+  it("aborts the request after a timeout so a hung server cannot wedge the panel", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }));
+
+    await callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {});
+
+    expect(timeoutSpy).toHaveBeenCalledWith(15_000);
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    timeoutSpy.mockRestore();
+  });
+
+  it("propagates an aborted request as the abort error", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new DOMException("The operation was aborted", "TimeoutError"));
+
+    await expect(
+      callMcpTool({ fetch: fetchMock }, CONNECTION, "interview.get", {})
+    ).rejects.toThrow(/aborted/);
+  });
 });
 
 describe("interview.* wrappers", () => {
@@ -223,5 +270,23 @@ describe("interview.* wrappers", () => {
     expect(body.method).toBe("interview.set_target");
     expect(body.params).toEqual({ session_id: "s-1", artifact_id: "art-9" });
     expect(state.session_id).toBe("s-1");
+  });
+
+  it("interviewList throws McpRpcError instead of returning undefined for result: null", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify({ jsonrpc: "2.0", id: 1, result: null }));
+
+    await expect(interviewList({ fetch: fetchMock }, CONNECTION)).rejects.toMatchObject({
+      message: "MCP call to interview.list returned a result with no sessions array",
+      code: -32603,
+    });
+  });
+
+  it("interviewList passes through a session whose artifact_type is null", async () => {
+    const sessions = [{ id: "s-1", workspace_id: "ws-1", artifact_type: null, status: "in_progress" }];
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { sessions } }));
+
+    const list = await interviewList({ fetch: fetchMock }, CONNECTION);
+
+    expect(list).toEqual(sessions);
   });
 });

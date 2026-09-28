@@ -28,10 +28,16 @@ interface JsonRpcError {
   error: { code: number; message: string; data?: unknown };
 }
 
-type JsonRpcResponse = JsonRpcSuccess | JsonRpcError;
+function isJsonRpcError(frame: unknown): frame is JsonRpcError {
+  return typeof frame === "object" && frame !== null && "error" in frame;
+}
 
-function isJsonRpcError(frame: JsonRpcResponse): frame is JsonRpcError {
-  return "error" in frame;
+function isJsonRpcSuccess(frame: unknown): frame is JsonRpcSuccess {
+  return typeof frame === "object" && frame !== null && !isJsonRpcError(frame) && "result" in frame;
+}
+
+function isResponseLike(value: unknown): value is Response {
+  return typeof value === "object" && value !== null && typeof (value as { text?: unknown }).text === "function";
 }
 
 // Mirrors api.ts's parseNetworkResult -- network.fetch's actual return shape
@@ -41,13 +47,17 @@ function isJsonRpcError(frame: JsonRpcResponse): frame is JsonRpcError {
 // function's REST-specific status-inference (isErrorShaped -> 400) doesn't
 // apply here -- JSON-RPC always answers 200 with an error *object* inside a
 // 200 body, never via HTTP status.
-async function readBody(raw: unknown): Promise<string> {
+async function readBody(raw: unknown, toolName: string): Promise<string> {
   if (typeof raw === "string") return raw;
-  const res = raw as Response;
-  return res.text();
+  if (!isResponseLike(raw)) {
+    throw new Error(`MCP call to ${toolName} returned a non-Response value`);
+  }
+  return raw.text();
 }
 
 let requestCounter = 0;
+
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export async function callMcpTool(
   network: HermesNetworkAPI,
@@ -65,18 +75,22 @@ export async function callMcpTool(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ jsonrpc: "2.0", id, method: toolName, params }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
-  const text = await readBody(raw);
-  let frame: JsonRpcResponse;
+  const text = await readBody(raw, toolName);
+  let frame: unknown;
   try {
-    frame = JSON.parse(text) as JsonRpcResponse;
+    frame = JSON.parse(text) as unknown;
   } catch {
     throw new Error(`MCP call to ${toolName} returned non-JSON response: ${text.slice(0, 200)}`);
   }
 
   if (isJsonRpcError(frame)) {
     throw new McpRpcError(frame.error.code, frame.error.message, frame.error.data);
+  }
+  if (!isJsonRpcSuccess(frame)) {
+    throw new McpRpcError(-32603, `MCP call to ${toolName} returned a JSON-RPC frame with no result field`);
   }
   return frame.result;
 }
@@ -99,7 +113,10 @@ export interface InterviewState {
 export interface InterviewSummary {
   id: string;
   workspace_id: string;
-  artifact_type: string;
+  // NULL backend-side for multi-artifact discovery sessions only
+  // (persistence/models.py), and interview.list does not filter on session
+  // kind, so this plugin can see sessions it cannot resume by type.
+  artifact_type: string | null;
   status: string;
 }
 
@@ -165,10 +182,11 @@ export async function interviewList(
 ): Promise<InterviewSummary[]> {
   const params: Record<string, unknown> = { workspace_id: connection.workspaceId };
   if (status) params.status = status;
-  const result = (await callMcpTool(network, connection, "interview.list", params)) as {
-    sessions: InterviewSummary[];
-  };
-  return result.sessions;
+  const result: unknown = await callMcpTool(network, connection, "interview.list", params);
+  if (typeof result !== "object" || result === null || !Array.isArray((result as { sessions?: unknown }).sessions)) {
+    throw new McpRpcError(-32603, "MCP call to interview.list returned a result with no sessions array");
+  }
+  return (result as { sessions: InterviewSummary[] }).sessions;
 }
 
 export async function interviewSetTarget(

@@ -119,6 +119,43 @@ describe("initState", () => {
       tooltip: "Connected to Alpha",
     });
   });
+
+  it("drops a stored entry whose connection is null and stays on the connect view", async () => {
+    const api = createMockApi(JSON.stringify({ connection: null }));
+    await initState(api);
+
+    const state = getState();
+    expect(state.view).toBe("connect");
+    expect(state.connection).toBeNull();
+    expect(state.workspaceName).toBeNull();
+    expect(api.storage.delete).toHaveBeenCalledWith("reqogniloom-connection");
+  });
+
+  it("drops a stored connection with an empty apiKey instead of restoring a dead panel", async () => {
+    const stored = JSON.stringify({
+      connection: { baseUrl: "https://example.com", apiKey: "", workspaceId: "ws-1" },
+      workspaceName: "Alpha",
+    });
+    const api = createMockApi(stored);
+    await initState(api);
+
+    const state = getState();
+    expect(state.view).toBe("connect");
+    expect(state.connection).toBeNull();
+    expect(api.storage.delete).toHaveBeenCalledWith("reqogniloom-connection");
+  });
+
+  it("drops a stored connection with an empty baseUrl", async () => {
+    const stored = JSON.stringify({
+      connection: { baseUrl: "", apiKey: "reqlo_abc", workspaceId: "ws-1" },
+      workspaceName: "Alpha",
+    });
+    const api = createMockApi(stored);
+    await initState(api);
+
+    expect(getState().view).toBe("connect");
+    expect(api.storage.delete).toHaveBeenCalledWith("reqogniloom-connection");
+  });
 });
 
 describe("connectWithCredentials", () => {
@@ -180,7 +217,20 @@ describe("connectWithCredentials", () => {
     expect(state.connectError).toBe("Invalid API key");
     expect(state.connecting).toBe(false);
   });
-});
+
+  it("clears connecting and surfaces an error when the request aborts on timeout", async () => {
+    const api = createMockApi();
+    await initState(api);
+    listWorkspacesMock.mockRejectedValue(new DOMException("The operation was aborted", "TimeoutError"));
+
+    await connectWithCredentials("https://example.com", "reqlo_abc");
+
+    const state = getState();
+    expect(state.connecting).toBe(false);
+    expect(state.connectError).not.toBeNull();
+    expect(state.view).toBe("connect");
+    expect(state.connection).toBeNull();
+  });});
 
 describe("chooseWorkspace", () => {
   it("finalizes connection with the picked workspace", async () => {
@@ -240,6 +290,27 @@ describe("disconnect", () => {
     expect(state.connection).toBeNull();
     expect(state.workspaceName).toBeNull();
     expect(api.storage.delete).toHaveBeenCalledWith("reqogniloom-connection");
+  });
+
+  it("still returns to the connect view when storage.delete rejects, without rejecting to the fire-and-forget call site", async () => {
+    const stored = JSON.stringify({
+      connection: { baseUrl: "https://example.com", apiKey: "reqlo_abc", workspaceId: "ws-1" },
+      workspaceName: "Alpha",
+    });
+    const api = createMockApi(stored);
+    await initState(api);
+    expect(getState().view).toBe("connected");
+
+    vi.mocked(api.storage.delete).mockRejectedValueOnce(new Error("storage unavailable"));
+
+    // The panel calls this as `void disconnect()`, so a rejection here would
+    // surface only as an unhandled rejection -- it must not escape.
+    await expect(disconnect()).resolves.toBeUndefined();
+
+    const state = getState();
+    expect(state.view).toBe("connect");
+    expect(state.connection).toBeNull();
+    expect(state.workspaceName).toBeNull();
   });
 });
 
@@ -544,6 +615,39 @@ describe("interview state", () => {
     await pending;
 
     expect(getState().activeInterview).toBeNull();
+  });
+
+  it("clears interviewBusy and surfaces an error when a list request aborts on timeout", async () => {
+    await connectedState();
+    // What an AbortSignal.timeout rejection actually is: a DOMException, not
+    // an Error subclass in every host, so the specific message is not
+    // guaranteed here -- the contract is a cleared busy flag and a visible
+    // error rather than a stuck "Loading…" panel.
+    vi.mocked(mcpClient.interviewList).mockRejectedValue(
+      new DOMException("The operation was aborted", "TimeoutError")
+    );
+
+    await openInterviews();
+
+    const state = getState();
+    expect(state.interviewBusy).toBe(false);
+    expect(state.interviewError).not.toBeNull();
+    expect(state.interviewList).toEqual([]);
+  });
+
+  it("clears interviewBusy and surfaces the abort message when a formalize request fails", async () => {
+    await connectedState();
+    vi.mocked(mcpClient.interviewStart).mockResolvedValue(fakeInterviewState);
+    await startNewInterview("Requirement");
+    vi.mocked(mcpClient.interviewFormalize).mockRejectedValue(
+      new Error("The operation was aborted due to timeout")
+    );
+
+    const result = await formalizeInterview();
+
+    expect(result).toBeNull();
+    expect(getState().interviewBusy).toBe(false);
+    expect(getState().interviewError).toMatch(/aborted due to timeout/);
   });
 });
 

@@ -10,13 +10,6 @@ const IN_SCOPE_ARTIFACT_TYPES = [
   "TestCase", "Adr", "Issue", "Goal",
 ] as const;
 
-// formalize() only implements the "Requirement" branch so far (backend
-// application/interview_service.py:569-574, "the other 7 types follow the
-// identical pattern in a later pass") -- offering them here without a
-// warning let a user fill in a whole non-Requirement interview and only
-// discover it can't be formalized at the very last click.
-const FORMALIZABLE_ARTIFACT_TYPES: ReadonlySet<string> = new Set(["Requirement"]);
-
 export function InterviewListView({ state }: { state: AppState }): JSX.Element {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -45,7 +38,10 @@ export function InterviewListView({ state }: { state: AppState }): JSX.Element {
                 style={buttonStyle}
                 onClick={() => void resumeInterview(session.id)}
               >
-                {session.artifact_type} — {session.status}
+                {/* artifact_type is NULL backend-side exactly for
+                    multi-artifact discovery sessions, which interview.list
+                    does not filter out -- render a label, never a raw null. */}
+                {session.artifact_type ?? "Multi-artifact"} — {session.status}
               </button>
             </li>
           ))}
@@ -55,23 +51,18 @@ export function InterviewListView({ state }: { state: AppState }): JSX.Element {
       <div>
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>Start new</span>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-          {IN_SCOPE_ARTIFACT_TYPES.map((type) => {
-            const formalizable = FORMALIZABLE_ARTIFACT_TYPES.has(type);
-            return (
-              <button
-                key={type}
-                type="button"
-                data-testid={`interview-start-${type}`}
-                style={buttonStyle}
-                onClick={() => void startNewInterview(type)}
-                disabled={state.interviewBusy || !formalizable}
-                title={formalizable ? undefined : "Not formalizable yet — this artifact type is not supported by formalize() yet."}
-              >
-                {type}
-                {!formalizable && " (soon)"}
-              </button>
-            );
-          })}
+          {IN_SCOPE_ARTIFACT_TYPES.map((type) => (
+            <button
+              key={type}
+              type="button"
+              data-testid={`interview-start-${type}`}
+              style={buttonStyle}
+              onClick={() => void startNewInterview(type)}
+              disabled={state.interviewBusy}
+            >
+              {type}
+            </button>
+          ))}
         </div>
       </div>
     </div>
