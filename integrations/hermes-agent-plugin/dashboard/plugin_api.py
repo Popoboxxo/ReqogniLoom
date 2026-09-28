@@ -35,9 +35,14 @@ from reqogniloom_client import ReqogniLoomClient, ReqogniLoomError, resolve_work
 
 router = APIRouter()
 
+# These handlers are deliberately sync, not async: reqogniloom_client uses
+# blocking urllib, and FastAPI only runs sync path operations in a worker
+# threadpool — as async defs they would stall the dashboard event loop for the
+# duration of every backend call (/stats makes three sequential ones).
+
 
 @router.get("/stats")
-async def stats(workspace_id: str = ""):
+def stats(workspace_id: str = ""):
     client = ReqogniLoomClient()
     try:
         ws_id = resolve_workspace_id(client, workspace_id or None)
@@ -47,7 +52,7 @@ async def stats(workspace_id: str = ""):
 
 
 @router.get("/workspaces")
-async def workspaces():
+def workspaces():
     client = ReqogniLoomClient()
     try:
         return {"workspaces": client.list_workspaces()}
@@ -56,7 +61,7 @@ async def workspaces():
 
 
 @router.get("/version")
-async def version():
+def version():
     client = ReqogniLoomClient()
     try:
         return client.version()
