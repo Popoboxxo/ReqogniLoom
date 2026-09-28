@@ -31,11 +31,21 @@ ROLE_FILES = [
     "change-manager.md",
     "quality-auditor.md",
 ]
-SKILL_NAMES = [
-    "vmodell-decomposition", "test-lifecycle", "risk-derivation",
-    "ccb-approval-and-baseline", "traceability-audit",
-    "interview-management",
-]
+
+
+def discover_skill_names(skills_src: Path) -> list[str]:
+    """Every immediate subdirectory of skills_src that holds a SKILL.md.
+
+    Derived rather than hardcoded: docs/agent-templates/package_skills.py owns
+    the skill set, and a literal list in one builder could be updated while the
+    other three silently shipped without the new skill. Sorted so repeated
+    generation stays byte-for-byte deterministic.
+    """
+    return sorted(
+        entry.name
+        for entry in skills_src.iterdir()
+        if entry.is_dir() and (entry / "SKILL.md").is_file()
+    )
 
 
 def parse_role_file(path: Path) -> tuple[dict, str]:
@@ -118,7 +128,7 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
     skills_dir = plugin_root / "skills"
     if skills_dir.exists():
         shutil.rmtree(skills_dir)
-    for skill_name in SKILL_NAMES:
+    for skill_name in discover_skill_names(skills_src):
         dst = skills_dir / skill_name
         dst.mkdir(parents=True, exist_ok=True)
         shutil.copy2(skills_src / skill_name / "SKILL.md", dst / "SKILL.md")

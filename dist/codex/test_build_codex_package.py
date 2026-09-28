@@ -3,6 +3,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from build_codex_package import discover_skill_names
+
 BUILD_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BUILD_DIR.parent.parent
 
@@ -30,3 +32,16 @@ def test_build_codex_package(tmp_path):
                         "ccb-approval-and-baseline", "traceability-audit",
                         "interview-management"]:
         assert (tmp_path / "skills" / skill_name / "SKILL.md").exists()
+
+
+def test_discover_skill_names_matches_the_canonical_skill_set():
+    """The skill set is derived from dist/agent-skills/ rather than written
+    out as a literal, so a new skill added by
+    docs/agent-templates/package_skills.py cannot land in this package while
+    the other three silently ship without it. Pinning the derived set keeps
+    that derivation honest."""
+    assert discover_skill_names(REPO_ROOT / "dist" / "agent-skills") == [
+        "ccb-approval-and-baseline", "interview-management", "risk-derivation",
+        "test-lifecycle", "traceability-audit", "vmodell-decomposition",
+    ]
+

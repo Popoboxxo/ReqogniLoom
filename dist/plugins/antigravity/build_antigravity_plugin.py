@@ -15,11 +15,21 @@ REPO_ROOT = BUILD_DIR.parent.parent.parent
 SKILLS_SRC = REPO_ROOT / "dist" / "agent-skills"
 DOMAIN_MODEL_SRC = REPO_ROOT / "docs" / "agent-templates" / "DOMAIN_MODEL.md"
 SERVER_NAME = "reqogniloom"
-SKILL_NAMES = [
-    "vmodell-decomposition", "test-lifecycle", "risk-derivation",
-    "ccb-approval-and-baseline", "traceability-audit",
-    "interview-management",
-]
+
+
+def discover_skill_names(skills_src: Path) -> list[str]:
+    """Every immediate subdirectory of skills_src that holds a SKILL.md.
+
+    Derived rather than hardcoded: docs/agent-templates/package_skills.py owns
+    the skill set, and a literal list in one builder could be updated while the
+    other three silently shipped without the new skill. Sorted so repeated
+    generation stays byte-for-byte deterministic.
+    """
+    return sorted(
+        entry.name
+        for entry in skills_src.iterdir()
+        if entry.is_dir() and (entry / "SKILL.md").is_file()
+    )
 
 
 def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
@@ -66,7 +76,7 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
     skills_out = plugin_root / "skills"
     if skills_out.exists():
         shutil.rmtree(skills_out)
-    for skill_name in SKILL_NAMES:
+    for skill_name in discover_skill_names(skills_src):
         src = skills_src / skill_name
         dst = skills_out / skill_name
         dst.mkdir(parents=True, exist_ok=True)
