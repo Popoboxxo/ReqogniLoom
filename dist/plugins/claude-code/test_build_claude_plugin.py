@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from build_claude_plugin import discover_skill_names
+
 BUILD_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BUILD_DIR.parent.parent.parent
 
@@ -81,3 +83,16 @@ def test_build_claude_plugin_all_json_files_parse(tmp_path):
     )
     for json_file in tmp_path.rglob("*.json"):
         json.loads(json_file.read_text(encoding="utf-8"))  # raises on invalid JSON
+
+
+def test_discover_skill_names_matches_the_canonical_skill_set():
+    """The skill set is derived from dist/agent-skills/ rather than written
+    out as a literal, so a new skill added by
+    docs/agent-templates/package_skills.py cannot land in this package while
+    the other three silently ship without it. Pinning the derived set keeps
+    that derivation honest."""
+    assert discover_skill_names(REPO_ROOT / "dist" / "agent-skills") == [
+        "ccb-approval-and-baseline", "interview-management", "risk-derivation",
+        "test-lifecycle", "traceability-audit", "vmodell-decomposition",
+    ]
+

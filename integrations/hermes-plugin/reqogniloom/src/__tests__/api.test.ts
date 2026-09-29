@@ -150,4 +150,55 @@ describe("listWorkspaces", () => {
       status: 401,
     });
   });
+
+  it.each([null, undefined])(
+    "throws a named error, not a TypeError, when network.fetch resolves to %s",
+    async (value) => {
+      const fetchMock = vi.fn().mockResolvedValue(value);
+
+      await expect(
+        listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_abc" })
+      ).rejects.toThrow(new Error("GET /api/v1/workspaces/ returned a non-Response value"));
+    }
+  );
+
+  it("throws a typed ReqogniLoomApiError when a 200 body is an array instead of a paginated envelope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify([{ id: "ws-1", name: "Alpha" }]));
+
+    await expect(
+      listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_abc" })
+    ).rejects.toMatchObject({
+      name: "ReqogniLoomApiError",
+      message: "GET /api/v1/workspaces/ returned a body with no results array",
+    });
+  });
+
+  it("throws a typed ReqogniLoomApiError when a 200 body lacks a results key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(JSON.stringify({ count: 0, next: null, previous: null }));
+
+    await expect(
+      listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_abc" })
+    ).rejects.toBeInstanceOf(ReqogniLoomApiError);
+  });
+
+  it("aborts the request after a timeout so a hung server cannot wedge the panel", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const fetchMock = vi.fn().mockResolvedValue(
+      JSON.stringify({ count: 0, next: null, previous: null, results: [] })
+    );
+
+    await listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_abc" });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(15_000);
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    timeoutSpy.mockRestore();
+  });
+
+  it("propagates an aborted request as the abort error", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new DOMException("The operation was aborted", "TimeoutError"));
+
+    await expect(
+      listWorkspaces({ fetch: fetchMock }, { baseUrl: "https://example.com", apiKey: "reqlo_abc" })
+    ).rejects.toThrow(/aborted/);
+  });
 });

@@ -83,6 +83,21 @@ function updateStatusBar() {
   });
 }
 
+// A restored store is only usable if it can actually drive the panel: a
+// truncated/legacy entry (e.g. {"connection":null}) parses fine but leaves
+// ConnectedView with an undefined workspaceName and every action a silent
+// no-op, so it is rejected and dropped like a parse failure.
+function isRestorableConnection(value: unknown): value is Connection {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { baseUrl?: unknown; apiKey?: unknown };
+  return (
+    typeof candidate.baseUrl === "string" &&
+    candidate.baseUrl !== "" &&
+    typeof candidate.apiKey === "string" &&
+    candidate.apiKey !== ""
+  );
+}
+
 export async function initState(pluginApi: HermesPluginAPI): Promise<void> {
   hermesAPI = pluginApi;
   const stored = await pluginApi.storage.get(STORAGE_KEY);
@@ -91,7 +106,10 @@ export async function initState(pluginApi: HermesPluginAPI): Promise<void> {
     return;
   }
   try {
-    const parsed = JSON.parse(stored) as { connection: Connection; workspaceName: string };
+    const parsed = JSON.parse(stored) as { connection?: unknown; workspaceName?: string };
+    if (!isRestorableConnection(parsed.connection)) {
+      throw new Error("stored connection is missing baseUrl/apiKey");
+    }
     setState({ connection: parsed.connection, workspaceName: parsed.workspaceName, view: "connected" });
     updateStatusBar();
   } catch {
@@ -151,9 +169,17 @@ async function finalizeConnection(connection: Connection, workspaceName: string)
 }
 
 export async function disconnect(): Promise<void> {
-  await api().storage.delete(STORAGE_KEY);
-  setState({ ...createInitialState() });
-  updateStatusBar();
+  try {
+    await api().storage.delete(STORAGE_KEY);
+  } catch {
+    /* the stored entry may survive a failed delete, but the user asked to
+       drop this connection -- keeping the panel on it would be a lie, and
+       the call site is a fire-and-forget void, so nothing would report the
+       failure either */
+  } finally {
+    setState({ ...createInitialState() });
+    updateStatusBar();
+  }
 }
 
 export async function openInBrowser(): Promise<void> {

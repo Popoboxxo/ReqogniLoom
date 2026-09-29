@@ -96,6 +96,41 @@ describe("InterviewFormView field rendering", () => {
     await screen.findByText(/art-1/i);
   });
 
+  it("disables Formalize while a call is already in flight so a double click cannot formalize twice", () => {
+    vi.mocked(formalizeInterview).mockClear();
+    const interview = makeInterview({ missing_fields: [] });
+    render(<InterviewFormView state={makeState(interview, { interviewBusy: true })} />);
+
+    const button = screen.getByTestId("interview-formalize-button");
+    expect(button).toBeDisabled();
+
+    fireEvent.click(button);
+
+    expect(formalizeInterview).not.toHaveBeenCalled();
+  });
+
+  it("does not fire a second interview.formalize call on a double click", async () => {
+    vi.mocked(formalizeInterview).mockClear();
+    let resolveFormalize!: (value: { resulting_artifact_ids: string[] }) => void;
+    vi.mocked(formalizeInterview).mockReturnValue(
+      new Promise((resolve) => {
+        resolveFormalize = resolve;
+      })
+    );
+    const interview = makeInterview({ missing_fields: [] });
+    const { rerender } = render(<InterviewFormView state={makeState(interview)} />);
+
+    fireEvent.click(screen.getByTestId("interview-formalize-button"));
+    // interviewBusy flips to true for the whole in-flight window, which is
+    // exactly the second click a real user produces.
+    rerender(<InterviewFormView state={makeState(interview, { interviewBusy: true })} />);
+    fireEvent.click(screen.getByTestId("interview-formalize-button"));
+
+    expect(formalizeInterview).toHaveBeenCalledTimes(1);
+    resolveFormalize({ resulting_artifact_ids: ["art-1"] });
+    await screen.findByText(/art-1/i);
+  });
+
   it("shows grounding candidates as a hint list", () => {
     const interview = makeInterview({
       grounding_snapshot: { candidates: [{ artifact_id: "art-9", title: "Similar existing req", score: null }] },

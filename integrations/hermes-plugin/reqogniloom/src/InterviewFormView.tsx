@@ -117,7 +117,7 @@ export function InterviewFormView({ state }: { state: AppState }): JSX.Element |
           type="button"
           data-testid="interview-formalize-button"
           style={buttonStyle}
-          disabled={interview.missing_fields.length > 0}
+          disabled={state.interviewBusy || interview.missing_fields.length > 0}
           onClick={async () => {
             const r = await formalizeInterview();
             if (r) setResult(r);

@@ -75,7 +75,11 @@ export class ReqogniLoomApiError extends Error {
 // HTTP status observable), but at least one reference plugin's own bundled
 // type declares Promise<Response> instead. Handle both rather than gambling
 // on one.
-async function parseNetworkResult(raw: unknown): Promise<{ status: number; body: unknown }> {
+function isResponseLike(value: unknown): value is Response {
+  return typeof value === "object" && value !== null && typeof (value as { text?: unknown }).text === "function";
+}
+
+async function parseNetworkResult(raw: unknown, label: string): Promise<{ status: number; body: unknown }> {
   if (typeof raw === "string") {
     let body: unknown = null;
     let parseError = false;
@@ -93,16 +97,20 @@ async function parseNetworkResult(raw: unknown): Promise<{ status: number; body:
     const isErrorShaped = !!(body && typeof body === "object" && "error" in (body as Record<string, unknown>));
     return { status: isErrorShaped ? 400 : 200, body };
   }
-  const res = raw as Response;
-  const text = await res.text();
+  if (!isResponseLike(raw)) {
+    throw new Error(`${label} returned a non-Response value`);
+  }
+  const text = await raw.text();
   let body: unknown = null;
   try {
     body = text ? JSON.parse(text) : null;
   } catch {
     body = null;
   }
-  return { status: res.status, body };
+  return { status: raw.status, body };
 }
+
+const REQUEST_TIMEOUT_MS = 15_000;
 
 async function reqloFetch(
   network: HermesNetworkAPI,
@@ -114,13 +122,14 @@ async function reqloFetch(
   const url = `${baseUrl.replace(/\/$/, "")}${path}`;
   const raw = await network.fetch(url, {
     ...options,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: {
       "X-API-Key": apiKey,
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string> | undefined),
     },
   });
-  const { status, body } = await parseNetworkResult(raw);
+  const { status, body } = await parseNetworkResult(raw, `${options.method ?? "GET"} ${path}`);
   if (status < 200 || status >= 300) {
     const envelope =
       body && typeof body === "object" && "error" in (body as Record<string, unknown>)
@@ -135,6 +144,10 @@ export async function listWorkspaces(
   network: HermesNetworkAPI,
   credentials: { baseUrl: string; apiKey: string }
 ): Promise<Workspace[]> {
-  const body = await reqloFetch(network, credentials.baseUrl, credentials.apiKey, "/api/v1/workspaces/");
+  const path = "/api/v1/workspaces/";
+  const body: unknown = await reqloFetch(network, credentials.baseUrl, credentials.apiKey, path);
+  if (typeof body !== "object" || body === null || !Array.isArray((body as { results?: unknown }).results)) {
+    throw new ReqogniLoomApiError(200, null, `GET ${path} returned a body with no results array`);
+  }
   return (body as WorkspaceListResponse).results;
 }
