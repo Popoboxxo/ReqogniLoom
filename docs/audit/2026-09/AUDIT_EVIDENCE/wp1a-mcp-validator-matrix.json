@@ -1,0 +1,353 @@
+[
+ {
+  "tool": "requirement.get",
+  "case": "empty {}",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'id' is missing.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "id: null",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'id' is missing.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "id: int",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'id' is not a valid UUID: '12345'\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "id: garbage string",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'id' is not a valid UUID: 'not-a-uuid'\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "id: nil UUID (nonexistent)",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Requirement 00000000-0000-0000-0000-000000000000 not found\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "id: SQL metacharacters",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'id' is not a valid UUID: ''; DROP TABLE glossary_term; --'\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "id: unicode/emoji",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'id' is not a valid UUID: '\\ud83d\\ude00 emoji \\u00e4\\u00f6\\u00fc \\u4e2d\\u6587 \\u0645\\u0631\\u062d\\u0628\\u0627 \\ud83d\\ude80'\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "id: 5000-char string",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'id' is not a valid UUID: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "id: null byte in string",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'id' is not a valid UUID: '\\u0000nullbyte'\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "unknown + dunder field",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'id' is not a valid UUID: 'a'\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.get",
+  "case": "wrong type on limit (str)",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'id' is not a valid UUID: 'x'\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement.query",
+  "case": "no other args",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"requirements\\\": [\\n    {\\n      \\\"id\\\": \\\"fe0d8a68-0268-4f36-88c5-eb3a0f17782e\\\",\\n      \\\"uid\\\": null,\\n      \\\"title\\\": \\\"Die Akkuladezeit darf 3 Stunden nicht \\\\u00fcberschr"
+ },
+ {
+  "tool": "requirement.query",
+  "case": "limit: negative",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"requirements\\\": [\\n    {\\n      \\\"id\\\": \\\"fe0d8a68-0268-4f36-88c5-eb3a0f17782e\\\",\\n      \\\"uid\\\": null,\\n      \\\"title\\\": \\\"Die Akkuladezeit darf 3 Stunden nicht \\\\u00fcberschr"
+ },
+ {
+  "tool": "requirement.query",
+  "case": "limit: 1e9",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"requirements\\\": [\\n    {\\n      \\\"id\\\": \\\"fe0d8a68-0268-4f36-88c5-eb3a0f17782e\\\",\\n      \\\"uid\\\": null,\\n      \\\"title\\\": \\\"Die Akkuladezeit darf 3 Stunden nicht \\\\u00fcberschr"
+ },
+ {
+  "tool": "requirement.query",
+  "case": "limit: string",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"requirements\\\": [\\n    {\\n      \\\"id\\\": \\\"fe0d8a68-0268-4f36-88c5-eb3a0f17782e\\\",\\n      \\\"uid\\\": null,\\n      \\\"title\\\": \\\"Die Akkuladezeit darf 3 Stunden nicht \\\\u00fcberschr"
+ },
+ {
+  "tool": "requirement.query",
+  "case": "level: int",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"requirements\\\": [\\n    {\\n      \\\"id\\\": \\\"fe0d8a68-0268-4f36-88c5-eb3a0f17782e\\\",\\n      \\\"uid\\\": null,\\n      \\\"title\\\": \\\"Die Akkuladezeit darf 3 Stunden nicht \\\\u00fcberschr"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "create, empty",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: definition: is required; term: is required\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "create, term empty str",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: definition: is required; term: is required\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "create, term int",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: An internal error occurred.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "create, definition null",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: definition: is required\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "create, 20000-char definition",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: An internal error occurred.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "create, SQL DROP in term",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: An internal error occurred.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "create, SQL OR-injection in term",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: An internal error occurred.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "create, unicode/emoji",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: An internal error occurred.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "workspace.get_preferences",
+  "case": "unknown key tolerated?",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"result\\\": {\\n    \\\"workspace_id\\\": \\\"4eee7ca1-eedd-4a7e-bb14-47e6493cbf88\\\",\\n    \\\"preset\\\": {\\n      \\\"tier\\\": \\\"extended\\\",\\n      \\\"language\\\": \\\"de\\\",\\n      \\\"terminology"
+ },
+ {
+  "tool": "workspace.get_preferences",
+  "case": "preferences: string",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"result\\\": {\\n    \\\"workspace_id\\\": \\\"4eee7ca1-eedd-4a7e-bb14-47e6493cbf88\\\",\\n    \\\"preset\\\": {\\n      \\\"tier\\\": \\\"extended\\\",\\n      \\\"language\\\": \\\"de\\\",\\n      \\\"terminology"
+ },
+ {
+  "tool": "glossary.create",
+  "case": "PARTIAL MUTATION probe: create #1",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"data\\\": {\\n    \\\"id\\\": \\\"3ef57ee1-63ae-4dcd-a166-f75ac38f11c7\\\",\\n    \\\"workspace_id\\\": \\\"4eee7ca1-eedd-4a7e-bb14-47e6493cbf88\\\",\\n    \\\"term\\\": \\\"wp1a-dup\\\",\\n    \\\"definition"
+ },
+ {
+  "tool": "memory.digest",
+  "case": "digest, no scope",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'workspace_id' is missing or empty.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "memory.digest",
+  "case": "digest, bad scope enum",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'workspace_id' is missing or empty.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement_bundle.export",
+  "case": "export, no format",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'root_id' is missing.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "requirement_bundle.export",
+  "case": "export, bad format enum",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'root_id' is missing.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "attribute_migration.plan",
+  "case": "migration plan, empty {}",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'plan' must be an object.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "traceability.suggest_links",
+  "case": "suggest_links, bad source_id",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"tier\\\": \\\"extended\\\",\\n  \\\"provider\\\": \\\"mock\\\",\\n  \\\"degraded\\\": false,\\n  \\\"suggestions\\\": [\\n    {\\n      \\\"finding_index\\\": 276,\\n      \\\"rule_id\\\": \\\"TRACE-P1\\\",\\n      \\\""
+ },
+ {
+  "tool": "artifact.search",
+  "case": "search, 20000-char query",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"results\\\": [\\n    {\\n      \\\"id\\\": \\\"ba7a9f1c-ef07-4cdd-af16-e24dc82a561f\\\",\\n      \\\"artifact_type\\\": \\\"Requirement\\\",\\n      \\\"title\\\": \\\"Browser-Check Req 1\\\",\\n      \\\"desc"
+ },
+ {
+  "tool": "artifact.search",
+  "case": "search, SQL in query",
+  "http": 200,
+  "kind": "result",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"results\\\": [\\n    {\\n      \\\"id\\\": \\\"66bd090b-057c-415b-8da0-ccea962b9446\\\",\\n      \\\"artifact_type\\\": \\\"GlossaryTerm\\\",\\n      \\\"title\\\": \\\"1' OR '1'='1\\\",\\n      \\\"descriptio"
+ },
+ {
+  "tool": "permissions.check",
+  "case": "check, no permission_level",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'permission_level' is missing or empty.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "audit.query",
+  "case": "audit.query, SQL in limit",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'limit' must be an integer.\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "interview.propose",
+  "case": "interview.propose, bad session",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Parameter 'session_id' is not a valid UUID: 'x'\"}], \"isError\": true}}"
+ },
+ {
+  "tool": "ai_derivation.decompose_requirement_next_level",
+  "case": "ai tool, empty args",
+  "http": 200,
+  "kind": "isError",
+  "rpc_code": null,
+  "stacktrace_leak": false,
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error: Required parameter 'requirement_id' is missing.\"}], \"isError\": true}}"
+ }
+]
