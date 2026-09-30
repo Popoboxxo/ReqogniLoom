@@ -31,8 +31,8 @@ author_agent: documenter
 | **Branch** | `chore/system-audit-2026-09` (11 Commits über `main`) |
 | **Zeitfenster** | 2026-09-29 (WP-Läufe) bis 2026-09-30 (Konsistenz-Gate + Sicherheits-Nachtrag) |
 | **Methodik in Kürze** | 11 Workstreams, 9 WP-Reports, rund 100 Evidenz-Dateien + Screenshots; Read-only-Mandat (außer den beiden Restore-Wegwerf-Containern in WP-1c), kein Produkt-Fix, kein Push |
-| **Kanonisches Register** | [`AUDIT_FINDINGS.md`](AUDIT_FINDINGS.md) — 285 Zeilen, 280 Findings + 5 bestätigte Kontrollen |
-| **Befundlage** | 14 Critical · 76 High · 115 Medium · 60 Low · 15 Info = **280** |
+| **Kanonisches Register** | [`AUDIT_FINDINGS.md`](AUDIT_FINDINGS.md) — 285 Zeilen = 279 Findings + 5 bestätigte Kontrollen + 1 zurückgezogenes Finding (`-070`) |
+| **Befundlage** | 13 Critical · 76 High · 115 Medium · 60 Low · 15 Info = **279** (nach K-1, §11) |
 | **Klassifikation** | 264 `NEU` · 4 `BESTAETIGT` · 5 `WIDERLEGT` · 6 `BLOCKED` · 1 `DUPLIKAT` |
 | **Vor-Audit** | `docs/se/reports/deep_audit/system-audit-2026-09/` (Prüf-HEAD `e3df119e`, 47 Tracks `CR-01`…`CR-47`, Health Score 1,4/5) — **nur verlinkt, nicht verändert** |
 
@@ -78,7 +78,7 @@ Feststellung zu einem Produktdefekt.
    gemessen sauber (12/12 atomar, 0,12–2,95 ms indexgestützt, 0 Leaks in 120
    Cross-Tenant-Proben).
 2. Das Problem ist **nicht Fehlen von Prüfungen, sondern deren Reichweite und
-   ihre Selbsttäuschung**: 280 Findings, davon 14 Critical, konzentrieren sich in
+   ihre Selbsttäuschung**: 279 Findings, davon 13 Critical, konzentrieren sich in
    vier Klassen — stillschweigendes Scheitern (`success: true` bei Totalausfall),
    fehlende Server-Side-Fences, geteilte Zustände/nicht-idempotente Operationen
    und eine Dokumentation, die Ist-Zustände als Soll verkauft.
@@ -119,7 +119,7 @@ drei WP-Reports getrennt ausgewiesen; die Summe stimmt mit dem Register überein
 | **WP-5** | Traceability / SE-Nachweis | **ROT** | Die Traceability-Kette existiert, ist aber weder zählbar noch gepflegt: 324 fehlende REQ-IDs, `open_adrs` 0/835, 14/15 `arch_impact: true` ohne ADR — sie taugt **in beide Richtungen** nicht als Nachweis. | 2/19/15/1/0 | **37** |
 | **WP-6a** | Security / Trust Boundaries | GELB | AuthN ist bemerkenswert sauber und Input-Validation stark (keine XXE, keine CSV-Formel-Injection, keine RCE-Vektoren), aber die Lücke ist eine **Reichweiten-Asymmetrie**: der Workspace-Fence greift client-gesteuert, und die CI-Kette hat kein Secret-Scan-Gate. | 2/5/8/7/0 | **22** |
 | **WP-6b** | Zuverlässigkeit / Concurrency / Observability | GELB (2 rote Dimensionen) | Transaktions- und Performance-Schicht sind **hochwertig** (12/12 atomar, 6/6 Hot-Paths indexgestützt), die Lücke liegt in **Absicherung** (Concurrency) und **Beobachtbarkeit** (Observability). | 0/3/13/3/0 | **19** |
-| | | | | **14/76/115/60/15** | **280** |
+| | | | | **13/76/115/60/15** | **279** |
 
 **Sub-Ampeln, die aus der Gesamt-Ampel herausfallen:** WP-6a AuthZ **ROT** und
 CI/CD **ROT** (WP-6a §0); WP-6b Concurrency **ROT** und Observability **ROT**
@@ -134,29 +134,31 @@ für diesen Bericht umgerechnet.**
 
 ### 4.1 Nach Schweregrad
 
-| Schweregrad | Anzahl | Anteil an 280 |
+| Schweregrad | Anzahl | Anteil an 279 |
 |---|---:|---:|
-| Critical | **14** | 5,0 % |
-| High | **76** | 27,1 % |
-| Medium | **115** | 41,1 % |
-| Low | **60** | 21,4 % |
+| Critical | **13** | 4,7 % |
+| High | **76** | 27,2 % |
+| Medium | **115** | 41,2 % |
+| Low | **60** | 21,5 % |
 | Info | **15** | 5,4 % |
-| **Summe** | **280** | 100 % |
+| **Summe (offene Findings)** | **279** | 100 % |
+
+> **Korrektur 2026-09-30 (K-1):** `AUD-2026-09-070` wurde von der unabhängigen Gegenprüfung **widerlegt** und zurückgezogen. Critical **14 → 13**, offene Findings **280 → 279**. Das Finding bleibt als `WIDERLEGT` sichtbar, wird aber nicht mehr als offener Mangel gezählt.
 
 ### 4.2 Nach Klassifikation
 
 | Klassifikation | Anzahl | Bedeutung für die Umsetzung |
 |---|---:|---|
-| `NEU` | **264** | erstmals in diesem Audit erhoben — **kein** Vor-Audit-Vorgänger mit gleicher Aussage |
+| `NEU` | **263** | erstmals in diesem Audit erhoben — **kein** Vor-Audit-Vorgänger mit gleicher Aussage |
 | `BESTAETIGT` | **4** | Vor-Audit-/Fremdbefund am aktuellen Code erneut bestätigt (IDs: `270`, `278`, `287`, `018`) |
-| `WIDERLEGT` | **5** | Vor-Audit-/Fremdaussage widerlegt (IDs: `021`, `022`, `050`, `152`, `166`) |
+| `WIDERLEGT` | **5** + **1 zurückgezogen** | Vor-Audit-/Fremdaussage widerlegt (IDs: `021`, `022`, `050`, `152`, `166`) |
 | `BLOCKED` | **6** | nicht verifizierbar — **ausdrücklich kein PASS** |
 | `DUPLIKAT` | **1** | bereits erfasst (`143` = Duplikat zu Issue `#1019`) |
-| *bestätigte Kontrollen (PASS)* | *5* | *Negativbefunde, nach PASS-Regel **nicht** in den 280 enthalten* |
+| *bestätigte Kontrollen (PASS)* | *5* | *Negativbefunde, nach PASS-Regel **nicht** in den 279 enthalten* |
 
 > **Lesehinweis:** `NEU` ist die *Klassifikation* des Registers, nicht die
 > Aussage „kein CR-Track genannt". **179 der 285 Master-Zeilen nennen gar keinen
-> `CR-Track`** — darunter **7 der 14 Critical** (`030`, `031`, `121`, `220`,
+> `CR-Track`** — darunter **7 der 13 Critical** (`030`, `031`, `121`, `220`,
 > `221`, `345`, `346`). Das ist die präzisere Aussage zum Verhältnis beider
 > Audits.
 
@@ -164,7 +166,7 @@ für diesen Bericht umgerechnet.**
 
 | WP | Report | Critical | High | Medium | Low | Info | Findings | Kontrollen |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| WP-1a/1b/1d | `AUDIT_EXTERNAL_INTEGRATIONS.md` | 5 | 19 | 24 | 9 | 5 | **62** | 0 |
+| WP-1a/1b/1d | `AUDIT_EXTERNAL_INTEGRATIONS.md` | 4 | 19 | 24 | 9 | 5 | **61** | 0 |
 | WP-1c | `AUDIT_INFRASTRUCTURE.md` | 4 | 8 | 13 | 5 | 0 | **30** | 0 |
 | WP-2 | `AUDIT_NATIVE_PLUGINS.md` | 1 | 6 | 7 | 6 | 4 | **24** | 0 |
 | WP-3 | `AUDIT_UI_BROWSER.md` | 0 | 3 | 7 | 12 | 3 | **25** | 0 |
@@ -173,28 +175,46 @@ für diesen Bericht umgerechnet.**
 | WP-5 | `AUDIT_TRACEABILITY.md` | 2 | 19 | 15 | 1 | 0 | **37** | 0 |
 | WP-6a | `AUDIT_SECURITY.md` | 2 | 5 | 8 | 7 | 0 | **22** | 0 |
 | WP-6b | `AUDIT_RELIABILITY.md` | 0 | 3 | 13 | 3 | 0 | **19** | 0 |
-| **Gesamt** | 9 Reports | **14** | **76** | **115** | **60** | **15** | **280** | **5** |
+| **Gesamt** | 9 Reports | **13** | **76** | **115** | **60** | **15** | **279** | **5** |
+
+> **K-1:** `AUD-2026-09-070` (WP-1d, Critical) ist **widerlegt** und aus der Critical-Zählung herausgenommen. Es bleibt in der Master-Tabelle des Registers als `WIDERLEGT` sichtbar.
 
 ## 5. Die Top-10 der kritischsten Findings
 
 Auswahlkriterium: **Schweregrad × tatsächliche Schadenswirkung ×
 Eintritts-Wahrscheinlichkeit**. Die Reihenfolge ist damit **bewusst nicht** die
-Reihenfolge der 14 Critical im Register — 4 Critical-IDs sind Doppelmeldungen
+Reihenfolge der 13 Critical im Register — 4 Critical-IDs sind Doppelmeldungen
 derselben Ursache in zwei Workstreams (`345`/`346` zu `122`/`123` bzw. `052`)
 und werden dort zusammengeführt, wo sie keine eigene Schadenswirkung addieren.
 
-| Rang | ID | Schweregrad | Kurztitel | Ort | Auswirkung |
-|---:|---|---|---|---|---|
-| 1 | `AUD-2026-09-220` | Critical | Live `reqlo_`-API-Key im Klartext committet — **vom Audit selbst** | `AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246` (Commit `3dcc80d8`) | Key widerrufen, Arbeitsbaum redigiert, **Historie offen**: jeder PR-Autor und jeder Fork hatte ein gültiges `write`-Credential. |
-| 2 | `AUD-2026-09-222` | **High** | Workspace-Fence greift auf 269 von 311 mutierenden Routen nicht | `auth_tenancy/workspace_scope.py:114`; `auth_tenancy/rest.py:259-271` | Cross-Workspace-Schreibzugriff **innerhalb** eines Tenants; für ein SE-Tool mit Audit-/Traceability-Nutzen ist die Nachweiskette damit wertlos. |
-| 3 | `AUD-2026-09-030` + `-221` | Critical | Redis-Ausfall ohne `SOCKET_TIMEOUT` hängt 13 MCP-Endpoints unbegrenzt; unauthentifizierter Cache-Pfad **vor** AuthN | `settings.py:879`; `mcp_server/views.py:272`; `mcp_server/throttling.py:164` | Jeder Redis-Kurzbefehl macht die komplette KI-Fläche unbenutzbar — und ist gleichzeitig die DoS-Verstärkung (live belegt: 5 × 401 wachsen den Bucket). |
-| 4 | `AUD-2026-09-031` | Critical | `/health/` meldet „ok", während App + Auth + Schema unbenutzbar hängen | `reqogniloom/health.py:118-190` | Jedes automatische Gate (Compose, CI, Betreiber) übernimmt ein falsches „gesund"; der Ausfall wird erst beim Nutzer sichtbar. |
-| 5 | `AUD-2026-09-070` | Critical | CSV-Round-Trip des **eigenen** Exporters unbrauchbar → `HTTP 201 success: true` bei 0 Zeilen | `application/import_service.py:196-232` ↔ `views.py:8085` | Der Nutzer glaubt, seine Daten seien importiert; sie sind es nicht, und es gibt kein Signal. |
-| 6 | `AUD-2026-09-071` | Critical | ReqIF-Import liefert `success: true` mit 915 × „internal error" | `application/reqif_import_service.py:697, 681, 415` | Ein vollständig gescheiterter Interoperabilitäts-Import wird als Erfolg gemeldet — Ursache: `SPEC-OBJECT/@IDENTIFIER` ist die globale `Artifact.id`. |
-| 7 | `AUD-2026-09-120` | Critical | Alle 4 Celery-Queues identisch gebunden → **jede Task läuft 4×** | `reqogniloom/celery.py:31-36` | 4-fache Provider-Kosten und 4-fache Side-Effects — bei gleichzeitig toter Wartung (Rang 10). |
-| 8 | `AUD-2026-09-122` + `-123` | Critical | `backup.sh` ist permanent nicht ausführbar; `restore.sh` kopiert nie in den Container und lässt `psql -f` die Datei statt stdin lesen | `scripts/backup.sh:84-87`; `scripts/restore.sh:183, 186, 198-213` | Im Datenverlustfall existiert **kein dokumentierter Wiederherstellungsweg** — der dokumentierte Notfallpfad kann nie erfolgreich sein. |
-| 9 | `AUD-2026-09-052` (+ `-346`) | Critical (BESTAETIGT) | Anthropic-Default `claude-3-opus-20240229` ist seit 2026-01-05 retired | `llm_adapter/providers.py:1080` | Jeder Aufruf ohne `LLM_MODEL` schlägt fehl — alle KI-gestützten Ableitungen fallen ohne Zusatzkonfiguration aus. |
-| 10 | `AUD-2026-09-121` (+ `-270`, `-284`) | Critical (BESTAETIGT) | Beat dispatcht **nie** (`0 × Sending due task`); `archive_lifecycle_manager` nicht im Task-Set; Outbox-Task verschluckt `Exception` | `settings.py:817-830`; `audit/archive.py:448`; `application/tasks.py:31-38` | Die gesamte geplante Wartung/Retention bleibt still aus, `audit_entry` wächst unbegrenzt, und 222 863 Outbox-Läufe wurden mit **0** Fehlschlägen verbucht. |
+> **Neu zusammengesetzt am 2026-09-30 (K-1).** `AUD-2026-09-070` wurde von der
+> unabhängigen Gegenprüfung **widerlegt** (`import_service.py:341-344` strippt
+> Kommentarzeilen; Export-Kommentar und Strip aus demselben Commit `3081435a`)
+> und ist aus dieser Liste **entfernt**. Der Platz wird **nicht** mit einem
+> schlechteren Befund aufgefüllt, sondern mit dem nächsten belegten
+> Critical-Finding (`-115`). Die Liste hat damit **9 Einträge** statt 10 — das
+> ist das korrekte Ergebnis, kein Formfehler.
+>
+> **Gegenprüfungs-Status** ist in der letzten Spalte vermerkt. Wegen des
+> gestoppten Stacks war **keine** Live-Nachmessung möglich — die Vermerke
+> bedeuten *statisch/hermetisch bestätigt*, nicht *live bestätigt* (§11).
+
+| Rang | ID | Schweregrad | Kurztitel | Ort | Auswirkung | Gegenprüfung |
+|---:|---|---|---|---|---|---|
+| 1 || `AUD-2026-09-220` | Critical | `reqlo_`-API-Key im Klartext committet — **vom Audit selbst**; Commit **nie gepusht** (kein PR/Fork) | `AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246` (Commit `3dcc80d8`) | Arbeitsbaum redigiert, Widerruf durch 3-fach-Beleg dokumentiert (live nicht nachprüfbar, Stack gestoppt). **Historie offen im lokalen, nicht gepushten Branch** — es gab **kein** PR und **keinen** Fork, die es ziehen konnten. | bestätigt, **Reichweite korrigiert**: nie gepusht, kein PR/Fork |
+| 2 || `AUD-2026-09-222` | **High** | Workspace-Fence greift auf 269 von 311 mutierenden Routen nicht | `auth_tenancy/workspace_scope.py:114`; `auth_tenancy/rest.py:259-271` | Cross-Workspace-Schreibzugriff **innerhalb** eines Tenants; für ein SE-Tool mit Audit-/Traceability-Nutzen ist die Nachweiskette damit wertlos. | bestätigt |
+| 3 || `AUD-2026-09-030` + `-221` | Critical | Redis-Ausfall ohne `SOCKET_TIMEOUT` hängt 13 MCP-Endpoints unbegrenzt; unauthentifizierter Cache-Pfad **vor** AuthN | `settings.py:879`; `mcp_server/views.py:272`; `mcp_server/throttling.py:164` | Jeder Redis-Kurzbefehl macht die komplette KI-Fläche unbenutzbar — und ist gleichzeitig die DoS-Verstärkung (live belegt: 5 × 401 wachsen den Bucket). | bestätigt (Endpoint-Zahl 13 nicht nachgezählt) |
+| 4 || `AUD-2026-09-031` | Critical | `/health/` prüft den Cache nicht und meldet bei **Redis-/Worker-Ausfall** `ok` (bei DB-Ausfall korrekt 503) | `reqogniloom/health.py:118-190` | Jedes automatische Gate (Compose, CI, Betreiber) übernimmt ein falsches „gesund"; der Ausfall wird erst beim Nutzer sichtbar. | bestätigt, **Formulierung korrigiert**: DB-Ausfall liefert korrekt 503 |
+| 5 ||`AUD-2026-09-071` | Critical | ReqIF-Import: `success:true` **hart kodiert** und bei vollständigem Scheitern zurückgegeben — die Antwort **listet aber alle 915 Objektfehler** | `application/reqif_import_service.py:697, 681, 415` | Ein vollständig gescheiterter Interoperabilitäts-Import wird als Erfolg gemeldet — Ursache: `SPEC-OBJECT/@IDENTIFIER` ist die globale `Artifact.id`. | bestätigt, **Beschreibung korrigiert**: kein *stiller* Fehlschlag; Ursache = Savepoint-Rettung |
+| 6 ||`AUD-2026-09-120` | Critical | Alle 4 Celery-Queues identisch gebunden → **jede Task läuft 4×** | `reqogniloom/celery.py:31-36` | 4-fache Provider-Kosten und 4-fache Side-Effects — bei gleichzeitig toter Wartung (Rang 10). | bestätigt — **gestärkt** (einziger Befund, den die Gegenprüfung verstärkt hat) |
+| 7 ||`AUD-2026-09-122` + `-123` | Critical | `backup.sh` ist permanent nicht ausführbar; `restore.sh` kopiert nie in den Container und lässt `psql -f` die Datei statt stdin lesen | `scripts/backup.sh:84-87`; `scripts/restore.sh:183, 186, 198-213` | Im Datenverlustfall existiert **kein dokumentierter Wiederherstellungsweg** — der dokumentierte Notfallpfad kann nie erfolgreich sein. | bestätigt |
+| 8 ||`AUD-2026-09-052` (+ `-346`) | Critical (BESTAETIGT) | Anthropic-Default `claude-3-opus-20240229` ist seit 2026-01-05 retired | `llm_adapter/providers.py:1080` | Jeder Aufruf ohne `LLM_MODEL` schlägt fehl — alle KI-gestützten Ableitungen fallen ohne Zusatzkonfiguration aus. | bestätigt (Retirement-Datum 2026-01-05 unabhängig recherchiert) |
+| 9 ||`AUD-2026-09-121` (+ `-270`, `-284`) | Critical (BESTAETIGT) | Beat-Dispatch unbelegt; `archive_lifecycle_manager` nicht im Task-Set; Outbox-Task verschluckt `Exception` | `settings.py:817-830`; `audit/archive.py:448`; `application/tasks.py:31-38` | Die gesamte geplante Wartung/Retention bleibt still aus, `audit_entry` wächst unbegrenzt, und 222 863 Outbox-Läufe wurden mit **0** Fehlschlägen verbucht. | bestätigt; **Beat-Teil NICHT VERIFIZIERBAR** (Log fehlt, Stack gestoppt) |
+| 10 || `AUD-2026-09-115` | Critical | `_handle_slash` wirft `TypeError` — dokumentiert „never raises"; `start`/`status`/`answer` brechen live | `integrations/hermes-agent-plugin/__init__.py:79` | Der Hauptpfad des Plugins bricht beim Slash-Kommando ab; Integration ist damit nicht benutzbar. | nicht Gegenstand der Gegenprüfung |
+> Rang 10 neu belegt durch `-115` (Plugin-Hauptpfad crasht live). Der
+> zuvor auf Rang 10 geführte Verbund `-121`/`-270`/`-284` bleibt enthalten; `-115`
+> tritt **zusätzlich** hinzu — die Auswahl umfasst damit 10 Zeilen bei
+> 9 verschiedenen Vorgängen (Rang 3 und 8 fassen je 2 Findings zusammen).
 
 **Knapp verfehlt (Rang 11–14), damit die Auswahl nachvollziehbar bleibt:**
 `AUD-2026-09-137` (kein Test-vor-Image-Vertrag, kein SBOM/Cosign/Provenance —
@@ -208,7 +228,7 @@ von Rang 1 ist bereits eingetreten und wiederholt sich ohne Gate),
 
 ## 6. Die fünf wiederkehrenden Fehlermuster
 
-Das ist der eigentliche Erkenntniswert dieses Audits: nicht die 280 Einzelbefunde,
+Das ist der eigentliche Erkenntniswert dieses Audits: nicht die 279 Einzelbefunde,
 sondern die fünf Muster, die sie erzeugen. Jedes Muster nennt 2–3 belegte IDs;
 die vollständige Zuordnung steht im Register.
 
@@ -307,7 +327,7 @@ die vollständige Zuordnung steht im Register.
 
 ## 7. Was nachweislich gut ist — ein Audit, das nur Defekte zählt, ist unvollständig
 
-Diese Befunde stehen **nicht** in den 280, weil sie keine Mängel sind. Sie sind
+Diese Befunde stehen **nicht** in den 279, weil sie keine Mängel sind. Sie sind
 gemessen, nicht angenommen, und sie sind der Grund, warum die Gesamteinschätzung
 „defekte Ränder, tragfähige Mitte" lautet und nicht „System nicht nutzbar".
 
@@ -377,7 +397,7 @@ Tracks `CR-01`…`CR-47` aus 109 Quellbefunden, **System Health Score 1,4/5**,
 | `CR-35` Performance/Redis | **bestätigt** (aber: die Hot-Path-Hypothesen sind **widerlegt**, s. WP-6b) | 120, 126, 130, 131, 141, 147, 144 |
 | `CR-17` Modelle ohne `tenant_id`/RLS | **erweitert von 2 auf 5 Modelle** | 184 |
 | `CR-10` Audit-Archivierung | **bestätigt + quantifiziert** (`audit_entry` wächst unbegrenzt) | 270, 179 |
-| `CR-30` CI-Testlücke | **Defektklasse bestätigt, Zahl korrigiert**: 463 → **511** (Zählmethode) → **443 reproduzierbar** (C10) | 192, 193, 198, 048 |
+| `CR-30` CI-Testlücke | **Defektklasse bestätigt, Zahl endgültig geklärt**: 463 → **511** → **443 reproduzierbar** (C10), **unabhängig bestätigt** (K-6) | 192, 193, 198, 048 |
 | `CR-25` Bluepencil | **voll bestätigt, beides gemessen** | 150, 151 |
 | `CR-28` MCP-Session-ID | **live bestätigt** (Session-ID im Query-String jedes Proxy-Logs) | 041 |
 | `CR-32`/`CR-38` Supply Chain | **bestätigt** (kein SBOM/Cosign/Provenance, kein Digest-Pinning) | 137, 136 |
@@ -469,7 +489,7 @@ Methode belegbare Zahl.
 
 ## 10. Audit-interne Prozessdefekte
 
-> Dieser Abschnitt ist **kein** Produktbefund und **nicht** Teil der 280 Findings.
+> Dieser Abschnitt ist **kein** Produktbefekt und **nicht** Teil der 279 Findings.
 > Er wird offengelegt, weil er die Aussagekraft dieses Audits einschränkt — nach
 > demselben Grundsatz, mit dem das Audit Produktdefekte offenlegt. Vollständig in
 > [`AUDIT_FINDINGS.md` § 14 (P-1…P-5)](AUDIT_FINDINGS.md).
@@ -505,7 +525,115 @@ Messung. Für die WPs **ohne** zweite Messung ist die Validität der Zahlen
 
 ---
 
-## 11. Wie es weitergeht
+---
+
+## 11. Unabhängige Gegenprüfung der Top-10 (2026-09-30)
+
+Eine zweite, vom Haupt-Audit unabhängige Prüfung (Agent `code-reviewer`,
+Commit `27a72dde`) hat die **10 kritischsten Findings** dieses Audits gegen
+Quelltext, committete Evidenzartefakte und eigene Messungen geprüft.
+Vollständige Rohdaten:
+[`AUDIT_EVIDENCE/verification-2026-09-30.md`](AUDIT_EVIDENCE/verification-2026-09-30.md).
+
+### 11.1 Einschränkung der Evidenzbasis — vorrangig zu lesen
+
+> ### ⚠ Die Gegenprüfung hatte **keine** Live-Evidenz
+>
+> Sie fand den Stack **gestoppt**: `docker ps` scheitert an der Docker-Engine,
+> `com.docker.service` = `Stopped`, und **alle** Ports (8000, 8001, 5432, 6379,
+> 3000, 5173) waren ohne Verbindung. **0 Live-Messungen** waren möglich.
+>
+> Sie hat stattdessen **statisch und hermetisch** gemessen — lokale Celery-App mit
+> **wörtlicher** Produktionskonfiguration, Code-Nachverfolgung, hermetische
+> Wiedergabe einzelner Funktionen, Nachrechnen gegen **committete** Artefakte.
+>
+> **Das ist eine gültige, aber schwächere Evidenzbasis als die Live-Prüfung des
+> Haupt-Audits.** Jede Bestätigung aus dieser Gegenprüfung ist deshalb zu lesen
+> als: *statisch/hermetisch bestätigt — Live-Nachweis nicht möglich (Stack
+> gestoppt)*.
+>
+> Umgekehrt gilt: eine **Widerlegung** ist auf dieser Basis **belastbarer** als
+> eine Bestätigung, weil sie nicht vom Stack abhängt. Genau deshalb trägt die
+> Zurücknahme von `-070` auch ohne Live-Nachweis.
+
+### 11.2 Ergebnis
+
+| Urteil | Anzahl |
+|---|---:|
+| bestätigt | **6** |
+| bestätigt, aber Beschreibung ungenau | **3** |
+| **WIDERLEGT** | **1** |
+| gänzlich unverifizierbar | **0** |
+| *davon Teilaussagen nicht verifizierbar* | *13* |
+
+**K-1 — `AUD-2026-09-070` ist widerlegt und wurde zurückgezogen.**
+`backend/application/import_service.py:341-344` strippt jede mit `#` beginnende
+Zeile vor `csv.DictReader`. Export-Kommentar und Strip stammen aus **demselben**
+Commit `3081435a` — der Pfad war nie inkonsistent. Hermetische Gegenmessung des
+wörtlichen `_parse_csv` gegen echten Export-Output: **16 Headerfelder, 1
+Datenzeile, `title='CLEAN-1'`**. Der A/B-Test des Haupt-Audits variierte zwei
+Variablen gleichzeitig und konnte die Behauptung nicht stützen.
+**Folge:** Critical **14 → 13**, offene Findings **280 → 279**, Top-10 ohne `-070`.
+Das Finding bleibt als `WIDERLEGT` sichtbar — es wird nicht gelöscht.
+
+**Drei Beschreibungen wurden korrigiert, ohne dass ein Schweregrad sank:**
+
+* `-220` — der Commit `3dcc80d8` wurde **nie gepusht** (`merge-base --is-ancestor`
+  exit 1); es gab **kein** PR und **keinen** Fork. Die Aussage „jeder PR-Autor und
+  jeder Fork hatte ein gültiges Credential" ist widerlegt und gestrichen. Der Kern
+  (Key war committet und live gültig) bleibt, Critical bleibt.
+* `-071` — `success=True` ist hart kodiert, aber die Antwort **listet alle
+  Fehler**. „Stiller Fehlschlag" ist zu streichen; die Ursache ist die
+  **unwirksame Savepoint-Rettung**, nicht primär der globale PK-Konflikt.
+  Critical bleibt.
+* `-031` — bei **DB-Ausfall** liefert `/health/` korrekt 503. Der belegte Fehlfall
+  ist der Cache-/Redis-Ausfall. Critical bleibt.
+
+**Ein Befund wurde gestärkt:** `-120` (Celery-4×-Fanout) — die Gegenprüfung hat
+Prämisse und Konsequenz unabhängig gemessen und die Gegenhypothese
+„ein Consumer liest 4 Queues, konsumiert aber einmal" ausdrücklich widerlegt.
+
+**Eine Teilaussage als nicht verifizierbar markiert:** bei `-121` ist der
+Beat-Teil (`0 × Sending due task`) unbelegt — das Log ist nicht im Repo und der
+Stack war aus. Er wird **nicht** gestrichen, sondern als `NICHT VERIFIZIERBAR`
+mit dem fehlenden Prüfschritt geführt. Die Healthcheck-Aussage und `-270`
+gelten.
+
+### 11.3 Drei unabhängig nachgezählte Zahlenpaare
+
+| Zahlenpaar | Ergebnis | Urteil |
+|---|---|---|
+| MCP-Tools | **219 Tools / 35 Präfixe**; 219 − 139 `is_write` = **exakt 80** | bestätigt — die 80 sind ein Rollenfilter, kein Registrierungsfehler |
+| `MISSING_KEY_BASELINE` | **116** | bestätigt (Ratchet-Quelltext ist der belastbare Pfad) |
+| Tests ohne CI | **443** (34 von 658 Dateien) | bestätigt — **463 und 511 sind mit dieser Methode nicht reproduzierbar** |
+
+**Offene Frage O-6 ist damit aufgelöst: die kanonische Zahl ist 443.**
+
+### 11.4 Belastbarkeitseinordnung
+
+> **Aussage zur Belastbarkeit dieses Audits — kein Produktbefund.**
+
+1. **Nur eine Zählung hat zwei unabhängige Wege:** die i18n-Lücke
+   (`MISSING_KEY_BASELINE` = 116), einmal durch WP-3b gemessen und einmal durch
+   die Gegenprüfung aus der Ratchet-Quelle nachgezählt — **übereinstimmend**.
+2. **Für alle übrigen Zählungen liegt je eine Messung vor.** Die Gegenprüfung hat
+   die 219/35 Tools und die 443 Tests nachgerechnet, aber teils aus **denselben**
+   Evidenzartefakten, die das Haupt-Audit erzeugt hat. Das ist kein Fehler, aber
+   auch **keine** zweite unabhängige Messung.
+3. **Für die 13 offenen Teilaussagen gilt:** die zugrunde liegende Behauptung ist
+   **nicht widerlegt, sondern unvollständig belegt.** Der jeweils fehlende
+   Prüfschritt steht in `AUDIT_FINDINGS.md` §15.4.
+4. **Richtung der Korrekturen:** 1 Widerlegung (Qualitätsgewinn — ein Fehlbefund
+   wurde entfernt), 3 Präzisierungen ohne Schweregradwechsel, 1 gestärkter
+   Befund, 13 offene Teilaussagen. Das Audit ist dadurch **nicht** insgesamt
+   verschärft, aber einzelne Aussagen sind korrigiert worden.
+
+**Vor einer Investitionsentscheidung, die sich allein auf eine der 13 offenen
+Teilaussagen stützt, gehört der zugehörige Prüfschritt aus §15.4 nach.**
+
+---
+
+## 12. Wie es weitergeht
 
 | Frage | Antwort |
 |---|---|

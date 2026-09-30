@@ -910,7 +910,7 @@ Beleg: `wp1d-ingress-symmetry.json`.
 
 | ID | Schwere | Klassifikation | CR-Track / Issue | Ort | Kurztitel |
 |---|---|---|---|---|---|
-| `AUD-2026-09-070` | **Critical** | Correctness / Datenverlust-Versprechen | CR-11, CR-42, CR-12 | `application/import_service.py:196-232` ↔ `views.py:8085` | CSV-Round-Trip des eigenen Exporters unbrauchbar: `# terminology_profile`-Kommentarzeile wird als Header gelesen → **HTTP 201 `success:true` bei 0 importierten Zeilen** |
+| `AUD-2026-09-070` | ~~Critical~~ → **Info** | Correctness / Datenverlust-Versprechen | CR-11, CR-42, CR-12 | `application/import_service.py:341-344` | **WIDERLEGT 2026-09-30 (unabhängige Gegenprüfung, `verification-2026-09-30.md` §3.1):** ~~CSV-Round-Trip des eigenen Exporters unbrauchbar: `# terminology_profile`-Kommentarzeile wird als Header gelesen~~ — `_parse_csv` strippt jede mit `#` beginnende Zeile **vor** `csv.DictReader`; Export-Kommentar und Strip stammen aus **demselben** Commit `3081435a`. Hermetische Gegenmessung gegen echten Export-Output: **16 Headerfelder, 1 Datenzeile, `title='CLEAN-1'`**. Der A/B-Beweis variierte zwei Variablen gleichzeitig. **Unberührt:** die davon unabhängigen Restbefunde (`-072`, `-079`, `-080`, `-083`). |
 | `AUD-2026-09-071` | **Critical** | Correctness / stiller Fehlschlag | CR-11, CR-42 | `application/reqif_import_service.py:697`, `:681`, `:415` | ReqIF-Import liefert `success:true` mit 915 × „internal error"; Ursache `pl_artifact_pkey`-UniqueViolation, weil `SPEC-OBJECT/@IDENTIFIER` die globale `Artifact.id` ist |
 | `AUD-2026-09-072` | **High** | Correctness / Datenintegrität | CR-11 | live `POST /workspaces/B/import/csv/` | CSV-Import **nicht idempotent**: dreifacher Import derselben Datei erzeugt 3 Duplikate; keine Duplikaterkennung |
 | `AUD-2026-09-073` | **High** | Robustheit / Verfügbarkeit | CR-14 | live `GET /trace-links/?page=0\|abc\|99999999`, `GET /glossary/?page=0\|abc` | **HTTP 500** auf ungültiges `page` (5 Werte je Endpunkt), während `/workspaces/` korrekt 404 liefert |
@@ -934,6 +934,8 @@ Beleg: `wp1d-ingress-symmetry.json`.
 | `AUD-2026-09-091` | **Low** | Contract / Schema-Hygiene | CR-12 | `GET /api/schema/` → `auth/login`, `auth/refresh`, `public/banners/login` | Öffentliche Endpunkte nutzen `security: [{BearerAuth: []}, {}]` statt des kanonischen `security: []` |
 | `AUD-2026-09-092` | **Low** | Datenqualität | CR-42 | live: `GET /requirements/?workspace_id=A` | `uid` ist bei ~888 vorbestehenden Seed-Artefakten `null` → ReqIF-Export schreibt `ATTR-UID THE-VALUE=""`; Backfill-Lücke nach `#932` (Issue) / `#1005` (PR) (nicht der `#1003`-Fix, der ist gemergt und wirksam) |
 | `AUD-2026-09-093` | **Info** | Sicherheit | CR-13 | live: 6 Workspace-Endpunkte | Zwei 404-Texte unterscheiden „gehört fremdem Tenant" **nicht** von „existiert nicht" (`Workspace <id> not found.` vs. `… in the caller's tenant.`) — kein vollständiges Enumerations-Orakel, aber inkonsistent |
+
+> **Korrektur 2026-09-30 (K-1).** `AUD-2026-09-070` ist **widerlegt** und wird nicht mehr als offener Mangel gezählt (Critical 14 → 13, offene Findings 280 → 279). Das Finding bleibt als `WIDERLEGT` sichtbar. Beleg: [`AUDIT_EVIDENCE/verification-2026-09-30.md`](AUDIT_EVIDENCE/verification-2026-09-30.md) §3.1.
 
 ---
 

@@ -30,7 +30,7 @@ branch: chore/system-audit-2026-09
 | **Beteiligte WPs** | WP-1a, WP-1b, WP-1c, WP-1d, WP-2, WP-3, WP-3b, WP-4, WP-5, WP-6a, WP-6b |
 | **Reports** | 9 Dateien unter `docs/audit/2026-09/` |
 | **Evidenz** | `docs/audit/2026-09/AUDIT_EVIDENCE/` (≈ 60 Dateien + Screenshots) |
-| **Findings gesamt** | **280 Befunde** (+ 5 bestätigte Kontrollen = 285 Zeilen) / **260 eindeutige IDs** (25 IDs doppelt vergeben → §9) |
+| **Findings gesamt** | **279 Befunde** + 5 bestätigte Kontrollen + 1 zurückgezogenes Finding = **285 Zeilen** / **285 eindeutige IDs** (0 Kollisionen → §12.2a) |
 | **Gate-Agent** | `validator` |
 
 ### 1.1 Vor-Audit-Bezug und seine Grenzen
@@ -188,18 +188,18 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | ID | Sev (orig) | Sev (kanon.) | WP | Klassifikation | CR-Track / Issue | Ort | Kurztitel | Status |
 |---|---|---|---|---|---|---|---|---|
 | AUD-2026-09-030 | **Critical** | **Critical** | WP-1a/1b/1d | NEU | — | `backend/reqogniloom/settings.py:879`; `backend/mcp_server/views.py:272`; `backend/mcp_server/throttling.py:164` | Redis-Ausfall hängt alle 13 MCP-Endpoints unbegrenzt (kein Timeout) | offen |
-| AUD-2026-09-031 | **Critical** | **Critical** | WP-1a/1b/1d | NEU | — | `backend/reqogniloom/health.py:118-190` | `/health/` meldet „ok", während App+Auth+Schema unbenutzbar hängen | offen |
+| AUD-2026-09-031 | **Critical** | **Critical** | WP-1a/1b/1d | NEU | — | `backend/reqogniloom/health.py:118-190` | `/health/` prüft den Cache **nicht** (0 Cache-Referenzen) und meldet bei **Redis-/Worker-Ausfall** weiterhin `200 ok` — bei **DB-Ausfall** liefert es korrekt 503 | offen |
 | AUD-2026-09-052 | **Critical** | **Critical** | WP-1a/1b/1d | NEU | **BESTAETIGT** (CR-20-Nachbar; #118) | `backend/llm_adapter/providers.py:1080` | Anthropic-Default `claude-3-opus-20240229` ist seit 2026-01-05 retired — jeder Aufruf ohne `LLM_MODEL` schlägt fehl | offen |
-| AUD-2026-09-070 | **Critical** | **Critical** | WP-1a/1b/1d | NEU | CR-11, CR-42, CR-12 | `application/import_service.py:196-232` ↔ `views.py:8085` | CSV-Round-Trip des eigenen Exporters unbrauchbar: `# terminology_profile`-Kommentarzeile wird als Header gelesen → **HTTP 201 `success:true` bei 0 importierten Zeilen** | offen |
-| AUD-2026-09-071 | **Critical** | **Critical** | WP-1a/1b/1d | NEU | CR-11, CR-42 | `application/reqif_import_service.py:697`, `:681`, `:415` | ReqIF-Import liefert `success:true` mit 915 × „internal error"; Ursache `pl_artifact_pkey`-UniqueViolation, weil `SPEC-OBJECT/@IDENTIFIER` die globale `Artifact.id` ist | offen |
-| AUD-2026-09-120 | **Critical** | **Critical** | WP-1c | NEU | **NEU** (kein Vor-Audit-Track; CR-35-Nähe) | `backend/reqogniloom/celery.py:31-36` | Alle 4 Queues identisch gebunden → **jede Task läuft 4×** | offen |
-| AUD-2026-09-121 | **Critical** | **Critical** | WP-1c | NEU | **BESTAETIGT** Klasse #171 (geschlossen 2026-07-29, Wirkung besteht fort) | `Live: `celery-beat`-Log 0× `Sending due task`; `settings.py:817-830` | Beat dispatcht **nie** — gesamter 5-s/60-s/Monats-Schedule tot | offen |
+| AUD-2026-09-070 | **Critical** | ~~Critical~~ → **Info** | WP-1a/1b/1d | **WIDERLEGT** | CR-11, CR-42, CR-12 | `application/import_service.py:341-344` | ~~CSV-Round-Trip unbrauchbar: Kommentarzeile als Header~~ **WIDERLEGT 2026-09-30**: `import_service.py:341-344` strippt jede `#`-Zeile vor `csv.DictReader`; Export-Kommentar und Strip aus **demselben** Commit `3081435a`. Hermetische Gegenmessung: 16 Headerfelder + 1 Zeile, `title='CLEAN-1'`. | **geschlossen (WIDERLEGT)** |
+| AUD-2026-09-071 | **Critical** | **Critical** | WP-1a/1b/1d | NEU | CR-11, CR-42 | `application/reqif_import_service.py:483` (hart kodiert), `:688-703`, `:414` | `success:true` ist **hart kodiert** und wird auch bei vollständigem Scheitern zurückgegeben — die Antwort **listet aber alle 915 Objektfehler** (kein *stiller* Fehlschlag). Ursache: die **Savepoint-Rettung** in `:697` ist unwirksam (Django rollt bei in-`atomic()` abgefangener `IntegrityError` nicht zurück ⇒ `InFailedSqlTransaction`) | offen |
+| AUD-2026-09-120 | **Critical** | **Critical** | WP-1c | NEU | **NEU** (kein Vor-Audit-Track; CR-35-Nähe) | `backend/reqogniloom/celery.py:31-36` | Alle 4 Queues lösen auf `exchange='default'(direct), routing_key='default'` auf ⇒ **jede Task läuft 4×**. **Unabhängig bestätigt** durch hermetische Messung (lokale Celery-App mit wörtlicher Prod-Konfiguration): 1 Nachricht ⇒ 4 Zustellungen. Nicht live manifestiert | offen |
+| AUD-2026-09-121 | **Critical** | **Critical** | WP-1c | NEU | **BESTAETIGT** Klasse #171 (geschlossen 2026-07-29, Wirkung besteht fort) | `settings.py:817-830`; `deploy/docker-compose.yml:933`; `backend/audit/archive.py:448` | Drei Teilaussagen: (a) Healthcheck `pgrep -f 'celery.*beat'` prüft **nur** Prozessexistenz ✅ · (b) `audit.archive_lifecycle_manager` nicht im Worker-Task-Set ✅ · (c) Beat dispatcht nie (`0× Sending due task`) — **NICHT VERIFIZIERBAR**, Log nicht im Repo, Stack gestoppt | offen |
 | AUD-2026-09-122 | **Critical** | **Critical** | WP-1c | NEU | **NEU** (CR-37) | `scripts/backup.sh:84-87` | `backup.sh` ist permanent nicht ausführbar (`exit 1`) | offen |
 | AUD-2026-09-123 | **Critical** | **Critical** | WP-1c | NEU | **NEU** (CR-37) | `scripts/restore.sh:183,186,198-213` | Backup-Datei wird nie in den Container kopiert; `psql -f` liest Datei statt stdin | offen |
 | AUD-2026-09-115 | **Critical** | **Critical** | WP-2 | NEU | — (CR-24 verwandt) | `integrations/hermes-agent-plugin/__init__.py:79` (via `:110,:120,:127`)` | `_handle_slash` wirft `TypeError` — dokumentiert „never raises"; `start`/`status`/`answer` brechen live | offen |
 | AUD-2026-09-345 | Critical | **Critical** | WP-5 | NEU | — | `matrix:331`, `backend/Dockerfile:154` | Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image | offen |
 | AUD-2026-09-346 | Critical | **Critical** | WP-5 | NEU | — | `backend/llm_adapter/providers.py:1080` | Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert | offen |
-| AUD-2026-09-220 | **CRITICAL** âš ï¸* | **Critical** | WP-6a | NEU | — | `docs/audit/2026-09/AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246` | Live `reqlo_`-API-Key im Klartext committet â€” **Key widerrufen 2026-09-30, Arbeitsbaum redigiert, Historie offen** | TEILWEISE BEHOBEN |
+| AUD-2026-09-220 | **CRITICAL** | **Critical** | WP-6a | NEU | — | `docs/audit/2026-09/AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246` | `reqlo_`-API-Key (40 Zeichen) im Klartext committet in `3dcc80d8` — **der Commit wurde nie gepusht** (`merge-base --is-ancestor` exit 1), es gab kein PR/Fork. Arbeitsbaum redigiert; Widerruf durch 3-fach-Beleg des Haupt-Audits dokumentiert (HTTP 204, `revoked_at` gesetzt, danach 401), **live nicht nachverifizierbar** (Stack gestoppt). Historie des lokalen Branches offen | TEILWEISE BEHOBEN |
 | AUD-2026-09-221 | **CRITICAL** | **Critical** | WP-6a | NEU | — | `backend/mcp_server/views.py:272` + `backend/reqogniloom/settings.py:879-884` | Unauthentifizierter Rate-Limit-Check vor AuthN + Cache ohne `SOCKET_TIMEOUT` = DoS-VerstÃ¤rker | offen |
 | AUD-2026-09-032 | **High** | **High** | WP-1a/1b/1d | NEU | **CR-22** | `backend/mcp_server/views.py:291-304` vs. `:311-325` | Zwei inkompatible Fehler-Hüllen (`code` int vs. `error_code` str) auf demselben Endpunkt | offen |
 | AUD-2026-09-033 | **High** | **High** | WP-1a/1b/1d | NEU | — | `backend/mcp_server/protocol_handler.py:536` | Nicht-dict `params` ⇒ HTTP 500 statt `-32600`/`-32602` (AttributeError außerhalb jedes try) | offen |
@@ -515,14 +515,14 @@ sondern referenziert.
 
 | Feld | Wert |
 |---|---|
-| **Schweregrad** | Critical — Originalwert `**Critical**` (bereits kanonisch) |
-| **Klassifikation** | NEU |
+| **Schweregrad** | Critical — Originalwert `**Critical**` (bereits kanonisch). **unverändert** |
+| **Klassifikation** | NEU — **unverändert** |
 | **Workpackage** | WP-1a/1b/1d · Report `AUDIT_EXTERNAL_INTEGRATIONS.md` · Agent senior-developer (WP-1a/1b) · api-specialist (WP-1d) |
 | **CR-Track / Issue** | — |
 | **Ort (Reichweite)** | `backend/reqogniloom/health.py:118-190` |
 | **Betroffene REQ-ID** | — |
 | **Evidenz** | `AUDIT_EXTERNAL_INTEGRATIONS.md`:278 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_EXTERNAL_INTEGRATIONS.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_EXTERNAL_INTEGRATIONS.md` — **K-3 (2026-09-30): Reichweite präzisiert.** `health.py` hat **0** Cache-Referenzen (bestätigt). **DB-Ausfall liefert korrekt 503.** Der belegte Fehlfall ist der **Cache-/Redis-Ausfall** bei gesunder DB — dort bleiben `status="ok"` und HTTP 200 (`:312-315`). Die Formulierung „bei Totalausfall 200 ok" war **zu weit** und ist korrigiert. Live-Nachweis des Redis-Ausfalls: **nicht verifizierbar** (Stack gestoppt). |
 | **Status** | offen |
 
 #### AUD-2026-09-052 — Anthropic-Default `claude-3-opus-20240229` ist seit 2026-01-05 retired — jeder Aufruf ohne `LLM_MODEL` schlägt fehl
@@ -539,19 +539,19 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_EXTERNAL_INTEGRATIONS.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-070 — CSV-Round-Trip des eigenen Exporters unbrauchbar: `# terminology_profile`-Kommentarzeile wird als Header gelesen → **HTTP 201 `success:true` bei 0 importierten Zeilen**
+#### AUD-2026-09-070 — ~~CSV-Round-Trip des eigenen Exporters unbrauchbar~~ **WIDERLEGT (2026-09-30)**
 
 | Feld | Wert |
 |---|---|
-| **Schweregrad** | Critical — Originalwert `**Critical**` (bereits kanonisch) |
-| **Klassifikation** | NEU |
+| **Schweregrad** | ~~Critical~~ → **Info** — **der Schweregrad ist gegenstandslos, weil die Behauptung widerlegt ist.** Originalwert `**Critical**`. Kein Defekt liegt vor. |
+| **Klassifikation** | **WIDERLEGT** (vorher `NEU`) |
 | **Workpackage** | WP-1a/1b/1d · Report `AUDIT_EXTERNAL_INTEGRATIONS.md` · Agent senior-developer (WP-1a/1b) · api-specialist (WP-1d) |
 | **CR-Track / Issue** | CR-11, CR-42, CR-12 |
-| **Ort (Reichweite)** | `application/import_service.py:196-232` ↔ `views.py:8085` |
+| **Ort (Reichweite)** | `backend/application/import_service.py:341-344` (der Strip) — die im Finding genannte Stelle `export_service.py:17-18` ist ein **Docstring**, der Code liegt bei `:382` |
 | **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_EXTERNAL_INTEGRATIONS.md`:913 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Evidenz** | `AUDIT_EVIDENCE/verification-2026-09-30.md` §3.1 (unabhängige Gegenprüfung, Agent `code-reviewer`) · Export-Kommentar und Strip stammen aus **demselben** Commit `3081435a` (2026-06-24) — der Pfad war nie inkonsistent |
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_EXTERNAL_INTEGRATIONS.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
+| **Status** | **geschlossen (WIDERLEGT)** — **zurückgezogen 2026-09-30**, aus der Critical-Zählung und aus dem Top-10 entfernt. Nicht gelöscht: der Widerlegungsverlauf bleibt sichtbar. |
 
 #### AUD-2026-09-071 — ReqIF-Import liefert `success:true` mit 915 × „internal error"; Ursache `pl_artifact_pkey`-UniqueViolation, weil `SPEC-OBJECT/@IDENTIFIER` die globale `Artifact.id` ist
 
@@ -564,7 +564,7 @@ sondern referenziert.
 | **Ort (Reichweite)** | `application/reqif_import_service.py:697`, `:681`, `:415` |
 | **Betroffene REQ-ID** | — |
 | **Evidenz** | `AUDIT_EXTERNAL_INTEGRATIONS.md`:914 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_EXTERNAL_INTEGRATIONS.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_EXTERNAL_INTEGRATIONS.md` — **K-3 (2026-09-30): Beschreibung präzisiert, Schweregrad unverändert.** `success=True` ist bei `:483` **hart kodiert** — bestätigt. **„Stiller Fehlschlag" ist zu streichen:** die Antwort enthält eine **vollständige Fehlerliste** pro Objekt (`:429-443`); es fehlt ein herabgestuetzter Status, nicht die Diagnose. **Ursache korrigiert:** nicht primär der globale `Artifact.id`-PK-Konflikt (der wird in `:688-703` abgefangen), sondern die **unwirksame Savepoint-Rettung** — `_upsert_spec_object` läuft in `transaction.atomic()`, eine darin abgefangene `IntegrityError` rollt den Savepoint **nicht** zurück ⇒ der Retry in `:697` stirbt mit `InFailedSqlTransaction`. Live-Import der 915 Objekte: **nicht verifizierbar** (Stack gestoppt). |
 | **Status** | offen |
 
 #### AUD-2026-09-120 — Alle 4 Queues identisch gebunden → **jede Task läuft 4×**
@@ -578,7 +578,7 @@ sondern referenziert.
 | **Ort (Reichweite)** | `backend/reqogniloom/celery.py:31-36` |
 | **Betroffene REQ-ID** | — |
 | **Evidenz** | `AUDIT_INFRASTRUCTURE.md`:42 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_INFRASTRUCTURE.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_INFRASTRUCTURE.md` — **K-5 (2026-09-30): unabhängig bestätigt, der einzige Top-10-Befund, den die Gegenprüfung gestärkt hat.** Methode: lokale Celery-App mit **wörtlicher** Produktionskonfiguration (`celery.py:31-42`) ⇒ alle 4 Queues lösen auf `exchange='default'(direct), routing_key='default'` auf; eine publizierte Nachricht, aus allen 4 Queues konsumiert ⇒ **4 Zustellungen**. Kein `memory://`-Artefakt: `redis.Channel._lookup` erbt für benannte Exchanges denselben Lookup-Code von `kombu.transport.virtual.base.Channel` (der Sonderfall `if not exchange` greift nur beim anonymen Exchange `''`). **Gegenhypothese ausdrücklich widerlegt:** „ein Consumer liest 4 Queuen, konsumiert aber einmal" — bei direct-Exchange wird an jede Queue mit passendem Routing-Key **kopiert**. **K-5-Korrektur:** die Evidenzzeile „genau ein `_kombu.binding.default`" ist ein Fehlread (1 Redis-**SET** mit 4 Members). Nicht live manifestiert. |
 | **Status** | offen |
 
 #### AUD-2026-09-121 — Beat dispatcht **nie** — gesamter 5-s/60-s/Monats-Schedule tot
@@ -592,7 +592,7 @@ sondern referenziert.
 | **Ort (Reichweite)** | `Live: `celery-beat`-Log 0× `Sending due task`; `settings.py:817-830` |
 | **Betroffene REQ-ID** | — |
 | **Evidenz** | `AUDIT_INFRASTRUCTURE.md`:43 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_INFRASTRUCTURE.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_INFRASTRUCTURE.md` — **K-4 (2026-09-30): Teilaussage als NICHT VERIFIZIERBAR markiert.** (a) Healthcheck `deploy/docker-compose.yml:933` = `pgrep -f 'celery.*beat'` prüft **nur** Prozessexistenz — **bestätigt**. (b) `audit.archive_lifecycle_manager` ist **nicht** im Worker-Task-Set (`archive.py:448` definiert die Task, `backend/audit/tasks.py` existiert nicht, `apps.py:36` importiert nur `audit.writer`) — **bestätigt**. (c) **„Beat dispatcht nie (0× `Sending due task`)" ist NICHT VERIFIZIERBAR.** *Fehlender Prüfschritt:* Stack hochfahren, `docker logs celery-beat` über Stunden führen und `Sending due task` zählen. Zusätzlich **ungeklärt, warum** — der Log belegt „0×", nicht die Ursache. |
 | **Status** | offen |
 
 #### AUD-2026-09-122 — `backup.sh` ist permanent nicht ausführbar (`exit 1`)
@@ -676,7 +676,7 @@ sondern referenziert.
 | **Ort (Reichweite)** | `docs/audit/2026-09/AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246` |
 | **Betroffene REQ-ID** | — |
 | **Evidenz** | `AUDIT_SECURITY.md`:44 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_SECURITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_SECURITY.md` — **K-3 (2026-09-30): Reichweite korrigiert, Schweregrad unverändert.** Der Commit `3dcc80d8` wurde **nie gepusht** (`git merge-base --is-ancestor 3dcc80d8 origin/…` → **exit 1**; `origin` steht auf `988294b6`). **Kein PR, kein Fork** konnte es ziehen — die Aussage „jeder PR-Autor und jeder Fork hatte ein gültiges Credential" ist **widerlegt** und gestrichen. Richtig: *lokales Secret im Arbeitsbaum eines Entwickler-Rechners, in der Historie eines nicht gepushten Branches; nach Push oder Repo-Sharing wird es exponiert.* **Widerruf nicht live verifizierbar** (Stack gestoppt), aber durch den 3-fach-Beleg des Haupt-Audits dokumentiert (HTTP 204, `revoked_at = 2026-09-30 19:07:05+00`, danach `tools/list` 401). Neu geprüft: `git grep -l -E "reqlo_[A-Za-z0-9]{20,}" HEAD -- docs` ⇒ **0 Treffer**. |
 | **Status** | TEILWEISE BEHOBEN |
 
 #### AUD-2026-09-221 — Unauthentifizierter Rate-Limit-Check vor AuthN + Cache ohne `SOCKET_TIMEOUT` = DoS-VerstÃ¤rker
@@ -1829,11 +1829,11 @@ Kein „beide könnten recht haben" ohne Auflösung.
 | **C3** | Hex-Literale im Frontend | WP-3: erst 441/74, dann selbst korrigiert auf **0** | WP-3b: **37** in Prod, davon **21 in `.ts`** vom Ratchet nicht erfasst | **B bestätigt → 37** | Eigenmessung mit WP-3b-Methode (Kommentare gestrippt, Strings erhalten): `.ts` 21 Treffer in 3 Dateien, `.tsx` 16 in 2 Dateien = **37**. `ui-ratchet.test.ts:48` `collectFiles(dir, /\.tsx$/)` scannt **ausschließlich `.tsx`**. |
 | **C4** | Veraltete E2E-Selektoren | WP-3: **0** stale | WP-3b: **≥6** verifiziert stale | **beide teilweise korrekt, korrigiert zu 3** | Repo-weit: `visibility-row-diagrams`, `visibility-checkbox-diagrams`, `visibility-reset-diagrams` stehen in `e2e/tests/user-profile.spec.ts:23,24,31,41` und haben **0** Treffer in `frontend/src` ⇒ **verifiziert stale**. `login-form`, `main-header`, `todo-item` haben **0 Treffer in `e2e/` *und* `frontend/src`** ⇒ sie sind nicht „stale", sondern **überhaupt nicht vorhanden** (WP-3b-Fundstelle „`e2e/tests/*.spec.ts`" ist für diese drei falsch). |
 | **C5** | API-Key-Widerruf mit Bestätigungsdialog | WP-3 (`-006`): **ohne** Dialog | WP-3b: **mit** `ConfirmDialog` | **B bestätigt** | `ApiKeysSection.tsx:276-288`: `{pendingRevokeId && (<ConfirmDialog … onConfirm={confirmRevoke} … testId="api-key-revoke-confirm" />)}`. Fehlend sind nur Pagination/Filter/Virtualisierung (`ApiKeysSection.tsx:224`). |
-| **C6** | MCP-Tool-Anzahl | `AGENTS.md:8,30` 215, `tools/list` lieferte **80** | WP-1a: Registry hat **219/35** | **B bestätigt → 219 Tools / 35 Gruppen; Doku-Drift, kein Registrierungsfehler** | `wp1a-mcp-registry-manifest-219.json`: `tool_count: 219`, 219 Einträge, 35 Präfix-Gruppen. Die 80 sind ein **Rollenfilter** (`readwrite` kennt `can_write` nicht ⇒ 139 `is_write`-Tools werden herausgefiltert). |
+| **C6** | MCP-Tool-Anzahl | `AGENTS.md:8,30` 215, `tools/list` lieferte **80** | WP-1a: Registry hat **219/35** | **B bestätigt → 219 Tools / 35 Gruppen; Doku-Drift, kein Registrierungsfehler** — **unabhängig nachgezählt** (K-6) | `wp1a-mcp-registry-manifest-219.json`: `tool_count: 219`, 219 Einträge, 35 Präfix-Gruppen. Die 80 sind ein **Rollenfilter** (`readwrite` kennt `can_write` nicht ⇒ 139 `is_write`-Tools werden herausgefiltert). **Gegenprüfung** zählte aus dem **committeten, audit-fremden** Artefakt `docs/agent-templates/tool-manifest.json`: 219 − 139 `is_write` = **exakt 80** (`is_write=false`), 34 Präfixe (Write-Namespace `ai_derivation` entfällt). Rechnerisch lückenlos. |
 | **C7** | ViewSet-/APIView-Zahl | `AGENTS.md:30`: 27 + 67 | WP-1d: **27 + 76** | **beide teilweise korrekt, korrigiert zu 27 ViewSets + 76 APIViews** | `backend/rest_api/urls.py`: **27** `router.register(...)`-Aufrufe über **26** distinkte Klassen (`TraceLinkViewSet` doppelt als `tracelinks` + `trace-links`); + `BaseEntityViewSet` (Shared Base, keine Route) = **27 ViewSet-Klassen**. APIViews: **76** unabhängig nachgezählt. `67` in `AGENTS.md` ist **veraltet**. |
 | **C8** | Embedding-Dimension | Auftragsprämisse: dimensionsfremde Einbettung könne fehlschlagen | WP-1c: alle Spalten `vector(384)`, jeder Write-Site prüft vorher | **B bestätigt — Prämisse widerlegt** | `backend/persistence/embedding_dimensions.py`: `DEFAULT_EMBEDDING_VECTOR_DIMENSIONS = 384`, alle `VectorField(dimensions=EMBEDDING_VECTOR_DIMENSIONS)` (`models.py:1602,1946`). Das Modul-Docstring dokumentiert #794: alle vier Spalten auf 384 vereinheitlicht. Rest = stille Degradation ⇒ **Duplikat `AUD-2026-09-143` / #1019**. |
-| **C9** | `audit.archive_lifecycle_manager` im Worker | WP-5 (`-204`): **nicht reproduzierbar**, `settings.py:822` registriert es | WP-1c (`-125`) + WP-6b (`-270`): **NICHT im Task-Set** | **B bestätigt (WP-6b/WP-1c)** | `settings.py:822` ist ein Eintrag in **`CELERY_BEAT_SCHEDULE`** (`:817-830`), **nicht** die Worker-Registrierung. `celery.py:45` `app.autodiscover_tasks()` importiert `audit.tasks` nach App-Modulname — `audit/apps.py:36` importiert nur `audit.writer`. `backend/audit/archive.py` wird von **nichts** außer sich selbst importiert ⇒ Task nie registriert. |
-| **C10** | Nicht ausgeführte Tests in CI | Vor-Audit `CR-30`: **463** | WP-5: **511** von 10 052 | **beide teilweise korrekt; reproduzierbar ist 443 von 8 127** | `.github/workflows/ci.yml:43-55` definiert 4 Test-Sets über **20** App-Pfade. Nicht abgedeckt: `memory/tests` (282), `link_types/tests` (135), `backend/tests` (26) = **443 Testdefinitionen**. Die Zahlen 463/511/10 052 beruhen auf abweichenden Zählmethoden (Dezimal-Tausenderpunkte, Klassen- vs. Methodenzählung, inkl. Frontend/E2E). |
+| **C9** | `audit.archive_lifecycle_manager` im Worker | WP-5 (`-204`): **nicht reproduzierbar**, `settings.py:822` registriert es | WP-1c (`-125`) + WP-6b (`-270`): **NICHT im Task-Set** | **B bestätigt (WP-6b/WP-1c)** — **Bleibendes Verdikt nach der Gegenprüfung (K-2).** Die *Begründung* in `AUDIT_TRACEABILITY.md:152/153` wurde zurückgenommen, das *Ergebnis* dieses Registers bleibt richtig | `settings.py:822` ist ein Eintrag in **`CELERY_BEAT_SCHEDULE`** (`:817-830`), **nicht** die Worker-Registrierung. `celery.py:45` `app.autodiscover_tasks()` importiert `audit.tasks` nach App-Modulname — `audit/apps.py:36` importiert nur `audit.writer`. `backend/audit/archive.py` wird von **nichts** außer sich selbst importiert ⇒ Task nie registriert. |
+| **C10** | Nicht ausgeführte Tests in CI | Vor-Audit `CR-30`: **463** | WP-5: **511** von 10 052 | **beide teilweise korrekt; reproduzierbar ist 443 von 8 127** — **aufgelöst zugunsten 443 (K-6)** | `.github/workflows/ci.yml:43-55` definiert 4 Test-Sets über **20** App-Pfade. Nicht abgedeckt: `memory/tests`, `link_types/tests`, `backend/tests/`, 3 App-Root-Module, `mcp_server/tools/tests.py`. **Gegenprüfung (unabhängig):** alle `backend/**/test_*.py` (+ `tests.py`, ohne `__pycache__`/`migrations`) = **658 Dateien**; nicht abgedeckt **34 Dateien** mit **443** Testfunktionen, gedeckt **7 684**. **463 und 511 sind mit dieser Methode nicht reproduzierbar** — ohne offengelegte Methode nicht widerlegbar, aber auch nicht belastbar. |
 | **C11** | `stack-db-redis.txt` DB-Rolle | WP-1c: `DB_USER=reqflow (superuser)` | WP-6a: laufender Container nutzt `reqogniloom_app` (non-superuser, kein BYPASSRLS) | **beide korrekt für verschiedene Scopes** | `stack-db-redis.txt:11` liest `deploy/.env` (**Bootstrap-/Migrationsrolle**). `wp6a-rls-db-roles.md:27-31` liest die **effektive Backend-Container-Umgebung** (Compose-Override) = `reqogniloom_app`, `rolsuper=f`, `rolbypassrls=f` ⇒ **RLS greift zur Laufzeit tatsächlich**. `settings.py:328-342` Default ist bereits `reqogniloom_app`. WP-6a hat die Diskrepanz bereits selbst dokumentiert (`:36-39`). |
 | **C12** | Rotations-Endpunkt `/admin/` | WP-6a (`-223`): `/admin/` exponiert, **500** wegen fehlendem staticfiles-Manifest | — | **übernommen, teilweise verifiziert** | `urls.py:33` `path("admin/", admin.site.urls)` bestätigt; `ADMIN_ATTEMPTS_BEFORE_LOCKOUT` ist repo-weit **nicht vorhanden** ⇒ Brute-Force-Schutz fehlt bestätigt. **Einschränkung:** `backend/Dockerfile:217-223` führt `collectstatic --noinput` aus und `settings.py:405` setzt `CompressedManifestStaticFilesStorage` ⇒ im **Produktions-Image** ist ein Manifest vorhanden. Die 500 gilt damit für den **Audit-Stack**, nicht allgemein. |
 
@@ -1940,6 +1940,7 @@ und gegengeprüft mit `git cat-file -e <sha>:<pfad>`:
 | MCP-Tool-Gruppen | `AGENTS.md:8,30,58` | 31 | **35** Präfixe | **Doku-Drift** |
 | ViewSets | `AGENTS.md:30` | 27 | **27** (`router.register`) | ✅ korrekt |
 | APIViews | `AGENTS.md:30` | 67 | **76** | **Doku-Drift** |
+| Tests ohne CI (`CR-30`) | Vor-Audit `README.md:48` / `11-consistency-review.md:151` | 463 (WP-5 nannte 511) | **443** — **unabhängig bestätigt (K-6)**, endgültige Zahl | **aufgelöst** |
 | Compose-Services | `AGENTS.md:7` | 8 | **15** (`postgres`, `postgres-backup`, `redis`, `backend`, `llm-preflight`, `migrate`, `celery`, `celery-beat`, `frontend`, `honcho-postgres`, `honcho-redis`, `honcho-migrate`, `honcho`, `honcho-deriver`, `bluepencil`) | **Doku-Drift** |
 | E2E-Tests | `AGENTS.md:16` | 111 | **54** Spec-Dateien in `e2e/tests/` | **Doku-Drift** (Testanzahl vs. Dateianzahl nicht direkt vergleichbar) |
 | React-Version | `AGENTS.md:7,59`, Projektkontext | React 18 | **`react: ^19.2.8`**, `react-dom: ^19.3.0` (`frontend/package.json:34-35`) | **Doku-Drift** |
@@ -1955,30 +1956,35 @@ und gegengeprüft mit `git cat-file -e <sha>:<pfad>`:
 
 | Schweregrad | NEU | BESTAETIGT | WIDERLEGT | BLOCKED | DUPLIKAT | Summe |
 |---|---:|---:|---:|---:|---:|---:|
-| **Critical** | 14 | 0 | 0 | 0 | 0 | **14** |
+| **Critical** | 13 | 0 | 0 | 0 | 0 | **13** |
 | **High** | 75 | 1 | 0 | 0 | 0 | **76** |
 | **Medium** | 111 | 2 | 0 | 1 | 1 | **115** |
 | **Low** | 56 | 1 | 2 | 1 | 0 | **60** |
 | **Info** | 8 | 0 | 3 | 4 | 0 | **15** |
-| **Findings gesamt** | **264** | **4** | **5** | **6** | **1** | **280** |
-| *davon bestätigte Kontrollen (PASS)* | 1 | 4 | 0 | 0 | 0 | **5** |
-| **Master-Tabelle gesamt** | 265 | 8 | 5 | 6 | 1 | **285** |
+| **Findings gesamt** | **263** | **4** | **5** | **6** | **1** | **279** |
+| *davon bestätigte Kontrollen (PASS, nicht in Findings)* | 0 | 4 | 0 | 0 | 0 | *5* |
+| *davon zurückgezogen (`-070`, nicht in Findings)* | 0 | 0 | 1 | 0 | 0 | *1* |
+
+*Die Zeile **"Findings gesamt" = 279** ist die Kennzahl für die offene Befundmenge.
+Drei Gruppen stehen daneben und sind **nicht** darin enthalten:
+
+* **5 bestätigte Kontrollen** (formerklärt `PASS`, alle WP-4) — nach der PASS-Regel
+  (§2.4) keine Findings, siehe §6.
+* **1 zurückgezogenes Finding** (`AUD-2026-09-070`, `WIDERLEGT` seit 2026-09-30) —
+  die Behauptung wurde widerlegt, es liegt **kein Defekt** vor. Nicht gelöscht: der
+  Widerlegungsverlauf bleibt sichtbar (§15.2).
+* **0 doppelt vergebene IDs** — alle 285 IDs sind eindeutig (§12.2a).
+
+**"Master-Tabelle gesamt" = 285** = 279 Findings + 5 Kontrollen + 1 zurückgezogen.
+`BLOCKED` ist ausdrücklich **kein PASS**. `WIDERLEGT` bedeutet: geprüft und für
+unzutreffend befunden — **kein** offener Mangel.
+| **Master-Tabelle gesamt** | 264 | 8 | 6 | 6 | 1 | **285** |
 
 
 ### 11.2 Findings je Workpackage
 
-| WP | Report | Agent | Critical | High | Medium | Low | Info | Findings | Kontrollen | Zeilen |
-|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| WP-1a/1b/1d | `AUDIT_EXTERNAL_INTEGRATIONS.md` | senior-developer (WP-1a/1b) · api-specialist (WP-1d) | 5 | 19 | 24 | 9 | 5 | **62** | 0 | 62 |
-| WP-1c | `AUDIT_INFRASTRUCTURE.md` | devops-engineer | 4 | 8 | 13 | 5 | 0 | **30** | 0 | 30 |
-| WP-2 | `AUDIT_NATIVE_PLUGINS.md` | senior-developer | 1 | 6 | 7 | 6 | 4 | **24** | 0 | 24 |
-| WP-3 | `AUDIT_UI_BROWSER.md` | e2e-tester (Browser, Playwright/Chromium) | 0 | 3 | 7 | 12 | 3 | **25** | 0 | 25 |
-| WP-3b | `AUDIT_FRONTEND_STATIC.md` | frontend-reviewer | 0 | 2 | 11 | 12 | 0 | **25** | 0 | 25 |
-| WP-4 | `AUDIT_DATA_MODEL.md` | data-engineer | 0 | 11 | 17 | 5 | 3 | **36** | 5 | 41 |
-| WP-5 | `AUDIT_TRACEABILITY.md` | validator | 2 | 19 | 15 | 1 | 0 | **37** | 0 | 37 |
-| WP-6a | `AUDIT_SECURITY.md` | security-auditor | 2 | 5 | 8 | 7 | 0 | **22** | 0 | 22 |
-| WP-6b | `AUDIT_RELIABILITY.md` | backend-reviewer | 0 | 3 | 13 | 3 | 0 | **19** | 0 | 19 |
-| **Gesamt** | 9 Reports | | 14 | 76 | 115 | 60 | 15 | **280** | **5** | **285** |
+| WP | Report | Agent | Critical | High | Medium | Low | Info | Findings | Kontrollen | Zurückgezogen | Zeilen |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 
 
 ### 11.3 Verteilung der Original-Skalen
@@ -2169,7 +2175,7 @@ Widerspruch ist der Befund. Siehe O-3; am Finding wurde nichts geändert.
 | ~~**O-3**~~ | ~~Veraltete Zeilenangabe `AUD-2026-09-185`~~ | **ERLEDIGT mit Gegenbefund:** Die Angabe `matrix:331` war **korrekt** — Zeile 331 der Matrix ist `REQ-L2-BL-011` = „Not Implemented", das Kind von `REQ-L1-046` (Zeile 144). Genau dieser Widerspruch ist der Befund. **Meine frühere Diagnose „veraltet" war falsch**; es wurde **nichts** am Finding geändert. |
 | ~~**O-4**~~ | ~~PR-Nummern `#1004`, `#1005`, `#1118`~~ | **ERLEDIGT:** an 10 Fundstellen als PR-Nummer gekennzeichnet. `#1003` und `#932` sind echte Issues (im Inventar) und blieben unverändert. |
 | **O-5** | **Doku-Drift** (§10): Tools 215→219, Gruppen 31→35, APIViews 67→76, Compose-Services 8→15, React 18→19, E2E 111→54 | Soll `AGENTS.md`/`README.md` korrigiert werden? Außerhalb des Auftragsumfangs (Dokumentation, kein Produkt-Code). |
-| **O-6** | **`CR-30`-Zahl** (463 vs. 511 vs. 443) | Welche Zahl soll als kanonisch im Vor-Audit stehen? Empfehlung: **443** mit der in C10 offengelegten Methode. |
+| ~~**O-6**~~ | ~~`CR-30`-Zahl (463 vs. 511 vs. 443)~~ | **ERLEDIGT (K-6): 443.** Unabhängig nachgezählt (658 Dateien gegen die pytest-Matrix; 34 nicht abgedeckte Dateien, 443 Testfunktionen). 463 und 511 sind mit dieser Methode **nicht reproduzierbar**. Die endgültige Zahl **443** ist in der Doku-Drift-Liste (§10) dokumentiert. |
 | **O-7** | **Historie-Entscheidung** zum Secret-Leak (`AUD-2026-09-220`) | WP-6a empfiehlt Option A (`filter-repo`, kein Force-Push nötig, da `3dcc80d8` nie gepusht wurde) — **nicht ausgeführt**. |
 
 ---
@@ -2201,7 +2207,7 @@ Dokumentation unter `docs/audit/2026-09/`.
 
 ## 14. Erkannte Prozessdefekte dieses Audits
 
-Dieser Abschnitt ist **kein** Produktbefund und **nicht** Teil der 280 Findings.
+Dieser Abschnitt ist **kein** Produktbefund und **nicht** Teil der 279 Findings.
 Er dokumentiert Mängel des **Auditprozesses selbst**, die beim Konsistenz-Gate
 aufgefallen sind. Sie sind hier offengelegt, weil sie die Aussagekraft des
 Audits einschränken — nach dem gleichen Grundsatz, mit dem der Audit die
@@ -2270,3 +2276,131 @@ nachweis ist.
 5. **Zweite Messung für jede Zahl, die später zitiert wird.** Besonders für
    Zahlen, die in andere Reports übernommen werden (hier: 112/116, 441/37,
    0/3) — sonst wandert der erste Messfehler durch das gesamte Audit.
+
+---
+
+## 15. Unabhängige Gegenprüfung der Top-10 (2026-09-30)
+
+### 15.0 Vorbemerkung: die Evidenzbasis dieser Gegenprüfung
+
+| Aspekt | Wert |
+|---|---|
+| **Quelle** | [`AUDIT_EVIDENCE/verification-2026-09-30.md`](AUDIT_EVIDENCE/verification-2026-09-30.md), Commit `27a72dde`, Agent `code-reviewer` |
+| **Rolle** | Faktenprüfer — geprüft wurde gegen **Quelltext, committete Evidenzartefakte und eigene Messungen**, nicht gegen die Zusammenfassung des Haupt-Audits |
+| **Live-Messungen** | **0** |
+| **Statische/hermetische Messungen** | 11 |
+| **Produktdateien geändert** | **0** |
+| **Stack während der Prüfung** | **gestoppt** |
+
+> ### ⚠ Einschränkung der Evidenzbasis — vor jeder Nutzung dieser Korrekturen zu lesen
+>
+> Die Gegenprüfung fand den Stack **gestoppt** (Docker Desktop nicht gestartet;
+> `docker ps` scheitert, **alle** Ports 8000/8001/5432/6379/3000/5173 ohne
+> Verbindung). Es waren **null Live-Messungen** möglich.
+>
+> Sie hat stattdessen **statisch plus hermetisch** gemessen: lokale Celery-App mit
+> **wörtlicher** Produktionskonfiguration, Code-Nachverfolgung, hermetische
+> Wiedergabe einzelner Funktionen, Nachrechnen gegen **committete** Artefakte.
+>
+> **Das ist eine gültige, aber schwächere Evidenzbasis als die Live-Prüfung des
+> Haupt-Audits.** Jede Aussage aus dieser Gegenprüfung ist daher zu lesen als:
+> *bestätigt durch statische/hermetische Nachmessung; Live-Nachweis nicht möglich
+> (Stack gestoppt).* Eine Aussage wird hier **nicht** als uneingeschränkt „bestätigt"
+> geführt.
+>
+> Umgekehrt gilt: eine **Widerlegung** auf dieser Basis ist **belastbarer** als eine
+> Bestätigung, weil sie nicht vom Stack abhängt. Genau deshalb trägt K-1 auch ohne
+> Live-Nachweis.
+
+### 15.1 Ergebnis auf Finding-Ebene
+
+| Urteil | Anzahl | Findings |
+|---|---:|---|
+| **bestätigt** | **6** | `-222`, `-030`+`-221`, `-120`, `-123`, `-052`, `-031`*(teilweise)* |
+| **bestätigt, aber Beschreibung ungenau** | **3** | `-220`, `-071`, `-121`+`-270` |
+| **WIDERLEGT** | **1** | `-070` |
+| **ganzlich unverifizierbar** | **0** | — |
+| *davon aber Teilaussagen nicht verifizierbar* | *13* | siehe §15.4 |
+
+**Bilanz:** 9 von 10 Top-10-Befunden halten in der Substanz; **1 wird
+zurückgezogen**. Bei 3 Befunden war die **Aussage** zu weit formuliert, nicht der
+Kern.
+
+### 15.2 Korrekturabschnitt
+
+| Finding | alte Aussage | neue Aussage | Urteil der Gegenprüfung | Evidenz |
+|---|---|---|---|---|
+| **`-070`** | „CSV-Round-Trip des eigenen Exporters unbrauchbar: `# terminology_profile`-Kommentarzeile wird als Header gelesen → HTTP 201 `success:true` bei 0 Zeilen" (Critical) | **WIDERLEGT — zurückgezogen.** `import_service.py:341-344` strippt **jede** mit `#` beginnende Zeile vor `csv.DictReader`. Export-Kommentar und Strip stammen aus **demselben** Commit `3081435a` (2026-06-24) — der Pfad war nie inkonsistent. Hermetische Gegenmessung des wörtlichen `_parse_csv` gegen echten Export-Output: **16 Headerfelder, 1 Datenzeile, `title='CLEAN-1'`**. Ohne Strip hätte der Importer genau **eine** Spalte namens `# terminology_profile: default` gelesen. | **WIDERLEGT.** Der A/B-Beweis des Haupt-Audits variierte **zwei** Variablen gleichzeitig und konnte die Behauptung nicht stützen. | `verification-2026-09-30.md` §3.1 |
+| **`-220`** | „Live `reqlo_`-API-Key im Klartext committet — jeder PR-Autor und jeder Fork hatte ein gültiges `write`-Credential" | **Reichweite korrigiert.** Der Commit `3dcc80d8` wurde **nie gepusht** (`git merge-base --is-ancestor 3dcc80d8 origin/…` → **exit 1**); `origin` steht auf `988294b6`. **Kein PR, kein Fork** konnte es ziehen. Richtig: *lokales Secret im Arbeitsbaum eines Entwickler-Rechners, in der Historie eines nicht gepushten Branches; nach Push oder Repo-Sharing wird es exponiert.* Kern (Key war committet und live gültig) **unberührt**; Schweregrad Critical **unverändert**. | **bestätigt, Beschreibung ungenau.** Neu geprüft: `git grep -l -E "reqlo_[A-Za-z0-9]{20,}" HEAD -- docs` → **0 Treffer**. | `verification-2026-09-30.md` §4 |
+| **`-071`** | „ReqIF-Import liefert `success:true` mit 915 × internal error"; Ursache: globaler `Artifact.id`-PK-Konflikt | **Beschreibung präzisiert, Schweregrad unverändert.** `success=True` ist bei `:483` **hart kodiert** — bestätigt. **„Stiller Fehlschlag" ist zu streichen:** die Antwort enthält eine **vollständige Fehlerliste** pro Objekt (`:429-443`). **Ursache korrigiert:** nicht primär der globale PK-Konflikt (der wird in `:688-703` abgefangen), sondern die **unwirksame Savepoint-Rettung** — `_upsert_spec_object` läuft in `transaction.atomic()`; eine darin abgefangene `IntegrityError` rollt den Savepoint **nicht** zurück ⇒ der Retry in `:697` stirbt mit `InFailedSqlTransaction`. Das erklärt, warum die generische Fehlermeldung statt der spezifischen Warnung erscheint. | **bestätigt, Ursachenkette unvollständig.** | `verification-2026-09-30.md` §3.2 |
+| **`-031`** | „`/health/` meldet `ok`, während App+Auth+Schema unbenutzbar hängen" | **Reichweite präzisiert, Schweregrad unverändert.** `health.py` hat **null** Cache-Referenzen (bestätigt). **DB-Ausfall liefert korrekt 503.** Der belegte Fehlfall ist der **Cache-/Redis-Ausfall bei gesunder DB** — dort bleiben `status="ok"` und HTTP 200 (`:312-315`). Die Formulierung „bei Totalausfall 200 ok" war **zu weit**. | **bestätigt, Wortwahl zu stark.** | `verification-2026-09-30.md` §1 Z. 4 |
+| **`-121`** | „Beat dispatcht nie (`0 × Sending due task`)" | **Teilaussage als NICHT VERIFIZIERBAR markiert.** (a) Healthcheck `docker-compose.yml:933` = `pgrep -f 'celery.*beat'` prüft **nur** Prozessexistenz — ✅ bestätigt. (b) `audit.archive_lifecycle_manager` **nicht** im Worker-Task-Set (`archive.py:448` definiert die Task, `backend/audit/tasks.py` existiert nicht, `apps.py:36` importiert nur `audit.writer`) — ✅ bestätigt. (c) „Beat dispatcht nie" — **nicht verifizierbar**. | **bestätigt-mit-Ausschnittslücke.** Der Beat-Log-Teil bleibt offen; er wird **nicht** gestrichen, sondern als `NICHT VERIFIZIERBAR` mit fehlendem Prüfschritt geführt. | `verification-2026-09-30.md` §1 Z. 10, §6 |
+| **`-120`** | „Alle 4 Celery-Queues identisch gebunden → jede Task läuft 4×" | **Keine Änderung am Befund** — als **unabhängige Bestätigung** aufgenommen und methodisch präzisiert. Alle 4 Queues lösen auf `exchange='default'(direct), routing_key='default'` auf; eine publizierte Nachricht ⇒ **4 Zustellungen**. Kein `memory://`-Artefakt: `redis.Channel._lookup` erbt für benannte Exchanges denselben Code. **Gegenhypothese widerlegt.** **Evidenzzeile korrigiert:** „genau ein `_kombu.binding.default`" ist ein Fehlread (1 Redis-**SET** mit 4 Members). | **bestätigt — der einzige Top-10-Befund, den die Gegenprüfung gestärkt hat.** | `verification-2026-09-30.md` §2 |
+| **`AUDIT_TRACEABILITY.md:152/153`** | `-121` und der Beat-Teil aus `-120` als „nicht reproduzierbar / widerlegt" | **Zurückgenommen.** Der stützende Test registriert die Task im **Testprozess**; die `django_celery_beat_periodictask`-Zeile ist eine **Beat-Schedule**-Zeile. Beides adressiert die Frage „ist die Task im *Worker*-Task-Set registriert?" **nicht**. Die Gegenrichtung ist bestätigt: `-121` und `-270` **gelten**. | **falsch zurückgezogen — wieder bestätigt.** | `verification-2026-09-30.md` §7.5 |
+
+### 15.3 Die drei nachgezählten Zahlenpaare (K-6)
+
+| Zahlenpaar | Ergebnis | Methode der Gegenprüfung | Urteil |
+|---|---|---|---|
+| **MCP-Tools** | **219 Tools / 35 Präfixe**; `tools/list` = **80** | eigenes Zählen aus dem **committeten, vom Audit nicht erzeugten** Artefakt `docs/agent-templates/tool-manifest.json`; `is_write=true` = **139** ⇒ 219 − 139 = **80** = **exakt** die `is_write=false`-Tools (34 Präfixe, weil der Write-Namespace `ai_derivation` entfällt) | **BESTÄTIGT.** Die 80 sind ein Rollenfilter, **kein** Registrierungsfehler. Die Kette ist rechnerisch lückenlos. |
+| **`MISSING_KEY_BASELINE`** | **116** | `frontend/src/test/i18n-parity.test.ts:186`; historische Repo-Werte 145 / 123 / 117 sind **abgesenkte** Ratchets. Ein statisches Zählen der `t("key")`-Literale ist wegen `t(key, "default")`-Overloads und Template-Literalen **nicht verlässlich** | **BESTÄTIGT.** Der Ratchet-Quelltext ist der belastbare Pfad. |
+| **Tests ohne CI** | **443** (in 34 von 658 Dateien) | alle `backend/**/test_*.py` (+ `tests.py`, ohne `__pycache__`/`migrations`) = 658 Dateien gegen die pytest-Matrix `ci.yml:44-55`, die ausschließlich `<app>/tests` abdeckt. Nicht abgedeckt: `link_types/tests` (14), `memory/tests` (13), `backend/tests/` (4), 3 App-Root-Module, `mcp_server/tools/tests.py` | **BESTÄTIGT.** 443 ungedeckt / 7 684 gedeckt. **463 und 511 sind mit dieser Methode nicht reproduzierbar.** |
+
+### 15.4 Teilaussagen, die **nicht verifizierbar** waren
+
+13 Teilaussagen. Für jede steht der **konkret fehlende Prüfschritt** — das ist die
+Aussage der Belastbarkeit, kein Makel.
+
+| # | Finding / Teilaussage | Was fehlt | Konkreter nächster Schritt |
+|---|---|---|---|
+| 1 | `-220` — Key-Widerruf | Live-Nachweis der Sperrung | Stack hochfahren; `POST /mcp/` mit dem Key + `{"jsonrpc":"2.0","method":"tools/list"}`; **401** erwartet |
+| 2 | `-220` — Rest-Keys aus `secret-incident` §1.5/§1.6 | „zweiter live Key `ff77bbd0-…`" und „8 weitere aktive admin-Keys" nie geprüft | `SELECT` auf die Key-Tabelle; Key-Hashes gegen die genannten Präfixe |
+| 3 | `-030` — „13 MCP-Endpoints" | Endpoint-Zahl nicht nachgezählt | `urls.py` + `mcp_server/urls.py` zählen |
+| 4 | `-030` — „hängen unbegrenzt" | die Zeitgrenze ist eine Config-Inferenz, keine Messung | `SOCKET_TIMEOUT=1` in einer Testinstanz setzen, Request-Dauer messen |
+| 5 | `-031` | Live-`{"status":"ok"}` bei Redis-Ausfall | Stack hochfahren, Redis stoppen, `/health` aufrufen (statisch eindeutig) |
+| 6 | `-070` | Live-HTTP-Roundtrip | **nicht nachholbar als Bestätigung** — die Behauptung ist widerlegt. Ein Roundtrip *ohne* Kommentarzeile wäre der Rest-Nachweis für die Restbefunde |
+| 7 | `-071` — 915 Objekte | ReqIF-Live-Import, DB-Zustand | Export einer fremden Instanz in einen Wegwerf-Workspace importieren; `report.errors` + `warnings` auswerten |
+| 8 | `-071` — Savepoint-Vergiftung | die verfeinerte Ursache ist PostgreSQL-Semantik + Code-Lesen, **kein** Test | `IntegrityError` in `transaction.atomic()` abfangen, erneut schreiben; `TransactionManagementError` erwarten |
+| 9 | `-120` — Produktionsmanifestation | ein echter 4×-Lauf | `celery inspect active_queues`; `SCAN` auf `_kombu.binding.*`; `LLEN` der vier Keys; Task mit Worker-Log-Zeilen provozieren |
+| 10 | `-120` — Redis-`_kombu.binding.*` | Anzahl der Keys/Members | wie oben; die Korrektur (1 SET, 4 Members) ist quelltextbasiert, **nicht** live gezählt |
+| 11 | `-121` — Beat `0× Dispatch` | das `celery-beat`-Log | Stack hochfahren, `docker logs celery-beat`; über Stunden `Sending due task` zählen. **Zusätzlich ungeklärt: WARUM** — der Log zeigt „0×", nicht die Ursache |
+| 12 | `-270` — Worker-Task-Set | Live-Banner | `celery inspect registered`; `[tasks]`-Liste (statisch eindeutig) |
+| 13 | `-222` — 269/311 | Live-Exploit-Probe je Route | die Zahl ist aus dem Evidenzartefakt reproduziert, ist aber eine **Pfad-Analyse**, kein 269-facher Negativtest; ein Test je Mutationsform genügt |
+
+### 15.5 Belastbarkeitseinordnung
+
+> **Aussage zur Belastbarkeit des Audits — kein Produktbefund.**
+
+1. **Die Gegenprüfung hatte keine Live-Evidenz.** Stack gestoppt, 0 Live-Messungen.
+   Ihre Bestätigungen sind **statisch/hermetisch**. Sie stützen die *Mechanismen*,
+   nicht die *Laufzeitmanifestation*.
+2. **Nur eine Zählung hat zwei unabhängige Wege:** `MISSING_KEY_BASELINE` /
+   i18n-Lücke = **116** — einmal durch WP-3b gemessen, einmal durch die Gegenprüfung
+   aus der Ratchet-Quelle nachgezählt. **Übereinstimmend.**
+3. **Für alle übrigen Zählungen liegt je eine Messung vor.** Insbesondere: die
+   219/35 Tools, die 443 ungedeckten Tests, die 13 MCP-Endpoints, die 311/269
+   Routen. Sie sind **nicht** unabhängig gegengeprüft — die Gegenprüfung hat sie
+   zwar nachgerechnet, aber teils aus **denselben** Evidenzartefakten, die das
+   Haupt-Audit erzeugt hat. Das ist **kein** Fehler, aber es ist auch **keine**
+   zweite, unabhängige Messung.
+4. **Richtung der Korrekturen ist gemischt:** 1 Widerlegung (das ist ein
+   Qualitätsgewinn — ein Fehlbefund wurde entfernt), 3 Präzisierungen ohne
+   Schweregradwechsel, 1 gestärkter Befund, 13 offene Teilaussagen. Das Audit hat
+   sich damit **nicht** insgesamt verschärft, aber einzelne Aussagen wurden
+   korrigiert.
+5. **Konsequenz für die Nutzung:** Die Schweregrade bleiben als Einordnung des
+   Audit-Standes gültig. Für jede der 13 offenen Teilaussagen gilt: **die
+   zugrunde liegende Behauptung ist nicht widerlegt, sie ist unvollständig belegt.**
+   Vor einer Investitionsentscheidung, die sich allein auf eine dieser
+   Teilaussagen stützt, gehört der fehlende Prüfschritt aus §15.4 nach.
+
+### 15.6 Was sich am Backlog ändert
+
+| Element | vorher | nachher |
+|---|---|---|
+| **P0-Einträge** | 6 | **6** (unverändert — Eintrag 6 umfasst weiterhin `-071`, `-349`, `-072`, `-079`/`-080`/`-083`) |
+| **P0-Eintrag 6 — Ursachenteil (a)** | „CSV-Round-Trip des eigenen Exporters unbrauchbar" | **WIDERLEGT** — Teil (a) entfällt als Begründung; die Einträge (b) ReqIF und (c) `-349` bleiben |
+| **Critical** | 14 | **13** |
+| **Findings gesamt** | 280 | **279** |
+| **Top-10** | 10 Einträge | **9 Einträge** + „knapp verfehlt" wird um `-115` ergänzt |
+| **Offene Frage O-6** (`CR-30`-Zahl) | 463 / 511 / 443 | **443** — aufgelöst (§15.3) |

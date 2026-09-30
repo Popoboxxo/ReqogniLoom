@@ -145,12 +145,20 @@ Vollständig widersprüchlich: `REQ-L1-005` (8 von 12 Kindern nicht implementier
 ohne jede L2-Zerlegung**: `REQ-L1-042` (Workspace-Lifecycle mit transaktionaler
 Kaskaden-Löschung + Captcha), `-043`, `-044`, `-100`, `-101`.
 
-### Reconciliation: zwei Parallelbefunde nicht reproduzierbar
+### Reconciliation: zwei Parallelbefunde — **Korrektur 2026-09-30**
+
+> **Zurückgenommen (unabhängige Gegenprüfung, `AUDIT_EVIDENCE/verification-2026-09-30.md` §7.5).**
+> Die folgende Tabelle führte `-121` und den Beat-Teil aus `-120` als *widerlegt*.
+> Das war **falsch**: der Test `audit/tests/test_sa39_append_guard_` registriert die
+> Task im **Testprozess** (er importiert `audit.archive`), und die
+> `django_celery_beat_periodictask`-Zeile ist eine **Beat-Schedule**-Zeile — beides
+> adressiert die Frage **„ist die Task im *Worker*-Task-Set registriert?"** nicht.
+> Die Gegenprüfung hat die Gegenrichtung bestätigt: `-121` und `-270` **gelten**.
 
 | Befund | Messung | Ergebnis |
 |---|---|---|
-| `AUD-2026-09-121` „Audit-Archivierung nie registriert" | `settings.py:822-825` registriert `audit-monthly-archive`; `django_celery_beat_periodictask` enthält die Zeile live, `enabled=t`; Test `audit/tests/test_sa39_append_guard_and_schedule.py:73` prüft sie | **widerlegt** |
-| Beat-Teil aus `AUD-2026-09-120` | `DatabaseScheduler` synchronisiert `beat_schedule` in die DB (4 Rows live) | **widerlegt**; nur der 4×-Fanout bleibt |
+| `AUD-2026-09-121` „Audit-Archivierung nie registriert" | `settings.py:822` ist ein Eintrag in **`CELERY_BEAT_SCHEDULE`** (`:817-830`), **nicht** die Worker-Registrierung. `audit/apps.py:36` importiert nur `audit.writer`; `backend/audit/tasks.py` existiert nicht; kein Nicht-Test-Code importiert `audit.archive` | **BESTÄTIGT** — die Task ist nie im Worker-registriert, die monatliche Retention läuft nie. (Früher hier „widerlegt" — **zurückgenommen**, siehe Kasten oben) |
+| Beat-Teil aus `AUD-2026-09-120` / `-121` | Wie vor: die Beat-Schedule-Zeile beweist **nicht**, dass `celery-beat` die Task tatsächlich dispatcht | **BESTÄTIGT** — der Beat-Teil ist damit **nicht** widerlegt. Der 4×-Fanout aus `-120` bleibt davon unberührt. (Früher hier „widerlegt" — **zurückgenommen**) |
 | `AUD-2026-09-129` „Health meldet ok bei Totalausfall" | Code kennt ein `down`-Vokabular (`admin_ops/health_rest.py:72,434,459-481`); Aggregationspfad statisch nicht entscheidbar | **BLOCKED** → Phase 2 |
 
 ### Gegenrichtung: Marker zu niedrig (ebenso relevant)
@@ -443,7 +451,7 @@ Berichterstattung von `beta.16`.
 | AUD-2026-09-201 | High | SOLL-TRACE | `REQ-L0-031` | — | `SN_Stakeholder_Needs.md` | Nummerierungslücke: 031 existiert nirgends; Matrix springt 030 → 032 |
 | AUD-2026-09-202 | Medium | SE-TAXONOMIE | — | CR-09 | `docs/se/**/*Requirements*.md` | 104 von 121 Requirement-Dokumenten ohne YAML-Frontmatter (Pflichtverstoß) |
 | AUD-2026-09-203 | Medium | SOLL-TRACE | 20 REQ-IDs | — | Matrix `:724,728` | 20 doppelt vergebene REQ-IDs; Marker „letzter gewinnt" = positionsabhängig |
-| AUD-2026-09-204 | Medium | RECONCILE | `REQ-L2-AL-009` | AUD-2026-09-121 | `settings.py:822`, DB-Row live | Parallelbefund „Archivierung nie registriert" **nicht reproduzierbar** |
+| AUD-2026-09-204 | Medium | RECONCILE | `REQ-L2-AL-009` | AUD-2026-09-121 | `settings.py:822`, DB-Row live | Parallelbefund „Archivierung nie registriert" **nicht reproduzierbar** — **Korrektur 2026-09-30: diese Aussage ist zurückgenommen.** Die DB-Row belegt die Beat-Schedule, nicht die Worker-Registrierung. Die Richtung ist die umgekehrte: `-121`/`-270` gelten, der Parallelbefund aus der Matrix ist der unzutreffende. Klassifikation `NEU` (Reconciliation zur Matrix-Aussage), kein eigener Defekt. |
 | AUD-2026-09-205 | Low | BLOCKED | `REQ-L1-026` | AUD-2026-09-129 | `admin_ops/health_rest.py:72,434,459` | Health-Aggregation statisch nicht entscheidbar → Messung an laufendem Stack nötig |
 | AUD-2026-09-206 | Medium | DOKU-WIDERSPRUCH | — | AUD-2026-09-084 | `AGENTS.md` | APIView-/Tool-Zahlen im AGENTS.md weichen vom gemessenen Stand ab (durch WP-1 belegt) |
 

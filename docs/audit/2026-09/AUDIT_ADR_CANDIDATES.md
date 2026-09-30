@@ -374,7 +374,7 @@ Kompatibilitätszusage zwischen Plugin, Server und Doku geprüft werden.
 ## 8. Erfolgs-/Fehlersemantik der Datenintegration: was darf ein Import melden?
 
 * **Backlog-Rang:** 6 (P0), Teil von 16 (P1) und 27 (P2)
-* **Betroffene Findings:** `AUD-2026-09-070` (Critical) · `-071` (Critical) · `-349` (High) · `-072` (High) · `-079` (Medium) · `-080` (Medium) · `-082` (Medium) · `-083` (Medium) · `-032` (High) · `-036` (High) · `-049` (Info)
+* **Betroffene Findings:** ~~`AUD-2026-09-070` (Critical)~~ **WIDERLEGT 2026-09-30 (K-1)** · `-071` (Critical) · `-349` (High) · `-072` (High) · `-079` (Medium) · `-080` (Medium) · `-082` (Medium) · `-083` (Medium) · `-032` (High) · `-036` (High) · `-049` (Info)
 
 ### Problem
 
@@ -383,7 +383,7 @@ Erfolg für Zustände, in denen nichts passiert ist.**
 
 | Fall | gemeldet | tatsächlich |
 |---|---|---|
-| CSV-Import des eigenen Exports | `HTTP 201 success: true` | **0 Zeilen** importiert (`-070`) |
+| ~~CSV-Import des eigenen Exports~~ | ~~`HTTP 201 success: true`~~ | ~~**0 Zeilen** importiert (`-070`)~~ — **WIDERLEGT (K-1)**: die `#`-Kommentarzeile wird in `import_service.py:341-344` korrekt gestrippt; der Round-Trip des eigenen Exporters funktioniert. **Als Beleg für diesen ADR-Kandidaten entfällt der Fall.** |
 | ReqIF-Import | `success: true` | **915** „internal error" (`-071`, `-349`) |
 | CSV-Import, dreifach | dreimal `success: true` | **3 Duplikate** (`-072`) |
 | kaputtes Quoting | `201 success` | Restzeile im Titel (`-080`) |
@@ -392,6 +392,8 @@ Erfolg für Zustände, in denen nichts passiert ist.**
 | MCP `tools/call` mit ungültigem Input | `-32603` „internal error" | Validierungsfehler (`-036`, `-040`) |
 | `/mcp/`-404 vs. `/api/v1/mcp/`-404 | HTML vs. JSON | zwei Formate (`-049`) |
 
+
+> **Korrektur 2026-09-30 (K-1, unabhängige Gegenprüfung).** Der Fall „CSV-Import des eigenen Exports" ist **widerlegt** und wurde aus der Tabelle gestrichen. **Der ADR-Kandidat bleibt denkmals bestehen** — die übrigen sieben Fälle tragen ihn allein: `-071` (ReqIF, Critical), `-349` und `-072` (High), `-079`/`-080`/`-082`/`-083` (Medium), `-032`/`-036` (MCP-Fehlervertrag), `-049` (Formatinkonsistenz). Das Muster „Erfolg melden, wo nichts passiert ist" ist durch `-071` weiterhin belegt — dort allerdings **präzisiert** (K-3): `success=True` ist hart kodiert, die Antwort **listet aber alle Fehler**; es fehlt ein herabgestuetzter Status, nicht die Diagnose. Der ADR-Gegenstand bleibt die **vereinbarte Fehlersemantik**, nicht der einzelne Round-Trip-Bruch.
 Der Schaden ist nicht der Einzelfehler, sondern ein **öffentlicher Vertrag ohne
 vereinbarte Fehlersemantik**: ein Aufrufer kann „Erfolg" nicht von „stillschweigend
 gescheitert" unterscheiden — das ist Muster 2 des Summaries.

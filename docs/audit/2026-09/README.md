@@ -53,7 +53,8 @@ docs/audit/2026-09/
 ├── AUDIT_SECURITY.md                ← WP-6a Security über alle Trust Boundaries
 ├── AUDIT_RELIABILITY.md             ← WP-6b Error Handling, Concurrency, Observability
 └── AUDIT_EVIDENCE/                  ← Rohbelege: Matrizen, JSON-Messungen, Screenshots,
-                                       Stack-Dumps, Issue-Inventar, Secret-Incident
+                                       Stack-Dumps, Issue-Inventar, Secret-Incident,
+                                       verification-2026-09-30 (Gegenprüfung Top-10)
 ```
 
 **Lesereihenfolge:** `README.md` → `AUDIT_SUMMARY.md` →
@@ -75,7 +76,7 @@ Die Zahlen sind leicht falsch zu lesen. Drei Regeln:
 
 **1. `PASS` ist kein Finding.** Eine als `PASS` klassifizierte Zeile ist eine
 **bestätigte Kontrolle** — ein Negativbefund, kein Mangel. Sie steht getrennt in
-[`AUDIT_FINDINGS.md` § 6](AUDIT_FINDINGS.md) und ist **nicht** in den 280
+[`AUDIT_FINDINGS.md` § 6](AUDIT_FINDINGS.md) und ist **nicht** in den 279
 enthalten. **Begründung der Regel:** Würden Negativbefunde mitgezählt, stiege die
 Gesamtzahl um 5 und die Verteilung würde systematisch zu Gunsten eines
 WP-Reports verschoben.
@@ -90,6 +91,10 @@ Nummernblöcke `001–025`, `030–067`, `070–093`, `100–206`, `220–241`, 
 Die als **RESERVIERT** markierten Bereiche (`026–029`, `068–069`, `094–099`,
 `207–219`, `242–269`, `289–299`, `329`, alles ab `351`) sind **bewusst frei** für
 Folge-Arbeit, damit parallele Agenten nicht erneut kollidieren.
+
+**4. `WIDERLEGT` ist kein offener Mangel — und ein zurückgezogenes Finding zählt nicht.** Eine unabhängige Gegenprüfung der Top-10 (2026-09-30) hat `AUD-2026-09-070` **widerlegt**: `import_service.py:341-344` strippt Kommentarzeilen korrekt, der Round-Trip des eigenen Exporters funktioniert. Critical **14 → 13**, offene Findings **280 → 279**. Die Aussage bleibt als `WIDERLEGT` sichtbar ([§ 15.2](AUDIT_FINDINGS.md)).
+
+**Die Evidenzbasis der Gegenprüfung war eingeschränkt:** Der Stack war **gestoppt**, es waren **0 Live-Messungen** möglich. Sie hat statisch und hermetisch gemessen. Jede ihrer Bestätigungen ist als *statisch/hermetisch bestätigt — Live-Nachweis nicht möglich* zu lesen ([§ 15.0](AUDIT_FINDINGS.md), [§ 11.1](AUDIT_SUMMARY.md)). **13 Teilaussagen** blieben offen — jeweils mit dem fehlenden Prüfschritt ([§ 15.4](AUDIT_FINDINGS.md)).
 
 ```
 285 Zeilen in der Master-Tabelle
