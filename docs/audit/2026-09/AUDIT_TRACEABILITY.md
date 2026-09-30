@@ -409,28 +409,28 @@ Berichterstattung von `beta.16`.
 
 | ID | Schwere | Klassifikation | REQ-ID | CR-Track/Issue | Ort | Kurztitel |
 |---|---|---|---|---|---|---|
-| AUD-2026-09-170 | High | TRACE-DRIFT | 324 REQ-IDs | CR-09, CR-47 | `docs/se/traceability-matrix.md` | 324 Quell-REQ-IDs fehlen in der SOLL-Matrix (24× L2, 300× L3) |
-| AUD-2026-09-171 | High | TRACE-BLIND | 354 REQ-L3 | CR-09 | `traceability-matrix.md:649-655` | Matrix publiziert 0 von 354 REQ-L3-Zeilen; behauptete 369 vs. gemessene 354 |
-| AUD-2026-09-172 | Medium | TRACE-INVARIANTE | `REQ-L2-AppSvc-*` | — | `traceability-matrix.md:721` | 15 als „nicht existent" gelistete IDs, die im Code referenziert werden |
-| AUD-2026-09-173 | High | ADR-REGEL | 11 REQ-IDs | — | `docs/se/**` | `open_adrs` existiert repo-weit nicht (0/835 REQs) |
-| AUD-2026-09-174 | High | ADR-KASKADE | 14 REQ-L1 | — | `L1_Gesamtsystem_Requirements.md:37…2522` | 14 von 15 `arch_impact:true` ohne ADR; kein akzeptiertes ADR deckt L1/L2 |
-| AUD-2026-09-175 | Medium | ADR-SCHEMA | — | — | `ADR-001,-002,-003,-DS-02` | 4 von 10 ADRs ohne YAML-Frontmatter |
-| AUD-2026-09-176 | Medium | ADR-NAMING | — | — | `docs/se/ADR/` | 4 Dateinamen nicht konform (3× CamelCase, `ADR-DS-02` nicht 3-stellig) |
-| AUD-2026-09-177 | Medium | ADR-SCHEMA | — | — | ADR-001/-002/-003/-DS-02 | Statuswerte `PROPOSED`/`ACCEPTED` verlassen das lowercase-Enum |
-| AUD-2026-09-178 | Medium | ADR-LIFECYCLE | — | — | ADR-005…009 | Lifecycle-Sprung `proposed → accepted` ohne `review` (5×) |
-| AUD-2026-09-179 | High | ADR-KASKADE | REQ-L1-034/-037/-038 | — | `L2_{ReqIF,Comment,VectorSearch}…_Requirements.md` | `arch_impact` bei L2-Ableitung von `true` auf `false` umgeschrieben, ohne ADR |
-| AUD-2026-09-180 | High | SOLL-INTERN | 17 REQ-L1 | — | `traceability-matrix.md` §2/§3 | 17 `Implemented`-REQ-L1 mit nicht-implementiertem Kind (3 vollständig) |
-| AUD-2026-09-181 | Medium | SOLL-INTERN | REQ-L1-042/-100/-101 | — | `traceability-matrix.md:140,191,192` | 3 `Implemented`-REQ-L1 ohne jede L2-Zerlegung |
-| AUD-2026-09-182 | High | SOLL-STALE | `REQ-L2-MC-014` | — | `L2_McpServerSystem_Requirements.md:97-107` | MCP-Tool `semantic_search` als `Implemented/Covered` dokumentiert, existiert nicht |
-| AUD-2026-09-183 | High | SOLL-STALE | `REQ-L2-RQ-001/-002`, `REQ-L2-AT-018`, `REQ-L2-CM-001`, `REQ-L2-RF-015` | — | Matrix `:311,512,513,483` | 7/29 Stichproben-REQs als nicht umgesetzt markiert, obwohl Code + Tests existieren |
-| AUD-2026-09-184 | High | SOLL-STALE | `REQ-L1-022/-033/-036` | — | Matrix `:120,131,134` | 3 REQ-L1 `Not Implemented` mit vollständig implementierten Kindern |
-| AUD-2026-09-185 | Critical | **REQ-CODE-WIDERSPRUCH** | `REQ-L1-046` | AUD-2026-09-123 | `matrix:331`, `backend/Dockerfile:154` | Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image |
-| AUD-2026-09-186 | Critical | **REQ-CODE-WIDERSPRUCH** | `REQ-L1-013` | AUD-2026-09-052 | `backend/llm_adapter/providers.py:1080` | Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert |
-| AUD-2026-09-187 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L2-LA-007` | AUD-2026-09-058 | `frontend/src/api/llm-settings.ts:22` | Azure implementiert und beworben, aber nicht wählbar |
-| AUD-2026-09-188 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L1-016`, `REQ-L2-RF-001` | AUD-2026-09-002/-016 | `traceability-matrix.md:114` | i18n `Implemented/Covered`; 112 Keys fehlen in beiden Locales, Lint-Regel wirkungslos |
-| AUD-2026-09-189 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L1-021`, `REQ-L2-AS-014` | AUD-2026-09-070 | `backend/application/import_service.py:149,226-233` | CSV-Import meldet Datenverlust als `success: true` |
-| AUD-2026-09-190 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L2-RO-001/-AS-029/-LA-008` | AUD-2026-09-120 | `backend/resilience/dispatcher.py` | Asynchronie `Covered`, jede Celery-Task läuft 4× |
-| AUD-2026-09-191 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L2-MC-019` | AUD-2026-09-026…043 | `protocol_handler.py:345` vs. `views.py:425` | stdio-Handler existiert, stdio-Transport nicht exponiert; Doku nennt 3 Transporte |
+| AUD-2026-09-330 | High | TRACE-DRIFT | 324 REQ-IDs | CR-09, CR-47 | `docs/se/traceability-matrix.md` | 324 Quell-REQ-IDs fehlen in der SOLL-Matrix (24× L2, 300× L3) |
+| AUD-2026-09-331 | High | TRACE-BLIND | 354 REQ-L3 | CR-09 | `traceability-matrix.md:649-655` | Matrix publiziert 0 von 354 REQ-L3-Zeilen; behauptete 369 vs. gemessene 354 |
+| AUD-2026-09-332 | Medium | TRACE-INVARIANTE | `REQ-L2-AppSvc-*` | — | `traceability-matrix.md:721` | 15 als „nicht existent" gelistete IDs, die im Code referenziert werden |
+| AUD-2026-09-333 | High | ADR-REGEL | 11 REQ-IDs | — | `docs/se/**` | `open_adrs` existiert repo-weit nicht (0/835 REQs) |
+| AUD-2026-09-334 | High | ADR-KASKADE | 14 REQ-L1 | — | `L1_Gesamtsystem_Requirements.md:37…2522` | 14 von 15 `arch_impact:true` ohne ADR; kein akzeptiertes ADR deckt L1/L2 |
+| AUD-2026-09-335 | Medium | ADR-SCHEMA | — | — | `ADR-001,-002,-003,-DS-02` | 4 von 10 ADRs ohne YAML-Frontmatter |
+| AUD-2026-09-336 | Medium | ADR-NAMING | — | — | `docs/se/ADR/` | 4 Dateinamen nicht konform (3× CamelCase, `ADR-DS-02` nicht 3-stellig) |
+| AUD-2026-09-337 | Medium | ADR-SCHEMA | — | — | ADR-001/-002/-003/-DS-02 | Statuswerte `PROPOSED`/`ACCEPTED` verlassen das lowercase-Enum |
+| AUD-2026-09-338 | Medium | ADR-LIFECYCLE | — | — | ADR-005…009 | Lifecycle-Sprung `proposed → accepted` ohne `review` (5×) |
+| AUD-2026-09-339 | High | ADR-KASKADE | REQ-L1-034/-037/-038 | — | `L2_{ReqIF,Comment,VectorSearch}…_Requirements.md` | `arch_impact` bei L2-Ableitung von `true` auf `false` umgeschrieben, ohne ADR |
+| AUD-2026-09-340 | High | SOLL-INTERN | 17 REQ-L1 | — | `traceability-matrix.md` §2/§3 | 17 `Implemented`-REQ-L1 mit nicht-implementiertem Kind (3 vollständig) |
+| AUD-2026-09-341 | Medium | SOLL-INTERN | REQ-L1-042/-100/-101 | — | `traceability-matrix.md:140,191,192` | 3 `Implemented`-REQ-L1 ohne jede L2-Zerlegung |
+| AUD-2026-09-342 | High | SOLL-STALE | `REQ-L2-MC-014` | — | `L2_McpServerSystem_Requirements.md:97-107` | MCP-Tool `semantic_search` als `Implemented/Covered` dokumentiert, existiert nicht |
+| AUD-2026-09-343 | High | SOLL-STALE | `REQ-L2-RQ-001/-002`, `REQ-L2-AT-018`, `REQ-L2-CM-001`, `REQ-L2-RF-015` | — | Matrix `:311,512,513,483` | 7/29 Stichproben-REQs als nicht umgesetzt markiert, obwohl Code + Tests existieren |
+| AUD-2026-09-344 | High | SOLL-STALE | `REQ-L1-022/-033/-036` | — | Matrix `:120,131,134` | 3 REQ-L1 `Not Implemented` mit vollständig implementierten Kindern |
+| AUD-2026-09-345 | Critical | **REQ-CODE-WIDERSPRUCH** | `REQ-L1-046` | AUD-2026-09-123 | `matrix:331`, `backend/Dockerfile:154` | Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image |
+| AUD-2026-09-346 | Critical | **REQ-CODE-WIDERSPRUCH** | `REQ-L1-013` | AUD-2026-09-052 | `backend/llm_adapter/providers.py:1080` | Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert |
+| AUD-2026-09-347 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L2-LA-007` | AUD-2026-09-058 | `frontend/src/api/llm-settings.ts:22` | Azure implementiert und beworben, aber nicht wählbar |
+| AUD-2026-09-348 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L1-016`, `REQ-L2-RF-001` | AUD-2026-09-002/-016 | `traceability-matrix.md:114` | i18n `Implemented/Covered`; 112 Keys fehlen in beiden Locales, Lint-Regel wirkungslos |
+| AUD-2026-09-349 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L1-021`, `REQ-L2-AS-014` | AUD-2026-09-070 | `backend/application/import_service.py:149,226-233` | CSV-Import meldet Datenverlust als `success: true` |
+| AUD-2026-09-350 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L2-RO-001/-AS-029/-LA-008` | AUD-2026-09-120 | `backend/resilience/dispatcher.py` | Asynchronie `Covered`, jede Celery-Task läuft 4× |
+| AUD-2026-09-191 | High | **REQ-CODE-WIDERSPRUCH** | `REQ-L2-MC-019` | AUD-2026-09-030…043 | `protocol_handler.py:345` vs. `views.py:425` | stdio-Handler existiert, stdio-Transport nicht exponiert; Doku nennt 3 Transporte |
 | AUD-2026-09-192 | High | TEST-TRACE | 477 REQ-IDs | CR-30 | `backend`, `frontend/src`, `e2e` | Nur 42.9 % der REQ-IDs haben einen Test-Bezug (3.6 % der Tests) |
 | AUD-2026-09-193 | High | TEST-CI | — | CR-30 | `.github/workflows/ci.yml:44-55` | 511 von 10 052 Testdefinitionen laufen in keinem CI-Job (`memory`, `link_types`, `tests`) |
 | AUD-2026-09-194 | Medium | TEST-CI | — | — | `.woodpecker.yml` | Zweites CI-System führt überhaupt kein `pytest` aus (nur `manage.py check`) |

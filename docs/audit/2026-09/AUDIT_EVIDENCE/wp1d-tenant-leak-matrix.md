@@ -85,7 +85,7 @@ ab. `tenant_id` ist nicht client-setzbar. Ebenso `level` bei Requirement:
 `"'level' is derived from the Requirement hierarchy and cannot be set (ADR-005)"`.
 
 **Zweiter Positivbefund:** neu erzeugte Artefakte bekommen automatisch eine lesbare
-UID (`REQ-001`) — `#932`/`#1005` wirksam.
+UID (`REQ-001`) — `#932` (Issue) / `#1005` (PR) wirksam.
 
 ---
 

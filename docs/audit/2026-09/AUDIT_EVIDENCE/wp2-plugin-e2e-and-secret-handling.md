@@ -106,7 +106,7 @@ headers: X-API-Key: <<masked:16fG len=46>>, Content-Type: application/json
 [dom:after-interviews] Back | "Requirement — in_progress" | Start new: Requirement
                       ArchitectureElement StakeholderNeed Risk TestCase Adr Issue Goal
 ```
-✔ **Alle 8 Start-Buttons sind `enabled=true`** — die in #1118 entfernte
+✔ **Alle 8 Start-Buttons sind `enabled=true`** — die in PR #1118 entfernte
 `FORMALIZABLE_ARTIFACT_TYPES`-Schranke ist damit wirksam weg. Dieser Teil des
 Merges ist **verifiziert vollständig**.
 

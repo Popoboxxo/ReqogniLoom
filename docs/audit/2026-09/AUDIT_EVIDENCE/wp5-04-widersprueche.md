@@ -85,7 +85,7 @@ author_agent: validator
 | REQ-Bezug | `REQ-L2-MC-019` *„MCP Protocol Compliance & Schemas"* — Matrix `:417`, Status **Planned / Untested** |
 | Doku-Zusage | `AGENTS.md` Projektbeschreibung: *„Transports: HTTP, SSE, stdio"* |
 | Widerspruch | Der stdio-**Handler** existiert: `backend/mcp_server/protocol_handler.py:345` *„stdio transport — reads newline-delimited JSON from stdin"*. Der stdio-**Transport** existiert nicht: `backend/mcp_server/views.py:425` *„'stdio' is deliberately absent"* (bewusst aus der beworbenen Liste entfernt); `/mcp/stdio/` → 404. Zusätzlich `backend/mcp_server/models.py:17`: `TODO(COMP-MCP-003): Implement transport handlers: stdio, SSE, HTTP.` — die TODO steht also noch offen, obwohl SSE/HTTP laufen. |
-| Verknüpft | `AUD-2026-09-026…043` (MCP-Bereich) |
+| Verknüpft | `AUD-2026-09-030…043` (MCP-Bereich) |
 | Status | **WIDERSPRUCH** (Doku) |
 
 ### A8 · `REQ-L2-AL-009` Cold-Storage-Archivierung — Reconciliation (widerlegt)

@@ -21,9 +21,10 @@ Sämtliche DB-Aussagen: `SELECT` / `EXPLAIN (ANALYZE, BUFFERS)` / Katalogabfrage
 
 ## Finding-IDs
 
-Vergeben: **270–288** (19 Findings). Die vergebenen Bereiche 001–025, 030–043,
-050/051, 052–067, 070–093, 100–117, 120–129, 150–190, 170–206, 220–238, 240–264
-sind unberührt. Keine Kollision.
+Vergeben: **270–288** (19 Findings). Keine Kollision mit den übrigen Blöcken.
+Stand nach dem Konsistenz-Gate (2026-09-30): `001–025` (WP-3), `030–067` + `070–093`
+(WP-1a/1b/1d), `100–153` (WP-2), `120–149` (WP-1c), `154–190` (WP-4), `191–206` +
+`330–350` (WP-5), `220–241` (WP-6a), `300–328` (WP-3b + WP-4), `270–288` (WP-6b).
 
 ## Ampel
 

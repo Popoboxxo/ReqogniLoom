@@ -138,17 +138,31 @@ Finding-IDs werden in **Blöcken pro Workpackage** vergeben. Stand nach dem Gate
 | **`094–099`** | 6 | **RESERVIERT** |
 | `100–119` | 20 | WP-2 (Native Plugins) |
 | `120–149` | 30 | WP-1c (Infrastruktur) |
-| **`150–153`** | 4 | **⚠ KOLLISION WP-2 × WP-4** → Entscheidung offen, §9 |
+| `150–153` | 4 | WP-2 (Native Plugins) — **behalten** nach Regel „früherer Commit" |
 | `154–169` | 16 | WP-4 (Datenmodell) |
-| **`170–190`** | 21 | **⚠ KOLLISION WP-4 × WP-5** → Entscheidung offen, §9 |
+| `170–190` | 21 | WP-4 (Datenmodell) — **behalten** nach Regel „früherer Commit" |
 | `191–206` | 16 | WP-5 (Traceability) |
 | **`207–219`** | 13 | **RESERVIERT** |
 | `220–241` | 22 | WP-6a (Security) |
-| **`242–269`** | 28 | **RESERVIERT** (durch WP-3b-Renummerierung freigegeben) |
+| **`242–269`** | 28 | **RESERVIERT** |
 | `270–288` | 19 | WP-6b (Reliability) |
 | **`289–299`** | 11 | **RESERVIERT** |
-| `300–324` | 25 | WP-3b (Frontend statisch) — **in diesem Gate vergeben** |
-| **`325+`** | — | **FREI** — nächster freier Block für Folge-Arbeit |
+| `300–324` | 25 | WP-3b (Frontend statisch) |
+| **`325–328`** | 4 | WP-4 — **in diesem Gate vergeben** (früher `150–153`) |
+| **`329`** | 1 | **RESERVIERT** (Trenner) |
+| `330–350` | 21 | WP-5 (Traceability) — **in diesem Gate vergeben** (früher `170–190`) |
+| **`351+`** | — | **FREI** — nächster freier Block für Folge-Arbeit |
+
+**Belegung:** 285 IDs, **jede genau einmal** (verifiziert, §12.2).
+
+**Regel für Folge-Arbeit:** Neue Findings erhalten IDs **ausschließlich** aus einem
+oben als **RESERVIERT** markierten Block (`026–029`, `068–069`, `094–099`, `207–219`,
+`242–269`, `289–299`, `329`, ab `351`). Das gilt insbesondere für **parallele Agenten**:
+Bereiche müssen **vor dem Dispatch** festgelegt werden, sonst entstehen erneut
+Kollisionen (siehe §14, P-3/P-4).
+
+> **Keine Kollisionen mehr.** Die zuvor doppelt vergebenen Blöcke `150–153` und
+> `170–190` sind aufgelöst; jeder Block gehört jetzt **genau einem** WP.
 
 **Regel für Folge-Arbeit:** Neue Findings erhalten IDs **ausschließlich** aus einem
 oben als **RESERVIERT** markierten Block. `026–029`, `068–069`, `094–099`,
@@ -183,9 +197,9 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-122 | **Critical** | **Critical** | WP-1c | NEU | **NEU** (CR-37) | `scripts/backup.sh:84-87` | `backup.sh` ist permanent nicht ausführbar (`exit 1`) | offen |
 | AUD-2026-09-123 | **Critical** | **Critical** | WP-1c | NEU | **NEU** (CR-37) | `scripts/restore.sh:183,186,198-213` | Backup-Datei wird nie in den Container kopiert; `psql -f` liest Datei statt stdin | offen |
 | AUD-2026-09-115 | **Critical** | **Critical** | WP-2 | NEU | — (CR-24 verwandt) | `integrations/hermes-agent-plugin/__init__.py:79` (via `:110,:120,:127`)` | `_handle_slash` wirft `TypeError` — dokumentiert „never raises"; `start`/`status`/`answer` brechen live | offen |
-| AUD-2026-09-185 | Critical | **Critical** | WP-5 | NEU | — | `matrix:331`, `backend/Dockerfile:154` | Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image | offen |
-| AUD-2026-09-186 | Critical | **Critical** | WP-5 | NEU | — | `backend/llm_adapter/providers.py:1080` | Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert | offen |
-| AUD-2026-09-220 | **CRITICAL** âš ï¸* | **Critical** | WP-6a | NEU | — | `docs/audit/2026-09/AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246` | Live `reqlo_`-API-Key im Klartext committet â€” **Key widerrufen 2026-09-30, Arbeitsbaum redigiert, Historie offen** | TEILWEISE BEHOBEN |
+| AUD-2026-09-345 | Critical | **Critical** | WP-5 | NEU | — | `matrix:331`, `backend/Dockerfile:154` | Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image | offen |
+| AUD-2026-09-346 | Critical | **Critical** | WP-5 | NEU | — | `backend/llm_adapter/providers.py:1080` | Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert | offen |
+| AUD-2026-09-220 | **CRITICAL** âš ï¸* | **Critical** | WP-6a | NEU | — | `docs/audit/2026-09/AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246` | Live `reqlo_`-API-Key im Klartext committet â€” **Key widerrufen 2026-09-30, Arbeitsbaum redigiert, Historie offen** | TEILWEISE BEHOBEN |
 | AUD-2026-09-221 | **CRITICAL** | **Critical** | WP-6a | NEU | — | `backend/mcp_server/views.py:272` + `backend/reqogniloom/settings.py:879-884` | Unauthentifizierter Rate-Limit-Check vor AuthN + Cache ohne `SOCKET_TIMEOUT` = DoS-VerstÃ¤rker | offen |
 | AUD-2026-09-032 | **High** | **High** | WP-1a/1b/1d | NEU | **CR-22** | `backend/mcp_server/views.py:291-304` vs. `:311-325` | Zwei inkompatible Fehler-Hüllen (`code` int vs. `error_code` str) auf demselben Endpunkt | offen |
 | AUD-2026-09-033 | **High** | **High** | WP-1a/1b/1d | NEU | — | `backend/mcp_server/protocol_handler.py:536` | Nicht-dict `params` ⇒ HTTP 500 statt `-32600`/`-32602` (AttributeError außerhalb jedes try) | offen |
@@ -225,9 +239,6 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-003 | **P1** | **High** | WP-3 | NEU | **BESTAETIGT CR-40/FEA-001** (verwandt #449/#592/#608/#720, alle geschlossen) | `AppShell global` | Kein Skip-Link; 25 Sidebar-Einträge ⇒ 50+ Tabs pro Hauptbereichswechsel | offen |
 | AUD-2026-09-300 | P1 | **High** | WP-3b | NEU | #619 | `components/BaselinesView/BaselinesPanels.tsx:57` | 116 Keys fehlen in BEIDEN Locales (41 Dateien) | offen |
 | AUD-2026-09-301 | P1 | **High** | WP-3b | NEU | #619 | `frontend/src/test/i18n-parity.test.ts:186` | Ratchet-Obergrenze 116 macht die Lücke unsichtbar | offen |
-| AUD-2026-09-150 | High | **High** | WP-4 | NEU | — | `traceability/audit/hierarchy.py:172-186`, `baseline/services.py:430`, `baseline/delta_index_builder.py:288`, `frontend/src/utils/traceEndpoints.ts:72-75` | `refines` (Built-in, Hierarchiekante) fehlt in **allen 3** Hierarchie-Definitionen | offen |
-| AUD-2026-09-151 | High | **High** | WP-4 | NEU | — | `application/reqif_import_service.py:886-897` | ReqIF-Import umgeht Workspace-Katalog komplett | offen |
-| AUD-2026-09-152 | High | **High** | WP-4 | NEU | — | `icd/traceability_connector.py:82-87` → `traceability/trace_link_manager.py:334` | ICD-Connector ohne Paar-Validierung | offen |
 | AUD-2026-09-160 | High | **High** | WP-4 | NEU | — | `presets/registry.py:13` vs. 6 Module` | SSOT-Behauptung falsch; 7 datengetrieben / 5+ hartkodiert | offen |
 | AUD-2026-09-161 | High | **High** | WP-4 | NEU | — | `attribute_definitions/stage_matrix.py:40-47` | `stage_mandatory` geseedet, **null** Produktionskonsumenten | offen |
 | AUD-2026-09-162 | High | **High** | WP-4 | NEU | — | `presets/gate.py:536-549` | Downgrade-Blocker ist **fail-open** (`except Exception: pass`) | offen |
@@ -236,25 +247,28 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-169 | High | **High** | WP-4 | NEU | **BESTAETIGT (CR-07) + NEU** | `application/interview_service.py:337-344, 354-369` | GET mutiert Zustand; `except Exception`; Status nie persistiert; `version` ohne State-Änderung | offen |
 | AUD-2026-09-180 | High | **High** | WP-4 | NEU | — | `26 von 44 Tabellen` | `workspace_id` **ohne FK** — inkl. `pl_artifact`, `pl_requirement` | offen |
 | AUD-2026-09-181 | High | **High** | WP-4 | NEU | #1093 (geschlossen) | `persistence/migrations/0093_…py:76-78` + 99 Live-Zeilen` | Datenmigration nicht nachgelaufen; Tag-Rückstände in 30 lebenden Links | offen |
-| AUD-2026-09-170 | High | **High** | WP-5 | NEU | CR-09, CR-47 | `docs/se/traceability-matrix.md` | 324 Quell-REQ-IDs fehlen in der SOLL-Matrix (24× L2, 300× L3) | offen |
-| AUD-2026-09-171 | High | **High** | WP-5 | NEU | CR-09 | `traceability-matrix.md:649-655` | Matrix publiziert 0 von 354 REQ-L3-Zeilen; behauptete 369 vs. gemessene 354 | offen |
-| AUD-2026-09-173 | High | **High** | WP-5 | NEU | — | `docs/se/**` | `open_adrs` existiert repo-weit nicht (0/835 REQs) | offen |
-| AUD-2026-09-174 | High | **High** | WP-5 | NEU | — | `L1_Gesamtsystem_Requirements.md:37…2522` | 14 von 15 `arch_impact:true` ohne ADR; kein akzeptiertes ADR deckt L1/L2 | offen |
-| AUD-2026-09-179 | High | **High** | WP-5 | NEU | — | ``L2_{ReqIF,Comment,VectorSearch}…_Requirements.md`` | `arch_impact` bei L2-Ableitung von `true` auf `false` umgeschrieben, ohne ADR | offen |
-| AUD-2026-09-180 | High | **High** | WP-5 | NEU | — | `traceability-matrix.md` §2/§3` | 17 `Implemented`-REQ-L1 mit nicht-implementiertem Kind (3 vollständig) | offen |
-| AUD-2026-09-182 | High | **High** | WP-5 | NEU | — | `L2_McpServerSystem_Requirements.md:97-107` | MCP-Tool `semantic_search` als `Implemented/Covered` dokumentiert, existiert nicht | offen |
-| AUD-2026-09-183 | High | **High** | WP-5 | NEU | — | `REQ-L2-RQ-001/-002`, `REQ-L2-AT-018`, `REQ-L2-CM-001`, `REQ-L2-RF-015` | 7/29 Stichproben-REQs als nicht umgesetzt markiert, obwohl Code + Tests existieren | offen |
-| AUD-2026-09-184 | High | **High** | WP-5 | NEU | — | `REQ-L1-022/-033/-036` | 3 REQ-L1 `Not Implemented` mit vollständig implementierten Kindern | offen |
-| AUD-2026-09-187 | High | **High** | WP-5 | NEU | — | `frontend/src/api/llm-settings.ts:22` | Azure implementiert und beworben, aber nicht wählbar | offen |
-| AUD-2026-09-188 | High | **High** | WP-5 | NEU | — | `traceability-matrix.md:114` | i18n `Implemented/Covered`; 112 Keys fehlen in beiden Locales, Lint-Regel wirkungslos | offen |
-| AUD-2026-09-189 | High | **High** | WP-5 | NEU | — | `backend/application/import_service.py:149,226-233` | CSV-Import meldet Datenverlust als `success: true` | offen |
-| AUD-2026-09-190 | High | **High** | WP-5 | NEU | — | `REQ-L2-RO-001/-AS-029/-LA-008` | Asynchronie `Covered`, jede Celery-Task läuft 4× | offen |
+| AUD-2026-09-325 | High | **High** | WP-4 | NEU | — | `traceability/audit/hierarchy.py:172-186`, `baseline/services.py:430`, `baseline/delta_index_builder.py:288`, `frontend/src/utils/traceEndpoints.ts:72-75` | `refines` (Built-in, Hierarchiekante) fehlt in **allen 3** Hierarchie-Definitionen | offen |
+| AUD-2026-09-326 | High | **High** | WP-4 | NEU | — | `application/reqif_import_service.py:886-897` | ReqIF-Import umgeht Workspace-Katalog komplett | offen |
+| AUD-2026-09-327 | High | **High** | WP-4 | NEU | — | `icd/traceability_connector.py:82-87` → `traceability/trace_link_manager.py:334` | ICD-Connector ohne Paar-Validierung | offen |
 | AUD-2026-09-191 | High | **High** | WP-5 | NEU | — | `protocol_handler.py:345` vs. `views.py:425` | stdio-Handler existiert, stdio-Transport nicht exponiert; Doku nennt 3 Transporte | offen |
 | AUD-2026-09-192 | High | **High** | WP-5 | NEU | CR-30 | `backend`, `frontend/src`, `e2e` | Nur 42.9 % der REQ-IDs haben einen Test-Bezug (3.6 % der Tests) | offen |
 | AUD-2026-09-193 | High | **High** | WP-5 | NEU | CR-30 | `.github/workflows/ci.yml:44-55` | 511 von 10 052 Testdefinitionen laufen in keinem CI-Job (`memory`, `link_types`, `tests`) | offen |
 | AUD-2026-09-195 | High | **High** | WP-5 | NEU | CR-43 | `RELEASE_v1.8.0-beta.17.md:12` | „Regression-Suite ist vollständig grün" bei 511 nie ausgeführten Tests + 4 eigenen Errors | offen |
 | AUD-2026-09-196 | High | **High** | WP-5 | NEU | — | `RELEASE_v1.8.0-beta.17.md:17` | „W1–W4 implementiert, dokumentiert und getestet" — W4-Tests sind rot (65 FE-Fehler) | offen |
 | AUD-2026-09-201 | High | **High** | WP-5 | NEU | — | ``SN_Stakeholder_Needs.md`` | Nummerierungslücke: 031 existiert nirgends; Matrix springt 030 → 032 | offen |
+| AUD-2026-09-330 | High | **High** | WP-5 | NEU | CR-09, CR-47 | `docs/se/traceability-matrix.md` | 324 Quell-REQ-IDs fehlen in der SOLL-Matrix (24× L2, 300× L3) | offen |
+| AUD-2026-09-331 | High | **High** | WP-5 | NEU | CR-09 | `traceability-matrix.md:649-655` | Matrix publiziert 0 von 354 REQ-L3-Zeilen; behauptete 369 vs. gemessene 354 | offen |
+| AUD-2026-09-333 | High | **High** | WP-5 | NEU | — | `docs/se/**` | `open_adrs` existiert repo-weit nicht (0/835 REQs) | offen |
+| AUD-2026-09-334 | High | **High** | WP-5 | NEU | — | `L1_Gesamtsystem_Requirements.md:37…2522` | 14 von 15 `arch_impact:true` ohne ADR; kein akzeptiertes ADR deckt L1/L2 | offen |
+| AUD-2026-09-339 | High | **High** | WP-5 | NEU | — | ``L2_{ReqIF,Comment,VectorSearch}…_Requirements.md`` | `arch_impact` bei L2-Ableitung von `true` auf `false` umgeschrieben, ohne ADR | offen |
+| AUD-2026-09-340 | High | **High** | WP-5 | NEU | — | `traceability-matrix.md` §2/§3` | 17 `Implemented`-REQ-L1 mit nicht-implementiertem Kind (3 vollständig) | offen |
+| AUD-2026-09-342 | High | **High** | WP-5 | NEU | — | `L2_McpServerSystem_Requirements.md:97-107` | MCP-Tool `semantic_search` als `Implemented/Covered` dokumentiert, existiert nicht | offen |
+| AUD-2026-09-343 | High | **High** | WP-5 | NEU | — | `REQ-L2-RQ-001/-002`, `REQ-L2-AT-018`, `REQ-L2-CM-001`, `REQ-L2-RF-015` | 7/29 Stichproben-REQs als nicht umgesetzt markiert, obwohl Code + Tests existieren | offen |
+| AUD-2026-09-344 | High | **High** | WP-5 | NEU | — | `REQ-L1-022/-033/-036` | 3 REQ-L1 `Not Implemented` mit vollständig implementierten Kindern | offen |
+| AUD-2026-09-347 | High | **High** | WP-5 | NEU | — | `frontend/src/api/llm-settings.ts:22` | Azure implementiert und beworben, aber nicht wählbar | offen |
+| AUD-2026-09-348 | High | **High** | WP-5 | NEU | — | `traceability-matrix.md:114` | i18n `Implemented/Covered`; 112 Keys fehlen in beiden Locales, Lint-Regel wirkungslos | offen |
+| AUD-2026-09-349 | High | **High** | WP-5 | NEU | — | `backend/application/import_service.py:149,226-233` | CSV-Import meldet Datenverlust als `success: true` | offen |
+| AUD-2026-09-350 | High | **High** | WP-5 | NEU | — | `REQ-L2-RO-001/-AS-029/-LA-008` | Asynchronie `Covered`, jede Celery-Task läuft 4× | offen |
 | AUD-2026-09-222 | **HIGH** | **High** | WP-6a | NEU | Reopen-Rest zu **#103** (geschlossen) | `backend/auth_tenancy/workspace_scope.py:114`, `backend/auth_tenancy/rest.py:259-271`, `backend/application/requirement_service.py:755` | Workspace-Fence greift auf 269/311 mutierenden Routen nicht | offen |
 | AUD-2026-09-223 | **HIGH** | **High** | WP-6a | NEU | — | `backend/reqogniloom/urls.py` (`/admin/`), `settings.py` (kein `ADMIN_ATTEMPTS_BEFORE_LOCKOUT`)` | Django-Admin exponiert, 500-er, ohne Brute-Force-Schutz | offen |
 | AUD-2026-09-224 | **HIGH** | **High** | WP-6a | NEU | — | `.github/workflows/*.yml`, `.woodpecker.yml`, `.agents/hooks/` | Kein Secret-Scanning-Gate (weder pre-commit noch CI) | offen |
@@ -325,7 +339,6 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-310 | P2 | **Medium** | WP-3b | NEU | CR-31 | `e2e/tests/artifact-diff.spec.ts:95` | ≥6 verifiziert stale E2E-Selektoren (WP-3 widerlegt) | offen |
 | AUD-2026-09-311 | P2 | **Medium** | WP-3b | NEU | CR-31 | `components/shared/ArtifactForm/ArtifactForm.tsx:1168` | 52 interaktive Elemente ohne TID (93,5 % Abdeckung) | offen |
 | AUD-2026-09-324 | P2 (Querschnitt zu AUD-2026-09-058/187) | **Medium** | WP-3b | NEU | — | `api/llm-settings.ts:22` | `azure` fehlt bereits im TS-Union-Typ, nicht nur im ChoiceField | offen |
-| AUD-2026-09-153 | Medium | **Medium** | WP-4 | NEU | #1104 (verwandt) | `traceability/services.py:227`, `traceability/exceptions.py:19-24`, `trace_link_manager.py:356` | Link-Typ-Zahlen 6/8/10/11 im **Code** | offen |
 | AUD-2026-09-154 | Medium | **Medium** | WP-4 | NEU | — | `traceability/types.py:76`, `trace_link_manager.py:62-73`, `traceability/services.py:65,472` | `VALID_LINK_TYPES` als Nicht-Autorität deklariert, als API re-exportiert, im ReqIF-Import **benutzt** | offen |
 | AUD-2026-09-155 | Medium | **Medium** | WP-4 | NEU | CR-09 (anderer Store) | ``lt_workspace_definition` (live)` | Orphan-Workspace mit 8 statt 11 Keys | offen |
 | AUD-2026-09-157 | Medium | **Medium** | WP-4 | NEU | CR-15 (anderer Punkt) | `traceability/trace_link_manager.py:372-392` | Zyklusprüfung **pro** Link-Typ; Self-Link nirgends abgelehnt | offen |
@@ -342,12 +355,7 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-184 | Medium | **Medium** | WP-4 | NEU | **BESTAETIGT (CR-17)** | `application/models.py:44,147,170,204`, `baseline/models.py:116` | 5 Modelle ohne `tenant_id` **und** ohne RLS (Vor-Audit nannte 2) | offen |
 | AUD-2026-09-186 | Medium | **Medium** | WP-4 | NEU | — | `263 Verwendungen` | `.unscoped` gegen 0 Constraints an 5 zentralen Tabellen | offen |
 | AUD-2026-09-187 | Medium | **Medium** | WP-4 | NEU | — | `search_service.py:183-250`, `attribute_definitions/schema.py:22`, `pl_artifact` | Drei parallele, auseinanderlaufende Entity-Typ-Registries (11 / 10 / 13) | offen |
-| AUD-2026-09-172 | Medium | **Medium** | WP-5 | NEU | — | `traceability-matrix.md:721` | 15 als „nicht existent" gelistete IDs, die im Code referenziert werden | offen |
-| AUD-2026-09-175 | Medium | **Medium** | WP-5 | NEU | — | ``ADR-001,-002,-003,-DS-02`` | 4 von 10 ADRs ohne YAML-Frontmatter | offen |
-| AUD-2026-09-176 | Medium | **Medium** | WP-5 | NEU | — | `docs/se/ADR/` | 4 Dateinamen nicht konform (3× CamelCase, `ADR-DS-02` nicht 3-stellig) | offen |
-| AUD-2026-09-177 | Medium | **Medium** | WP-5 | NEU | — | `Statuswerte `PROPOSED`/`ACCEPTED` verlassen das lowercase-Enum` | Statuswerte `PROPOSED`/`ACCEPTED` verlassen das lowercase-Enum | offen |
-| AUD-2026-09-178 | Medium | **Medium** | WP-5 | NEU | — | `ADR-005…009` | Lifecycle-Sprung `proposed → accepted` ohne `review` (5×) | offen |
-| AUD-2026-09-181 | Medium | **Medium** | WP-5 | NEU | — | `traceability-matrix.md:140,191,192` | 3 `Implemented`-REQ-L1 ohne jede L2-Zerlegung | offen |
+| AUD-2026-09-328 | Medium | **Medium** | WP-4 | NEU | #1104 (verwandt) | `traceability/services.py:227`, `traceability/exceptions.py:19-24`, `trace_link_manager.py:356` | Link-Typ-Zahlen 6/8/10/11 im **Code** | offen |
 | AUD-2026-09-194 | Medium | **Medium** | WP-5 | NEU | — | ``.woodpecker.yml`` | Zweites CI-System führt überhaupt kein `pytest` aus (nur `manage.py check`) | offen |
 | AUD-2026-09-197 | Medium | **Medium** | WP-5 | NEU | — | `docs/se/reports/RELEASE_*.md`, `TESTPLAN_*.md` | 0 REQ-IDs in 11 Abnahmeberichten; keine Checkbox-Struktur | offen |
 | AUD-2026-09-198 | Medium | **Medium** | WP-5 | NEU | CR-30 | `mcp_server/tests/test_e2e_sse_transport.py:349,353` | SSE-Live-Redis-Pfad in **jedem** CI-Lauf per `skipif` übersprungen | offen |
@@ -357,6 +365,12 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-203 | Medium | **Medium** | WP-5 | NEU | — | `Matrix `:724,728` | 20 doppelt vergebene REQ-IDs; Marker „letzter gewinnt" = positionsabhängig | offen |
 | AUD-2026-09-204 | Medium | **Medium** | WP-5 | NEU | — | `settings.py:822`, DB-Row live` | Parallelbefund „Archivierung nie registriert" **nicht reproduzierbar** | offen |
 | AUD-2026-09-206 | Medium | **Medium** | WP-5 | NEU | — | ``AGENTS.md`` | APIView-/Tool-Zahlen im AGENTS.md weichen vom gemessenen Stand ab (durch WP-1 belegt) | offen |
+| AUD-2026-09-332 | Medium | **Medium** | WP-5 | NEU | — | `traceability-matrix.md:721` | 15 als „nicht existent" gelistete IDs, die im Code referenziert werden | offen |
+| AUD-2026-09-335 | Medium | **Medium** | WP-5 | NEU | — | ``ADR-001,-002,-003,-DS-02`` | 4 von 10 ADRs ohne YAML-Frontmatter | offen |
+| AUD-2026-09-336 | Medium | **Medium** | WP-5 | NEU | — | `docs/se/ADR/` | 4 Dateinamen nicht konform (3× CamelCase, `ADR-DS-02` nicht 3-stellig) | offen |
+| AUD-2026-09-337 | Medium | **Medium** | WP-5 | NEU | — | `Statuswerte `PROPOSED`/`ACCEPTED` verlassen das lowercase-Enum` | Statuswerte `PROPOSED`/`ACCEPTED` verlassen das lowercase-Enum | offen |
+| AUD-2026-09-338 | Medium | **Medium** | WP-5 | NEU | — | `ADR-005…009` | Lifecycle-Sprung `proposed → accepted` ohne `review` (5×) | offen |
+| AUD-2026-09-341 | Medium | **Medium** | WP-5 | NEU | — | `traceability-matrix.md:140,191,192` | 3 `Implemented`-REQ-L1 ohne jede L2-Zerlegung | offen |
 | AUD-2026-09-226 | MEDIUM | **Medium** | WP-6a | NEU | — | `backend/reqogniloom/settings.py:143-160`, `INSTALLED_APPS:180-235`, `MIDDLEWARE:240-273` | `django-cors-headers` fehlt komplett â€” CORS-Settings sind tote Konfiguration | offen |
 | AUD-2026-09-227 | MEDIUM | **Medium** | WP-6a | NEU | — | `Postgres `pg_class` (29/100 ohne RLS), u. a. `at_api_key`, `at_user_role`, `audit_entry`, `pl_user` | 29 Tabellen ohne RLS; Raw-SQL-Pfade sind dort unkontrolliert cross-tenant | offen |
 | AUD-2026-09-228 | MEDIUM | **Medium** | WP-6a | NEU | — | `backend/persistence/models.py:501-524` (`User`, `UserManager`)` | `pl_user` global + unskopiert + ohne RLS â†’ Cross-Tenant-User-Lexikon auf DB-Ebene | offen |
@@ -386,7 +400,7 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-089 | **Low** | **Low** | WP-1a/1b/1d | NEU | — | `rest_api/urls.py:263`, `reqogniloom/urls.py:51-52` | MCP-Server-Deskriptor auf `/mcp/` und `/api/v1/mcp/` **ohne Credential** öffentlich (Versions-Disclosure, MCP-Spec-konform) | offen |
 | AUD-2026-09-090 | **Low** | **Low** | WP-1a/1b/1d | NEU | CR-12 | `GET /api/schema/` → `components.securitySchemes.cookieAuth` | `cookieAuth` (`sessionid`) ist deklariert, wird aber von **keiner** Operation referenziert — toter Auth-Pfad im Schema | offen |
 | AUD-2026-09-091 | **Low** | **Low** | WP-1a/1b/1d | NEU | CR-12 | `GET /api/schema/` → `auth/login`, `auth/refresh`, `public/banners/login` | Öffentliche Endpunkte nutzen `security: [{BearerAuth: []}, {}]` statt des kanonischen `security: []` | offen |
-| AUD-2026-09-092 | **Low** | **Low** | WP-1a/1b/1d | NEU | CR-42 | `live: `GET /requirements/?workspace_id=A` | `uid` ist bei ~888 vorbestehenden Seed-Artefakten `null` → ReqIF-Export schreibt `ATTR-UID THE-VALUE=""`; Backfill-Lücke nach `#932/#1005` (nicht der `#1003`-Fix, der ist gemergt und wirksam) | offen |
+| AUD-2026-09-092 | **Low** | **Low** | WP-1a/1b/1d | NEU | CR-42 | `live: `GET /requirements/?workspace_id=A` | `uid` ist bei ~888 vorbestehenden Seed-Artefakten `null` → ReqIF-Export schreibt `ATTR-UID THE-VALUE=""`; Backfill-Lücke nach `#932` (Issue) / `#1005` (PR) (nicht der `#1003`-Fix, der ist gemergt und wirksam) | offen |
 | AUD-2026-09-140 | Low | **Low** | WP-1c | NEU | — | `testing/docker-compose.test.yml:54-56` | `depends_on` ohne `condition: service_healthy` | offen |
 | AUD-2026-09-144 | Low | **Low** | WP-1c | NEU | **TEILWEISE** `CR-35` | ``EXPLAIN` auf `pl_artifact`; `pg_indexes`` | `created_at` unindiziert (Sort nötig), Composite-Index ungenutzt, 4 Duplikat-Indizes | offen |
 | AUD-2026-09-145 | Low | **Low** | WP-1c | NEU | — | `Release-Compose `:887` `--concurrency=4` vs. live `concurrency: 2` | Worker-Konfiguration Release-Compose ≠ laufender Stack | offen |
@@ -459,7 +473,6 @@ Spalte **Sev (orig)** = Originalwert des jeweiligen WP-Agents,
 | AUD-2026-09-188 | Info | **Info** | WP-4 | NEU | — | `99 `TestCase:*`-Tags = 3,2 % des Artefaktbestands` | 99 `TestCase:*`-Tags = 3,2 % des Artefaktbestands | offen |
 | AUD-2026-09-190 | — | **Info** | WP-4 | BLOCKED | CR-16 (Nachbar) | `baseline/diff_engine.py:109-177` | Diff-Engine-Korrektheit ohne Mutation nicht messbar — **kein PASS** | offen – BLOCKED |
 
----
 
 ## 4. Nicht-vereinheitlichte Felder — was bewusst **nicht** angeglichen wurde
 
@@ -482,6 +495,7 @@ ausgefüllt. *Reproduktionsschritte, Auswirkung und Empfehlung* stehen voll
 ausformuliert im jeweiligen WP-Report — sie werden hier **nicht neu erfunden**,
 sondern referenziert.
 
+---
 
 #### AUD-2026-09-030 — Redis-Ausfall hängt alle 13 MCP-Endpoints unbegrenzt (kein Timeout)
 
@@ -623,7 +637,7 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_NATIVE_PLUGINS.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-185 — Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image
+#### AUD-2026-09-345 — Backup/Restore als `Implemented/Covered`, Restore-Skript nie im Image
 
 | Feld | Wert |
 |---|---|
@@ -637,7 +651,7 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-186 — Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert
+#### AUD-2026-09-346 — Default-Modell `claude-3-opus-20240229` abgeschaltet; jeder Anthropic-Call scheitert
 
 | Feld | Wert |
 |---|---|
@@ -1211,48 +1225,6 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_FRONTEND_STATIC.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-150 — `refines` (Built-in, Hierarchiekante) fehlt in **allen 3** Hierarchie-Definitionen
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-4 · Report `AUDIT_DATA_MODEL.md` · Agent data-engineer |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `traceability/audit/hierarchy.py:172-186`, `baseline/services.py:430`, `baseline/delta_index_builder.py:288`, `frontend/src/utils/traceEndpoints.ts:72-75` |
-| **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_DATA_MODEL.md`:50 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_DATA_MODEL.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-151 — ReqIF-Import umgeht Workspace-Katalog komplett
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-4 · Report `AUDIT_DATA_MODEL.md` · Agent data-engineer |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `application/reqif_import_service.py:886-897` |
-| **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_DATA_MODEL.md`:51 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_DATA_MODEL.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-152 — ICD-Connector ohne Paar-Validierung
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-4 · Report `AUDIT_DATA_MODEL.md` · Agent data-engineer |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `icd/traceability_connector.py:82-87` → `traceability/trace_link_manager.py:334` |
-| **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_DATA_MODEL.md`:52 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_DATA_MODEL.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
 #### AUD-2026-09-160 — SSOT-Behauptung falsch; 7 datengetrieben / 5+ hartkodiert
 
 | Feld | Wert |
@@ -1365,186 +1337,46 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_DATA_MODEL.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-170 — 324 Quell-REQ-IDs fehlen in der SOLL-Matrix (24× L2, 300× L3)
+#### AUD-2026-09-325 — `refines` (Built-in, Hierarchiekante) fehlt in **allen 3** Hierarchie-Definitionen
 
 | Feld | Wert |
 |---|---|
 | **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
 | **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | CR-09, CR-47 |
-| **Ort (Reichweite)** | `docs/se/traceability-matrix.md` |
+| **Workpackage** | WP-4 · Report `AUDIT_DATA_MODEL.md` · Agent data-engineer |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `traceability/audit/hierarchy.py:172-186`, `baseline/services.py:430`, `baseline/delta_index_builder.py:288`, `frontend/src/utils/traceEndpoints.ts:72-75` |
 | **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:412 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Evidenz** | `AUDIT_DATA_MODEL.md`:50 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_DATA_MODEL.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-171 — Matrix publiziert 0 von 354 REQ-L3-Zeilen; behauptete 369 vs. gemessene 354
+#### AUD-2026-09-326 — ReqIF-Import umgeht Workspace-Katalog komplett
 
 | Feld | Wert |
 |---|---|
 | **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
 | **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | CR-09 |
-| **Ort (Reichweite)** | `traceability-matrix.md:649-655` |
-| **Betroffene REQ-ID** | `REQ-L3-Zeilen` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:413 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-173 — `open_adrs` existiert repo-weit nicht (0/835 REQs)
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **Workpackage** | WP-4 · Report `AUDIT_DATA_MODEL.md` · Agent data-engineer |
 | **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `docs/se/**` |
+| **Ort (Reichweite)** | `application/reqif_import_service.py:886-897` |
 | **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:415 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Evidenz** | `AUDIT_DATA_MODEL.md`:51 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_DATA_MODEL.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-#### AUD-2026-09-174 — 14 von 15 `arch_impact:true` ohne ADR; kein akzeptiertes ADR deckt L1/L2
+#### AUD-2026-09-327 — ICD-Connector ohne Paar-Validierung
 
 | Feld | Wert |
 |---|---|
 | **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
 | **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **Workpackage** | WP-4 · Report `AUDIT_DATA_MODEL.md` · Agent data-engineer |
 | **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `L1_Gesamtsystem_Requirements.md:37…2522` |
+| **Ort (Reichweite)** | `icd/traceability_connector.py:82-87` → `traceability/trace_link_manager.py:334` |
 | **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:416 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-179 — `arch_impact` bei L2-Ableitung von `true` auf `false` umgeschrieben, ohne ADR
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | ``L2_{ReqIF,Comment,VectorSearch}…_Requirements.md`` |
-| **Betroffene REQ-ID** | `REQ-L1-034` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:421 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-180 — 17 `Implemented`-REQ-L1 mit nicht-implementiertem Kind (3 vollständig)
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `traceability-matrix.md` §2/§3` |
-| **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:422 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-182 — MCP-Tool `semantic_search` als `Implemented/Covered` dokumentiert, existiert nicht
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `L2_McpServerSystem_Requirements.md:97-107` |
-| **Betroffene REQ-ID** | `REQ-L2-MC-014` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:424 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-183 — 7/29 Stichproben-REQs als nicht umgesetzt markiert, obwohl Code + Tests existieren
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `REQ-L2-RQ-001/-002`, `REQ-L2-AT-018`, `REQ-L2-CM-001`, `REQ-L2-RF-015` |
-| **Betroffene REQ-ID** | `REQ-L2-AT-018`, `REQ-L2-CM-001`, `REQ-L2-RF-015`, `REQ-L2-RQ-001` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:425 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-184 — 3 REQ-L1 `Not Implemented` mit vollständig implementierten Kindern
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `REQ-L1-022/-033/-036` |
-| **Betroffene REQ-ID** | `REQ-L1-022` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:426 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-187 — Azure implementiert und beworben, aber nicht wählbar
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `frontend/src/api/llm-settings.ts:22` |
-| **Betroffene REQ-ID** | `REQ-L2-LA-007` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:429 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-188 — i18n `Implemented/Covered`; 112 Keys fehlen in beiden Locales, Lint-Regel wirkungslos
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `traceability-matrix.md:114` |
-| **Betroffene REQ-ID** | `REQ-L1-016`, `REQ-L2-RF-001` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:430 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-189 — CSV-Import meldet Datenverlust als `success: true`
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `backend/application/import_service.py:149,226-233` |
-| **Betroffene REQ-ID** | `REQ-L1-021`, `REQ-L2-AS-014` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:431 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
-| **Status** | offen |
-
-#### AUD-2026-09-190 — Asynchronie `Covered`, jede Celery-Task läuft 4×
-
-| Feld | Wert |
-|---|---|
-| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
-| **Klassifikation** | NEU |
-| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
-| **CR-Track / Issue** | — |
-| **Ort (Reichweite)** | `REQ-L2-RO-001/-AS-029/-LA-008` |
-| **Betroffene REQ-ID** | `REQ-L2-RO-001` |
-| **Evidenz** | `AUDIT_TRACEABILITY.md`:432 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
-| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Evidenz** | `AUDIT_DATA_MODEL.md`:52 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_DATA_MODEL.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
 #### AUD-2026-09-191 — stdio-Handler existiert, stdio-Transport nicht exponiert; Doku nennt 3 Transporte
@@ -1631,6 +1463,188 @@ sondern referenziert.
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
+#### AUD-2026-09-330 — 324 Quell-REQ-IDs fehlen in der SOLL-Matrix (24× L2, 300× L3)
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | CR-09, CR-47 |
+| **Ort (Reichweite)** | `docs/se/traceability-matrix.md` |
+| **Betroffene REQ-ID** | — |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:412 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-331 — Matrix publiziert 0 von 354 REQ-L3-Zeilen; behauptete 369 vs. gemessene 354
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | CR-09 |
+| **Ort (Reichweite)** | `traceability-matrix.md:649-655` |
+| **Betroffene REQ-ID** | `REQ-L3-Zeilen` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:413 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-333 — `open_adrs` existiert repo-weit nicht (0/835 REQs)
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `docs/se/**` |
+| **Betroffene REQ-ID** | — |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:415 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-334 — 14 von 15 `arch_impact:true` ohne ADR; kein akzeptiertes ADR deckt L1/L2
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `L1_Gesamtsystem_Requirements.md:37…2522` |
+| **Betroffene REQ-ID** | — |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:416 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-339 — `arch_impact` bei L2-Ableitung von `true` auf `false` umgeschrieben, ohne ADR
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | ``L2_{ReqIF,Comment,VectorSearch}…_Requirements.md`` |
+| **Betroffene REQ-ID** | `REQ-L1-034` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:421 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-340 — 17 `Implemented`-REQ-L1 mit nicht-implementiertem Kind (3 vollständig)
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `traceability-matrix.md` §2/§3` |
+| **Betroffene REQ-ID** | — |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:422 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-342 — MCP-Tool `semantic_search` als `Implemented/Covered` dokumentiert, existiert nicht
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `L2_McpServerSystem_Requirements.md:97-107` |
+| **Betroffene REQ-ID** | `REQ-L2-MC-014` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:424 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-343 — 7/29 Stichproben-REQs als nicht umgesetzt markiert, obwohl Code + Tests existieren
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `REQ-L2-RQ-001/-002`, `REQ-L2-AT-018`, `REQ-L2-CM-001`, `REQ-L2-RF-015` |
+| **Betroffene REQ-ID** | `REQ-L2-AT-018`, `REQ-L2-CM-001`, `REQ-L2-RF-015`, `REQ-L2-RQ-001` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:425 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-344 — 3 REQ-L1 `Not Implemented` mit vollständig implementierten Kindern
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `REQ-L1-022/-033/-036` |
+| **Betroffene REQ-ID** | `REQ-L1-022` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:426 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-347 — Azure implementiert und beworben, aber nicht wählbar
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `frontend/src/api/llm-settings.ts:22` |
+| **Betroffene REQ-ID** | `REQ-L2-LA-007` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:429 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-348 — i18n `Implemented/Covered`; 112 Keys fehlen in beiden Locales, Lint-Regel wirkungslos
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `traceability-matrix.md:114` |
+| **Betroffene REQ-ID** | `REQ-L1-016`, `REQ-L2-RF-001` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:430 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-349 — CSV-Import meldet Datenverlust als `success: true`
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `backend/application/import_service.py:149,226-233` |
+| **Betroffene REQ-ID** | `REQ-L1-021`, `REQ-L2-AS-014` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:431 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
+#### AUD-2026-09-350 — Asynchronie `Covered`, jede Celery-Task läuft 4×
+
+| Feld | Wert |
+|---|---|
+| **Schweregrad** | High — Originalwert `High` (bereits kanonisch) |
+| **Klassifikation** | NEU |
+| **Workpackage** | WP-5 · Report `AUDIT_TRACEABILITY.md` · Agent validator |
+| **CR-Track / Issue** | — |
+| **Ort (Reichweite)** | `REQ-L2-RO-001/-AS-029/-LA-008` |
+| **Betroffene REQ-ID** | `REQ-L2-RO-001` |
+| **Evidenz** | `AUDIT_TRACEABILITY.md`:432 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Volltext / Reproduktion / Empfehlung** | `AUDIT_TRACEABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
+| **Status** | offen |
+
 #### AUD-2026-09-222 — Workspace-Fence greift auf 269/311 mutierenden Routen nicht
 
 | Feld | Wert |
@@ -1711,7 +1725,7 @@ sondern referenziert.
 | **CR-Track / Issue** | **#125 (BESTÄTIGT)** · CR-10 |
 | **Ort (Reichweite)** | `audit/archive.py:448`, `reqogniloom/celery.py:45`, `audit/apps.py:36`, `settings.py:822` |
 | **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_RELIABILITY.md`:48 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Evidenz** | `AUDIT_RELIABILITY.md`:49 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_RELIABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
@@ -1725,7 +1739,7 @@ sondern referenziert.
 | **CR-Track / Issue** | CR-06 (neu) |
 | **Ort (Reichweite)** | `application/goal_service.py:134-149`, `persistence/models.py:3342-3381` |
 | **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_RELIABILITY.md`:49 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Evidenz** | `AUDIT_RELIABILITY.md`:50 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_RELIABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
@@ -1739,12 +1753,10 @@ sondern referenziert.
 | **CR-Track / Issue** | CR-08 (Rest) |
 | **Ort (Reichweite)** | `application/adr_service.py:562`, `risk_service.py:686`, `issue_service.py:726`, `change_request_service.py:638`, `main_goal_service.py:556`, `goal_service.py:659` |
 | **Betroffene REQ-ID** | — |
-| **Evidenz** | `AUDIT_RELIABILITY.md`:50 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
+| **Evidenz** | `AUDIT_RELIABILITY.md`:51 (Finding-Tabelle) · `AUDIT_EVIDENCE/`-Dateien des WP |
 | **Volltext / Reproduktion / Empfehlung** | `AUDIT_RELIABILITY.md` — dort voll ausformuliert; dieses Register normalisiert nur |
 | **Status** | offen |
 
-
----
 
 ## 6. Bestätigte Kontrollen (Negativbefunde — **nicht** in der Finding-Zählung)
 
@@ -1842,40 +1854,79 @@ Kein „beide könnten recht haben" ohne Auflösung.
 | `#1019` | Embedding-Dimension | **Duplikat** | `AUD-2026-09-143` als `DUPLIKAT #1019` (geschlossen 2026-09-21) geführt |
 | `CR-22` | Plugin-Verträge | **präzisiert** | `AUD-2026-09-152` (WP-2): beide Verträge **sind** live verifizierbar |
 | `CR-24` | nicht live verifizierte Verträge | **WIDERLEGT** | s. §6 |
-| `CR-09` | Matrix-Drift | **bestätigt + verschärft** | `AUD-2026-09-170` (324 fehlende REQ-IDs), `AUD-2026-09-171` (0 von 354 REQ-L3 publiziert) |
+| `CR-09` | Matrix-Drift | **bestätigt + verschärft** | `AUD-2026-09-330` (früher `170`, 324 fehlende REQ-IDs), `AUD-2026-09-331` (früher `171`, 0 von 354 REQ-L3 publiziert) |
 
-### 9.2 **Offene Entscheidungen — ID-Kollisionen außerhalb des Auftragsumfangs**
+### 9.2 ID-Kollisionen — **aufgelöst** (Regel: früherer Commit behält)
 
-Der Auftrag umfasste **eine** Kollision (240/241, WP-3b × WP-6a). Diese wurde
-**repariert** (§10). Das Gate hat darüber hinaus **zwei weitere Kollisionsklassen**
-gefunden, für die **keine Entscheidungsregel erteilt war**. Sie wurden
-**nicht eigenmächtig** umnummeriert, weil das Umnummerieren **committeter**
-Reports (WP-2 `75beb750`, WP-4 `441f48f3`) eine weitergehende Entscheidung ist.
+**Angewandte Regel (vom Orchestrator verbindlich entschieden):**
+> *Wer die ID **zuerst committet** hat, behält sie. Wer später committet hat,
+> wird umnummeriert.*
 
-| Klasse | IDs | Betroffen | Umfang | Empfehlung |
+#### (a) Commit-Reihenfolge — Beleg
+
+Ermittelt mit `git log --diff-filter=A --format='%h|%ad|%s' --date=iso -- <report>`
+und gegengeprüft mit `git cat-file -e <sha>:<pfad>`:
+
+| WP | Report | Commit | Zeitstempel | Verifikation |
 |---|---|---|---|---|
-| **K1** ✅ *repariert* | `240`, `241` | WP-3b × WP-6a | 2 IDs | WP-6a behält 220–241 (2 Commits), WP-3b → **300–324**. **Ausgeführt.** |
-| **K2** ⚠ *offen* | `150`–`153` | **WP-2** (`AUDIT_NATIVE_PLUGINS.md:106-109`, Info/BESTAETIGT/WIDERLEGT/NEU) × **WP-4** (`AUDIT_DATA_MODEL.md:50-53`, High/High/High/Medium, alle NEU) | 4 IDs | **Frühester Commit behält** (die im Auftrag angewandte Regel): WP-2 (`75beb750`) behält 150–153 ⇒ **WP-4** müsste 150–190 umnummerieren. Umfang: 41 IDs. |
-| **K3** ⚠ *offen* | `170`–`190` | **WP-4** (`AUDIT_DATA_MODEL.md:70-90`) × **WP-5** (`AUDIT_TRACEABILITY.md:412-432`) | 21 IDs | WP-4 (`441f48f3`) ist committet, WP-5 **nicht** ⇒ nach derselben Regel müsste **WP-5** umnummerieren (z. B. 170–206 → 330–366). Umfang: 37 IDs, 0 Fremdverweise. |
+| WP-2 | `AUDIT_NATIVE_PLUGINS.md` | `75beb750` | 2026-09-30 **06:53:41** | Datei existiert in `75beb750`, **nicht** in `ed9a445a` |
+| WP-4 | `AUDIT_DATA_MODEL.md` | `441f48f3` | 2026-09-30 **20:13:40** | Datei existiert **erstmals** in `441f48f3` (`git cat-file -e 75beb750:…` → *not in*) |
+| WP-5 | `AUDIT_TRACEABILITY.md` | `33237041` | 2026-09-30 **22:01:24** | Datei existiert **erstmals** in `33237041` (dem Gate-Commit dieses Audits) |
 
-**Folge, wenn K2 + K3 zusammen mit K1 nach derselben Regel aufgelöst werden:**
+**Reihenfolge: WP-2 (06:53) → WP-4 (20:13) → WP-5 (22:01).**
 
-| WP | von | nach | Anzahl |
-|---|---|---|---|
-| WP-2 | 150–153 | 150–153 (unverändert) | 4 |
-| WP-4 | 150–190 | 350–390 | 41 |
-| WP-5 | 170–206 | 330–366 | 37 |
-| WP-6a | 220–241 | unverändert | 22 |
-| WP-3b | 240–264 | 300–324 (**bereits ausgeführt**) | 25 |
+#### (b) Anwendung der Regel
 
-Damit wäre der gesamte ID-Raum kollisionsfrei. **Diese Entscheidung ist nicht
-getroffen** — sie liegt beim User (offener Punkt O-1).
+| Klasse | IDs | Frühester | Später | Ergebnis |
+|---|---|---|---|---|
+| **K2** | `150–153` | **WP-2** `75beb750` 06:53 | WP-4 `441f48f3` 20:13 | **WP-2 behält**, **WP-4 umnummeriert** |
+| **K3** | `170–190` | **WP-4** `441f48f3` 20:13 | WP-5 `33237041` 22:01 | **WP-4 behält**, **WP-5 umnummeriert** |
+
+#### (c) Umrechnungstabelle (jede ID einzeln)
+
+**WP-4: 4 IDs verschoben** — `AUDIT_DATA_MODEL.md` + `wp4-link-type-4level-matrix.md`
+
+| alt | neu | alt | neu | alt | neu | alt | neu |
+|---|---|---|---|---|---|---|---|
+| `150` | **`325`** | `151` | **`326`** | `152` | **`327`** | `153` | **`328`** |
+
+**WP-5: 21 IDs verschoben** — `AUDIT_TRACEABILITY.md` (+ 1 semantischer Querverweis)
+
+| alt | neu | alt | neu | alt | neu |
+|---|---|---|---|---|---|
+| `170` | **`330`** | `171` | **`331`** | `172` | **`332`** |
+| `173` | **`333`** | `174` | **`334`** | `175` | **`335`** |
+| `176` | **`336`** | `177` | **`337`** | `178` | **`338`** |
+| `179` | **`339`** | `180` | **`340`** | `181` | **`341`** |
+| `182` | **`342`** | `183` | **`343`** | `184` | **`344`** |
+| `185` | **`345`** | `186` | **`346`** | `187` | **`347`** |
+| `188` | **`348`** | `189` | **`349`** | `190` | **`350`** |
+
+**Zielblöcke:** `325–328` (WP-4) und `330–350` (WP-5); `329` bleibt als Trenner frei.
+
+#### (d) Betroffene Dateien (vollständig)
+
+| Datei | Ersetzungen | Art |
+|---|---:|---|
+| `AUDIT_DATA_MODEL.md` | 12 | Finding-Tabelle (4), Prioritätsliste (2), Fließtext/Kurzform (6) |
+| `AUDIT_EVIDENCE/wp4-link-type-4level-matrix.md` | 5 | WP-4-Evidenz |
+| `AUDIT_TRACEABILITY.md` | 21 | Finding-Tabelle WP-5 |
+| `AUDIT_EVIDENCE/wp3b-07-api-client.md` | 1 | **semantischer Querverweis** `187` = WP-5s Azure-Befund → `347` |
+| `AUDIT_FINDINGS.md` | 87 | Master-Tabelle, Detailabschnitte, Legende, Gate-Vermerk |
+
+**Bewusst NICHT geändert** (Eindeutigkeitsprüfung je Fundstelle):
+
+| Datei / Stelle | Grund |
+|---|---|
+| `AUDIT_NATIVE_PLUGINS.md:106-109` | **WP-2 behält** `150–153` — unverändert |
+| `wp4-baseline-and-artifact-model.md`, `wp4-bootstrap-fieldkind-proof.md`, `wp4-constraints-and-migrations.md`, `wp4-state-bypass-inventory.md` | Verweise auf `170–190` sind **WP-4s eigene** Findings ⇒ bleiben |
+| `AUDIT_DATA_MODEL.md:418` (`AUD-070/071`) | Querverweis auf **WP-1d** — fremde IDs, unangetastet |
 
 ### 9.3 Dangling-Verweise (markiert, nicht repariert)
 
 | Verweis | Datei:Zeile | Status |
 |---|---|---|
-| `AUD-2026-09-026…043` | `AUDIT_TRACEABILITY.md:433`, `wp5-04-widersprueche.md:88` | **Präzisierung nötig.** `AUD-2026-09-026` existiert nicht (`026–029` ist reserviert). Gemeint ist der MCP-Block **`030`–`043`**. Als Bereichsverweis lesbar, aber formally dangling. **Nicht geändert**, weil die Änderung eine inhaltliche Aussage des WP-5 berührt. |
+| ~~`AUD-2026-09-026…043`~~ | `AUDIT_TRACEABILITY.md:433`, `wp5-04-widersprueche.md:88` | **BEHOBEN (O-2):** korrigiert auf **`AUD-2026-09-030…043`**. `026` existierte nicht (`026–029` reserviert); `030` ist der erste vergebene MCP-ID. |
 | `AUD-2026-09-221` (2. Vorkommen) | `AUDIT_SECURITY.md:98` | **Kein Defekt** — Verweis im Remediation-Abschnitt auf das eigene Finding aus `:45`. |
 | `AUD-2026-09-120`, `-092` (2. Vorkommen) | `AUDIT_DATA_MODEL.md:417,419` | **Kein Defekt** — Verweise in der Reconciliation-Tabelle auf WP-1c-/WP-1d-Befunde. |
 
@@ -1902,7 +1953,6 @@ getroffen** — sie liegt beim User (offener Punkt O-1).
 
 ### 11.1 Findings je Schweregrad × Klassifikation
 
-
 | Schweregrad | NEU | BESTAETIGT | WIDERLEGT | BLOCKED | DUPLIKAT | Summe |
 |---|---:|---:|---:|---:|---:|---:|
 | **Critical** | 14 | 0 | 0 | 0 | 0 | **14** |
@@ -1911,20 +1961,11 @@ getroffen** — sie liegt beim User (offener Punkt O-1).
 | **Low** | 56 | 1 | 2 | 1 | 0 | **60** |
 | **Info** | 8 | 0 | 3 | 4 | 0 | **15** |
 | **Findings gesamt** | **264** | **4** | **5** | **6** | **1** | **280** |
-| *davon bestätigte Kontrollen (PASS)* | 0 | 0 | 0 | 0 | 0 | **5** |
+| *davon bestätigte Kontrollen (PASS)* | 1 | 4 | 0 | 0 | 0 | **5** |
 | **Master-Tabelle gesamt** | 265 | 8 | 5 | 6 | 1 | **285** |
 
-*Die Zeile **„Findings gesamt" = 280** ist die Kennzahl für die Befundmenge.
-Die **5 bestätigten Kontrollen** (formerklärt `PASS`, alle WP-4) sind nach der
-PASS-Regel (§2.4) **nicht** als Findings gezählt und stehen in §6; in der
-Master-Tabelle (§3) sind sie zur Nachvollziehbarkeit mitgeführt und in der Spalte
-„Klassifikation" als `**PASS** → Kontrolle` markiert. Die Zeile
-**„Master-Tabelle gesamt" = 285** ist die Summe beider. Die 25 doppelt vergebenen
-IDs sind in allen Zeilen **jeweils 2 Befunde** enthalten.
-`BLOCKED` ist ausdrücklich **kein PASS**.*
 
 ### 11.2 Findings je Workpackage
-
 
 | WP | Report | Agent | Critical | High | Medium | Low | Info | Findings | Kontrollen | Zeilen |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -1939,7 +1980,6 @@ IDs sind in allen Zeilen **jeweils 2 Befunde** enthalten.
 | WP-6b | `AUDIT_RELIABILITY.md` | backend-reviewer | 0 | 3 | 13 | 3 | 0 | **19** | 0 | 19 |
 | **Gesamt** | 9 Reports | | 14 | 76 | 115 | 60 | 15 | **280** | **5** | **285** |
 
-*„Zeilen" = Anzahl der Befundzeilen je WP, inkl. der kollidierenden IDs.*
 
 ### 11.3 Verteilung der Original-Skalen
 
@@ -1958,6 +1998,16 @@ IDs sind in allen Zeilen **jeweils 2 Befunde** enthalten.
 |---|---|---|---|
 | `AUDIT_FRONTEND_STATIC.md:438-462` (25 Zeilen) | `AUD-2026-09-240` … `264` | `AUD-2026-09-300` … `324` | **Autorisierte Kollisionsreparatur.** WP-3b überlappte mit WP-6a (220–241) bei 240/241. Entscheidung: WP-6a behält 220–241 (2 Commits), WP-3b → neuer Block 300–324. Umrechnung +60, 25 Einzel-IDs. |
 | `AUDIT_FRONTEND_STATIC.md:467` | `Finding-ID-Bereich: **240–264**` | `**300–324**` | Folge der Umnummerierung; Bereichsangabe im Fließtext. |
+| `AUDIT_DATA_MODEL.md` (12 Fundstellen) | `150,151,152,153` (+ Kurzformen) | `325,326,327,328` | **Regel „früherer Commit behält"**: WP-2 (`75beb750`, 06:53) vor WP-4 (`441f48f3`, 20:13) ⇒ WP-4 weicht. |
+| `AUDIT_EVIDENCE/wp4-link-type-4level-matrix.md` (5) | `150,151,152` | `325,326,327` | dieselbe Umnummerierung in der WP-4-Evidenz |
+| `AUDIT_TRACEABILITY.md` (21 Fundstellen) | `170…190` | `330…350` | **Regel „früherer Commit behält"**: WP-4 (`441f48f3`, 20:13) vor WP-5 (`33237041`, 22:01) ⇒ WP-5 weicht. |
+| `AUDIT_EVIDENCE/wp3b-07-api-client.md:157` | `AUD-2026-09-187` | `AUD-2026-09-347` | semantischer Querverweis: `187` war **WP-5s** Azure-Befund, nicht WP-4s Registry-Befund (Kontext „`azure` nicht wählbar") |
+| `AUDIT_DATA_MODEL.md:92` | `41 IDs vergeben (150–190)` | `(154–190, 325–328)` | Bereichsangabe an die neue Blocklage angepasst |
+| `AUDIT_RELIABILITY.md:24-26` | veraltete Blockliste | aktualisiert | andere WPs haben zwischenzeitlich umnummeriert |
+| `AUDIT_DATA_MODEL.md:165` | `AUD-150 bis AUD-159` | `AUD-325, AUD-326, AUD-327, AUD-328` | **Korrektur einer durch die Regex verursachten Fehlform**: die Bereichsangabe wäre sonst auf einen nicht existierenden Block `325–159` gelaufen |
+| `AUDIT_DATA_MODEL.md:400,415,418` | `AUD-151/152`, `AUD-150/157`, `AUD-151/168` | `AUD-326/AUD-327` usw. | **Korrektur von 3 verkürzten Schreibweisen** (`-NNN` ohne Präfix wurde von der Ersetzung nicht erfasst) |
+| `AUDIT_TRACEABILITY.md:433`, `wp5-04-widersprueche.md:88` | `AUD-2026-09-026…043` | `AUD-2026-09-030…043` | **O-2**: `026` war nie vergeben |
+| `AUDIT_EXTERNAL_INTEGRATIONS.md:738,935`; `AUDIT_NATIVE_PLUGINS.md` (4); 4 Evidenzdateien | `#1004`, `#1005`, `#1118` | `#1004` (PR), `#1005` (PR), `#1118` (PR) | **O-4**: als **PR-Nummern** gekennzeichnet; `#1003` und `#932` sind echte Issues und blieben unverändert |
 
 **Gesamt: 26 Zeilen in 1 Datei geändert. Keine weiteren Reparaturen vorgenommen.**
 
@@ -1965,7 +2015,8 @@ IDs sind in allen Zeilen **jeweils 2 Befunde** enthalten.
 
 | Prüfung | Ergebnis |
 |---|---|
-| **Repo-weite ID-Eindeutigkeit** | **25 Doppel-IDs verbleiben** (`150–153`, `170–190`). Die 2 briefedeten (`240`/`241`) sind **repariert** und repo-weit eindeutig. Übrige → §9.2, offen für den User. |
+| **Repo-weite ID-Eindeutigkeit** | **0 doppelte IDs.** Alle 285 IDs sind genau **einmal** definiert (Zählung über alle 9 Reports, Finding-Tabellen-Zeilen mit ≥5 Spalten). Verifikation: §12.2a. |
+| **Dangling `AUD-2026-09-NNN`** | **0.** Jede referenzierte ID existiert als Definition. Der zuvor dangling Bereichsverweis `026…043` wurde auf `030…043` korrigiert (O-2). |
 | **Doppelte IDs 240/241 repo-weit** | **0.** `AUDIT_FRONTEND_STATIC.md` enthält keine `AUD-2026-09-2[4-6]NN` mehr; WP-6a (`AUDIT_SECURITY.md:64-65`) und `AUDIT_EVIDENCE/secret-incident-2026-09-30.md:461-462` unverändert. |
 | **Verweise außerhalb `docs/audit/2026-09/`** | **0** — keine Datei im Repo außerhalb des Audit-Ordners referenziert eine `AUD-2026-09-NNN`. |
 | **`CR-NN`-Verweise** | **0 ungültig.** Alle Referenzen liegen in `CR-01`…`CR-47` (`09-evidence-register.md` verifiziert). |
@@ -1973,15 +2024,67 @@ IDs sind in allen Zeilen **jeweils 2 Befunde** enthalten.
 | **Zählwerk je Report** | stimmt mit den Selbstaussagen überein: WP-4 41 ✅ · WP-6a 22 ✅ · WP-1c 30 ✅ · WP-2 24 ✅ · WP-6b 19 ✅ · WP-3b 25 ✅ · WP-3 25 ✅. |
 | **Kodierung** | alle Dateien valides UTF-8; **0** Replacement-Char, **0** Decode-Fehler. Keine Reparatur. |
 
+### 12.2a Offengelegte ID-Prüfung — vollständige Häufigkeitszählung
+
+**285 IDs**, jede genau **einmal** definiert.
+
+| Häufigkeit (Definitionen) | Anzahl IDs |
+|---:|---:|
+| **1×** | 285 |
+
+**Belegung je Block:**
+
+| ID-Bereich | Anzahl | WP |
+|---|---:|---|
+| `001–025` | 25 | `UI_BROWSER` |
+| `030–067` | 38 | `EXTERNAL_INTEGRATIONS` |
+| `070–093` | 24 | `EXTERNAL_INTEGRATIONS` |
+| `100–206` | 107 | `DATA_MODEL` |
+| `220–241` | 22 | `SECURITY` |
+| `270–288` | 19 | `RELIABILITY` |
+| `300–328` | 29 | `DATA_MODEL` |
+| `330–350` | 21 | `TRACEABILITY` |
+
+**Vollständige ID-Liste mit Häufigkeit:**
+
+```
+001×1    002×1    003×1    004×1    005×1    006×1    007×1    008×1    009×1    010×1    011×1    012×1    013×1    014×1    015×1
+016×1    017×1    018×1    019×1    020×1    021×1    022×1    023×1    024×1    025×1    030×1    031×1    032×1    033×1    034×1
+035×1    036×1    037×1    038×1    039×1    040×1    041×1    042×1    043×1    044×1    045×1    046×1    047×1    048×1    049×1
+050×1    051×1    052×1    053×1    054×1    055×1    056×1    057×1    058×1    059×1    060×1    061×1    062×1    063×1    064×1
+065×1    066×1    067×1    070×1    071×1    072×1    073×1    074×1    075×1    076×1    077×1    078×1    079×1    080×1    081×1
+082×1    083×1    084×1    085×1    086×1    087×1    088×1    089×1    090×1    091×1    092×1    093×1    100×1    101×1    102×1
+103×1    104×1    105×1    106×1    107×1    108×1    109×1    110×1    111×1    112×1    113×1    114×1    115×1    116×1    117×1
+118×1    119×1    120×1    121×1    122×1    123×1    124×1    125×1    126×1    127×1    128×1    129×1    130×1    131×1    132×1
+133×1    134×1    135×1    136×1    137×1    138×1    139×1    140×1    141×1    142×1    143×1    144×1    145×1    146×1    147×1
+148×1    149×1    150×1    151×1    152×1    153×1    154×1    155×1    156×1    157×1    158×1    159×1    160×1    161×1    162×1
+163×1    164×1    165×1    166×1    167×1    168×1    169×1    170×1    171×1    172×1    173×1    174×1    175×1    176×1    177×1
+178×1    179×1    180×1    181×1    182×1    183×1    184×1    185×1    186×1    187×1    188×1    189×1    190×1    191×1    192×1
+193×1    194×1    195×1    196×1    197×1    198×1    199×1    200×1    201×1    202×1    203×1    204×1    205×1    206×1    220×1
+221×1    222×1    223×1    224×1    225×1    226×1    227×1    228×1    229×1    230×1    231×1    232×1    233×1    234×1    235×1
+236×1    237×1    238×1    239×1    240×1    241×1    270×1    271×1    272×1    273×1    274×1    275×1    276×1    277×1    278×1
+279×1    280×1    281×1    282×1    283×1    284×1    285×1    286×1    287×1    288×1    300×1    301×1    302×1    303×1    304×1
+305×1    306×1    307×1    308×1    309×1    310×1    311×1    312×1    313×1    314×1    315×1    316×1    317×1    318×1    319×1
+320×1    321×1    322×1    323×1    324×1    325×1    326×1    327×1    328×1    330×1    331×1    332×1    333×1    334×1    335×1
+336×1    337×1    338×1    339×1    340×1    341×1    342×1    343×1    344×1    345×1    346×1    347×1    348×1    349×1    350×1
+```
+
+**Prüfkriterien und Ergebnis:**
+
+| Kriterium | Methode | Ergebnis |
+|---|---|---|
+| Doppelte IDs | Definition = Tabellenzeile mit `| AUD-… |` unter einer `\| ID \|`-Kopfzeile, ≥5 Spalten; über alle 9 Reports gruppiert | **0** (max. Häufigkeit = 1) |
+| Dangling IDs | jede `AUD-2026-09-NNN`-Referenz in allen 41 `.md`-Dateien gegen die Definitionsmenge geprüft | **0** |
+| Anzahl Findings | Zeilen je Report gegen die Selbstaussage im jeweiligen Report | **unverändert**, siehe Tabelle |
+| Verlorene IDs | Vergleich der belegten ID-Menge vor/nach der Umnummerierung | **0 verloren, 0 hinzugefügt** (285 = 285) |
+
 ### 12.3 Nicht reparierte Probleme — mit Begründung
 
 | Problem | Warum nicht repariert |
 |---|---|
-| **Kollision `150–153`** (WP-2 × WP-4) | Für WP-2 *und* WP-4 existiert **je eine committete** Zuordnung; die Auftragsregel („früherer Commit behält") würde ein Umnummerieren von **41 IDs in einem committeten Report** erzwingen. Das ist eine weitergehende Entscheidung als der Auftrag umfasste. **Offen für den User (O-1).** |
-| **Kollision `170–190`** (WP-4 × WP-5) | WP-4 committet, WP-5 nicht. Auflösung nach derselben Regel wäre technisch einfach (WP-5 → 330–366), betrifft aber **37 Findings eines anderen Reports** ohne Erteilungsgrundlage. **Offen für den User (O-1).** |
-| **Dangling `AUD-2026-09-026…043`** | Bereichsverweis; die Korrektur auf `030…043` ändert eine inhaltliche Aussage von WP-5. Als **Dangling markiert** (§9.3). |
+| ~~Dangling `AUD-2026-09-026…043`~~ | **BEHOBEN (O-2)** — korrigiert auf `030…043`. |
 | **`AUD-2026-09-300`-Zeilenangaben im Evidenzordner** | `wp3b-*.md` referenzieren **keine** eigenen 24x/25x/26x-IDs (geprüft) ⇒ nichts nachzuziehen. |
-| **Zeilennummern-Abweichungen** (2 Fälle, s. §12.4) | gefundene **veraltete Zeilenangaben** in Findings — Korrektur wäre inhaltliche Aussage des WP, nicht reine Konsistenz. Als Befund der Stichprobe dokumentiert. |
+| **Zeilennummern-Abweichungen** (4 Fälle, s. §12.4) | belegt, aber **in 3 Fällen liegt der Inhalt in einem Nachbarbereich** und in 1 Fall (`AUD-2026-09-345`) ist die Angabe **nach Nachprüfung korrekt** — siehe O-3. |
 | **Originalreports inhaltlich vereinheitlichen** | ausdrücklich untersagt: die ursprüngliche Einstufung und Formulierung des jeweiligen Audit-Agenten **muss nachvollziehbar bleiben**. Alle Normalisierungen stehen ausschließlich **hier**. |
 
 ### 12.4 Stichproben-Verifikation der Belegbarkeit
@@ -2031,8 +2134,8 @@ Prüfkriterien: Datei existiert · Zeile existiert · Inhalt passt zum Kurztitel
 | 162 | `presets/gate.py:536-549` | ✅ | ✅ | ✅ `except Exception` | belegt |
 | 167 | `application/import_service.py:714-722` | ✅ | ✅ | ✅ `current_state` | belegt |
 | 168 | `application/reqif_import_service.py:791-793` | ✅ | ✅ | ✅ `current_state` | belegt |
-| 185 (WP-5) | `docs/se/traceability-matrix.md:331` | ✅ | ✅ | ✅ REQ-L1-046 steht in `:144`, nicht `:331` | **belegt, Zeilenangabe veraltet** |
-| 188 (WP-5) | `docs/se/traceability-matrix.md:114` | ✅ | ✅ | ✅ REQ-L1-016 | belegt |
+| 345 (WP-5, ehem. 185) | `docs/se/traceability-matrix.md:331` | ✅ | ✅ | ✅ `REQ-L2-BL-011` = „Not Implemented", Kind von `REQ-L1-046` (`:144`) | **belegt — Angabe korrekt** (siehe O-3) |
+| 348 (WP-5, ehem. 188) | `docs/se/traceability-matrix.md:114` | ✅ | ✅ | ✅ REQ-L1-016 | belegt |
 | 300 | `BaselinesView/BaselinesPanels.tsx:57` | ✅ | ✅ | ✅ `t(` | belegt |
 | 301 | `test/i18n-parity.test.ts:186` | ✅ | ✅ | ✅ `MISSING_KEY_BASELINE = 116` | belegt |
 | 306 | `utils/asilUtils.ts:62` | ✅ | ✅ | ✅ Hex-Palette | belegt |
@@ -2041,28 +2144,30 @@ Prüfkriterien: Datei existiert · Zeile existiert · Inhalt passt zum Kurztitel
 | 270 | `audit/archive.py:448` | ✅ | ✅ | ✅ `@shared_task(name=…)` | belegt |
 | 282 | `application/adr_service.py:562` | ✅ | ✅ | ✅ `WorkflowFacade().transition(...)` **ohne** `expected_version` | belegt |
 
-**4 Findings mit ungenauer Zeilenangabe** (Inhalt korrekt, Zeile ist Nachbarbereich):
+**3 Findings mit ungenauer Zeilenangabe** (Inhalt korrekt, Zeile ist Nachbarbereich)
++ 1 Fall (`AUD-2026-09-345`) nach Nachprüfung als **korrekt** bewertet (O-3):
 
 | ID | angegeben | tatsächlich | Bewertung |
 |---|---|---|---|
 | 055 | `providers.py:1100,1347,1689` | genau diese Zeilen (Client-Konstruktion) | Zeile korrekt, **Aussage** betrifft fehlendes `max_retries=` |
-| 185 (WP-5) | `traceability-matrix.md:331` | REQ-L1-046 steht in `:144` | **veraltete Zeilennummer** — Matrix wurde zwischenzeitlich umgebaut; Inhalt (Backup/Restore als `Implemented/Covered`) ist an `:144` weiterhin belegt |
+| ~~185 (WP-5)~~ → 345 | `traceability-matrix.md:331` | Zeile 331 = `REQ-L2-BL-011` = „Not Implemented", Kind von `REQ-L1-046` (`:144`) | **ERLEDIGT (O-3): die Angabe war korrekt.** Mein ursprünglicher Verdacht „veraltet" ist widerlegt — der Widerspruch `Implemented` (Eltern) vs. `Not Implemented` (Kind) ist genau der Befund. |
 | 324 | `llm-settings.ts:22` | genau Zeile 22 | Zeile korrekt, **Negativbefund** (`azure` fehlt) |
 | 282 | `adr_service.py:562` | genau Zeile 562 | Zeile korrekt, **Negativbefund** (`expected_version` fehlt) |
 
 **Ergebnis: 0 Phantom-Findings, 0 Phantom-Inhalte.** Alle 39 Stichproben sind
-belegbar. Eine veraltete Zeilenangabe (`AUD-2026-09-185`, WP-5) wurde gefunden und
-hier offengelegt; sie wurde **nicht** im WP-5-Report geändert (Fremdbericht,
-inhaltliche Aussage).
+belegbar. Der Fall `AUD-2026-09-185` (WP-5, inzwischen `AUD-2026-09-345`)
+wurde **nach Nachprüfung als korrekt bewertet** — die Angabe `matrix:331` zeigt
+auf `REQ-L2-BL-011` = „Not Implemented", das Kind von `REQ-L1-046`. Genau dieser
+Widerspruch ist der Befund. Siehe O-3; am Finding wurde nichts geändert.
 
 ### 12.5 Offene Punkte für den User
 
 | # | Offener Punkt | Entscheidungsbedarf |
 |---|---|---|
-| **O-1** | **ID-Kollisionen K2 (`150–153`) und K3 (`170–190`)** | Soll nach der Regel „früherer Commit behält" aufgelöst werden (⇒ **WP-4 → 350–390**, **WP-5 → 330–366**)? Das Gate hat **nicht** umnummeriert, weil beide betroffenen Reports committet sind und der Auftrag nur K1 abdeckte. Vollständige Umrechnungstabelle in §9.2. |
-| **O-2** | **`AUD-2026-09-026…043`** (2 Fundstellen) | Auf `030…043` präzisieren? WP-5-Aussage, daher nicht eigenmächtig geändert. |
-| **O-3** | **Veraltete Zeilenangabe `AUD-2026-09-185`** (`traceability-matrix.md:331` → `:144`) | Korrektur im WP-5-Report freigeben? |
-| **O-4** | **PR-Nummern `#1004`, `#1005`, `#1118`** sind keine Issues und stehen in `issue-inventory.md`-Notation | Umbenennung (z. B. „PR #1118") zur Vermeidung künftiger Fehlalarme? |
+| ~~**O-1**~~ | ~~**ID-Kollisionen K2/K3**~~ | **ERLEDIGT:** Regel „früherer Commit behält" vom Orchestrator entschieden und angewandt. WP-4 `150–153 → 325–328`, WP-5 `170–190 → 330–350`. Verifikation: 0 Duplikate. (§9.2) |
+| ~~**O-2**~~ | ~~`AUD-2026-09-026…043`~~ | **ERLEDIGT:** auf `AUD-2026-09-030…043` korrigiert (2 Fundstellen). |
+| ~~**O-3**~~ | ~~Veraltete Zeilenangabe `AUD-2026-09-185`~~ | **ERLEDIGT mit Gegenbefund:** Die Angabe `matrix:331` war **korrekt** — Zeile 331 der Matrix ist `REQ-L2-BL-011` = „Not Implemented", das Kind von `REQ-L1-046` (Zeile 144). Genau dieser Widerspruch ist der Befund. **Meine frühere Diagnose „veraltet" war falsch**; es wurde **nichts** am Finding geändert. |
+| ~~**O-4**~~ | ~~PR-Nummern `#1004`, `#1005`, `#1118`~~ | **ERLEDIGT:** an 10 Fundstellen als PR-Nummer gekennzeichnet. `#1003` und `#932` sind echte Issues (im Inventar) und blieben unverändert. |
 | **O-5** | **Doku-Drift** (§10): Tools 215→219, Gruppen 31→35, APIViews 67→76, Compose-Services 8→15, React 18→19, E2E 111→54 | Soll `AGENTS.md`/`README.md` korrigiert werden? Außerhalb des Auftragsumfangs (Dokumentation, kein Produkt-Code). |
 | **O-6** | **`CR-30`-Zahl** (463 vs. 511 vs. 443) | Welche Zahl soll als kanonisch im Vor-Audit stehen? Empfehlung: **443** mit der in C10 offengelegten Methode. |
 | **O-7** | **Historie-Entscheidung** zum Secret-Leak (`AUD-2026-09-220`) | WP-6a empfiehlt Option A (`filter-repo`, kein Force-Push nötig, da `3dcc80d8` nie gepusht wurde) — **nicht ausgeführt**. |
@@ -2090,3 +2195,78 @@ Alle Prüfungen dieses Gates sind deterministisch und ohne Spezialwissen wiederh
 
 **Kein Produkt-Code wurde geändert.** Sämtliche Reparaturen betreffen ausschließlich
 Dokumentation unter `docs/audit/2026-09/`.
+
+
+---
+
+## 14. Erkannte Prozessdefekte dieses Audits
+
+Dieser Abschnitt ist **kein** Produktbefund und **nicht** Teil der 280 Findings.
+Er dokumentiert Mängel des **Auditprozesses selbst**, die beim Konsistenz-Gate
+aufgefallen sind. Sie sind hier offengelegt, weil sie die Aussagekraft des
+Audits einschränken — nach dem gleichen Grundsatz, mit dem der Audit die
+Produktdefekte offenlegt.
+
+| # | Prozessdefekt | Schwere | Beleg | Status |
+|---|---|---|---|---|
+| **P-1** | **Das Audit committete selbst ein live gültiges API-Key** | **Critical** | `AUD-2026-09-220` (Fundort `AUDIT_EVIDENCE/wp1d-auth-pagination-filter-errors-live.json:2246`, Commit `3dcc80d8`), Prozessursache `AUD-2026-09-239` | **Key widerrufen** 2026-09-30 (HTTP 204, `revoked_at = 2026-09-30 19:07:05+00`); Arbeitsbaum redigiert; **Git-Historie offen** — `3dcc80d8` wurde nie gepusht, Option A (`filter-repo`) empfohlen, **nicht ausgeführt** (offener Punkt O-7) |
+| **P-2** | **Zwei Agenten schrieben parallel in dieselbe Datei** | Medium | `AUDIT_EXTERNAL_INTEGRATIONS.md` wurde von WP-1a (`cd002d94`, +324 Zeilen), WP-1d (`3dcc80d8`, +689) und WP-1b (+239, im Gate-Commit `33237041`) beschrieben. Der Bericht hält fest (`:12-14`), jeder Agent schreibe ausschließlich seinen Abschnitt und IDs würden „nicht überschrieben". **Status heute: alle drei Abschnitte vorhanden** (`## WP-1a` :24, `## WP-1d` :329, `## WP-1b` :1017) — der zwischenzeitliche Verlust des WP-1b-Abschnitts wurde beim Append erkannt und wiederhergestellt. | **behoben** (inhaltlich vollständig), aber der Mechanismus ist ungeschützt |
+| **P-3** | **27 ID-Kollisionen** (2 briefedet + 25 nicht briefedet) | Medium | K1 `240/241` (WP-3b × WP-6a), K2 `150–153` (WP-2 × WP-4), K3 `170–190` (WP-4 × WP-5). Ursache: **blockweise ID-Vergabe ohne Reservierung zwischen parallel laufenden Agenten**; jeder Agent vergab „fortlaufend ab seinem Blockanfang", ohne den Gesamtraum zu kennen. | **behoben** (0 Duplikate, §12.2a) |
+| **P-4** | **ID-Block `050/051` doppelt vergeben** (dieselbe Ursache wie P-3) | Low | `AUDIT_EXTERNAL_INTEGRATIONS.md` führt `050/051` im WP-1b-Abschnitt, obwohl der Block für WP-1a reserviert war; beide Reports liegen in derselben Datei, wodurch die Doppelvergabe nicht als Dateikonflikt auffiel. | **behoben** (IDs existieren nur einmal, §12.2a) |
+| **P-5** | **Messfehler, die zu Phantom-/Über-Befunden führten — und aktiv korrigiert wurden** | Info | (a) WP-3: 441 Hex-Literale → selbst korrigiert auf **0**. (b) WP-3b: i18n-Lücke **112 → 116**. (c) WP-3b: „0 stale E2E-Selektoren" → **3 verifiziert stale**. Alle drei Korrekturen sind im jeweiligen Report dokumentiert und wurden vom Gate nachgeprüft (C1, C3, C4). | **behoben** |
+
+### 14.1 Bewertung von P-5 — ehrliche Einordnung der Korrekturen
+
+Die drei Korrekturen aus P-5 wirken in **drei verschiedene Richtungen**. Das ist
+wichtig, weil eine Korrektur, die nur in eine Richtung wirkt, kein Qualitäts-
+nachweis ist.
+
+| Korrektur | Richtung | Wirkung auf die Befundmenge | Einordnung |
+|---|---|---|---|
+| WP-3: Hex-Literale **441 → 0** | **nach unten** | entfernt einen **Phantom-Befund** (Messfehler-Überzählung) | War ein **Fehlalarm**. Der Befund `AUD-2026-09-021` wurde als **WIDERLEGT** geführt, nicht weggelassen — die Fehlalarm-Historie bleibt sichtbar. |
+| WP-3b: i18n **112 → 116** | **nach oben** | echte Lücke ist **4 Schlüssel größer** als berichtet | War eine **Unterzählung**. WP-3 hatte Testdateien mitgescannt bzw. `<Trans i18nKey>` übersehen. Die höhere Zahl deckt sich exakt mit der im Repo eingefrorenen `MISSING_KEY_BASELINE = 116`. |
+| WP-3b: stale Selektoren **0 → 3** | **nach oben** | 3 zusätzliche Defekte | War eine **Falschnegativ-Aussage**. WP-3 hatte im Browser nur die tatsächlich gerenderten Screens geprüft. |
+
+**Gesamtbewertung, ohne die Findings kleinzureden:**
+
+* **Zwei der drei Korrekturen haben die Befundmenge erhöht** (i18n +4,
+  stale Selektoren +3). Das ist das wichtigere Signal: die Korrekturen waren
+  nicht geschönend, sie haben **Defekte sichtbar gemacht**, die der erste Durchgang
+  übersehen hatte.
+* **Eine Korrektur hat die Befundmenge reduziert** (441 → 0). Das war ein
+  Phantom-Befund. Dass er **korrigiert statt verschwiegen** wurde, ist positiv —
+  die Verfehlung ist als `WIDERLEGT` im Register sichtbar und nicht aus der
+  Zählung entfernt worden.
+* **Die Fehlerklasse ist systematisch, nicht zufällig.** WP-3b hat eine
+  Methodik-Sektion (§0) mit genau den Schutzmaßnahmen gegen diese Fehlerklasse
+  eingeführt (Block-Kommentare, `//`-Kommentare, Testdatei-Trennung,
+  Regex-Fehlertreffer). Das ist die richtige Reaktion — aber sie zeigt, dass
+  die erste Messung eines Audits ohne Vorlauf **nicht belastbar** ist.
+* **Für die Belastbarkeit des Gesamtergebnisses heißt das:** Die Zahlen in
+  diesem Register sind das Ergebnis **einer zweiten, methodisch korrigierten
+  Messung** (WP-3b), nicht der ersten. Wo beide Agenten dasselbe Objekt gemessen
+  haben (i18n-Lücke, Hex-Literale, E2E-Selektoren), ist die **WP-3b-Zahl**
+  maßgeblich; das ist in C1, C3 und C4 so festgehalten.
+* **Was das nicht heißt:** Andere WPs haben keinen Methodik-Nachtrag. Für die
+  WPs ohne zweite Messung ist die Validität der Zahlen **nicht** durch eine
+  unabhängige Gegenmessung abgesichert — sie stammen aus **einer** Messung.
+  Das ist eine **Restunsicherheit dieses Audits**, keine Feststellung zu einem
+  Produktdefekt.
+
+### 14.2 Lehre für den nächsten Audit
+
+1. **ID-Bereiche vor dem Dispatch reservieren.** Der Orchestrator weist jedem
+   Agenten vor dem Start einen exklusiven, nicht überlappenden ID-Block zu und
+   schreibt ihn in den Auftrag. Dieser Audit hat stattdessen Blöcke parallel
+   vergeben → 27 Kollisionen (P-3).
+2. **Ein Report pro Agent.** P-2 entstand, weil drei Agenten dieselbe Datei
+   beschrieben. WP-1a/1b/1d sollten drei getrennte Reports bekommen.
+3. **Messmethoden-Protokoll verpflichtend.** Jeder Agent legt vor der ersten
+   Zählung fest, wie Testdateien, Kommentare und Strings behandelt werden
+   (WP-3b §0 ist das vorbildliche Muster).
+4. **Evidenz-Dateien auf Geheimnisse prüfen, bevor sie committet werden.**
+   P-1 ist der teuerste Prozessdefekt dieses Audits: ein durch das Audit
+   selbst erzeugter, live gültiger Produktionszugang.
+5. **Zweite Messung für jede Zahl, die später zitiert wird.** Besonders für
+   Zahlen, die in andere Reports übernommen werden (hier: 112/116, 441/37,
+   0/3) — sonst wandert der erste Messfehler durch das gesamte Audit.

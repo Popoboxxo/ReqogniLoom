@@ -735,7 +735,7 @@ sauber ab — jede weitere Zeile scheitert an der kaputten Transaktion.
 | `DATATYPE-DEFINITION-STRING` | vorhanden | `DT-String` ✅ | ✅ |
 | UTF-8 deklariert | ja | `encoding="UTF-8"` ✅ | ✅ |
 
-**UID/Identität:** Der Fix `#1003/#1004` (`a6541783`) **ist gemergt**
+**UID/Identität:** Der Fix `#1003` (Issue) / `#1004` (PR) (`a6541783`) **ist gemergt**
 (`git merge-base --is-ancestor a6541783 HEAD` → 0) und **wirksam**: neu angelegte
 Artefakte bekommen `uid` (`REQ-001`), und der Export schreibt `ATTR-UID=REQ-001`.
 Der Fallback `external_uid or need.uid` (`reqif_export_service.py:662`) greift also.
@@ -932,7 +932,7 @@ Beleg: `wp1d-ingress-symmetry.json`.
 | `AUD-2026-09-089` | **Low** | Contract / Auth | — | `rest_api/urls.py:263`, `reqogniloom/urls.py:51-52` | MCP-Server-Deskriptor auf `/mcp/` und `/api/v1/mcp/` **ohne Credential** öffentlich (Versions-Disclosure, MCP-Spec-konform) |
 | `AUD-2026-09-090` | **Low** | Contract / Schema-Hygiene | CR-12 | `GET /api/schema/` → `components.securitySchemes.cookieAuth` | `cookieAuth` (`sessionid`) ist deklariert, wird aber von **keiner** Operation referenziert — toter Auth-Pfad im Schema |
 | `AUD-2026-09-091` | **Low** | Contract / Schema-Hygiene | CR-12 | `GET /api/schema/` → `auth/login`, `auth/refresh`, `public/banners/login` | Öffentliche Endpunkte nutzen `security: [{BearerAuth: []}, {}]` statt des kanonischen `security: []` |
-| `AUD-2026-09-092` | **Low** | Datenqualität | CR-42 | live: `GET /requirements/?workspace_id=A` | `uid` ist bei ~888 vorbestehenden Seed-Artefakten `null` → ReqIF-Export schreibt `ATTR-UID THE-VALUE=""`; Backfill-Lücke nach `#932/#1005` (nicht der `#1003`-Fix, der ist gemergt und wirksam) |
+| `AUD-2026-09-092` | **Low** | Datenqualität | CR-42 | live: `GET /requirements/?workspace_id=A` | `uid` ist bei ~888 vorbestehenden Seed-Artefakten `null` → ReqIF-Export schreibt `ATTR-UID THE-VALUE=""`; Backfill-Lücke nach `#932` (Issue) / `#1005` (PR) (nicht der `#1003`-Fix, der ist gemergt und wirksam) |
 | `AUD-2026-09-093` | **Info** | Sicherheit | CR-13 | live: 6 Workspace-Endpunkte | Zwei 404-Texte unterscheiden „gehört fremdem Tenant" **nicht** von „existiert nicht" (`Workspace <id> not found.` vs. `… in the caller's tenant.`) — kein vollständiges Enumerations-Orakel, aber inkonsistent |
 
 ---

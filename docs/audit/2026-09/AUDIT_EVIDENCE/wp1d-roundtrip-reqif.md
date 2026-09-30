@@ -148,7 +148,7 @@ und im Export entsprechend:
 ```
 
 **Bewertung: Backfill-Lücke, kein Regressionsfehler.** `feat: auto-generate
-local readable uid for artifacts (#932) (#1005)` ist gemergt und erzeugt UIDs
+local readable uid for artifacts (#932) (#1005 PR)` ist gemergt und erzeugt UIDs
 für Neuanlagen; für die vor dem Merge geseedeten Datensätze fehlt eine
 Migration. Der Effekt ist auf den ReqIF-Round-Trip beschränkt: die Identität
 dieser Artefakte geht beim Export verloren.

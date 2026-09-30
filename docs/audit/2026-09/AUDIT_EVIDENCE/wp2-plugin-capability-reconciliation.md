@@ -192,7 +192,7 @@ zurück, und `stats()` degradiert **ohne Fehler** auf `None`:
 [slash] open interviews: None          <- dauerhaft, kein Hinweis auf Ursache
 ```
 
-Das ist exakt das Fehlermuster, das #1118 für die *Seitenlänge als Gesamtzahl*
+Das ist exakt das Fehlermuster, das PR #1118 für die *Seitenlänge als Gesamtzahl*
 korrigiert hat — der Zähler wurde auf `count` umgestellt, aber `count` existiert für
 diesen Endpunkt nicht. **Stiller Fehlschlag.** → **AUD-2026-09-112 (Medium).**
 

@@ -51,7 +51,7 @@ reserviert).
 | `wp1d-pagination-filter-matrix.md` | 44 Pagination-Inventar-Zeilen, `page_size`-Deckelungstabelle, 500er-Matrix auf ungültige `page`-Werte, 60 Filter-Proben |
 | `wp1d-error-format-matrix.md` | Matrix A (konsistente Fälle) und B (5 Abweichungsformen), Fehlercode-Registry-Lücken |
 | `wp1d-tenant-leak-matrix.md` | **120 Tests als `Endpoint \| Methode \| Tenant-B-ID \| Erwartung \| Ist \| Ergebnis`**, Verifikation der Falsch-Positive, Authorisierungs-Asymmetrien |
-| `wp1d-roundtrip-reqif.md` | Export-Kennzahlen, ReqIF-1.2-Konformitätstabelle, Merge-Nachweis für `#1003/#1004`, Import-415-Matrix, Root Cause aus dem Log, Idempotenz |
+| `wp1d-roundtrip-reqif.md` | Export-Kennzahlen, ReqIF-1.2-Konformitätstabelle, Merge-Nachweis für `#1003` (Issue) / `#1004` (PR), Import-415-Matrix, Root Cause aus dem Log, Idempotenz |
 | `wp1d-roundtrip-csv.md` | Kommentarzeilen-Befund mit Kausalitätsbeweis, 16-Fälle-Kontrolltabelle, Idempotenztest, Root Cause `import_service.py:300-314`, Transaktionsgrenze |
 | `wp1d-roundtrip-pdf.md` | Zeitmessung, Font-/Encoding-Tabelle, `Content-Disposition`/`charset`, Tenant-Scoping |
 | `wp1d-cleanup-verification.md` | Testdaten-Inventar, API- und DB-Verifikation, Rückstandsbegründung |

@@ -154,7 +154,7 @@ Import-Graph über Modulgrenzen; im Zeitbudget nicht durchführbar →
 
 ## 7. `azure` nicht wählbar — statisch bestätigt
 
-`AUD-2026-09-058` / `AUD-2026-09-187` wird auf API-Ebene **unabhängig
+`AUD-2026-09-058` / `AUD-2026-09-347` wird auf API-Ebene **unabhängig
 bestätigt** und auf die Typ-Ebene verschärft. `frontend/src/api/llm-settings.ts:22`:
 
 ```ts

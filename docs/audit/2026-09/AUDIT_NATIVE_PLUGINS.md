@@ -158,7 +158,7 @@ Themen. Vor jeder `NEU`-Vergabe wurde gegengeprüft.
 
 ---
 
-## 5. Warum der Merge `abd61aed` (#1118) **nicht vollständig** war
+## 5. Warum der Merge `abd61aed` (PR #1118) **nicht vollständig** war
 
 Der Merge hat **sechs** Hunde-Escape-Bugs in genau dieser Datei geschlossen
 (`reqogniloom_client.py` Read-Timeout, `list_workspaces`-`.get()` vor dem
@@ -176,7 +176,7 @@ Fehlermuster — eine Exception entweicht dem Fehlervertrag — ist an einer Ste
 Live reproduziert für `start`, `status` **und** `answer` (Evidenz 2 §6). Zusätzlich
 sind zwei der sechs gefixten Fehler nur halb gefixt:
 
-| #1118-Fix | Status nach Live-Prüfung |
+| PR-#1118-Fix | Status nach Live-Prüfung |
 |---|---|
 | Read-Timeout entwich `_request` | ✔ behoben |
 | `list_workspaces` `.get()` vor `isinstance` | ✔ behoben |
@@ -233,7 +233,7 @@ Verträge") ist durch diese Prüfung **überholt** → 152 WIDERLEGT.
 * **Der Build-Guard ist echt**: `scripts/verify-build.mjs` lädt das gebaute Bundle als
   ES-Modul, ruft `register(ctx)` und prüft Panel-Registrierung — und meldet
   verbotene Tokens (`process`, `__hermesPlugins`, inline `jsx-runtime`).
-* **`#1118` hat die `FORMALIZABLE_ARTIFACT_TYPES`-Schranke wirklich entfernt** —
+* **PR `#1118` hat die `FORMALIZABLE_ARTIFACT_TYPES`-Schranke wirklich entfernt** —
   alle 8 Start-Buttons waren live `enabled=true`.
 
 ---

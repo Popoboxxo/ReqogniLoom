@@ -32,7 +32,7 @@ genau 11 Einträge. Unabhängig bestätigt durch:
 | 8 | `backend/traceability/trace_link_manager.py:356` | Kommentar `the 8 relation types are semantically distinct directed graphs` |
 | 10 | `backend/traceability/exceptions.py:19-24` | `not in the 10 valid types` + nennt 10 **retired** Keys (`parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes, traces, copy-of`) |
 
-→ **AUD-2026-09-153**. KeinCR-Duplikat: `CR-15` behandelt TraceLink-Update/Batch-Zyklenvertrag,
+→ **AUD-2026-09-328**. KeinCR-Duplikat: `CR-15` behandelt TraceLink-Update/Batch-Zyklenvertrag,
 nicht die Zahlen-Drift in Docstrings.
 
 ## 1. Die 4-Ebenen-Matrix
@@ -110,7 +110,7 @@ Ein nur über `refines` abgeleitetes Requirement gilt als **Wurzel (L1)**.
 - `backend/baseline/delta_index_builder.py:262` und `:272` — Docstring *„`derives-from` / `refines`"*,
   SQL in derselben Funktion (`:288`): nur `'derives-from'`.
 
-→ **AUD-2026-09-150** (High). Kein CR-Duplikat: `CR-15` nennt
+→ **AUD-2026-09-325** (High). Kein CR-Duplikat: `CR-15` nennt
 `trace_link_manager.py:463-583` / `trace_link_service.py:273-347` (Update/Batch-Zyklusvertrag),
 nicht die Hierarchie-Semantik.
 
@@ -126,7 +126,7 @@ Drei Aussagen, die sich widersprechen:
 | `backend/traceability/services.py:65` + `:472` | **re-exportiert `VALID_LINK_TYPES` als öffentliche API** (`__all__`) |
 | `backend/application/reqif_import_service.py:886` | **benutzt `VALID_LINK_TYPES` tatsächlich als Autorität** |
 
-→ **AUD-2026-09-151 / -154**.
+→ **AUD-2026-09-326 / -154**.
 
 ## 3. Tenant-Extensibility — funktioniert, mit einer Lücke
 
@@ -184,7 +184,7 @@ aufrufen, Bypass-Pfade:
 | B2 | **ICD-Connector** | `backend/icd/traceability_connector.py:82-87` → `traceability/services.py:232` → `trace_link_manager.py:334` | ruft `create_trace_link(link_type="decomposes")`; die Prüfung erfolgt **nur** gegen `VALID_LINK_TYPES` (`trace_link_manager.py:62-75`), **keine** Paar-Prüfung gegen den Workspace-Katalog. Belegt vom Kommentar `traceability_connector.py:437`: „which never calls link_types.catalog.validate_link_pair". |
 | B3 | **Diagram-Reconciler** | `backend/diagram/traceability_connector.py` | dokumentierter System-Pfad, `manual=False` — das ist **korrekt** und kein Finding. |
 
-→ **AUD-2026-09-151** (ReqIF, High), **AUD-2026-09-152** (ICD, High).
+→ **AUD-2026-09-326** (ReqIF, High), **AUD-2026-09-327** (ICD, High).
 
 **Zyklenverbot:** `trace_link_manager.py:372-377` filtert `TraceLink.objects.filter(link_type=link_type)`
 — die Zyklusprüfung ist **pro Link-Typ**, nicht global (bewusst, `:356-362`). Der

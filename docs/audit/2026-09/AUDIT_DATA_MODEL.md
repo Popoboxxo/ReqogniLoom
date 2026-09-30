@@ -47,10 +47,10 @@ statt einfach — das macht die Umsetzung billiger als im Issue vermutet.
 
 | ID | Schwere | Klassifikation | CR-Track / Issue | Ort | Kurztitel |
 |---|---|---|---|---|---|
-| **AUD-2026-09-150** | High | **NEU** | — | `traceability/audit/hierarchy.py:172-186`, `baseline/services.py:430`, `baseline/delta_index_builder.py:288`, `frontend/src/utils/traceEndpoints.ts:72-75` | `refines` (Built-in, Hierarchiekante) fehlt in **allen 3** Hierarchie-Definitionen |
-| **AUD-2026-09-151** | High | **NEU** | — | `application/reqif_import_service.py:886-897` | ReqIF-Import umgeht Workspace-Katalog komplett |
-| **AUD-2026-09-152** | High | **NEU** | — | `icd/traceability_connector.py:82-87` → `traceability/trace_link_manager.py:334` | ICD-Connector ohne Paar-Validierung |
-| **AUD-2026-09-153** | Medium | **NEU** | #1104 (verwandt) | `traceability/services.py:227`, `traceability/exceptions.py:19-24`, `trace_link_manager.py:356` | Link-Typ-Zahlen 6/8/10/11 im **Code** |
+| **AUD-2026-09-325** | High | **NEU** | — | `traceability/audit/hierarchy.py:172-186`, `baseline/services.py:430`, `baseline/delta_index_builder.py:288`, `frontend/src/utils/traceEndpoints.ts:72-75` | `refines` (Built-in, Hierarchiekante) fehlt in **allen 3** Hierarchie-Definitionen |
+| **AUD-2026-09-326** | High | **NEU** | — | `application/reqif_import_service.py:886-897` | ReqIF-Import umgeht Workspace-Katalog komplett |
+| **AUD-2026-09-327** | High | **NEU** | — | `icd/traceability_connector.py:82-87` → `traceability/trace_link_manager.py:334` | ICD-Connector ohne Paar-Validierung |
+| **AUD-2026-09-328** | Medium | **NEU** | #1104 (verwandt) | `traceability/services.py:227`, `traceability/exceptions.py:19-24`, `trace_link_manager.py:356` | Link-Typ-Zahlen 6/8/10/11 im **Code** |
 | **AUD-2026-09-154** | Medium | **NEU** | — | `traceability/types.py:76`, `trace_link_manager.py:62-73`, `traceability/services.py:65,472` | `VALID_LINK_TYPES` als Nicht-Autorität deklariert, als API re-exportiert, im ReqIF-Import **benutzt** |
 | **AUD-2026-09-155** | Medium | **NEU** | CR-09 (anderer Store) | `lt_workspace_definition` (live) | Orphan-Workspace mit 8 statt 11 Keys |
 | **AUD-2026-09-156** | Low | **NEU** | — | `link_types/migrations/0008_…py:83` | Datenmigration ohne Re-Run; 401 statt 402 |
@@ -89,7 +89,7 @@ statt einfach — das macht die Umsetzung billiger als im Issue vermutet.
 | **AUD-2026-09-189** | Low | **NEU** | #801 (Nachbar) | `frontend/src/utils/artifactRoutes.ts:31` | Getaggte `TestCase:*` haben keinen Frontend-Router |
 | **AUD-2026-09-190** | — | **BLOCKED** | CR-16 (Nachbar) | `baseline/diff_engine.py:109-177` | Diff-Engine-Korrektheit ohne Mutation nicht messbar — **kein PASS** |
 
-**Zählung:** 41 IDs vergeben (150–190). **11 High**, 17 Medium, 5 Low, 6 Info/PASS,
+**Zählung:** 41 IDs vergeben (154–190, 325–328). **11 High**, 17 Medium, 5 Low, 6 Info/PASS,
 1 WIDERLEGT, 1 BLOCKED.
 Reconciliation: **32 NEU**, 2 BESTÄTIGT (176 → #1112, 184 → CR-17), 1 gemischt
 (169 → CR-07 bestätigt **plus** vier neue Defekte), 4 PASS, 1 WIDERLEGT, 1 BLOCKED.
@@ -162,7 +162,7 @@ Produktionsaufrufstelle (`trace_link_service.py:365,388`). Drei Bypass-Pfade:
 ReqIF-Import (High), ICD-Connector (High), Diagram-Reconciler (korrekt, `manual=False`).
 Zyklusprüfung ist **pro Link-Typ**; Self-Links werden nirgends abgelehnt.
 
-→ AUD-150 bis AUD-159.
+→ AUD-325, AUD-326, AUD-327, AUD-328 (frühere Nummern 150–153).
 
 ### 3.3 Rigor-Presets — halb datengetrieben, halb hartkodiert
 
@@ -395,9 +395,9 @@ ist das dokumentierte Muster (`link_types/catalog.py:15-19` beschreibt es als Vo
 | **2** | **AUD-2026-09-169** | Ein **GET** nimmt eine Schreibsperre und kann Zustand umschreiben; `except Exception` verschluckt echte Fehler; der gelieferte Status wird nie persistiert. Fünf Defekte, ein 25-Zeilen-Block, auf dem produktiver Leseverkehr liegt. |
 | **3** | **AUD-2026-09-160 + -161** | `PresetRegistry` beansprucht SSOT für **alle** Preset-Daten und ist es für die fachlich gewichtigste Achse nicht (Workflow-Graphen, Attribut-Stufen, Invarianten liegen in 6 getrennten Tabellen). `stage_mandatory` hat null Konsumenten — die Stufen-Differenzierung ist auf Attributebene **nicht wirksam**. **ADR-Kandidat.** |
 | **4** | **AUD-2026-09-180** | 26 von 44 Tabellen mit `workspace_id` haben keinen FK, darunter `pl_artifact` und `pl_requirement`. Zwei Orphans sind **live**. Die Tenant-Isolation hängt zu 100 % am Applikationscode; die DB schützt nichts. |
-| **5** | **AUD-2026-09-150** | `refines` ist ein Built-in, der laut eigener Definition eine Hierarchiekante ist, aber in **allen** drei Hierarchie-Definitionen fehlt. Betrifft `Requirement.level` (ADR-005), TRACE-P1/VERIF-P8 und den Baseline-`document`-Scope. Dazu zwei Docstrings, die `refines` als unterstützt *behaupten* — im selben Modul wie die Queries, die es ignorieren. |
+| **5** | **AUD-2026-09-325** | `refines` ist ein Built-in, der laut eigener Definition eine Hierarchiekante ist, aber in **allen** drei Hierarchie-Definitionen fehlt. Betrifft `Requirement.level` (ADR-005), TRACE-P1/VERIF-P8 und den Baseline-`document`-Scope. Dazu zwei Docstrings, die `refines` als unterstützt *behaupten* — im selben Modul wie die Queries, die es ignorieren. |
 
-**Nah am Schneider:** AUD-162 (fail-open Downgrade-Blocker) und AUD-151/152
+**Nah am Schneider:** AUD-162 (fail-open Downgrade-Blocker) und AUD-326/AUD-327
 (Link-Typ-Validierungs-Bypässe über Import und ICD-Connector).
 
 ---
@@ -412,10 +412,10 @@ ist das dokumentierte Muster (`link_types/catalog.py:15-19` beschreibt es als Vo
 | `CR-16` | **BLOCKED** | DiffEngine nicht ausgeführt. Kein PASS. |
 | `CR-36` | **Nachbar, unvollständig** | `makemigrations --check` ist nicht der Drift-Mechanismus, der fehlt (AUD-183). |
 | `CR-09` | **getrennt** | Mein AUD-155 betrifft `lt_workspace_definition`, nicht `workflow/global_definition_store.py`. Gleiche Fehlerklasse, anderer Store. |
-| `CR-15` | **getrennt** | Mein AUD-150/157 betrifft Hierarchie-Semantik und den create-Pfad, nicht den Update-/Batch-Zyklusvertrag. |
+| `CR-15` | **getrennt** | Mein AUD-325/AUD-157 betrifft Hierarchie-Semantik und den create-Pfad, nicht den Update-/Batch-Zyklusvertrag. |
 | `CR-13` | **nicht berührt** | Workspace-Sprachspaltung liegt außerhalb des WP-4-Auftrags. |
 | `AUD-2026-09-120` | **nicht bestätigt** | Die Celery-4×-Zustellung (WP-1c) hat hier keine Daten-Wirkung gezeigt; kein Duplikat, kein Widerspruch. |
-| `AUD-2026-09-070/071` | **berührt, nicht dupliziert** | Der ReqIF-Import ist in AUD-070/071 als **Round-Trip** beanstandet; mein AUD-151/168 betrifft den Import als **Validierungs- und Versionspfad**. Verschiedene Defekte, gemeinsamer Codepfad, getrennte Track-Nummern. |
+| `AUD-2026-09-070/071` | **berührt, nicht dupliziert** | Der ReqIF-Import ist in AUD-070/071 als **Round-Trip** beanstandet; mein AUD-326/AUD-168 betrifft den Import als **Validierungs- und Versionspfad**. Verschiedene Defekte, gemeinsamer Codepfad, getrennte Track-Nummern. |
 | `AUD-2026-09-092` | **verwandt, nicht dupliziert** | `uid`-Backfill-Lücke ≠ `TestCase:*`-Tag-Rückstände (AUD-181). Beide sind „Datenmigration nicht nachgelaufen", unterschiedliche Migrationen. |
 | `#940` | **WIDERLEGT** (wie im Auftrag) | Geschlossen, Daten-Migration. Der Metadaten-Defekt ist **#1112** — **bestätigt** (AUD-176). |
 | `#1093` | **geschlossen, betrifft die andere Seite** | Schema-Normalisierung; mein AUD-181 ist der Instanz-Datenbestand. |
@@ -426,10 +426,10 @@ ist das dokumentierte Muster (`link_types/catalog.py:15-19` beschreibt es als Vo
 
 1. **Korrektheit vor Erweiterung:** AUD-168 (Version-Bump im ReqIF-Import),
    AUD-169 (Read-Mutation + Exception-Swallow), AUD-167 (CSV-Import-Validierung).
-2. **Regel-Durchsetzung schließen:** AUD-151, AUD-152 (beide Bypässe auf
+2. **Regel-Durchsetzung schließen:** AUD-326, AUD-327 (beide Bypässe auf
    `validate_link_pair` umleiten), AUD-157 (Self-Link + Union-Zyklus für tenant-Typen).
 3. **Datenmodell-Kohärenz:** AUD-160 + -161 als **ein** ADR (Preset-SSOT),
-   AUD-150 (3 Hierarchie-Listen zusammenführen, `refines` entscheiden).
+   AUD-325 (3 Hierarchie-Listen zusammenführen, `refines` entscheiden).
 4. **DB-Defense-in-Depth:** AUD-180 (`workspace_id`-FKs an den 26 Tabellen, priorisiert
    `pl_artifact`/`pl_requirement`/`we_item_state`), AUD-171 (CHECK auf `we_item_state`),
    AUD-183 (Drift-Detektor für Datenmigrationen).
