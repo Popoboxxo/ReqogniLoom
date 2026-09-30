@@ -16,7 +16,7 @@ Finding-IDs `AUD-2026-09-NNN` sind global fortlaufend und werden nicht
 | Workpackage | Agent | Abschnitt |
 |---|---|---|
 | WP-1a | senior-developer | [MCP-Server](#wp-1a--mcp-server) |
-| WP-1b | senior-developer | _folgt_ |
+| WP-1b | backend-reviewer | [LLM-Adapter](#wp-1b--llm-adapter) |
 | WP-1d | api-specialist | [REST-API & Datenintegration](#wp-1d--rest-api--datenintegration) |
 
 ---
@@ -1011,3 +1011,241 @@ Daten, kein Login). Nebenbewegung, die **nicht** von diesem Audit stammt:
 Churn aus meinen ~90 eigenen Logins.
 
 Beleg: `wp1d-cleanup-verification.md`.
+
+---
+
+## WP-1b — LLM-Adapter
+
+**Scope:** `backend/llm_adapter/` (Interface, Provider-Registry, Router,
+Resilience-Anbindung, Celery-Task, Audit-Logger, Token-Tracking, URL-Guard,
+System-Checks) plus die Provider-Konfigurationsfläche (DB-Enum, REST-Serializer,
+UI-Liste) und die freien `complete()`-Pfade in `backend/application/`.
+**Methode:** Vollständige statische Analyse aller 6 Adapter **plus** echte
+Request-Capture-Messung: die Provider wurden direkt mit einem expliziten
+`ProviderConfig` gegen einen In-Process-HTTP-Stub (`http.server`) im Backend-
+Container instantiiert, sodass **jeder Request-Header, jeder Body und jede
+Antwort real aufgezeichnet** wurde. Fehlerpfad-Matrix mit 15 Szenarien
+(400/401/403/429/500/503/Connection-Refused/Prose+Markdown/leer/ohne `usage`).
+`LLM_PROVIDER` des geteilten Containers wurde **nicht** umgeschaltet.
+**Evidenz:**
+[`wp1b-llm-adapter-matrix.md`](AUDIT_EVIDENCE/wp1b-llm-adapter-matrix.md) ·
+[`wp1b-llm-timeout-retry-errors.md`](AUDIT_EVIDENCE/wp1b-llm-timeout-retry-errors.md) ·
+[`wp1b-llm-mock-double.md`](AUDIT_EVIDENCE/wp1b-llm-mock-double.md) ·
+[`wp1b-llm-cost-tracking-degradation.md`](AUDIT_EVIDENCE/wp1b-llm-cost-tracking-degradation.md)
+
+### Ampel: **ROT**
+
+2 Critical, 6 High, 5 Medium, 2 Info — **15 Findings**.
+
+### Antwort auf die Kernfrage: Ist der Mock ein ehrlicher Testdouble?
+
+> **Ja auf Capability-Ebene, nein auf Kosten-Ebene.**
+>
+> Der Mock **fälscht keine fachlichen Ergebnisse**: 12 Purpose-Pfade mit
+> schema-konformem JSON, deterministisch, kein `random` im Default, keine
+> Netzwerkkommunikation. Er erfindet bewusst **keine** Artefakt-IDs
+> (`context_change_impact`, `traceability_suggest_links`, `audit_ai_review`
+> re-emitieren nur übergebene Indizes), markiert jeden Degradations-Pfad mit
+> `[MOCK FALLBACK] `, cached Fallback-Antworten **nicht** und loggt/auditiert
+> jeden Fallback. Das ist ADR-02-konforme Degradation.
+>
+> **Unehrlich ist er bei den Kosten:** `token_usage` ist die feste Konstante
+> **42 / 100 / 200 / 120** (`providers.py:390, 413, 438, 455`) — live belegt
+> **unabhängig von der Prompt-Länge** (5000 Zeichen vs. „short" → beide 42).
+> Der Wert wird unverändert als exakte API-Nutzung in `TokenUsageRecord`
+> geschrieben und fließt in Tagesbudget, `/by_provider`-Aggregation und
+> Audit-Log. Die *freien* `complete()`-Pfade machen es dagegen richtig: dort wird
+> `approximate_token_count()` verwendet und die Schätzung ist im Docstring als
+> Schätzung deklariert (`token_tracking.py:39-73`). Genau diese Asymmetrie ist
+> `AUD-2026-09-061`.
+>
+> **Konsequenz:** Ein mock-lastiger Betrieb kann ein Tagesbudget
+> erschöpfen, das für echte Aufrufe gedacht war — und umgekehrt echte Kosten
+> hinter erfundenen Zahlen verstecken. Siehe `AUD-2026-09-061` (High).
+
+### Ampel-Kurzfassung
+
+🟢 **Belastbar:** Fehler-Klassifikation der Resilience-Schicht (401/403/400
+sind non-retryable, 429/5xx transient — live gemessen 1 vs. 12 Versuche,
+Klassifikation korrekt); Circuit-Breaker greift auf LLM-Pfade
+(`llm:<provider>`, pro Tenant, Half-Open-Probe); SSRF-Guard `url_guard.py` mit
+IPv4-mapped-IPv6-Auflösung; `[MOCK FALLBACK]`-Markierung über alle vier
+Degradationsstufen bis in die publizierte MCP-Doku; Timeout-Pflicht für alle
+Adapter (30 s Provider / 25 s sync / 180 s workspace-weit); Provider-Auswahl
+über DB-Enum **mit** Env-Fallback ist wirksam; API-Key reist **nie** über die
+Celery-Queue; `ALLOWED_CAPABILITIES`-Whitelist verhindert `getattr` auf
+beliebige Namen; `manage.py check` meldet fehlende `LLM_OPENCODE_SESSION`
+(`W003`) und unbekannten `EMBEDDING_PROVIDER` (`W002`) vor dem ersten Request.
+
+🔴 **Sofort relevant:** Der ausgelieferte Anthropic-Default
+`claude-3-opus-20240229` ist seit **2026-01-05** retired — **jeder** Aufruf ohne
+explizit gesetztes `LLM_MODEL` schlägt fehl, und `LLM_MODEL` ist in allen
+compose-Files leer. Dazu 3× Retry-Amplifikation (12 HTTP-Requests pro logischem
+Aufruf bei 429/5xx, weil die SDK-eigene Retry-Schicht mitläuft) und ein
+ungenutzter Parser-Pfad, der `decompose_requirement` als rohen `JSONDecodeError`
+in den Celery-Ergebnisstatus durchreicht.
+
+### Feldweise Adapter-Matrix (live verifiziert)
+
+| Feld | anthropic | openai | ollama | azure | opencode_go | mock |
+|---|---|---|---|---|---|---|
+| URL | `/v1/messages` | `{base}/v1/chat/completions` | `{base}/api/generate` | `{ep}/openai/deployments/{dep}/chat/completions?api-version=` | `{base}/chat/completions` | — |
+| Methode | POST | POST | POST | POST | POST | — |
+| Auth-Header | `X-Api-Key` ✅ | `Authorization: Bearer` ✅ | **keiner** ✅ | `api-key` ✅ | `Bearer` + `x-opencode-session` ✅ | — |
+| Versions-Header | `anthropic-version: 2023-06-01` ✅ | — | — | `api-version`-Query | — | — |
+| Modell-ID (Default) | **`claude-3-opus-20240229` ❌ RETIRED** | **`gpt-4` ⚠️ Shutdown 2026-10-23** | `llama3` ✅ | `gpt-4` (Fallback) | `claude-sonnet-4-5` ✅ | `mock-model-v1` |
+| Timeout | 30 s + Policy | 30 s + Policy | 30 s + Policy | 30 s + Policy | 30 s + Policy | **ignoriert** |
+| `usage` Quelle | `input+output` ✅ | `total_tokens` ✅ | `eval_count` **nur Output** ❌ | `total_tokens` ✅ | `total_tokens` ✅ | **Konstante** ❌ |
+| `max_tokens` | 1024/4096 ✅ | nicht gesetzt (Default) | n/a | nicht gesetzt | nicht gesetzt | n/a |
+
+### Timeout-/Retry-Matrix (live gemessen)
+
+| HTTP-Status | Klassifikation | HTTP-Requests | Soll laut Doku |
+|---|---|---|---|
+| 200 | — | 1 | 1 ✅ |
+| 400 | non-retryable | **1** | 1 ✅ |
+| **401** | non-retryable „authentication failed" | **1** | 1 ✅ |
+| **403** | non-retryable „authentication failed" | **1** | 1 ✅ |
+| 429 | transient | **12** | 4 ❌ |
+| 500 | transient | **12** | 4 ❌ |
+| 503 | transient | **12** | 4 ❌ |
+
+**Kernfrage beantwortet:** Ja, bei 429/5xx wird retryed; **nein**, bei
+401/403/400 wird **nicht** retryed — die Auth-Erkennung über den
+MRO-Klassennamen (`resilient_transport.py:92-103`, Issue #714) ist explizit
+und greift live. **Kein Retry auf Auth-Fehler = kein verschwendetes Geld ✅.**
+Der Fehler liegt in der **Zahl**: die Anthropic-/OpenAI-SDKs wenden intern
+`max_retries=2` an (Default, von `providers.py` **nie** überschrieben) und der
+`PolicyEngine` looppt 4× darum herum → **12 kostenpflichtige Requests pro
+logischem Aufruf**.
+
+### Fehlerpfad-Matrix (live gemessen)
+
+| Szenario | Ergebnis | Bewertung |
+|---|---|---|
+| happy path | `LlmResult(score=0.9, ...)` | ✅ |
+| 401 / 403 | `LlmTransportError: authentication failed (HTTP 401)` | ✅ sauber |
+| 400 | `LlmTransportError: non_retryable` | ✅ sauber |
+| 429 / 500 / 503 | `LlmTransportError: transient_exhausted` | ✅ sauber |
+| Connection refused | `LlmTransportError: transient_exhausted: Connection error.` | ✅ sauber |
+| Circuit OPEN | `LlmTransportError: circuit open for LLM provider 'x'` | ✅ sauber |
+| Prose+Markdown → `validate_artifact` | `score=0.0` + „non-JSON response"-Hinweis | ✅ ehrlich degradiert |
+| Prose+Markdown → `check_consistency` | `score=0.9` — Extraktion gelingt | ✅ |
+| **Prose+Markdown → `decompose_requirement`** | **`RAISED JSONDecodeError: Expecting value: line 1 column 1 (char 0)`** | ❌ |
+| **Response ohne `usage`-Feld** | **`RAISED AttributeError: 'NoneType' object has no attribute 'input_tokens'`** | ❌ |
+| Provider nicht konfiguriert | `LLM_NOT_CONFIGURED` + Registry-Liste | ✅ graceful, kein 500 |
+| Unbekannter Providername | `LlmProviderUnknownError` → `LLM_NOT_CONFIGURED` | ✅ graceful, kein 500 |
+| PATCH mit ungültigem Provider | DRF `ChoiceField` → 400 | ✅ |
+| Broker nicht konfiguriert | `BROKER_NOT_CONFIGURED` sofort | ✅ |
+| **Celery-Worker fällt aus** | `get_task_status` meldet **dauerhaft `pending`** | ❌ |
+
+**Kein `except Exception: pass` im Adapter-Code.** Jeder Fehler wird entweder
+sauber propagiert oder — im Fall der Mock-Degradation — **sichtbar markiert**.
+Die einzige Stelle mit breitem Catch ist der Circuit-Breaker-Binding
+(`resilient_transport.py:190`) und der Settings-Lookup
+(`providers.py:170`), beide bewusst und korrekt als best-effort dokumentiert.
+**Es kommt keine halluzinierte Erfolgsmeldung zurück, wenn ein *konfigurierter*
+Provider fehlschlägt** — L2 liefert `LLM_PROVIDER_ERROR`. Der einzige Weg, auf
+dem Platzhalter als Erfolg durchgehen, ist der `LlmNotConfiguredError`-Fallback
+(L4), und der ist markiert.
+
+### Graceful Degradation (ADR-02)
+
+Fünf Stufen, alle belegt:
+
+| Stufe | Auslöser | Verhalten |
+|---|---|---|
+| L0 | `LLM_PROVIDER` leer / unbekannt | `LLM_NOT_CONFIGURED` |
+| L0b | Capability nicht aktiviert | `LLM_NOT_CONFIGURED` + Hinweis |
+| L1 | SDK nicht installiert | `LlmNotConfiguredError` mit `pip install`-Hinweis |
+| L2 | Call scheitert (Netz/Timeout/401/5xx) | `LLM_PROVIDER_ERROR`, **generische** Message, Rohtext nur im Log+Audit (`#697`/CWE-209) |
+| L3 | Circuit OPEN | `LlmTransportError` → `LLM_PROVIDER_ERROR` |
+| **L4** | **Credential-/Konfigurationsfehler** | **Mock-Fallback, Ergebnis mit `[MOCK FALLBACK] ` markiert, nie gecacht, geloggt + auditiert mit `success=False`** |
+
+**L4 ist ehrlich** — und das ist die stärkste Stelle des Adapters: der Marker
+wird vor dem Parsen gelesen (`ai_derivation_service.py:2290`), die
+Parser würden ihn strippen und damit das einzige Beweismittel vernichten
+(Docstring `:2267-2281`), Fallback-Antworten werden nie gecacht (`:2234`), und
+der Vertrag steht wörtlich in der **publizierten** MCP-Tool-Doku:
+*„Treat that as 'no compression available', not as a compressed bundle."*
+
+**Die Schwäche ist nicht die Ehrlichkeit, sondern die Sichtbarkeit:**
+`LLM_PROVIDER=mock` ist im Audit-Stack dauerhaft gesetzt, das Produkt läuft
+also permanent auf Stufe L4, **ohne** dass ein Nutzer es erfährt — es gibt
+keinen Produkt-Feature-Gate, der die AI-Buttons vor dem Klick deaktiviert oder
+tooltippt. `AUD-2026-09-064`.
+
+### Kosten-/Token-Tracking
+
+| Frage | Antwort |
+|---|---|
+| Wird protokolliert? | ✅ `TokenUsageRecord` + `AuditLog` (`COMP-LA-004`) |
+| Zählen Ein- und Ausgabe getrennt? | ❌ **Nein.** `LlmResult.token_usage` ist die **Gesamtsumme**; `record_token_usage(input_tokens=gesamt, output_tokens=0)` (`router.py:286-292`, `tasks.py:166-172`) — `output_tokens` ist **konstruktionsbedingt 0** |
+| Nach Provider aggregiert? | ✅ `aggregate_usage()` |
+| Nach Tenant aggregiert? | ✅ tenant-scoped Manager + RLS |
+| **Nach Modell aggregiert?** | ❌ **Nein.** `TokenUsageRecord` hat kein Modellfeld; das Modell steht nur im Audit-Log-`details` |
+| Aus echter API-Response? | ✅ Anthropic `input+output`, OpenAI/Azure/OpenCode `total_tokens`; ❌ Ollama nur `eval_count` |
+| Fehlendes `usage` → still 0? | ❌ **Nein — es crasht** (`AttributeError`, `hasattr` statt `is not None`) |
+
+Der Docstring von `record_token_usage` räumt die Mischanrechnung selbst ein
+(`token_tracking.py:92-95`). Folge: das **Mengen**-Budget
+(`get_daily_usage` summiert Input+Output) ist korrekt, aber jede
+**kosten**orientierte Auswertung nach Modell/Provider ist mit diesen Daten
+nicht möglich. `AUD-2026-09-062`.
+
+### Reconciliation CR-20 (`AUD-2026-09-020`) — **BESTAETIGT, Severity relativiert**
+
+| Aspekt | Ergebnis |
+|---|---|
+| `settings.py:764-766` Default `None` | ✅ **wörtlich bestätigt.** Live: `TENANT_TOKEN_LIMIT_PER_DAY` ist im laufenden Container **nicht gesetzt** → `is_over_daily_limit()` gibt **immer** `False`. **Der Audit-Stack fährt faktisch ohne jedes Token-Budget.** |
+| `cross_cutting.py:132-179` umgeht Budget | ✅ **wörtlich bestätigt.** `_complete_change_impact` ruft `provider.complete()` direkt: kein `is_over_daily_limit()`, kein `record_token_usage()`. |
+| „mehrere Pfade" | ✅ **erweitert bestätigt.** Zusätzlich der `not degraded`-Guard in `bundle_compression_service.py:623`, `architecture_decompose_service.py:828`, `traceability_suggest_service.py:654`, `ai_review_service.py:470` — im Mock-Fallback-Modus läuft Verbrauch ohne Budgetkontrolle. |
+| P1 (98/100) | ⚠️ **relativiert auf P2 / policyabhängig P1**, wie `12-evidence-validation-and-corrections.md:27` selbst nahelegt. Für self-hosted/QS P2; für ein verbindliches Tenant-Budget P1. |
+
+### Provider-Auswahl: UI-Liste ↔ Implementierung
+
+| Quelle | `azure`? |
+|---|---|
+| `_PROVIDER_REGISTRY` (`providers.py:2010`) | **ja** |
+| `LlmProvider`-Enum (`models.py:2417`) | **nein** |
+| `SettingsService.provider_choices()` (`settings_service.py:127`) | **nein** |
+| `LLM_PROVIDERS` UI (`llm-settings.ts:24-30`) | **nein** |
+| `README.md:333`, `.env.example:197-200`, `settings.py:702` | **ja, beworben** |
+
+`azure` ist implementiert und dokumentiert, aber über **keinen** Produktpfad
+konfigurierbar. `AUD-2026-09-058`.
+
+### Findings
+
+| ID | Schwere | Klassifikation | CR-Track / Issue | Ort | Kurztitel |
+|---|---|---|---|---|---|
+| AUD-2026-09-052 | **Critical** | **BESTAETIGT** (CR-20-Nachbar; #118) | #118 (GESCHLOSSEN 2026-07-31, unvollständig) | `backend/llm_adapter/providers.py:1080` | Anthropic-Default `claude-3-opus-20240229` ist seit 2026-01-05 retired — jeder Aufruf ohne `LLM_MODEL` schlägt fehl |
+| AUD-2026-09-053 | **High** | **NEU** | CR-20 | `backend/llm_adapter/providers.py:1333` | OpenAI-Default `gpt-4` → Alias `gpt-4-0613`, API-Shutdown 2026-10-23; `.env.example:184,189` nennt ebenfalls retired Modelle |
+| AUD-2026-09-054 | Medium | **NEU** | CR-20 | `backend/llm_adapter/providers.py:1550` | Ollama verwirft `prompt_eval_count` — nur `eval_count` (Output) wird erfasst, Input systematisch verloren |
+| AUD-2026-09-055 | **High** | **NEU** | CR-20 | `backend/llm_adapter/providers.py:1100,1347,1689` | SDK-eigenes `max_retries=2` läuft zusätzlich zum 4er-`PolicyEngine`-Loop → **12 HTTP-Requests** pro logischem Aufruf bei 429/5xx |
+| AUD-2026-09-056 | Medium | **NEU** | CR-33 (Nachbar) | `backend/llm_adapter/tasks.py:77,155` | Celery-Task ohne `time_limit`/`soft_time_limit`; `run_capability` ruft `method(**kwargs)` ohne Timeout → 30-s-Default, kein Abbruch |
+| AUD-2026-09-057 | **High** | **NEU** (verschärft AUD-2026-09-036) | #576 (teilgewirkt) | `backend/llm_adapter/providers.py:1215,1407,1595,1749,1941` + `dispatcher.py:187-193` | `decompose_requirement` nutzt nackten `json.loads` in allen 5 HTTP-Providern → `JSONDecodeError` mit Roh-Parsertext durch `get_task_status` ins Client |
+| AUD-2026-09-058 | **High** | **NEU** | CR-12/CR-42 (Vertragsdrift) | `backend/llm_adapter/providers.py:1663,2014` vs. `models.py:2411`, `llm-settings.ts:24` | `azure` implementiert und in Doku beworben, aber in DB-Enum, REST-ChoiceField und UI-Liste **nicht wählbar** |
+| AUD-2026-09-059 | Medium | **NEU** | CR-20 | `backend/llm_adapter/providers.py:1160-1164` (+4 Pendants) | `hasattr(message, "usage")` ist `True` bei `usage=None` → `AttributeError` statt sauberem `None` |
+| AUD-2026-09-060 | Medium | **NEU** | CR-05 (Vertragsparität) | `backend/llm_adapter/providers.py:829` | Mock fällt bei unbekanntem `purpose` **stumm** auf `[]` zurück — Tippfehler wird als fachliches „leeres Ergebnis" gemeldet |
+| AUD-2026-09-061 | **High** | **NEU** | CR-20 | `backend/llm_adapter/providers.py:390,413,438,455` | Mock liefert 4 feste Token-Konstanten (42/100/200/120), prompt-unabhängig, die als exakte API-Nutzung in Budget + Aggregation einfließen |
+| AUD-2026-09-062 | **High** | **NEU** | CR-20 | `backend/llm_adapter/router.py:286-292` + `tasks.py:166-172` | Gesamtsumme wird als `input_tokens` gebucht, `output_tokens` ist konstruktionsbedingt 0 → keine Kosten-Attribution nach Modell/Provider |
+| AUD-2026-09-063 | Medium | **NEU** | CR-20 | `backend/llm_adapter/token_tracking.py:123-129,162-165,233-243` | Fail-open des Budgets ist vollständig laut: DB-/RLS-Ausfall deaktiviert das Tagesbudget ohne Health-Signal |
+| AUD-2026-09-064 | Medium | **NEU** | ADR-02 | `backend/application/ai_derivation_service.py:2066-2082` + `settings.py:704` | L4-Mock-Degradation ist markiert, aber es gibt keinen Feature-Gate, der „LLM nicht konfiguriert" **vor** dem Klick sichtbar macht |
+| AUD-2026-09-065 | Medium | **NEU** | CR-20 | `backend/llm_adapter/checks.py` (fehlt) vs. `:150-212` | Kein System-Check für fehlenden `LLM_API_KEY` — obwohl #1050 und #794 genau solche Checks für seltenere Fehlkonfigurationen gebaut haben |
+| AUD-2026-09-066 | **High** | **NEU** | CR-36 (Nachbar) | `backend/llm_adapter/dispatcher.py:149-152,177-178` | Ausgefallener Celery-Worker ist für den Aufrufer nicht von „läuft noch" unterscheidbar — `pending` ohne ETA/Ablauf |
+| AUD-2026-09-067 | Info | **BESTAETIGT** | CR-20 | `backend/llm_adapter/audit_logger.py:174-191` | Circuit-Breaker außerhalb eines Tenant-Kontexts still deaktiviert (`_NullCircuitBreaker`) — kein Produktpfad, aber Management-Commands/Tests ungeschützt |
+
+**Reconciliation gesamt:** 3 BESTAETIGT, 1 CR-20-BESTAETIGT (im
+Abschnittstext), 12 NEU, 0 DUPLIKAT, 0 WIDERLEGT, 0 BLOCKED.
+
+### Nicht geprüft (BLOCKED, ausdrücklich nicht als PASS gewertet)
+
+| Punkt | Grund |
+|---|---|
+| **Echter Aufruf gegen Anthropic / OpenAI / Azure / OpenCode Go** | Keine API-Keys im Audit-Umfeld, und `LLM_PROVIDER` umzuschalten hätte den geteilten Container verändert. **Die Request-Formate wurden stattdessen feldweise per Request-Capture gegen einen Stub verifiziert** (URL, Methode, Auth-Header, `anthropic-version`, Body-Felder, Modell-ID) — das deckt Format und Header ab, **nicht** aber echte Provider-Antworten. |
+| **Modell-ID-Gültigkeit** | Statisch gegen die Provider-Dokumentation geprüft (Anthropic-Deprecations-Tabelle, OpenAI-Deprecations-Seite, Stand 2026-09-29). **Nicht** live gegen `/v1/models` verifiziert, weil dafür ein Key nötig wäre. |
+| **Echter Ollama-Server** | Kein Ollama im Stack. Der Wire-Format-Vergleich gegen die dokumentierte `/api/generate`-Response erfolgte per Stub; das *Verhalten eines realen llama3* (JSON-Treue, Kontextfenster) ist damit **nicht** geprüft. |
+| **Circuit-Breaker im OPEN-State unter realer Tenant-Isolation** | `_NullCircuitBreaker` wurde live bestätigt (kein Tenant-Kontext). Der OPEN→Half-Open→CLOSED-Zyklus mit echter `CircuitBreakerState`-Zeile ist **statisch** gelesen (`circuit_breaker.py:58-149`), nicht live gefahren — er braucht einen Absicht fehlschlagenden Provider. |
+| **Kosten-Aggregation gegen echte Provider-Rechnungen** | Ohne echten Provider nicht möglich. Die *Rechenlogik* (Input/Output-Mischanrechnung, Ollama-Verlust) ist statisch und per Stub belegt, die *Höhe* des Fehlers gegen eine echte Invoice nicht. |
+| **`TENANT_TOKEN_LIMIT_PER_DAY` im Grenzfall** | Der Budget-Cutoff selbst wurde nicht ausgelöst (die Variable ist gar nicht gesetzt, `is_over_daily_limit()` also strukturell `False`). Die Bypass-Pfade wurden statisch am Aufruf-Statement nachgewiesen, nicht durch einen ausgelösten Limit-Durchbruch. |
