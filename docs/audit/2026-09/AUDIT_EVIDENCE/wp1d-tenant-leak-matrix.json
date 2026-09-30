@@ -98,7 +98,7 @@
   {
    "kind": "api-key-minimal",
    "status": 201,
-   "body_head": "{\"id\":\"c8d80aea-3a1d-4008-b08c-b4e0aa80f152\",\"name\":\"WP1D-PROBE-B key2\",\"plaintext\":\"reqlo_REDACTED\",\"warning\":\"Save this key now — it will not be shown again.\",\"principal_type\":\"user\",\"agent_label\":\"\",\"scope\":\"write\"}"
+   "body_head": "{\"id\":\"c8d80aea-3a1d-4008-b08c-b4e0aa80f152\",\"name\":\"WP1D-PROBE-B key2\",\"plaintext\":\"reqlo_…REDACTED-ESUZ\",\"warning\":\"Save this key now — it will not be shown again.\",\"principal_type\":\"user\",\"agent_label\":\"\",\"scope\":\"write\"}"
   }
  ],
  "token_a": "sha256:6ccfad3f1116",

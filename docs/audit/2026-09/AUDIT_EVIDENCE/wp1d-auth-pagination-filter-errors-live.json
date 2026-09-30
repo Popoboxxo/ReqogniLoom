@@ -2243,7 +2243,7 @@
     "scope",
     "warning"
    ],
-   "body_head": "{\"id\": \"7eb7adab-2abd-42e3-a848-8f5988405819\", \"name\": \"wp1d-probe-dup\", \"plaintext\": \"reqlo_REDACTED\", \"warning\": \"Save this key now \\u2014 it will not be shown again.\", \"principal_type\": \"user\", \"agent_label\": \"\", \"scope\": \"wr"
+   "body_head": "{\"id\": \"7eb7adab-2abd-42e3-a848-8f5988405819\", \"name\": \"wp1d-probe-dup\", \"plaintext\": \"reqlo_…REDACTED-78ES\", \"warning\": \"Save this key now \\u2014 it will not be shown again.\", \"principal_type\": \"user\", \"agent_label\": \"\", \"scope\": \"wr"
   },
   {
    "case": "500-probe-bad-csv",
