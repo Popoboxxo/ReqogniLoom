@@ -462,3 +462,32 @@ findet den Secret-Scan-zeitpunkt; nur der Redactor verhindert, dass er entsteht.
 | `AUD-2026-09-241` (neu) | **NEU** | Hardcoded Credentials in getrackten Deploy-Dateien (`deploy/verify-backup-command.sh:90,103`; `deploy/docker-compose.yml:73,1053`) — CWE-1392, LOW. |
 
 **Kein Befund wurde geschlossen.** MERGE_SCORE bleibt unverändert.
+
+---
+
+## 9. Nachtrag: Blob-Ebene vs. Diff-Ebene (methodische Klarstellung)
+
+Nach dem Remediation-Commit `e94a2704` erzeugt `git show <commit>` für die beiden redigierten
+JSON-Dateien **scheinbar** erneut den Klartext-Key — nämlich in den **`-`-Zeilen des Diffs**, die den
+Zustand des Eltern-Commits `3dcc80d8` darstellen. Das ist **kein** Fund im neuen Commit, sondern eine
+Eigenschaft der Diff-Darstellung. Beleg mit `git grep` (durchsucht **Bäume**, nicht Diffs):
+
+| Commit-Baum | `reqlo_[A-Za-z0-9]{40}` Treffer | Dateien |
+|---|---|---|
+| `3dcc80d8` (vor Redaktion) | 3 | `README.md`, `wp1d-auth-pagination-filter-errors-live.json`, `wp1d-tenant-leak-matrix.json` |
+| `cd002d94` (WP-1a) | 1 | `README.md` (nur Doku-Beispiel) |
+| `e94a2704` (nach Redaktion) | **1** | `README.md` — **nur das Doku-Beispiel** (`reqlo_Ab12…`, 44 Zeichen, Format ungültig, live geprüft **401**) |
+
+**Schlussfolgerung für die History-Entscheidung (§5):**
+
+* Der **Baum-Zustand ist bereinigt** — kein aktueller Commit enthält ein funktionsfähiges Credential.
+* Der Klartext-Key existiert **ausschließlich als historisches Blob** im Baum von `3dcc80d8`
+  (erreichbar über `git show 3dcc80d8:<pfad>` und über das `reflog`).
+* Ein Scanner, der `git log -p` oder ein Diff-Walk verwendet, wird ihn in `e94a2704` **weiterhin
+  melden** — das ist kein Widerspruch zur Redaktion, sondern ein false positive des Werkzeugs.
+  Der belastbare Nachweis der Bereinigung ist `git grep -l <muster> <commit>` über die **Bäume**.
+* **Konsequenz für Option A:** Der `replace-text`-Ansatz aus §5.2 ist weiterhin korrekt, weil er auf
+  Blob-Ebene arbeitet. Er **muss** aber zwingend auf dem Commit `3dcc80d8` **sowie** alle Nachfolger
+  angewandt werden, die den alten Blob als Elternstand referenzieren — und nach dem Rewrite ist
+  zusätzlich zu prüfen, ob das `reflog` den alten Blob weiterhin auflösbar hält (⇒ `--prune-empty`,
+  `git reflog expire --expire=now --all`, plus das Bundle aus Schritt 1 nur offline aufbewahren).
