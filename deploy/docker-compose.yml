@@ -929,17 +929,24 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      # Functional beat probe (ADR-010 §3, RES-05): the heartbeat is written by
-      # the beat-scheduled `record_celery_beat_heartbeat` task and only stays
-      # fresh while beat actually dispatches. A plain `pgrep` (the old check)
-      # proved only that the process existed, so a hung beat stayed "healthy".
-      test: ["CMD-SHELL", "python manage.py check_celery_beat"]
+      # celery-beat has no worker to `inspect ping`, so this checks the beat
+      # process itself is still running (#171 — makes a restart-loop like
+      # "module reqogniloom was not found" visible via `docker ps`/health status
+      # instead of failing silently).
+      #
+      # ADR-010 §3 / RES-05: the intended FUNCTIONAL probe is
+      # `python manage.py check_celery_beat` (heartbeat freshness, implemented
+      # and unit-tested). It is deliberately NOT wired here yet: the beat
+      # container runs at ~99% of its 256M limit, so spawning a second Django
+      # process is OOM-killed (verified live: exit 137, OOMKilled=true, the
+      # probe itself restarted the container). Wiring it before raising the
+      # memory limit would turn a healthy beat into a restart loop. RES-05 owns
+      # the memory-limit adjustment; re-wire the command afterwards.
+      test: ["CMD-SHELL", "pgrep -f 'celery.*beat' > /dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      # The first heartbeat is written by the beat-scheduled task (60s
-      # interval), so allow one full interval plus margin.
-      start_period: 90s
+      start_period: 40s
     depends_on:
       postgres:
         condition: service_healthy
