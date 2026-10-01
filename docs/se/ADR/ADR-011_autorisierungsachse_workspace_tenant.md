@@ -2,7 +2,7 @@
 adr_id: ADR-011
 title: "Zwei-Ebenen-Autorisierung: Tenant bleibt Isolationshülle, Workspace wird objektabgeleitete Achse mit explizitem Ressourcen-Scope"
 status: proposed
-date: 2026-10-01
+date: "2026-10-01"
 deciders: [user, senior-developer]
 affected_reqs: [REQ-L0-008, REQ-L1-042, REQ-L1-098, REQ-L2-AS-041, REQ-L2-AT-002, REQ-L2-AT-003, REQ-L2-AT-018, REQ-L2-PL-010, REQ-L2-PL-012, REQ-L2-RA-006]
 superseded_by: null
@@ -34,9 +34,13 @@ REQ-L2-PL-012 (Vollständige Tenant-Isolation), REQ-L2-RA-006 (RBAC-Enforcement 
 
 **1. Tenant ist vollständig dicht und muss es bleiben.** Row-Level-Security (REQ-L2-PL-010) ist
 implementiert und getestet; in 120 Cross-Tenant-Proben (REST) und 65 (MCP) wurde kein Leak
-gemessen. `at_api_key`, `at_user_role` und `audit_entry` sind **dokumentierte** Ausnahmen
-(Pre-Auth-Chicken-Egg, `auth_tenancy/migrations/0011_rls_policies.py:43-64`); die noch offenen
-`as_*`-Tabellen ohne `tenant_id` sind der Gegenstand von `DATA-07`, keine Frage dieser Achse.
+gemessen. **Fundstelle der Ausnahmen:** `at_api_key` und `at_user_role` sind als
+Pre-Auth-Ausnahmen in der RLS-Migration dokumentiert
+(`auth_tenancy/migrations/0011_rls_policies.py:43-64`); `audit_entry` steht **nicht** dort,
+sondern als Eintrag in `persistence/tests/test_rls_coverage.py` (`RLS_EXEMPT_TABLES`,
+`:75-262`, `audit_entry` `:99-110`). Auch `at_refresh_token` und die vier `as_*`-Tabellen
+sind dort geführt; die noch offenen `as_*`-Tabellen ohne `tenant_id` sind der Gegenstand
+von `DATA-07`, keine Frage dieser Achse.
 
 **2. Workspace ist offen, weil die Zielsicht nicht objektabgeleitet ist.** `UserRole` ist
 workspace-gebunden (`workspace` FK ist `NOT NULL`, `workspace_scope.py:3-5`) — das Datenmodell
@@ -53,8 +57,12 @@ technische Fundstellen `SECURITY_AUTHZ.md:35-37`).
 **3. Der MCP-Pfad beweist, dass die objektabgeleitete Variante funktioniert.** Dort werden die
 Rollen aus dem **Tool-Argument** `workspace_id` aufgelöst (`tool_registry.py:1377-1380`), und der
 API-Key-Fence wird auf das Ziel-Workspace des Aufrufs angewandt — fail-closed, wenn keins ableitbar
-ist (`tool_registry.py:1592-1601`). Für Agent-Keys sind `scope`, ein nicht-leeres `workspace_ids`
-und ein `expires_at` bereits Pflicht (`authentication.py:552-558`). REST macht nichts davon.
+ist (`tool_registry.py:1592-1601`, Funktion `_check_workspace_fence` `:1568-1601`). Für
+Agent-Keys sind `scope`, ein nicht-leeres `workspace_ids` und ein `expires_at` bereits Pflicht
+(`authentication.py:552-558`). REST macht nichts davon: die Fence existiert heute **nur
+MCP-seitig**; `RbacPermission`/`AuthTenancyAuthentication` (`auth_enforcer.py:109-120`,
+`rest.py:259-277`) haben kein funktionales Äquivalent. Der gemeinsame Seam (MCP und REST)
+ist damit **Liefergegenstand von `SEC-02`/`SEC-03`**, keine bereits geteilte Implementierung.
 
 **4. Ein Live-Befund zeigt, dass die Achsen-/Ownership-Frage auch das Key-Management erfasst.**
 Ein `admin`-Capability-Key (maskiert `34e0aeae…`, `expires_at=NULL`) ist an ein `e2e-user`-Konto
@@ -71,6 +79,13 @@ Workspace-Fence.
 fehlt der Autorisierung. **Abgrenzung `ADR-002`:** Der Event-Bus regelt die asynchrone Zustellung
 interner Ereignisse, nicht Zugriffskontrolle; es gibt keinen inhaltlichen Konflikt, und der
 Event-Pfad ist von dieser Entscheidung nicht betroffen.
+
+**Zuordnungs-Status (offen):** Die Zuordnung dieses ADR zu den unter „Betroffene REQs"
+genannten Anforderungen ist eine **Näherung**, keine bereits getrackte Verknüpfung.
+`open_adrs` existiert repo-weit nicht (0/835 REQs, `AUD-2026-09-333`) — die
+REQ↔ADR-Rückverfolgbarkeit kann heute nicht maschinell eingetragen werden und bleibt eine
+Folgeaufgabe (siehe „Folgeaufgaben"). Es wird **keine** REQ neu erfunden und **keine**
+REQ-Datei geändert.
 
 ---
 
@@ -116,8 +131,10 @@ nicht verhandelbare Isolationshülle der RLS.
   eine neue Route erbt den richtigen Fence automatisch.
 - `ADR-007` fortgesetzt: **eine** Durchsetzungsstelle, an der eine Coverage-Prüfung greifen kann
   (analog Registry/Waiver), statt einer Pro-Pfad-Konvention.
-- Die objektabgeleitete Semantik des MCP-Pfads (`tool_registry.py:1377-1380,1592-1601`) wird zur
-  REST-paritätischen Regel — REST und MCP teilen denselben Seam.
+- Die objektabgeleitete Semantik des MCP-Pfads (`tool_registry.py:1377-1380`, Funktion
+  `_check_workspace_fence` `:1568-1601`) wird zur REST-paritätischen Regel. Der gemeinsame
+  Seam ist **Liefergegenstand von `SEC-02`/`SEC-03`**: heute existiert die Fence nur
+  MCP-seitig; REST (`RbacPermission`/`AuthTenancyAuthentication`) zieht nach.
 - `DATA-06`/`DATA-07` werden architektonisch kohärent: die Ressource trägt ihren Scope
   (`we_item_state` erhält Workspace-FK; `as_*`-Tabellen erhalten `tenant_id` + RLS), statt dass
   jede Route ihn erraten muss.
@@ -144,26 +161,48 @@ nicht verhandelbare Isolationshülle der RLS.
    Ressource wird die Autorität aus dem **Zielobjekt** abgeleitet, **nie** aus einem
    client-gelieferten `workspace_id`. Ein `workspace_id` im Request bleibt höchstens Optimierung.
 
-3. **Eine Scope-Deklaration, ein Seam.** Jede Ressource/Klasse deklariert `tenant` **oder**
-   `workspace`; der Fence wird an **einer** Stelle abgeleitet und zentral in
-   `RbacPermission`/`AuthTenancyAuthentication` verankert (analog zur bereits zentralisierten
-   Capability-Prüfung, `auth_enforcer.py:109-118`). **Lässt sich der Ziel-Workspace nicht auflösen,
-   ist die Antwort fail-closed: 403**, nicht die tenant-weite UNION aus `rest.py:259-277`.
+3. **Eine Scope-Deklaration, ein Seam — mit DEFAULT-DENY für Unklassifiziertes.** Jede
+   Ressource/Klasse deklariert `tenant` **oder** `workspace` in einem zentralen
+   **Klassifikator** (eine Registrierung, kein Pro-Route-Flag); der Fence wird an **einer**
+   Stelle daraus abgeleitet und zentral in `RbacPermission`/`AuthTenancyAuthentication`
+   verankert (analog zur bereits zentralisierten Capability-Prüfung,
+   `auth_enforcer.py:109-118`). **Maßgeblich ist die Deklaration, nicht der Request.** Ist
+   eine Ressource nicht deklariert oder ihr Scope unbekannt, oder lässt sich der
+   Ziel-Workspace nicht auflösen, lautet die Antwort **fail-closed: 403** — es gibt **keinen**
+   Rückfall auf die tenant-weite UNION aus `rest.py:259-277` und **keine** implizite
+   `tenant`-Annahme für Unklassifiziertes. Ein unbekannter Scope wird wie ein unbekannter
+   Workspace behandelt: deny. Damit entscheidet der **Klassifikator** — nicht der Client —
+   über fail-open vs. fail-closed der 269 ungefenceten Routen.
 
-4. **API-Key-Fence und Ablauf werden an demselben Seam durchgesetzt.** Die heute nur in MCP
-   wirksame Prüfung von `workspace_ids` (`tool_registry.py:1592-1601`) und `expires_at` gilt
+4. **Coverage-Gate vor Scharfschaltung des Seams.** Ein Test enumeriert alle
+   Ressourcen/Routen über den Klassifikator und wird **rot**, solange **eine**
+   unklassifizierte Ressource existiert; er prüft zusätzlich, dass eine Route ohne
+   auflösbaren Ziel-Workspace 403 liefert statt auf die tenant-weite UNION zurückzufallen.
+   Der Seam wird erst scharf geschaltet, wenn dieser Test grün ist — dieselbe
+   „Registry + Coverage + Waiver"-Form, die `ADR-007` für Regeln belegt. Das Gate läuft
+   **vor** dem Scharfschalten, damit die 269 Routen nicht durch eine stille
+   `tenant`-Default-Annahme fail-open werden.
+
+5. **API-Key-Fence und Ablauf werden an demselben Seam durchgesetzt.** Die heute nur in MCP
+   wirksame Prüfung von `workspace_ids` (`tool_registry.py:1592-1601`, Funktion
+   `_check_workspace_fence` `:1568-1601`) und `expires_at` gilt
    damit ebenfalls für REST. Für Agent-Keys bleiben `scope`, explizites `workspace_ids` und
    `expires_at` Pflicht (`authentication.py:552-558`); Legacy-`user`-Keys ohne Ablauf sind das
    Ziel der Key-Rotation (`SECTRACK-01`), nicht dieser ADR.
 
-5. **Ownership ist eine deklarierte Ressourceneigenschaft, keine Request-Ableitung.** Der
-   Live-Fall `admin`-Key (`34e0aeae…`, `expires_at=NULL`) an `e2e-user`, nicht widerrufbar via
-   `api_key_views.py:380-408`, wird zum Regelfall: Ein Governance-/`admin`-Key ist auf
-   Tenant-/Governance-Ebene administrierbar, unabhängig davon, an welchem Konto er hängt. Die
-   genaue Administrationsregel (wer darf welchen `scope` widerrufen) ist eine Folgearbeit zu
-   `SEC-04`/`SECTRACK-01` und hier als **Richtung** festgehalten.
+6. **Ownership ist eine deklarierte Ressourceneigenschaft, keine Request-Ableitung — mit
+   Minimalregel.** Der Live-Fall `admin`-Key (`34e0aeae…`, `expires_at=NULL`) an
+   `e2e-user`, nicht widerrufbar via `api_key_views.py:380-408`, wird zum Regelfall:
+   **Minimalregel:** Ein `admin`-/Governance-Key ist gegen die **Governance-Ebene seines
+   eigenen Tenants** administrierbar (widerrufbar durch einen Tenant-Admin), **unabhängig
+   davon, an welchem User-Konto er hängt** — nicht nur self-scoped durch den anfragenden
+   User. `revoke_api_key(...)` (`api_key_views.py:403`) ist entsprechend um die
+   Governance-Achse zu erweitern. Die vollständige Rollen-/Scope-Matrix (wer darf welchen
+   `scope` widerrufen, Key-Rotation, Ablauf-Erzwingung) ist eine **Folge-ADR**
+   (Ownership-/Governance-ADR) zu `SEC-04`/`SECTRACK-01`; hier ist nur die Richtung und die
+   Minimalregel festgehalten.
 
-6. **Kaskade der abhängigen Arbeitseinheiten.** `SEC-02` (REST-Workspace-Fence objekt-abgeleitet),
+7. **Kaskade der abhängigen Arbeitseinheiten.** `SEC-02` (REST-Workspace-Fence objekt-abgeleitet),
    `SEC-03` (API-Key-`workspace_ids`+`expires_at` auf REST), `SEC-04` (Admin-/Webhook-Härtung),
    `DATA-06` (`we_item_state` Workspace-FK) und `DATA-07` (RLS-Deckung der `as_*`-Tabellen)
    referenzieren diesen ADR und setzen ihn um; `DATA-06`/`DATA-07` liefern dabei die
@@ -177,9 +216,12 @@ nicht verhandelbare Isolationshülle der RLS.
 
 - Die Klasse `222` ist **strukturell** geschlossen: neue Routen erben den Fence, statt ihn erneut
   zu implementieren; die 269 pfadbasierten Wiederholungen entfallen.
-- REST und MCP teilen **einen** Seam — `auth_enforcer.py:109-118` und
-  `tool_registry.py:1592-1601` können nicht mehr auseinanderdriften (MCP ist Referenz, REST zieht nach).
-- Der Fence ist **fail-closed** definiert; der Rückfall auf die tenant-weite UNION
+- REST und MCP teilen **einen** Seam — sobald `SEC-02`/`SEC-03` ihn bereitstellen:
+  `_check_workspace_fence` (`tool_registry.py:1568-1601`) ist die MCP-Referenz,
+  `auth_enforcer.py:109-118` das REST-Ziel. Heute sind es noch zwei Pfade; die
+  Zusammenführung ist der Liefergegenstand, keine Bestandsaufnahme.
+- Der Fence ist **fail-closed** definiert — auch für **Unklassifiziertes** (DEFAULT-DENY,
+  kein impliziter `tenant`-Fallback); der Rückfall auf die tenant-weite UNION
   (`rest.py:259-277`) verschwindet als stille Erweiterung.
 - `DATA-06`/`DATA-07` bekommen ihre architektonische Begründung: die Ressource trägt ihren Scope,
   statt ihn pro Route erraten zu lassen; die Migrationen sind damit Teil der Entscheidung, nicht
@@ -191,7 +233,9 @@ nicht verhandelbare Isolationshülle der RLS.
 
 - **Blast-Radius der Deklaration:** Ein Fehler im Scope-Seam wirkt sofort auf alle Ressourcen
   dieses Scopes. Der Seam muss durch einen Coverage-Test abgesichert sein, **bevor** er scharf
-  wird — sonst entsteht derselbe Kalibrierungsbruch, den `ADR-007` für Gates dokumentiert.
+  wird — der Test wird für **jede** unklassifizierte Ressource rot. Ohne dieses Gate droht
+  derselbe Kalibrierungsbruch, den `ADR-007` für Gates dokumentiert, nur mit umgekehrtem
+  Vorzeichen: statt stiller Freigabe eine flächige 403.
 - **Klassifikationsaufwand:** jede Ressource/Klasse muss `tenant` oder `workspace` deklarieren;
   dateilose bzw. bewusst workspaceübergreifende Objekte brauchen eine **benannte** Ausnahme
   (nicht: stiller Fallback).
@@ -207,6 +251,22 @@ nicht verhandelbare Isolationshülle der RLS.
 - **Kein Ersatz für `SECTRACK`:** Der Live-Fall `34e0aeae…` (maskiert) zeigt eine reale,
   noch zu rotierende `admin`-Key-Instanz; diese ADR beschreibt die Zielachse, sie widerruft
   keinen Key.
+
+---
+
+## Folgeaufgaben (nicht Teil dieser Entscheidung)
+
+1. **`open_adrs`-Feld einführen** (repo-weit, `AUD-2026-09-333`), damit die unter
+   „Betroffene REQs" genannten Anforderungen diesen ADR referenzieren können. Bis dahin
+   wird **keine** REQ-Datei geändert.
+2. **Ownership-/Governance-ADR** (`SEC-04`/`SECTRACK-01`): vollständige Matrix, wer welchen
+   `scope` widerrufen darf, Key-Rotation und Ablauf-Erzwingung. Die Minimalregel aus
+   Entscheidung Punkt 6 ist der Startpunkt.
+3. **Gemeinsamen Workspace-Fence bereitstellen** (`SEC-02`/`SEC-03`): `_check_workspace_fence`
+   aus dem MCP-Pfad als geteilten Seam extrahieren und in `RbacPermission`/
+   `AuthTenancyAuthentication` verankern; das Coverage-Gate (Entscheidung Punkt 4) geht voran.
+4. **Review-Übergang `proposed → review`** durch `se-critic` (MADR-Lifecycle), inkl. Prüfung
+   gegen die betroffenen REQs und die Default-Deny-Abgrenzung zu `rest.py:259-277`.
 
 ---
 
