@@ -639,6 +639,9 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
+      # ADR-010 §3: /health/ is a deprecated alias for /health/ready, so this
+      # probe now goes red on a cache/worker/beat outage instead of staying
+      # falsely green (finding AUD-2026-09-031).
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
       interval: 30s
       timeout: 10s
@@ -926,15 +929,17 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      # celery-beat has no worker to `inspect ping`, so this checks the beat
-      # process itself is still running (#171 — makes a restart-loop like
-      # "module reqogniloom was not found" visible via `docker ps`/health status
-      # instead of failing silently).
-      test: ["CMD-SHELL", "pgrep -f 'celery.*beat' > /dev/null || exit 1"]
+      # Functional beat probe (ADR-010 §3, RES-05): the heartbeat is written by
+      # the beat-scheduled `record_celery_beat_heartbeat` task and only stays
+      # fresh while beat actually dispatches. A plain `pgrep` (the old check)
+      # proved only that the process existed, so a hung beat stayed "healthy".
+      test: ["CMD-SHELL", "python manage.py check_celery_beat"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      # The first heartbeat is written by the beat-scheduled task (60s
+      # interval), so allow one full interval plus margin.
+      start_period: 90s
     depends_on:
       postgres:
         condition: service_healthy

@@ -757,6 +757,28 @@ HEALTH_PROBE_TIMEOUT_SECONDS: float = config(
     "HEALTH_PROBE_TIMEOUT", default=10.0, cast=float
 )
 
+
+def _health_strict_readiness(value: str) -> bool:
+    """ADR-010 §6: strict (fail-closed) unless the value is exactly ``false``.
+
+    An unset or empty value is strict; fail-closed is default-by-omission.
+    """
+    return str(value).strip().lower() != "false"
+
+
+# ADR-010 §6/§4: readiness strictness. Default ``true`` (fail-closed): an
+# unhealthy mandatory dependency yields HTTP 503. Only an explicit ``false``
+# switches ``/health/ready`` to the "degraded-200" fallback mode. This is
+# deployment/operator configuration, never a runtime user switch, and is not
+# exposed through the app UI.
+HEALTH_STRICT_READINESS: bool = config(
+    "HEALTH_STRICT_READINESS", default=True, cast=_health_strict_readiness
+)
+
+# ADR-010 §3: the HTTP ``Sunset`` date advertised by the deprecated ``/health/``
+# alias. ISO-8601 here; the view formats it as an IMF-fixdate at response time.
+HEALTH_ALIAS_SUNSET: str = config("HEALTH_ALIAS_SUNSET", default="2027-04-01")
+
 # REQ-106: per-tenant daily token budget. When set (a positive integer), the
 # CapabilityRouter rejects further LLM calls for a tenant that has already
 # consumed this many tokens in the last 24 hours, returning a structured
