@@ -383,3 +383,100 @@ git remote add codeberg https://codeberg.org/dduchrow/ai-native-reqflow-POC.git
 - Bundle `…\opencode\reqlo-pre-rewrite.bundle` **unangetastet** (`Length=202431414`, `LastWriteTime=2026-10-01 21:24:32`; `git bundle verify` = „The bundle records a complete history“).
 - Ersatzdatei `…\opencode\reqlo-replacements.txt` nach dem Lauf **gelöscht**.
 - **Kein Push**, kein `push --force`, kein `--no-verify`. Keine Key-Werte/Secrets in diesem Abschnitt.
+
+---
+
+## Phase 4 — SECTRACK-03 Secret-Scan-Gate
+
+- **Datum:** 2026-10-01
+- **Branch:** `chore/audit-review-2026-09`
+- **Auftrag:** reproduzierbares Secret-Scan-Gate (rewrite-first, harte 0 Treffer)
+  + Nachweis beider Richtungen (Erkennung erzwungen / echter Stand clean).
+- **Revision:** rein additive Gate-Artefakte, **kein** Product-Code; **kein Push**,
+  kein `--force`, kein `--no-verify`.
+
+### Scanner + Version + Installationsweg
+
+| Aspekt | Wert |
+|---|---|
+| Scanner | gitleaks (begründete Wahl) |
+| Version | **exakt 8.30.1** (gepinnt) |
+| Subkommandos (am Binary verifiziert) | `gitleaks git [repo]` (History; `--staged` für den Index) und `gitleaks dir [path]` (Arbeitsbaum). **`detect`/`protect` existieren in 8.30.1 nicht mehr** (`gitleaks --help` geprüft) — die Vorgabe-Subkommandos wurden entsprechend auf `git`/`dir` abgebildet |
+| Download Windows | `gitleaks_8.30.1_windows_x64.zip`, sha256 `d29144de…afc4e` |
+| Download Linux | `gitleaks_8.30.1_linux_x64.tar.gz`, sha256 `551f6fc8…470eb` |
+| Lokaler Install | portables Binary entpackt und auf `PATH` gelegt; **kein** globaler Systemumbau |
+| CI | sha256-verifizierter Download des gepinnten Release-Archivs |
+
+### Ort (CI + lokal)
+
+| Ort | Datei | Aufruf |
+|---|---|---|
+| lokal — pre-commit | `.pre-commit-config.yaml` | `gitleaks git --staged --redact --config .gitleaks.toml --enable-rule reqlo-api-key` |
+| lokal — manuell | `.gitleaks.toml` | `gitleaks git . …` (History) bzw. `gitleaks dir . …` (Arbeitsbaum) |
+| CI — GitHub Actions | `.github/workflows/ci.yml`, Job `secret-scan` | `dir` **und** `git`, je `--exit-code 1`; `fetch-depth: 0` |
+| CI — Woodpecker | `.woodpecker.yml`, Step `secret-scan` | `dir` **und** `git`, je `--exit-code 1` |
+
+### Konfiguration (`.gitleaks.toml`)
+
+`[extend] useDefault = true` + Custom-Regel `id=reqlo-api-key`,
+`regex = reqlo_[A-Za-z0-9]{40}\b`, `keywords=["reqlo_"]`. **Keine** Pfad-Allowlist
+(History ist clean). Der Boundary-Anker matcht GENAU 40 Alnum nach `reqlo_`:
+Live-Incident-Key → Treffer; 44-Zeichen-README-Beispiel und `<40`-Test-Fixtures
+→ kein Treffer.
+
+**Begründete Abweichung (Default-Regeln nicht im blockierenden Pfad):** Ein Lauf
+mit Default-Regeln liefert auf diesem Repo deterministisch **84 Treffer** (79×
+`generic-api-key`, 3× `curl-auth-header`, 2× `sourcegraph-access-token`) —
+ausschließlich intentionale Test-Fixtures (`VALID_API_KEY = "…"`,
+`DB_PASSWORD=…`) und das README-Dokumentationsbeispiel. Ein hartes 0-Gate mit
+Defaults bräuchte eine breite Allowlist oder eine große Baseline — beides laut
+Auftrag untersagt. Das **blockierende** Gate läuft daher mit
+`--enable-rule reqlo-api-key` (deterministisch, hard 0); die Default-Regeln
+bleiben in der Config für optionale Voll-Scans erhalten. Die 84
+Heuristik-Treffer sind als Triage-Follow-up notiert (ohne Bezug zum
+Incident-Muster).
+
+### Positiv-Nachweis (Erkennung erzwungen)
+
+Temporär (nicht committet) eine Datei mit synthetischem `reqlo_` + 40 Alnum
+erzeugt (`docs/audit/.scan-positive-probe.tmp`; Wert bewusst **nicht** abgedruckt):
+
+| Kanal | Kommando | Ergebnis |
+|---|---|---|
+| gitleaks `dir` | `gitleaks dir <probe> --config .gitleaks.toml --enable-rule reqlo-api-key --redact --exit-code 1` | **1 Finding** (`reqlo-api-key`), **Exit 1** |
+| gitleaks `git --staged` | `gitleaks git . --staged --redact --config .gitleaks.toml --enable-rule reqlo-api-key --exit-code 1` | **1 Finding**, **Exit 1** |
+| pre-commit | Probe gestaged, dann `pre-commit run gitleaks` | **Failed (Exit 1)**, 1 Leak (redigiert) |
+
+Die Probe wurde anschließend **entfernt und nie committet** (`git reset` +
+Delete; `git status` ohne Probe). Boundary-Kontrollprobe: 44- und
+39-Zeichen-Varianten → **0 Findings** (nur exakt 40 matcht).
+
+**Hook-Detail (verifiziert):** Der Upstream-Entry `gitleaks-system` nutzt
+`--pre-commit` (Diff Arbeitsbaum↔Index). Nach dem pre-commit-Stash ist dieser
+Diff leer, wodurch gestagte Secrets übersehen werden — der Hook meldete mit
+diesem Entry fälschlich „Passed“. Daher ein expliziter lokaler Hook mit
+`--staged`, der die Probe zuverlässig blockt.
+
+### Negativ-Nachweis (echter Stand clean)
+
+| # | Prüfung | Ergebnis |
+|---|---|---|
+| N1 | `gitleaks git . --enable-rule reqlo-api-key` über **2375 Commits** | **0 Findings**, Exit 0 |
+| N2 | `gitleaks dir <clean HEAD-Checkout> --enable-rule reqlo-api-key` | **0 Findings**, Exit 0 |
+| N3 | `git log --all -G 'reqlo_[A-Za-z0-9]{40}\b'` | **0** |
+| N4 | README-44-Zeichen-Beispiel unter der Custom-Regel | **nicht gemeldet** (N1/N2 = 0) |
+
+**Lokaler Hinweis (nicht Repo-Scope):** Ein roher `gitleaks dir .` über das
+Entwickler-Arbeitsverzeichnis findet zusätzlich **2** echte `reqlo_<40>`-Keys in
+**git-ignorierten** Dateien (`.claude/settings.local.json`,
+`.meta-config/secrets.local.yaml`; siehe `.gitignore`). Sie sind nicht getrackt
+und nicht in der History; das Repo-Gate (N1/N2) bleibt 0. Empfehlung: diese
+lokalen Dateien bei Gelegenheit rotieren.
+
+### Bestätigungen (Phase 4)
+
+- **Kein Push**, kein `push --force`, kein `--no-verify`.
+- Keine Key-Werte/Secrets in diesem Abschnitt oder in den committeten Dateien;
+  die Positiv-Probe war synthetisch und wurde gelöscht.
+- Keine Änderung an Product-Code; nur Gate-Artefakte (`.gitleaks.toml`,
+  `.pre-commit-config.yaml`, CI-Workflows).
