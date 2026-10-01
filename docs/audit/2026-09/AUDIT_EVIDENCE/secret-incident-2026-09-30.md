@@ -1,7 +1,7 @@
 ---
 type: EVIDENCE
 scope: secret-incident
-status: remediiert-history-offen
+status: remediiert-history-rewritten
 date: 2026-09-30
 author_agent: security-auditor
 ---
@@ -11,7 +11,7 @@ author_agent: security-auditor
 **Klasse:** Hardcoded Credential (CWE-798) im Git-Arbeitsbaum + Git-Historie
 **Auslöser:** WP-6a-Security-Audit, Finding `AUD-2026-09-220`
 **Ursache:** Der Audit-Prozess selbst (WP-1d) hat ein live gültiges API-Key in eine JSON-Evidenzdatei geschrieben.
-**Status:** Credential **widerrufen** (belegt) · Arbeitsbaum **redigiert** (belegt) · Historie **offen** (Entscheidungsvorlage §5)
+**Status:** Credential **widerrufen** (belegt) · Arbeitsbaum **redigiert** (belegt) · Historie **rewritten** (2026-10-01, §10)
 
 > **Grundsatz dieser Datei:** Es werden ausschließlich Pfade, Zeilennummern, Mustertypen und
 > Key-IDs dokumentiert. **Keine Klartext-Credentials.** Wo ein Wert zur Identifizierung nötig ist,
@@ -489,5 +489,35 @@ Eigenschaft der Diff-Darstellung. Beleg mit `git grep` (durchsucht **Bäume**, n
 * **Konsequenz für Option A:** Der `replace-text`-Ansatz aus §5.2 ist weiterhin korrekt, weil er auf
   Blob-Ebene arbeitet. Er **muss** aber zwingend auf dem Commit `3dcc80d8` **sowie** alle Nachfolger
   angewandt werden, die den alten Blob als Elternstand referenzieren — und nach dem Rewrite ist
-  zusätzlich zu prüfen, ob das `reflog` den alten Blob weiterhin auflösbar hält (⇒ `--prune-empty`,
-  `git reflog expire --expire=now --all`, plus das Bundle aus Schritt 1 nur offline aufbewahren).
+   zusätzlich zu prüfen, ob das `reflog` den alten Blob weiterhin auflösbar hält (⇒ `--prune-empty`,
+   `git reflog expire --expire=now --all`, plus das Bundle aus Schritt 1 nur offline aufbewahren).
+
+---
+
+## 10. Nachtrag 2026-10-01 — History-Rewrite ausgeführt (pre-rewrite-SHAs sind Historik)
+
+Der in §5 als **Option A** bewertete `git filter-repo`-Rewrite wurde am **2026-10-01** über
+**alle lokalen Refs** ausgeführt und verifiziert. Ausführung, Verifikationsmatrix und die
+verbindliche Alt→Neu-Zuordnung stehen in
+[`../review/plan/SECURITY_TRACK_EXECUTION.md`](../review/plan/SECURITY_TRACK_EXECUTION.md)
+(Phase 3). Damit gilt für dieses Dokument und den gesamten Audit-Ordner:
+
+- **Alle hier genannten Commit-Hashes sind pre-rewrite-Referenzen** (Stand *vor* dem Rewrite):
+  `3dcc80d8` (der geleakte Commit), `abd61aed` (Audit-Basis `main`), `38da915f` und Tag
+  `bf918f15` (Release-Cut/Tag `v1.8.0-beta.18`), `ba06e92d` (Branch-Tip
+  `chore/audit-review-2026-09`) u. a. Diese Objekte sind im lokalen Repo **nicht mehr
+  auflösbar** (`git cat-file -e 3dcc80d8` ⇒ Fehler). Die Referenzen bleiben als
+  **Evidenz-Historie** stehen und zeigen auf den *damaligen* Zustand, nicht auf einen
+  heutigen Commit.
+- **`3dcc80d8` ist aus der Historie entfernt** (Ziel aus §5.2 erreicht); die umgeschriebene
+  Fassung des Commits trägt einen neuen SHA, der alte SHA ist weg.
+- **Zentrale Refs alt → neu:** `chore/audit-review-2026-09` `ba06e92d` → `e9644e19` ·
+  `main` `abd61aed` → `d330f666` · `release/v1.8.0-beta.18` `38da915f` → `73d90e1b` ·
+  Tag `v1.8.0-beta.18` `bf918f15` → `b2420d58`. Verbindlich ist die Tabelle in
+  `SECURITY_TRACK_EXECUTION.md` (Phase 3, „Neue Hashes der zentralen Refs").
+- **Kein Push:** Der Rewrite blieb rein lokal; `origin` wurde ohne Push wieder angebunden.
+  §2.3 („nicht gepusht") beschreibt weiterhin korrekt den *damaligen* Push-Status.
+
+> **Für Leser der Audit-Berichte:** Ein Hash, der nicht mehr auflöst, ist **kein Fehler des
+> Berichts**, sondern die beabsichtigte Folge des Rewrites. Referenzzustand ist der
+> beschriebene Inhalt, nicht der SHA.

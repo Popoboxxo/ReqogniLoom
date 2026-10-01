@@ -5,7 +5,7 @@ status: final
 date: 2026-10-01
 author_agent: planner
 branch: chore/audit-review-2026-09
-base_head: 3da62d63
+base_head: 3da62d63  # pre-rewrite SHA (History-Rewrite 2026-10-01); Mapping: plan/SECURITY_TRACK_EXECUTION.md
 doD_preset: rapid-prototyping
 sources:
   - docs/audit/2026-09/review/AUDIT_REVIEW_SUMMARY.md
@@ -43,6 +43,12 @@ detail_files:
 > und die PT-Spanne. Der Planner-Agent schätzt nicht selbst (Text-Referenz). Diese
 > Schätzung ist Voraussetzung für den Start von W2; ihre PT-Werte sind Leitzahl, die
 > `S/M/L`-Angaben in §4 dienen nur der Groborientierung.
+>
+> **Post-Rewrite-Hinweis (2026-10-01).** Das Frontmatter-`base_head` `3da62d63` ist ein
+> **pre-rewrite**-SHA; die Historie wurde am 2026-10-01 per `git filter-repo` über alle
+> lokalen Refs umgeschrieben. Die Alt→Neu-Zuordnung der zentralen Refs liefert
+> [`plan/SECURITY_TRACK_EXECUTION.md`](plan/SECURITY_TRACK_EXECUTION.md) (Phase 3).
+> Hash-Verweise in Audit-/Evidenz-Dokumenten sind bewusst historische Provenienz.
 
 ---
 

@@ -170,7 +170,10 @@ Präzisierung, Negativbefund.
    ([§ 14.1](AUDIT_FINDINGS.md)).
 4. **Das Audit hat selbst ein Secret committet.** `AUD-2026-09-220` / P-1: ein
    live gültiges `write`-API-Key wurde im Evidenz-JSON committet. **Widerrufen**
-   am 2026-09-30, Arbeitsbaum redigiert — **Git-Historie offen**. Der zweite
+   am 2026-09-30, Arbeitsbaum redigiert — **Git-Historie seit 2026-10-01 bereinigt**
+   (History-Rewrite ausgeführt; pre-rewrite-SHAs wie `3dcc80d8`/`abd61aed` sind nur noch
+   Historik — siehe [`AUDIT_EVIDENCE/secret-incident-2026-09-30.md` §10](AUDIT_EVIDENCE/secret-incident-2026-09-30.md)).
+   Der zweite
    gefundene Key `ff77bbd0-…` ist **eskaliert, aber nicht widerrufen**. Das ist
    der teuerste Prozessdefekt des Audits und steht deshalb hier, nicht versteckt
    im Register.
