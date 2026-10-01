@@ -12,8 +12,9 @@ parent: IMPLEMENTATION_PLAN.md
 # Epic SEC — Security & Authorization
 
 > Detailplan. Ort = Produktcode-Anker aus der Review. Akzeptanz ist messbar/observabel.
-> Aufwand = Platzhalter (final: `effort-estimator`). Reihenfolge: SEC-01 ist ADR-Blocker
-> für SEC-02/03.
+> **Aufwand:** verbindliche PT-Spannen in `plan/EFFORT_ESTIMATES.md` §1 — die
+> `Aufwand: S/M/L`-Angaben hier sind nur Groborientierung. Reihenfolge: SEC-01 ist
+> ADR-Blocker für SEC-02/03.
 
 ## SEC-01 — ADR Tenant- vs. Workspace-Autorisierungsmodell (P0, W1)
 

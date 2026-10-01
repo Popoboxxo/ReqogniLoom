@@ -12,10 +12,24 @@ parent: IMPLEMENTATION_PLAN.md
 # Epic RES — Resilience & Health
 
 > Detailplan. Redis-Abhängigkeit ist der kritische Pfad (live bestätigt: 030/031/221).
+>
+> **Health-Vertrag (`plan/INTERFACE_CONTRACTS.md` §3/§7.1, api-specialist).** Sollmodell
+> `/health/live` (immer 200) + `/health/ready` (fail-closed, 503) + `/health/`-Alias,
+> Empfehlung **Option C (ADR i) kombiniert mit fail-closed Readiness**. **ADR i blockiert**
+> diese Endpunkt-Topologie und fail-closed vs. degraded-200 → hier nur
+> **Vertragsvorschlag**, kein Sofort-Fix; RES-05/RES-07 hängen daran. Das widerlegte
+> Finding `129` („`degraded` → 200") ist **nicht** Fixgegenstand.
+>
+> **Aufwand.** Verbindliche PT-Spannen: `plan/EFFORT_ESTIMATES.md` §1; die Angaben
+> `Aufwand: S/M/L` in dieser Datei sind nur Groborientierung.
 
 ## RES-01 — Redis-/Cache-Timeouts fail-safe (P0, W1)
 
-- **Findings:** 030, N3
+- **Findings:** 030
+- **Abgrenzung `N3`:** Die Connect/DNS-Präzisierung aus `REVIEW_LIVE_CRITICALS.md` §6
+  (dort als „N3“ indexiert) ist **Teil von `030`** — kein eigenes Finding. Das Kürzel
+  `N3` ist in dieser Planung eindeutig der **Outbox-Idempotenz-Lücke** vorbehalten und
+  gehört ausschließlich zu `DATA-09` (`plan/DATA_RECOVERY.md`), **nicht** zu RES-01.
 - **Ort:** `reqogniloom/settings.py:879-884` (`CACHES` ohne `OPTIONS`/`SOCKET_TIMEOUT`);
   `rest_api/throttling.py:164-176` (fail-open fängt nur `Exception`, nicht blockierenden Socket)
 - **Zielverhalten:** `socket_connect_timeout` + `socket_timeout` sind explizit gesetzt;
@@ -52,7 +66,8 @@ parent: IMPLEMENTATION_PLAN.md
   `:312-315` warning⇒200; Docstring `:4` verspricht `/health/ready`+`/health/live`, die nicht existieren);
   `admin_ops/health_rest.py:96-198` (vollständige Probe, aber RBAC-geschützt);
   `deploy/docker-compose.yml:642` (`curl -f /health/`)
-- **Zielverhalten:** **ADR (i) entscheidet** fail-closed vs. degraded. Danach:
+- **Zielverhalten (ADR-blockiert = Vertragsvorschlag `INTERFACE_CONTRACTS.md` §3/§7.1; nicht
+  umsetzbar bis ADR i):** **ADR (i) entscheidet** fail-closed vs. degraded. Danach:
   `/health/live` (Prozess) und `/health/ready` (DB, Cache/Redis, Celery-Worker, Beat,
   Outbox) getrennt; Compose/CI-Gates werten Readiness aus; keine falsch-grüne Probe.
 - **Akzeptanz:** Bei Redis-Stop liefert `/health/ready` **503** mit gelisteter ausgefallener

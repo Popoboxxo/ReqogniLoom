@@ -13,14 +13,29 @@ parent: IMPLEMENTATION_PLAN.md
 
 > Detailplan. `349` ist toter Link (070 widerlegt) — Umsetzung nutzt nur den CSV-`success`-Kern.
 > `052`/`053`-Retirement-Daten sind NICHT VERIFIKABAR; Fix zielt auf die Konfigurationsfalle.
+>
+> **Verträge (`plan/INTERFACE_CONTRACTS.md`, api-specialist).** INT-01/INT-04/INT-06
+> nutzen das Import-Ergebnismodell §2 (`succeeded/skipped/failed`, `success ⇔ failed==0`,
+> `Idempotency-Key`), INT-05 die Pagination §4, INT-07 den JSON-RPC-2.0-Fehlerkontrakt §5.
+> **ADR-blockiert = Vertragsvorschlag, kein Sofort-Fix:** Semantikwechsel `success`
+> (INT-01), HTTP 207/422 und die Idempotenz-Wahl hängen an **ADR v** (§2.8/§6);
+> sofort zulässig sind nur BOM-Fix (`utf-8-sig`), `errors`-nie-leer, `request_id`,
+> `page`-404 und MCP-`-32602`. Kein widerlegtes Finding (`042`, `283`, `204`) ist hier
+> Fixgegenstand.
+>
+> **Aufwand.** Verbindliche PT-Spannen: `plan/EFFORT_ESTIMATES.md` §1; die Angaben
+> `Aufwand: S/M/L` in dieser Datei sind nur Groborientierung.
 
 ## INT-01 — ReqIF `success`-Vertrag + Savepoint wirksam (P0, W1)
 
-- **Findings:** 071, 349, 079
+- **Findings:** 071, 079
+- **`349`:** toter Link auf das **widerlegte `070`** — nur Register-/Doku-Korrektur
+  (`DOC-06`), **kein** eigenständiger INT-01-Fixgegenstand.
 - **Ort:** `application/reqif_import_service.py:482-489` (`success=True` hart; Docstring
   `:273-287`), `:413-414`/`:688-703` (Savepoint wird geschluckt), `:429-443`, `to_dict :296-304`
-- **Zielverhalten:** **ADR (v) entscheidet** Fehlersemantik; danach: `success=false` (bzw.
-  207/422), sobald Objektfehler auflaufen; die per-Objekt-Savepoint-Rettung rollt ein
+- **Zielverhalten (ADR-blockiert = Vertragsvorschlag `INTERFACE_CONTRACTS.md` §2; nicht
+  umsetzbar bis ADR v):** **ADR (v) entscheidet** Fehlersemantik; danach: `success=false`
+  (bzw. 207/422), sobald Objektfehler auflaufen; die per-Objekt-Savepoint-Rettung rollt ein
   fehlerhaftes Objekt tatsächlich zurück, ohne die Folge-Query auf einer abgebrochenen
   Transaktion zu töten. Der Vertrag in `:273-287` wird korrigiert (nicht nur `:483`).
 - **Akzeptanz:** ReqIF-Import mit einem fehlerhaften Objekt ⇒ Antwort meldet `success=false`
@@ -32,7 +47,7 @@ parent: IMPLEMENTATION_PLAN.md
 
 ## INT-02 — LLM-Defaults/Provider-Auswahl (P1, W2)
 
-- **Findings:** 052, 053, 058, N8
+- **Findings:** 052, 053, 058, N8, 346 (=052, zusammengeführt)
 - **Ort:** `llm_adapter/providers.py:1080,853,1333,1675` (MODEL_NAME-Defaults, harrend
   `claude-3-opus-20240229`/`gpt-4`); `models.py:2417-2421` (kein `azure`), `llm-settings.ts:22`;
   `OllamaProvider`-Fehlermeldung `providers.py:1504-1508` (falscher Env-Name);
@@ -69,8 +84,10 @@ parent: IMPLEMENTATION_PLAN.md
   ablehnend), `:300-314` (leere `errors`), `:346-354` (Quoting); `rest_api/views.py:8018`
   (`decode("utf-8")` ⇒ BOM); `export_service.py:372-376`/`settings_views.py:579-585`
 - **Zielverhalten:** Import ist idempotent/dedupliziert (gemäß ADR v: `Idempotency-Key` oder
-  fachliche Duplikaterkennung); `errors` nie leer bei Rollback; BOM wird via `utf-8-sig`
-  entfernt; irreführende Meldung durch Ursachen-beschreibende ersetzt.
+  fachliche Duplikaterkennung — **Vertragsvorschlag** `INTERFACE_CONTRACTS.md` §2.3, bis ADR v
+  nicht umsetzbar); `errors` nie leer bei Rollback (**sofort zulässig**); BOM wird via
+  `utf-8-sig` entfernt (**sofort zulässig**); irreführende Meldung durch
+  Ursachen-beschreibende ersetzt.
 - **Akzeptanz:** Zweifacher Import derselben Datei erzeugt keine Duplikate; BOM-Datei
   importiert korrekt; Fehlerantwort nennt die Ursache.
 - **Test:** pytest (Import-Round-Trip, BOM-Fixture) + Live-Import im Test-Workspace. ·
@@ -98,14 +115,17 @@ parent: IMPLEMENTATION_PLAN.md
 - **Ort:** `openapi.py:71-98` (unbenutzte `COMMON_ERROR_RESPONSES`); `reqif_export_service.py:394-409`;
   `views.py:8265` (ReqIF-Import ohne `requestBody`), `:8216-8217`; `settings.py:523,593,597-621`
   (`cookieAuth` unreferenziert); Fehlerbody ohne `request_id`
-- **Zielverhalten:** Fehlerantworten sind im Schema deklariert; ReqIF-Import hat
+- **Zielverhalten:** Fehlerantworten sind im Schema deklariert (Ergebnis-Envelope gemäß
+  **ADR v = Vertragsvorschlag** `INTERFACE_CONTRACTS.md` §1/§2); ReqIF-Import hat
   `requestBody`, Export deklariert `application/xml`; `reqIFVersion` ist korrekt/validierbar;
-  `cookieAuth` referenziert oder entfernt; `request_id` im Body (Kopplung RES-07).
+  `cookieAuth` referenziert oder entfernt; `request_id` im Body (Kopplung RES-07,
+  **sofort zulässig**).
 - **Akzeptanz:** `manage.py spectacular` läuft und Schema enthält die Responses/Bodies;
   ReqIF-XSD-Validierung gegen installiertes Paket.
 - **Test:** `test_openapi.py` erweitert; Schema-Generierung im CI. · **Aufwand:** M ·
-  **Risiko/Rollback:** Schemaänderung → dokumentiert, reversibel. · **Deps:** ADR v,
-  RES-07 · **ADR:** v
+  **Risiko/Rollback:** Schemaänderung → dokumentiert, reversibel. · **Deps:** ADR v
+  (`request_id`-Kopplung zu RES-07 ist **lose, kein Blocker** — `request_id` ist sofort
+  zulässig; **keine** Cross-Wave-Abhängigkeit INT-06(W2)→RES-07(W3)) · **ADR:** v
 
 ## INT-07 — MCP-Fehlervertrag & Validierung (P2, W3)
 

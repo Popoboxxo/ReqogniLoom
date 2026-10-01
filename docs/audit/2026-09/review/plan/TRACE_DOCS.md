@@ -12,7 +12,9 @@ parent: IMPLEMENTATION_PLAN.md
 # Epic DOC — Traceability, Doku-Hygiene, i18n, CI-Wahrheit, UI
 
 > `204` ist FALSCH (stale Registerzeile) → nur Registerkorrektur, kein Produkt-Fix.
-> Teil-FALSCH `006/016/021/088/153/234` → nur präzisieren.
+> Teil-FALSCH `006/016/021/088/153/234` → nur präzisieren. **Aufwand:** verbindliche
+> PT-Spannen in `plan/EFFORT_ESTIMATES.md` §1; die `Aufwand: S/M/L`-Angaben hier sind nur
+> Groborientierung.
 
 ## DOC-01 — Traceability-Matrix / ADR-Frontmatter / `refines` (P1, W2)
 

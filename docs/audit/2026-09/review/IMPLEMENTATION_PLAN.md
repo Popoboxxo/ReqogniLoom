@@ -25,6 +25,9 @@ detail_files:
   - docs/audit/2026-09/review/plan/PLUGINS.md
   - docs/audit/2026-09/review/plan/TRACE_DOCS.md
   - docs/audit/2026-09/review/plan/SECURITY_TRACK.md
+  - docs/audit/2026-09/review/plan/EFFORT_ESTIMATES.md
+  - docs/audit/2026-09/review/plan/SECURITY_TRACK_REVIEW.md
+  - docs/audit/2026-09/review/plan/INTERFACE_CONTRACTS.md
 ---
 
 # IMPLEMENTATION_PLAN — Umsetzung der korrigierten Audit-Review 2026-09
@@ -34,9 +37,12 @@ detail_files:
 > Findings (121-Headline, 180-Prämisse, 129-„degraded→200"-Form, 042, 283, 204) sind
 > **nicht** eingeplant. `stack-seeds.md` und `.kimi-code/` bleiben unangetastet.
 >
-> **Aufwand.** Pro Arbeitseinheit steht ein Platzhalter `S/M/L`. Die finalen
-> Personentage/Story-Points liefert `effort-estimator` je Arbeitseinheit (Text-Referenz,
-> keine Eigenschätzung des Planner-Agenten). Diese Schätzung ist eine Voraussetzung für W2.
+> **Aufwand.** Die **verbindliche** Aufwandsschätzung liefert `effort-estimator` in
+> `plan/EFFORT_ESTIMATES.md`: **Gesamtspanne 52,5–115,0 PT, Erwartungswert ≈ 84 PT**
+> (1 Dev, sequentiell; ohne ADR-Wartezeit). Pro Einheit stehen dort `S/M/L` (bzw. `XL`)
+> und die PT-Spanne. Der Planner-Agent schätzt nicht selbst (Text-Referenz). Diese
+> Schätzung ist Voraussetzung für den Start von W2; ihre PT-Werte sind Leitzahl, die
+> `S/M/L`-Angaben in §4 dienen nur der Groborientierung.
 
 ---
 
@@ -53,7 +59,10 @@ detail_files:
   `REVIEW_WP6A` §6 / `REVIEW_WP6B` §6 / `REVIEW_WP1B` §5 / `REVIEW_LIVE_CRITICALS` §6.
 - Doku-Hygiene der Traceability-/SE-Matrix (WP-5), soweit sie Produktzusagen betrifft
   (`201, 330–334, 339–350`).
-- Der offene Secret-Vorgang `220` + `ff77bbd0…` + 8 `admin`-Keys als **eigener P0-Track**.
+- Der offene Secret-Vorgang `220` + `ff77bbd0…` + aktive `admin`-Keys als **eigener
+  P0-Track**; Ziel-Key-Menge nach `SECURITY_TRACK_REVIEW.md` korrigiert: nicht „8", sondern
+  **Legacy-`user`-Keys mit `scope ∈ {write, admin}` und `expires_at=NULL`** (inkl.
+  `ff77bbd0…`), inventarisiert vor Widerruf.
 
 **Draußen (bewusst NICHT eingeplant):**
 
@@ -61,10 +70,13 @@ detail_files:
   schützt nichts"), `129` in der Form „degraded→200", `042` (Multi-Interview startbar),
   `283` (Bus-Namensverwechslung), `204` (stale Registerzeile).
 - **Teil-FALSCH (`006, 016, 021, 088, 153, 234`):** nur Präzisierung/Registerkorrektur,
-  kein Code-Fix (siehe `DOC-07`).
+  kein Code-Fix (siehe `DOC-06`).
 - **Duplikate** werden zusammengeführt, nicht separat umgesetzt: `345→123`, `346→052`,
-  `002≈300`, `241→148`, `121(b)→125/270`, `231↔055/063`, `221↔030` (als ein Pfad
-  behandelt), `227↔184/185`, `227/184`, `349→070` (toter Link).
+  `002≈300`, `241→148`, `121(b)→125/270`, `231↔055/063`, `221↔030` (bleiben **zwei
+  getrennte Arbeitseinheiten** — RES-01 Redis-Timeouts und RES-02
+  Throttle-Reihenfolge/Amplifikation —, die in W1 als gemeinsamer Pfad gebündelt
+  werden), `227↔184/185` (`185→DATA-07`), `227/184`, `349→070` (toter Link →
+  nur `DOC-06`, kein Fixgegenstand).
 - **agent-meta / generierte Prompts / `.claude`,`.**` `.opencode` etc.:** nicht Produkt.
 - **Bewusst verschobene, nicht live verifizierte Mechaniken** (`071` ReqIF, `222`
   Workspace-Fence, `190` Diff-Engine): bleiben drin, aber die **Live-Nachtest-Pflicht**
@@ -109,11 +121,11 @@ dem betrieblichen Secret-Vorgang (`SECTRACK`, eigener P0-Track).
 |---|---|---|---|
 | 1 | `SECTRACK-01/02/03/04` | 220, ff77bbd0…, 8 Keys, 224, 239 | **Push-Blocker:** Option-A-History-Rewrite + Rotation + Scan-Gate müssen **vor** dem ersten Push liegen; ohne das bleibt 220 Critical. |
 | 2 | `SEC-01→02/03` | 222, N2, 240 | **ADR-Blocker:** Tenant-vs-Workspace-Entscheidung (ii) muss fallen, sonst wird der Fence nur konfigurierbar statt dicht. |
-| 3 | `RES-01/02` | 030, 221, N3, N6 | Redis-Ausfall nimmt alle MCP-Clients in Beschlag, während Health grün bleibt — blockiert zuverlässigen Betrieb. |
+| 3 | `RES-01/02` | 030, 221, N6 | Redis-Ausfall nimmt alle MCP-Clients in Beschlag, während Health grün bleibt — blockiert zuverlässigen Betrieb. |
 | 4 | `RES-03` | 031, 129, 139, 275, 286 | **ADR-Blocker:** Health-Vertrag (i) entscheidet fail-closed vs. degraded; Compose/CI-Gates hängen daran. |
 | 5 | `DATA-01/02` | 123, 124, 127, 122, 128, 345 | **ADR-Blocker (iii):** Restore ist funktionslos ⇒ Wiederherstellungspfad existiert faktisch nicht. |
 | 6 | `DATA-03/04` | 167, 168, 169, 170, N7, 281 | Stille State-/Version-Bypässe + Lost-Update-Race ⇒ Datenintegrität. |
-| 7 | `INT-01` | 071, 349 | ReqIF-Import meldet `success:true` bei fehlgeschlagenem Import. |
+| 7 | `INT-01` | 071 (349→DOC-06) | ReqIF-Import meldet `success:true` bei fehlgeschlagenem Import. |
 | 8 | `PLUG-01` | 115, 114 | Hermes-Hauptpfad crasht mit `TypeError`; Fixture verdeckt es. |
 
 > Justierung gegenüber dem Vorschlag: `071` + `115` sind haltende **Criticals** und
@@ -138,7 +150,7 @@ Grundlage für `effort-estimator`.
 | SEC-06 | Proxy-/NUM_PROXIES-Konfiguration | 229 | P2 | SEC | W3 | — |
 | SEC-07 | Budget-Fail-open sichtbar machen | 231, 063 | P2 | SEC | W3 | — |
 | SEC-08 | CI/CD-Supply-Chain + Staging-Gate | 137, 149, 225 | P1 | SEC | W2 | — |
-| RES-01 | Redis-/Cache-Timeouts fail-safe | 030, N3 | P0 | RES | W1 | — |
+| RES-01 | Redis-/Cache-Timeouts fail-safe | 030 | P0 | RES | W1 | — |
 | RES-02 | Rate-Limit nach AuthN + Bucket-Amplifikation | 221, N6 | P0 | RES | W1 | — |
 | RES-03 | ADR + Health-Vertrag (live/ready, Cache/Worker/Beat) | 031, 129, 139, 275, 286, 205 | P0 | RES | W1 | i |
 | RES-04 | Celery-Queue-Topologie + acks_late | 120, 126, 132, 133, 056 | P1 | RES | W2 | iv |
@@ -152,12 +164,12 @@ Grundlage für `effort-estimator`.
 | DATA-04 | `Goal.sequence_number` UNIQUE + Lock | 281 | P0 | DATA | W1 | — |
 | DATA-05 | Self-Link + `link_type`-CHECK | 157, 182 | P1 | DATA | W2 | — |
 | DATA-06 | `we_item_state` Workspace-FK + State-CHECK | 171, 180, 186, 227 | P1 | DATA | W2 | ii |
-| DATA-07 | RLS-Deckung `at_api_key`/`at_user_role`/`audit_entry` + as_*-Tabellen | 184, 227, N1 | P1 | DATA | W2 | ii |
+| DATA-07 | RLS-Deckung `at_api_key`/`at_user_role`/`audit_entry` + as_*-Tabellen | 184, 227, 185, N1 | P1 | DATA | W2 | ii |
 | DATA-08 | TestCase-Tag-Rückstände + Frontend-Route | 181, 189 | P1 | DATA | W2 | — |
 | DATA-09 | Outbox-Idempotenz der 3 realen Abonnenten | N3 | P1 | DATA | W2 | v |
 | DATA-10 | Preset-SSOT / Fail-open-Gate | 160, 162, 161, 175 | P1 | DATA | W3 | vi |
-| INT-01 | ReqIF `success`-Vertrag + Savepoint wirksam | 071, 349, 079 | P0 | INT | W1 | v |
-| INT-02 | LLM-Defaults/Provider-Auswahl (Anthropic/OpenAI/Azure) | 052, 053, 058, N8 | P1 | INT | W2 | — |
+| INT-01 | ReqIF `success`-Vertrag + Savepoint wirksam | 071, 079 (349→DOC-06, toter Link) | P0 | INT | W1 | v |
+| INT-02 | LLM-Defaults/Provider-Auswahl (Anthropic/OpenAI/Azure) | 052, 053, 058, N8, 346 (=052) | P1 | INT | W2 | — |
 | INT-03 | LLM-Parser-Härtung, Retry-Amplifikation, Usage | 057, 055, 059, 061, 062, 054 | P1 | INT | W2 | — |
 | INT-04 | CSV-Import: Dedupe/Idempotenz + BOM/Fehlermeldung | 072, 079, 080, 081, 083 | P1 | INT | W2 | v |
 | INT-05 | REST-Pagination: ungepagte Listen + 500-vs-404 | 073, 074 | P1 | INT | W2 | — |
@@ -180,6 +192,19 @@ Grundlage für `effort-estimator`.
 | SECTRACK-04 | Evidenz-Redactor + Cleanup-Checkliste | 239, 220 | P0 | SECTRACK | W1 | — |
 | SECTRACK-05 | Hardcoded Deploy-Credentials | 241, 148 | P2 | SECTRACK | W3 | — |
 
+> **Size & PT je Einheit** (verbindliche PT-Spannen: `plan/EFFORT_ESTIMATES.md` §1):
+> - **SEC:** `SEC-01 S` · `SEC-02 L` · `SEC-03 M` · `SEC-04 M` · `SEC-05 S` · `SEC-06 S` · `SEC-07 S` · `SEC-08 M`
+> - **RES:** `RES-01 S` · `RES-02 M` · `RES-03 L` · `RES-04 M` · `RES-05 M` · `RES-06 S` · `RES-07 M` · `RES-08 S`
+> - **DATA:** `DATA-01 M` · `DATA-02 M` · `DATA-03 L` · `DATA-04 S` · `DATA-05 S` · `DATA-06 M` · `DATA-07 M` · `DATA-08 S` · `DATA-09 M` · `DATA-10 M`
+> - **INT:** `INT-01 M` · `INT-02 M` · `INT-03 M` · `INT-04 M` · `INT-05 M` · `INT-06 M` · `INT-07 M`
+> - **PLUG:** `PLUG-01 S` · `PLUG-02 S` · `PLUG-03 M` · `PLUG-04 M` · `PLUG-05 S`
+> - **DOC:** `DOC-01 M` · `DOC-02 M` · `DOC-03 M` · `DOC-04 M` · `DOC-05 S` · `DOC-06 S`
+> - **SECTRACK:** `SECTRACK-01 S` · `SECTRACK-02 S` · `SECTRACK-03 S` · `SECTRACK-04 M` · `SECTRACK-05 S`
+>
+> Epic-Erwartungswerte (PT, `EFFORT_ESTIMATES.md` §2): SEC ≈12,1 · RES ≈14,3 ·
+> DATA ≈20,9 · INT ≈15,25 · PLUG ≈6,25 · DOC ≈10,0 · SECTRACK ≈5,0.
+> **Gesamt 52,5–115,0 PT, Erwartungswert ≈84 PT** (1 Dev).
+
 ---
 
 ## 5. ADR-Kandidaten (explizit)
@@ -194,6 +219,36 @@ Grundlage für `effort-estimator`.
 | **vi** | Wie groß ist der SSOT-Anspruch der Presets (Daten vs. Code) — und `refines` als Hierarchiekante? | A volle SSOT · B ehrliche Teil-SSOT · C Code-SSOT/Export | `DATA-10`, `DOC-01` | JA (#2), `refines` aus REVIEW_WP4 §6 |
 | **vii** | Plugin- vs. Server-Version: eine Projektversion, unabhängige Plugin-SemVer oder Build-Artefakt? | A `VERSION` SSOT · B unabhängige Plugin-Version · C Build-Artefakt | `PLUG-04` | JA (#7) |
 | **viii** | Darf `t()` einen Inline-Default behalten — und sind dynamische Keys erlaubt? | A strikt · B Default erlaubt + sinkender Ratchet · C generierte Keys | `DOC-02` | JA (#6) |
+
+> **Empfehlung `api-specialist`** (`plan/INTERFACE_CONTRACTS.md` §7; Vorschlag, **keine**
+> Entscheidung):
+> - **ADR i → Option C** (zwei Endpunkte `/health/live` + `/health/ready`) kombiniert mit
+>   **fail-closed Readiness** (A-Semantik für `/health/ready`) und verpflichtender
+>   Ausfall-Liste; `/health/` wird Deprecation-Alias. Details `INTERFACE_CONTRACTS.md` §3.
+> - **ADR v → Option A** für die Importpfade (ein Ergebnismodell `succeeded/skipped/failed`
+>   + `Idempotency-Key`, `success ⇔ failed==0`), **MCP strikt JSON-RPC 2.0** (B-Regel für
+>   MCP). Details `INTERFACE_CONTRACTS.md` §2.
+> - ADR-blockierte Teile bleiben **Vertragsvorschlag**, kein Sofort-Fix
+>   (`INTERFACE_CONTRACTS.md` §6). Sofort zulässig: BOM-Fix, `errors`-nie-leer,
+>   `request_id`, `page`-404, MCP-`-32602`.
+>
+> **Vorbedingungen `security-auditor`** (`plan/SECURITY_TRACK_REVIEW.md`; 9 Findings,
+> 12 Plan-Lücken):
+> - **S1 (Rewrite-Scope, HIGH):** `3dcc80d8` ist auch über den **aktuell ausgecheckten**
+>   Branch `chore/audit-review-2026-09` erreichbar (nicht nur
+>   `chore/system-audit-2026-09`) → `--replace-text` über **alle Refs**; siehe §7.
+> - **S2 (Ziel-Key-Menge, HIGH):** `ff77bbd0…` **unabhängig zuerst** widerrufen; reales
+>   Policy-Ziel sind **Legacy-`user`-Keys** mit `scope ∈ {write, admin}` und
+>   `expires_at=NULL` — die Agent-Key-Pflicht ist bereits implementiert. Inventar via
+>   `inventory_api_keys`, Klassifikation vor Widerruf.
+> - **S3 (Redactor, MEDIUM):** exakte Feldnamen-Denylist statt Substring `key`
+>   (`top_keys` muss überleben).
+> - **S4 (Scan-Gate-Ordering, MEDIUM):** History-`detect` ist vor dem Rewrite rot →
+>   Rewrite-first oder datierter Allowlist-Eintrag.
+> - **S5 (neue Secret-Stores):** Bundle **und** Ersatztextdatei sind Klartext-Secret-At-Rest
+>   → außerhalb Repo, verschlüsselt/ACL, sichere Löschung.
+> - **S6:** `stack-seeds.md`/`.kimi-code/` sind **nicht** ignore-regeln → `stack-seeds.md`
+>   nach Nutzung sicher löschen; `.kimi-code/` in `.git/info/exclude` + read-only scannen.
 
 **Keine ADR (bewusst, weil Fix oder etablierte Praxis):** `030` (`CACHES`-Timeout),
 `126` (`acks_late`, Teil von iv), `238` (Prompt-Injection), `281/282` (Korrektheit gegen
@@ -210,8 +265,11 @@ Fix-Arbeit beginnt erst **nach** der Entscheidung.
 
 ## 6. Sequenzierung & Wellen
 
-- **W1 — P0 (Sofort):** SECTRACK-01…04, SEC-01(ADR) → SEC-02/03, RES-01/02/03(ADR+),
-  DATA-01(ADR)/02, DATA-03/04, INT-01, PLUG-01.
+- **W1 — P0 (Sofort):** Secret-Track in korrigierter Reihenfolge
+  **SECTRACK-01** (Rotation, sofort/unabhängig) → **SECTRACK-04** (Redactor, vor neuen
+  Evidenzdateien) → **SECTRACK-02** (Rewrite über **alle** Refs, parallele Agents beendet)
+  → **SECTRACK-03** (Scan-Gate; History-`detect` **erst nach** dem Rewrite);
+  SEC-01(ADR) → SEC-02/03, RES-01/02/03(ADR+), DATA-01(ADR)/02, DATA-03/04, INT-01, PLUG-01.
 - **W2 — P0-Rest + P1-Kern:** SEC-04/08, RES-04/05/06, DATA-05/06/07/08/09, INT-02…06,
   PLUG-02/03, DOC-01/03/06.
 - **W3 — P1/P2:** SEC-05/06/07, RES-07/08, DATA-10, INT-07, PLUG-04/05, DOC-02/04/05,
@@ -222,10 +280,10 @@ Fix-Arbeit beginnt erst **nach** der Entscheidung.
 ```mermaid
 flowchart TD
   subgraph W1[Welle 1 - P0]
-    ST1[SECTRACK-01 Key-Rotation]
-    ST2[SECTRACK-02 History-Blob]
-    ST3[SECTRACK-03 Secret-Scan-Gate]
+    ST1[SECTRACK-01 Key-Rotation sofort/unabhängig]
     ST4[SECTRACK-04 Evidenz-Redactor]
+    ST2[SECTRACK-02 History-Rewrite ALLE Refs]
+    ST3[SECTRACK-03 Secret-Scan-Gate]
     ADRii{{ADR ii Tenant/Workspace}}
     SEC2[SEC-02 REST-Fence]
     SEC3[SEC-03 API-Key-Fence]
@@ -242,8 +300,10 @@ flowchart TD
     P1[PLUG-01 Hermes TypeError]
   end
   ST1 --> ST2
-  ST2 -.vor erstem Push.-> ST3
-  ST3 --> ST4
+  ST1 --> ST4
+  ST4 --> ST2
+  ST2 -.History-Detect erst nach Rewrite.-> ST3
+  ST3 -.vor erstem Push.-> STPUSH((Kein Push))
   ADRii --> SEC2
   ADRii --> SEC3
   ADRi --> RES3
@@ -266,6 +326,7 @@ flowchart TD
     I4[INT-04 CSV-Dedupe]
     I5[INT-05 Pagination]
     I6[INT-06 OpenAPI/Vertrag]
+    %% INT-06 haengt NICHT von RES-07 (W3) ab: request_id ist sofort zulaessig (lose Kopplung)
     PL2[PLUG-02/03]
     DOC1[DOC-01 Trace/Doku]
     DOC3[DOC-03 Test-Wahrheit]
@@ -291,39 +352,74 @@ flowchart TD
   I6 --> I7
 ```
 
-**Kritischer Pfad:** `SECTRACK-02 (History-Rewrite)` → `SECTRACK-03 (Scan-Gate)` →
-`SEC-01 (ADR ii)` → `SEC-02/03 (Fence)` → `DATA-06/07 (DB-Schutz)`; parallel
+**Kritischer Pfad:** `SECTRACK-01 (Rotation, sofort) → SECTRACK-04 (Redactor) →
+SECTRACK-02 (Rewrite über alle Refs) → SECTRACK-03 (Scan-Gate; History-Detect nach
+Rewrite)` → `SEC-01 (ADR ii)` → `SEC-02/03 (Fence)` → `DATA-06/07 (DB-Schutz)`; parallel
 `ADR i → RES-03 → RES-05`, `ADR iii → DATA-01 → DATA-02` und `INT-01 → INT-04/06`.
 Der Secret-Track ist **Push-Blocker**, aber nicht Implementierungsblocker der übrigen
-Wellen (er läuft parallel; nur der erste Push wartet).
+Wellen (er läuft parallel; nur der erste Push wartet). **Der History-Detect-Schritt darf
+erst nach dem Rewrite laufen** — sonst ist das Gate sofort rot (Ordering-Falle,
+`SECURITY_TRACK_REVIEW.md` §6.3).
 
 **Explizite Blockierer:** (B1) ADR ii blockiert SEC-02/03/04, DATA-06/07; (B2) ADR i
 blockiert RES-03/05/07; (B3) ADR iii blockiert DATA-01/02; (B4) ADR iv blockiert
 RES-04/06; (B5) ADR v blockiert INT-01/04/06, DATA-09; (B6) SECTRACK-02 blockiert den
-ersten Push; (B7) Hermes-Host ist BLOCKED (PLUG-03/04 nur HTTP-/Code-Ebene).
+ersten Push; (B7) Hermes-Host ist BLOCKED (PLUG-03/04 nur HTTP-/Code-Ebene);
+(B8) **History-Scan-Gate (SECTRACK-03) ist nach SECTRACK-02 zu ordnen** (Rewrite-first
+oder datierter Allowlist-Eintrag für `3dcc80d8`); (B9) **SECTRACK-01 blockiert nicht auf
+SECTRACK-02** und ist zeitlich vorzuziehen (`ff77bbd0…` ist live).
 
 ---
 
 ## 7. Security-Track (eigener P0-Abschnitt)
 
-Details in `plan/SECURITY_TRACK.md`. Kern:
+Details in `plan/SECURITY_TRACK.md`; **verifiziert/geschärft** durch
+`plan/SECURITY_TRACK_REVIEW.md` (9 Findings, 12 Plan-Lücken). Kern (korrigiert):
 
-1. **SECTRACK-01 — Rotation:** Zweiten live Key `ff77bbd0…` widerrufen (Produktionspfad
-   `DELETE /api/v1/api-keys/<id>/`, nicht „User löschen und hoffen"); die 8 weiteren
-   aktiven `admin`-Keys ohne Expiry/Fence widerrufen/rotieren; Default-Policy
-   (`expires_at` Pflicht für Agent-Keys, `workspace_ids` Pflicht) festlegen.
-2. **SECTRACK-02 — History-Blob (Option A):** `git filter-repo --replace-text` gegen
-   `3dcc80d8` + Nachfolger; **Bundle-Backup zwingend**; danach SHA-Verweise in
-   `AUDIT_SECURITY.md`, `wp6a-secrets-scan.md`, `secret-incident-*.md` aktualisieren;
-   nur wenn parallele Agents abgeschlossen sind. **Kein Push.**
-3. **SECTRACK-03 — Secret-Scan-Gate:** `gitleaks protect --staged` + Custom-Regel
-   `reqlo_[A-Za-z0-9]{40}` (Standardregeln finden den Projekt-Key nicht) + CI
-   `gitleaks detect` (History + Arbeitsbaum). Voraussetzung für spätere Pushes.
-4. **SECTRACK-04 — Evidenz-Redactor + Cleanup-Checkliste:** Wrapper, der `plaintext`,
-   `token`, `password`, `key`, `secret` aus jedem Wert entfernt; Checkliste „je Key
-   widerrufen + `revoked_at` prüfen".
+0. **Reihenfolge (geschärft):** `SECTRACK-01` (Rotation, sofort/unabhängig) → `SECTRACK-04`
+   (Redactor, vor neuen Evidenzdateien) → `SECTRACK-02` (Rewrite, wenn parallele Agents
+   beendet) → `SECTRACK-03` (Scan-Gate; **History-`detect` erst nach dem Rewrite**).
+1. **SECTRACK-01 — Rotation (Ziel geändert):** `ff77bbd0…` **unabhängig zuerst** über den
+   Produktionspfad `DELETE /api/v1/api-keys/<id>/` widerrufen (nicht „User löschen"); die
+   aktiven `admin`-Keys **zuerst per `inventory_api_keys --format json` inventarisieren und
+   klassifizieren** (Test-Fixture vs. echter Client), dann widerrufen/rotieren. Das reale
+   Policy-Ziel sind **Legacy-`user`-Keys** mit `scope ∈ {write, admin}` und
+   `expires_at=NULL` — die Agent-Key-Pflicht (`expires_at`/`workspace_ids`) ist **bereits**
+   implementiert (`authentication.py:552-558,619-646`). Blinde Rotation bricht sonst
+   e2e-Kampagnen.
+2. **SECTRACK-02 — History-Blob (Option A, Ref-Scope korrigiert):** `3dcc80d8` ist **auch**
+   über den aktuell ausgecheckten Branch `chore/audit-review-2026-09` erreichbar — der
+   frühere Aufruf `--refs chore/system-audit-2026-09` war **falsch** und hätte den Leak am
+   HEAD stehen gelassen. Korrekt: `git filter-repo --replace-text … --force` über **alle
+   Refs**, danach `git reflog expire --expire=now --all` + `git gc --prune=now`,
+   Remote-Wiederanbindung **ohne Push**, Unerreichbarkeits-Beweis
+   (`git for-each-ref --contains 3dcc80d8` leer, `git cat-file -e 3dcc80d8` schlägt fehl),
+   **SHA-Verweis-Sweep generiert** (`git grep -l 3dcc80d8` — ≥13 Dokumente, nicht 3).
+   **Bundle + Ersatztextdatei sind selbst Klartext-Secret-Stores** → außerhalb Repo,
+   verschlüsselt/ACL-geschützt, sichere Löschung. Nur wenn parallele Agents beendet sind.
+   **Kein Push.**
+3. **SECTRACK-03 — Secret-Scan-Gate:** Pre-Commit `gitleaks protect --staged --redact` +
+   **Custom-Regel `reqlo_[A-Za-z0-9]{40}\b`** (Boundary, damit das 44-Zeichen-README-Beispiel
+   nicht erfasst wird) in `.gitleaks.toml`; gitleaks-Version **pinnen**; CI-`detect`
+   (Arbeitsbaum **und** History) in **GitHub Actions und Woodpecker**; schmale, begründete
+   Allowlist. **Ordering:** History-`detect` erst nach `SECTRACK-02` (sonst dauerhaft rot).
+4. **SECTRACK-04 — Evidenz-Redactor + Cleanup-Checkliste:** konkreter Wrapper
+   (`scripts/audit/evidence.py`) `safe_dump()` serialisiert **nie** den Roh-Body; nur
+   `status`/`top_keys`/`value_types`/`body_len`/`redacted_value_keys`; **exakte
+   Feldnamen-Denylist** (nicht Substring `key` — das würde `top_keys` zerstören):
+   `plaintext`, `token`, `access_token`, `refresh_token`, `password`, `secret`, `api_key`,
+   `apikey`, `key_hash`, `private_key`, `client_secret`, `authorization`, `cookie`,
+   `session`. Cleanup-Checkliste geschärft: je Key widerrufen + **zwei** 401-Messungen +
+   `revoked_at` NOT NULL + `list_api_keys` liefert `revoked == true` (nicht „nicht in
+   Liste") + `rg` = 0.
 
-**Status:** `220` bleibt Critical bis (2) ausgeführt **und** verifiziert ist.
+**Zusätzliche Vorbedingungen (neu):** `stack-seeds.md` ist **nicht** ignore-regeln →
+nach Nutzung sicher löschen; `.kimi-code/` in `.git/info/exclude` + read-only scannen
+(nie gescannte Secret-Fläche); `pip`/CI-Scanner-Bootstrap (`pre-commit install`) nötig.
+Ein technischer Push-Guard ist zu erwägen (das Prosa-Verbot ist keine Security-Boundary).
+
+**Status:** `220` bleibt Critical bis (2) ausgeführt **und** verifiziert ist. `ff77bbd0…`
+ist **vor** dem Rewrite und **unabhängig** von ihm zu widerrufen.
 
 ---
 
@@ -420,10 +516,27 @@ voraus; **Push erst nach W4-DoD und ausdrücklicher Freigabe**.
   behauptet.
 - **Redis `maxmemory 256mb noeviction`** (`131`): bleibt Restrisiko; der Plan senkt die
   Key-Churn (`RES-02`), garantiert aber keine Eviction-Politik.
-- **`.kimi-code/` und `stack-seeds.md`** bleiben untracked; keine Secrets im Klartext.
-- **Widerlegte Findings** werden nicht umgesetzt; ihre Registerkorrektur ist
-  `DOC-06`, kein Code-Fix.
-- **Aufwand** ist Platzhalter; verbindliche Zahlen kommen von `effort-estimator`
-  (Voraussetzung für W2-Start).
+- **`.kimi-code/` und `stack-seeds.md`:** beide **nicht** ignore-regeln
+  (`git check-ignore` exit 1) → ein `git add -A` würde sie committen. `stack-seeds.md`
+  nach Nutzung **sicher löschen**; `.kimi-code/` in `.git/info/exclude` aufnehmen und
+  **read-only scannen** (bisher nie geprüfte Secret-Fläche). Kein Klartext-Secret in Doku.
+- **Widerlegte Findings** werden nicht umgesetzt; ihre Registerkorrektur ist `DOC-06`,
+  kein Code-Fix. Explizit ausgeschlossen: `121`-Headline (nur `121(a)` Healthcheck →
+  `RES-05`), `180`-Prämisse (nur Rest-Tabellen → `DATA-06`), `129`-Form „degraded→200"
+  (nur Rest-Kern Cache/Worker/Beat → `RES-03`), `042`, `283`, `204`.
+- **Secret-Rewrite-Restrisiko (`SECURITY_TRACK_REVIEW.md`):** Auch Option A beseitigt
+  **nicht** CI-Runner-Caches, IDE-Local-History, Windows-Shadow-Copies und
+  Backup-Snapshots; Bundle und Ersatztextdatei sind selbst neue Klartext-Secret-Stores
+  (außerhalb Repo + verschlüsselt + sichere Löschung). Ein etwaiges `git push --all`
+  vor dem Rewrite würde den (widerrufenen) Key sofort exponieren.
+- **Scan-Gate-Ordering:** Ohne Rewrite-first (oder datierten Allowlist-Eintrag) ist
+  `gitleaks detect` (History) dauerhaft rot und wird faktisch abgeschaltet.
+- **`principal_type`-Default & `admin`-SPOF:** `create_api_key` defaultet auf `user`; ohne
+  explizite Automatisierungs-Policy entstehen weiterhin ADMIN-weite Keys ohne Ablauf.
+  9 Keys an einem `admin`-Konto ohne Expiry bleiben Single-Point-of-Failure (Querbezug
+  `SEC-04`/`223`).
+- **Aufwand:** verbindlich aus `plan/EFFORT_ESTIMATES.md` — **52,5–115,0 PT, ≈84 PT**
+  (1 Dev, sequentiell, ohne ADR-Wartezeit); die `S/M/L`-Angaben sind Groborientierung.
+  Live-Nachtest-Setup und ADR-Wartezeit können die obere Spanne überschreiten.
 
 *Erstellt durch `planner` am 2026-10-01. Kein Produktcode, keine Migration, kein Push.*

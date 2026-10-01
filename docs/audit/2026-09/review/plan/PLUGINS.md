@@ -12,7 +12,9 @@ parent: IMPLEMENTATION_PLAN.md
 # Epic PLUG — Native Plugins (Hermes / Claude-Code POC)
 
 > Host-Integration bleibt BLOCKED; planbar ist die HTTP-/Code-Ebene. `101` ist auf **Low**
-> herabgestuft (Manifest-Typ verwechselt) — kein High-Fix.
+> herabgestuft (Manifest-Typ verwechselt) — kein High-Fix. **Aufwand:** verbindliche
+> PT-Spannen in `plan/EFFORT_ESTIMATES.md` §1; die `Aufwand: S/M/L`-Angaben hier sind nur
+> Groborientierung.
 
 ## PLUG-01 — Hermes-`TypeError` + Fixture-Falschgrün (P0, W1)
 

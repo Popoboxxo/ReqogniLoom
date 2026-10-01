@@ -11,7 +11,9 @@ parent: IMPLEMENTATION_PLAN.md
 
 # Epic DATA — Datenintegrität & Recovery
 
-> Detailplan. `345` wird ausschließlich als Duplikat von `123` geführt.
+> Detailplan. `345` wird ausschließlich als Duplikat von `123` geführt. **Aufwand:**
+> verbindliche PT-Spannen in `plan/EFFORT_ESTIMATES.md` §1; die `Aufwand: S/M/L`-Angaben
+> hier sind nur Groborientierung.
 
 ## DATA-01 — ADR + Restore-Pfad funktionsfähig & atomar (P0, W1)
 
@@ -101,7 +103,7 @@ parent: IMPLEMENTATION_PLAN.md
 
 ## DATA-07 — RLS-Deckung (P1, W2)
 
-- **Findings:** 184, 227, N1
+- **Findings:** 184, 227, 185, N1
 - **Ort:** `as_domain_event_outbox`, `as_domain_event_dlq`, `as_webhook_subscription`,
   `as_webhook_delivery_log` (kein `tenant_id`, keine RLS); `at_api_key`/`at_user_role`/`audit_entry`
   dokumentierte Ausnahmen (`auth_tenancy/migrations/0011:43-64`); `bl_delta_index_entry`
