@@ -238,3 +238,148 @@ REST-/MCP-Automatisierungspfad (SEC-03) bleibt offen.
   direkte SQL-Schreibung.
 - Widerruf ausschließlich über den Produktionspfad
   `DELETE /api/v1/api-keys/<id>/` bzw. read-only-Verifikation.
+
+---
+
+## Phase 3 — SECTRACK-02 History-Rewrite
+
+- **Datum:** 2026-10-01
+- **Branch:** `chore/audit-review-2026-09`
+- **Werkzeug:** `git-filter-repo` **2.47.0** (`python -m git_filter_repo`)
+- **Aufruf:** `--replace-text <externe Datei> --force` (Fresh-Clone-Safety — **kein** Push-`--force`)
+- **Ziel:** Entfernen des `reqlo_*`-Keys aus Commit `3dcc80d8` aus **allen lokalen Refs** — rein lokal; der Commit war nie auf einem Remote-Ref.
+- **Revision:** Rewrite ist irreversibel; Bundle-Backup vorhanden und unangetastet; **kein Push**, kein `push --force`, kein `--no-verify`.
+
+### Methode
+
+Ersatzdatei **außerhalb** des Repos (nach dem Lauf gelöscht), eine Zeile:
+
+```
+regex:reqlo_[A-Za-z0-9]{40}\b==>reqlo_REDACTED
+```
+
+Boundary-anchored: ersetzt **nur** echte 40-Zeichen-Keys. Das 44-Zeichen-README-Beispiel (`reqlo_` + 44 Alnum) und `<40`-Fixtures matchen **nicht**. Es wurde **kein** Klartext-Secret gehalten, ausgegeben oder in eine getrackte Datei geschrieben.
+
+Aufruf über **alle** Refs (bewusst **kein** `--refs <branch>`):
+
+```
+python -m git_filter_repo --replace-text <externer-pfad> --force
+```
+
+### filter-repo-Ausführung
+
+- **Exit-Code `0`** (erfolgreich); „New history written in 12,03 seconds“, komplett nach 16,27 s.
+- „**Parsed 2843 commits**“; „**Rewrote the stash.**“
+- Der `origin`-Remote wurde entfernt — **dokumentiertes** Verhalten (filter-repo `--partial`-Hilfe: nur `--partial`/`--refs` deaktivieren „rewriting refs/remotes/origin/* to refs/heads/*“ und „removing of the 'origin' remote“).
+- Da **kein** `--refs` gesetzt war, griff `_migrate_origin_to_heads()` (`git_filter_repo.py:4389-4412`): jedes `refs/remotes/origin/*` wird nach `refs/heads/*` migriert, sofern dort kein gleichnamiger Branch liegt; `origin/HEAD` und der Remote werden gelöscht. Folge: **+45** lokale Branches (kein Datenverlust, keine Warnungen).
+- **Stashes:** `refs/stash` wurde rewritet (`157106cd…` → `d713e2d6…`). Im Non-`--partial`-Modus führt filter-repo jedoch `git reflog expire --expire=now --all` aus (`git_filter_repo.py:3530`), sodass die **Stash-Records** (Reflog) entfallen. Die Stash-**Spitze** bleibt erhalten; `git stash clear` wurde **nicht** ausgeführt.
+
+### Verifikation (Kommando → Ergebnis)
+
+| # | Kommando | Ergebnis |
+|---|---|---|
+| V1 | `git for-each-ref --contains 3dcc80d8` | **leer (0)** — `error: malformed object name 3dcc80d8` (Objekt entfernt) |
+| V2 | `git cat-file -e 3dcc80d8` | **Exit 128** (Objekt fehlt) |
+| V3 | `git log --all -G 'reqlo_[A-Za-z0-9]{40}\b'` | **0 Treffer** |
+| V4 | Baum-Ebene: `git grep -lE 'reqlo_[A-Za-z0-9]{40}\b'` über alle **2728** `git rev-list --all`-Commits | **0 Treffer** |
+| V5 | `git count-objects -v` | `count=0`, `garbage=0`, `in-pack=33189`, `packs=1`, `size-pack=198938` |
+| V6 | `git fsck --full` | keine Ausgabe → **sauber** (0 dangling/error/missing) |
+| V7 | `git status --porcelain` | nur 2 erwartete untracked (`?? .kimi-code/`, `?? docs/audit/2026-09/AUDIT_EVIDENCE/stack-seeds.md`) |
+| V8 | Regex-Gegenprobe auf `HEAD` | 40-Zeichen-Muster = **0**, 44-Zeichen-Muster = **1** (README-Beispiel unangetastet) |
+
+Der HEAD-/Arbeitsbaum-Inhalt ist abgesehen von der Regex-Ersetzung unverändert (`--replace-text` ist die einzige Transformation).
+
+### Ref-Struktur vorher/nachher
+
+| Namespace | vorher | nachher | Delta |
+|---|---|---|---|
+| `refs/heads` (Branches) | 56 | **101** | **+45** (alle vormals `origin`-Tracking-Refs) |
+| `refs/tags` | 39 | 39 | 0 (Namens-Set identisch) |
+| `refs/remotes` (Tracking) | 99 (origin 90 + codeberg 9) | **9** (nur codeberg) | **−90** origin |
+| Stash-Records (Reflog) | 45 | **0** | **−45** |
+| `refs/stash` (Spitze) | 1 | 1 | 0 (`157106cd…` → `d713e2d6…`) |
+| **Total `for-each-ref`** | **195** | **150** | **−45** |
+
+Bundle-Bestand: 200 Refs (195 obige + `HEAD` + 4× `worktrees/*/HEAD`).
+
+**Exakt benannte Abweichungen:**
+
+1. **+45 Branches** — migrierte `origin`-Tracking-Refs ohne lokales Pendant (kein Branch entfernt):
+   ```
+   chore/agent-meta-config-tuning
+   chore/archive-implemented-specs-plans
+   chore/release-checklist-github-step
+   chore/upgrade-agent-meta-v1.1.0
+   dependabot/github_actions/actions/configure-pages-6
+   dependabot/github_actions/actions/deploy-pages-5
+   dependabot/github_actions/actions/upload-pages-artifact-5
+   dependabot/npm_and_yarn/frontend/jsdom-29.1.1
+   dependabot/npm_and_yarn/frontend/jsdom-30.1.0
+   dependabot/pip/backend/honcho-ai-2.5.0
+   docs/attribute-definition-spec
+   docs/bugfix-session-plan
+   docs/compose-optimization-plan-792
+   docs/p0-soforthaertung-spec
+   docs/requirement-bundle-export-design
+   feat/ai-memory-and-search
+   feat/goals-ui-redesign-238-219
+   feat/hermes-plugin-requirements-crud
+   feat/mcp-plugin-distribution
+   feat/menschen-im-system
+   feat/multi-artifact-interview
+   feat/requirement-bundle-export-ui-panel
+   feat/se-l2-diagramservice
+   feat/se-l2-icdmanagement
+   feat/se-l2-semetrics
+   feat/ui-konzept-phase6-diagrams
+   feat/ui-konzept-redesign
+   feat/ui-konzept-vollrollout-phase3
+   feat/ui-konzept-vollrollout-phase4
+   fix/bugfix-batch-2026-09-02
+   fix/bugfix-create-endpoints-ui-layout
+   fix/ci-red-2026-08-25
+   fix/deployment-example-drift
+   fix/docker-backend-setuptools-cve
+   fix/llm-provider-save-and-mcp-schemas
+   fix/low-severity-batch
+   fix/p0-soforthaertung
+   fix/quick-batch-3
+   fix/systemaudit-p1-fachlichkeit
+   fix/ui-consistency-p1-header-dashboard-tracelink
+   refactor/diagram-node-graph
+   refactor/system-admin-env-vars
+   se-run
+   worktree-agent-a780fb1bb701f6500
+   worktree-agent-aba26fc3bfdbd73dc
+   ```
+2. **−90 `origin`-Refs** — 45 davon wurden zu Branches (Punkt 1), **44** kollidierten mit bestehenden lokalen Branches und wurden verworfen (Werte identisch → kein Verlust, keine Warnung), **1× `origin/HEAD`** gelöscht.
+3. **−45 Stash-Records** — Folge des Non-`--partial`-Modus; die Stash-Ref bleibt. Reflog-Records sind **nicht** bundle-fähig und damit nicht gesichert. Abweichung zur Auftragsannahme „45 Stash-Entries nachher“.
+
+### Neue Hashes der zentralen Refs
+
+| Ref | pre-rewrite (nur Historik) | post-rewrite |
+|---|---|---|
+| `HEAD` = `chore/audit-review-2026-09` | `ba06e92dfe2638233d8ab5c1b21e1799a9aeca8f` | **`e9644e1967167f3162a39e15a3779d594216916c`** |
+| `main` | `abd61aed7eb8e385de67dc85fde6923328441bac` | **`d330f666ebba942017ccdbdf20b49ccab1925fa6`** |
+| `release/v1.8.0-beta.18` | `38da915f148843f1052c1a6d5732279aa69206ca` | **`73d90e1b80edf309983b558a97f618c498db2004`** |
+| Tag `v1.8.0-beta.18` | `bf918f15bce34e97e9f88189213c1ecc4179f506` | **`b2420d58b42b89a4a90d86c68ea707812cfaa150`** |
+
+> Der Ref-Snapshot `reqlo-pre-rewrite-refs.txt` führt `chore/audit-review-2026-09` noch mit `5aa55260…` (einen Commit vor dem Rewrite-Stand); verbindlich sind die `ref-map`-Altwerte.
+
+### Remote-Wiederanbindung + Divergenz
+
+Nach dem Rewrite **ohne** Push/Fetch wieder angebunden:
+
+```
+git remote add origin   https://github.com/Popoboxxo/ReqogniLoom.git
+git remote add codeberg https://codeberg.org/dduchrow/ai-native-reqflow-POC.git
+```
+
+- **origin:** 0 Remote-Tracking-Refs. Ein späterer Push wäre **non-fast-forward** (History umgeschrieben) — **bewusst unterlassen**.
+- **codeberg:** 9 Tracking-Refs (inkl. `HEAD`); `codeberg/main` = `c4cb7ea801d78b67511ede4fed6177f65e3acb73` vs. lokales `main` = `d330f666ebba942017ccdbdf20b49ccab1925fa6` → divergiert, Push **non-fast-forward** — **bewusst unterlassen**.
+
+### Artefakte / Bestätigungen
+
+- Bundle `…\opencode\reqlo-pre-rewrite.bundle` **unangetastet** (`Length=202431414`, `LastWriteTime=2026-10-01 21:24:32`; `git bundle verify` = „The bundle records a complete history“).
+- Ersatzdatei `…\opencode\reqlo-replacements.txt` nach dem Lauf **gelöscht**.
+- **Kein Push**, kein `push --force`, kein `--no-verify`. Keine Key-Werte/Secrets in diesem Abschnitt.
