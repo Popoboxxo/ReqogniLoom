@@ -1,7 +1,7 @@
 ---
 adr_id: ADR-012
 title: "Sidecar ist die verbindliche Backup-Quelle — die Operator-Skripte werden zurückgebaut"
-status: proposed
+status: accepted
 date: "2026-10-01"
 deciders: [user, database-engineer]
 affected_reqs: [REQ-L0-034, REQ-L1-046, REQ-L2-BL-011]
@@ -10,7 +10,7 @@ superseded_by: null
 
 # ADR-012: Sidecar ist die verbindliche Backup-Quelle — die Operator-Skripte werden zurückgebaut
 
-**Status:** proposed
+**Status:** accepted
 **Datum:** 2026-10-01
 **Entscheider:** user, database-engineer
 **Betroffene REQs:** REQ-L2-BL-011 (Instanz-Backup, Full Restore & Baseline-Soft-Restore,
@@ -25,6 +25,11 @@ Findings **`AUD-2026-09-122`, `-123`, `-124`, `-127`, `-128`, `-345`**;
 `deploy/docker-compose.yml:348-505` (`postgres-backup`-Sidecar);
 `scripts/backup.sh:79-87`; `scripts/restore.sh:49,116,183,186,198-213`;
 `docs/DEPLOY_RUNBOOK.md:24-77`; `docs/audit/2026-09/AUDIT_EVIDENCE/wp1c-restore-test-protocol.md:306`
+
+**Review-/Lifecycle-Vermerk:** Statuswechsel `proposed → accepted` am 2026-10-01.
+Review-Verdikt `concept-reviewer` **APPROVED**, `validator` **COMPLIANT** (MADR-Lifecycle,
+Datum + Grund dokumentiert). `deciders` bleiben `user, database-engineer`; die Reviewer
+ändern den Status nicht.
 
 ---
 
@@ -88,10 +93,11 @@ zertifizierungsrelevanten Betriebsbereich existiert keine akzeptierte Entscheidu
 ### Option A: Sidecar ist die Quelle; die Skripte werden zurückgebaut (GEWÄHLT)
 
 **Beschreibung:** Der `postgres-backup`-Sidecar ist der **alleinige** Backup-Erzeuger.
-`scripts/backup.sh` wird entfernt (oder als `deprecated` gekennzeichnet). `scripts/restore.sh`
-ist **keine zweite Quelle**, sondern höchstens ein atomarer **Konsument** des
-Sidecar-Dumps — oder wird durch einen dokumentierten Runbook-Befehl ersetzt. Der
-Restore-Smoke (15/15) wird zum Release-Gate.
+`scripts/backup.sh` und `scripts/restore.sh` werden entfernt. Der Restore ist **keine
+zweite Quelle**, sondern ein dokumentierter, atomarer Runbook-Befehl, der den
+Sidecar-Dump in eine **isolierte Zieldatenbank** spielt (eine Transaktion, Fehler →
+Rollback). Der Restore-Smoke (15/15, isolierte Zieldatenbank, eine Transaktion) wird
+zum Release-Gate.
 
 **Abwägung:** Nur dieser Weg hat einen **belegten erfolgreichen Restore** (15/15, 0
 Fehler). Ein Backup, dessen Restore nicht nachgewiesen ist, ist kein Backup — die
@@ -142,17 +148,26 @@ erst nach vollständiger Reparatur von B und ist dann erneut zu begründen.
 1. **Ein Erzeuger:** Instanz-Snapshots werden ausschließlich vom Sidecar
    `postgres-backup` erzeugt (`deploy/docker-compose.yml:348-505`), Format `.sql.gz`
    im Named Volume `postgres_backup_data` (`:372`, `:405`).
-2. **`scripts/backup.sh` wird zurückgebaut** (entfernt oder als `deprecated`
-   gekennzeichnet). Der Pfad kann heute nie erfolgreich sein (`:79-87`) und hat
-   keinen Aufrufer in einem Makefile-Target.
-3. **`scripts/restore.sh` ist keine zweite Quelle.** Er wird entweder entfernt und
-   durch einen dokumentierten, **atomaren** Restore-Befehl im Runbook ersetzt oder auf
-   einen atomaren **Konsumenten** des Sidecar-Dumps reduziert (Dump aus
-   `postgres_backup_data` lesen, in eine **Zieldatenbank** spielen). Er darf niemals
-   aus einem `./backups`-Ordner lesen, den der Sidecar nicht schreibt.
-4. **Der Restore-Smoke ist die eigentliche Wahrheit:** ein restaurierter Sidecar-Dump
-   muss die 15/15-Tabellenzahlen reproduzieren (`wp1c-restore-test-protocol.md:306`)
-   und wird als Release-Gate ausgeführt (CI/Operator, vgl.
+2. **`scripts/backup.sh` wird entfernt** (zurückgebaut). Der Pfad kann heute nie
+   erfolgreich sein (`:79-87`) und hat keinen Aufrufer in einem Makefile-Target.
+3. **`scripts/restore.sh` wird entfernt** (konsistent zu Titel und Punkt 2). Er ist
+   keine zweite Quelle, sondern wird durch einen dokumentierten, **atomaren**
+   Runbook-Befehl ersetzt, der den Sidecar-Dump aus `postgres_backup_data` liest und
+   in eine **isolierte Zieldatenbank** spielt. Der Restore läuft **atomar in einer
+   einzigen Transaktion** (Fehler → Rollback, Live-DB bleibt unberührt) und darf
+   **niemals** in-place (`--clean --if-exists`) auf der Live-DB arbeiten — er adressiert
+   damit Finding `AUD-2026-09-127` (`scripts/restore.sh:183`). Er darf **niemals** aus
+   einem `./backups`-Ordner lesen, den der Sidecar nicht schreibt. Die Ausführung ist
+   Folgeaufgabe `DATA-01` (Owner: `database-engineer`).
+4. **Der Restore-Smoke ist die eigentliche Wahrheit — mit expliziter Gate-Definition.**
+   Das Gate ist bestanden, wenn ein restaurierter Sidecar-Dump die
+   **15/15-Tabellenzahlen** mit **0 Fehlern** reproduziert
+   (`wp1c-restore-test-protocol.md:306`). Das Gate führt den Restore **ausschließlich**
+   gegen eine **isolierte Zieldatenbank** (eigene Test-DB/Instanz, nie die Live-DB) und
+   **atomar in einer einzigen Transaktion** aus (Fehler → Rollback). Damit
+   institutionalisiert es **nicht** die Nicht-Atomarität aus
+   `scripts/restore.sh:183` (Finding `AUD-2026-09-127`), sondern ersetzt sie durch den
+   atomaren Zieldatenbank-Vertrag. Ausführung als Release-Gate (CI/Operator, vgl.
    `docs/DEPLOY_RUNBOOK.md:52-53,63`).
 5. **Die Restrisiken sind Teil von A, nicht Gründe gegen A:** Off-Host-Kopie,
    Verschlüsselung, Medien/Uploads und die Minimal-Variante ohne Sidecar werden als
@@ -221,23 +236,36 @@ einem zweiten, ungetesteten.
   Aufteilung ist Gegenstand von `DOC-01` / `DATA-01`
   (`docs/audit/2026-09/review/plan/DATA_RECOVERY.md:22-31`).
 
+### `open_adrs`-Notiz (analog ADR-010)
+
+Das Frontmatter-Feld `open_adrs` existiert repo-weit nicht (0/835 REQs,
+`AUD-2026-09-333`; vgl. `ADR-010_health_vertrag.md:86-90`). Die REQ↔ADR-Verknüpfung
+(`REQ-L0-034`, `REQ-L1-046`, `REQ-L2-BL-011`) kann daher **nicht** maschinell in den
+REQ-Dateien eingetragen werden und bleibt Folgeaufgabe `DOC-01`. Es wird **keine**
+REQ-Datei und **keine** Traceability-Matrix geändert.
+
 ---
 
 ## Offene Punkte
 
-1. **Disposition von `scripts/restore.sh`** — entfernen oder auf einen atomaren
-   Konsumenten des Sidecar-Dumps reduzieren? (Folge von DATA-01; Atomarität per
-   Transaktion/Zieldatenbank ist Voraussetzung.)
+1. **Umsetzung `scripts/backup.sh` / `scripts/restore.sh`** — beide werden entfernt;
+   der atomare Runbook-Restore (isolierte Zieldatenbank, eine Transaktion) wird
+   dokumentiert. Keine offene Design-Frage mehr, nur Ausführung. Owner:
+   `database-engineer` (`DATA-01`), Termin: Welle **W1** (`IMPLEMENTATION_PLAN.md:161`).
 2. **Off-Host-Kopie, Verschlüsselung, Medien/Uploads** — als Erweiterungen von A
    nachziehen; ohne sie bleibt ein Restrisiko benannt, aber ungeschlossen.
 3. **Minimal-Variante** ohne Sidecar (`docker-compose.minimal.yml:13`) braucht eine
    dokumentierte manuelle Backup-/Restore-Route oder einen Sidecar.
-4. **Restore-Smoke als Gate** — in CI/Release verankern; heute existiert nur der
-   statische Self-Check `deploy/verify-backup-command.sh`.
+4. **Restore-Smoke als Gate** — in CI/Release verankern mit der Definition aus
+   Entscheidung Punkt 4 (isolierte Zieldatenbank, atomare Einzeltransaktion,
+   15/15-Tabellenzahlen); heute existiert nur der statische Self-Check
+   `deploy/verify-backup-command.sh`. Owner: `database-engineer` (`DATA-01`),
+   Termin: Welle **W1**.
 5. **Matrix-Widerspruch `AUD-2026-09-345`** — Auflösung über `DOC-01` (Trennung
    Backup vs. Baseline-Restore), nicht durch dieses ADR.
 
 ---
 
 *Erstellt: 2026-10-01 | Autor: database-engineer | Für: REQ-L0-034, REQ-L1-046, REQ-L2-BL-011*
+*Status `accepted` seit 2026-10-01 — `concept-reviewer` APPROVED, `validator` COMPLIANT.*
 *Kein Code-Äquivalent geändert; dieses Dokument ändert weder die Traceability-Matrix noch die Skripte.*
