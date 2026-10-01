@@ -3,7 +3,7 @@ adr_id: ADR-010
 title: "Health-Vertrag: getrennte Liveness- und Readiness-Endpunkte mit fail-closed Readiness"
 status: proposed
 date: "2026-10-01"
-deciders: [user, api-specialist]
+deciders: [api-specialist]
 affected_reqs: [REQ-L1-032, REQ-L0-021, REQ-060, REQ-063, REQ-L2-AT-007]
 superseded_by: null
 ---
@@ -12,7 +12,8 @@ superseded_by: null
 
 **Status:** proposed
 **Datum:** 2026-10-01
-**Entscheider:** user, api-specialist
+**Entscheider:** api-specialist (Autor); **Entscheidungsinstanz:** user
+(**Freigabe noch ausstehend** — deshalb `status: proposed`, nicht `accepted`)
 **Betroffene REQs:** REQ-L1-032 (Resilienz — Fehlertoleranz und Graceful Degradation),
 REQ-L0-021/SN-21 (Asynchrone, resiliente Systemkommunikation), REQ-060 (Healthchecks für
 Backend und Celery), REQ-063 (Observability-Grundausstattung), REQ-L2-AT-007 (Auth Middleware
@@ -194,11 +195,44 @@ Pflichtliste; die Alternative (B) trägt ein strukturelles Falsch-Grün-Risiko.
    Worker- oder Beat-Zugriff) und ist damit für Liveness-Proben geeignet, ohne bei
    Rand-Ausfällen einen Restart-Loop auszulösen.
 
-2. **`GET /health/ready`** — Readiness. Liefert **200 genau dann**, wenn **alle
-   Pflicht-Abhängigkeiten** gesund sind; sonst **503**. Pflicht sind: `database`,
-   `cache` (Redis), `celery_worker`, `celery_beat`. Beratend (Warning/200, kein 503):
-   `outbox`, `memory_backend`, `llm_provider_env`, `embedding_dimensions` — das bestehende
-   `warnings`-Verhalten (`health.py:176-181`, `:224-232`) bleibt erhalten.
+2. **`GET /health/ready`** — Readiness. Liefert **200** (`ok`/`warning`), solange **alle
+   Pflicht-Abhängigkeiten** gesund sind; **503** (`degraded`), sobald **mindestens eine**
+   Pflicht-Abhängigkeit ausfällt. Pflicht sind: `database`, `memory_backend`, `cache`
+   (Redis), `celery_worker`, `celery_beat`. Diese erscheinen **ausschließlich** als
+   `checks`-Einträge und sind die **einzige** Quelle für `status`/HTTP-Code; bei Ausfall
+   stehen sie zusätzlich in `dependencies`.
+
+   Beratend sind: `outbox`, `llm_provider_env`, `embedding_dimensions`,
+   `csrf_cookie_secure_matches_auth` sowie die Workflow-Definitions-Warnungen
+   (`health.py:276-310`). Sie erscheinen **ausschließlich** in `warnings`
+   (Liste statischer Marker) und **niemals** als `checks`-Eintrag — sonst erzeugte ein
+   beratender `mismatch`/`missing` fälschlich `degraded` + `dependencies` bei HTTP 200
+   (Semantikkollision). Genau diese Trennung korrigiert den Ist-Code, der
+   `embedding_dimensions` (`health.py:194`), `llm_provider_env` (`:239`) und
+   `csrf_cookie_secure_matches_auth` (`:261`) heute noch als `checks`-Keys führt.
+
+   `memory_backend` wird damit von „beratend" (so die vorherige Fassung dieses ADR) auf
+   **Pflicht** korrigiert. Gegenüber dem **Ist-Code** ist das keine Änderung — er liefert
+   bei Ausfall bereits **503** (`:158-161`); die Anpassung beseitigt nur den Widerspruch
+   der ADR-Fassung zu ihrem eigenen Code-Beleg und erhält die fail-closed-Semantik.
+
+   **Ist→Soll der `checks`-Keys (gegen `health.py:118-315` geprüft):**
+
+   | Key | Ist (heute) | Soll |
+   |---|---|---|
+   | `database` | `checks`, 503 bei `error` (`:126`,`:133-135`) | Pflicht-`checks`, 503 |
+   | `memory_backend` | `checks`, 503 bei `error` (`:158-161`) | Pflicht-`checks`, 503 (unverändert) |
+   | `cache` / `celery_worker` / `celery_beat` | fehlt | Pflicht-`checks`, 503 (neu) |
+   | `embedding_dimensions` | `checks` = `mismatch` (`:194`) | nur `warnings` (beratend) |
+   | `llm_provider_env` | `checks` = `missing` (`:239`) | nur `warnings` (beratend) |
+   | `csrf_cookie_secure_matches_auth` | `checks` = `mismatch` (`:261`) | nur `warnings` (beratend) |
+
+   Für Bestandskonsumenten wird während des Deprecation-Fensters ein additives
+   `advisory`-Objekt (gleiche Key-Namen, aus `warnings` abgeleitet) zugelassen, damit die
+   bisherigen Keys nicht schlagartig verschwinden; `advisory` ist **nicht** statusrelevant.
+   Der Vertragsname der Redis-Abhängigkeit ist `cache`; die bestehende admin-Probe liefert
+   die Zeile unter `name: "redis"` (`admin_ops/health_rest.py:107`) und wird für den
+   Ready-Endpunkt auf `cache` gemappt.
 
 3. **`GET /health/`** wird **Deprecation-Alias auf `/health/ready`** und erbt dessen
    Semantik. Damit wird der bestehende Compose-Healthcheck (`docker-compose.yml:642`) bei
@@ -206,11 +240,25 @@ Pflichtliste; die Alternative (B) trägt ein strukturelles Falsch-Grün-Risiko.
    `RESILIENCE_HEALTH.md:73-74`). Der Alias trägt `Deprecation: true`- und `Sunset`-Header
    und wird nach dem Fenster entfernt.
 
-4. **Body bei `status == "degraded"`:** `dependencies` ist **nicht leer** und enthält jede
-   nicht-`ok`-Abhängigkeit als `{name, status, detail}`. `detail` ist ein **statischer
-   Marker** (z. B. `"dependency_down"`), **niemals** DSN/Host/Port/Secret (CWE-209, wie
-   bereits in `health.py:127-136` praktiziert); die reale Ursache geht als Logzeile
-   (≥ WARNING) heraus. `status` ist `ok` genau dann, wenn **jeder** Check `ok` ist.
+4. **Body/Status-Vertrag (eindeutig).** `status` ist exakt einer der drei Werte
+   `ok | warning | degraded`:
+
+   - `status == "ok"` genau dann, wenn **jeder Pflicht-Check** `ok` ist **und** `warnings`
+     leer ist → HTTP **200**.
+   - `status == "warning"` genau dann, wenn jeder Pflicht-Check `ok` ist und **mindestens
+     ein beratendes Signal** in `warnings` steht → HTTP **200**. Der `warning`-Status wird
+     damit **ausdrücklich als Vertragsteil festgeschrieben** (bestehendes Verhalten,
+     `health.py:312-313`); sein Entfall wäre ein Breaking Change (Major-Bump), weil
+     Konsumenten `warning` heute bereits beobachten können.
+   - `status == "degraded"` genau dann, wenn **mindestens ein Pflicht-Check** nicht `ok`
+     ist → HTTP **503**.
+
+   Es gilt die Äquivalenz: `dependencies` nicht leer ⇔ `status == "degraded"`. Bei
+   `degraded` enthält `dependencies` **jede** nicht-`ok` **Pflicht**-Abhängigkeit als
+   `{name, status, detail}`; beratende Signale erscheinen **nie** in `dependencies`,
+   sondern ausschließlich in `warnings`/`advisory`. `detail` ist ein **statischer Marker**
+   (z. B. `"dependency_down"`), **niemals** DSN/Host/Port/Secret (CWE-209, wie bereits in
+   `health.py:127-136` praktiziert); die reale Ursache geht als Logzeile (≥ WARNING) heraus.
 
 5. **Auth:** `/health/live` und `/health/ready` sind — wie der heutige `/health/`
    (`REQ-L2-AT-007`, `L2_AuthAndTenancySystem_Requirements.md:237,249`) — **ohne Token
@@ -218,16 +266,48 @@ Pflichtliste; die Alternative (B) trägt ein strukturelles Falsch-Grün-Risiko.
    Formulierung „admin-authentifiziert" aus `AUDIT_ADR_CANDIDATES.md:152` (dort auf die
    heute admin-geschützte Dashboard-Sicht bezogen) für den **Probe**-Endpunkt.
 
-6. **Feature-Flag `HEALTH_STRICT_READINESS`** (Default: strikt / fail-closed) und eine
-   **konfigurierbare Pflicht-Abhängigkeitsliste pro Umgebung**. Abschalten lässt
-   `/health/ready` in den degradierten 200-Modus (Option B) zurückfallen, ohne die neuen
-   Endpunkte zu entfernen. Kein Datenrisiko.
+6. **Feature-Flag `HEALTH_STRICT_READINESS`** (Governance):
+   - **Default `true` (fail-closed, strikt).** Ein ungesetzter/leerer Wert ist strikt;
+     nur ein explizites `false` wechselt den Modus. Fail-closed ist damit
+     Default-by-omission.
+   - **Rückfallmodus = „degraded-200".** Ist das Flag `false`, liefert `/health/ready`
+     auch bei ausgefallener Pflicht-Abhängigkeit **HTTP 200** mit `status:"degraded"` und
+     gefüllter `dependencies`-Liste; Konsumenten müssen dann die Liste selbst auswerten.
+     Das ist inhaltlich die in §„Alternativen" als **Option B** verworfene Semantik — der
+     Modus wird bewusst bereitgestellt, aber **nicht** als Default. Der präzise
+     Modusname lautet **„degraded-200"**, nicht „Option B".
+   - **Schaltbefugnis:** Nur der Betreiber der jeweiligen Umgebung (Deployment-/
+     Infrastruktur-Verantwortung; Agenten `devops-engineer`/`sre-engineer`) darf das Flag
+     **pro Umgebung** setzen. Es ist **kein** Laufzeit-Schalter für Anwendungsnutzer und
+     wird **nicht** über die App-Oberfläche exponiert. Für Prod gilt `true`, sofern nicht
+     ausdrücklich anders entschieden und im Deployment dokumentiert.
+   - Eine **konfigurierbare Pflicht-Abhängigkeitsliste pro Umgebung** ergänzt das Flag;
+     beide sind Env-/Deployment-Konfiguration und tragen kein Datenrisiko.
 
 7. **Umsetzung nutzt vorhandene Probe:** Die Abhängigkeitsprüfungen werden aus
    `admin_ops/health_rest.py` (`_check_redis`, `_check_celery_worker`, `_check_celery_beat`,
    `:96-197`) wiederverwendet; der admin-geschützte Dashboard-Endpunkt
    `GET /api/v1/admin/health/` (`SystemHealthView`, `:517-547`) bleibt unverändert die
    ausführliche Diagnose-Sicht für Menschen.
+
+**Bewusste Abweichung von `RESILIENCE_HEALTH.md:72` (Outbox).** Der Plan führt `outbox`
+als **Pflicht**-Readiness-Abhängigkeit (`RESILIENCE_HEALTH.md:70-72`). Dieser ADR führt
+`outbox` stattdessen **beratend** (nur `warnings`, kein 503), aus zwei Gründen:
+
+- Es existiert heute **keine bounded Outbox-Probe**: `admin_ops/health_rest.py:96-198`
+  prüft DB, Redis, Celery-Worker, Celery-Beat und MCP — **nicht** `outbox`. Eine
+  Pflicht-Aufnahme erzwänge erst eine neue, bounded Probe (`DomainEventOutbox`-Rückstau),
+  sonst wäre die Pflicht nicht messbar.
+- Ein Outbox-Rückstau hebt die **synchrone Request-Verfügbarkeit nicht auf**:
+  `DomainEventOutbox` ist der asynchrone Randpfad der Transaktions-Outbox
+  (`application/event_bus.py`, Dispatch über den `OutboxPoller`), nicht der
+  Request-Pfad selbst. Ein 503 auf bloßen asynchronen Rückstau nähme die Oberfläche aus
+  dem LB — genau die Kaskade, die dieser ADR vermeidet und die `REQ-L1-032` untersagt.
+  Der Rückstau ist über Tabelle/DLQ beobachtbar, nicht über die synchrone Verfügbarkeit.
+
+Die Abweichung wird bewusst getragen. Eine spätere Hochstufung von `outbox` zur Pflicht
+(nach Nachziehung einer bounded Probe) ist eine **minor** Erweiterung derselben
+Pflichtliste, keine Strukturänderung; sie ist als Folgeaufgabe vermerkt.
 
 **Diese Entscheidung blockiert** RES-03, RES-05 (Beat-Heartbeat-Auswertung) und RES-07
 (Gates), bis sie `accepted` ist (`RESILIENCE_HEALTH.md:69-77`;
@@ -270,6 +350,12 @@ kein Sofort-Fix.
   `/health/` und müssen mit einem Deprecation-Fenster nachgezogen werden.
 - **Zu strikte Readiness** kann legitime Teil-Verfügbarkeit aussperren; deshalb ist das
   Feature-Flag keine Nebensache, sondern Teil der Entscheidung.
+- **Response-Shape-Änderung bei beratenden Signalen:** `embedding_dimensions`,
+  `llm_provider_env` und `csrf_cookie_secure_matches_auth` wandern aus `checks` nach
+  `warnings` (`status`/HTTP-Code unverändert `warning`/200). Für Konsumenten, die diese
+  Keys in `checks` gelesen haben, ist das eine sichtbare Shape-Änderung; das additive
+  `advisory`-Objekt überbrückt sie im Deprecation-Fenster. Der Statuscode bleibt stabil —
+  keine Breaking Change im Sinne der Status-/Gate-Semantik.
 - **Keine REQ trägt den Vertrag:** Die Zuordnung zu `REQ-L1-032`/`REQ-L0-021`/`REQ-060`/
   `REQ-063`/`REQ-L2-AT-007` ist eine **Näherung**, keine getrackte Verknüpfung. Da
   `open_adrs` repo-weit nicht existiert (`AUD-2026-09-333`), bleibt die REQ↔ADR-Kette offen.
@@ -286,8 +372,19 @@ kein Sofort-Fix.
 3. **Contract-Details nachziehen**, sobald `accepted`: exaktes Body-Schema, Statusmatrix je
    Abhängigkeit und Deprecation-Fenster stehen als Vertragsvorschlag in
    `INTERFACE_CONTRACTS.md:233-325` und werden nach der Entscheidung verbindlich.
+4. **Auth-Ausnahmeliste erweitern:** `REQ-L2-AT-007` (Auth-Middleware-Interception,
+   Ausnahme für `/health`) ist um `/health/live` und `/health/ready` zu ergänzen, sobald
+   die Endpunkte implementiert sind — sonst interceptet die Middleware die Probes und die
+   Compose-/Orchestrator-Probe erhält kein Ergebnis. Umsetzungsort ist die Auth-Middleware
+   der `auth_tenancy`-App; **keine** REQ-Datei wird im Rahmen dieses ADR geändert.
+5. **Bounded Outbox-Probe nachziehen** (optional, siehe Abweichung zu
+   `RESILIENCE_HEALTH.md:72`): erst dann kann `outbox` von beratend auf Pflicht hochgestuft
+   werden. Kein Vertragsbestandteil der aktuellen Entscheidung.
 
 ---
 
-*Erstellt durch `api-specialist` am 2026-10-01. Status `proposed` — Review folgt extern.
-Belege gegen den Code geprüft; keine bestehende Datei geändert, keine REQ-ID erfunden.*
+*Erstellt durch `api-specialist` am 2026-10-01. Status `proposed` — Review folgt extern;
+Freigabe durch `user` steht aus (siehe `deciders`). Belege gegen den Code geprüft; keine
+bestehende Datei außer diesem ADR geändert, keine REQ-ID erfunden.
+Review-Findings (CHANGES_REQUESTED: 1 major, 4 minor) eingearbeitet — Details siehe
+Rückmeldung an den `concept-reviewer`; Re-Review durch `se-critic`/`concept-reviewer` folgt.*
