@@ -129,3 +129,112 @@ Aktiv geblieben (alle `expires_at=NULL`, kein Workspace-Fence):
 - **Kein Push**, kein `--force`, kein `--no-verify`, kein User-Delete.
 - Widerruf ausschließlich über den Produktionspfad
   `DELETE /api/v1/api-keys/<id>/`.
+
+---
+
+## Phase 2-Rest — SECTRACK-01 Rest-Keys
+
+- **Datum:** 2026-10-01
+- **Branch:** `chore/audit-review-2026-09`
+- **Stack:** Compose-Projekt `ai-native-reqflow-poc`, Backend `http://localhost:8001`
+- **Auftrag:** Rest-Keys aus der Phase-2-Vorlage behandeln — `05968310…`
+  (Scope-Erweiterung genehmigt) und `34e0aeae…` (Best-Effort über legitimes
+  Credential; sonst Residuum).
+- **Revision:** `revoke` ist irreversibel; kein User gelöscht; **keine** direkte
+  SQL-Schreibung; kein Push.
+
+### Bestandsaufnahme (vor den Aktionen)
+
+`python manage.py inventory_api_keys --format json` bestätigte beide Keys als
+**aktiv**:
+
+| id (maskiert) | name | scope | expires_at | owner | tenant | status |
+|---|---|---|---|---|---|---|
+| `05968310…` | audit-live-probe | readwrite | NULL | `admin` | `demo` | active |
+| `34e0aeae…` | wp1a-tenantb | admin | NULL | `e2e-user-1789804477653` | `t-5e4905` | active |
+
+Beide `never_used`, kein Workspace-Fence.
+
+### `05968310…` — widerrufen (HTTP 204)
+
+| Aspekt | Ergebnis |
+|---|---|
+| Endpoint | `DELETE /api/v1/api-keys/05968310-…/` (vollständige UUID; hier maskiert) |
+| Auth | Bearer-JWT aus `POST /api/v1/auth/login/` (`admin`); kein API-Key, daher nicht im Widerrufs-Set |
+| **DELETE-Status** | **204 No Content** |
+| **DB-Nachweis** | `revoked_at = 2026-10-01 19:58:19.401045+00:00` (**NOT NULL**, vorher NULL) |
+| **`list_api_keys`** | `revoked=true`, `name=audit-live-probe`, `scope=readwrite` |
+| **Inventar danach** | `status=revoked`, `not_revoked=false` |
+
+**401-Nachweis (Kontroll-Probe, weil der Original-Plaintext redigiert ist):**
+frische Probe über den Produktionspfad erzeugt und widerrufen — beweist den
+Revoke-Pfad end-to-end:
+
+| Messung | Endpoint | Status |
+|---|---|---|
+| Probe angelegt | `POST /api/v1/api-keys/` (scope `write`) | **201** |
+| Kontrolle vor Widerruf | `POST /mcp/` `tools/list` | **200** |
+| Kontroll-Widerruf | `DELETE /api/v1/api-keys/<probe>/` | **204** |
+| nach Widerruf, Messung 1 | `POST /mcp/` `tools/list` | **401** |
+| nach Widerruf, Messung 2 (≥3 s Abstand) | `POST /mcp/` `tools/list` | **401** |
+| DB-Gegenprobe Probe | `revoked_at` NOT NULL | **true** |
+
+Die Kontroll-Probe (`16d4ad44…`) wurde im selben Lauf widerrufen; ihr Plaintext
+wurde nur einmalig gehalten und **nie** protokolliert.
+
+### `34e0aeae…` — Legitimitätsprüfung (Ergebnis: **kein legitimer App-Pfad**)
+
+Geprüft wurden alle in Frage kommenden App-Oberflächen:
+
+| Pfad | Beleg | Ergebnis |
+|---|---|---|
+| REST `DELETE /api/v1/api-keys/<id>/` | `rest_api/api_key_views.py:371-410`, `auth_tenancy/services/authentication.py:718-736` | **404** — selbst-scoped (`api_key.user_id != user_id → AuthenticationFailed`); live erneut gemessen mit `admin`-JWT |
+| Anderer Aufrufer von `revoke_api_key` | `rg revoke_api_key backend/**/*.py` → **genau ein** Caller (`api_key_views.py:403`), immer mit Caller-`user_id` | keiner |
+| MCP | `mcp_server/tool_registry.py:543-545` — „MCP exposes no key-management tool“; kein `api_key.*`-Tool | keiner |
+| Management-Commands | `inventory_api_keys` (explizit read-only, `inventory_api_keys.py:11-13`); `cleanup_revoked_api_keys` löscht **nur bereits widerrufene** Rows (`cleanup_revoked_api_keys.py:57-70`); kein Revoke-Command in `backend/**/management/commands/` | keiner |
+| Tenant-Admin-JWT | kein Cross-User-Key-Endpoint; `user.revoke_tenant_admin`/`permissions.revoke` betreffen Rollen/Regeln, nicht API-Keys | keiner |
+
+**Beobachtung (bewusst NICHT genutzt):** `auth_tenancy/admin.py:23-35` registriert
+`ApiKey` im Django-Admin mit `ApiKey.unscoped.all()` (Kommentar: „for maintenance
+operations“), `revoked_at` ist dort **editierbar**; `admin` ist
+`is_staff=true, is_superuser=true`. Dieser Superuser-Wartungspfad ist **kein**
+API-/Command-Pfad: er umgeht den selbst-scoped Domain-Service und die
+Tenant-/Ownership-Fence und ist semantisch ein manueller Spalten-Edit. Er wurde
+daher **nicht** ausgeführt — eine Nutzung bräuchte eine **explizite, gesonderte
+Freigabe** für einen privilegierten Cross-Tenant-Write.
+
+**Fazit:** `34e0aeae…` ist über die legitime Oberfläche nicht widerrufbar und
+bleibt als **Residuum** bestehen (kein SQL-Write, kein User-Delete).
+
+### Verbleibende Residuen + Risikoeinordnung
+
+Aktive Keys nach diesem Lauf: **5** (Inventar 204 Rows, 199 revoked).
+
+**Residuum `34e0aeae…` (wp1a-tenantb, scope `admin`, owner `e2e-user…`, tenant `t-5e4905`):**
+
+| Dimension | Bewertung |
+|---|---|
+| Plaintext verfügbar? | **Nein** — `at_api_key` speichert konstruktiv nur `key_hash`; kein Plaintext im Repo/Arbeitsbaum |
+| Jemals benutzt? | **Nein** — `last_used_at = NULL`, `usage_state=never_used` |
+| Erreichbarkeit | Nur lokal (Compose-Host-Ports `8001`/`5173`); **nicht** internet-exponiert; LLM-Provider `mock` |
+| Blast-Radius bei Leak | `scope=admin`, `workspace_ids=[]` ⇒ innerhalb von Tenant `t-5e4905` (isoliertes E2E-Tenant) volle Admin-Aktionen bis `expires_at=NULL` |
+| Greift das Bedrohungsmodell? | **Nur bedingt:** ohne Plaintext kein direkter Missbrauch; kein Live-Expositionsfenster. Ein Leak-Szenario setzt Zugriff auf das E2E-Tenant-Credential voraus, das hier nirgends persistiert ist |
+| Was greift **nicht**? | Kein Remote-Angreifer-Pfad (localhost-only), kein Credential in Git/Arbeitsbaum, kein Rotationszwang durch laufende Clients |
+| Restrisiko | **Niedrig** in dieser Umgebung; **mittel**, falls der Stack je exponiert oder das E2E-Tenant in eine Produktivinstanz überführt wird |
+| Empfehlung | Explizite Operator-Entscheidung: (a) Widerruf via Django-Admin/Superuser mit separater Freigabe, oder (b) `expires_at`/Workspace-Fence nachrüsten, oder (c) E2E-Tenant `t-5e4905` als Ganzes bereinigen. Bis dahin als **akzeptiertes Restrisiko** (AUD-2026-09-240) führen |
+
+**Weitere aktive Legacy-Keys (nicht-Kandidaten, unverändert):** `51b93187…`
+(bogus_key), `7650dcf7…` (empty_scope_key), `252789b4…` (read_key),
+`8293c9a1…` (author_key) — alle `expires_at=NULL`, kein Fence.
+Alle 5 verbleibenden aktiven Keys haben weiterhin **kein `expires_at`** und
+**keinen Workspace-Fence** (AUD-2026-09-240) — die Policy-Durchsetzung auf dem
+REST-/MCP-Automatisierungspfad (SEC-03) bleibt offen.
+
+### Bestätigungen (Phase 2-Rest)
+
+- Es sind **keine** Key-Werte/Token/Secrets in diesem Abschnitt enthalten —
+  ausschließlich maskierte IDs; die Kontroll-Probe wurde nur einmalig gehalten.
+- **Kein Push**, kein `--force`, kein `--no-verify`, kein User-Delete, **keine**
+  direkte SQL-Schreibung.
+- Widerruf ausschließlich über den Produktionspfad
+  `DELETE /api/v1/api-keys/<id>/` bzw. read-only-Verifikation.
