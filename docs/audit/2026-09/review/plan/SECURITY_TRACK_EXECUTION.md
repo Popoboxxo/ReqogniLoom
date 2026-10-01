@@ -480,3 +480,108 @@ lokalen Dateien bei Gelegenheit rotieren.
   die Positiv-Probe war synthetisch und wurde gelöscht.
 - Keine Änderung an Product-Code; nur Gate-Artefakte (`.gitleaks.toml`,
   `.pre-commit-config.yaml`, CI-Workflows).
+
+---
+
+## Phase 5 — Hausmeister lokale Keys
+
+- **Datum:** 2026-10-01
+- **Branch:** `chore/audit-review-2026-09`
+- **Stack:** Compose-Projekt `ai-native-reqflow-poc`, Backend `http://localhost:8001`
+- **Auftrag:** Widerruf der in Phase 4 gemeldeten lokalen `reqlo_`-Keys aus den
+  gitignorierten Dateien `.claude/settings.local.json` und
+  `.meta-config/secrets.local.yaml` über den legitimen Produktionspfad, 401-Nachweis,
+  Bereinigung der Dateien, Dokumentation.
+- **Revision:** kein Push, kein `--force`, kein `--no-verify`; **keine** direkte
+  SQL-Schreibung; kein User-Delete; nur die Doku-Änderung wird committet. Die beiden
+  genannten Dateien bleiben gitignoriert und werden **nicht** committet.
+
+### Bestandsaufnahme (read-only, Regex `reqlo_[A-Za-z0-9]{40}`)
+
+| Datei | Vorkommen | Wert-Identität |
+|---|---|---|
+| `.claude/settings.local.json` | 1 | `reqlo_3z…` |
+| `.meta-config/secrets.local.yaml` | 1 | `reqlo_3z…` (identisch) |
+
+**Abweichung zur Auftragsannahme „zwei Keys":** Es handelt sich um **genau einen
+distinkten Key** (`reqlo_3z…`, sha256-Kurzform `61af6f43810e`), der in **beiden**
+Dateien mit demselben Wert steht — nicht um zwei verschiedene Credentials. (Deckt
+sich mit Phase 4: zwei gitleaks-*Findings* = zwei Datei-Vorkommen, ein Wert.) In der
+Ziel-Instanz finden sich **keine** weiteren `reqlo_`-Tokens anderer Länge in den
+beiden Dateien.
+
+### Auflösung der Key-ID (read-only)
+
+Die Zuordnung Plaintext → `at_api_key.id` ist über die REST-Oberfläche **nicht**
+möglich (der Key authentifiziert nicht, s. u.). Daher read-only über den
+App-eigenen Hash des Authentifizierungspfads
+(`auth_tenancy.services.authentication.api_key_hash_candidates`) gegen **alle** Rows
+von `at_api_key` (Ausführung im Backend-Container, `manage.py shell`):
+
+| Prüfung | Ergebnis |
+|---|---|
+| `at_api_key` Rows gesamt | **204** |
+| davon Legacy-Format `sha256:` (unpeppered) | **204** (⇒ Hash-Matching ist autoritativ) |
+| davon peppered `sha256p1:` | 0 |
+| aktive (nicht widerrufene) Keys | 5 (`admin` ×4, `e2e-user-…` ×1) |
+| **Hash-Treffer für `reqlo_3z…`** | **0** |
+
+**Fazit:** Der Key ist in der lokalen Datenbank **nicht vorhanden** (weder aktiv noch
+bereits widerrufen). Er wurde in einer früheren Rotation/`cleanup_revoked_api_keys`
+entfernt bzw. stammt aus einer anderen Instanz (Config-Ziel `http://172.20.5.120:5173`).
+
+### DELETE-Status
+
+| Aspekt | Ergebnis |
+|---|---|
+| `DELETE /api/v1/api-keys/<id>/` | **n/a — nicht ausführbar** |
+| Grund | Kein auflösbarer Key-Datensatz → keine `<id>`. Der selbst-scoped Produktionspfad verlangt zuerst eine erfolgreiche Authentifizierung mit dem Key (401 ⇒ nicht erreichbar). |
+| Bewusst **nicht** getan | Kein blinder DELETE auf die 5 aktiven Fremd-Keys; kein direkter SQL-Write; kein User-Delete. |
+
+### 401-Nachweis (mit Positiv-Kontrolle)
+
+Positiv-Kontrolle über den dokumentierten Login-Pfad
+(`POST /api/v1/auth/login/` → Admin-JWT), damit 401 nicht auf einen generell
+defekten Endpoint zurückzuführen ist. Der Original-Plaintext des Ziel-Keys ist
+vorhanden; es wurde **nichts** protokolliert.
+
+| Messung | Credential | Endpoint | Zeit (UTC) | Status / Code |
+|---|---|---|---|---|
+| Positiv-Kontrolle | Admin-JWT (nicht im Widerrufs-Set) | `GET /api/v1/auth/me/` | 21:12:57 | **200** (user=`admin`) |
+| Positiv-Kontrolle | Admin-JWT | `GET /api/v1/api-keys/` | 21:12:57 | **200** |
+| **bereits 401 vor Widerruf — Messung 1** | Ziel-Key | `GET /api/v1/auth/me/` | 21:12:57 | **401** `invalid_api_key` |
+| Messung 1 (Fortsetzung) | Ziel-Key | `GET /api/v1/api-keys/` | 21:12:57 | **401** `invalid_api_key` |
+| **bereits 401 vor Widerruf — Messung 2** | Ziel-Key | `GET /api/v1/auth/me/` | 21:13:05 | **401** `invalid_api_key` |
+| Messung 2 (Fortsetzung) | Ziel-Key | `POST /mcp/` `tools/list` | 21:13:05 | **401** (`-32000`) |
+
+Zusätzlich wurde das in der Config hinterlegte Ziel `172.20.5.120` geprüft:
+`:8001` und `:5173` erreichbar, beide mit dem Key → **401** `invalid_api_key`.
+
+### Bereinigung der Dateien
+
+Beide Vorkommen wurden durch den Platzhalter `reqlo_REVOKED_PLACEHOLDER` ersetzt
+(Werte wurden **nicht** ausgegeben/protokolliert).
+
+| Datei | Platzhalter gesetzt | Struktur-Validierung | `rg "reqlo_[A-Za-z0-9]{40}"` |
+|---|---|---|---|
+| `.claude/settings.local.json` | ja (`Bearer reqlo_REVOKED_PLACEHOLDER`) | JSON valid | **0 Treffer** |
+| `.meta-config/secrets.local.yaml` | ja (`MCP_REQOGNILOOM_API_KEY: reqlo_REVOKED_PLACEHOLDER`) | YAML valid | **0 Treffer** |
+
+### Risiko / Residuum
+
+| Dimension | Bewertung |
+|---|---|
+| Credential lebendig? | **Nein** — 401 auf allen erreichbaren Backends; kein DB-Datensatz lokal |
+| Widerruf möglich? | **Nein** — kein auflösbarer Key; nichts zu widerrufen („bereits 401 vor Widerruf") |
+| Vorkommen in Git? | **Nein** — beide Dateien gitignoriert, nicht getrackt, nicht in der History (Phase 3/4) |
+| Residuum | Der ehemalige Plaintext war in zwei gitignorierten Arbeitsdateien abgelegt (jetzt Platzhalter). Falls je eine **andere** Instanz denselben Wert als aktiven Key führt, ist er dort weiterhin gültig und muss dort rotiert werden — in dieser Umgebung nicht erreichbar/nachweisbar. |
+| Restrisiko | **Niedrig** für diese Umgebung (Credential tot, Dateien clean) |
+
+### Bestätigungen (Phase 5)
+
+- Es sind **keine** Key-Werte/Token/Secrets in diesem Abschnitt enthalten — nur
+  maskierte Kennung (`reqlo_3z…`) und die Platzhalter; JWT/Passwort nie ausgegeben.
+- **Kein Push**, kein `--force`, kein `--no-verify`, kein User-Delete, **keine**
+  direkte SQL-Schreibung; kein blind durchgeführter DELETE.
+- Widerruf/Verifikation ausschließlich über den Produktionspfad bzw. read-only
+  Verifikation; nur die vorliegende Doku-Datei wird committet.
