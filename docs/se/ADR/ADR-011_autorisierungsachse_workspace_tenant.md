@@ -1,7 +1,7 @@
 ---
 adr_id: ADR-011
 title: "Zwei-Ebenen-Autorisierung: Tenant bleibt Isolationshülle, Workspace wird objektabgeleitete Achse mit explizitem Ressourcen-Scope"
-status: proposed
+status: accepted
 date: "2026-10-01"
 deciders: [user, senior-developer]
 affected_reqs: [REQ-L0-008, REQ-L1-042, REQ-L1-098, REQ-L2-AS-041, REQ-L2-AT-002, REQ-L2-AT-003, REQ-L2-AT-018, REQ-L2-PL-010, REQ-L2-PL-012, REQ-L2-RA-006]
@@ -10,7 +10,7 @@ superseded_by: null
 
 # ADR-011: Zwei-Ebenen-Autorisierung: Tenant bleibt Isolationshülle, Workspace wird objektabgeleitete Achse mit explizitem Ressourcen-Scope
 
-**Status:** proposed
+**Status:** accepted
 **Datum:** 2026-10-01
 **Entscheider:** user, senior-developer
 **Betroffene REQs:** REQ-L0-008 (Mandantenfähige Isolation), REQ-L1-042 (Workspace-Lifecycle mit RBAC),
@@ -25,6 +25,11 @@ REQ-L2-PL-012 (Vollständige Tenant-Isolation), REQ-L2-RA-006 (RBAC-Enforcement 
 `backend/auth_tenancy/services/authentication.py:552-571`; `backend/auth_tenancy/models.py:155-162`;
 `backend/rest_api/api_key_views.py:371-408`; `backend/application/requirement_service.py:754-757`;
 `backend/auth_tenancy/migrations/0011_rls_policies.py:43-64`
+
+**Review-/Lifecycle-Vermerk:** Statuswechsel `proposed → accepted` am 2026-10-01.
+Review-Verdikt `concept-reviewer` **APPROVED**, `validator` **COMPLIANT** (MADR-Lifecycle,
+Datum + Grund dokumentiert). `deciders` bleiben `user, senior-developer`; User ist die
+Freigabe-Instanz, die Reviewer ändern den Status nicht.
 
 ---
 
@@ -167,21 +172,25 @@ nicht verhandelbare Isolationshülle der RLS.
    Stelle daraus abgeleitet und zentral in `RbacPermission`/`AuthTenancyAuthentication`
    verankert (analog zur bereits zentralisierten Capability-Prüfung,
    `auth_enforcer.py:109-118`). **Maßgeblich ist die Deklaration, nicht der Request.** Ist
-   eine Ressource nicht deklariert oder ihr Scope unbekannt, oder lässt sich der
-   Ziel-Workspace nicht auflösen, lautet die Antwort **fail-closed: 403** — es gibt **keinen**
-   Rückfall auf die tenant-weite UNION aus `rest.py:259-277` und **keine** implizite
-   `tenant`-Annahme für Unklassifiziertes. Ein unbekannter Scope wird wie ein unbekannter
-   Workspace behandelt: deny. Damit entscheidet der **Klassifikator** — nicht der Client —
-   über fail-open vs. fail-closed der 269 ungefenceten Routen.
+   eine Ressource nicht deklariert oder ihr Scope unbekannt, lautet die Antwort
+   **fail-closed: 403** — es gibt **keinen** Rückfall auf die tenant-weite UNION aus
+   `rest.py:259-277` und **keine** implizite `tenant`-Annahme für Unklassifiziertes. **Nur
+   für `workspace`-skopierte Ressourcen** gilt zusätzlich: lässt sich der **Ziel-Workspace**
+   nicht auflösen, ebenfalls **fail-closed: 403**. Eine `tenant`-skopierte Ressource braucht
+   **keinen** Ziel-Workspace und wird von dieser Regel **nicht** betroffen. Ein unbekannter
+   Scope wird wie ein unbekannter Workspace behandelt: deny. Damit entscheidet der
+   **Klassifikator** — nicht der Client — über fail-open vs. fail-closed der 269
+   ungefenceten Routen.
 
 4. **Coverage-Gate vor Scharfschaltung des Seams.** Ein Test enumeriert alle
-   Ressourcen/Routen über den Klassifikator und wird **rot**, solange **eine**
-   unklassifizierte Ressource existiert; er prüft zusätzlich, dass eine Route ohne
-   auflösbaren Ziel-Workspace 403 liefert statt auf die tenant-weite UNION zurückzufallen.
-   Der Seam wird erst scharf geschaltet, wenn dieser Test grün ist — dieselbe
-   „Registry + Coverage + Waiver"-Form, die `ADR-007` für Regeln belegt. Das Gate läuft
-   **vor** dem Scharfschalten, damit die 269 Routen nicht durch eine stille
-   `tenant`-Default-Annahme fail-open werden.
+   **Ressourcen/Klassen** über den Klassifikator und wird **rot**, solange **eine**
+   unklassifizierte Ressource existiert; er prüft zusätzlich, dass eine
+   **`workspace`-skopierte Ressource ohne auflösbaren Ziel-Workspace 403 liefert, statt auf
+   die tenant-weite UNION zurückzufallen — für `tenant`-skopierte Ressourcen gilt diese
+   Prüfung nicht**, da sie keinen Ziel-Workspace benötigen. Der Seam wird erst scharf
+   geschaltet, wenn dieser Test grün ist — dieselbe „Registry + Coverage + Waiver"-Form,
+   die `ADR-007` für Regeln belegt. Das Gate läuft **vor** dem Scharfschalten, damit die
+   269 Routen nicht durch eine stille `tenant`-Default-Annahme fail-open werden.
 
 5. **API-Key-Fence und Ablauf werden an demselben Seam durchgesetzt.** Die heute nur in MCP
    wirksame Prüfung von `workspace_ids` (`tool_registry.py:1592-1601`, Funktion
@@ -245,9 +254,9 @@ nicht verhandelbare Isolationshülle der RLS.
 - **Policy-Migrationsfenster für Agent-Keys:** Keys ohne `workspace_ids`/`expires_at` werden durch
   `SEC-03` strikter; Key-Rotation/Inventarisierung (`SECTRACK-01`) muss der Verschärfung
   vorausgehen, sonst brechen laufende e2e-/Client-Flows.
-- **Status `proposed`:** Die Achsenwahl ist eine User-Entscheidung (`SECURITY_AUTHZ.md:31`); die
-  abhängigen Fixes (`SEC-02/03/04`, `DATA-06/07`) dürfen erst nach `accepted` bzw. ausdrücklicher
-  Freigabe starten. Bis dahin bleibt die gemessene Lücke offen und dokumentiert.
+- **Entscheidung getroffen, Umsetzung offen:** Mit dem Status `accepted` (2026-10-01) ist der
+  Start der abhängigen Fixes (`SEC-02/03/04`, `DATA-06/07`) freigegeben; bis zu deren
+  Umsetzung bleibt die gemessene Lücke offen und dokumentiert.
 - **Kein Ersatz für `SECTRACK`:** Der Live-Fall `34e0aeae…` (maskiert) zeigt eine reale,
   noch zu rotierende `admin`-Key-Instanz; diese ADR beschreibt die Zielachse, sie widerruft
   keinen Key.
@@ -265,10 +274,13 @@ nicht verhandelbare Isolationshülle der RLS.
 3. **Gemeinsamen Workspace-Fence bereitstellen** (`SEC-02`/`SEC-03`): `_check_workspace_fence`
    aus dem MCP-Pfad als geteilten Seam extrahieren und in `RbacPermission`/
    `AuthTenancyAuthentication` verankern; das Coverage-Gate (Entscheidung Punkt 4) geht voran.
-4. **Review-Übergang `proposed → review`** durch `se-critic` (MADR-Lifecycle), inkl. Prüfung
-   gegen die betroffenen REQs und die Default-Deny-Abgrenzung zu `rest.py:259-277`.
+4. **Review-/Lifecycle-Nachweis:** Der Übergang `proposed → accepted` ist am 2026-10-01
+   durch Re-Review (`concept-reviewer` **APPROVED**) und Validierung (`validator`
+   **COMPLIANT**) belegt, inkl. Prüfung gegen die betroffenen REQs und die
+   Default-Deny-Abgrenzung zu `rest.py:259-277`.
 
 ---
 
-*Erstellt durch `senior-developer` am 2026-10-01. Entscheidung steht unter `proposed`; die
-abschließende Achsenwahl trifft der User. Kein Produktcode, keine Migration, kein Push.*
+*Erstellt durch `senior-developer` am 2026-10-01. Status `accepted` seit 2026-10-01 —
+`concept-reviewer` APPROVED, `validator` COMPLIANT; die Achsenwahl hat der User freigegeben.
+Kein Produktcode, keine Migration, kein Push.*
