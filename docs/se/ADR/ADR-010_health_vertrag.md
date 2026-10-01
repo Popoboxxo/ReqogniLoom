@@ -1,19 +1,20 @@
 ---
 adr_id: ADR-010
 title: "Health-Vertrag: getrennte Liveness- und Readiness-Endpunkte mit fail-closed Readiness"
-status: proposed
+status: accepted
 date: "2026-10-01"
-deciders: [api-specialist]
+deciders: [api-specialist, user]
 affected_reqs: [REQ-L1-032, REQ-L0-021, REQ-060, REQ-063, REQ-L2-AT-007]
 superseded_by: null
 ---
 
 # ADR-010: Health-Vertrag: getrennte Liveness- und Readiness-Endpunkte mit fail-closed Readiness
 
-**Status:** proposed
+**Status:** accepted
 **Datum:** 2026-10-01
-**Entscheider:** api-specialist (Autor); **Entscheidungsinstanz:** user
-(**Freigabe noch ausstehend** — deshalb `status: proposed`, nicht `accepted`)
+**Entscheider:** api-specialist (Autor); **Entscheidungsinstanz/Freigabe:** user
+**Lifecycle:** Statuswechsel `proposed → accepted` am 2026-10-01.
+Verdikt `concept-reviewer`: APPROVED (accepted-fähig); `validator`: COMPLIANT.
 **Betroffene REQs:** REQ-L1-032 (Resilienz — Fehlertoleranz und Graceful Degradation),
 REQ-L0-021/SN-21 (Asynchrone, resiliente Systemkommunikation), REQ-060 (Healthchecks für
 Backend und Celery), REQ-063 (Observability-Grundausstattung), REQ-L2-AT-007 (Auth Middleware
@@ -199,8 +200,10 @@ Pflichtliste; die Alternative (B) trägt ein strukturelles Falsch-Grün-Risiko.
    Pflicht-Abhängigkeiten** gesund sind; **503** (`degraded`), sobald **mindestens eine**
    Pflicht-Abhängigkeit ausfällt. Pflicht sind: `database`, `memory_backend`, `cache`
    (Redis), `celery_worker`, `celery_beat`. Diese erscheinen **ausschließlich** als
-   `checks`-Einträge und sind die **einzige** Quelle für `status`/HTTP-Code; bei Ausfall
-   stehen sie zusätzlich in `dependencies`.
+   `checks`-Einträge und sind die **einzige** Quelle für `degraded`/HTTP 503; bei Ausfall
+   stehen sie zusätzlich in `dependencies`. Die Unterscheidung `ok` ↔ `warning` (beide
+   HTTP 200) hängt demgegenüber allein von `warnings` ab — diese leitet sich aus den
+   beratenden Signalen ab (**nicht** status-/503-relevant, siehe §4).
 
    Beratend sind: `outbox`, `llm_provider_env`, `embedding_dimensions`,
    `csrf_cookie_secure_matches_auth` sowie die Workflow-Definitions-Warnungen
@@ -251,7 +254,10 @@ Pflichtliste; die Alternative (B) trägt ein strukturelles Falsch-Grün-Risiko.
      `health.py:312-313`); sein Entfall wäre ein Breaking Change (Major-Bump), weil
      Konsumenten `warning` heute bereits beobachten können.
    - `status == "degraded"` genau dann, wenn **mindestens ein Pflicht-Check** nicht `ok`
-     ist → HTTP **503**.
+     ist → HTTP **503** im **strict mode** (`HEALTH_STRICT_READINESS`, Default `true`,
+     siehe §6). Ist das Flag explizit `false` (nicht-strikter Modus), bleibt `status ==
+     "degraded"`, der HTTP-Code ist dann jedoch **200** — der Statuscode-Geltungsbereich
+     dieses Satzes ist daher der strict mode, nicht der Vertrag als Ganzes.
 
    Es gilt die Äquivalenz: `dependencies` nicht leer ⇔ `status == "degraded"`. Bei
    `degraded` enthält `dependencies` **jede** nicht-`ok` **Pflicht**-Abhängigkeit als
@@ -269,7 +275,9 @@ Pflichtliste; die Alternative (B) trägt ein strukturelles Falsch-Grün-Risiko.
 6. **Feature-Flag `HEALTH_STRICT_READINESS`** (Governance):
    - **Default `true` (fail-closed, strikt).** Ein ungesetzter/leerer Wert ist strikt;
      nur ein explizites `false` wechselt den Modus. Fail-closed ist damit
-     Default-by-omission.
+     Default-by-omission. Der Geltungsbereich der Statuscode-Zuordnung aus §4
+     (`degraded → 503`) ist **genau dieser strict mode**; im nicht-strikten Modus gilt
+     `degraded → 200` (siehe nächster Punkt).
    - **Rückfallmodus = „degraded-200".** Ist das Flag `false`, liefert `/health/ready`
      auch bei ausgefallener Pflicht-Abhängigkeit **HTTP 200** mit `status:"degraded"` und
      gefüllter `dependencies`-Liste; Konsumenten müssen dann die Liste selbst auswerten.
@@ -309,10 +317,11 @@ Die Abweichung wird bewusst getragen. Eine spätere Hochstufung von `outbox` zur
 (nach Nachziehung einer bounded Probe) ist eine **minor** Erweiterung derselben
 Pflichtliste, keine Strukturänderung; sie ist als Folgeaufgabe vermerkt.
 
-**Diese Entscheidung blockiert** RES-03, RES-05 (Beat-Heartbeat-Auswertung) und RES-07
-(Gates), bis sie `accepted` ist (`RESILIENCE_HEALTH.md:69-77`;
-`INTERFACE_CONTRACTS.md:321-325`). Bis dahin bleiben §3.2–3.4 dort **Vertragsvorschlag**,
-kein Sofort-Fix.
+**Diese Entscheidung war blockierend** für RES-03, RES-05 (Beat-Heartbeat-Auswertung) und
+RES-07 (Gates), solange sie nicht `accepted` war (`RESILIENCE_HEALTH.md:69-77`;
+`INTERFACE_CONTRACTS.md:321-325`). Mit dem Statuswechsel `proposed → accepted` am
+2026-10-01 sind sie freigegeben; §3.2–3.4 dort werden damit vom Vertragsvorschlag zum
+verbindlichen Vertrag.
 
 ---
 
@@ -367,11 +376,13 @@ kein Sofort-Fix.
 1. **`open_adrs`-Feld einführen** (repo-weit, `AUD-2026-09-333`), damit `REQ-L1-032`,
    `REQ-L0-021`, `REQ-060`, `REQ-063` und `REQ-L2-AT-007` diese ADR referenzieren können.
    Bis dahin wird **keine** REQ-Datei geändert.
-2. **Review-Übergang `proposed → review`** durch `se-critic` (MADR-Lifecycle), inkl.
-   Prüfung gegen `REQ-L1-032` (Nicht-Kaskade) und die Restart-Loop-Abgrenzung.
-3. **Contract-Details nachziehen**, sobald `accepted`: exaktes Body-Schema, Statusmatrix je
-   Abhängigkeit und Deprecation-Fenster stehen als Vertragsvorschlag in
-   `INTERFACE_CONTRACTS.md:233-325` und werden nach der Entscheidung verbindlich.
+2. **REQ-Referenzierung statt Lifecycle-Review:** Der Review-Übergang ist erfolgt
+   (`proposed → accepted` am 2026-10-01, `concept-reviewer` APPROVED / `validator`
+   COMPLIANT). Offen bleibt die Prüfung gegen `REQ-L1-032` (Nicht-Kaskade) und die
+   Restart-Loop-Abgrenzung als REQ↔ADR-Verknüpfung (siehe Folgeaufgabe 1).
+3. **Contract-Details nachziehen**, nun da `accepted` (2026-10-01): exaktes Body-Schema,
+   Statusmatrix je Abhängigkeit und Deprecation-Fenster stehen als Vertragsvorschlag in
+   `INTERFACE_CONTRACTS.md:233-325` und sind mit der Entscheidung verbindlich geworden.
 4. **Auth-Ausnahmeliste erweitern:** `REQ-L2-AT-007` (Auth-Middleware-Interception,
    Ausnahme für `/health`) ist um `/health/live` und `/health/ready` zu ergänzen, sobald
    die Endpunkte implementiert sind — sonst interceptet die Middleware die Probes und die
@@ -383,8 +394,9 @@ kein Sofort-Fix.
 
 ---
 
-*Erstellt durch `api-specialist` am 2026-10-01. Status `proposed` — Review folgt extern;
-Freigabe durch `user` steht aus (siehe `deciders`). Belege gegen den Code geprüft; keine
+*Erstellt durch `api-specialist` am 2026-10-01. Status `accepted` seit 2026-10-01;
+Freigabe durch `user` erteilt (siehe `deciders`). Belege gegen den Code geprüft; keine
 bestehende Datei außer diesem ADR geändert, keine REQ-ID erfunden.
-Review-Findings (CHANGES_REQUESTED: 1 major, 4 minor) eingearbeitet — Details siehe
-Rückmeldung an den `concept-reviewer`; Re-Review durch `se-critic`/`concept-reviewer` folgt.*
+Review-Findings (CHANGES_REQUESTED: 1 major, 4 minor) eingearbeitet; Re-Review durch
+`concept-reviewer` (APPROVED) und `validator` (COMPLIANT) abgeschlossen. Minor-Schärfungen
+aus dem Re-Review eingearbeitet, Statuswechsel `proposed → accepted` am 2026-10-01.*
