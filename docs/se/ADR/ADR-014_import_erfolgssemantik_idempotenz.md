@@ -125,6 +125,12 @@ wird **keine** REQ neu erfunden und **keine** REQ-Datei geändert. `open_adrs` e
 repo-weit nicht (`AUD-2026-09-333`); die REQ↔ADR-Verknüpfung bleibt daher eine
 Folgeaufgabe (siehe Konsequenzen).
 
+**REQ-071 (`docs/REQUIREMENTS.md:102`, gemeinsames Error-Envelope) ist bewusst nicht in
+`affected_reqs`:** Sie betrifft das generische REST-vs-MCP-Fehlerformat und ist bereits
+`Done`; diese ADR verlängert nur ihren `cause.code`-Katalog und koordiniert ihn als
+Folgeaufgabe 5. Eine Aufnahme in `affected_reqs` würde eine inhaltliche Änderung an
+REQ-071 suggerieren, die nicht beabsichtigt ist.
+
 ### Abgrenzung: MCP
 
 Der native MCP-Server (`/mcp/`, JSON-RPC 2.0) ist **nicht** Gegenstand des
@@ -210,10 +216,10 @@ einen Status aus `succeeded | skipped | failed`. `success` folgt **einer** Regel
 
 `skipped` (z. B. `DUPLICATE`, `UNKNOWN_TYPE`) sowie Warnings beeinflussen `success`
 **nicht**: Eine Antwort, in der **alle** Objekte `skipped` sind (`succeeded == 0`,
-`failed == 0`), ist ein **Erfolg** (`success:true`, 200/201) — die kanonische
-**skipped-only**-Semantik. `skipped` zählt für die Statuswahl (§2) weder als Erfolg noch
-als Teilerfolg. `counts` enthält `succeeded`, `skipped`, `failed`, `total`. Die Maske ist
-maschinenlesbar:
+`failed == 0`), ist ein **Erfolg** (`success:true`, **200** — kein Created, da keine
+Schreibwirkung) — die kanonische **skipped-only**-Semantik. `skipped` zählt für die
+Statuswahl (§2) weder als Erfolg noch als Teilerfolg. `counts` enthält `succeeded`,
+`skipped`, `failed`, `total`. Die Maske ist maschinenlesbar:
 
 ```json
 {
@@ -241,7 +247,7 @@ Jeder Fehler/Warnhinweis trägt einen **stabilen, maschinenlesbaren** `cause.cod
 
 | `cause.code` | Bedeutung | Status |
 |---|---|---|
-| `DUPLICATE` | fachliches Duplikat (Idempotenz-/Dedupe-Treffer) | `skipped` (im `error`-Modus: `failed`) |
+| `DUPLICATE` | fachliches Duplikat: CSV-Natural-Key-Treffer **oder** inhaltlich identisches ReqIF-Objekt; geänderter ReqIF-Inhalt ist **kein** `DUPLICATE`, sondern `succeeded` (Update, §3) | `skipped` (CSV im `error`-Modus: `failed`) |
 | `UNKNOWN_TYPE` | unbekannter SPEC-OBJECT-TYPE / `entity_type` | `skipped` |
 | `MISSING_REQUIRED_FIELD` | Pflichtfeld leer | `failed` |
 | `INVALID_VALUE` | Wert außerhalb des Wertebereichs | `failed` |
@@ -257,29 +263,34 @@ Bei `failed > 0` enthält `items` **mindestens einen** Eintrag; bei einem Rollba
 
 ### 2. HTTP-Abbildung
 
-Die Statuswahl bindet **eindeutig** an `counts.succeeded` und `counts.failed`; die drei
+Die Statuswahl bindet **eindeutig** an `counts.succeeded` und `counts.failed`; die
 objektbezogenen Regeln sind **disjunkt und erschöpfend** (sie partitionieren den
-`failed > 0`-Fall nach `succeeded`):
+`failed == 0`- und den `failed > 0`-Fall vollständig):
 
 | Situation (disjunkt) | Status |
 |---|---|
-| `failed == 0` (Erfolg, `success:true`; `skipped` erlaubt) | **201** (CSV) / **200** (ReqIF; `dry_run` 200) |
+| `failed == 0 ∧ succeeded > 0` (Erfolg mit Schreibwirkung) | **201** (CSV) / **200** (ReqIF; `dry_run` 200) |
+| `failed == 0 ∧ succeeded == 0` (skipped-only, **keine** Schreibwirkung) | **200** (CSV und ReqIF; kein Created) |
 | `succeeded > 0 ∧ failed > 0` (Teilerfolg) | **207 Multi-Status** |
 | `failed > 0 ∧ succeeded == 0` (Totalfehler) | **422 Unprocessable Entity** |
-| Request-Ebene: leere Datei, unbekannter `entity_type`, Größenlimit, nicht lesbarer Request-Body | **400** (unverändert) |
+| Request-Ebene: **leere Datei (0 Byte)**, unbekannter `entity_type`, Größenlimit, nicht lesbarer Request-Body | **400** (unverändert) |
 
-**`skipped` ist für die Statuswahl neutral:** Es zählt **weder** als Erfolg **noch** als
-Teilerfolg und kann den Status nie auf 207 heben. Damit ist eine Datei, in der **alle**
-Objekte `skipped` sind (`succeeded == 0 ∧ failed == 0`), ein **Erfolg** (`success:true`,
-200/201) — die skipped-only-Antwort (F11). Die frühere Formulierung `0 < failed < total`
-ist ersetzt: `total` enthält auch `skipped` und war deshalb mehrdeutig.
+**`skipped` ist für die Statuswahl neutral:** Es zählt **weder** als Erfolg noch als
+Teilerfolg und kann den Status nie auf 207 heben. Eine Datei, in der **alle** Objekte
+`skipped` sind (`succeeded == 0 ∧ failed == 0`), bleibt ein **Erfolg** (`success:true`),
+aber **ohne Schreibwirkung**: Es wurde keine Ressource angelegt, daher **200** (nicht 201)
+— die skipped-only-Antwort (F11), konsistent für CSV und ReqIF. Ein **201** auf dem
+CSV-Pfad setzt `succeeded > 0` (mindestens eine tatsächlich angelegte Ressource) voraus.
+Die frühere Formulierung `0 < failed < total` ist ersetzt: `total` enthält auch `skipped`
+und war deshalb mehrdeutig.
 
-**Asymmetrie CSV 201 / ReqIF 200 (bewusst, F9):** Der CSV-Import legt neue Ressourcen an
-(Bulk-INSERT) und wird daher mit **201 Created** quittiert. Der ReqIF-Import ist per
-IDENTIFIER-Matching ein **Upsert** (Anlegen **und** Aktualisieren gemischt, ohne einzelne
-Ressourcen-URI) und antwortet deshalb mit **200 OK**. Beide Codes stehen für denselben
-Erfolgsbegriff (`failed == 0`); die Differenz folgt der HTTP-Semantik „Created nur bei
-genau einer neu angelegten Ressource mit Location".
+**Asymmetrie CSV 201 / ReqIF 200 (bewusst, F9):** Der CSV-Import wird mit **201 Created**
+quittiert, **sofern** er mindestens eine Ressource angelegt hat (`succeeded > 0`); bei
+reinem skipped-only (keine neue Ressource) antwortet auch CSV mit **200**. Der ReqIF-Import
+ist per IDENTIFIER-Matching ein **Upsert** (Anlegen **und** Aktualisieren gemischt, ohne
+einzelne Ressourcen-URI) und antwortet deshalb mit **200 OK**. Beide Codes stehen für
+denselben Erfolgsbegriff (`failed == 0`); die Differenz folgt der HTTP-Semantik „Created
+nur bei mindestens einer neu angelegten Ressource mit Location".
 
 `dry_run` (F6): Der Probelauf folgt **derselben** Disjunktion wie ein echter Import
 (Erfolg ⇒ 200, Teilerfolg ⇒ 207, Totalfehler ⇒ 422), mit zwei Besonderheiten: Es wird
@@ -298,10 +309,16 @@ Request ist syntaktisch wohlgeformt, die **Datei** ist inhaltlich nicht verarbei
 (`succeeded == 0 ∧ failed >= 1`). Er wird daher als dateibezogener Totalfehler
 `cause.code = PARSE_ERROR` (§1) mit **422** beantwortet. Die frühere Zuordnung „falsches
 Encoding → 400" war mit AC5 unvereinbar und ist hiermit korrigiert. **400** bleibt
-ausschließlich den vier Request-Ebenen-Fällen (leere Datei, unbekannter `entity_type`,
-Größenlimit, nicht lesbarer Request-Body) vorbehalten. Ein CSV-RFC-4180-Verstoß ist
+ausschließlich den vier Request-Ebenen-Fällen (leere Datei (0 Byte), unbekannter
+`entity_type`, Größenlimit, nicht lesbarer Request-Body) vorbehalten. Ein CSV-RFC-4180-Verstoß ist
 dagegen ein **zeilenbezogener** `QUOTING_ERROR` (`failed`) und wird über die
 Objekt-Disjunktion (207/422) beantwortet, nicht über 400.
+
+**Grenzfall „leere Datei" vs. „nicht wohlgeformtes XML" (eindeutig):** Ein **0-Byte-Upload**
+ist kein parsebarer Inhalt, sondern ein leeres, unverarbeitbares Request-Objekt ⇒ **400**
+(Request-Ebene). Eine **vorhandene, aber nicht wohlgeformte** XML-/`.reqif`-Datei ist
+dagegen ein dateibezogener Parse-Fehler ⇒ `cause.code = PARSE_ERROR` ⇒ **422**. Beide
+Fälle sind damit disjunkt: 0 Byte ⇒ 400, nicht wohlgeformt ⇒ 422.
 
 **Abgrenzung zu `REQ-L3-IMP-002` (CSV, All-or-Nothing):** REQ-L3-IMP-002 verlangt den
 Rollback nur bei einem **DB-Fehler nach der Validierung**; Validierungsfehler einzelner
@@ -342,6 +359,13 @@ Architekturdatei).
     Replay gecacht. Retry-fähige/transiente Fehler (`PERSISTENCE_ERROR`, Teilerfolg)
     werden **nicht** als Dauerergebnis gespeichert, damit ein Retry mit demselben Key
     erfolgreich sein kann; ein transienter Fehllauf hinterlässt keinen Replay-Eintrag.
+  - **Deterministische Validierungs-Totalfehler (geklärt):** Ein Totalfehler aus
+    Validierung (`failed > 0 ∧ succeeded == 0`, z. B. `PARSE_ERROR` oder alle Zeilen
+    `MISSING_REQUIRED_FIELD`) ist **terminal**, wird aber dennoch **nicht** gecacht.
+    Begründung: Er erzeugt keine Schreibwirkung; eine Wiederholung mit demselben Key
+    liefert deterministisch denselben **422** und ist damit beobachtbar idempotent. Das
+    Nicht-Cachen verkleinert zugleich das gespeicherte Fehler-/Payload-Volumen (§7).
+    `idempotent_replay: true` bleibt ausschließlich dem Erfolgsfall vorbehalten.
   - **In-Flight (paralleler gleicher Key):** Die erste Anfrage hält eine
     In-Flight-Markierung (Lock). Die zweite erhält **409 Conflict** mit
     `cause.code = IDEMPOTENCY_IN_FLIGHT` und `Retry-After`; nach Abschluss der ersten
@@ -349,10 +373,21 @@ Architekturdatei).
   - **Abgrenzung:** 409 (`KEY_REUSED`/`IN_FLIGHT`) ist **Request-/Vertragsebene** und
     folgt damit **nicht** der Objekt-Disjunktion aus §2.
 - **Fachliche Dedupe** (wirkt auch **ohne** Key): Treffer über den natürlichen Schlüssel
-  je Entität (ReqIF: `reqif_identifier`; CSV: entity-spezifischer Natural Key) ⇒
-  `skipped` mit `DUPLICATE`. Konfigurierbar über `duplicate_policy`:
-  - `skip` (**Default**) ⇒ Status `skipped`, `cause.code = DUPLICATE`;
-  - `error` ⇒ Status `failed`, `cause.code = DUPLICATE` (damit `success=false`).
+  je Entität. Die Regel unterscheidet **klar** nach Pfad, damit der ReqIF-Upsert (§2) und
+  REQ-147 (`docs/REQUIREMENTS.md:205`, „Re-Import aktualisiert statt dupliziert") sich
+  nicht widersprechen:
+  - **CSV** (entity-spezifischer Natural Key): ein Treffer ist ein fachliches Duplikat ⇒
+    `skipped` mit `DUPLICATE`; konfigurierbar über `duplicate_policy`:
+    - `skip` (**Default**) ⇒ Status `skipped`, `cause.code = DUPLICATE`;
+    - `error` ⇒ Status `failed`, `cause.code = DUPLICATE` (damit `success=false`).
+  - **ReqIF** (`reqif_identifier`): **reiner Upsert gemäß REQ-147**. Ein Treffer ist **kein**
+    Duplikat, sondern ein Update: Bei **abweichendem Inhalt** ⇒ Status `succeeded`
+    (Aktualisierung), bei **inhaltlich identischem** Objekt ⇒ Status `skipped` mit
+    `DUPLICATE` (idempotenter No-op, keine zweite Schreibwirkung). Ein pauschales
+    `skipped DUPLICATE` für jeden `reqif_identifier`-Treffer ist damit **aufgehoben** — es
+    hätte geänderte Inhalte verworfen (stiller Datenverlust) und REQ-147 widersprochen.
+    `duplicate_policy` gilt folglich **nur** für den CSV-Pfad; der ReqIF-Pfad folgt der
+    IDENTIFIER-Matching-Upsert-Semantik aus §2 und REQ-147.
 
 ### 4. Outbox-Idempotenz
 
@@ -410,9 +445,15 @@ und `request_id` sind davon unabhängig und nicht blockiert).
 
 ### 7. Threat Model (kompakt, 4-Fragen-Format, F5)
 
+**Scope-Abgrenzung:** Dieses Threat Model betrifft **ausschließlich** die in dieser ADR
+eingeführte `Idempotency-Key`-Ablage und die `event_id`-Dedupe der Importe/Outbox. Der
+MCP-Server ist gemäß §6 **bewusst ausgenommen** (strikt JSON-RPC 2.0, kein
+Import-Ergebnismodell, kein `Idempotency-Key`) und ist daher **nicht** Teil dieses Threat
+Models.
+
 **1. Was baust du?** Eine persistente `Idempotency-Key → Fingerprint`-Ablage und
 `event_id`-Dedupe für Importe und Outbox, erreichbar ausschließlich über
-authentifizierte REST-/MCP-Aufrufe mit Tenant-Kontext.
+authentifizierte **REST**-Aufrufe mit Tenant-Kontext.
 
 **2. Was könnte schiefgehen?**
 
@@ -466,8 +507,10 @@ innerhalb desselben Tenants bleibt ein Insider-Risiko.
 - **Zusätzlicher Zustand:** `Idempotency-Key`-Speicherung und `event_id`-Dedup-Fenster
   benötigen persistente Ablage/Cleanup — ein Betriebs- und Speicheraufwand, der geplant
   und begrenzt werden muss (TTL 24 h + Cleanup-Job + pro-Tenant-Limit, §3/§7).
-- **`duplicate_policy: error`** kann einen bislang „erfolgreichen" Re-Import in einen
-  Fehler verwandeln; das ist beabsichtigt, aber eine Verhaltensänderung pro Workspace.
+- **`duplicate_policy: error`** (CSV-Pfad) kann einen bislang „erfolgreichen" Re-Import
+  in einen Fehler verwandeln; das ist beabsichtigt, aber eine Verhaltensänderung pro
+  Workspace. Der ReqIF-Pfad ist davon **nicht** betroffen: Er bleibt per IDENTIFIER-Matching
+  ein Upsert (geänderter Inhalt ⇒ Update, identischer Inhalt ⇒ No-op).
 - **Keine REQ trägt den Antwortvertrag:** Keine REQ schreibt Ergebnismodell,
   Statusabbildung (207/422) oder `Idempotency-Key` fest. Die Zuordnung zu den fachlichen
   REQs (REQ-147, REQ-L1-034, REQ-L2-RQ-001, REQ-072, REQ-L1-021, REQ-L2-AS-014,
@@ -490,8 +533,8 @@ innerhalb desselben Tenants bleibt ein Insider-Risiko.
    (Scope, TTL + Cleanup, `409 KEY_REUSED`/`IN_FLIGHT`, Fehler-Replay); offen ist nur die
    operative Umsetzung.
 5. **`cause.code`-Katalog mit INT-06 koordinieren** (gemeinsames Fehler-Envelope,
-   `request_id`) und im OpenAPI-Schema deklarieren (`PARSE_ERROR` sowie die
-   Idempotency-Codes einschließen).
+   `request_id`; REQ-071, bewusst nur Folgeaufgabe und **nicht** `affected_reqs`) und im
+   OpenAPI-Schema deklarieren (`PARSE_ERROR` sowie die Idempotency-Codes einschließen).
 6. **Vertragsvorschläge aus `INTERFACE_CONTRACTS.md` §2** nach diesem `accepted`-Status
    als verbindlichen Vertrag nachziehen.
 7. **Architektur-Zeile korrigieren:**
