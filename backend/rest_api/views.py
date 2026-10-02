@@ -8242,7 +8242,12 @@ class ReqifImportView(APIView):
 
     Returns:
         200 with the import report (counts + errors per entity kind, plus
-        relation counts and warnings) on success, including dry-run.
+        relation counts and warnings), including dry-run. A per-object
+        failure is reported in the body with ``success: false`` and a
+        structured ``errors`` list while the remaining objects stay
+        imported; the HTTP status stays 200 (AUD-2026-09-071 — the 207/422
+        mapping is part of the ADR-v-blocked import contract,
+        docs/audit/2026-09/review/plan/INTERFACE_CONTRACTS.md §2/§6).
         400 on a hard error (missing/empty file, unparseable XML, ReqIF
         structural violation) — nothing is persisted.
     """

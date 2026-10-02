@@ -37,8 +37,9 @@ digit, see ``reqif_export_service._artifact_spec_object_id``):
     in ``warnings``, no DB write.
   - An identifier that resolves to an existing Artifact of the *other* kind
     (e.g. a Requirement identifier now pointing at what is a StakeholderNeed
-    row) is a soft, per-object error: skipped and reported under the owning
-    entity kind's ``errors``.
+    row) is a per-object *failure*: the object is not imported, it counts
+    under the owning entity kind's ``failed`` and is reported in its
+    ``errors``. Import continues with the remaining objects.
 
 Status handling (REQ-143 — status is a read-only workflow mirror)
 ===================================================================
@@ -105,10 +106,31 @@ Hard errors (unparseable XML, missing CORE-CONTENT, a document exceeding the
 size/object-count guards, or ``ReqIFSchemaError`` structural violations
 surfaced by the ``reqif`` parser) are raised *before* — or immediately
 unwind — the transaction, so nothing is written; the REST layer maps them to
-400. Per-object/per-relation soft errors (bad type, oversized field, missing
-endpoint, ...) are caught around a per-item ``transaction.atomic()``
-savepoint so one bad SPEC-OBJECT/SPEC-RELATION cannot poison the surrounding
-transaction — it is skipped and reported instead.
+400. Per-object/per-relation errors (bad type, oversized field, missing
+endpoint, persistence conflict, ...) are caught around a per-item
+``transaction.atomic()`` savepoint so one bad SPEC-OBJECT/SPEC-RELATION
+cannot poison the surrounding transaction — the rest of the document still
+imports.
+
+A SPEC-OBJECT that cannot be imported because of invalid data or a
+persistence conflict counts as ``failed`` (it was *meant* to import); a
+SPEC-RELATION that is intentionally not imported (endpoint absent from the
+document, unknown link type) counts as ``skipped``. The import as a whole is
+successful only when no object failed: ``success ⇔ failed == 0`` across all
+three entity kinds (AUD-2026-09-071; see ``ReqifImportResult.success``).
+
+AUD-2026-09-071 savepoint fix: the defensive fresh-id fallback for a
+cross-tenant primary-key collision previously caught ``IntegrityError``
+*inside* the per-object savepoint and retried in the same, already aborted,
+transaction — PostgreSQL then rejected every following statement with
+"current transaction is aborted", so the fallback silently lost the object.
+Each create attempt now runs in its own nested savepoint, so the failed
+INSERT is rolled back before the retry runs (see ``_upsert_spec_object``).
+
+Contract scope (ADR v): only the *body* semantics above are implemented. The
+HTTP status mapping (207/422) and the ``Idempotency-Key`` replay contract
+from ``docs/audit/2026-09/review/plan/INTERFACE_CONTRACTS.md`` §2 remain a
+proposal blocked on ADR v and are deliberately **not** implemented here.
 
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: import_reqif(reqif_text, workspace_id, ctx, dry_run)
@@ -229,7 +251,13 @@ def _map_status(current: str, valid_states: Optional[List[str]]) -> str:
 
 
 class _SoftError(Exception):
-    """Per-object/per-relation error: caller skips and reports, does not abort."""
+    """Per-object/per-relation error: caller reports it, does not abort.
+
+    A ``_SoftError`` on a SPEC-OBJECT counts as ``failed`` (the object was
+    meant to import but its data is invalid or conflicts); on a SPEC-RELATION
+    it counts as ``skipped`` (the relation is intentionally not imported —
+    e.g. an endpoint absent from the document).
+    """
 
 
 def _parse_artifact_uuid(identifier: str) -> Optional[UUID]:
@@ -254,18 +282,34 @@ def _parse_artifact_uuid(identifier: str) -> Optional[UUID]:
 
 @dataclass
 class ReqifEntityReport:
-    """created/updated/skipped counts + per-item errors for one entity kind."""
+    """Per-entity-kind counts + per-item errors.
+
+    The three outcome counters are mutually exclusive per imported item:
+    ``succeeded`` (= ``created + updated``) imported the item (created it or
+    updated an existing one), ``skipped`` intentionally did not import it
+    (e.g. an unresolvable relation endpoint), ``failed`` hit an error while
+    importing it (invalid data, persistence conflict, unexpected exception).
+    ``errors`` carries a structured entry per failed/skipped item.
+    """
 
     created: int = 0
     updated: int = 0
     skipped: int = 0
+    failed: int = 0
     errors: List[Dict[str, str]] = field(default_factory=list)
+
+    @property
+    def succeeded(self) -> int:
+        """Items imported (created or updated) — the complement of skipped+failed."""
+        return self.created + self.updated
 
     def to_dict(self) -> dict:
         return {
+            "succeeded": self.succeeded,
             "created": self.created,
             "updated": self.updated,
             "skipped": self.skipped,
+            "failed": self.failed,
             "errors": list(self.errors),
         }
 
@@ -275,15 +319,32 @@ class ReqifImportResult:
     """Result of a ReqIF import (real or dry-run).
 
     Attributes:
-        success: Always True when returned — hard errors raise instead
-            (ValidationError/NotFoundError), the REST layer maps those to 400.
+        success: ``True`` iff no imported object failed, i.e.
+            ``success == (failed == 0)`` summed over ``needs``,
+            ``requirements`` and ``relations`` (AUD-2026-09-071). It is *not*
+            hard-coded: a document where one object has invalid data (or
+            cannot be persisted) reports ``success=False`` together with the
+            structured per-object ``errors``, while the remaining objects are
+            still imported. Only hard document errors (unparseable XML, no
+            CORE-CONTENT, size/object-count guards) raise instead
+            (ValidationError/NotFoundError) and are mapped to 400 by the REST
+            layer — nothing is persisted in that case.
         dry_run: Echoes the caller's dry_run flag.
-        needs: StakeholderNeed created/updated/skipped/errors.
-        requirements: Requirement created/updated/skipped/errors.
-        relations: TraceLink created/updated (= already existed)/skipped/errors.
+        needs: StakeholderNeed succeeded/created/updated/skipped/failed/errors.
+        requirements: Requirement succeeded/created/updated/skipped/failed/errors.
+        relations: TraceLink succeeded/created/updated (= already existed)/
+            skipped/failed/errors.
         warnings: Non-fatal notes (unknown SPEC-OBJECT-TYPE skipped,
             cross-workspace identifier collisions resolved with a fresh id,
-            malformed ATTR-CUSTOM-FIELDS JSON ignored, ...).
+            malformed ATTR-CUSTOM-FIELDS JSON ignored, ...). Warnings do not
+            affect ``success``.
+
+    Contract scope (ADR v): this DTO only corrects the *body* success
+    semantics and exposes the outcome counters. The full import-result
+    envelope (``contract``/``counts``/``items``/``idempotent_replay``) and
+    the HTTP 207/422 mapping are a proposal in
+    ``docs/audit/2026-09/review/plan/INTERFACE_CONTRACTS.md`` §2 and stay
+    blocked on ADR v; they are not implemented here.
     """
 
     success: bool
@@ -292,6 +353,11 @@ class ReqifImportResult:
     requirements: ReqifEntityReport
     relations: ReqifEntityReport
     warnings: List[str] = field(default_factory=list)
+
+    @property
+    def failed_total(self) -> int:
+        """Total failed objects across all three entity kinds."""
+        return self.needs.failed + self.requirements.failed + self.relations.failed
 
     def to_dict(self) -> dict:
         return {
@@ -345,8 +411,11 @@ class ReqifImportService(ServiceBase):
                 of committing; the returned report is otherwise identical.
 
         Returns:
-            ReqifImportResult with per-entity-kind counts and a report of
-            skipped items / warnings.
+            ReqifImportResult with per-entity-kind outcome counts
+            (succeeded/created/updated/skipped/failed), a structured per-item
+            error report, and warnings. ``success`` is False as soon as one
+            object failed (``success ⇔ failed == 0``); the remaining objects
+            are still persisted.
 
         Raises:
             NotFoundError: workspace does not exist in the active tenant.
@@ -421,17 +490,20 @@ class ReqifImportService(ServiceBase):
                             warnings=warnings,
                         )
                 except _SoftError as exc:
-                    report.skipped += 1
+                    # AUD-2026-09-071: a SPEC-OBJECT that errors on invalid
+                    # data/conflict was meant to import — it is a *failure*,
+                    # not a skip, so it drives success=False.
+                    report.failed += 1
                     report.errors.append(
                         {"identifier": so.identifier, "message": str(exc)}
                     )
                     continue
-                except Exception:  # noqa: BLE001 — soft-fail per object
+                except Exception:  # noqa: BLE001 — per-object failure, do not abort
                     logger.exception(
                         "ReqifImportService: unexpected error importing %s",
                         so.identifier,
                     )
-                    report.skipped += 1
+                    report.failed += 1
                     # #697 (CWE-209): the report is part of the HTTP 200 body,
                     # so the raw exception text must not travel in it.
                     report.errors.append(
@@ -470,6 +542,16 @@ class ReqifImportService(ServiceBase):
                         "requirements_created": reqs_report.created,
                         "requirements_updated": reqs_report.updated,
                         "relations_created": relations_report.created,
+                        "failed": (
+                            needs_report.failed
+                            + reqs_report.failed
+                            + relations_report.failed
+                        ),
+                        "skipped": (
+                            needs_report.skipped
+                            + reqs_report.skipped
+                            + relations_report.skipped
+                        ),
                     },
                 )
             else:
@@ -479,8 +561,17 @@ class ReqifImportService(ServiceBase):
                 # without persisting anything (REQ-147 dry_run).
                 transaction.set_rollback(True)
 
+        # AUD-2026-09-071: success is derived from the actual per-object
+        # outcome, never hard-coded. Any object that failed to import makes the
+        # whole import unsuccessful while the successfully imported objects
+        # stay persisted (no total abort). The HTTP status stays 200 — the
+        # 207/422 mapping and Idempotency-Key contract are ADR-v-blocked (see
+        # the module docstring / INTERFACE_CONTRACTS.md §2/§6).
+        failed_total = (
+            needs_report.failed + reqs_report.failed + relations_report.failed
+        )
         return ReqifImportResult(
-            success=True,
+            success=failed_total == 0,
             dry_run=dry_run,
             needs=needs_report,
             requirements=reqs_report,
@@ -542,8 +633,8 @@ class ReqifImportService(ServiceBase):
         """Create or update the Artifact + Need/Requirement for one SPEC-OBJECT.
 
         Runs inside a savepoint (caller's ``transaction.atomic()``); raises
-        ``_SoftError`` for anything that should be skipped-and-reported
-        rather than aborting the whole import.
+        ``_SoftError`` for anything that should be failed-and-reported rather
+        than aborting the whole import.
 
         Returns:
             (artifact, created) — created=True for a brand-new artifact.
@@ -608,8 +699,8 @@ class ReqifImportService(ServiceBase):
         # the flat-map rules (and, since the #269 follow-up, the free-text guard
         # that keeps markup / ``javascript:`` payloads out of the map) have to
         # be applied explicitly here. A ReqIF file is untrusted input like any
-        # request body. A violation is a per-object soft error: the spec object
-        # is skipped and reported, the rest of the file still imports.
+        # request body. A violation is a per-object failure: the spec object is
+        # not imported and is reported, the rest of the file still imports.
         try:
             custom_fields = validate_custom_fields(custom_fields)
         except DjangoValidationError as exc:
@@ -671,36 +762,45 @@ class ReqifImportService(ServiceBase):
             if entity is None:
                 raise _SoftError(
                     f"Identifier {so.identifier} matches an existing artifact of a "
-                    "different type — skipped."
+                    "different type — not imported."
                 )
             artifact = existing_artifact
             created = False
         else:
             new_id = target_uuid or uuid.uuid4()
             try:
-                artifact = Artifact.objects.create(
-                    id=new_id,
-                    tenant=tenant,
-                    workspace=workspace,
-                    artifact_type=kind,
-                    custom_fields={},
-                )
+                # AUD-2026-09-071: each attempt runs in its own nested
+                # savepoint. Without it, catching IntegrityError here left the
+                # surrounding transaction aborted, so the retry below hit
+                # "current transaction is aborted" and the defensive fresh-id
+                # fallback silently lost the object. The nested savepoint rolls
+                # the failed INSERT back before the retry runs.
+                with transaction.atomic():
+                    artifact = Artifact.objects.create(
+                        id=new_id,
+                        tenant=tenant,
+                        workspace=workspace,
+                        artifact_type=kind,
+                        custom_fields={},
+                    )
             except IntegrityError:
                 # Defensive fallback for the (near-impossible with random
                 # UUIDv4s) case of a cross-tenant id collision invisible to
-                # the tenant-scoped query above.
+                # the tenant-scoped query above. Runs in a fresh savepoint,
+                # because the failed one was rolled back on leaving the block.
                 new_id = uuid.uuid4()
                 warnings.append(
                     f"Identifier {so.identifier} collided with an existing "
                     f"artifact id; assigned a new id {new_id}."
                 )
-                artifact = Artifact.objects.create(
-                    id=new_id,
-                    tenant=tenant,
-                    workspace=workspace,
-                    artifact_type=kind,
-                    custom_fields={},
-                )
+                with transaction.atomic():
+                    artifact = Artifact.objects.create(
+                        id=new_id,
+                        tenant=tenant,
+                        workspace=workspace,
+                        artifact_type=kind,
+                        custom_fields={},
+                    )
             entity = (
                 # #133: workspace is denormalized onto Requirement to back the
                 # (workspace, uid) DB-level UniqueConstraint.
@@ -900,16 +1000,20 @@ class ReqifImportService(ServiceBase):
                     else:
                         relations_report.updated += 1
             except _SoftError as exc:
+                # A relation that is intentionally not imported (endpoint
+                # absent, unknown link type) is a *skip* — relations are
+                # documented as never a hard error, and a missing endpoint is
+                # normal for partial documents.
                 relations_report.skipped += 1
                 relations_report.errors.append(
                     {"identifier": relation.identifier, "message": str(exc)}
                 )
-            except Exception:  # noqa: BLE001 — soft-fail per relation
+            except Exception:  # noqa: BLE001 — per-relation failure, do not abort
                 logger.exception(
                     "ReqifImportService: unexpected error importing relation %s",
                     relation.identifier,
                 )
-                relations_report.skipped += 1
+                relations_report.failed += 1
                 # #697 (CWE-209): the report is part of the HTTP 200 body, so
                 # the raw exception text must not travel in it.
                 relations_report.errors.append(

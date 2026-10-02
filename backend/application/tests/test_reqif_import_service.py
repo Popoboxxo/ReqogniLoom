@@ -658,7 +658,7 @@ class TestReqifImportCustomFieldsGuard:
     the exact surface that #290 made live for REST.
     """
 
-    def test_spec_object_with_markup_in_custom_fields_is_skipped(
+    def test_spec_object_with_markup_in_custom_fields_is_failed(
         self, source_workspace, target_workspace
     ):
         tenant = source_workspace["tenant"]
@@ -671,7 +671,11 @@ class TestReqifImportCustomFieldsGuard:
         reqif_text = _export(source_workspace["workspace"].id, tenant.id)
         result = _import(reqif_text, target_workspace.id, tenant.id)
 
-        assert result.requirements.skipped == 1
+        # AUD-2026-09-071: a SPEC-OBJECT that cannot be imported is a failure
+        # (not a skip) and makes the import unsuccessful.
+        assert result.requirements.failed == 1
+        assert result.requirements.skipped == 0
+        assert result.success is False
         assert any(
             "custom_fields" in e["message"] for e in result.requirements.errors
         ), result.requirements.errors
@@ -697,3 +701,141 @@ class TestReqifImportCustomFieldsGuard:
             artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
         )
         assert imported.artifact.custom_fields == {"owner": "alice", "sprint": 7}
+
+
+# ---------- AUD-2026-09-071: success semantics + savepoint (INT-01) ----------
+
+
+class TestReqifImportPartialFailureContract:
+    """Regression coverage for AUD-2026-09-071 (INT-01).
+
+    ``success`` must reflect the real per-object outcome
+    (``success ⇔ failed == 0``), partial success must stay transparent, and
+    the per-object savepoint must actually rescue a SPEC-OBJECT whose first
+    ``Artifact.objects.create`` hits a primary-key collision.
+    """
+
+    def test_one_invalid_object_makes_success_false_but_rest_imports(
+        self, source_workspace, target_workspace
+    ):
+        """A single faulty object -> success=False + structured errors; the
+        remaining objects stay imported (no total abort).
+
+        This is the exact acceptance case of AUD-2026-09-071: the old code
+        hard-coded ``success=True`` even though ``errors`` listed the object.
+        """
+        tenant = source_workspace["tenant"]
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+
+        # req3's title exceeds the 500-char soft limit -> per-object failure.
+        long_title = "X" * 501
+        mutated = reqif_text.replace(
+            'THE-VALUE="Req Three"', f'THE-VALUE="{long_title}"', 1
+        )
+        assert mutated != reqif_text  # sanity: the mutation actually applied
+
+        result = _import(mutated, target_workspace.id, tenant.id)
+
+        assert result.success is False
+        assert result.requirements.failed == 1
+        assert result.requirements.skipped == 0
+        error = result.requirements.errors[0]
+        assert error["identifier"] == f"_{source_workspace['req3'].artifact_id}"
+        assert "500" in error["message"]
+
+        # No total abort — the other objects (and relations) still import.
+        assert result.needs.created == 2
+        assert result.requirements.created == 2
+        assert result.relations.created == 2
+        assert (
+            Requirement.objects.filter(
+                artifact__workspace=target_workspace, artifact__reqif_uid="REQ-003"
+            ).count()
+            == 0
+        )
+        assert (
+            Requirement.objects.filter(
+                artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
+            ).count()
+            == 1
+        )
+        assert (
+            Requirement.objects.filter(
+                artifact__workspace=target_workspace, artifact__reqif_uid="REQ-002"
+            ).count()
+            == 1
+        )
+
+    def test_clean_import_reports_success_and_succeeded_counts(
+        self, source_workspace, target_workspace
+    ):
+        tenant = source_workspace["tenant"]
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+
+        result = _import(reqif_text, target_workspace.id, tenant.id)
+
+        assert result.success is True
+        assert result.requirements.failed == 0
+        assert result.requirements.succeeded == 3
+
+        body = result.to_dict()
+        assert body["success"] is True
+        assert body["requirements"]["succeeded"] == 3
+        assert body["requirements"]["failed"] == 0
+
+    def test_cross_tenant_pk_collision_is_recovered_and_reported(
+        self, source_workspace, target_workspace
+    ):
+        """The defensive fresh-id fallback must actually run.
+
+        An Artifact in another tenant whose id is invisible to the target
+        tenant's scoped lookups forces a real primary-key collision on
+        ``create``. The (fixed) nested savepoint rolls the failed INSERT back
+        before the retry, so the object is recovered with a fresh id instead
+        of being lost to an aborted transaction.
+        """
+        tenant = source_workspace["tenant"]
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+
+        other_tenant = Tenant.objects.create(
+            name="Reqif-Import-Other-T", slug="reqif-import-other-t", is_active=True
+        )
+        set_request_tenant(other_tenant.id)
+        try:
+            other_ws = Workspace.objects.create(
+                tenant=other_tenant, name="Other WS", preset={"name": "standard"}
+            )
+            collided_id = uuid.uuid4()
+            Artifact.objects.create(
+                id=collided_id,
+                tenant=other_tenant,
+                workspace=other_ws,
+                artifact_type="Requirement",
+            )
+        finally:
+            clear_request_tenant()
+
+        req3_internal = f"_{source_workspace['req3'].artifact_id}"
+        mutated = reqif_text.replace(req3_internal, f"_{collided_id}")
+        assert mutated != reqif_text  # sanity: the mutation actually applied
+
+        result = _import(mutated, target_workspace.id, tenant.id)
+
+        # Recovered, not lost: no failure, the object is imported with a fresh
+        # id, and the collision is surfaced as a warning.
+        assert result.success is True
+        assert result.requirements.failed == 0
+        assert result.requirements.created == 3
+        assert any("collided" in w for w in result.warnings), result.warnings
+        assert not any(
+            "internal error" in e["message"].lower()
+            for e in result.requirements.errors
+        ), result.requirements.errors
+
+        recovered = Requirement.objects.get(
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-003"
+        )
+        assert recovered.artifact_id != collided_id
+
+        # The other tenant's artifact was never touched.
+        assert Artifact.unscoped.filter(id=collided_id).count() == 1
