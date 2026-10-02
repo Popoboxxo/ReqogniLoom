@@ -40,7 +40,7 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, NotFound
 from rest_framework.negotiation import BaseContentNegotiation
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
@@ -3118,6 +3118,11 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 links_qs = svc.list_links_for_workspace_queryset(
                     workspace_id=workspace_id, ctx=ctx
                 )
+                # INT-05 (AUD-2026-09-073): ``paginate_queryset`` raises DRF's
+                # ``NotFound`` for an invalid ``page`` (0/abc/out-of-range). The
+                # outer ``except NotFound: raise`` below (added ahead of the
+                # broad service handlers) lets it reach the framework as a
+                # **404** instead of being rewritten to a 500.
                 page = self.paginator.paginate_queryset(
                     links_qs, request, view=self
                 )
@@ -3256,6 +3261,13 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 # artifact being viewed is by definition the live one.
                 item["source_is_outdated"] = bool(src.get("is_outdated", False))
                 item["target_is_outdated"] = bool(tgt.get("is_outdated", False))
+        except NotFound:
+            # INT-05 (AUD-2026-09-073): DRF's ``NotFound`` from the paginator is
+            # a legitimate 404 — re-raise it so DRF's exception handler renders
+            # the status, instead of the broad handlers below converting it to a
+            # 500. ``NotFound`` here can only come from pagination (the service
+            # raises ``NotFoundError``, which is a separate class).
+            raise
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -8759,12 +8771,18 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
             include_deleted = parse_include_deleted(request.query_params)
             terms = self._svc().list_by_workspace(ctx, workspace_id, include_deleted=include_deleted)
-            return self._paginate(
-                request, terms, lambda t: GlossaryTermSerializer(t).data
-            )
         except Exception as e:
             logger.exception("Error in GlossaryTermViewSet.list")
             return _service_error_response(e, lang)
+
+        # INT-05 (AUD-2026-09-073): the pagination call is deliberately kept
+        # *outside* the ``try/except Exception`` above — DRF's ``NotFound``
+        # (invalid ``page``) must propagate to the framework as a **404**
+        # instead of being caught by the broad handler and answered as a 500.
+        # Mirrors ``WorkspaceViewSet.list``.
+        return self._paginate(
+            request, terms, lambda t: GlossaryTermSerializer(t).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)

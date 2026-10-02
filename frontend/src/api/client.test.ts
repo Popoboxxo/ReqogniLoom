@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   advanceAuthSessionGeneration,
   apiClient,
+  asList,
   extractApiErrorMessage,
   extractErrorMessage,
   resetUnauthorizedGuard,
@@ -483,5 +484,31 @@ describe("extractApiErrorMessage (#339/#340)", () => {
     expect(
       extractErrorMessage({ error: { code: "X", message: "boom", details: [] } })
     ).toBe("boom");
+  });
+});
+
+describe("asList — pagination envelope tolerance (INT-05)", () => {
+  it("returns a bare array unchanged", () => {
+    expect(asList<number>([1, 2, 3])).toEqual([1, 2, 3]);
+  });
+
+  it("unwraps the StandardPagination envelope's results", () => {
+    const envelope = {
+      count: 2,
+      next: null,
+      previous: null,
+      page_size: 25,
+      max_page_size: 100,
+      results: [{ id: "a" }, { id: "b" }],
+    };
+    expect(asList<{ id: string }>(envelope)).toEqual([{ id: "a" }, { id: "b" }]);
+  });
+
+  it("yields [] for anything that is neither array nor envelope", () => {
+    expect(asList(undefined)).toEqual([]);
+    expect(asList(null)).toEqual([]);
+    expect(asList({ detail: "oops" })).toEqual([]);
+    // An object with a non-array `results` must not be mistaken for an envelope.
+    expect(asList({ results: "not-an-array" })).toEqual([]);
   });
 });
