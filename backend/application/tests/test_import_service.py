@@ -389,6 +389,62 @@ class TestImportCsvWorkflowState:
         finally:
             clear_request_tenant()
 
+    def test_import_non_initial_status_bumps_version_and_records_history(self):
+        """Regression for AUD-2026-09-167: a non-initial imported status used
+        to be written straight into a freshly created ``WorkflowItemState`` --
+        no transition, no history entry, no ``version`` bump. That made a CSV
+        import an invisible CAS bypass. The shared writer must start the row at
+        the definition's initial state, move it to the imported value with
+        ``version += 1`` and append a history entry."""
+        from workflow.models import WorkflowHistoryEntry
+
+        tenant, workspace = self._make_workspace()
+        set_request_tenant(tenant.id)
+        try:
+            definition = WorkflowEngineDefinition.objects.create(
+                tenant=tenant,
+                workspace_id=workspace.id,
+                item_type="Requirement",
+                preset=WorkflowEngineDefinition.PRESET_STANDARD,
+                workflow_json={
+                    "states": ["draft", "in_review", "approved", "deprecated"],
+                    "transitions": [],
+                },
+            )
+        finally:
+            clear_request_tenant()
+
+        csv_text = (
+            "title,description,category,status\n"
+            "Approved One,Already approved,functional,approved\n"
+        )
+        result = ImportService().import_csv(
+            csv_text, "Requirement", workspace.id, self._ctx(tenant.id)
+        )
+        assert result.success is True
+
+        set_request_tenant(tenant.id)
+        try:
+            req = Requirement.objects.get(
+                artifact__workspace=workspace, title="Approved One"
+            )
+            state = WorkflowItemState.objects.get(
+                item_id=req.id, item_type="Requirement"
+            )
+            # Created at "draft" (states[0], version starts at 1) and
+            # CAS-moved exactly once to "approved" -> version 2.
+            assert state.current_state == "approved"
+            assert state.version == 2
+            assert state.definition_id == definition.id
+            assert WorkflowHistoryEntry.objects.filter(
+                item_state=state,
+                from_state="draft",
+                to_state="approved",
+                transitioned_by="import",
+            ).exists()
+        finally:
+            clear_request_tenant()
+
     def test_import_without_definition_creates_row_with_no_persisted_status(
         self,
     ):

@@ -530,6 +530,21 @@ class TestReqifImportStatusMapping:
         )
         assert state.current_state == "in_review"
         assert state.workspace_id == target_workspace.id
+        # AUD-2026-09-168: the import used to flip ``current_state`` without
+        # touching ``version`` (a CAS blind spot: a client holding
+        # ``expected_version`` could not detect -- let alone block -- the
+        # overwrite) and without a history entry. The shared CAS writer now
+        # creates the row at the initial state (version 1) and CAS-moves it
+        # once -> version 2.
+        assert state.version == 2
+        from workflow.models import WorkflowHistoryEntry
+
+        assert WorkflowHistoryEntry.objects.filter(
+            item_state=state,
+            from_state="draft",
+            to_state="in_review",
+            transitioned_by="import",
+        ).exists()
 
     def test_unknown_status_normalises_to_draft_without_definition(
         self, source_workspace, target_workspace

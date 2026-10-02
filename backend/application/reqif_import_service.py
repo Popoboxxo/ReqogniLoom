@@ -199,6 +199,90 @@ _GLOBAL_KNOWN_STATES = frozenset(
 _FALLBACK_STATE = "draft"
 
 
+def _apply_imported_workflow_state(
+    *,
+    entity_id: UUID,
+    item_type: str,
+    workspace_id: UUID,
+    tenant: Any,
+    definition: Any,
+    mapped_state: str,
+    source: str,
+) -> None:
+    """Create/align the ``WorkflowItemState`` for an imported row, CAS-correct.
+
+    An import is a system-level operation, not a user transition, so it does
+    not run the preset transition graph. It must still not be a *silent* state
+    bypass (AUD-2026-09-167/168): whenever the imported state actually differs
+    from what the row already holds, this bumps the optimistic-lock counter
+    (``version = version + 1``) and appends a ``WorkflowHistoryEntry`` -- the
+    same observable contract the canonical writer
+    (``StateLifecycleManager.perform_transition``) guarantees.
+
+    A newly created state row starts at the definition's initial state
+    (``states[0]``, the project-wide convention) and is only moved to the
+    imported value through that same CAS write, so ``version`` reflects the
+    number of state changes rather than the raw insert. An unchanged import
+    stays at whatever the row already held and does not touch ``version``.
+
+    Args:
+        entity_id:    PK of the imported entity (its ``WorkflowItemState.item_id``).
+        item_type:    Entity type string (e.g. ``"Requirement"``).
+        workspace_id: Workspace UUID.
+        tenant:       Owning tenant (used for the create).
+        definition:   The workspace's ``WorkflowEngineDefinition`` for *item_type*.
+        mapped_state: The imported status already normalised via ``_map_status``.
+        source:       Import source label ("ReqIF" / "CSV"), recorded in history.
+    """
+    from django.db.models import F
+
+    from workflow.models import WorkflowHistoryEntry, WorkflowItemState
+
+    valid_states = list((definition.workflow_json or {}).get("states", [])) or [
+        mapped_state
+    ]
+    initial_state = valid_states[0]
+
+    state_row = WorkflowItemState.objects.filter(
+        item_id=entity_id, item_type=item_type
+    ).first()
+    if state_row is None:
+        state_row = WorkflowItemState.objects.create(
+            item_id=entity_id,
+            item_type=item_type,
+            workspace_id=workspace_id,
+            definition=definition,
+            current_state=initial_state,
+            tenant=tenant,
+        )
+
+    previous_state = state_row.current_state
+    definition_changed = state_row.definition_id != definition.id
+    if previous_state == mapped_state and not definition_changed:
+        return
+
+    updated = WorkflowItemState.objects.filter(pk=state_row.pk).update(
+        current_state=mapped_state,
+        definition=definition,
+        version=F("version") + 1,
+    )
+    if not updated:
+        # Row vanished under us (concurrent hard delete) -- nothing to record.
+        return
+
+    if previous_state != mapped_state:
+        WorkflowHistoryEntry.unscoped.create(
+            item_state=state_row,
+            from_state=previous_state,
+            to_state=mapped_state,
+            transitioned_by="import",
+            transitioned_at=timezone.now(),
+            change_reason=f"Imported state ({source})",
+            workspace_id=workspace_id,
+            tenant_id=state_row.tenant_id,
+        )
+
+
 def _map_status(current: str, valid_states: Optional[List[str]]) -> str:
     """Map a free-text status onto a valid workflow state.
 
@@ -783,23 +867,19 @@ class ReqifImportService(ServiceBase):
         valid_states = list((definition.workflow_json or {}).get("states", []))
         mapped = _map_status(status_raw, valid_states)
 
-        state_row = WorkflowItemState.objects.filter(
-            item_id=entity.id, item_type=item_type
-        ).first()
-        if state_row is not None:
-            if state_row.current_state != mapped or state_row.definition_id != definition.id:
-                state_row.current_state = mapped
-                state_row.definition = definition
-                state_row.save(update_fields=["current_state", "definition"])
-        else:
-            WorkflowItemState.objects.create(
-                item_id=entity.id,
-                item_type=item_type,
-                workspace_id=workspace_id,
-                definition=definition,
-                current_state=mapped,
-                tenant=tenant,
-            )
+        # AUD-2026-09-168: this used to flip ``current_state`` without touching
+        # ``version`` (a CAS blind spot) and without a history entry. Route every
+        # imported state change through the shared CAS writer so an importer can
+        # no longer silently overwrite a concurrent transition.
+        _apply_imported_workflow_state(
+            entity_id=entity.id,
+            item_type=item_type,
+            workspace_id=workspace_id,
+            tenant=tenant,
+            definition=definition,
+            mapped_state=mapped,
+            source="ReqIF",
+        )
 
     # ---------- SPEC-HIERARCHY -> Artifact.parent ----------
 

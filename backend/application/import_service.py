@@ -50,7 +50,10 @@ from application.export_service import (
     _APP_ENTITY_TYPES,
     _PERSISTENCE_ENTITY_TYPES,
 )
-from application.reqif_import_service import _map_status
+from application.reqif_import_service import (
+    _apply_imported_workflow_state,
+    _map_status,
+)
 from application.test_service import canonical_test_type_or_none
 
 logger = logging.getLogger(__name__)
@@ -507,7 +510,8 @@ class ImportService(ServiceBase):
 
         Returns count of inserted rows.
         """
-        from workflow.models import WorkflowEngineDefinition, WorkflowItemState
+        from workflow.models import WorkflowEngineDefinition
+
         from persistence.models import (
             ArchitectureElement,
             Artifact,
@@ -711,14 +715,21 @@ class ImportService(ServiceBase):
             # the imported status is simply not persisted anywhere for that
             # row (documented, reviewed data-loss tradeoff, see the Task 12
             # report Finding 2).
+            #
+            # AUD-2026-09-167: a non-initial imported status used to be written
+            # straight into a freshly created WorkflowItemState (no version
+            # bump, no history). The shared CAS writer starts the row at the
+            # definition's initial state and moves it to the imported value
+            # atomically, bumping ``version`` and appending a history entry.
             if definition is not None:
-                WorkflowItemState.objects.create(
-                    item_id=obj.id,
+                _apply_imported_workflow_state(
+                    entity_id=obj.id,
                     item_type=entity_type,
                     workspace_id=workspace_id,
-                    definition=definition,
-                    current_state=mapped_status,
                     tenant=tenant,
+                    definition=definition,
+                    mapped_state=mapped_status,
+                    source="CSV",
                 )
 
             inserted += 1

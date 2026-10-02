@@ -344,6 +344,26 @@ jobs:
         with:
           args: -color
 
+  # ADR-012 / DATA-01: a backup is only proven by restoring it. This job runs
+  # deploy/verify-restore.sh, which produces a dump with the REAL inlined
+  # `postgres-backup` command block and restores it atomically
+  # (psql --single-transaction) into an isolated throwaway Postgres. It asserts
+  # 15/15 tables, 0 errors, and that an injected error rolls back to zero
+  # tables. Requires only docker + bash + python3, all present on the runner.
+  restore-smoke:
+    name: "Restore Smoke Gate (ADR-012)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Least privilege: the smoke only reads compose/checkout and runs docker.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run atomic restore smoke
+        run: deploy/verify-restore.sh
+
   # SECTRACK-03: reproducible secret-scan backstop for the incident pattern
   # `reqlo_<40 alnum>`. gitleaks 8.30.1 (pinned, sha256-verified) runs twice:
   # once over the checked-out working tree (`dir`) and once over the full git

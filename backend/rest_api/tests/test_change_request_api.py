@@ -20,7 +20,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rest_framework.test import APIRequestFactory
 
-from application.base import NotFoundError, PermissionDeniedError, ValidationError
+from application.base import (
+    NotFoundError,
+    OptimisticLockError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from application.models import ChangeRequest
 from rest_api.views import ChangeRequestViewSet
 
@@ -449,6 +454,51 @@ class TestChangeRequestTransitionEndpoint:
         svc.transition_status.assert_called_once()
         call_kwargs = svc.transition_status.call_args[1]
         assert call_kwargs.get("change_reason") == "Ready"
+
+    def test_transition_forwards_expected_version_to_service(self):
+        """AUD-2026-09-282: the special ``transition/`` route used to drop the
+        client's ``expected_version``/``If-Match``, leaving it last-writer-wins
+        while the generic ``transitions/`` route is CAS-protected. It must now
+        reach the service (the only place the row-locked compare can run)."""
+        svc = MagicMock()
+        cr = _make_cr_orm(status="submitted")
+        svc.transition_status.return_value = cr
+
+        self._call_transition(
+            CR_ID,
+            {
+                "target_status": "submitted",
+                "change_reason": "Ready",
+                "expected_version": 3,
+            },
+            svc,
+        )
+
+        call_kwargs = svc.transition_status.call_args[1]
+        assert call_kwargs.get("expected_version") == 3
+
+    def test_transition_stale_expected_version_returns_409(self):
+        """A stale revision is a lost race, not a server fault (409 CONFLICT),
+        and it must not silently overwrite the winner."""
+        svc = MagicMock()
+        svc.transition_status.side_effect = OptimisticLockError(
+            "expected version 1, found 2"
+        )
+
+        resp = self._call_transition(
+            CR_ID,
+            {
+                "target_status": "submitted",
+                "change_reason": "stale session",
+                "expected_version": 1,
+            },
+            svc,
+        )
+
+        assert resp.status_code == 409, resp.content
+        # Direct ``view(req)`` calls return an unrendered DRF Response, so the
+        # error body lives on ``.data`` (``.json()`` needs a rendered body).
+        assert resp.data["error"]["code"] == "CONFLICT"
 
     def test_transition_not_found_returns_404(self):
         svc = MagicMock()

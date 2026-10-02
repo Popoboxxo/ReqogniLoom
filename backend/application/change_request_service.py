@@ -560,6 +560,7 @@ class ChangeRequestService(ServiceBase):
         target_status: str,
         ctx,
         change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> ChangeRequest:
         """Transition a ChangeRequest's CCB workflow status (REQ-157).
 
@@ -584,6 +585,11 @@ class ChangeRequestService(ServiceBase):
                            approved/rejected/implemented).
             ctx: Resolved AuthContext.
             change_reason: Transition rationale (required for some transitions).
+            expected_version: Caller's last-seen ``WorkflowItemState.version``.
+                Forwarded to ``WorkflowFacade.transition`` so a concurrent
+                transition answers 409 instead of silently overwriting the
+                winner (AUD-2026-09-282). ``None`` keeps the historical
+                last-writer-wins behaviour for callers that do not track it.
 
         Returns:
             Updated ChangeRequest ORM instance.
@@ -642,6 +648,7 @@ class ChangeRequestService(ServiceBase):
             workspace_id=cr.workspace_id,
             ctx=ctx,
             change_reason=change_reason,
+            expected_version=expected_version,
         )
 
         # Datenmodell-Konsolidierung Phase 1: WorkflowItemState is the seam

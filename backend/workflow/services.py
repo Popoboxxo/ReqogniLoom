@@ -281,8 +281,7 @@ def transition(
             asserts no revision cannot detect that someone else moved the item
             on and will overwrite it. The caller has to supply the revision to
             get the 409; this function never rejects a revision-less caller.
-            (``WorkflowFacade.transition`` documents the same semantics, and
-            lists which service wrappers still omit the revision.)
+            (``WorkflowFacade.transition`` documents the same semantics.)
 
     Returns:
         TransitionResult with the transition details.
