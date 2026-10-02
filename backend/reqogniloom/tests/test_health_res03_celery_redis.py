@@ -9,14 +9,21 @@ status read as healthy — would leave both files green.
 
 These tests drive the real ``admin_ops.health_rest._check_celery_beat`` against
 the real Django cache through the real ``reqogniloom.health`` aggregation, and
-assert the resulting readiness status / dependency list. The Redis and worker
-probes are stubbed because ``settings_test`` pins
-``CELERY_BROKER_URL = "memory://"`` (there is no live Redis in the unit-test
-process); the live Redis/beat path is verified against the running stack
-separately.
+assert the resulting readiness status / dependency list. The worker probe is
+stubbed because ``settings_test`` pins ``CELERY_BROKER_URL = "memory://"``
+(there is no live worker in the unit-test process).
+
+The Redis probe is normally stubbed too, but the container test overlay runs a
+real ``redis`` service (``testing/docker-compose.test.yml`` declares it a hard
+dependency and exports ``CELERY_BROKER_URL=redis://redis:6379/0``). The
+``*_real_redis_*`` tests below therefore drive the *real* ``_check_redis`` PING
+against that live Redis and assert the readiness contract name ``cache``, which
+no stubbed test can prove. They skip when no live broker is configured (a bare
+host ``pytest`` run) and run under the documented ``backend-test`` overlay.
 """
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -46,7 +53,10 @@ def _clear_heartbeat() -> None:
 
 
 def _isolate_dependencies(
-    monkeypatch: pytest.MonkeyPatch, *, redis_ok: bool = True
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    redis_ok: bool = True,
+    stub_redis: bool = True,
 ) -> None:
     """Pin every readiness probe that needs live infra, except ``celery_beat``.
 
@@ -54,18 +64,23 @@ def _isolate_dependencies(
     database and memory-backend probes are health-faked so the payload's
     dependency list is decided only by the cache/celery state this test
     controls, instead of by whatever the shared test DB happens to contain.
+
+    ``stub_redis=False`` leaves ``_check_redis`` real (it PINGs the live Redis
+    named by ``settings.CELERY_BROKER_URL``); the real-Redis tests below set
+    that setting themselves. ``redis_ok`` is only consulted while stubbing.
     """
     from admin_ops import health_rest
 
-    monkeypatch.setattr(
-        health_rest,
-        "_check_redis",
-        lambda: {
-            "name": "redis",
-            "status": "ok" if redis_ok else "down",
-            "detail": "PING ok" if redis_ok else "connection refused",
-        },
-    )
+    if stub_redis:
+        monkeypatch.setattr(
+            health_rest,
+            "_check_redis",
+            lambda: {
+                "name": "redis",
+                "status": "ok" if redis_ok else "down",
+                "detail": "PING ok" if redis_ok else "connection refused",
+            },
+        )
     monkeypatch.setattr(
         health_rest,
         "_check_celery_worker",
@@ -156,5 +171,74 @@ def test_readiness_degrades_when_the_redis_probe_is_down(monkeypatch) -> None:
     payload, http_status = health._readiness_payload()
 
     assert http_status == 503
+    assert payload["checks"]["cache"] == "error"
+    assert "cache" in _dependency_names(payload)
+
+
+# ---------------------------------------------------------------------------
+# Real Redis probe (RES-03 x Redis)
+#
+# Every test above stubs ``_check_redis``; these drive the real PING so a
+# regression in the probe itself (bad URL handling, a PING that swallows a
+# refusal) or in its wiring into the readiness contract cannot stay green. They
+# require the live Redis of the container test overlay and skip elsewhere.
+# ---------------------------------------------------------------------------
+
+
+def _live_broker_url() -> str | None:
+    """Return the live broker URL from the test overlay, or ``None``.
+
+    ``settings_test`` overrides ``CELERY_BROKER_URL`` to ``memory://``, so the
+    deployment value is read from the environment the overlay exports. A bare
+    host ``pytest`` run has no such value and skips these tests.
+    """
+    url = os.environ.get("CELERY_BROKER_URL", "")
+    if not url or url.startswith("memory://"):
+        return None
+    return url
+
+
+@pytest.mark.django_db
+def test_real_redis_probe_drives_readiness_cache(monkeypatch, settings) -> None:
+    """RES-03 x Redis: the real probe's ``ok`` becomes readiness ``cache: ok``."""
+    from admin_ops import health_rest
+    from reqogniloom import health
+
+    broker_url = _live_broker_url()
+    if broker_url is None:
+        pytest.skip("requires a live Redis broker (CELERY_BROKER_URL)")
+
+    settings.CELERY_BROKER_URL = broker_url
+    _isolate_dependencies(monkeypatch, stub_redis=False)
+    heartbeat.record_heartbeat()
+
+    row = health_rest._check_redis()
+    assert row == {"name": "redis", "status": "ok", "detail": "PING ok"}, row
+
+    payload, http_status = health._readiness_payload()
+
+    assert http_status == 200
+    assert payload["checks"]["cache"] == "ok"
+    assert payload["dependencies"] == []
+
+
+@pytest.mark.django_db
+def test_real_redis_probe_refusal_degrades_readiness(monkeypatch, settings) -> None:
+    """RES-03 x Redis: a refused real PING degrades readiness through ``cache``."""
+    from reqogniloom import health
+
+    if _live_broker_url() is None:
+        pytest.skip("requires the overlay's Redis configuration")
+
+    # Port 1 on loopback refuses immediately, so the real probe's failure path
+    # runs without waiting out the 1s socket timeout.
+    settings.CELERY_BROKER_URL = "redis://127.0.0.1:1/0"
+    _isolate_dependencies(monkeypatch, stub_redis=False)
+    heartbeat.record_heartbeat()
+
+    payload, http_status = health._readiness_payload()
+
+    assert http_status == 503
+    assert payload["status"] == "degraded"
     assert payload["checks"]["cache"] == "error"
     assert "cache" in _dependency_names(payload)

@@ -30,7 +30,7 @@ from workflow.models import (
 )
 from workflow.services import create_default_workflow
 
-_SECRET = "test-secret-not-a-real-key"
+_SECRET = "test-secret-placeholder-not-a-real-key"
 
 # The suite pins the v2 contract on explicitly: the production default is
 # IMPORT_CONTRACT_V2=False (ADR-014 §5 Phase 1), so every v2 assertion below
@@ -707,8 +707,8 @@ def test_reqif_import_denies_caller_without_role_in_target_workspace(
     """
     _user, tenant, workspace_a, workspace_b = reqif_import_admin_user
     admin = APIClient()
-    admin_token = _login(admin, "reqifimportadmin", "reqifpass123")
-    admin.credentials(HTTP_AUTHORIZATION=f"Bearer {admin_token}")
+    admin_tok = _login(admin, "reqifimportadmin", "reqifpass123")
+    admin.credentials(HTTP_AUTHORIZATION=f"Bearer {admin_tok}")
     content = _export_reqif(admin, workspace_a.id)
 
     outsider = User.objects.create(
@@ -866,3 +866,128 @@ def test_reqif_import_bumps_workflow_version_and_stale_expected_version_conflict
 
     assert ok.status_code == 200, ok.content
     assert ok.json()["new_state"] == "approved"
+
+
+# ---------------------------------------------------------------------------
+# W1 cross-branch: DATA-03 CAS x INT-01 idempotency/savepoint
+#
+# The two tests above cover CAS-after-import and the idempotency replay
+# separately. Nothing pinned their *combination*: the first import's CAS write
+# is finalized under an Idempotency-Key, a stale ``transitions/`` call then
+# conflicts (409) and rolls back, and a replay of the key must still be served
+# from the idempotency store without re-running the import or re-bumping the
+# imported revision. A regression that released the durable success claim on
+# the 409 rollback (or replayed by re-executing the service) would leave both
+# existing files green.
+# ---------------------------------------------------------------------------
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_idempotent_replay_survives_cas_conflict(
+    reqif_import_admin_user,
+):
+    """DATA-03 x INT-01: a CAS 409 rollback leaves the idempotent replay intact.
+
+    The import leaves the target requirement at workflow revision 2 under an
+    ``Idempotency-Key``. A stale transition then answers 409 and rolls back
+    without touching the idempotency store; replaying the key returns the
+    cached success and the revision/history stay exactly as the first import
+    left them.
+    """
+    _user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    set_request_tenant(tenant.id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace_a.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=tenant.id,
+        )
+        create_default_workflow(
+            workspace_id=workspace_b.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=tenant.id,
+        )
+        req_a = Requirement.objects.get(artifact__workspace=workspace_a)
+        definition_a = WorkflowEngineDefinition.objects.get(
+            workspace_id=workspace_a.id, item_type="Requirement"
+        )
+        WorkflowItemState.objects.create(
+            tenant=tenant,
+            item_id=req_a.id,
+            item_type="Requirement",
+            workspace_id=workspace_a.id,
+            definition=definition_a,
+            current_state="in_review",
+        )
+    finally:
+        clear_request_tenant()
+
+    content = _export_reqif(client, workspace_a.id)
+    first = _upload(
+        client, workspace_b.id, content, HTTP_IDEMPOTENCY_KEY="reqif-cas-idem"
+    )
+
+    assert first.status_code == 200, first.content
+    assert first.json()["idempotent_replay"] is False
+
+    set_request_tenant(tenant.id)
+    try:
+        req_b = Requirement.objects.get(artifact__workspace=workspace_b)
+        state = WorkflowItemState.objects.get(
+            item_id=req_b.id, item_type="Requirement"
+        )
+        # Created at the definition's initial state, then CAS-moved once by the
+        # import -> revision 2. This is the revision the idempotency record
+        # finalizes over.
+        assert state.version == 2
+        history_before = WorkflowHistoryEntry.objects.filter(
+            item_state=state
+        ).count()
+        # Fill the approval gate so the stale call reaches the CAS compare
+        # rather than the mandatory-field gate.
+        req_b.acceptance_criteria = "Met by the W1 idempotency x CAS test."
+        req_b.save(update_fields=["acceptance_criteria"])
+    finally:
+        clear_request_tenant()
+
+    stale = client.post(
+        f"/api/v1/requirements/{req_b.id}/transitions/",
+        {
+            "target_state": "approved",
+            "change_reason": "advance",
+            "expected_version": 1,
+        },
+        format="json",
+    )
+
+    assert stale.status_code == 409, stale.content
+    assert stale.json()["error"]["code"] == "CONFLICT"
+
+    # The 409 rolled back; the finalized idempotency success still replays it.
+    replay = _upload(
+        client, workspace_b.id, content, HTTP_IDEMPOTENCY_KEY="reqif-cas-idem"
+    )
+
+    assert replay.status_code == 200, replay.content
+    assert replay.json()["idempotent_replay"] is True
+    assert replay.json()["counts"] == first.json()["counts"]
+
+    # The replay must not have re-run the CAS writer.
+    set_request_tenant(tenant.id)
+    try:
+        state.refresh_from_db()
+        assert state.version == 2
+        assert state.current_state == "in_review"
+        assert (
+            WorkflowHistoryEntry.objects.filter(item_state=state).count()
+            == history_before
+        )
+    finally:
+        clear_request_tenant()
