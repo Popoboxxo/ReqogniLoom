@@ -6047,7 +6047,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         inside ``WorkflowFacade.transition``, which this delegates to via
         ``AdrService.transition_status``).
 
-        Body: ``{superseded_by_id, change_reason?, credential?}``.
+        Body: ``{superseded_by_id, change_reason?, credential?, expected_version?}``.
         """
         lang = detect_lang(request)
         superseded_by_raw = request.data.get("superseded_by_id")
@@ -6060,6 +6060,13 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         try:
             ctx = get_auth_context(request)
+            # AUD-2026-09-282: this special route used to drop any version
+            # precondition, leaving it last-writer-wins while the generic
+            # ``transitions/`` route is CAS-protected. Forward the client's
+            # ``If-Match``/``expected_version`` into the engine (stale -> 409).
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
             item = self._svc().transition_status(
                 UUID(pk),
                 "Superseded",
@@ -6067,6 +6074,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 change_reason=request.data.get("change_reason") or "",
                 superseded_by_id=UUID(str(superseded_by_raw)),
                 credential=request.data.get("credential") or "",
+                expected_version=expected_version,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -7468,14 +7476,26 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         change_reason = request.data.get("change_reason", "") or ""
         try:
             ctx = get_auth_context(request)
+            # AUD-2026-09-282: forward the client's If-Match/expected_version so
+            # this special route is CAS-protected like the generic one; a stale
+            # revision answers 409 instead of last-writer-wins.
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
             item = self._svc().transition_status(
                 cr_id=UUID(pk),
                 target_status=target_status,
                 ctx=ctx,
                 change_reason=change_reason or None,
+                expected_version=expected_version,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)

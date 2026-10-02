@@ -271,7 +271,13 @@ class InterviewService(ServiceBase):
         session = InterviewSession.objects.filter(id=session_id).first()
         if session is None:
             raise NotFoundError(f"InterviewSession {session_id} not found")
-        self._lazily_abandon_if_stale(session, ctx)
+        # AUD-2026-09-169: this method is strictly read-only. It used to run
+        # the stale-auto-abandon sweep, so ``GET /interviews/{id}/state/`` (and
+        # every other read) mutated ``WorkflowItemState`` behind the caller's
+        # back. The sweep now lives only in the explicit bulk housekeeping
+        # path (``list_sessions``) where a write is expected; single-entity
+        # reads never touch the database.
+        #
         # Datenmodell-Konsolidierung Phase 1: root-cause fix for every guard
         # in this service that compares ``session.status`` (answer/set_target/
         # formalize/abandon/chat all call this method first) -- resolve the
@@ -294,15 +300,21 @@ class InterviewService(ServiceBase):
 
     @staticmethod
     def _lazily_abandon_if_stale(session: InterviewSession, ctx) -> None:
-        """spec §9: flip a stale in_progress session to abandoned on read.
+        """spec §9: flip a stale in_progress session to abandoned.
 
         System-driven, TTL-based, not a user-permission-gated action -- uses
-        ``StateLifecycleManager.force_transition`` (the same escape hatch
-        ``workflow.services.outdate()`` uses) rather than the role-validated
+        ``StateLifecycleManager.force_transition`` (the system escape hatch)
+        with ``allow_system=True`` rather than the role-validated
         ``transition()``, since this can fire on behalf of a viewer-level
         ``ctx`` with no editor role. Mutates *session* in place when it fires
         so callers that already hold the returned object see the up-to-date
         status without re-fetching.
+
+        AUD-2026-09-169: this method is a WRITE and must never run on a
+        single-entity read path. It is invoked only from ``list_sessions``'s
+        explicit bulk housekeeping sweep, where a write is expected, and from
+        the explicit ``abandon()`` write. ``_get_session`` no longer calls it,
+        so ``GET /interviews/{id}/state/`` is side-effect free.
 
         Datenmodell-Konsolidierung Phase 1: the guard reads the engine state
         (falling back to the column only for a session that was never wired
@@ -315,7 +327,7 @@ class InterviewService(ServiceBase):
         The TTL check runs first, before the engine query: the common case
         (a session read well within its TTL window) is decided by a cheap
         in-memory comparison instead of a per-call query, cheaper for the
-        majority of ``_get_session`` calls this now gates. (This does not
+        majority of ``list_sessions`` calls this now gates. (This does not
         bound ``list_sessions``'s own pre-filter, whose candidate set is
         broader than before Phase 1 for a different reason -- accepted
         trade-off, see that method's docstring.)
@@ -331,7 +343,8 @@ class InterviewService(ServiceBase):
         ) or state_reader.initial_state("Interview")
         if current_status != InterviewSession.STATUS_IN_PROGRESS:
             return
-        from workflow.lifecycle_manager import StateLifecycleManager
+        from workflow.lifecycle_manager import StateLifecycleManager, WorkflowStateError
+        from workflow.models import WorkflowItemState
 
         try:
             StateLifecycleManager().force_transition(
@@ -341,6 +354,7 @@ class InterviewService(ServiceBase):
                 target_state=InterviewSession.STATUS_ABANDONED,
                 change_reason=f"Inactive for {ABANDONED_TTL.days}+ days (auto-abandon)",
                 actor=str(getattr(ctx, "user_id", "") or "system"),
+                allow_system=True,
             )
             session.refresh_from_db()
             # Correct the in-memory value (not persisted) so the caller sees
@@ -351,22 +365,20 @@ class InterviewService(ServiceBase):
             session.status = state_reader.current_state(
                 "Interview", session.id
             ) or state_reader.initial_state("Interview")
-        except Exception:
-            # No WorkflowItemState row (e.g. a session that predates this
-            # feature, or workflow init failed at creation). Task 12: the
-            # `status` column is dropped, so there is no direct field write
-            # left to fall back to -- the in-memory value below is the only
-            # remaining record that this session was auto-abandoned; a later
-            # re-fetch with no engine state will resolve to the
-            # interview_default preset's initial state instead (documented,
-            # reviewed data-loss tradeoff, see Task 12 report Finding 2).
-            logger.debug(
-                "InterviewService: force_transition unavailable for session=%s, "
-                "falling back to in-memory-only status", session.id
+        except (WorkflowItemState.DoesNotExist, WorkflowStateError):
+            # Expected, narrow case: no WorkflowItemState row (a session that
+            # predates this feature, or workflow init failed at creation).
+            # AUD-2026-09-169: this used to be a bare ``except Exception`` that
+            # swallowed every DB/validation error at DEBUG level and then bumped
+            # ``version`` without any state change (breaking the optimistic-lock
+            # contract while persisting nothing). No row exists, so there is
+            # nothing to abandon here -- leave the session untouched rather than
+            # reporting a state change that was never written.
+            logger.warning(
+                "InterviewService: auto-abandon skipped for session=%s -- no "
+                "WorkflowItemState",
+                session.id,
             )
-            session.status = InterviewSession.STATUS_ABANDONED
-            session.version = F("version") + 1
-            session.save(update_fields=["modified_at", "version"])
 
     def _current_phase_and_missing(self, ctx, session: InterviewSession):
         protocol = get_protocol(ctx, session.artifact_type, session.workspace_id)
