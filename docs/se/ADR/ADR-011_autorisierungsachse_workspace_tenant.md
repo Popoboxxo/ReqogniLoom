@@ -281,6 +281,16 @@ nicht verhandelbare Isolationshülle der RLS.
 
 ---
 
+### Amendment-Hinweis (Info, nicht Teil der Entscheidung)
+
+`ADR-013` (Collection-Route-Regel, `accepted`) präzisiert §3 und die 403-Teilaussage von
+§4 für Collection-Routen (`list`/`create`): §4 gilt in **Mechanik/No-Union-Fallback**
+(„eine Deklaration, ein Seam", Coverage-Gate) unverändert, seine fail-closed-403-Aussage
+(„`workspace`-skopierte Ressource ohne auflösbaren Ziel-Workspace ⇒ 403") gilt **nur für
+Nicht-Collection-Routen**. Die Entscheidung dieses ADR bleibt davon unberührt.
+
+---
+
 *Erstellt durch `senior-developer` am 2026-10-01. Status `accepted` seit 2026-10-01 —
 `concept-reviewer` APPROVED, `validator` COMPLIANT; die Achsenwahl hat der User freigegeben.
 Kein Produktcode, keine Migration, kein Push.*

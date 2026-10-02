@@ -45,6 +45,11 @@ parent: IMPLEMENTATION_PLAN.md
   Zugriff auf ein B-Objekt über eine Detailroute **403** (nicht 200); die Regressionssuite
   `rest_api/tests/test_workspace_scoped_roles.py` um Detailrouten ohne `workspace`-Pfad
   erweitert und grün. Live-Nachtest mit Scoped-User.
+  **Präzisiert durch `ADR-013` (2026-10-02):** Das „fehlende Auflösung ⇒ fail-closed (403)"
+  gilt für **Objekt-Routen**. Für **Collection-Routen** (`list`/`create`) gilt die in
+  ADR-013 definierte Regel (List filtert/erfordert Workspace, Create validiert den
+  Ziel-Workspace content-type-unabhängig, kein pauschales 403). Siehe
+  `docs/se/ADR/ADR-013_collection_route_autorisierung.md`.
 - **Test:** pytest (erweitert) + Live-Nachtest (Scoped-User); Unit-Test für
   Objekt-Fence-Auflösung.
 - **Aufwand:** L · **Risiko/Rollback:** Kollateral-Regressionen bei dateilosen Objekten →
