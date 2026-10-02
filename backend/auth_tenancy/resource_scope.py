@@ -38,12 +38,17 @@ A "detail route" names a single target object; a "collection route" (DRF
   never blanket-denies a list.
 * **Create / collection** resolves the target workspace **content-type
   independently** from URL kwargs, query and body (JSON, form-urlencoded and
-  multipart). When a target resolves and the caller holds no active role there,
-  the create is denied **403** — this closes the form-encoded create bypass
-  (SEC-02 review M1). When *no* target resolves the seam does not invent a 403:
-  the endpoint's serializer requires a workspace (400) or its service resolves
-  the workspace from the parent entity and enforces membership itself. These
-  per-view trust boundaries are documented in the ADR and covered by the
+  multipart). The **body is authoritative** over the query on a flat create
+  (it is the value the serializer persists); the URL memory of a nested route
+  stays first. A create that names two *different* workspaces (URL/query vs.
+  body) is denied **403** as a mismatch instead of silently choosing one — this
+  closes the residual in which the query scoped the caller's roles to A while
+  the body wrote to B. When a target resolves and the caller holds no active
+  role there, the create is denied **403** — this closes the form-encoded create
+  bypass (SEC-02 review M1). When *no* target resolves the seam does not invent
+  a 403: the endpoint's serializer requires a workspace (400) or its service
+  resolves the workspace from the parent entity and enforces membership itself.
+  These per-view trust boundaries are documented in the ADR and covered by the
   collection gate in ``rest_api/tests/test_resource_scope_coverage.py``.
 
 Object routes stay object-derived and fail-closed, with the 404-vs-403 rule of
@@ -84,7 +89,11 @@ from typing import Any, Iterable
 from uuid import UUID
 
 from .context import AuthContext
-from .workspace_scope import resolve_request_workspace_id, workspace_exists
+from .workspace_scope import (
+    resolve_create_workspace_mismatch,
+    resolve_request_workspace_id,
+    workspace_exists,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +102,7 @@ __all__ = [
     "ResourceScope",
     "UNCLASSIFIED_DENIAL",
     "WORKSPACE_MEMBERSHIP_DENIAL",
+    "WORKSPACE_TARGET_MISMATCH_DENIAL",
     "WORKSPACE_UNRESOLVABLE_DENIAL",
     "classify_class_name",
     "classify_view",
@@ -158,6 +168,11 @@ WORKSPACE_UNRESOLVABLE_DENIAL = (
 WORKSPACE_MEMBERSHIP_DENIAL = (
     "Access denied: you hold no active role in the workspace that owns this "
     "object (ADR-011)."
+)
+WORKSPACE_TARGET_MISMATCH_DENIAL = (
+    "Access denied: the workspace named in the URL/query does not match the "
+    "workspace named in the request body. A create must name one consistent "
+    "target workspace (ADR-013)."
 )
 
 
@@ -867,8 +882,17 @@ def enforce_request_scope(
 
     # Collection routes name no single target object (ADR-013). They are still
     # fenced against a *named* target workspace (see the helper) but never
-    # blanket-denied when none is named.
+    # blanket-denied when none is named. A create that names two different
+    # workspaces (URL/query vs. body) is rejected outright: without this the
+    # query value scoped the caller's roles while the body value was persisted,
+    # allowing a same-tenant write into a workspace without a role (SEC-02
+    # review residual). Fail closed rather than pick a winner.
     if _is_collection_action(view):
+        if (
+            getattr(view, "action", None) == "create"
+            and resolve_create_workspace_mismatch(request)
+        ):
+            return WORKSPACE_TARGET_MISMATCH_DENIAL
         return _enforce_collection_scope(view, auth_context, target_workspace_id)
 
     # Object/mutation route: authority follows the target object.

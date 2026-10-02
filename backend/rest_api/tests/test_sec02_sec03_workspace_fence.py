@@ -490,6 +490,116 @@ def test_form_create_in_own_workspace_still_succeeds() -> None:
 
 
 # ---------------------------------------------------------------------------
+# SEC-02 review residual — query/body workspace mismatch on a create
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "post_kwargs",
+    [
+        {"format": "json"},
+        {"content_type": "application/x-www-form-urlencoded"},
+    ],
+)
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_query_body_workspace_mismatch_is_denied_and_never_written(
+    post_kwargs: dict,
+) -> None:
+    """Residual regression: query names WS-A, body names WS-B.
+
+    The caller holds a role in WS-A only. Before the fix the query value scoped
+    the caller's roles to WS-A while the serializer persisted the body value
+    WS-B (same-tenant cross-workspace write). The request must be denied and
+    nothing may be written to either workspace.
+    """
+    from urllib.parse import urlencode
+
+    tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    before_a = _risks_in(tenant, ws_a)
+    before_b = _risks_in(tenant, ws_b)
+    client = _bearer_client(user, tenant)
+    body = {"workspace_id": str(ws_b.id), "title": "mismatch"}
+    if "format" not in post_kwargs:
+        body = urlencode(body)
+
+    resp = client.post(
+        f"/api/v1/risks/?workspace_id={ws_a.id}", body, **post_kwargs
+    )
+
+    assert resp.status_code == 403, (
+        "a create naming WS-A in the query and WS-B in the body must be denied: "
+        f"got {resp.status_code}: {resp.content!r}"
+    )
+    assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
+    assert _risks_in(tenant, ws_b) == before_b, "WS-B must not be written"
+    assert _risks_in(tenant, ws_a) == before_a, "WS-A must not be written"
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_query_body_workspace_mismatch_denied_even_with_role_in_both() -> None:
+    """The mismatch is rejected outright, not silently resolved to the body.
+
+    The caller holds a role in both workspaces, so RBAC alone would admit the
+    call; only the explicit mismatch denial keeps the two named targets from
+    diverging. This is the assertion that isolates the seam decision.
+    """
+    tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    _grant(tenant, user, ws_b, ROLE_ADMIN)
+    before_a = _risks_in(tenant, ws_a)
+    before_b = _risks_in(tenant, ws_b)
+    client = _bearer_client(user, tenant)
+
+    resp = client.post(
+        f"/api/v1/risks/?workspace_id={ws_a.id}",
+        {"workspace_id": str(ws_b.id), "title": "mismatch"},
+        format="json",
+    )
+
+    assert resp.status_code == 403, resp.content
+    assert "does not match" in str(resp.json()["error"]), (
+        "expected the mismatch denial, not a generic RBAC denial: "
+        f"{resp.json()['error']!r}"
+    )
+    assert _risks_in(tenant, ws_a) == before_a
+    assert _risks_in(tenant, ws_b) == before_b
+
+
+@pytest.mark.parametrize(
+    "post_kwargs",
+    [
+        {"format": "json"},
+        {"content_type": "application/x-www-form-urlencoded"},
+    ],
+)
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_create_with_consistent_query_and_body_still_succeeds(
+    post_kwargs: dict,
+) -> None:
+    """No over-blocking: a create naming the same workspace in query and body works."""
+    from urllib.parse import urlencode
+
+    tenant, user, ws_a, _ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    before_a = _risks_in(tenant, ws_a)
+    client = _bearer_client(user, tenant)
+    body = {"workspace_id": str(ws_a.id), "title": "consistent"}
+    if "format" not in post_kwargs:
+        body = urlencode(body)
+
+    resp = client.post(
+        f"/api/v1/risks/?workspace_id={ws_a.id}", body, **post_kwargs
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert _risks_in(tenant, ws_a) == before_a + 1
+
+
+# ---------------------------------------------------------------------------
 # SEC-02 review M3 — no cross-tenant existence leak (foreign tenant => 404)
 # ---------------------------------------------------------------------------
 

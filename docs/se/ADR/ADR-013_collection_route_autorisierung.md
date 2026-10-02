@@ -21,9 +21,11 @@ gilt ab ADR-013 **nur noch für Objekt-Routen**. Für Collection-Routen (`list`/
 delegiert der Seam an den Endpunkt (List filtert bzw. erfordert einen Workspace;
 Create validiert den Ziel-Workspace), weil die pauschale 403-Regel die Collection-API
 blockierte (gemessen 430 Fehler bei Flag ON). ADR-011 §3 wird damit **eingeschränkt,
-nicht aufgehoben**; ADR-011 §4 (Coverage-Gate, „eine Deklaration, ein Seam") bleibt
-unverändert gültig und wird um das Collection-Gate dieses ADR ergänzt
-(`rest_api/tests/test_resource_scope_coverage.py`).
+nicht aufgehoben**; ADR-011 §4 gilt weiter in **Mechanik/No-Union-Fallback** („eine
+Deklaration, ein Seam", Coverage-Gate), seine **403-Teilaussage** („`workspace`-skopierte
+Ressource ohne auflösbaren Ziel-Workspace ⇒ fail-closed 403") gilt ebenfalls **nur für
+Nicht-Collection-Routen** — für `list`/`create` gilt die hier definierte Collection-Regel.
+Das Collection-Gate dieses ADR ergänzt §4 (`rest_api/tests/test_resource_scope_coverage.py`).
 **Betroffene REQs (belegt aus `docs/se/traceability-matrix.md`):**
 REQ-L0-008 (Mandantenfähige Isolation), REQ-L1-010 (Rollenbasierte Zugriffskontrolle),
 REQ-L1-039 (Granulare Item-Level-Zugriffskontrolle), REQ-L1-042 (Workspace-Lifecycle mit RBAC),
@@ -125,7 +127,14 @@ sicher zu erkennen.
      **und** `multipart/form-data`; SEC-02-Review M1). Ist ein Ziel-Workspace aufgelöst und
      liegt er nicht in den Rollen des Aufrufers, lautet die Antwort **403**
      (`WORKSPACE_MEMBERSHIP_DENIAL`) — der zuvor offene form-encoded Create-Bypass in einen
-     fremden Workspace desselben Tenants ist damit geschlossen. Liegt der aufgelöste
+     fremden Workspace desselben Tenants ist damit geschlossen. Für den **flachen** Create
+     ist der **Body autoritativ** (er ist der Wert, den der Serializer persistiert) und hat
+     Vorrang vor dem Query-Parameter; der URL-Workspace einer verschachtelten Route bleibt
+     vorrangig, weil der View ihn persistiert (issue #49). Nennen URL/Query und Body **zwei
+     verschiedene** Workspaces, wird der Request **fail-closed 403** abgelehnt
+     (`WORKSPACE_TARGET_MISMATCH_DENIAL`) statt still einen Gewinner zu wählen — sonst
+     skopierte der Query-Wert die Rollen des Aufrufers, während der Body in einen anderen
+     Workspace schrieb (SEC-02-Re-Review-Residual `Query-vor-Body`). Liegt der aufgelöste
      Workspace in einem **anderen Tenant**, wird am Seam nicht verweigert; die
      tenant-geskopte View antwortet 400/404 (kein cross-tenant Existenzleck). Ist **kein**
      Ziel-Workspace auflösbar, erfindet der Seam kein 403: Der Endpunkt validiert ihn
@@ -229,8 +238,9 @@ sicher zu erkennen.
    Tenant-Admin-/Bootstrap-Pfad.
 3. **Was tun wir dagegen?**
    (a) Der Ziel-Workspace wird **content-type-unabhängig** aus URL/Query/Body aufgelöst;
-   ein aufgelöster fremder Workspace ⇒ 403; ein Regressionstest weist form-encoded und
-   multipart nach, dass **nie** geschrieben wird.
+   der Body ist beim flachen Create autoritativ; eine URL/Query-vs-Body-Diskrepanz ⇒ 403;
+   ein aufgelöster fremder Workspace ⇒ 403; Regressionstests weisen für JSON, form-encoded
+   und multipart nach, dass **nie** geschrieben wird.
    (b) Fremd-tenante Objekte werden am Seam **nicht** verweigert; die tenant-geskopte
    View antwortet 404 (Test `test_foreign_tenant_object_detail_is_404_not_403`).
    (c) Ein Gate iteriert **jede** `workspace`-skopierte Registry-Klasse und erzwingt, dass
@@ -274,14 +284,28 @@ sicher zu erkennen.
   delegiert der Seam an den Endpunkt. Zwei Klassen von Guards fangen das ab: die
   Create-Serializer erfordern `workspace_id` (sonst 400, kein Write) bzw. der Service
   löst den Workspace aus der Parent-Entität (`TraceLinkViewSet`) oder die Route ist ein
-  Non-Writer (`CommentViewSet` 405). Ein neuer Collection-Endpunkt ohne diese Guards würde
-  erst durch das Collection-Gate auffallen — der Seam allein deckt den No-Target-Fall
-  nicht ab. Das Gate (`test_every_workspace_collection_action_is_fenced`) und die
-  Registry-Dokumentation sind damit die eigentliche Absicherung, nicht der Seam-Zweig.
+  Non-Writer (`CommentViewSet` 405). Ein neuer Collection-Endpunkt **ohne** diese Guards
+  würde **nicht** vom Collection-Fence-Test entdeckt: `test_every_workspace_collection_action_is_fenced`
+  iteriert ausschließlich den *benannten*-Ziel-Fall. Die eigentliche Absicherung des
+  No-Target-Falls ist der URLconf-Gate `test_every_url_view_class_is_classified` (jede
+  neue View-Klasse wird rot, bis sie deklariert ist) zusammen mit der per
+  Registry-Eintrag dokumentierten Trust-Boundary; der Seam-Zweig allein deckt den
+  No-Target-Fall nicht ab — er erfindet **kein** 403, sondern delegiert bewusst.
 - **Residual 403-vs-404 innerhalb eines Tenants (M3):** für Mitglieder bleibt ein
   existierendes Objekt ohne Rolle (403) von einem fehlenden (404) unterscheidbar;
   gewollt, aber explizit benannt.
-- Zwei Umgebungsfehler (`mcp_server/tests/test_mcp_api_key_roles.py`, 4 Setup-Errors)
+- **Residual `Query-vor-Body` (Re-Review, behoben):** Vor der Nachbesserung prüfte
+  `resolve_request_workspace_id` Query **vor** Body. Ein Mitglied von WS-A konnte
+  `POST /api/v1/<collection>/?workspace_id=WS-A` mit Body `workspace_id=WS-B` senden:
+  Auth-Layer und Seam autorisierten WS-A, der Serializer persistierte WS-B, der Service
+  prüfte nur `ctx.active_roles` → **Same-Tenant-Write in einen Workspace ohne Rolle**.
+  Behoben durch **Body-Vorrang bei Unsafe-Methoden** (der Body ist der persistierte Wert)
+  **und** explizites **403** bei URL/Query-vs-Body-Diskrepanz
+  (`resolve_create_workspace_mismatch` → `WORKSPACE_TARGET_MISMATCH_DENIAL`). Bewusste
+  Verhaltensverschärfung: ein Create, der zwei *verschiedene* Workspaces nennt, wird nun
+  abgelehnt statt still einem Gewinner zu folgen. Die Aussage „der Create-Bypass ist
+  geschlossen" bezieht sich damit auf **M1 und dieses Residual**.
+- **4 Setup-Errors aus 2 Testfunktionen** (`mcp_server/tests/test_mcp_api_key_roles.py`)
   sind **unabhängig** von diesem ADR: Sie verlangen ein geseedetes `Demo Workspace`
   (`seed_demo`/`bootstrap_admin`), das im Test-Stack fehlt; sie treten mit Flag `False`
   identisch auf.
@@ -297,9 +321,13 @@ sicher zu erkennen.
   gefenct), `_resolve_target_workspaces` (Objektauflösung einmalig, CODE-3),
   `_workspace_in_active_tenant` (fail-closed + `logger.warning`, CODE-2),
   wiederhergestellter Membership-Check mit `_has_workspace_authority`/`_is_tenant_admin`
-  (CODE-1), `handler_guard`-Ausnahme für `WorkspaceMembersView`.
+  (CODE-1), `handler_guard`-Ausnahme für `WorkspaceMembersView`; neuer
+  `WORKSPACE_TARGET_MISMATCH_DENIAL`-Zweig für die URL/Query-vs-Body-Diskrepanz beim
+  Collection-Create (Re-Review-Residual).
 - Body-Auflösung: `backend/auth_tenancy/workspace_scope.py` — `_from_body` liest JSON,
-  `application/x-www-form-urlencoded` und `multipart/form-data`; geteiltes
+  `application/x-www-form-urlencoded` und `multipart/form-data`; `resolve_request_workspace_id`
+  gibt auf Unsafe-Methoden dem Body Vorrang vor dem Query-Parameter (URL-Kwargs bleiben
+  zuerst); `resolve_create_workspace_mismatch` erkennt die Diskrepanz; geteiltes
   `workspace_exists` (CODE-3), an das `auth_tenancy/rest.py::_workspace_exists` delegiert.
 - Objektauflösung: `backend/application/workspace_lookup.py` (`trace_link`).
 - Settings: `backend/reqogniloom/settings.py` (`AUTHZ_WORKSPACE_SCOPE_ENFORCED=True`).
@@ -319,7 +347,16 @@ sicher zu erkennen.
   - `backend/auth_tenancy/tests/test_workspace_scope.py`:
     `test_resolves_form_urlencoded_body_on_write_methods`,
     `test_resolves_multipart_body_on_write_methods`,
-    `test_body_ignored_for_unsupported_content_type`.
+    `test_body_ignored_for_unsupported_content_type`,
+    `test_body_wins_over_query_on_write_methods`,
+    `test_url_kwarg_still_wins_over_body_on_nested_route`,
+    `test_create_workspace_mismatch_detects_query_vs_body`,
+    `test_create_workspace_mismatch_false_when_consistent`.
+  - Re-Review-Residual (`Query-vor-Body`) in
+    `backend/rest_api/tests/test_sec02_sec03_workspace_fence.py`:
+    `test_query_body_workspace_mismatch_is_denied_and_never_written` (JSON + form-urlencoded,
+    vor der Nachbesserung rot), `test_query_body_workspace_mismatch_denied_even_with_role_in_both`
+    (isoliert den expliziten Mismatch-Zweig), `test_create_with_consistent_query_and_body_still_succeeds`.
 
 **Messbelege (exakte Kommandos):**
 
@@ -330,6 +367,7 @@ sicher zu erkennen.
 - M2-Gate-Selektor: `pytest -q "rest_api/tests/test_resource_scope_coverage.py::test_every_workspace_collection_action_is_fenced"`
 - M1-Regression: `pytest -q "rest_api/tests/test_sec02_sec03_workspace_fence.py::test_form_create_with_foreign_workspace_is_denied_and_never_written"`
 - M3-Regression: `pytest -q "rest_api/tests/test_sec02_sec03_workspace_fence.py::test_foreign_tenant_object_detail_is_404_not_403"`
+- Re-Review-Residual: `pytest -q "rest_api/tests/test_sec02_sec03_workspace_fence.py::test_query_body_workspace_mismatch_is_denied_and_never_written" "rest_api/tests/test_sec02_sec03_workspace_fence.py::test_query_body_workspace_mismatch_denied_even_with_role_in_both" "rest_api/tests/test_sec02_sec03_workspace_fence.py::test_create_with_consistent_query_and_body_still_succeeds"`
 
 ### `open_adrs`-Notiz (analog ADR-010/ADR-011/ADR-012)
 
@@ -347,8 +385,9 @@ Die SEC-02-Akzeptanz in
 **präzisiert**: Das dortige „fehlende Auflösung ⇒ fail-closed (403)" gilt für
 **Objekt-Routen**; für **Collection-Routen** gilt die in diesem ADR definierte,
 gemessene Regel (List filtert/erfordert Workspace, Create validiert den
-Ziel-Workspace, kein pauschales 403). Der Nachweis ist mit demselben Kommando zu
-führen.
+Ziel-Workspace, kein pauschales 403). Der Re-Review-Residual `Query-vor-Body` ist
+durch den Body-Vorrang plus die explizite Mismatch-403 ergänzt. Der Nachweis ist
+mit demselben Kommando zu führen.
 
 *Erstellt durch `senior-developer` am 2026-10-02. Ursprünglich `proposed`; nach
 Review-Nachbesserung (M1–M4 / CODE-1–4) und grüner Vollsuite auf `accepted` gesetzt.
@@ -368,5 +407,26 @@ Kein Push, kein Tag, kein Merge.*
   `10062 passed, 13 skipped, 1 xfailed, 4 errors` (die 4 errors sind die vorbestehenden,
   umgebungsbedingten `mcp_server/tests/test_mcp_api_key_roles.py`-Seed-Fehler, mit Flag
   `False` identisch).
+- **2026-10-02 — Re-Review-Nachbesserung (`accepted` bleibt).** Grund: Der Code-Re-Review
+  belegte als non-blocking, aber echtes Residual, dass `resolve_request_workspace_id` Query
+  **vor** Body prüfte: Ein Mitglied von WS-A konnte `POST /api/v1/<collection>/?workspace_id=WS-A`
+  mit Body `workspace_id=WS-B` senden — Auth-Layer und Seam autorisierten WS-A, der
+  Serializer persistierte WS-B, der Service prüfte nur `ctx.active_roles`
+  (Same-Tenant-Cross-Workspace-Write). Behoben: Body-Vorrang bei Unsafe-Methoden
+  (`resolve_request_workspace_id`) **und** explizites 403 bei URL/Query-vs-Body-Diskrepanz
+  (`WORKSPACE_TARGET_MISMATCH_DENIAL`). Regressionstests vor der Nachbesserung rot
+  (JSON + form-urlencoded, `nichts geschrieben`), konsistenter Positivfall grün. Zusätzlich
+  ADR-Präzisierung: §4-403-Teilaussage gilt nur für Nicht-Collection-Routen,
+  M2-Attribution korrigiert (URLconf-Gate `test_every_url_view_class_is_classified` +
+  Registry statt Collection-Fence-Test), Setup-Fehler-Wortlaut vereinheitlicht.
+  Nachweis (exakte Läufe):
+  - Fokus-Seam: `64 passed, 26 warnings` (41.6 s).
+  - Breiter Authz-Lauf `pytest -q rest_api auth_tenancy admin_ops memory`:
+    `3206 passed, 3 skipped, 1 xfailed` (245.5 s).
+  - Vollsuite: `10076 passed, 13 skipped, 1 xfailed, 4 errors` (2045.7 s). Die
+    **4 Setup-Errors aus 2 Testfunktionen** sind die vorbestehenden, umgebungsbedingten
+    `mcp_server/tests/test_mcp_api_key_roles.py`-Seed-Fehler (fehlendes `Demo Workspace`),
+    mit Flag `False` identisch; die Zahl der bestandenen Tests stieg gegenüber dem
+    Vorgänger-Lauf um 14 (10062 → 10076).
 - Nächster formaler Schritt: Re-Review durch `concept-reviewer` (`accepted` bleibt bis
   dahin bestehen, da der Code-Fix und die Suite die Voraussetzung sind).

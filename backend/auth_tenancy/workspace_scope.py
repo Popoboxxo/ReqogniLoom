@@ -9,16 +9,24 @@ Resolution order (first hit wins), mirroring how the REST adapter itself locates
 the workspace in :mod:`rest_api.views` / :mod:`rest_api.preset_guard`:
 
 1. URL kwargs ``workspace_id`` / ``workspace_pk``
-   (e.g. ``/api/v1/workspaces/<uuid:workspace_pk>/needs/``).
+   (e.g. ``/api/v1/workspaces/<uuid:workspace_pk>/needs/``). A routed workspace
+   is structurally authoritative: the view persists it (issue #49), so the
+   authorization target must not be overridable from the body.
 2. URL kwarg ``pk`` when the matched route is a ``workspaces/`` route
    (e.g. ``/api/v1/workspaces/<uuid:pk>/import/csv/``).
-3. Query parameter ``workspace_id``.
-4. Request body field ``workspace_id`` on unsafe methods (create endpoints
-   carry the target workspace in the payload). The body is read for
-   ``application/json``, ``application/x-www-form-urlencoded`` **and**
+3. On unsafe methods, the request body field ``workspace_id``. On a flat create
+   route the body is the value the serializer actually persists, so it is the
+   authoritative target — the query parameter must not override it. The body is
+   read for ``application/json``, ``application/x-www-form-urlencoded`` **and**
    ``multipart/form-data``: restricting this to JSON left a create bypass
    (SEC-02 review M1, ADR-013) in which a form-encoded create could smuggle a
    foreign ``workspace_id`` past the central seam.
+4. Query parameter ``workspace_id``.
+
+When an unsafe request names **two different** workspaces — URL/query on one side
+and body on the other — the caller is rejected instead of silently picking a
+winner: see :func:`resolve_create_workspace_mismatch` and
+``resource_scope.WORKSPACE_TARGET_MISMATCH_DENIAL`` (SEC-02 review residual).
 
 Returning ``None`` means "this request does not target one specific workspace"
 (login, ``/api/v1/workspaces/`` list, admin-ops health, ...). Callers then keep
@@ -132,8 +140,19 @@ def _from_body(request: Any) -> UUID | None:
     return _coerce(getter("workspace_id"))
 
 
+def _is_unsafe_method(request: Any) -> bool:
+    """Return whether *request* may carry a workspace in its body."""
+    return str(getattr(request, "method", "") or "").upper() in _BODY_METHODS
+
+
 def resolve_request_workspace_id(request: Any) -> UUID | None:
     """Return the workspace a request targets, or ``None`` if not workspace-bound.
+
+    Resolution order (see module docstring): URL kwargs first, then — on unsafe
+    methods — the **body** (the value the serializer persists), and only then the
+    query parameter. Preferring the body over the query for unsafe methods closes
+    the residual in which a query parameter named workspace A (so the auth layer
+    scoped the caller's roles to A) while the body persisted into workspace B.
 
     Args:
         request: The DRF/Django request being authenticated.
@@ -142,7 +161,11 @@ def resolve_request_workspace_id(request: Any) -> UUID | None:
         The target workspace id, or ``None`` when the request is not scoped to a
         single workspace (callers must then fall back to tenant-wide roles).
     """
-    for source in (_from_url, _from_query, _from_body):
+    sources = [_from_url]
+    if _is_unsafe_method(request):
+        sources.append(_from_body)
+    sources.append(_from_query)
+    for source in sources:
         try:
             resolved = source(request)
         except Exception:  # noqa: BLE001 — resolution is best-effort by design
@@ -150,6 +173,47 @@ def resolve_request_workspace_id(request: Any) -> UUID | None:
         if resolved is not None:
             return resolved
     return None
+
+
+def resolve_request_named_workspace_id(request: Any) -> UUID | None:
+    """Return the workspace named by the URL kwargs or query param, or ``None``.
+
+    Deliberately ignores the body: this is the half of the resolution the auth
+    layer uses when *no* body is present (list routes, workspace-named actions).
+    """
+    for source in (_from_url, _from_query):
+        try:
+            resolved = source(request)
+        except Exception:  # noqa: BLE001 — resolution is best-effort by design
+            resolved = None
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def resolve_body_workspace_id(request: Any) -> UUID | None:
+    """Return the workspace named in the request body, or ``None``."""
+    try:
+        return _from_body(request)
+    except Exception:  # noqa: BLE001 — resolution is best-effort by design
+        return None
+
+
+def resolve_create_workspace_mismatch(request: Any) -> bool:
+    """Return whether a request names two conflicting workspaces.
+
+    ``True`` only when the request is an unsafe method that names one workspace
+    in the URL/query and a **different** one in the body. The seam turns this
+    into a fail-closed denial (ADR-013). A request that names only one side, or
+    the same workspace on both, is not a mismatch.
+
+    The helper is total: malformed ids resolve to ``None`` and never raise.
+    """
+    if not _is_unsafe_method(request):
+        return False
+    named = resolve_request_named_workspace_id(request)
+    body = resolve_body_workspace_id(request)
+    return named is not None and body is not None and named != body
 
 
 def workspace_exists(workspace_id: UUID) -> bool:
@@ -167,4 +231,10 @@ def workspace_exists(workspace_id: UUID) -> bool:
     return Workspace.objects.filter(id=workspace_id).exists()
 
 
-__all__ = ["resolve_request_workspace_id", "workspace_exists"]
+__all__ = [
+    "resolve_body_workspace_id",
+    "resolve_create_workspace_mismatch",
+    "resolve_request_named_workspace_id",
+    "resolve_request_workspace_id",
+    "workspace_exists",
+]
