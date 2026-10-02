@@ -323,17 +323,29 @@ class TestReqifImportRoundTrip:
         ).exists()
 
     def test_reimport_same_document_is_idempotent(self, source_workspace, target_workspace):
-        """REQ-147: re-importing the same ReqIF file updates in place, no duplicates."""
+        """REQ-147 + ADR-014 §3: re-importing the same ReqIF file is an idempotent
+        no-op for identical objects (skipped DUPLICATE) and updates in place for
+        changed ones; no duplicates."""
         tenant = source_workspace["tenant"]
         reqif_text = _export(source_workspace["workspace"].id, tenant.id)
 
         _import(reqif_text, target_workspace.id, tenant.id)
         result2 = _import(reqif_text, target_workspace.id, tenant.id)
 
+        assert result2.success is True
         assert result2.needs.created == 0
-        assert result2.needs.updated == 2
+        assert result2.needs.updated == 0
+        # Identical content -> idempotent skip (DUPLICATE), no second write.
+        assert result2.needs.skipped == 2
         assert result2.requirements.created == 0
-        assert result2.requirements.updated == 3
+        assert result2.requirements.updated == 0
+        assert result2.requirements.skipped == 3
+        duplicate_codes = {
+            item["cause"]["code"]
+            for item in result2.requirements.items
+            if item["status"] == "skipped"
+        }
+        assert duplicate_codes == {"DUPLICATE"}
         # Relations upsert via get_or_create — re-import must not duplicate.
         assert result2.relations.created == 0
         assert result2.relations.updated == 2
@@ -346,6 +358,15 @@ class TestReqifImportRoundTrip:
             Requirement.objects.filter(artifact__workspace=target_workspace).count() == 3
         )
         assert TraceLink.objects.filter(source__workspace=target_workspace).count() == 2
+
+        # F3 (ADR-014 §5): the legacy additive `errors` view must not change
+        # meaning — a reimport produces only DUPLICATE *skips*, so `errors`
+        # stays empty while the v2 `items`/`counts` carry the skips.
+        assert result2.needs.errors == []
+        assert result2.requirements.errors == []
+        assert all(item["status"] == "skipped" for item in result2.requirements.items)
+        assert result2.counts["skipped"] == 5
+        assert result2.counts["failed"] == 0
 
     def test_reimport_into_same_workspace_updates_not_duplicates(self, source_workspace):
         """Re-exporting + re-importing into the ORIGINAL workspace must update,
@@ -462,9 +483,16 @@ class TestReqifImportErrorCases:
         result = _import(mutated, target_workspace.id, tenant.id)
 
         assert result.relations.skipped >= 1
+        # F3: a skip is not a failure, so the legacy `errors` view stays empty;
+        # the reason is visible in the v2 `items` instead.
+        assert result.relations.errors == []
         assert any(
-            "not resolvable" in e["message"] or "endpoint" in e["message"]
-            for e in result.relations.errors
+            item["status"] == "skipped"
+            and (
+                "not resolvable" in item["cause"]["message"]
+                or "endpoint" in item["cause"]["message"]
+            )
+            for item in result.relations.items
         )
         # The other relation (verifies, between req1/req2) still imports fine.
         assert result.relations.created == 1
@@ -673,7 +701,7 @@ class TestReqifImportCustomFieldsGuard:
     the exact surface that #290 made live for REST.
     """
 
-    def test_spec_object_with_markup_in_custom_fields_is_skipped(
+    def test_spec_object_with_markup_in_custom_fields_is_failed(
         self, source_workspace, target_workspace
     ):
         tenant = source_workspace["tenant"]
@@ -686,7 +714,11 @@ class TestReqifImportCustomFieldsGuard:
         reqif_text = _export(source_workspace["workspace"].id, tenant.id)
         result = _import(reqif_text, target_workspace.id, tenant.id)
 
-        assert result.requirements.skipped == 1
+        # AUD-2026-09-071: a SPEC-OBJECT that cannot be imported is a failure
+        # (not a skip) and makes the import unsuccessful.
+        assert result.requirements.failed == 1
+        assert result.requirements.skipped == 0
+        assert result.success is False
         assert any(
             "custom_fields" in e["message"] for e in result.requirements.errors
         ), result.requirements.errors
@@ -712,3 +744,263 @@ class TestReqifImportCustomFieldsGuard:
             artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
         )
         assert imported.artifact.custom_fields == {"owner": "alice", "sprint": 7}
+
+
+# ---------- AUD-2026-09-071: success semantics + savepoint (INT-01) ----------
+
+
+class TestReqifImportPartialFailureContract:
+    """Regression coverage for AUD-2026-09-071 (INT-01).
+
+    ``success`` must reflect the real per-object outcome
+    (``success ⇔ failed == 0``), partial success must stay transparent, and
+    the per-object savepoint must actually rescue a SPEC-OBJECT whose first
+    ``Artifact.objects.create`` hits a primary-key collision.
+    """
+
+    def test_one_invalid_object_makes_success_false_but_rest_imports(
+        self, source_workspace, target_workspace
+    ):
+        """A single faulty object -> success=False + structured errors; the
+        remaining objects stay imported (no total abort).
+
+        This is the exact acceptance case of AUD-2026-09-071: the old code
+        hard-coded ``success=True`` even though ``errors`` listed the object.
+        """
+        tenant = source_workspace["tenant"]
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+
+        # req3's title exceeds the 500-char soft limit -> per-object failure.
+        long_title = "X" * 501
+        mutated = reqif_text.replace(
+            'THE-VALUE="Req Three"', f'THE-VALUE="{long_title}"', 1
+        )
+        assert mutated != reqif_text  # sanity: the mutation actually applied
+
+        result = _import(mutated, target_workspace.id, tenant.id)
+
+        assert result.success is False
+        assert result.requirements.failed == 1
+        assert result.requirements.skipped == 0
+        error = result.requirements.errors[0]
+        assert error["identifier"] == f"_{source_workspace['req3'].artifact_id}"
+        assert "500" in error["message"]
+
+        # v2 envelope (ADR-014 §1/§2): counts/items are first-class and the
+        # partial success maps to 207.
+        assert result.counts["failed"] == 1
+        assert result.counts["succeeded"] >= 1
+        assert result.http_status == 207
+        failed_items = [i for i in result.items if i["status"] == "failed"]
+        assert len(failed_items) == 1
+        assert failed_items[0]["cause"]["code"] == "INVALID_VALUE"
+        assert failed_items[0]["kind"] == "Requirement"
+
+        # No total abort — the other objects (and relations) still import.
+        assert result.needs.created == 2
+        assert result.requirements.created == 2
+        assert result.relations.created == 2
+        assert (
+            Requirement.objects.filter(
+                artifact__workspace=target_workspace, artifact__reqif_uid="REQ-003"
+            ).count()
+            == 0
+        )
+        assert (
+            Requirement.objects.filter(
+                artifact__workspace=target_workspace, artifact__reqif_uid="REQ-001"
+            ).count()
+            == 1
+        )
+        assert (
+            Requirement.objects.filter(
+                artifact__workspace=target_workspace, artifact__reqif_uid="REQ-002"
+            ).count()
+            == 1
+        )
+
+    def test_clean_import_reports_success_and_succeeded_counts(
+        self, source_workspace, target_workspace
+    ):
+        tenant = source_workspace["tenant"]
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+
+        result = _import(reqif_text, target_workspace.id, tenant.id)
+
+        assert result.success is True
+        assert result.requirements.failed == 0
+        assert result.requirements.succeeded == 3
+
+        body = result.to_dict()
+        assert body["success"] is True
+        assert body["contract"] == "v2"
+        assert body["counts"] == {
+            "succeeded": 7,
+            "skipped": 0,
+            "failed": 0,
+            "total": 7,
+        }
+        assert body["idempotent_replay"] is False
+        assert isinstance(body["request_id"], str) and body["request_id"]
+        assert body["requirements"]["succeeded"] == 3
+        assert body["requirements"]["failed"] == 0
+        # Legacy additive keys stay during the deprecation window.
+        assert body["needs"]["created"] == 2
+        assert body["relations"]["created"] == 2
+        assert result.http_status == 200
+
+    def test_cross_tenant_pk_collision_is_recovered_and_reported(
+        self, source_workspace, target_workspace
+    ):
+        """The defensive fresh-id fallback must actually run.
+
+        An Artifact in another tenant whose id is invisible to the target
+        tenant's scoped lookups forces a real primary-key collision on
+        ``create``. The (fixed) nested savepoint rolls the failed INSERT back
+        before the retry, so the object is recovered with a fresh id instead
+        of being lost to an aborted transaction.
+        """
+        tenant = source_workspace["tenant"]
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+
+        other_tenant = Tenant.objects.create(
+            name="Reqif-Import-Other-T", slug="reqif-import-other-t", is_active=True
+        )
+        set_request_tenant(other_tenant.id)
+        try:
+            other_ws = Workspace.objects.create(
+                tenant=other_tenant, name="Other WS", preset={"name": "standard"}
+            )
+            collided_id = uuid.uuid4()
+            Artifact.objects.create(
+                id=collided_id,
+                tenant=other_tenant,
+                workspace=other_ws,
+                artifact_type="Requirement",
+            )
+        finally:
+            clear_request_tenant()
+
+        req3_internal = f"_{source_workspace['req3'].artifact_id}"
+        mutated = reqif_text.replace(req3_internal, f"_{collided_id}")
+        assert mutated != reqif_text  # sanity: the mutation actually applied
+
+        result = _import(mutated, target_workspace.id, tenant.id)
+
+        # Recovered, not lost: no failure, the object is imported with a fresh
+        # id, and the collision is surfaced as a warning.
+        assert result.success is True
+        assert result.requirements.failed == 0
+        assert result.requirements.created == 3
+        assert any("collided" in w for w in result.warnings), result.warnings
+        assert not any(
+            "internal error" in e["message"].lower()
+            for e in result.requirements.errors
+        ), result.requirements.errors
+
+        recovered = Requirement.objects.get(
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-003"
+        )
+        assert recovered.artifact_id != collided_id
+
+        # The other tenant's artifact was never touched.
+        assert Artifact.unscoped.filter(id=collided_id).count() == 1
+
+
+# ---------- ADR-014 contract v2: envelope, 207/422 mapping, dedupe ----------
+
+
+class TestReqifImportContractV2:
+    """v2 result envelope + HTTP mapping (ADR-014 §1/§2)."""
+
+    def test_parse_error_is_reqif_parse_error_subclass(self, target_workspace):
+        tenant = target_workspace.tenant
+        from application.reqif_import_service import ReqifParseError
+
+        with pytest.raises(ReqifParseError):
+            _import("<not-valid-reqif>><<<", target_workspace.id, tenant.id)
+        # Backwards-compatible: existing except ValidationError callers still catch it.
+        assert issubclass(ReqifParseError, ValidationError)
+
+    def test_parse_failure_result_shape(self):
+        from application.reqif_import_service import (
+            ReqifEntityReport,
+            ReqifImportResult,
+        )
+
+        result = ReqifImportResult.parse_failure(
+            "broken", dry_run=False, request_id="req-1"
+        )
+        assert result.success is False
+        assert result.counts == {"succeeded": 0, "skipped": 0, "failed": 1, "total": 1}
+        assert result.http_status == 422
+        item = result.items[0]
+        assert item["status"] == "failed"
+        assert item["cause"]["code"] == "PARSE_ERROR"
+        assert result.to_dict()["contract"] == "v2"
+        # Sanity: no synthetic entity report is mutated.
+        assert ReqifEntityReport().failed == 0
+
+    def test_skipped_only_is_success_and_200(self):
+        """skipped counts neither as success nor as partial — 200, not 207/201."""
+        from application.reqif_import_service import (
+            ReqifEntityReport,
+            ReqifImportResult,
+        )
+
+        skipped = ReqifEntityReport(skipped=3)
+        result = ReqifImportResult(
+            success=True,
+            dry_run=False,
+            needs=skipped,
+            requirements=ReqifEntityReport(),
+            relations=ReqifEntityReport(),
+        )
+        assert result.counts == {"succeeded": 0, "skipped": 3, "failed": 0, "total": 3}
+        assert result.http_status == 200
+
+    def test_total_object_failure_maps_to_422_and_items_not_empty(
+        self, source_workspace, target_workspace
+    ):
+        """All objects fail -> success=False, items non-empty, http 422."""
+        tenant = source_workspace["tenant"]
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+
+        mutated = reqif_text
+        long_title = "X" * 501
+        for title in ("Need One", "Need Two", "Req One", "Req Two", "Req Three"):
+            mutated = mutated.replace(
+                f'THE-VALUE="{title}"', f'THE-VALUE="{long_title}"'
+            )
+        assert mutated != reqif_text
+
+        result = _import(mutated, target_workspace.id, tenant.id)
+
+        assert result.success is False
+        assert result.counts["failed"] == 5
+        assert result.counts["succeeded"] == 0
+        assert result.http_status == 422
+        assert len(result.items) >= 5  # errors/items must never be empty here
+
+    def test_divergent_reqif_identifier_content_updates_not_skips(
+        self, source_workspace, target_workspace
+    ):
+        """ADR-014 §3: a match with changed content is an update, never a discard."""
+        tenant = source_workspace["tenant"]
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+        _import(reqif_text, target_workspace.id, tenant.id)
+
+        # Re-import with one changed title -> that object is updated (succeeded).
+        mutated = reqif_text.replace(
+            'THE-VALUE="Req Three"', 'THE-VALUE="Req Three Updated"', 1
+        )
+        assert mutated != reqif_text
+        result = _import(mutated, target_workspace.id, tenant.id)
+
+        assert result.requirements.updated == 1
+        assert result.requirements.skipped == 2
+        assert result.success is True
+        imported = Requirement.objects.get(
+            artifact__workspace=target_workspace, artifact__reqif_uid="REQ-003"
+        )
+        assert imported.title == "Req Three Updated"

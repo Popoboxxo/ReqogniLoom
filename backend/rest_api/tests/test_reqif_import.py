@@ -23,11 +23,16 @@ from persistence.models import Artifact, Requirement, StakeholderNeed, Tenant, U
 
 _SECRET = "test-secret-not-a-real-key"
 
+# The suite pins the v2 contract on explicitly: the production default is
+# IMPORT_CONTRACT_V2=False (ADR-014 §5 Phase 1), so every v2 assertion below
+# activates the contract through these overrides instead of relying on the
+# ambient default. The legacy-rollback test overrides it back to False.
 _JWT_OVERRIDES = dict(
     AUTH_JWT_SECRET=_SECRET,
     AUTH_JWT_ISSUER="reqflow",
     AUTH_JWT_AUDIENCE="reqflow-api",
     AUTH_JWT_TTL_SECONDS=3600,
+    IMPORT_CONTRACT_V2=True,
 )
 
 _MALFORMED_REQIF = b"<not-a-valid-reqif><unclosed>"
@@ -177,10 +182,14 @@ def test_reqif_reimport_same_document_is_idempotent(reqif_import_admin_user):
         assert resp.status_code == 200
 
     body = resp.json()
+    # ADR-014 §3: identical content on re-import is an idempotent skip.
     assert body["needs"]["created"] == 0
-    assert body["needs"]["updated"] == 1
+    assert body["needs"]["updated"] == 0
+    assert body["needs"]["skipped"] == 1
     assert body["requirements"]["created"] == 0
-    assert body["requirements"]["updated"] == 1
+    assert body["requirements"]["updated"] == 0
+    assert body["requirements"]["skipped"] == 1
+    assert body["success"] is True
     set_request_tenant(tenant.id)
     try:
         assert (
@@ -243,7 +252,9 @@ def test_reqif_import_dry_run_does_not_persist(reqif_import_admin_user):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-def test_reqif_import_malformed_xml_returns_400(reqif_import_admin_user):
+def test_reqif_import_malformed_xml_returns_422_parse_error(reqif_import_admin_user):
+    """ADR-014 §2 / REQ-L2-RQ-001 AC5: an invalid .reqif file is a file-level
+    PARSE_ERROR answered with 422 + structured details (not a 400)."""
     user, tenant, workspace_a, workspace_b = reqif_import_admin_user
     client = APIClient()
     token = _login(client, "reqifimportadmin", "reqifpass123")
@@ -258,9 +269,12 @@ def test_reqif_import_malformed_xml_returns_400(reqif_import_admin_user):
         format="multipart",
     )
 
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     body = resp.json()
-    assert "error" in body
+    assert body["success"] is False
+    assert body["contract"] == "v2"
+    assert body["counts"]["failed"] == 1
+    assert body["items"][0]["cause"]["code"] == "PARSE_ERROR"
 
 
 @override_settings(**_JWT_OVERRIDES)
@@ -340,3 +354,271 @@ def test_reqif_import_requires_auth(reqif_import_admin_user):
     )
 
     assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# ADR-014 contract v2: 207/422 mapping, skipped-only, Idempotency-Key
+# ---------------------------------------------------------------------------
+
+
+def _upload(client: APIClient, workspace_id, content: bytes, **extra):
+    reqif_file = io.BytesIO(content)
+    reqif_file.name = "export.reqif"
+    return client.post(
+        f"/api/v1/workspaces/{workspace_id}/import/reqif/",
+        {"file": reqif_file},
+        format="multipart",
+        **extra,
+    )
+
+
+def _counts_in_workspace(tenant, workspace_id) -> tuple:
+    set_request_tenant(tenant.id)
+    try:
+        return (
+            StakeholderNeed.objects.filter(artifact__workspace_id=workspace_id).count(),
+            Requirement.objects.filter(artifact__workspace_id=workspace_id).count(),
+        )
+    finally:
+        clear_request_tenant()
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_partial_failure_returns_207(reqif_import_admin_user):
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    mutated = content.replace(
+        b'THE-VALUE="REST Import Req Alpha"',
+        b'THE-VALUE="' + b"X" * 501 + b'"',
+        1,
+    )
+    assert mutated != content
+
+    resp = _upload(client, workspace_b.id, mutated)
+
+    assert resp.status_code == 207
+    body = resp.json()
+    assert body["success"] is False
+    assert body["contract"] == "v2"
+    assert body["counts"]["failed"] == 1
+    assert body["counts"]["succeeded"] >= 1
+    failed = [i for i in body["items"] if i["status"] == "failed"]
+    assert failed and failed[0]["cause"]["code"] == "INVALID_VALUE"
+    # The failing object was rolled back to its savepoint; the valid need stays.
+    need_count, req_count = _counts_in_workspace(tenant, workspace_b.id)
+    assert need_count == 1
+    assert req_count == 0
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_total_failure_returns_422(reqif_import_admin_user):
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    long_title = 'THE-VALUE="' + "X" * 501 + '"'
+    mutated = content.replace(b'THE-VALUE="REST Import Need Alpha"', long_title.encode())
+    mutated = mutated.replace(b'THE-VALUE="REST Import Req Alpha"', long_title.encode())
+    assert mutated != content
+
+    resp = _upload(client, workspace_b.id, mutated)
+
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["success"] is False
+    assert body["counts"]["succeeded"] == 0
+    assert body["counts"]["failed"] >= 1
+    assert body["items"]  # errors/items never empty on total failure
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_skipped_only_returns_200_success(reqif_import_admin_user):
+    """A second identical upload is a skipped-only no-op: success with 200."""
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    assert _upload(client, workspace_b.id, content).status_code == 200
+
+    resp = _upload(client, workspace_b.id, content)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["counts"]["failed"] == 0
+    assert body["counts"]["succeeded"] == 0
+    assert body["counts"]["skipped"] >= 2
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_idempotency_key_replay_does_not_write(reqif_import_admin_user):
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+
+    first = _upload(
+        client, workspace_b.id, content, HTTP_IDEMPOTENCY_KEY="reqif-idem-1"
+    )
+    assert first.status_code == 200
+    assert first.json()["idempotent_replay"] is False
+    before = _counts_in_workspace(tenant, workspace_b.id)
+
+    replay = _upload(
+        client, workspace_b.id, content, HTTP_IDEMPOTENCY_KEY="reqif-idem-1"
+    )
+    assert replay.status_code == 200
+    body = replay.json()
+    assert body["idempotent_replay"] is True
+    assert body["success"] is True
+    after = _counts_in_workspace(tenant, workspace_b.id)
+    assert after == before  # no second write effect
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_idempotency_key_reused_with_different_payload_returns_409(
+    reqif_import_admin_user,
+):
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    assert (
+        _upload(client, workspace_b.id, content, HTTP_IDEMPOTENCY_KEY="reqif-idem-2")
+        .status_code
+        == 200
+    )
+
+    other = content.replace(
+        b'THE-VALUE="REST Import Req Alpha"',
+        b'THE-VALUE="REST Import Req Beta"',
+        1,
+    )
+    assert other != content
+    resp = _upload(
+        client, workspace_b.id, other, HTTP_IDEMPOTENCY_KEY="reqif-idem-2"
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_idempotency_key_too_long_returns_400(reqif_import_admin_user):
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    resp = _upload(
+        client, workspace_b.id, content, HTTP_IDEMPOTENCY_KEY="k" * 256
+    )
+    assert resp.status_code == 400
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_legacy_fallback_when_contract_v2_disabled(
+    reqif_import_admin_user,
+):
+    """IMPORT_CONTRACT_V2=false restores the pre-ADR response (ADR-014 §5)."""
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    with override_settings(IMPORT_CONTRACT_V2=False):
+        resp = _upload(client, workspace_b.id, content)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert "contract" not in body
+    assert "counts" not in body
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_legacy_fallback_ignores_entity_type(reqif_import_admin_user):
+    """F10: under the legacy rollback the ``entity_type`` field is ignored,
+    exactly as before v2 — the rollback stays complete."""
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    reqif_file = io.BytesIO(content)
+    reqif_file.name = "export.reqif"
+    with override_settings(IMPORT_CONTRACT_V2=False):
+        resp = client.post(
+            f"/api/v1/workspaces/{workspace_b.id}/import/reqif/",
+            {"file": reqif_file, "entity_type": "NotARealType"},
+            format="multipart",
+        )
+
+    assert resp.status_code == 200
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_inactive_entity_type_returns_400(reqif_import_admin_user):
+    """F10: a type the ReqIF importer cannot act on is refused, not silently
+    ignored (ArchitectureElement/TestCase have no ReqIF path)."""
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    reqif_file = io.BytesIO(content)
+    reqif_file.name = "export.reqif"
+    resp = client.post(
+        f"/api/v1/workspaces/{workspace_b.id}/import/reqif/",
+        {"file": reqif_file, "entity_type": "TestCase"},
+        format="multipart",
+    )
+
+    assert resp.status_code == 400
+    assert "error" in resp.json()
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_accepts_matching_entity_type(reqif_import_admin_user):
+    """F10: a ReqIF-representable type stays accepted for compatibility."""
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    reqif_file = io.BytesIO(content)
+    reqif_file.name = "export.reqif"
+    resp = client.post(
+        f"/api/v1/workspaces/{workspace_b.id}/import/reqif/",
+        {"file": reqif_file, "entity_type": "Requirement"},
+        format="multipart",
+    )
+
+    assert resp.status_code == 200

@@ -870,6 +870,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "admin_ops.record_celery_beat_heartbeat",
         "schedule": timedelta(seconds=CELERY_BEAT_HEARTBEAT_INTERVAL_SECONDS),
     },
+    # ADR-014 §3: delete expired Idempotency-Key records hourly so the replay
+    # store stays bounded (TTL × rate).
+    "cleanup-import-idempotency": {
+        "task": "application.cleanup_import_idempotency_records",
+        "schedule": crontab(minute=0),
+    },
 }
 
 # Use database scheduler for Celery Beat (REQ-030)
@@ -971,6 +977,37 @@ CACHES = {
         },
     }
 }
+
+# ---------------------------------------------------------------------------
+# ADR-014 (accepted) — import contract v2 + Idempotency-Key (INT-01)
+#
+# IMPORT_CONTRACT_V2 controls the ReqIF import response contract:
+#   False (default): Phase 1 of the ADR-014 §5 deprecation window — the
+#         pre-ADR response (``success`` always True, HTTP 200, legacy keys
+#         only). This matches §5's binding instruction "Feature-Flag
+#         ``IMPORT_CONTRACT_V2`` (Default in Phase 1 ``off``)".
+#   True: contract v2 is active — ``success = (counts.failed == 0)``, HTTP
+#         200/207/422 per ADR-014 §2, v2 envelope
+#         (``contract``/``counts``/``items``/``idempotent_replay``/``request_id``)
+#         plus the legacy keys kept additively during the deprecation window (§5).
+#
+# The v2 behaviour is fully implemented and covered by tests that activate it
+# with ``@override_settings``; shipping the flag dark by default is the ADR's
+# phase-1 requirement, not a half-finished feature. Flipping it on is a
+# deploy-time decision (Phase 2), after consumers have migrated.
+#
+# IMPORT_IDEMPOTENCY_TTL_HOURS is the replay window (ADR-014 §3, default 24 h);
+# a Celery-beat task deletes expired records (see CELERY_BEAT_SCHEDULE).
+# IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT bounds a tenant's replay store
+# (ADR-014 §3/§7); the oldest-expiring keys are evicted first.
+# ---------------------------------------------------------------------------
+IMPORT_CONTRACT_V2: bool = config("IMPORT_CONTRACT_V2", default=False, cast=bool)
+IMPORT_IDEMPOTENCY_TTL_HOURS: int = config(
+    "IMPORT_IDEMPOTENCY_TTL_HOURS", default=24, cast=int
+)
+IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT: int = config(
+    "IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT", default=10000, cast=int
+)
 
 # ---------------------------------------------------------------------------
 # Tenant-Isolation placeholder — ADR-03
