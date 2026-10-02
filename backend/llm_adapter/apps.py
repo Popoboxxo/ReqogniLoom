@@ -13,6 +13,13 @@ logger = logging.getLogger(__name__)
 # docker-compose.yml) and `test`/pytest (CI/local test envs may have no
 # network access to huggingface.co at all, which would otherwise turn every
 # test run into a multi-second-per-process tax or a hard failure).
+#
+# `check_celery_beat` (RES-05) is the celery-beat container healthcheck. It
+# reads one cache key and never embeds, but it runs every healthcheck interval
+# inside the tightly-limited beat container, so paying the Torch +
+# all-MiniLM-L6-v2 preload here (measured ~500 MiB peak, ~140 MiB retained per
+# run) would OOM-kill beat. Skipping it is what makes the functional probe
+# memory-viable.
 _PRELOAD_SKIP_COMMANDS = {
     "test",
     "migrate",
@@ -24,6 +31,7 @@ _PRELOAD_SKIP_COMMANDS = {
     "check",
     "showmigrations",
     "seed_demo",
+    "check_celery_beat",
 }
 
 

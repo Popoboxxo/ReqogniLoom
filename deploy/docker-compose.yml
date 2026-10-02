@@ -639,6 +639,9 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
+      # ADR-010 §3: /health/ is a deprecated alias for /health/ready, so this
+      # probe now goes red on a cache/worker/beat outage instead of staying
+      # falsely green (finding AUD-2026-09-031).
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
       interval: 30s
       timeout: 10s
@@ -894,7 +897,26 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          # RES-05 / AUD-2026-09-121(a): raised from 256M because the old limit
+          # left beat pinned at its ceiling (observed 255.5 MiB / 256 MiB,
+          # memory.peak == memory.max) and any spawned probe was OOM-killed
+          # (exit 137). Measured live on this host with cgroup v2
+          # (memory.current / memory.stat anon / memory.peak + docker stats)
+          # over an observation window and repeated forced-healthcheck runs:
+          #   * beat steady state (it runs llm_adapter's embedding-model
+          #     preload at boot): 407 MiB anon (non-reclaimable); cgroup
+          #     current 625-716 MiB once reclaimable page cache is included.
+          #   * functional probe `manage.py check_celery_beat` (now preload-skip,
+          #     see llm_adapter/apps.py): +94 to +129 MiB transient anon; the
+          #     combined non-reclaimable anon peak measured 536 MiB, fully
+          #     released on exit (no accumulation over 5 consecutive runs).
+          # 768M = ~1.43x the measured 536 MiB anon peak (>200 MiB / 43%
+          # headroom). memory.peak may still reach the limit because the kernel
+          # fills spare space with reclaimable page cache — that is expected and
+          # not an OOM risk while anon stays well below the limit. The value
+          # matches the dev `celery` limit in docker-compose.override.yml.
+          # Lower it only with a fresh measurement.
+          memory: 768M
     # SA-49: Grace period for Celery Beat to shut down gracefully.
     stop_grace_period: 30s
     restart: unless-stopped
@@ -926,15 +948,28 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      # celery-beat has no worker to `inspect ping`, so this checks the beat
-      # process itself is still running (#171 — makes a restart-loop like
-      # "module reqogniloom was not found" visible via `docker ps`/health status
-      # instead of failing silently).
-      test: ["CMD-SHELL", "pgrep -f 'celery.*beat' > /dev/null || exit 1"]
+      # Functional beat probe (ADR-010 §3, RES-05 / AUD-2026-09-121(a)):
+      # `check_celery_beat` exits 0 only while the beat-scheduled heartbeat is
+      # fresh (written by `admin_ops.record_celery_beat_heartbeat` on its 60s
+      # cadence), so a hung-but-alive beat now turns unhealthy. The old
+      # `pgrep` proved only that the process existed.
+      #
+      # Memory: the probe is a short-lived Django boot, kept light by skipping
+      # llm_adapter's embedding preload for `check_celery_beat`
+      # (backend/llm_adapter/apps.py). Without that skip it peaked at ~743 MiB
+      # and retained ~140 MiB after exit under the old 256M limit, so it was
+      # OOM-killed (exit 137). With the skip it adds ~94 MiB transient
+      # (combined peak ~509 MiB) and releases it on exit — see the measured
+      # memory-limit rationale above.
+      test: ["CMD-SHELL", "python manage.py check_celery_beat"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
+      # Tolerate transient probe slowness/single hiccups before flagging
+      # unhealthy; the heartbeat itself only goes stale after 3 missed runs.
       retries: 3
-      start_period: 40s
+      # Beat must boot and dispatch its first beat-cadence heartbeat before the
+      # first check can pass; 120s covers boot + one full interval with margin.
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy
