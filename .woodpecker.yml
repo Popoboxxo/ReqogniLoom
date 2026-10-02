@@ -119,6 +119,17 @@ steps:
   # - password: stored in Woodpecker secret 'cb_registry_token' (Codeberg PAT)
   build-and-push-backend:
     image: woodpeckerci/plugin-docker-buildx
+    # SEC-08 / AUD-2026-09-137: Woodpecker steps run in parallel unless
+    # `depends_on` is set, so without this the image could be pushed before the
+    # tests/security scans finished. Gate the publish on all lint/test/scan
+    # steps (same "test before image" contract as the GHCR path).
+    depends_on:
+      - lint-backend
+      - lint-frontend
+      - test-backend
+      - test-frontend
+      - security-scan-backend
+      - secret-scan
     settings:
       registry: codeberg.org
       repo: codeberg.org/dduchrow/reqflow-backend
@@ -144,6 +155,15 @@ steps:
       # Disable Provenance/SBOM attestations to ensure simple v2 manifests
       # for broader compatibility with older Docker engines (e.g., Unraid).
       # Attestation pushes OCI Manifest Index which some runtimes can't resolve.
+      #
+      # SEC-08 (AUD-2026-09-225): SBOM/provenance/signing are intentionally NOT
+      # enabled on this Codeberg/Woodpecker path — the Buildx plugin emits an OCI
+      # Manifest Index for attestations, which the project's documented Unraid
+      # target cannot resolve, and Woodpecker has no keyless OIDC signer
+      # configured for the Codeberg registry. The GHCR path
+      # (.github/workflows/docker-publish.yml) carries SBOM, SLSA provenance and
+      # keyless cosign signing. TODO: revisit if the deploy target gains OCI-index
+      # support and a Codeberg signing identity is available.
       provenance: false
       sbom: false
       username: dduchrow
@@ -163,6 +183,14 @@ steps:
   # CRITICAL FIX: Same as backend — dockerfile path relative to context.
   build-and-push-frontend:
     image: woodpeckerci/plugin-docker-buildx
+    # SEC-08 / AUD-2026-09-137: same test-before-image gate as the backend step.
+    depends_on:
+      - lint-backend
+      - lint-frontend
+      - test-backend
+      - test-frontend
+      - security-scan-backend
+      - secret-scan
     settings:
       registry: codeberg.org
       repo: codeberg.org/dduchrow/reqflow-frontend
@@ -174,6 +202,8 @@ steps:
       dockerfile: Dockerfile
       context: frontend
       target: production
+      # SEC-08: see the extended rationale on build-and-push-backend — SBOM /
+      # provenance / signing are deferred on the Codeberg path on purpose.
       provenance: false
       sbom: false
       username: dduchrow
@@ -185,6 +215,9 @@ steps:
   # ─────────────────────────────────────────────────────────
   verify-images:
     image: alpine:latest
+    depends_on:
+      - build-and-push-backend
+      - build-and-push-frontend
     commands:
       - echo "✓ Docker images built and pushed successfully"
       - echo "✓ Backend image: codeberg.org/dduchrow/reqflow-backend:latest"
