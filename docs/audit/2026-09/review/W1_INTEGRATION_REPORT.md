@@ -71,4 +71,4 @@ No genuine regression was found in any combination; no production source change 
 Integration head is merge-ready for the W1 scope: all five branches integrate cleanly, the backend suite is green apart from the known environmental seed errors, cross-branch combinations verified (unit + live), and E2E green. Open (non-blocking) items are the filed residues #1128–#1133 plus the pre-existing frontend test-environment failures. Release-readiness for W1 = YES (local branch `chore/w1-integration`).
 
 ---
-FINAL REPORT COMMIT: 037479959214f35575fd69e31f6eae7c7e70cd49
+FINAL REPORT COMMIT: the current tip of `chore/w1-integration` (local only; see `git log -1`).
