@@ -368,6 +368,12 @@ services:
       BACKUP_MAX_CONSECUTIVE_FAILURES: ${BACKUP_MAX_CONSECUTIVE_FAILURES:-3}
       # true = one dump, then exit with its status (the runbook gate).
       BACKUP_ONCE: ${BACKUP_ONCE:-false}
+      # Off-host export (ADR-012, DATA-02). Dormant by default; the opt-in
+      # overlay deploy/docker-compose.offhost.yml mounts a host/remote
+      # filesystem at /offhost and flips ENABLED to true. Container path is
+      # fixed; the host path lives only in the overlay.
+      BACKUP_OFFHOST_ENABLED: ${BACKUP_OFFHOST_ENABLED:-false}
+      BACKUP_OFFHOST_DIR: /offhost
     volumes:
       - postgres_backup_data:/backups
     # bash, not sh: the exit-code check needs `set -o pipefail`, which dash/
@@ -384,6 +390,8 @@ services:
         BACKUP_MAX_CONSECUTIVE_FAILURES="$${BACKUP_MAX_CONSECUTIVE_FAILURES:-3}"
         BACKUP_RETENTION="$${BACKUP_RETENTION:-7}"
         BACKUP_ONCE="$${BACKUP_ONCE:-false}"
+        BACKUP_OFFHOST_ENABLED="$${BACKUP_OFFHOST_ENABLED:-false}"
+        BACKUP_OFFHOST_DIR="$${BACKUP_OFFHOST_DIR:-/offhost}"
         # Dot-prefixed so the retention glob (reqogniloom_*.sql.gz) never
         # matches it. Written on EVERY attempt, success or failure: this is the
         # file docs/DEPLOY_RUNBOOK.md reads to decide whether the last backup
@@ -451,6 +459,25 @@ services:
             rm -f "$${outfile}"
             record_status failed "$${copies}" none
             return 1
+          fi
+
+          # Off-host export (ADR-012, DATA-02), opt-in via the offhost overlay.
+          # The local dump is already verified and is deliberately NOT deleted
+          # if this fails — the data is safe on-host. The failure is still
+          # reported non-zero (and in the marker file), so an absent off-host
+          # copy is never silent.
+          if [ "$${BACKUP_OFFHOST_ENABLED}" = "true" ]; then
+            if [ ! -d "$${BACKUP_OFFHOST_DIR}" ]; then
+              echo "[backup] FAILED: BACKUP_OFFHOST_ENABLED=true but $${BACKUP_OFFHOST_DIR} is not mounted — local dump kept" >&2
+              record_status offhost_failed "$${copies}" "$${outfile}"
+              return 1
+            fi
+            if ! cp "$${outfile}" "$${BACKUP_OFFHOST_DIR}/"; then
+              echo "[backup] FAILED: could not copy $${outfile} to off-host $${BACKUP_OFFHOST_DIR} — local dump kept" >&2
+              record_status offhost_failed "$${copies}" "$${outfile}"
+              return 1
+            fi
+            echo "[backup] exported $$(basename "$${outfile}") to off-host $${BACKUP_OFFHOST_DIR}"
           fi
 
           echo "[backup] wrote $$(du -h "$${outfile}" | cut -f1) to $${outfile} ($${copies} COPY blocks verified)"

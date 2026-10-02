@@ -221,7 +221,7 @@ variables:
     docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Release-Reports
     deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
     testing/             # docker-compose.test.yml (CI-/lokaler Test-Overlay, kein Deployment-File)
-    scripts/             # build.sh, backup.sh, restore.sh, check-version-drift.sh, enable_pgvector.sh
+    scripts/             # build.sh, check-version-drift.sh, enable_pgvector.sh (backup/restore removed per ADR-012)
     .meta-config/        # agent-meta Konfiguration (project.yaml)
     .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
   ENTRY_POINT_PATTERN: 'backend/manage.py            — Django Management (migrate, seed_demo,
