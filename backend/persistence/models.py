@@ -2036,6 +2036,29 @@ class TraceLink(TenantScopedModel):
                 fields=["source", "target", "link_type"],
                 name="uq_tracelink_edge",
             ),
+            # DATA-05 (finding 157): reject self-links at the DB level.
+            # The app-level guard in TraceLinkManager covers the manager path;
+            # this constraint is the race-free authority of last resort for
+            # every other writer (raw ORM inserts, imports, reconcilers).
+            # ``condition=`` (not ``check=``) — Django 5.1+ spelling.
+            models.CheckConstraint(
+                condition=~models.Q(source=models.F("target")),
+                name="ck_tracelink_no_self_link",
+            ),
+            # DATA-05 (finding 182): the live table had no DB-level binding of
+            # ``link_type`` to anything at all. Link types are a *tenant-
+            # extensible* catalog (WorkspaceLinkTypeDefinition.key is a free
+            # string; see link_types/models.py), so a CHECK whitelisting the
+            # built-in keys would break every tenant extension — a cross-table
+            # CHECK is not expressible in PostgreSQL. The safe equivalent is a
+            # non-empty invariant: the column can never hold ``""``/NULL, while
+            # any tenant-invented key remains valid. Pair/catalog semantics stay
+            # where they belong — ``link_types.catalog.validate_link_pair`` at
+            # the application layer.
+            models.CheckConstraint(
+                condition=~models.Q(link_type=""),
+                name="ck_tracelink_link_type_nonempty",
+            ),
         ]
 
     def __str__(self) -> str:
