@@ -13,15 +13,19 @@ the workspace in :mod:`rest_api.views` / :mod:`rest_api.preset_guard`:
 2. URL kwarg ``pk`` when the matched route is a ``workspaces/`` route
    (e.g. ``/api/v1/workspaces/<uuid:pk>/import/csv/``).
 3. Query parameter ``workspace_id``.
-4. JSON request body field ``workspace_id`` on unsafe methods (create endpoints
-   carry the target workspace in the payload).
+4. Request body field ``workspace_id`` on unsafe methods (create endpoints
+   carry the target workspace in the payload). The body is read for
+   ``application/json``, ``application/x-www-form-urlencoded`` **and**
+   ``multipart/form-data``: restricting this to JSON left a create bypass
+   (SEC-02 review M1, ADR-013) in which a form-encoded create could smuggle a
+   foreign ``workspace_id`` past the central seam.
 
 Returning ``None`` means "this request does not target one specific workspace"
 (login, ``/api/v1/workspaces/`` list, admin-ops health, ...). Callers then keep
 the tenant-wide role set, which is the pre-existing behaviour: this module only
 *narrows* authority, it never widens it.
 
-req_id: GitHub #103
+req_id: GitHub #103, ADR-013
 """
 from __future__ import annotations
 
@@ -39,6 +43,17 @@ _WORKSPACE_ROUTE_MARKER = "workspaces/<uuid:pk>"
 
 # Methods whose body may carry the target workspace.
 _BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
+
+# Content-type markers whose body may carry the target workspace. A create that
+# names the workspace in the body must be resolved for *every* parsed body
+# format, not only JSON: the SEC-02 review (M1) found a form-encoded create
+# smuggling a foreign ``workspace_id`` past the seam because only "json" was
+# recognised.
+_BODY_CONTENT_TYPE_MARKERS: tuple[str, ...] = (
+    "json",
+    "form-urlencoded",
+    "multipart",
+)
 
 
 def _coerce(value: Any) -> UUID | None:
@@ -87,18 +102,21 @@ def _from_query(request: Any) -> UUID | None:
 
 
 def _from_body(request: Any) -> UUID | None:
-    """Resolve the workspace from a JSON body's ``workspace_id`` field.
+    """Resolve the workspace from a parsed request body's ``workspace_id``.
 
-    Restricted to unsafe methods with a JSON content type, and fully guarded:
-    body parsing happens during authentication, so a malformed payload must not
-    surface as an auth error — it has to reach the view's own 400 handling.
+    Covers JSON, form-urlencoded and multipart bodies alike: the body is parsed
+    by DRF (``request.data``), which returns a ``dict`` for JSON and a
+    ``QueryDict`` for form data; both expose ``.get``. Restricted to unsafe
+    methods, and fully guarded: body parsing happens during authentication, so a
+    malformed payload must not surface as an auth error — it has to reach the
+    view's own 400 handling.
     """
     method = str(getattr(request, "method", "") or "").upper()
     if method not in _BODY_METHODS:
         return None
 
     content_type = str(getattr(request, "content_type", "") or "").lower()
-    if "json" not in content_type:
+    if not any(marker in content_type for marker in _BODY_CONTENT_TYPE_MARKERS):
         return None
 
     try:
@@ -106,9 +124,12 @@ def _from_body(request: Any) -> UUID | None:
     except Exception:  # noqa: BLE001 — unparsable body is the view's problem
         return None
 
-    if not isinstance(data, dict):
+    # ``QueryDict``/``dict`` expose ``.get``; lists/strings/bytes do not and are
+    # rejected here rather than raising.
+    getter = getattr(data, "get", None)
+    if getter is None or isinstance(data, (list, str, bytes)):
         return None
-    return _coerce(data.get("workspace_id"))
+    return _coerce(getter("workspace_id"))
 
 
 def resolve_request_workspace_id(request: Any) -> UUID | None:
@@ -131,4 +152,19 @@ def resolve_request_workspace_id(request: Any) -> UUID | None:
     return None
 
 
-__all__ = ["resolve_request_workspace_id"]
+def workspace_exists(workspace_id: UUID) -> bool:
+    """Return whether *workspace_id* exists in the active tenant.
+
+    Must be called **after** tenant activation: ``Workspace.objects`` is
+    tenant-scoped, so a workspace of another tenant reads as non-existent. This
+    is the single implementation shared by
+    ``auth_tenancy.rest._workspace_exists`` (authentication) and
+    ``auth_tenancy.resource_scope._workspace_in_active_tenant`` (the seam), so
+    the existence check cannot drift between the two (ADR-013 review CODE-3).
+    """
+    from persistence.models import Workspace  # local import avoids circular dep
+
+    return Workspace.objects.filter(id=workspace_id).exists()
+
+
+__all__ = ["resolve_request_workspace_id", "workspace_exists"]

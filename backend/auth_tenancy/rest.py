@@ -74,7 +74,7 @@ from .services import (
     operation_for_method,
     scope_denial_reason,
 )
-from .workspace_scope import resolve_request_workspace_id
+from .workspace_scope import resolve_request_workspace_id, workspace_exists
 
 # Header names (REQ-L2-AT-001/002).
 _AUTH_HEADER = "HTTP_AUTHORIZATION"
@@ -132,10 +132,11 @@ def _workspace_exists(workspace_id: UUID) -> bool:
 
     Must be called **after** tenant activation; ``Workspace.objects`` is
     tenant-scoped, so a workspace of another tenant reads as non-existent.
+    Delegates to the shared :func:`auth_tenancy.workspace_scope.workspace_exists`
+    so authentication and the resource-scope seam use one implementation
+    (ADR-013 review CODE-3).
     """
-    from persistence.models import Workspace  # local import avoids circular dep
-
-    return Workspace.objects.filter(id=workspace_id).exists()
+    return workspace_exists(workspace_id)
 
 
 class _StandardAuthError(exceptions.APIException):

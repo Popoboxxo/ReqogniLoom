@@ -32,18 +32,28 @@ A "detail route" names a single target object; a "collection route" (DRF
 * **List / retrieve-many** carries no target object. Denying it outright (the
   pre-ADR-013 behaviour) turned every flat collection request into a 403. The
   endpoint resolves its own workspace from the URL/query and the auth layer
-  scopes the caller's roles to it; when no workspace is named the endpoint's
-  own filter applies. The seam therefore never blanket-denies a list.
-* **Create / collection** derives its target workspace from the validated
-  payload ``workspace_id`` (the auth layer already scopes roles from it). When
-  none is supplied the view's own validation answers 400/404; the seam does not
-  invent a 403 there either.
+  scopes the caller's roles to it; when a workspace is named the seam enforces
+  the caller's role in that workspace (a member of A cannot list B). When no
+  workspace is named the endpoint's own filter/validation applies; the seam
+  never blanket-denies a list.
+* **Create / collection** resolves the target workspace **content-type
+  independently** from URL kwargs, query and body (JSON, form-urlencoded and
+  multipart). When a target resolves and the caller holds no active role there,
+  the create is denied **403** — this closes the form-encoded create bypass
+  (SEC-02 review M1). When *no* target resolves the seam does not invent a 403:
+  the endpoint's serializer requires a workspace (400) or its service resolves
+  the workspace from the parent entity and enforces membership itself. These
+  per-view trust boundaries are documented in the ADR and covered by the
+  collection gate in ``rest_api/tests/test_resource_scope_coverage.py``.
 
 Object routes stay object-derived and fail-closed, with the 404-vs-403 rule of
 ADR-013: a **resolvable object in the caller's tenant** without a role is denied
 (403); an object that does not resolve — missing, malformed id or belonging to
 another tenant — is *not* denied here, so the tenant-scoped view answers
-404/400 and a foreign object stays indistinguishable from a missing one.
+404/400. A foreign object therefore stays indistinguishable from a missing one
+**across tenants** (no cross-tenant existence leak). Within one tenant a
+member-facing 403 (no role) versus 404 (missing object) is deliberately
+distinguishable; that is a documented residual, not a leak.
 
 Feature gate (decision point 4, flipped on by ADR-013)
 ------------------------------------------------------
@@ -74,7 +84,7 @@ from typing import Any, Iterable
 from uuid import UUID
 
 from .context import AuthContext
-from .workspace_scope import resolve_request_workspace_id
+from .workspace_scope import resolve_request_workspace_id, workspace_exists
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +134,13 @@ class ResourceClassification:
     reason: str = ""
     entity_key: str | None = None
     id_kwargs: tuple[str, ...] = ("pk",)
+    #: Documented trust boundary for a ``workspace``-scoped route that names its
+    #: target workspace in the request. When set, the seam defers the membership
+    #: decision to the view/service (which enforces it, including any deliberate
+    #: elevation or bootstrap branch). Empty means the seam enforces authority
+    #: centrally. Only set where the central check would wrongly lock out an
+    #: intended service-level branch (ADR-013 review CODE-1).
+    handler_guard: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +272,28 @@ for _name in _WORKSPACE_VIA_REQUEST:
         ResourceClassification(
             ResourceScope.WORKSPACE,
             reason="target workspace carried in the request URL/query/body",
+        ),
+    )
+
+# Routes whose view/service deliberately owns the membership decision because it
+# implements a documented elevation or bootstrap branch that a central role
+# check would lock out. Each guard names the exact enforcement point; the seam
+# defers to it (ADR-013 review CODE-1). Everything else in the group is enforced
+# centrally against the resolved target workspace.
+for _name, _guard in {
+    "WorkspaceMembersView": (
+        "AuthorizationService.assign_role enforces admin/tenant-admin and the "
+        "SEC-05 bootstrap (roleless self-assign in an own-tenant, admin-less "
+        "workspace); a central role check would lock that branch out."
+    ),
+}.items():
+    _existing = _REGISTRY[_name]
+    _declare(
+        _name,
+        ResourceClassification(
+            ResourceScope.WORKSPACE,
+            reason=_existing.reason,
+            handler_guard=_guard,
         ),
     )
 
@@ -519,6 +558,29 @@ def resolve_object_workspace_id(request: Any) -> UUID | None:
     return _resolve_owning_from_request(request, classification, view)
 
 
+def _resolve_target_workspaces(
+    request: Any, view: Any, classification: ResourceClassification | None
+) -> tuple[UUID | None, UUID | None]:
+    """Return ``(owning_workspace_id, target_workspace_id)`` in one pass.
+
+    ``owning_workspace_id`` is the workspace of the object the route names by id
+    (``None`` when the route names no object, or the object does not resolve);
+    ``target_workspace_id`` is the authorization target — the object's workspace
+    when it resolves, else the workspace named by URL/query/body. Computing both
+    here keeps the object lookup single-shot instead of resolving it again in
+    the object branch (ADR-013 review CODE-3).
+    """
+    owning: UUID | None = None
+    if classification is not None:
+        owning = _resolve_owning_from_request(request, classification, view)
+    target = owning
+    if target is None:
+        target = resolve_request_workspace_id(request)
+    if target is None:
+        target = _workspace_from_url_kwargs(request, view)
+    return owning, target
+
+
 def resolve_target_workspace_id(request: Any, view: Any) -> UUID | None:
     """Return the workspace a REST request targets, or ``None`` if unresolvable.
 
@@ -532,14 +594,8 @@ def resolve_target_workspace_id(request: Any, view: Any) -> UUID | None:
        (:func:`resolve_request_workspace_id`).
     """
     classification = classify_view(view)
-    if classification is not None:
-        owning = _resolve_owning_from_request(request, classification, view)
-        if owning is not None:
-            return owning
-    request_workspace = resolve_request_workspace_id(request)
-    if request_workspace is not None:
-        return request_workspace
-    return _workspace_from_url_kwargs(request, view)
+    _, target = _resolve_target_workspaces(request, view, classification)
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -638,13 +694,55 @@ def _has_active_role_in_workspace(auth_context: AuthContext, workspace_id: UUID)
     return bool(roles)
 
 
+def _is_tenant_admin(auth_context: AuthContext) -> bool:
+    """Return whether the caller holds an active tenant-admin role.
+
+    Fail-closed: any lookup error denies. Used only to preserve the documented
+    System-Admin elevation on routes that deliberately declare no RBAC operation
+    (ADR-013 review CODE-1).
+    """
+    tenant_id = getattr(auth_context, "tenant_id", None)
+    if tenant_id is None:
+        return False
+    try:
+        from .services import AuthorizationService
+
+        return AuthorizationService().is_tenant_admin(
+            user_id=auth_context.user_id, tenant_id=tenant_id
+        )
+    except Exception:  # noqa: BLE001 — fail closed on any resolution error
+        logger.debug(
+            "Tenant-admin lookup failed for user=%s", auth_context.user_id
+        )
+        return False
+
+
+def _has_workspace_authority(auth_context: AuthContext, workspace_id: UUID) -> bool:
+    """Return whether the caller may act on *workspace_id*.
+
+    Authority is a workspace role **or** tenant-admin (System-Admin) elevation.
+    The elevation branch keeps the documented ``required_operation=None`` routes
+    (workspace members, banner, memory settings) working now that the central
+    membership check is restored: a System-Admin holds no workspace-level
+    ``UserRole`` but is the tenant's legitimate override. Every other caller
+    without a role is denied (ADR-013 review CODE-1).
+    """
+    if _has_active_role_in_workspace(auth_context, workspace_id):
+        return True
+    return _is_tenant_admin(auth_context)
+
+
 def _is_collection_action(view: Any) -> bool:
     """Return whether *view* is a DRF ``list``/``create`` collection action.
 
-    DRF sets ``view.action`` in ``ViewSetMixin.view``/``dispatch`` before the
-    permission layer runs, so it is reliable here. Non-ViewSet views (plain
-    ``APIView``) have no ``action`` and are never treated as collections.
+    Both the action name **and** DRF's ``detail`` flag are required: a view could
+    declare an action literally named ``create`` while still being a detail
+    route, and only ``detail is False`` marks a real collection route (ADR-013
+    review CODE-4). Plain ``APIView`` instances carry neither attribute and so
+    never touch a collection: the ``getattr(..., True)`` default keeps them out.
     """
+    if getattr(view, "detail", True) is not False:
+        return False
     return getattr(view, "action", None) in ("list", "create")
 
 
@@ -653,19 +751,66 @@ def _workspace_in_active_tenant(workspace_id: UUID) -> bool:
 
     Distinguishes "same tenant, no role" (403) from "another tenant" (404): the
     tenant-scoped ``Workspace`` manager reports a foreign workspace as absent, so
-    a foreign object never produces a 403 that would leak its existence. Any
-    resolution error is fail-soft (``False``) and leaves the tenant-scoped view
-    to answer 404.
+    a foreign object never produces a 403 that would leak its existence.
+
+    Fail-closed: a resolution error counts as "in tenant" so the membership gate
+    still decides (deny unless a real role is found), matching
+    :func:`_has_active_role_in_workspace`. The error is logged as a warning so it
+    is not silent (ADR-013 review CODE-2). The existence check itself is shared
+    with authentication via :func:`auth_tenancy.workspace_scope.workspace_exists`
+    (ADR-013 review CODE-3).
     """
     try:
-        from persistence.models import Workspace
+        return workspace_exists(workspace_id)
+    except Exception as exc:  # noqa: BLE001 — split below, fail closed by default
+        # No active tenant is the boundary/direct-call shape (a caller that
+        # bypassed AuthTenancyAuthentication): there is nothing to scope against,
+        # so defer to the tenant-scoped view as the "not in this tenant" result
+        # rather than 403 (mirrors the pre-existing behaviour and keeps a
+        # hand-built AuthContext usable in permission-layer unit tests).
+        from persistence.tenancy import TenantContextNotSetError
 
-        return Workspace.objects.filter(id=workspace_id).exists()
-    except Exception:  # noqa: BLE001 — resolution error -> let the view 404
-        logger.debug(
-            "Workspace existence check failed for workspace=%s", workspace_id
+        if isinstance(exc, TenantContextNotSetError):
+            return False
+        logger.warning(
+            "Workspace existence check failed for workspace=%s; failing closed",
+            workspace_id,
         )
-        return False
+        return True
+
+
+def _enforce_collection_scope(
+    view: Any, auth_context: AuthContext, target_workspace_id: UUID | None
+) -> str | None:
+    """Enforce workspace authority for a DRF collection ``list``/``create``.
+
+    ``list`` carries no single target object. When a workspace is named it is the
+    authorization target and a caller without a role there is denied; when none
+    is named the endpoint's own filter/validation applies, so the seam does not
+    blanket-deny.
+
+    ``create`` must resolve a target workspace when one is named (URL/query/body,
+    content-type independent): a caller without a role in it is denied. When no
+    target resolves the endpoint's serializer or service owns the guard (it
+    requires a workspace or derives it from the parent entity and enforces
+    membership), documented per view in the ADR; the seam never invents a role
+    from the tenant-wide union.
+    """
+    action = getattr(view, "action", None)
+    if action == "list" and target_workspace_id is None:
+        return None
+
+    if target_workspace_id is None:
+        # create without a resolvable target: view/service guard, see ADR-013.
+        return None
+
+    if not _workspace_in_active_tenant(target_workspace_id):
+        # Names a workspace outside the caller's tenant: never deny here, the
+        # tenant-scoped view answers 404/400 (no cross-tenant existence leak).
+        return None
+    if not _has_workspace_authority(auth_context, target_workspace_id):
+        return WORKSPACE_MEMBERSHIP_DENIAL
+    return None
 
 
 def enforce_request_scope(
@@ -681,7 +826,8 @@ def enforce_request_scope(
        ``AUTHZ_WORKSPACE_SCOPE_ENFORCED`` is on. Unclassified view classes are
        denied; workspace-scoped *object* routes are denied when the object
        resolves in the caller's tenant and the caller holds no role there;
-       collection routes (list/create) are never blanket-denied.
+       collection routes (list/create) are fenced against a named target but
+       never blanket-denied when none is named.
 
     The caller (`RbacPermission` / `HasOperationPermission`) raises
     ``PermissionDenied`` (403) on a non-``None`` result.
@@ -698,7 +844,10 @@ def enforce_request_scope(
     if not fence_applies and not scope_applies:
         return None
 
-    target_workspace_id = resolve_target_workspace_id(request, view)
+    classification = classify_view(view)
+    owning_workspace_id, target_workspace_id = _resolve_target_workspaces(
+        request, view, classification
+    )
 
     if fence_applies:
         fence_denial = workspace_fence_denial(
@@ -711,37 +860,45 @@ def enforce_request_scope(
     if not scope_applies:
         return None
 
-    classification = classify_view(view)
     if classification is None:
         return UNCLASSIFIED_DENIAL
     if classification.scope is not ResourceScope.WORKSPACE:
         return None
 
-    # Collection routes name no single target object (ADR-013). List endpoints
-    # resolve their own workspace and the auth layer scopes roles to it; create
-    # endpoints derive the target from the validated payload. Never blanket-deny
-    # here — the view's own validation answers 400/404 when nothing is named.
+    # Collection routes name no single target object (ADR-013). They are still
+    # fenced against a *named* target workspace (see the helper) but never
+    # blanket-denied when none is named.
     if _is_collection_action(view):
-        return None
+        return _enforce_collection_scope(view, auth_context, target_workspace_id)
 
     # Object/mutation route: authority follows the target object.
     if classification.entity_key is not None:
-        owning = _resolve_owning_from_request(request, classification, view)
-        if owning is None:
+        if owning_workspace_id is None:
             # No object row in this tenant (missing, malformed id, or another
             # tenant's object): never deny here. The tenant-scoped view answers
             # 404/400, so a foreign object stays indistinguishable from a
-            # missing one (ADR-013 404-vs-403 rule, no existence leak).
+            # missing one (ADR-013 404-vs-403 rule, no cross-tenant leak).
             return None
-        if not _workspace_in_active_tenant(owning):
+        if not _workspace_in_active_tenant(owning_workspace_id):
             return None
-        if not _has_active_role_in_workspace(auth_context, owning):
+        if not _has_active_role_in_workspace(auth_context, owning_workspace_id):
             return WORKSPACE_MEMBERSHIP_DENIAL
         return None
 
     # No object resolution available: a workspace-scoped action that lives on the
-    # request workspace (import/export, workspace members, ...). It must name
-    # one; fail closed when it does not (ADR-011 decision point 3).
+    # request workspace (import/export, workspace members, ...). It must name one
+    # AND the caller must hold authority there — the central membership check
+    # (workspace role or System-Admin elevation) is restored here as defence in
+    # depth (ADR-013 review CODE-1). A registered ``handler_guard`` marks the few
+    # routes whose service owns a deliberate elevation/bootstrap branch and is
+    # deferred to; without a named workspace the answer stays fail-closed
+    # (ADR-011 decision point 3).
     if target_workspace_id is None:
         return WORKSPACE_UNRESOLVABLE_DENIAL
+    if classification.handler_guard:
+        return None
+    if not _workspace_in_active_tenant(target_workspace_id):
+        return None
+    if not _has_workspace_authority(auth_context, target_workspace_id):
+        return WORKSPACE_MEMBERSHIP_DENIAL
     return None

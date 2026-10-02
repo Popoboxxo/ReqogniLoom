@@ -102,13 +102,41 @@ def test_body_ignored_for_safe_methods() -> None:
     assert resolve_request_workspace_id(request) is None
 
 
-def test_body_ignored_for_non_json_content_type() -> None:
+def test_body_ignored_for_unsupported_content_type() -> None:
+    """Only JSON/form-urlencoded/multipart bodies can name the workspace.
+
+    A plain-text/XML body is not parsed for a workspace id; the request falls
+    through to the view's own handling. (Before ADR-013 this test asserted
+    multipart was ignored — that was the create bypass M1 closes.)
+    """
     request = _Request(
         method="POST",
-        content_type="multipart/form-data; boundary=x",
+        content_type="text/plain",
         data={"workspace_id": str(uuid.uuid4())},
     )
     assert resolve_request_workspace_id(request) is None
+
+
+def test_resolves_form_urlencoded_body_on_write_methods() -> None:
+    """A form-encoded create must name its target workspace (SEC-02 M1)."""
+    ws = uuid.uuid4()
+    request = _Request(
+        method="POST",
+        content_type="application/x-www-form-urlencoded",
+        data={"workspace_id": str(ws)},
+    )
+    assert resolve_request_workspace_id(request) == ws
+
+
+def test_resolves_multipart_body_on_write_methods() -> None:
+    """A multipart create must name its target workspace (SEC-02 M1)."""
+    ws = uuid.uuid4()
+    request = _Request(
+        method="POST",
+        content_type="multipart/form-data; boundary=x",
+        data={"workspace_id": str(ws)},
+    )
+    assert resolve_request_workspace_id(request) == ws
 
 
 def test_malformed_values_yield_none() -> None:

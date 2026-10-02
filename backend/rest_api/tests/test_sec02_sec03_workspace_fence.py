@@ -26,11 +26,23 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from auth_tenancy.jwt_tokens import encode_hs256
-from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, UserRole
+from auth_tenancy.models import (
+    ROLE_ADMIN,
+    ROLE_EDITOR,
+    TenantRole,
+    UserRole,
+)
 from auth_tenancy.resource_scope import workspace_fence_denial
 from auth_tenancy.services.authentication import AuthenticationService
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Artifact, Requirement, Tenant, User, Workspace
+from persistence.models import (
+    Artifact,
+    Requirement,
+    Risk,
+    Tenant,
+    User,
+    Workspace,
+)
 
 _SECRET = "sec02-sec03-fence-test-secret-not-a-real-key"
 _JWT_OVERRIDES = dict(
@@ -390,3 +402,177 @@ def test_workspaceless_list_returns_only_the_named_workspace() -> None:
     titles = {item["title"] for item in resp.json()["results"]}
     assert "req-in-WS-A" in titles or any("WS-A" in t for t in titles), titles
     assert all("WS-B" not in t for t in titles), titles
+
+
+# ---------------------------------------------------------------------------
+# SEC-02 review M1 — content-type-independent create fence (form/multipart)
+# ---------------------------------------------------------------------------
+
+
+def _grant_tenant_admin(tenant: Tenant, user: User) -> None:
+    set_request_tenant(tenant.id)
+    try:
+        TenantRole.objects.create(
+            tenant=tenant, user=user, role=TenantRole.ROLE_ADMIN
+        )
+    finally:
+        clear_request_tenant()
+
+
+def _risks_in(tenant: Tenant, workspace: Workspace) -> int:
+    set_request_tenant(tenant.id)
+    try:
+        return Risk.objects.filter(workspace_id=workspace.id).count()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.parametrize(
+    "post_kwargs",
+    [
+        {"content_type": "application/x-www-form-urlencoded"},
+        {"format": "multipart"},
+    ],
+)
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_form_create_with_foreign_workspace_is_denied_and_never_written(
+    post_kwargs: dict,
+) -> None:
+    """M1 regression: a non-JSON create smuggling a foreign ``workspace_id``.
+
+    The caller holds a role in WS-A only. The create names WS-B in a
+    form-urlencoded / multipart body. Without the content-type-independent
+    resolution the auth layer would have kept the tenant-wide admin roles and
+    the write would land in WS-B; with it the target resolves and the request
+    is denied. Nothing may be written to WS-B.
+    """
+    from urllib.parse import urlencode
+
+    tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    before = _risks_in(tenant, ws_b)
+    client = _bearer_client(user, tenant)
+    body = {"workspace_id": str(ws_b.id), "title": "smuggled"}
+    if "format" not in post_kwargs:
+        # ``content_type`` alone does not URL-encode an APIClient dict body, so
+        # send the encoded string to guarantee a real form-encoded payload.
+        body = urlencode(body)
+
+    resp = client.post("/api/v1/risks/", body, **post_kwargs)
+
+    assert resp.status_code == 403, (
+        "a form/multipart create naming a foreign workspace must be denied at "
+        f"the seam: got {resp.status_code}: {resp.content!r}"
+    )
+    assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
+    assert _risks_in(tenant, ws_b) == before, "foreign workspace must not be written"
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_form_create_in_own_workspace_still_succeeds() -> None:
+    """No over-blocking: the same form body targeting the caller's workspace works."""
+    from urllib.parse import urlencode
+
+    tenant, user, ws_a, _ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    client = _bearer_client(user, tenant)
+
+    resp = client.post(
+        "/api/v1/risks/",
+        urlencode({"workspace_id": str(ws_a.id), "title": "legit"}),
+        content_type="application/x-www-form-urlencoded",
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert _risks_in(tenant, ws_a) == 1
+
+
+# ---------------------------------------------------------------------------
+# SEC-02 review M3 — no cross-tenant existence leak (foreign tenant => 404)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_foreign_tenant_object_detail_is_404_not_403() -> None:
+    """An object in another tenant is indistinguishable from a missing one."""
+    tenant_a, user_a, ws_a, _ws_a2 = _tenant_with_two_workspaces()
+    _grant(tenant_a, user_a, ws_a, ROLE_ADMIN)
+    tenant_b, _user_b, ws_b, _ws_b2 = _tenant_with_two_workspaces()
+    req_b = _requirement_in(tenant_b, ws_b)
+    client = _bearer_client(user_a, tenant_a)
+
+    resp = client.get(f"/api/v1/requirements/{req_b.id}/")
+
+    assert resp.status_code == 404, (
+        "a foreign-tenant object must 404, never 403 (no existence leak): "
+        f"got {resp.status_code}: {resp.content!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# SEC-02 review CODE-1 — central membership check on entity_key=None routes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "method,path_tmpl,body",
+    [
+        ("put", "/api/v1/workspaces/{ws}/banner/", {"level": "info", "enabled": True}),
+        (
+            "put",
+            "/api/v1/workspaces/{ws}/review-policy/",
+            {"mode": "off", "min_confidence": 0.5},
+        ),
+        (
+            "post",
+            "/api/v1/workspaces/{ws}/members/",
+            {"user_id": str(uuid.uuid4()), "role": ROLE_EDITOR},
+        ),
+    ],
+)
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_non_member_denied_on_workspace_named_write_route(
+    method: str, path_tmpl: str, body: dict
+) -> None:
+    """A non-member is denied (403) on a workspace-scoped, workspace-named route.
+
+    The JWT carries an elevated admin snapshot; authority is still derived from
+    the target workspace, where the caller holds no role.
+    """
+    tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant(tenant, user, ws_a, ROLE_ADMIN)
+    client = _bearer_client(user, tenant)
+    path = path_tmpl.format(ws=ws_b.id)
+
+    resp = getattr(client, method)(path, body, format="json")
+
+    assert resp.status_code == 403, (
+        f"non-member on {method.upper()} {path_tmpl} must be denied: "
+        f"got {resp.status_code}: {resp.content!r}"
+    )
+
+
+@pytest.mark.django_db
+@override_settings(**_JWT_OVERRIDES, AUTHZ_WORKSPACE_SCOPE_ENFORCED=True)
+def test_tenant_admin_elevation_still_reaches_workspace_named_route() -> None:
+    """Defence in depth must not lock out the documented System-Admin elevation.
+
+    A tenant admin holds no workspace-level ``UserRole`` (``active_roles=()``),
+    but the restore of the central membership check must still admit them via
+    the tenant-admin branch; the view/service applies the elevation.
+    """
+    tenant, user, _ws_a, ws_b = _tenant_with_two_workspaces()
+    _grant_tenant_admin(tenant, user)
+    client = _bearer_client(user, tenant)
+
+    resp = client.put(
+        f"/api/v1/workspaces/{ws_b.id}/banner/",
+        {"level": "info", "enabled": True},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
