@@ -256,7 +256,21 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
             # it would let a role held in workspace A authorise workspace B
             # (cross-workspace privilege escalation, GitHub #103).
             #
+            # ADR-011 (SEC-02): when the resource-scope seam is enabled, the
+            # target workspace is additionally derived from the *object* named
+            # by a detail route (not only from a client-supplied workspace_id),
+            # so the RBAC matrix itself is evaluated against the owning
+            # workspace. Off by default (hard-stop discipline); see
+            # ``auth_tenancy.resource_scope``.
             workspace_id = resolve_request_workspace_id(request)
+            if workspace_id is None:
+                from .resource_scope import (
+                    resolve_object_workspace_id,
+                    scope_enforcement_enabled,
+                )
+
+                if scope_enforcement_enabled():
+                    workspace_id = resolve_object_workspace_id(request)
             if workspace_id is not None:
                 active_roles = _resolve_roles_from_db(claims.user_id, workspace_id)
                 if not active_roles and not _workspace_exists(workspace_id):
@@ -460,21 +474,32 @@ class HasOperationPermission(permissions.BasePermission):
 
         if operation is None:
             # No operation declared: authenticated access is sufficient.
-            return True
+            allow = True
+        else:
+            decision = self._authz.decide_access(auth_context.active_roles, operation)
 
-        decision = self._authz.decide_access(auth_context.active_roles, operation)
+            # REQ-186/187 shadow-verify seam (see rest_api.auth_enforcer.RbacPermission):
+            # the new permission_json model governs only in ``authoritative`` mode; in
+            # ``shadow`` mode the verdict is identical to legacy and the comparator is
+            # fail-closed to legacy on any error.
+            from auth_tenancy.services.permission_shadow import shadow_decide
 
-        # REQ-186/187 shadow-verify seam (see rest_api.auth_enforcer.RbacPermission):
-        # the new permission_json model governs only in ``authoritative`` mode; in
-        # ``shadow`` mode the verdict is identical to legacy and the comparator is
-        # fail-closed to legacy on any error.
-        from auth_tenancy.services.permission_shadow import shadow_decide
+            allow = shadow_decide(
+                legacy_decision=decision.allow,
+                ctx=auth_context,
+                operation=operation,
+            )
 
-        return shadow_decide(
-            legacy_decision=decision.allow,
-            ctx=auth_context,
-            operation=operation,
-        )
+        if allow:
+            # ADR-011 (SEC-02/SEC-03): the same central resource-scope / API-key
+            # fence seam ``RbacPermission`` uses, so a view protected by this
+            # permission class cannot be a hole for the fence.
+            from auth_tenancy.resource_scope import enforce_request_scope
+
+            scope_violation = enforce_request_scope(request, view, auth_context)
+            if scope_violation:
+                raise exceptions.PermissionDenied(detail=scope_violation)
+        return allow
 
 
 __all__ = [

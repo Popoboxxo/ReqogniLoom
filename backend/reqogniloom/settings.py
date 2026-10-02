@@ -571,6 +571,25 @@ REST_FRAMEWORK = {
 }
 
 # ---------------------------------------------------------------------------
+# ADR-011 — two-level authorization axis (SEC-02 / SEC-03)
+# ---------------------------------------------------------------------------
+# The central resource-scope classifier (auth_tenancy.resource_scope) derives
+# the workspace fence from the target object. Its DEFAULT-DENY seam is gated
+# because a misclassification would fail a whole scope open; the coverage gate
+# (rest_api/tests/test_resource_scope_coverage.py) must be green before this is
+# switched on in an environment. Default OFF: see the SEC-02 plan's hard-stop.
+AUTHZ_WORKSPACE_SCOPE_ENFORCED: bool = config(
+    "AUTHZ_WORKSPACE_SCOPE_ENFORCED", default=False, cast=bool
+)
+# The API-key workspace_ids fence (SEC-03) is narrower — it only affects keys
+# carrying a non-empty fence — and mirrors the MCP dispatcher, so it is on by
+# default. Set to False to fall back to the pre-ADR behaviour for a rollout
+# window (Policy-Migrationsfenster, SECTRACK-01).
+AUTHZ_API_KEY_WORKSPACE_FENCE_ENFORCED: bool = config(
+    "AUTHZ_API_KEY_WORKSPACE_FENCE_ENFORCED", default=True, cast=bool
+)
+
+# ---------------------------------------------------------------------------
 # drf-spectacular — OpenAPI auto-generation (COMP-RA-005)
 # REQ-L3-RA005-001: securitySchemes defines Bearer token authentication.
 # REQ-L3-RA005-001: Schema endpoint served without auth (SERVE_INCLUDE_SCHEMA=False
