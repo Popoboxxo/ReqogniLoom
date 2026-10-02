@@ -41,6 +41,19 @@ def test_stale_heartbeat_fails(monkeypatch: pytest.MonkeyPatch) -> None:
         call_command("check_celery_beat")
 
 
+def test_command_skips_embedding_preload() -> None:
+    """RES-05: the beat healthcheck must not load Torch / the embedding model.
+
+    A full Django boot with ``llm_adapter``'s preload peaked at ~743 MiB and
+    retained ~140 MiB per run, which is what OOM-killed the probe inside the
+    beat container. The command only reads one cache key, so it belongs to the
+    preload-skip set exactly like ``migrate``/``check``.
+    """
+    from llm_adapter.apps import _PRELOAD_SKIP_COMMANDS
+
+    assert "check_celery_beat" in _PRELOAD_SKIP_COMMANDS
+
+
 def test_unreadable_heartbeat_fails_without_leaking_the_cause(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
