@@ -449,6 +449,31 @@ stellt das Phase-1-Verhalten wieder her. Importe sind atomar bzw. je Objekt geka
 kein Datenverlust. Der `Idempotency-Key`-Replay ist additiv und separat abschaltbar.
 (Bezug: `INTERFACE_CONTRACTS.md` §2.4 `:165-179`, §2.7 `:201-205`.)
 
+**Umsetzungsvermerk (2026-10-02, INT-01-Vollvertrag):** Die v2-Semantik
+(`success ⇔ counts.failed == 0`, 200/207/422, `counts`/`items`/`contract`/
+`idempotent_replay`/`request_id`) ist vollständig implementiert und durch die Suite
+abgedeckt, die den Vertrag explizit per `@override_settings(IMPORT_CONTRACT_V2=True)`
+aktiviert. Der **Default bleibt gemäß dieser Phase-1-Vorgabe `off`**; das Einschalten
+ist eine Deploy-Entscheidung (Phase 2) nach der Consumer-Migration. Das Flag ist ein
+echter Rollback-Schalter: bei `off` werden — neben dem Response-Vertrag — auch die
+`Idempotency-Key`-Verarbeitung und die `entity_type`-Prüfung übersprungen, sodass das
+Verhalten exakt dem Stand vor v2 entspricht.
+
+**Per-Tenant-Limit (Umsetzung §3/§7):** Die Ablage ist pro Tenant begrenzt
+(`IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT`, Default 10000). Beim Anlegen eines *neuen*
+Keys jenseits des Limits werden zuerst abgelaufene und dann die am frühesten
+ablaufenden Keys verdrängt, damit ein aktiver Tenant nie dauerhaft ausgesperrt wird und
+die Ablage durch viele eindeutige Keys nicht unbeschränkt wächst. Der Replay/Takeover
+eines bereits vorhandenen Keys ist davon unberührt.
+
+**Fingerprint-Verfahren (§7, Entscheidung F6):** Der Fingerprint ist ein **SHA-256**
+über (Methode, Pfad, Payload, `dry_run`) — **kein HMAC**. Begründung: Der gespeicherte
+Wert wird niemals an einen Client ausgeliefert und ist strikt per `(tenant_id, user_id)`
+gescoped; damit ist SHA-256 ausreichend (kein Geheimnis, kein Orakel). Die
+HMAC-Empfehlung aus §7 wird als **Hardening-Follow-up** belassen (zusätzliche
+Keyed-Verteidigung für den unwahrscheinlichen Fall einer Lese-Offenlegung der Ablage),
+nicht als Korrektheitslücke.
+
 ### 6. MCP bleibt strikt JSON-RPC 2.0
 
 MCP wird **nicht** in das Importmodell gezwungen. Alle Fehler bleiben

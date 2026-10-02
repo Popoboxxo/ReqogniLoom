@@ -359,6 +359,15 @@ class TestReqifImportRoundTrip:
         )
         assert TraceLink.objects.filter(source__workspace=target_workspace).count() == 2
 
+        # F3 (ADR-014 §5): the legacy additive `errors` view must not change
+        # meaning — a reimport produces only DUPLICATE *skips*, so `errors`
+        # stays empty while the v2 `items`/`counts` carry the skips.
+        assert result2.needs.errors == []
+        assert result2.requirements.errors == []
+        assert all(item["status"] == "skipped" for item in result2.requirements.items)
+        assert result2.counts["skipped"] == 5
+        assert result2.counts["failed"] == 0
+
     def test_reimport_into_same_workspace_updates_not_duplicates(self, source_workspace):
         """Re-exporting + re-importing into the ORIGINAL workspace must update,
         not create duplicates (identifiers match existing Artifacts)."""
@@ -474,9 +483,16 @@ class TestReqifImportErrorCases:
         result = _import(mutated, target_workspace.id, tenant.id)
 
         assert result.relations.skipped >= 1
+        # F3: a skip is not a failure, so the legacy `errors` view stays empty;
+        # the reason is visible in the v2 `items` instead.
+        assert result.relations.errors == []
         assert any(
-            "not resolvable" in e["message"] or "endpoint" in e["message"]
-            for e in result.relations.errors
+            item["status"] == "skipped"
+            and (
+                "not resolvable" in item["cause"]["message"]
+                or "endpoint" in item["cause"]["message"]
+            )
+            for item in result.relations.items
         )
         # The other relation (verifies, between req1/req2) still imports fine.
         assert result.relations.created == 1

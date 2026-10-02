@@ -8280,6 +8280,10 @@ class ReqifImportView(APIView):
         "ArchitectureElement",
         "TestCase",
     }
+    #: Types the ReqIF importer actually derives from the file. The other
+    #: members of ``_VALID_ENTITY_TYPES`` have no ReqIF path, so accepting them
+    #: would be a silent no-op (F10) — they are refused instead.
+    _REQIF_ENTITY_TYPES = {"Requirement", "StakeholderNeed"}
     _IDEMPOTENCY_ENDPOINT = "workspace-reqif-import"
 
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
@@ -8297,21 +8301,29 @@ class ReqifImportView(APIView):
         except Exception as exc:
             return _service_error_response(exc, lang)
 
-        # ADR-014 §2: unknown entity_type is a request-level 400 (ReqIF derives
-        # the type from the file; the field is accepted only for compatibility).
-        entity_type = request.data.get("entity_type")
-        if entity_type is not None and entity_type not in self._VALID_ENTITY_TYPES:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    message=(
-                        f"Unsupported entity_type '{entity_type}'. "
-                        f"Allowed: {sorted(self._VALID_ENTITY_TYPES)}"
+        # ADR-014 §5: entity_type handling belongs to the v2 contract. Under
+        # the legacy rollback (IMPORT_CONTRACT_V2=false) the field is ignored
+        # exactly as it was before v2, so the rollback is complete.
+        contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", False))
+        if contract_v2:
+            # ADR-014 §2: a ReqIF file derives its own entity type, so the
+            # field is accepted only for compatibility. Only types the ReqIF
+            # importer can actually act on are accepted — the pre-v2 allowlist
+            # contained types with no ReqIF path, where the field was a silent
+            # no-op. An unknown *or* ineffective type is a request-level 400.
+            entity_type = request.data.get("entity_type")
+            if entity_type is not None and entity_type not in self._REQIF_ENTITY_TYPES:
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message=(
+                            f"Unsupported entity_type '{entity_type}' for ReqIF "
+                            f"import. Allowed: {sorted(self._REQIF_ENTITY_TYPES)}"
+                        ),
                     ),
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         uploaded_file = request.FILES.get("file")
         if not uploaded_file:
@@ -8364,8 +8376,6 @@ class ReqifImportView(APIView):
 
         dry_run_raw = request.query_params.get("dry_run", "false")
         dry_run = str(dry_run_raw).strip().lower() in ("1", "true", "yes")
-
-        contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", True))
 
         # --- Optional Idempotency-Key (ADR-014 §3) ---
         idem_key = None

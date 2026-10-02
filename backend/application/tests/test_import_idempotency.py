@@ -146,3 +146,94 @@ def test_key_is_scoped_per_tenant_and_user():
     # A different tenant/user is an independent key: no cross-scope replay.
     assert _begin("same", fp, tenant=uuid.uuid4()) is None
     assert _begin("same", fp, user=uuid.uuid4()) is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_create_race_returns_conflict_not_500(monkeypatch):
+    """F1: a peer that wins the INSERT race must yield 409, not an aborted
+    transaction.
+
+    The peer row is committed *before* ``begin`` runs; the initial
+    ``select_for_update`` is forced to miss it so execution reaches the INSERT,
+    which hits the unique constraint. With the INSERT in its own savepoint the
+    failed statement is rolled back, the re-select reads the peer row and the
+    in-flight conflict is raised. Without the savepoint the re-select runs on
+    an aborted PostgreSQL transaction and raises an unhandled DatabaseError.
+    """
+    fp = _fingerprint()
+    # Committed peer claim (transaction=True => autocommit, not rolled back).
+    ImportIdempotencyRecord.objects.create(
+        tenant_id=_TENANT,
+        user_id=_USER,
+        endpoint=_ENDPOINT,
+        key="race",
+        request_fingerprint=fp,
+        state="in_flight",
+        claimed_at=timezone.now(),
+        expires_at=timezone.now() + timedelta(hours=1),
+    )
+
+    real_select_for_update = ImportIdempotencyRecord.objects.select_for_update
+    calls = {"n": 0}
+
+    def flaky_select_for_update(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Pretend the row was not visible before the peer's commit.
+            return ImportIdempotencyRecord.objects.none()
+        return real_select_for_update(*args, **kwargs)
+
+    monkeypatch.setattr(
+        ImportIdempotencyRecord.objects,
+        "select_for_update",
+        flaky_select_for_update,
+    )
+
+    with pytest.raises(IdempotencyConflict) as exc:
+        _begin("race", fp)
+
+    assert exc.value.code == CODE_IN_FLIGHT
+    assert exc.value.retry_after is not None
+
+
+def test_begin_keeps_tenant_store_bounded_by_the_limit(settings):
+    """F2 (ADR-014 §3/§7): a tenant's key store never exceeds its cap.
+
+    Admitting a key past the cap evicts the soonest-expiring one, so the store
+    stays bounded without refusing an otherwise working tenant.
+    """
+    settings.IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT = 2
+    assert _begin("cap-1", _fingerprint(b"1")) is None
+    assert _begin("cap-2", _fingerprint(b"2")) is None
+
+    # A third distinct key is admitted; the store does not grow past the cap.
+    assert _begin("cap-3", _fingerprint(b"3")) is None
+
+    assert ImportIdempotencyRecord.objects.filter(tenant_id=_TENANT).count() == 2
+    assert ImportIdempotencyRecord.objects.filter(key="cap-3").exists()
+
+
+def test_begin_evicts_oldest_when_tenant_is_at_the_limit(settings):
+    """F2: eviction admits the new key rather than refusing a busy tenant."""
+    settings.IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT = 2
+    _begin("old-1", _fingerprint(b"1"))
+    _begin("old-2", _fingerprint(b"2"))
+    # Make old-1 the soonest-expiring so it is evicted first.
+    ImportIdempotencyRecord.objects.filter(key="old-1").update(
+        expires_at=timezone.now() + timedelta(hours=1)
+    )
+    ImportIdempotencyRecord.objects.filter(key="old-2").update(
+        expires_at=timezone.now() + timedelta(hours=23)
+    )
+
+    assert _begin("new", _fingerprint(b"new")) is None
+
+    assert not ImportIdempotencyRecord.objects.filter(key="old-1").exists()
+    assert ImportIdempotencyRecord.objects.filter(key="new").exists()
+
+
+def test_per_tenant_limit_is_disabled_when_zero(settings):
+    """F2: a non-positive cap does not block new keys."""
+    settings.IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT = 0
+    for i in range(5):
+        assert _begin(f"nolimit-{i}", _fingerprint(str(i).encode())) is None

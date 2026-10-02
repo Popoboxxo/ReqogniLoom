@@ -23,11 +23,16 @@ from persistence.models import Artifact, Requirement, StakeholderNeed, Tenant, U
 
 _SECRET = "test-secret-not-a-real-key"
 
+# The suite pins the v2 contract on explicitly: the production default is
+# IMPORT_CONTRACT_V2=False (ADR-014 §5 Phase 1), so every v2 assertion below
+# activates the contract through these overrides instead of relying on the
+# ambient default. The legacy-rollback test overrides it back to False.
 _JWT_OVERRIDES = dict(
     AUTH_JWT_SECRET=_SECRET,
     AUTH_JWT_ISSUER="reqflow",
     AUTH_JWT_AUDIENCE="reqflow-api",
     AUTH_JWT_TTL_SECONDS=3600,
+    IMPORT_CONTRACT_V2=True,
 )
 
 _MALFORMED_REQIF = b"<not-a-valid-reqif><unclosed>"
@@ -550,3 +555,70 @@ def test_reqif_import_legacy_fallback_when_contract_v2_disabled(
     assert body["success"] is True
     assert "contract" not in body
     assert "counts" not in body
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_legacy_fallback_ignores_entity_type(reqif_import_admin_user):
+    """F10: under the legacy rollback the ``entity_type`` field is ignored,
+    exactly as before v2 — the rollback stays complete."""
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    reqif_file = io.BytesIO(content)
+    reqif_file.name = "export.reqif"
+    with override_settings(IMPORT_CONTRACT_V2=False):
+        resp = client.post(
+            f"/api/v1/workspaces/{workspace_b.id}/import/reqif/",
+            {"file": reqif_file, "entity_type": "NotARealType"},
+            format="multipart",
+        )
+
+    assert resp.status_code == 200
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_inactive_entity_type_returns_400(reqif_import_admin_user):
+    """F10: a type the ReqIF importer cannot act on is refused, not silently
+    ignored (ArchitectureElement/TestCase have no ReqIF path)."""
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    reqif_file = io.BytesIO(content)
+    reqif_file.name = "export.reqif"
+    resp = client.post(
+        f"/api/v1/workspaces/{workspace_b.id}/import/reqif/",
+        {"file": reqif_file, "entity_type": "TestCase"},
+        format="multipart",
+    )
+
+    assert resp.status_code == 400
+    assert "error" in resp.json()
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_accepts_matching_entity_type(reqif_import_admin_user):
+    """F10: a ReqIF-representable type stays accepted for compatibility."""
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    content = _export_reqif(client, workspace_a.id)
+    reqif_file = io.BytesIO(content)
+    reqif_file.name = "export.reqif"
+    resp = client.post(
+        f"/api/v1/workspaces/{workspace_b.id}/import/reqif/",
+        {"file": reqif_file, "entity_type": "Requirement"},
+        format="multipart",
+    )
+
+    assert resp.status_code == 200

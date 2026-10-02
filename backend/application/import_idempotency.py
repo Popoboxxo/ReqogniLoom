@@ -58,6 +58,54 @@ def _ttl() -> timedelta:
     return timedelta(hours=hours)
 
 
+def _tenant_limit() -> int:
+    """Maximum number of idempotency keys a single tenant may hold (ADR-014 §3/§7)."""
+    return getattr(settings, "IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT", 10000)
+
+
+def _enforce_tenant_limit(*, tenant_id: UUID, now: Any) -> None:
+    """Reject a new key once *tenant_id* holds its key cap (ADR-014 §3/§7).
+
+    Deletes the tenant's oldest records first so an active tenant is never
+    locked out permanently; only reached on the *new-key* path, so an existing
+    key's replay/takeover is untouched. Raises the same request-level conflict
+    code as an in-flight key (409 + ``Retry-After``), since the client can
+    retry once cleanup/TTL has freed a slot.
+    """
+    from application.models import ImportIdempotencyRecord
+
+    limit = _tenant_limit()
+    if limit <= 0:  # limit disabled
+        return
+    # Count only live records; expired ones are removed opportunistically.
+    queryset = ImportIdempotencyRecord.objects.filter(tenant_id=tenant_id)
+    existing = queryset.count()
+    if existing < limit:
+        return
+
+    ImportIdempotencyRecord.objects.filter(
+        tenant_id=tenant_id, expires_at__lt=now
+    ).delete()
+    existing = queryset.count()
+    if existing < limit:
+        return
+
+    # Evict oldest-expiring rows to admit the new key rather than refusing a
+    # working tenant outright: the store stays bounded and the oldest replay
+    # window is sacrificed first.
+    excess = existing - limit + 1
+    doomed = list(queryset.order_by("expires_at").values_list("id", flat=True)[:excess])
+    ImportIdempotencyRecord.objects.filter(id__in=doomed).delete()
+
+    if queryset.count() >= limit:
+        # Nothing evictable (race with a peer holding the same slots).
+        raise IdempotencyConflict(
+            CODE_IN_FLIGHT,
+            "Too many concurrent Idempotency-Keys for this tenant; retry later.",
+            retry_after=60,
+        )
+
+
 class IdempotencyConflict(Exception):
     """Request-level idempotency conflict (ADR-014 §3).
 
@@ -145,22 +193,42 @@ def begin(
             # Opportunistic cleanup: expired successes and abandoned in-flight
             # claims do not accumulate unboundedly (ADR-014 §3/§7).
             ImportIdempotencyRecord.objects.filter(expires_at__lt=now).delete()
+            # Admission control (ADR-014 §3/§7): reject a *new* key once the
+            # tenant already holds its maximum number of keys, instead of
+            # letting many unique keys exhaust the store. Existing keys are
+            # never affected (replay/takeover keep working).
+            _enforce_tenant_limit(tenant_id=tenant_id, now=now)
             try:
-                ImportIdempotencyRecord.objects.create(
-                    **scope,
-                    request_fingerprint=fingerprint,
-                    state=STATE_IN_FLIGHT,
-                    claimed_at=now,
-                    expires_at=now + _ttl(),
-                )
-                return None
+                # The INSERT runs in its own savepoint: a raised IntegrityError
+                # would otherwise abort the *outer* transaction, so the
+                # requery below would hit "current transaction is aborted" and
+                # surface as an unhandled 500 instead of a 409 (F1, same
+                # pattern as reqif_import_service.py's create retry).
+                with transaction.atomic():
+                    ImportIdempotencyRecord.objects.create(
+                        **scope,
+                        request_fingerprint=fingerprint,
+                        state=STATE_IN_FLIGHT,
+                        claimed_at=now,
+                        expires_at=now + _ttl(),
+                    )
+                    return None
             except IntegrityError:
-                # Lost the create race; fall through to the peer's row.
+                # Lost the create race; the savepoint rolled the failed INSERT
+                # back, so this requery runs on a healthy connection and reads
+                # the peer's committed row (or sees nothing if it is not yet
+                # visible, in which case we surface the conflict below).
                 record = (
                     ImportIdempotencyRecord.objects.select_for_update()
                     .filter(**scope)
                     .first()
                 )
+                if record is None:
+                    raise IdempotencyConflict(
+                        CODE_IN_FLIGHT,
+                        "A request with this Idempotency-Key is still in progress.",
+                        retry_after=1,
+                    )
 
         if record is None:  # pragma: no cover — peer deleted it immediately
             return None

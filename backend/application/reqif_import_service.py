@@ -365,10 +365,17 @@ class ReqifEntityReport:
 
     @property
     def errors(self) -> List[Dict[str, str]]:
-        """Legacy additive error view derived from the structured ``items``."""
+        """Legacy additive error view derived from the structured ``items``.
+
+        ADR-014 §5: the legacy keys are *additive* and must not change meaning.
+        The pre-ADR ``errors`` list contained only genuine failures, so skips
+        (``DUPLICATE``/``UNKNOWN_TYPE``) are deliberately excluded here — they
+        remain visible via the v2 ``items``/``counts`` instead.
+        """
         return [
             {"identifier": item["identifier"], "message": item["cause"]["message"]}
             for item in self.items
+            if item["status"] == STATUS_FAILED
         ]
 
     def add_item(
@@ -818,23 +825,32 @@ class ReqifImportService(ServiceBase):
         REQ-L2-RQ-001 AC5). The REST layer maps ``ReqifParseError`` to **422**
         with ``cause.code = PARSE_ERROR`` — the multipart request is
         syntactically well-formed, the file content is not processable.
+
+        The raised message is deliberately generic: the raw parser text can
+        echo document content and must not travel in the HTTP 422 body
+        (CWE-209, F9). The detail is logged here for operators.
         """
         # Issue #131: ``reqif`` is an optional dependency — import lazily so a
         # missing/broken install cannot take down the whole Django URLConf.
         from reqif.parser import ReqIFParser
 
+        generic = "Malformed ReqIF document: the file is not a valid ReqIF 1.2 XML document."
         try:
             bundle = ReqIFParser.parse_from_string(reqif_text)
         except Exception as exc:  # noqa: BLE001 — normalise to ReqifParseError
-            raise ReqifParseError(f"Malformed ReqIF document: {exc}") from exc
+            logger.warning("ReqifImportService: ReqIF parse failed: %s", exc)
+            raise ReqifParseError(generic) from exc
 
         if bundle.exceptions:
             descriptions = "; ".join(
                 exc.get_description() if hasattr(exc, "get_description") else str(exc)
                 for exc in bundle.exceptions
             )
+            logger.warning(
+                "ReqifImportService: ReqIF structural errors: %s", descriptions
+            )
             raise ReqifParseError(
-                f"ReqIF document has structural errors: {descriptions}"
+                "Malformed ReqIF document: the file has structural ReqIF errors."
             )
 
         return bundle
@@ -866,7 +882,10 @@ class ReqifImportService(ServiceBase):
         than aborting the whole import.
 
         Returns:
-            (artifact, created) — created=True for a brand-new artifact.
+            ``(artifact, created, deduplicated)`` — ``created=True`` for a
+            brand-new artifact, ``deduplicated=True`` for an in-place match
+            with identical content (idempotent no-op, ADR-014 §3). At most one
+            of the two flags is true; both false means an update.
         """
         from persistence.models import Artifact, Requirement, StakeholderNeed
 

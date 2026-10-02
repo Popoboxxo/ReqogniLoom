@@ -893,23 +893,31 @@ CACHES = {
 # ADR-014 (accepted) — import contract v2 + Idempotency-Key (INT-01)
 #
 # IMPORT_CONTRACT_V2 controls the ReqIF import response contract:
-#   True  (default): contract v2 is active — ``success = (counts.failed == 0)``,
-#         HTTP 200/207/422 per ADR-014 §2, v2 envelope
+#   False (default): Phase 1 of the ADR-014 §5 deprecation window — the
+#         pre-ADR response (``success`` always True, HTTP 200, legacy keys
+#         only). This matches §5's binding instruction "Feature-Flag
+#         ``IMPORT_CONTRACT_V2`` (Default in Phase 1 ``off``)".
+#   True: contract v2 is active — ``success = (counts.failed == 0)``, HTTP
+#         200/207/422 per ADR-014 §2, v2 envelope
 #         (``contract``/``counts``/``items``/``idempotent_replay``/``request_id``)
 #         plus the legacy keys kept additively during the deprecation window (§5).
-#   False: legacy fallback to the pre-ADR response (``success`` always True,
-#         HTTP 200, legacy keys only) — the documented rollback of §5.
-# Default is True because the ADR is `accepted` and §2 semantics are the
-# binding contract; the deprecation window is honoured by keeping the legacy
-# keys and by offering this explicit escape hatch, not by shipping the v2
-# contract dormant.
+#
+# The v2 behaviour is fully implemented and covered by tests that activate it
+# with ``@override_settings``; shipping the flag dark by default is the ADR's
+# phase-1 requirement, not a half-finished feature. Flipping it on is a
+# deploy-time decision (Phase 2), after consumers have migrated.
 #
 # IMPORT_IDEMPOTENCY_TTL_HOURS is the replay window (ADR-014 §3, default 24 h);
 # a Celery-beat task deletes expired records (see CELERY_BEAT_SCHEDULE).
+# IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT bounds a tenant's replay store
+# (ADR-014 §3/§7); the oldest-expiring keys are evicted first.
 # ---------------------------------------------------------------------------
-IMPORT_CONTRACT_V2: bool = config("IMPORT_CONTRACT_V2", default=True, cast=bool)
+IMPORT_CONTRACT_V2: bool = config("IMPORT_CONTRACT_V2", default=False, cast=bool)
 IMPORT_IDEMPOTENCY_TTL_HOURS: int = config(
     "IMPORT_IDEMPOTENCY_TTL_HOURS", default=24, cast=int
+)
+IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT: int = config(
+    "IMPORT_IDEMPOTENCY_MAX_KEYS_PER_TENANT", default=10000, cast=int
 )
 
 # ---------------------------------------------------------------------------

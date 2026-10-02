@@ -380,7 +380,12 @@ class ImportIdempotencyRecord(models.Model):
     #: Set on claim/takeover; an in-flight row older than the stale window may
     #: be taken over by a new request (crashed worker must not lock a key).
     claimed_at = models.DateTimeField(default=timezone.now)
-    expires_at = models.DateTimeField(db_index=True)
+    #: ``expires_at`` is queried by the purge task but needs no leading-column
+    #: index of its own: the opportunistic purge filters ``expires_at__lt`` and
+    #: the row volume is bounded by TTL × rate + the per-tenant cap (ADR-014
+    #: §3/§7), so a full scan of a small table is cheaper than maintaining an
+    #: index on every claim/finalize write. F7: ``db_index=True`` removed.
+    expires_at = models.DateTimeField()
 
     class Meta:
         db_table = "as_import_idempotency"
@@ -389,9 +394,6 @@ class ImportIdempotencyRecord(models.Model):
                 fields=["tenant_id", "user_id", "endpoint", "key"],
                 name="uniq_import_idem_scope_key",
             ),
-        ]
-        indexes = [
-            models.Index(fields=["expires_at"], name="idx_import_idem_expires"),
         ]
 
     def __str__(self) -> str:
