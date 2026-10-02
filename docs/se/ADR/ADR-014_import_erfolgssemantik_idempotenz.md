@@ -559,7 +559,12 @@ innerhalb desselben Tenants bleibt ein Insider-Risiko.
    `request_id`; REQ-071, bewusst nur Folgeaufgabe und **nicht** `affected_reqs`) und im
    OpenAPI-Schema deklarieren (`PARSE_ERROR` sowie die Idempotency-Codes einschließen).
 6. **Vertragsvorschläge aus `INTERFACE_CONTRACTS.md` §2** nach diesem `accepted`-Status
-   als verbindlichen Vertrag nachziehen.
+   als verbindlichen Vertrag nachziehen. **Präzisierung (Re-Review):** Der ReqIF-Upsert
+   (`duplicate_policy` gilt nur für CSV, §3) sucht den bestehenden `Artifact` über die
+   Match-Key-Trias (1) interne `_<Artifact.id>`-UUID, (2) `reqif_uid`, (3)
+   `reqif_identifier` (`backend/application/reqif_import_service.py:725-754`); Treffer mit
+   identischem Inhalt ⇒ `skipped DUPLICATE`, mit abweichendem Inhalt ⇒ `succeeded`
+   (Update).
 7. **Architektur-Zeile korrigieren:**
    `L3_COMP-AS-009_ImportService_Architecture.md:60` von „All-or-Nothing inkl.
    Validierungsfehler" auf „nur DB-Fehler nach Validierung" gemäß REQ-L3-IMP-001/002 und
