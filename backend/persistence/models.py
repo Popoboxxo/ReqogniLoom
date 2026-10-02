@@ -3378,6 +3378,21 @@ class Goal(TenantScopedModel):
         indexes = [
             models.Index(fields=["workspace_id", "lineage_id"]),
         ]
+        # SA-16 analogue for Goal (AUD-2026-09-281): ``sequence_number`` is a
+        # per-lineage monotonic counter derived with a read-then-write
+        # (``MAX(sequence_number) + 1``) in ``GoalService.create_version``. Two
+        # concurrent creates in the same lineage could read the same MAX and
+        # both persist it, silently producing two rows claiming to be "v3".
+        # Application-side locking alone cannot close this (the first-ever
+        # insert has no row to lock), so the invariant is enforced by the
+        # database; the service catches the IntegrityError and retries with a
+        # freshly read number.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lineage_id", "sequence_number"],
+                name="uq_goal_lineage_sequence",
+            ),
+        ]
         ordering = ["lineage_id", "sequence_number"]
 
     def __str__(self) -> str:
