@@ -507,6 +507,7 @@ class MainGoalService(ServiceBase):
         ctx: Any,
         *,
         change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> dict:
         """Transition a MainGoal to ``Freigegeben`` via the generic WorkflowEngine.
 
@@ -525,6 +526,11 @@ class MainGoalService(ServiceBase):
                 ``main_goal_default`` preset requires a non-empty reason for
                 the ``Entwurf`` -> ``Freigegeben`` transition, so a reasonable
                 default is supplied when the caller omits one.
+            expected_version: Caller's last-seen ``WorkflowItemState.version``.
+                Forwarded to ``WorkflowFacade.transition`` so a concurrent
+                approval answers 409 instead of silently overwriting the winner
+                (AUD-2026-09-282). ``None`` keeps the historical
+                last-writer-wins behaviour for callers that do not track it.
 
         Returns:
             dict with the MainGoal's id, sequence_number and new status.
@@ -560,6 +566,7 @@ class MainGoalService(ServiceBase):
             ctx=ctx,
             item_type="MainGoal",
             workspace_id=main_goal.workspace_id,
+            expected_version=expected_version,
         )
         main_goal.refresh_from_db(fields=["version"])
 

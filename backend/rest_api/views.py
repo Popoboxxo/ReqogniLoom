@@ -6684,9 +6684,26 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if isinstance(request.data, dict)
             else None
         )
+        # AUD-2026-09-282: forward the client's If-Match/expected_version so
+        # this special route is CAS-protected like the generic one; a stale
+        # revision answers 409 instead of last-writer-wins.
+        try:
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
-            item = self._svc().archive(UUID(pk), ctx, change_reason=change_reason)
+            item = self._svc().archive(
+                UUID(pk),
+                ctx,
+                change_reason=change_reason,
+                expected_version=expected_version,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except ValueError:
@@ -6723,9 +6740,24 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if isinstance(request.data, dict)
             else None
         )
+        # AUD-2026-09-282: see outdate() above — same CAS precondition.
+        try:
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             ctx = get_auth_context(request)
-            item = self._svc().restore(UUID(pk), ctx, change_reason=change_reason)
+            item = self._svc().restore(
+                UUID(pk),
+                ctx,
+                change_reason=change_reason,
+                expected_version=expected_version,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except ValueError:
@@ -6894,12 +6926,29 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         try:
             ctx = get_auth_context(request)
             change_reason = request.data.get("change_reason") if hasattr(request, "data") else None
-            self._svc().approve(UUID(pk), ctx, change_reason=change_reason)
+            # AUD-2026-09-282: this special route used to drop any version
+            # precondition, leaving it last-writer-wins while the generic
+            # ``transitions/`` route is CAS-protected. Forward the client's
+            # ``If-Match``/``expected_version`` into the engine (stale -> 409).
+            expected_version = self.resolve_expected_version_int(
+                request, request.data
+            )
+            self._svc().approve(
+                UUID(pk),
+                ctx,
+                change_reason=change_reason,
+                expected_version=expected_version,
+            )
             # Return the FULL serialized MainGoal (not the service's bare
             # {id, sequence_number, status} dict), matching create/generate/
             # current — the frontend replaces its panel state with this
             # response and would otherwise blank out `content`.
             item = self._svc().get(UUID(pk), ctx)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:

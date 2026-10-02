@@ -610,6 +610,7 @@ class GoalService(ServiceBase):
         goal_id: uuid.UUID,
         ctx: Any,
         change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> Goal:
         """Archive (soft-delete) a Goal version via the WorkflowEngine.
 
@@ -624,6 +625,9 @@ class GoalService(ServiceBase):
             goal_id: UUID of the Goal version to archive.
             ctx: Resolved AuthContext.
             change_reason: Optional audit reason recorded on the transition.
+            expected_version: Caller's last-seen ``WorkflowItemState.version``.
+                Forwarded to :meth:`transition_status`; a stale value answers
+                409 instead of silently overwriting the winner (AUD-2026-09-282).
 
         Returns:
             The refreshed Goal ORM instance.
@@ -633,6 +637,7 @@ class GoalService(ServiceBase):
             ValidationError: The workspace's Goal workflow has no transition
                 from the version's current state into the archived state.
             PermissionDeniedError: Preset-level role gate blocked the move.
+            OptimisticLockError: A concurrent transition won the race.
         """
         goal = self.get(goal_id, ctx)
         return self.transition_status(
@@ -640,6 +645,7 @@ class GoalService(ServiceBase):
             self._resolve_archive_state(goal),
             ctx,
             change_reason=change_reason,
+            expected_version=expected_version,
         )
 
     def restore(
@@ -647,6 +653,7 @@ class GoalService(ServiceBase):
         goal_id: uuid.UUID,
         ctx: Any,
         change_reason: Optional[str] = None,
+        expected_version: Optional[int] = None,
     ) -> Goal:
         """Restore an archived Goal version to the workflow's initial state.
 
@@ -670,6 +677,9 @@ class GoalService(ServiceBase):
             change_reason: Reason recorded on the transition. Defaults to
                 ``"reactivated"`` because the default ``Archiviert -> Entwurf``
                 transition requires a non-empty reason.
+            expected_version: Caller's last-seen ``WorkflowItemState.version``.
+                Forwarded to :meth:`transition_status`; a stale value answers
+                409 instead of silently overwriting the winner (AUD-2026-09-282).
 
         Returns:
             The refreshed Goal ORM instance.
@@ -679,6 +689,7 @@ class GoalService(ServiceBase):
             ValidationError: The version is not in a state from which the
                 workflow allows a move back to the initial state.
             PermissionDeniedError: Preset-level role gate blocked the move.
+            OptimisticLockError: A concurrent transition won the race.
         """
         goal = self.get(goal_id, ctx)
         return self.transition_status(
@@ -686,6 +697,7 @@ class GoalService(ServiceBase):
             self._resolve_initial_state(goal, ctx),
             ctx,
             change_reason=change_reason or "reactivated",
+            expected_version=expected_version,
         )
 
     def transition_status(
