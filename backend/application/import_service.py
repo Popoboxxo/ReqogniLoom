@@ -61,6 +61,19 @@ logger = logging.getLogger(__name__)
 # Maximum rows in a single import call (REQ-L3-IMP-003)
 _MAX_ROWS = 1000
 
+# ADR-014 (accepted) contract id for the import result envelope.
+CONTRACT_VERSION = "v2"
+
+# Stable, machine-readable cause codes (ADR-014 §1). Kept as module constants
+# so the REST layer and tests share one spelling.
+CAUSE_DUPLICATE = "DUPLICATE"
+CAUSE_PERSISTENCE_ERROR = "PERSISTENCE_ERROR"
+CAUSE_MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD"
+CAUSE_INVALID_VALUE = "INVALID_VALUE"
+CAUSE_QUOTING_ERROR = "QUOTING_ERROR"
+CAUSE_UNKNOWN_TYPE = "UNKNOWN_TYPE"
+CAUSE_BOM_DETECTED = "BOM_DETECTED"
+
 # Required fields per entity type (REQ-L3-IMP-001). Derived from the shared
 # round-trip field registry so importer and exporter cannot drift apart; every
 # supported entity requires a non-empty ``title``.
@@ -135,18 +148,33 @@ class ImportRowError:
 class ImportResult:
     """Result of a CSV import operation.
 
-    Attributes:
-        success: True if all valid rows were persisted.
+    Legacy (pre-ADR-014) fields — kept unchanged and additive so every existing
+    consumer keeps working during the §5 deprecation window:
+
+        success: True if all valid rows were persisted and nothing failed.
+            Duplicates skipped by the natural-key dedupe do **not** make the
+            result a failure (ADR-014 §1: ``skipped`` is neutral).
         imported_count: Number of rows persisted.
-        skipped_count: Number of rows that failed validation.
-        errors: Per-row error list (empty on full success).
+        skipped_count: Number of rows not persisted. On the success path this
+            is the duplicate count; on the validation path it stays the legacy
+            ``len(rows)`` value (all rows were rejected as a batch).
+        errors: Per-row error list (empty unless a row really failed). Never
+            empty for ``status="rollback"`` (ADR-014 §2.3, Finding 079).
         status: "ok" | "validation_error" | "rollback"
-        warnings: Non-fatal notices, e.g. unrecognised CSV columns that were
-            silently dropped (fix #120). Always populated when applicable,
-            even on a fully successful import — a typo'd header (e.g.
-            "Beschreibung" instead of "description") must not be reported
-            as `success=true` without any signal that a whole column's
-            worth of data was discarded.
+        warnings: Non-fatal notices, e.g. unrecognised CSV columns (fix #120)
+            or a stripped UTF-8 BOM. Always populated when applicable, even on
+            a fully successful import.
+
+    Contract-v2 fields (ADR-014 §1, additive; consumed under
+    ``IMPORT_CONTRACT_V2``):
+
+        failed_count: Rows that failed (validation/persistence).
+        duplicate_count: Rows skipped as duplicates (natural key hit).
+        items: Structured per-row outcomes for every non-succeeded row
+            (``{"row", "identifier", "kind", "status", "cause"}``).
+        request_id: Correlation id (INT-06).
+        idempotent_replay: True when served from the ``Idempotency-Key`` cache.
+        contract: Envelope contract id ("v2").
     """
 
     success: bool
@@ -155,6 +183,55 @@ class ImportResult:
     errors: List[ImportRowError] = field(default_factory=list)
     status: str = "ok"
     warnings: List[str] = field(default_factory=list)
+    # --- ADR-014 v2 (additive) ---
+    failed_count: int = 0
+    duplicate_count: int = 0
+    items: List[Dict[str, Any]] = field(default_factory=list)
+    request_id: str = ""
+    idempotent_replay: bool = False
+    contract: str = CONTRACT_VERSION
+
+    @property
+    def counts(self) -> Dict[str, int]:
+        """v2 result counters (ADR-014 §1): succeeded/skipped/failed/total.
+
+        ``skipped`` counts only duplicates (successful rows that were skipped
+        deliberately); batch validation failures count as ``failed``.
+        """
+        succeeded = self.imported_count
+        skipped = self.duplicate_count
+        failed = self.failed_count
+        return {
+            "succeeded": succeeded,
+            "skipped": skipped,
+            "failed": failed,
+            "total": succeeded + skipped + failed,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialise to the v2 envelope with legacy keys kept additive (§5)."""
+        return {
+            "success": self.success,
+            "contract": self.contract,
+            "dry_run": False,
+            "counts": self.counts,
+            "items": list(self.items),
+            "warnings": list(self.warnings),
+            "idempotent_replay": self.idempotent_replay,
+            "request_id": self.request_id,
+            # Legacy additive keys (unchanged meaning).
+            "imported_count": self.imported_count,
+            "skipped_count": self.skipped_count,
+            "status": self.status,
+            "errors": [
+                {
+                    "row_number": e.row_number,
+                    "field": e.field,
+                    "message": e.message,
+                }
+                for e in self.errors
+            ],
+        }
 
 
 # ---------- Service ----------
@@ -217,6 +294,19 @@ class ImportService(ServiceBase):
 
         ws_uuid = UUID(str(workspace_id))
 
+        # ---------- BOM handling (Finding 083) ----------
+        # Excel writes a UTF-8 BOM (U+FEFF). Without stripping it the first
+        # header cell becomes "\ufefftitle", every row's title lookup misses and
+        # the import reports the misleading "title is missing or empty" instead
+        # of naming the real cause. The REST layer decodes with ``utf-8-sig``;
+        # stripping here too keeps direct service callers (and tests) correct.
+        warnings: List[str] = []
+        if csv_text.startswith("\ufeff"):
+            csv_text = csv_text[1:]
+            warnings.append(
+                "UTF-8 BOM detected and removed from the uploaded file."
+            )
+
         # ---------- Parse CSV (RFC 4180) ----------
         rows, parse_errors, header_fields = self._parse_csv(csv_text)
 
@@ -226,22 +316,19 @@ class ImportService(ServiceBase):
         # row's own keys. Surface them as a warning so an import that quietly
         # lost an entire column's data isn't reported as a clean success.
         unknown_columns = self._unknown_columns(header_fields, entity_type)
-        warnings = (
-            [
+        if unknown_columns:
+            warnings.append(
                 "Unrecognized column(s) ignored, their data was NOT imported: "
                 f"{', '.join(unknown_columns)}. Expected columns for "
                 f"'{entity_type}': {', '.join(sorted(c for c, _ in ENTITY_FIELD_SPECS[entity_type]))}."
-            ]
-            if unknown_columns
-            else []
-        )
+            )
 
         if parse_errors:
-            return ImportResult(
-                success=False,
-                imported_count=0,
-                skipped_count=len(rows),
+            return self._failure_result(
+                entity_type=entity_type,
+                rows=rows,
                 errors=parse_errors,
+                cause_code=CAUSE_QUOTING_ERROR,
                 status="validation_error",
                 warnings=warnings,
             )
@@ -267,20 +354,45 @@ class ImportService(ServiceBase):
         )
 
         if validation_errors:
-            return ImportResult(
-                success=False,
-                imported_count=0,
-                skipped_count=len(rows),
+            return self._failure_result(
+                entity_type=entity_type,
+                rows=rows,
                 errors=validation_errors,
+                cause_code=CAUSE_MISSING_REQUIRED_FIELD,
                 status="validation_error",
                 warnings=warnings,
+            )
+
+        # ---------- Natural-key dedupe (ADR-014 §3, Finding 072) ----------
+        # A repeated upload (or a file with repeated rows) must not duplicate
+        # entities: the second occurrence of an entity's natural key (``uid``
+        # > ``id`` > normalised ``title``) is skipped as ``DUPLICATE``. This
+        # runs before any write, so a full re-import of the same file is a
+        # no-op instead of an IntegrityError or a silent duplicate.
+        kept_rows, duplicate_items = self._dedupe_rows(
+            rows=rows, entity_type=entity_type, workspace_id=ws_uuid
+        )
+        duplicate_count = len(duplicate_items)
+
+        if not kept_rows:
+            # Every row was a duplicate: no write effect, no failure. The file
+            # imports "successfully" as a pure skip (ADR-014 §1/§2).
+            return ImportResult(
+                success=True,
+                imported_count=0,
+                skipped_count=duplicate_count,
+                errors=[],
+                status="ok",
+                warnings=warnings,
+                duplicate_count=duplicate_count,
+                items=duplicate_items,
             )
 
         # ---------- Atomic insert of all valid rows ----------
         try:
             with transaction.atomic():
                 imported = self._insert_rows(
-                    rows=rows,
+                    rows=kept_rows,
                     entity_type=entity_type,
                     workspace_id=ws_uuid,
                     ctx=ctx,
@@ -296,34 +408,302 @@ class ImportService(ServiceBase):
                     details={
                         "workspace_id": str(ws_uuid),
                         "imported_count": imported,
+                        "duplicate_count": duplicate_count,
                         "operation_type": "bulk_import",
                     },
                 )
 
-        except Exception:
+        except Exception as exc:
+            # Finding 079: a rollback must name its cause. The previous empty
+            # ``errors`` list made a failed import indistinguishable from a
+            # clean one for any caller that only read ``errors``.
             logger.exception(
                 "ImportService: DB error during atomic insert, rolling back. "
                 "entity_type=%s workspace_id=%s",
                 entity_type,
                 ws_uuid,
             )
+            message = (
+                f"Import rolled back after a persistence error: "
+                f"{type(exc).__name__}: {exc}"
+            )
             return ImportResult(
                 success=False,
                 imported_count=0,
-                skipped_count=len(rows),
-                errors=[],
+                skipped_count=0,
+                errors=[
+                    ImportRowError(
+                        row_number=0, field="persistence", message=message
+                    )
+                ],
                 status="rollback",
                 warnings=warnings,
+                failed_count=len(kept_rows),
+                items=[self._failed_item(entity_type, 0, None, CAUSE_PERSISTENCE_ERROR, message)],
             )
 
         return ImportResult(
             success=True,
             imported_count=imported,
-            skipped_count=0,
+            skipped_count=duplicate_count,
             errors=[],
             status="ok",
             warnings=warnings,
+            duplicate_count=duplicate_count,
+            items=duplicate_items,
         )
+
+    # ---------- Private helpers ----------
+
+    @staticmethod
+    def _failed_item(
+        entity_type: str,
+        row_number: int,
+        identifier: Optional[str],
+        cause_code: str,
+        message: str,
+        status_value: str = "failed",
+    ) -> Dict[str, Any]:
+        """Build one structured v2 outcome entry (ADR-014 §1)."""
+        return {
+            "row": row_number,
+            "identifier": identifier,
+            "kind": entity_type,
+            "status": status_value,
+            "cause": {"code": cause_code, "message": message},
+        }
+
+    def _failure_result(
+        self,
+        *,
+        entity_type: str,
+        rows: List[Tuple[int, Dict[str, str]]],
+        errors: List[ImportRowError],
+        cause_code: str,
+        status: str,
+        warnings: List[str],
+    ) -> ImportResult:
+        """Build an all-or-nothing failure result with a structured item list.
+
+        The v2 ``items`` list is derived from ``errors`` so a failed import
+        always carries at least one named cause (Finding 079); the legacy
+        ``errors``/``skipped_count`` fields keep their pre-ADR values.
+        """
+        items: List[Dict[str, Any]] = []
+        for error in errors:
+            row = next((r for num, r in rows if num == error.row_number), None)
+            identifier = None
+            if row is not None:
+                identifier = (
+                    (row.get("uid") or "").strip()
+                    or (row.get("id") or "").strip()
+                    or (row.get("title") or "").strip()
+                    or None
+                )
+            items.append(
+                self._failed_item(
+                    entity_type,
+                    error.row_number,
+                    identifier,
+                    cause_code,
+                    error.message,
+                )
+            )
+        failed_rows = len({e.row_number for e in errors}) or (len(rows) or 1)
+        return ImportResult(
+            success=False,
+            imported_count=0,
+            skipped_count=len(rows),
+            errors=errors,
+            status=status,
+            warnings=warnings,
+            failed_count=failed_rows,
+            items=items,
+        )
+
+    @classmethod
+    def _entity_model(cls, entity_type: str) -> Any:
+        """Return the ORM model for *entity_type* (lazy to avoid app-loading)."""
+        from application.models import Adr, Issue, Risk
+        from persistence.models import (
+            ArchitectureElement,
+            Requirement,
+            StakeholderNeed,
+            TestCase,
+        )
+
+        models = {
+            "StakeholderNeed": StakeholderNeed,
+            "Requirement": Requirement,
+            "ArchitectureElement": ArchitectureElement,
+            "TestCase": TestCase,
+            "Adr": Adr,
+            "Risk": Risk,
+            "Issue": Issue,
+        }
+        return models[entity_type]
+
+    @staticmethod
+    def _natural_key(row: Dict[str, str]) -> Optional[Tuple[str, str]]:
+        """Return the entity's natural key as ``(column, value)`` (untouched).
+
+        Priority (ADR-014 §3, CSV natural key): the stable business id ``uid``
+        (REQ-L2-RF-025 AC3) first, then the exported primary ``id`` (round-trip
+        CSV), then the normalised ``title`` for hand-authored files without
+        identity columns. The raw value is returned so DB lookups can match it
+        exactly; comparison is case-folded by :meth:`_dedupe_rows`.
+        """
+        uid = (row.get("uid") or "").strip()
+        if uid:
+            return ("uid", uid)
+        row_id = (row.get("id") or "").strip()
+        if row_id:
+            return ("id", row_id)
+        title = (row.get("title") or "").strip()
+        if title:
+            return ("title", title)
+        return None
+
+    @staticmethod
+    def _workspace_filter(entity_type: str, workspace_id: UUID) -> Dict[str, Any]:
+        """ORM filter kwargs scoping a lookup to the target workspace."""
+        if entity_type in _APP_ENTITY_TYPES:
+            return {"workspace_id": workspace_id}
+        return {"artifact__workspace_id": workspace_id}
+
+    @classmethod
+    def _dedupe_rows(
+        cls,
+        rows: List[Tuple[int, Dict[str, str]]],
+        entity_type: str,
+        workspace_id: UUID,
+    ) -> Tuple[List[Tuple[int, Dict[str, str]]], List[Dict[str, Any]]]:
+        """Split *rows* into (kept, duplicate items) using the natural key.
+
+        A row is a duplicate when its natural key was already seen earlier in
+        this file **or** already exists in the target workspace. Duplicates are
+        ``skipped`` with ``cause.code = DUPLICATE`` (ADR-014 §1/§3); the first
+        occurrence wins and is returned for insertion.
+        """
+        model = cls._entity_model(entity_type)
+        scope = cls._workspace_filter(entity_type, workspace_id)
+
+        # Collect candidate key values by column so the existence checks stay a
+        # bounded number of queries (O(1) regardless of file size).
+        uids = {
+            value
+            for _num, row in rows
+            for col, value in [cls._natural_key(row) or ("", "")]
+            if col == "uid" and value
+        }
+        ids = {
+            value
+            for _num, row in rows
+            for col, value in [cls._natural_key(row) or ("", "")]
+            if col == "id" and value
+        }
+        titles = {
+            value
+            for _num, row in rows
+            for col, value in [cls._natural_key(row) or ("", "")]
+            if col == "title" and value
+        }
+
+        existing_uids = set()
+        if uids:
+            existing_uids = {
+                (uid or "").casefold()
+                for uid in model.objects.filter(**scope, uid__in=list(uids)).values_list(
+                    "uid", flat=True
+                )
+            }
+
+        existing_ids = set()
+        if ids:
+            valid_ids: List[str] = []
+            for value in ids:
+                try:
+                    valid_ids.append(str(UUID(value)))
+                except ValueError:
+                    # A malformed ``id`` is not matchable; the insert path will
+                    # report it as its own error instead of failing here.
+                    continue
+            if valid_ids:
+                existing_ids = {
+                    str(pk).casefold()
+                    for pk in model.objects.filter(id__in=valid_ids).values_list(
+                        "id", flat=True
+                    )
+                }
+
+        existing_titles = set()
+        if titles:
+            existing_titles = {
+                (title or "").casefold()
+                for title in model.objects.filter(
+                    **scope, title__in=list(titles)
+                ).values_list("title", flat=True)
+            }
+
+        existing_by_col = {
+            "uid": existing_uids,
+            "id": existing_ids,
+            "title": existing_titles,
+        }
+
+        kept: List[Tuple[int, Dict[str, str]]] = []
+        duplicates: List[Dict[str, Any]] = []
+        seen: Dict[Tuple[str, str], int] = {}
+        for row_num, row in rows:
+            key = cls._natural_key(row)
+            if key is None:
+                # No natural key available (should not happen — title is
+                # required — but never drop a row on this path).
+                kept.append((row_num, row))
+                continue
+            col, value = key
+            norm_key = (col, value.casefold())
+            if norm_key in seen:
+                duplicates.append(
+                    cls._duplicate_item(entity_type, row_num, row, seen[norm_key])
+                )
+                continue
+            if value.casefold() in existing_by_col.get(col, set()):
+                duplicates.append(cls._duplicate_item(entity_type, row_num, row, None))
+                continue
+            seen[norm_key] = row_num
+            kept.append((row_num, row))
+
+        return kept, duplicates
+
+    @classmethod
+    def _duplicate_item(
+        cls,
+        entity_type: str,
+        row_number: int,
+        row: Dict[str, str],
+        first_row: Optional[int],
+    ) -> Dict[str, Any]:
+        """Structured ``DUPLICATE`` outcome for one skipped row."""
+        identifier = (
+            (row.get("uid") or "").strip()
+            or (row.get("id") or "").strip()
+            or (row.get("title") or "").strip()
+            or None
+        )
+        if first_row is None:
+            message = "A row with this uid/id/title already exists in the workspace; skipped."
+        else:
+            message = (
+                f"Duplicate of row {first_row} in the same file; skipped."
+            )
+        return {
+            "row": row_number,
+            "identifier": identifier,
+            "kind": entity_type,
+            "status": "skipped",
+            "cause": {"code": CAUSE_DUPLICATE, "message": message},
+        }
 
     # ---------- Private helpers ----------
 
@@ -340,6 +720,12 @@ class ImportService(ServiceBase):
         rows: List[Tuple[int, Dict[str, str]]] = []
         header_fields: List[str] = []
 
+        # Defensive BOM strip: the REST layer decodes with ``utf-8-sig``, but a
+        # direct service caller may still hand over a leading U+FEFF. Dropping
+        # it here keeps the header names clean (Finding 083).
+        if csv_text.startswith("\ufeff"):
+            csv_text = csv_text[1:]
+
         # Strip comment lines (e.g. terminology header from ExportService)
         clean_lines = [
             line for line in csv_text.splitlines() if not line.startswith("#")
@@ -347,13 +733,21 @@ class ImportService(ServiceBase):
         clean_text = "\n".join(clean_lines)
 
         try:
-            reader = csv.DictReader(io.StringIO(clean_text))
+            # ``strict=True`` turns a broken quote (RFC 4180 violation) into a
+            # csv.Error instead of silently absorbing the remainder of the line
+            # into a field (Finding 080). The error is reported with its cause
+            # instead of the misleading "title is missing or empty" (083).
+            reader = csv.DictReader(io.StringIO(clean_text), strict=True)
             for line_num, row in enumerate(reader, start=2):  # 2 = header is line 1
                 rows.append((line_num, dict(row)))
             header_fields = list(reader.fieldnames or [])
         except csv.Error as exc:
             errors.append(
-                ImportRowError(row_number=0, field="csv", message=f"CSV parse error: {exc}")
+                ImportRowError(
+                    row_number=0,
+                    field="csv",
+                    message=f"CSV parse error (RFC 4180 quoting): {exc}",
+                )
             )
 
         return rows, errors, header_fields

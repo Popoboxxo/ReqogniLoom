@@ -8035,16 +8035,26 @@ class CsvImportView(APIView):
     REQ-L2-RF-016: Frontend CSV import UI.
 
     Body: multipart/form-data with:
-        - ``file``: CSV file (RFC 4180, UTF-8).
+        - ``file``: CSV file (RFC 4180, UTF-8, optional UTF-8 BOM).
         - ``entity_type``: "Requirement" | "ArchitectureElement" | "TestCase"
 
+    Headers (contract v2 only, ADR-014 §3):
+        - ``Idempotency-Key`` (optional, opaque, ≤ 255 chars): a replay of the
+          same payload returns the cached body with ``idempotent_replay: true``
+          and the same status; a different payload on the same key is 409
+          ``IDEMPOTENCY_KEY_REUSED``.
+
     Returns:
-        201 with ImportResult summary on success.
-        400 with validation errors (missing file, bad entity_type, malformed CSV,
-        row limit exceeded, per-row validation failures).
+        Legacy (``IMPORT_CONTRACT_V2=false``, default): 201 on success, 400 on
+        validation failure — the pre-ADR response shape, unchanged.
+
+        Contract v2 (ADR-014 §2): 201 when ``succeeded > 0`` and nothing
+        failed, 200 for a purely-skipped (duplicate-only) import, 207 for a
+        partial success and 422 when every row failed.
     """
 
     _VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase"}
+    _IDEMPOTENCY_ENDPOINT = "workspace-csv-import"
 
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """Handle CSV import POST request."""
@@ -8061,6 +8071,8 @@ class CsvImportView(APIView):
             ctx = get_auth_context(request)
         except Exception as exc:
             return _service_error_response(exc, lang)
+
+        contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", False))
 
         # --- Validate entity_type ---
         entity_type = request.data.get("entity_type")
@@ -8092,9 +8104,30 @@ class CsvImportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Read file content (UTF-8)
+        # ADR-014 §2: read the raw bytes once; they also feed the idempotency
+        # fingerprint. Unreadable/0-byte bodies are request-level 400.
         try:
-            csv_text = uploaded_file.read().decode("utf-8")
+            raw_body = uploaded_file.read()
+        except Exception:  # noqa: BLE001 — unreadable upload stream
+            logger.exception("CsvImportView: failed to read uploaded file")
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="CSV file could not be read."
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not raw_body:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="CSV file is empty."),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Finding 083: decode with ``utf-8-sig`` so an Excel-exported BOM is
+        # stripped instead of corrupting the first header cell ("\ufefftitle").
+        # ``utf-8-sig`` is identical to ``utf-8`` for a BOM-less file.
+        try:
+            csv_text = raw_body.decode("utf-8-sig")
         except UnicodeDecodeError:
             return Response(
                 build_error_response(
@@ -8113,6 +8146,52 @@ class CsvImportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # --- Optional Idempotency-Key (ADR-014 §3, contract v2) ---
+        idem_key = None
+        fingerprint = None
+        if contract_v2:
+            raw_key = request.headers.get("Idempotency-Key")
+            if raw_key is not None:
+                idem_key = raw_key
+                if not idem_key or len(idem_key) > 255:
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="Idempotency-Key must contain 1 to 255 characters.",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                fingerprint = compute_fingerprint(
+                    method="POST",
+                    path=request.path,
+                    payload=raw_body,
+                    extra=f"entity_type={entity_type}",
+                )
+                try:
+                    cached = begin_idempotency_key(
+                        tenant_id=ctx.tenant_id,
+                        user_id=ctx.user_id,
+                        endpoint=self._IDEMPOTENCY_ENDPOINT,
+                        key=idem_key,
+                        fingerprint=fingerprint,
+                    )
+                except IdempotencyConflict as conflict:
+                    return self._idempotency_conflict_response(conflict, lang)
+                if cached is not None:
+                    body = dict(cached.body or {})
+                    body["idempotent_replay"] = True
+                    return Response(body, status=cached.status_code)
+
+        def _abort_claim() -> None:
+            if idem_key:
+                abort_idempotency_key(
+                    tenant_id=ctx.tenant_id,
+                    user_id=ctx.user_id,
+                    endpoint=self._IDEMPOTENCY_ENDPOINT,
+                    key=idem_key,
+                )
+
         # --- Delegate to ImportService ---
         try:
             svc = ImportService()
@@ -8123,37 +8202,91 @@ class CsvImportView(APIView):
                 ctx=ctx,
             )
         except ValidationError as exc:
+            _abort_claim()
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except NotFoundError as exc:
+            _abort_claim()
             return _service_error_response(exc, lang)
         except PermissionDeniedError as exc:
+            _abort_claim()
             return _service_error_response(exc, lang)
         except Exception as exc:
+            _abort_claim()
             logger.exception("CsvImportView: unhandled exception")
             return _service_error_response(exc, lang)
 
-        # --- Build response ---
-        response_data = {
-            "success": result.success,
-            "imported_count": result.imported_count,
-            "skipped_count": result.skipped_count,
-            "status": result.status,
-            "errors": [
-                {
-                    "row_number": e.row_number,
-                    "field": e.field,
-                    "message": e.message,
-                }
-                for e in result.errors
-            ],
-            "warnings": result.warnings,
-        }
+        result.request_id = result.request_id or str(uuid.uuid4())
 
-        http_status = status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST
-        return Response(response_data, status=http_status)
+        # --- Legacy response (ADR-014 §5 Phase 1 rollback, default) ---
+        if not contract_v2:
+            legacy_body = {
+                "success": result.success,
+                "imported_count": result.imported_count,
+                "skipped_count": result.skipped_count,
+                "status": result.status,
+                "errors": [
+                    {
+                        "row_number": e.row_number,
+                        "field": e.field,
+                        "message": e.message,
+                    }
+                    for e in result.errors
+                ],
+                "warnings": result.warnings,
+            }
+            http_status = (
+                status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(legacy_body, status=http_status)
+
+        # --- Contract v2 response (ADR-014 §2) ---
+        body = result.to_dict()
+        counts = result.counts
+        if counts["failed"] == 0:
+            http_status = (
+                status.HTTP_201_CREATED
+                if counts["succeeded"] > 0
+                else status.HTTP_200_OK
+            )
+        else:
+            http_status = (
+                status.HTTP_207_MULTI_STATUS
+                if counts["succeeded"] > 0
+                else status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        if idem_key:
+            if result.success:
+                # Only terminal successes are replayable (ADR-014 §3).
+                finalize_idempotency_success(
+                    tenant_id=ctx.tenant_id,
+                    user_id=ctx.user_id,
+                    endpoint=self._IDEMPOTENCY_ENDPOINT,
+                    key=idem_key,
+                    fingerprint=fingerprint,
+                    status_code=http_status,
+                    body=body,
+                )
+            else:
+                _abort_claim()
+
+        return Response(body, status=http_status)
+
+    @staticmethod
+    def _idempotency_conflict_response(
+        conflict: IdempotencyConflict, lang: str
+    ) -> Response:
+        """Map an :class:`IdempotencyConflict` to 409 + stable cause code."""
+        resp = Response(
+            build_error_response(conflict.code, lang, message=str(conflict)),
+            status=status.HTTP_409_CONFLICT,
+        )
+        if conflict.retry_after is not None:
+            resp["Retry-After"] = str(conflict.retry_after)
+        return resp
 
 
 # ---------------------------------------------------------------------------
