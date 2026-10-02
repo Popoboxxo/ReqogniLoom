@@ -12,14 +12,23 @@ from __future__ import annotations
 
 import io
 import uuid
+from datetime import timedelta
 
 import pytest
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.services.authentication import AuthenticationService
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Artifact, Requirement, StakeholderNeed, Tenant, User, Workspace
+from workflow.models import (
+    WorkflowEngineDefinition,
+    WorkflowHistoryEntry,
+    WorkflowItemState,
+)
+from workflow.services import create_default_workflow
 
 _SECRET = "test-secret-not-a-real-key"
 
@@ -622,3 +631,238 @@ def test_reqif_import_accepts_matching_entity_type(reqif_import_admin_user):
     )
 
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# W1 cross-branch: SEC-02/SEC-03 workspace fence x INT-01 ReqIF import
+#
+# `test_sec02_sec03_workspace_fence.py` fences *generic* detail/create routes;
+# the ReqIF import is a workspace-named POST whose target workspace is resolved
+# from the URL `pk` (the `workspaces/<uuid:pk>` route marker), not from a
+# `workspace_id` kwarg. Nothing pinned that the shared fence actually reaches
+# this route and gates the write, so a regression could let a fenced key import
+# into a workspace it was explicitly fenced out of.
+# ---------------------------------------------------------------------------
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_fenced_api_key_blocks_foreign_and_allows_own_workspace(
+    reqif_import_admin_user,
+):
+    """SEC-03 x INT-01: the API-key workspace fence gates the import write.
+
+    The key's owner IS a member of both workspaces, so RBAC alone would admit
+    the foreign import; only the workspace fence can deny it. That makes this
+    assertion isolate the fence decision from the generic RBAC gate.
+    """
+    user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    content = _export_reqif(client, workspace_a.id)
+
+    key = AuthenticationService().create_api_key(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        name="reqif-fence-api-key",
+        principal_type="agent",
+        scope="write",
+        workspace_ids=[str(workspace_a.id)],
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    fenced = APIClient()
+    fenced.credentials(HTTP_X_API_KEY=key.plaintext)
+
+    before_b = _counts_in_workspace(tenant, workspace_b.id)
+    denied = _upload(fenced, workspace_b.id, content)
+
+    assert denied.status_code == 403, denied.content
+    assert denied.json()["error"]["code"] == "PERMISSION_DENIED"
+    # The denial is enforced before the view: `build_auth_context` narrows a
+    # fenced key's roles to () outside its workspaces, and `enforce_request_scope`
+    # applies the shared `workspace_fence_denial` as defence in depth. Either way
+    # the foreign target is rejected — never silently chosen.
+    assert _counts_in_workspace(tenant, workspace_b.id) == before_b, (
+        "a fenced key must not write into the workspace it is fenced out of"
+    )
+
+    # The fenced workspace is admitted: the URL pk resolves as the target and
+    # the fence check passes, so the import reaches the service (200).
+    allowed = _upload(fenced, workspace_a.id, content)
+
+    assert allowed.status_code == 200, allowed.content
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_denies_caller_without_role_in_target_workspace(
+    reqif_import_admin_user,
+):
+    """SEC-02 x INT-01: a non-member cannot write via the import route.
+
+    The caller holds a role in workspace A only; importing into B is denied and
+    B stays untouched. Importing into the workspace they DO belong to still
+    succeeds, so the denial is target-scoped, not a blanket block.
+    """
+    _user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    admin = APIClient()
+    admin_token = _login(admin, "reqifimportadmin", "reqifpass123")
+    admin.credentials(HTTP_AUTHORIZATION=f"Bearer {admin_token}")
+    content = _export_reqif(admin, workspace_a.id)
+
+    outsider = User.objects.create(
+        username="reqif-outsider", email="reqif-outsider@t.test", tenant=tenant
+    )
+    outsider.set_password("outsiderpass123")
+    outsider.save(update_fields=["password"])
+    set_request_tenant(tenant.id)
+    try:
+        UserRole.objects.create(
+            tenant=tenant, user=outsider, workspace=workspace_a, role=ROLE_ADMIN
+        )
+    finally:
+        clear_request_tenant()
+
+    client = APIClient()
+    token = _login(client, "reqif-outsider", "outsiderpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    before_b = _counts_in_workspace(tenant, workspace_b.id)
+    denied = _upload(client, workspace_b.id, content)
+
+    assert denied.status_code == 403, denied.content
+    assert _counts_in_workspace(tenant, workspace_b.id) == before_b
+
+    allowed = _upload(client, workspace_a.id, content)
+
+    assert allowed.status_code == 200, allowed.content
+
+
+# ---------------------------------------------------------------------------
+# W1 cross-branch: DATA-03 CAS (expected_version) x INT-01 import write
+#
+# DATA-03 pins `expected_version` on the service/transition paths; the ReqIF
+# import writes `WorkflowItemState` directly through the shared CAS writer. The
+# combination — does a revision bumped by an import make a stale `transitions/`
+# precondition conflict, and does the failed compare roll back cleanly — was
+# untested.
+# ---------------------------------------------------------------------------
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reqif_import_bumps_workflow_version_and_stale_expected_version_conflicts(
+    reqif_import_admin_user,
+):
+    """DATA-03 x INT-01: an import revision is observable through the CAS gate.
+
+    Workspace A's requirement is put into ``in_review`` before the export, so
+    importing into workspace B must CAS-move the fresh row off its initial
+    ``draft`` state and bump its workflow revision. A transition asserting the
+    pre-import revision must answer 409 without mutating the row; the revision
+    the import left behind must succeed.
+    """
+    _user, tenant, workspace_a, workspace_b = reqif_import_admin_user
+    client = APIClient()
+    token = _login(client, "reqifimportadmin", "reqifpass123")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    # Real state machines on both sides: the import's state write and the
+    # transition CAS both need a WorkflowEngineDefinition to operate on.
+    set_request_tenant(tenant.id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace_a.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=tenant.id,
+        )
+        create_default_workflow(
+            workspace_id=workspace_b.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=tenant.id,
+        )
+        req_a = Requirement.objects.get(artifact__workspace=workspace_a)
+        definition_a = WorkflowEngineDefinition.objects.get(
+            workspace_id=workspace_a.id, item_type="Requirement"
+        )
+        WorkflowItemState.objects.create(
+            tenant=tenant,
+            item_id=req_a.id,
+            item_type="Requirement",
+            workspace_id=workspace_a.id,
+            definition=definition_a,
+            current_state="in_review",
+        )
+    finally:
+        clear_request_tenant()
+
+    content = _export_reqif(client, workspace_a.id)
+    imported = _upload(client, workspace_b.id, content)
+
+    assert imported.status_code == 200, imported.content
+
+    set_request_tenant(tenant.id)
+    try:
+        req_b = Requirement.objects.get(artifact__workspace=workspace_b)
+        state = WorkflowItemState.objects.get(
+            item_id=req_b.id, item_type="Requirement"
+        )
+        assert state.current_state == "in_review"
+        # Created at the definition's initial state ("draft", revision 1) and
+        # CAS-moved once -> revision 2. This is the revision the import exposes.
+        assert state.version == 2
+        history_before = WorkflowHistoryEntry.objects.filter(
+            item_state=state
+        ).count()
+        # The fixture's workspaces use the "standard" rigor preset, whose
+        # approval gate requires acceptance_criteria. Fill it so the *success*
+        # case exercises the CAS compare rather than the mandatory-field gate.
+        req_b.acceptance_criteria = "Met by the W1 cross-branch integration test."
+        req_b.save(update_fields=["acceptance_criteria"])
+    finally:
+        clear_request_tenant()
+
+    # A client that read revision 1 before the import is now stale.
+    stale = client.post(
+        f"/api/v1/requirements/{req_b.id}/transitions/",
+        {
+            "target_state": "approved",
+            "change_reason": "advance",
+            "expected_version": 1,
+        },
+        format="json",
+    )
+
+    assert stale.status_code == 409, stale.content
+    assert stale.json()["error"]["code"] == "CONFLICT"
+
+    # The rejected transition rolled back cleanly: the import's write survives,
+    # no history entry was appended and the revision is unchanged.
+    set_request_tenant(tenant.id)
+    try:
+        state.refresh_from_db()
+        assert state.version == 2
+        assert state.current_state == "in_review"
+        assert (
+            WorkflowHistoryEntry.objects.filter(item_state=state).count()
+            == history_before
+        )
+    finally:
+        clear_request_tenant()
+
+    # The revision the import left behind succeeds.
+    ok = client.post(
+        f"/api/v1/requirements/{req_b.id}/transitions/",
+        {
+            "target_state": "approved",
+            "change_reason": "advance",
+            "expected_version": 2,
+        },
+        format="json",
+    )
+
+    assert ok.status_code == 200, ok.content
+    assert ok.json()["new_state"] == "approved"
