@@ -827,6 +827,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "admin_ops.record_celery_beat_heartbeat",
         "schedule": timedelta(seconds=CELERY_BEAT_HEARTBEAT_INTERVAL_SECONDS),
     },
+    # ADR-014 §3: delete expired Idempotency-Key records hourly so the replay
+    # store stays bounded (TTL × rate).
+    "cleanup-import-idempotency": {
+        "task": "application.cleanup_import_idempotency_records",
+        "schedule": crontab(minute=0),
+    },
 }
 
 # Use database scheduler for Celery Beat (REQ-030)
@@ -882,6 +888,29 @@ CACHES = {
         "LOCATION": REDIS_URL,
     }
 }
+
+# ---------------------------------------------------------------------------
+# ADR-014 (accepted) — import contract v2 + Idempotency-Key (INT-01)
+#
+# IMPORT_CONTRACT_V2 controls the ReqIF import response contract:
+#   True  (default): contract v2 is active — ``success = (counts.failed == 0)``,
+#         HTTP 200/207/422 per ADR-014 §2, v2 envelope
+#         (``contract``/``counts``/``items``/``idempotent_replay``/``request_id``)
+#         plus the legacy keys kept additively during the deprecation window (§5).
+#   False: legacy fallback to the pre-ADR response (``success`` always True,
+#         HTTP 200, legacy keys only) — the documented rollback of §5.
+# Default is True because the ADR is `accepted` and §2 semantics are the
+# binding contract; the deprecation window is honoured by keeping the legacy
+# keys and by offering this explicit escape hatch, not by shipping the v2
+# contract dormant.
+#
+# IMPORT_IDEMPOTENCY_TTL_HOURS is the replay window (ADR-014 §3, default 24 h);
+# a Celery-beat task deletes expired records (see CELERY_BEAT_SCHEDULE).
+# ---------------------------------------------------------------------------
+IMPORT_CONTRACT_V2: bool = config("IMPORT_CONTRACT_V2", default=True, cast=bool)
+IMPORT_IDEMPOTENCY_TTL_HOURS: int = config(
+    "IMPORT_IDEMPOTENCY_TTL_HOURS", default=24, cast=int
+)
 
 # ---------------------------------------------------------------------------
 # Tenant-Isolation placeholder — ADR-03

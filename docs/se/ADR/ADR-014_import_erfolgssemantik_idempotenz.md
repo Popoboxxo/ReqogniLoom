@@ -1,8 +1,10 @@
 ---
 adr_id: ADR-014
 title: "Fehler-/Erfolgssemantik und Idempotenz von Importen und Outbox: ein Import-Ergebnismodell, Idempotency-Key und event_id-Dedupe"
-status: proposed
+status: accepted
 date: "2026-10-02"
+accepted_date: "2026-10-02"
+sunset: "2026-12-31"
 deciders: [user, api-specialist]
 affected_reqs: [REQ-147, REQ-L1-034, REQ-L2-RQ-001, REQ-072, REQ-L1-021, REQ-L2-AS-014, REQ-L3-IMP-001, REQ-L3-IMP-002]
 superseded_by: null
@@ -10,12 +12,30 @@ superseded_by: null
 
 # ADR-014: Fehler-/Erfolgssemantik und Idempotenz von Importen und Outbox
 
-**Status:** proposed
-**Datum:** 2026-10-02
+**Status:** accepted
+**Datum:** 2026-10-02 (Erstellung) / 2026-10-02 (Akzeptanz)
 **Entscheider:** user (Entscheidungsinstanz/Freigabe), api-specialist (Autor)
-**Review:** ausstehend. Der Lifecycle-Übergang `proposed → review` erfolgt durch
-`concept-reviewer`, die DoD-/Traceability-Prüfung durch `validator`; den Statuswechsel
-nimmt ausschließlich `se-architect`/User vor.
+
+## Lifecycle-Vermerk
+
+| Datum | Übergang | Grund / Verdikt |
+|---|---|---|
+| 2026-10-02 | `proposed` (erstellt durch `api-specialist`) | Entscheidungsvorlage aus `INTERFACE_CONTRACTS.md` §2/§7.2. |
+| 2026-10-02 | Review durch `concept-reviewer` | Inhaltlich APPROVED nach Re-Review; der zuvor beanstandete Match-Key-/Upsert-Widerspruch ist in §3 aufgelöst (ReqIF = reiner Upsert, `duplicate_policy` nur CSV). |
+| 2026-10-02 | `review → accepted` (durch `se-architect`/User) | Verdikt: Option A verbindlich. Der Vertragsvorschlag aus `INTERFACE_CONTRACTS.md` §2 wird mit der Akzeptanz zum verbindlichen Vertrag. Umsetzung des INT-01-Vollvertrags (Ergebnismodell v2, 207/422, Savepoint, `Idempotency-Key`, ReqIF-Upsert) freigegeben. |
+
+Der Statuswechsel erfolgt ausschließlich durch `se-architect`/User; `deciders` bleiben
+`[user, api-specialist]`. Mit `accepted` wird gemäß §5 der `Sunset`-Wert auf
+`accepted_date + 90 Tage` festgeschrieben (`2026-12-31`), siehe Frontmatter
+(`accepted_date`, `sunset`).
+
+**Präzisierung Folgeaufgabe 6 (Match-Key-Trias, aus dem Re-Review):** Der ReqIF-Upsert
+sucht einen vorhandenen `Artifact` in dieser Reihenfolge: (1) interne
+`_<Artifact.id>`-UUID aus dem SPEC-OBJECT-IDENTIFIER, (2) `reqif_uid` (externer
+ReqIF-UID), (3) `reqif_identifier` (fremde Tool-Identität) —
+`backend/application/reqif_import_service.py:725-754`. Ein Treffer mit **abweichendem**
+Inhalt ist ein `succeeded`-Update, ein **inhaltlich identisches** Objekt ein `skipped`
+(`DUPLICATE`).
 **Betroffene REQs:** REQ-147 (ReqIF-Import: atomar, Upsert per IDENTIFIER-Matching,
 Dry-Run, Roundtrip idempotent, `docs/REQUIREMENTS.md:205`),
 REQ-L1-034 (ReqIF-Import und -Export für MBSE-Datenaustausch,
@@ -526,6 +546,9 @@ innerhalb desselben Tenants bleibt ein Insider-Risiko.
    ADR referenzieren können. Bis dahin wird **keine** REQ-Datei geändert.
 2. **Lifecycle-Review:** `proposed → review` durch `concept-reviewer`, DoD-/Traceability-
    Prüfung durch `validator`; Statuswechsel nur durch `se-architect`/User.
+   **Erledigt (2026-10-02):** `concept-reviewer` APPROVED, Status `accepted` gesetzt
+   (siehe Lifecycle-Vermerk); die DoD-/Traceability-Prüfung durch `validator` bleibt
+   als Gate-Lauf bestehen.
 3. **`event_id`-Nachweis je Schreib-Abonnent** (`ContextGraphProjector`,
    `MemoryProjector`, `WebhookDispatcher` **und** `AuditLogWriter`; `AUD-2026-09-283`)
    inkl. `AuditEntry.event_id` (UUID, unique) und Dedupe.
@@ -553,7 +576,10 @@ innerhalb desselben Tenants bleibt ein Insider-Risiko.
 
 ---
 
-*Erstellt durch `api-specialist` am 2026-10-02 als reines Doku-Artefakt. Kein
-Produktcode, keine Migration, keine REQ-ID erfunden; Belege gegen
+*Erstellt durch `api-specialist` am 2026-10-02 als reines Doku-Artefakt; am 2026-10-02
+durch `concept-reviewer` inhaltlich APPROVED und durch `se-architect`/User auf `accepted`
+gesetzt (siehe Lifecycle-Vermerk). Kein Produktcode im Doku-Artefakt, keine Migration,
+keine REQ-ID erfunden; Belege gegen
 `docs/audit/2026-09/review/plan/INTERFACE_CONTRACTS.md` §2/§7.2 und die genannten
-Code-Stellen geprüft. Status `proposed`; Review und Freigabe stehen aus.*
+Code-Stellen geprüft. Die Umsetzung des INT-01-Vollvertrags erfolgt in einem separaten
+Task auf Basis dieses `accepted`-Standes.*

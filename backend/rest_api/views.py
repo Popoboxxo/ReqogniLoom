@@ -34,6 +34,7 @@ from typing import Any, Callable
 import uuid
 from uuid import UUID
 
+from django.conf import settings
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -65,7 +66,9 @@ from application.services import (
     WorkspaceService,
     ExportService,
     ReqifExportService,
+    ReqifImportResult,
     ReqifImportService,
+    ReqifParseError,
     ImportService,
     AdrService,
     RiskService,
@@ -76,6 +79,13 @@ from application.services import (
 )
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
+from application.import_idempotency import (
+    IdempotencyConflict,
+    abort as abort_idempotency_key,
+    begin as begin_idempotency_key,
+    compute_fingerprint,
+    finalize_success as finalize_idempotency_success,
+)
 from application.base import (
     SuppressionExpiredError,
     WaiverFindingNotBlockingError,
@@ -8234,23 +8244,43 @@ class ReqifImportView(APIView):
 
     Body: multipart/form-data with:
         - ``file``: ReqIF 1.2 XML file (.reqif / .xml, UTF-8).
+        - ``entity_type``: optional; if present it must name a known entity
+          type, otherwise the request is rejected with 400.
 
     Query params:
         - ``dry_run``: "true" | "false" (default "false"). When true, the
           whole import pipeline runs and is rolled back — the response
           report reflects what a real import would do without persisting.
 
-    Returns:
-        200 with the import report (counts + errors per entity kind, plus
-        relation counts and warnings), including dry-run. A per-object
-        failure is reported in the body with ``success: false`` and a
-        structured ``errors`` list while the remaining objects stay
-        imported; the HTTP status stays 200 (AUD-2026-09-071 — the 207/422
-        mapping is part of the ADR-v-blocked import contract,
-        docs/audit/2026-09/review/plan/INTERFACE_CONTRACTS.md §2/§6).
-        400 on a hard error (missing/empty file, unparseable XML, ReqIF
-        structural violation) — nothing is persisted.
+    Headers:
+        - ``Idempotency-Key`` (optional, opaque, ≤ 255 chars): the first call
+          stores a terminal success; a replay returns the same body/status with
+          ``idempotent_replay: true``. A different payload on the same key is
+          ``409 IDEMPOTENCY_KEY_REUSED``; a concurrent call is ``409
+          IDEMPOTENCY_IN_FLIGHT`` + ``Retry-After`` (ADR-014 §3).
+
+    Returns (ADR-014 §2, contract v2):
+        200 — ``failed == 0`` (success, with or without write effect; a
+              skipped-only document is a success, never a Created).
+        207 Multi-Status — ``succeeded > 0 and failed > 0`` (partial success).
+        422 — ``failed > 0 and succeeded == 0`` (total object failure) or a
+              file-level ``PARSE_ERROR`` (invalid .reqif XML, REQ-L2-RQ-001 AC5).
+        400 — request-level: missing/0-byte file, unknown ``entity_type``,
+              size limit, unreadable body, overlong ``Idempotency-Key``.
+        409 — idempotency key reused / in flight.
+
+    The legacy ``needs``/``requirements``/``relations`` keys stay additive
+    during the deprecation window (§5). Set ``IMPORT_CONTRACT_V2=false`` to
+    fall back to the pre-ADR response (``success`` always True, HTTP 200).
     """
+
+    _VALID_ENTITY_TYPES = {
+        "Requirement",
+        "StakeholderNeed",
+        "ArchitectureElement",
+        "TestCase",
+    }
+    _IDEMPOTENCY_ENDPOINT = "workspace-reqif-import"
 
     def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """Handle ReqIF import POST request."""
@@ -8267,6 +8297,22 @@ class ReqifImportView(APIView):
         except Exception as exc:
             return _service_error_response(exc, lang)
 
+        # ADR-014 §2: unknown entity_type is a request-level 400 (ReqIF derives
+        # the type from the file; the field is accepted only for compatibility).
+        entity_type = request.data.get("entity_type")
+        if entity_type is not None and entity_type not in self._VALID_ENTITY_TYPES:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=(
+                        f"Unsupported entity_type '{entity_type}'. "
+                        f"Allowed: {sorted(self._VALID_ENTITY_TYPES)}"
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         uploaded_file = request.FILES.get("file")
         if not uploaded_file:
             return Response(
@@ -8277,8 +8323,28 @@ class ReqifImportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ADR-014 §2: unreadable/0-byte body is a request-level 400. Read the
+        # raw bytes once — they also feed the idempotency fingerprint.
         try:
-            reqif_text = uploaded_file.read().decode("utf-8")
+            raw_body = uploaded_file.read()
+        except Exception:  # noqa: BLE001 — unreadable upload stream
+            logger.exception("ReqifImportView: failed to read uploaded file")
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="ReqIF file could not be read.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not raw_body:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="ReqIF file is empty."
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            reqif_text = raw_body.decode("utf-8")
         except UnicodeDecodeError:
             return Response(
                 build_error_response(
@@ -8291,14 +8357,61 @@ class ReqifImportView(APIView):
         if not reqif_text.strip():
             return Response(
                 build_error_response(
-                    "VALIDATION_ERROR", lang,
-                    message="ReqIF file is empty.",
+                    "VALIDATION_ERROR", lang, message="ReqIF file is empty."
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         dry_run_raw = request.query_params.get("dry_run", "false")
         dry_run = str(dry_run_raw).strip().lower() in ("1", "true", "yes")
+
+        contract_v2 = bool(getattr(settings, "IMPORT_CONTRACT_V2", True))
+
+        # --- Optional Idempotency-Key (ADR-014 §3) ---
+        idem_key = None
+        fingerprint = None
+        if contract_v2:
+            raw_key = request.headers.get("Idempotency-Key")
+            if raw_key is not None:
+                idem_key = raw_key
+                if not idem_key or len(idem_key) > 255:
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="Idempotency-Key must contain 1 to 255 characters.",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                fingerprint = compute_fingerprint(
+                    method="POST",
+                    path=request.path,
+                    payload=raw_body,
+                    extra=f"dry_run={dry_run}",
+                )
+                try:
+                    cached = begin_idempotency_key(
+                        tenant_id=ctx.tenant_id,
+                        user_id=ctx.user_id,
+                        endpoint=self._IDEMPOTENCY_ENDPOINT,
+                        key=idem_key,
+                        fingerprint=fingerprint,
+                    )
+                except IdempotencyConflict as conflict:
+                    return self._idempotency_conflict_response(conflict, lang)
+                if cached is not None:
+                    body = dict(cached.body or {})
+                    body["idempotent_replay"] = True
+                    return Response(body, status=cached.status_code)
+
+        def _abort_claim() -> None:
+            if idem_key:
+                abort_idempotency_key(
+                    tenant_id=ctx.tenant_id,
+                    user_id=ctx.user_id,
+                    endpoint=self._IDEMPOTENCY_ENDPOINT,
+                    key=idem_key,
+                )
 
         try:
             svc = ReqifImportService()
@@ -8308,20 +8421,83 @@ class ReqifImportView(APIView):
                 ctx=ctx,
                 dry_run=dry_run,
             )
+        except ReqifParseError as exc:
+            _abort_claim()
+            if contract_v2:
+                # ADR-014 §2: file-level parse error -> 422 PARSE_ERROR.
+                parse_result = ReqifImportResult.parse_failure(
+                    str(exc), dry_run=dry_run, request_id=str(uuid.uuid4())
+                )
+                return Response(
+                    parse_result.to_dict(),
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except ValidationError as exc:
+            _abort_claim()
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except NotFoundError as exc:
+            _abort_claim()
             return _service_error_response(exc, lang)
         except PermissionDeniedError as exc:
+            _abort_claim()
             return _service_error_response(exc, lang)
         except Exception as exc:
+            _abort_claim()
             logger.exception("ReqifImportView: unhandled exception")
             return _service_error_response(exc, lang)
 
-        return Response(result.to_dict(), status=status.HTTP_200_OK)
+        if not contract_v2:
+            # ADR-014 §5 rollback: the pre-v2 response (success hard True, 200).
+            legacy_body = {
+                "success": True,
+                "dry_run": result.dry_run,
+                "needs": result.needs.to_dict(),
+                "requirements": result.requirements.to_dict(),
+                "relations": result.relations.to_dict(),
+                "warnings": result.warnings,
+            }
+            return Response(legacy_body, status=status.HTTP_200_OK)
+
+        body = result.to_dict()
+        http_status = result.http_status
+
+        if idem_key:
+            if result.success:
+                # ADR-014 §3: only terminal successes are replayable.
+                finalize_idempotency_success(
+                    tenant_id=ctx.tenant_id,
+                    user_id=ctx.user_id,
+                    endpoint=self._IDEMPOTENCY_ENDPOINT,
+                    key=idem_key,
+                    fingerprint=fingerprint,
+                    status_code=http_status,
+                    body=body,
+                )
+            else:
+                # Partial/total failure is retry-friendly — never cached.
+                _abort_claim()
+
+        return Response(body, status=http_status)
+
+    @staticmethod
+    def _idempotency_conflict_response(
+        conflict: IdempotencyConflict, lang: str
+    ) -> Response:
+        """Map an :class:`IdempotencyConflict` to 409 + stable cause code."""
+        resp = Response(
+            build_error_response(conflict.code, lang, message=str(conflict)),
+            status=status.HTTP_409_CONFLICT,
+        )
+        if conflict.retry_after is not None:
+            resp["Retry-After"] = str(conflict.retry_after)
+        return resp
 
 
 class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
